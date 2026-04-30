@@ -1,0 +1,196 @@
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Search, Filter, Printer, Edit } from 'lucide-react';
+import { collection, query, onSnapshot, where } from 'firebase/firestore';
+import { db } from '../../services/firebase';
+import { useAuth } from '../../contexts/AuthContext';
+import './OS.css';
+
+interface OSData {
+  id: string;
+  numeroOS?: string;
+  clienteNome: string;
+  modelo: string;
+  placa: string;
+  status: string;
+  statusColor: string;
+  createdAt: any;
+}
+
+const OSList: React.FC = () => {
+  const navigate = useNavigate();
+  const [osList, setOsList] = useState<OSData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'Ativas' | 'Finalizadas' | 'Canceladas'>('Ativas');
+  const { currentUser } = useAuth();
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const q = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', currentUser.uid));
+    
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const osData: OSData[] = [];
+      querySnapshot.forEach((doc) => {
+        osData.push({ id: doc.id, ...doc.data() } as OSData);
+      });
+      // Sort in Javascript to avoid composite index requirement
+      osData.sort((a, b) => {
+        const dateA = a.createdAt?.seconds || 0;
+        const dateB = b.createdAt?.seconds || 0;
+        return dateB - dateA;
+      });
+      setOsList(osData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Erro ao buscar OS:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  const filteredOsList = osList.filter(os => {
+    if (activeTab === 'Canceladas') return os.status === 'Cancelada';
+    if (activeTab === 'Finalizadas') return os.status === 'Finalizada';
+    return os.status !== 'Cancelada' && os.status !== 'Finalizada';
+  });
+
+  return (
+    <div className="os-page">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Ordens de Serviço</h1>
+          <p className="page-subtitle">Gerencie as ordens de serviço da oficina</p>
+        </div>
+        <button 
+          className="btn-primary"
+          onClick={() => navigate('/os/nova')}
+        >
+          <Plus size={18} style={{ marginRight: 8 }} />
+          Nova OS
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
+        <button 
+          onClick={() => setActiveTab('Ativas')}
+          style={{ 
+            padding: '10px 20px', 
+            borderRadius: 'var(--radius-md)', 
+            border: 'none', 
+            cursor: 'pointer',
+            backgroundColor: activeTab === 'Ativas' ? 'var(--accent-purple)' : 'var(--bg-secondary)',
+            color: 'white',
+            fontWeight: 600
+          }}
+        >
+          Em Andamento
+        </button>
+        <button 
+          onClick={() => setActiveTab('Finalizadas')}
+          style={{ 
+            padding: '10px 20px', 
+            borderRadius: 'var(--radius-md)', 
+            border: 'none', 
+            cursor: 'pointer',
+            backgroundColor: activeTab === 'Finalizadas' ? '#10b981' : 'var(--bg-secondary)',
+            color: 'white',
+            fontWeight: 600
+          }}
+        >
+          Finalizadas
+        </button>
+        <button 
+          onClick={() => setActiveTab('Canceladas')}
+          style={{ 
+            padding: '10px 20px', 
+            borderRadius: 'var(--radius-md)', 
+            border: 'none', 
+            cursor: 'pointer',
+            backgroundColor: activeTab === 'Canceladas' ? '#ef4444' : 'var(--bg-secondary)',
+            color: 'white',
+            fontWeight: 600
+          }}
+        >
+          Canceladas
+        </button>
+      </div>
+
+      <div className="card list-container">
+        <div className="list-toolbar">
+          <div className="search-box">
+            <Search size={18} className="search-icon" />
+            <input type="text" placeholder="Buscar por placa, cliente ou nº OS..." />
+          </div>
+          <button className="btn-secondary filter-btn">
+            <Filter size={18} style={{ marginRight: 8 }} />
+            Filtros
+          </button>
+        </div>
+
+        <div className="table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Nº OS</th>
+                <th>Cliente</th>
+                <th>Veículo</th>
+                <th>Placa</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando Ordens de Serviço...</td>
+                </tr>
+              ) : filteredOsList.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Nenhuma Ordem de Serviço encontrada nesta aba.</td>
+                </tr>
+              ) : (
+                filteredOsList.map((os) => (
+                  <tr key={os.id}>
+                    <td className="font-medium" style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
+                      #{os.numeroOS || os.id.substring(0, 8).toUpperCase()}
+                    </td>
+                    <td>{os.clienteNome}</td>
+                    <td>{os.modelo || '-'}</td>
+                    <td style={{ textTransform: 'uppercase' }}>{os.placa}</td>
+                    <td>
+                      <span className="status-badge" style={{ backgroundColor: `${os.statusColor}20`, color: os.statusColor }}>
+                        <span className="status-dot" style={{ backgroundColor: os.statusColor }}></span>
+                        {os.status}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button 
+                          className="icon-btn" 
+                          onClick={() => navigate(`/os/editar/${os.id}`)}
+                          title="Editar OS"
+                        >
+                          <Edit size={18} />
+                        </button>
+                        <button 
+                          className="icon-btn" 
+                          onClick={() => navigate(`/os/print/${os.id}`)}
+                          title="Imprimir OS"
+                        >
+                          <Printer size={18} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default OSList;

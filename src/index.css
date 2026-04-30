@@ -1,0 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* Premium Dark Theme Colors */
+  --bg-primary: #121214; /* Deep matte black / graphite */
+  --bg-secondary: #1a1a1e; /* Lighter graphite for panels/cards */
+  --bg-tertiary: #232328; /* Even lighter for hover states */
+  
+  --text-primary: #f8f8f8;
+  --text-secondary: #a0a0ab;
+  --text-muted: #6b6b75;
+  
+  /* Accents */
+  --accent-purple: #8b5cf6; /* Vibrant purple */
+  --accent-purple-glow: rgba(139, 92, 246, 0.4);
+  --accent-blue: #3b82f6; /* Blue accent */
+  
+  /* Status Colors */
+  --status-green: #10b981; /* Paga / Finalizada */
+  --status-yellow: #f59e0b; /* Aguardando Peça */
+  --status-purple: #8b5cf6; /* Em Manutenção */
+  --status-blue: #3b82f6; /* Orc. Pendente */
+  --status-red: #ef4444; /* Cancelada / Erro */
+  
+  /* Borders & Shadows */
+  --border-color: #27272a;
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --shadow-neon: 0 0 15px var(--accent-purple-glow);
+  
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  
+  --font-sans: 'Inter', sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  border: none;
+  background: none;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Splash Screen Animations */
+@keyframes pulseLogo {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.7); }
+  50% { transform: scale(1.1); box-shadow: 0 0 30px 10px rgba(139, 92, 246, 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+}
+
+@keyframes drawLogo {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: translateY(0); }
+}

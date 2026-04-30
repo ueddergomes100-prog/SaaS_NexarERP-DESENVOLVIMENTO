@@ -1,0 +1,666 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package } from 'lucide-react';
+import { collection, addDoc, updateDoc, doc, setDoc, getDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../../services/firebase';
+import { useAuth } from '../../contexts/AuthContext';
+import { showSuccess, showError } from '../../utils/alerts';
+import './OS.css';
+
+interface ClienteBasico { id: string; nome: string; telefone: string; }
+interface ServicoData { id: string; nome: string; preco: number; }
+interface ServicoSelecionado { id: string; nome: string; preco: number; quantidade: number; }
+interface PecaData { id: string; nome: string; precoVenda: number; }
+interface PecaSelecionada { id: string; nome: string; preco: number; quantidade: number; }
+
+const OSForm: React.FC = () => {
+  const navigate = useNavigate();
+  const { id } = useParams(); // Para modo Edição
+  const isEditing = !!id;
+  
+  const [formData, setFormData] = useState({
+    clienteNome: '', clienteTelefone: '',
+    placa: '', modelo: '', ano: '', cor: '',
+    defeitoRelatado: '', relatorioTecnico: '',
+    status: 'Orçamento Pendente', // Status padrão na criação
+    numeroOS: '',
+  });
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingOS, setIsFetchingOS] = useState(isEditing);
+  const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
+  
+  const [servicosCatalogo, setServicosCatalogo] = useState<ServicoData[]>([]);
+  const [servicoNomeInput, setServicoNomeInput] = useState('');
+  const [servicoPrecoInput, setServicoPrecoInput] = useState('');
+  const [servicosSelecionados, setServicosSelecionados] = useState<ServicoSelecionado[]>([]);
+
+  const [pecasEstoque, setPecasEstoque] = useState<PecaData[]>([]);
+  const [pecaNomeInput, setPecaNomeInput] = useState('');
+  const [pecaPrecoInput, setPecaPrecoInput] = useState('');
+  const [pecasSelecionadas, setPecasSelecionadas] = useState<PecaSelecionada[]>([]);
+
+  const { currentUser } = useAuth();
+  
+  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsClientDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      if (!currentUser) return;
+
+      // Fetch Clientes
+      const qC = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
+      const snapC = await getDocs(qC);
+      const dataC: ClienteBasico[] = [];
+      snapC.forEach((doc) => dataC.push({ id: doc.id, nome: doc.data().nome, telefone: doc.data().telefone }));
+      setClientesDisponiveis(dataC);
+
+      // Fetch Serviços
+      const qS = query(collection(db, 'servicos'), where('tenantId', '==', currentUser.uid));
+      const snapS = await getDocs(qS);
+      const dataS: ServicoData[] = [];
+      snapS.forEach((doc) => dataS.push({ id: doc.id, nome: doc.data().nome, preco: doc.data().preco }));
+      setServicosCatalogo(dataS);
+
+      // Fetch Estoque
+      const qE = query(collection(db, 'estoque'), where('tenantId', '==', currentUser.uid));
+      const snapE = await getDocs(qE);
+      const dataE: PecaData[] = [];
+      snapE.forEach((doc) => dataE.push({ id: doc.id, nome: doc.data().nome, precoVenda: doc.data().precoVenda }));
+      setPecasEstoque(dataE);
+
+      // Fetch OS se for Edição
+      if (isEditing && id) {
+        try {
+          const docRef = doc(db, 'ordens_de_servico', id);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            const os = docSnap.data();
+            setFormData({
+              clienteNome: os.clienteNome || '',
+              clienteTelefone: os.clienteTelefone || '',
+              placa: os.placa || '',
+              modelo: os.modelo || '',
+              ano: os.ano || '',
+              cor: os.cor || '',
+              defeitoRelatado: os.defeitoRelatado || '',
+              relatorioTecnico: os.relatorioTecnico || '',
+              status: os.status || 'Orçamento Pendente',
+              numeroOS: os.numeroOS || '',
+            });
+            setServicosSelecionados(os.servicos || []);
+            setPecasSelecionadas(os.pecas || []);
+          } else {
+            showError('Erro', 'OS não encontrada.');
+            navigate('/os');
+          }
+        } catch (error) {
+          console.error("Erro ao carregar OS:", error);
+        } finally {
+          setIsFetchingOS(false);
+        }
+      } else {
+        try {
+          const snapOS = await getDocs(query(collection(db, 'ordens_de_servico'), where('tenantId', '==', currentUser.uid)));
+          const nextOsNum = String(snapOS.size + 1).padStart(2, '0');
+          setFormData(prev => ({ ...prev, numeroOS: nextOsNum }));
+        } catch (err) {
+          console.error("Erro ao buscar contagem de OS", err);
+        }
+        setIsFetchingOS(false);
+      }
+    };
+    fetchInitialData();
+  }, [id, isEditing, navigate, currentUser]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    if (name === 'clienteNome') {
+      const clienteEncontrado = clientesDisponiveis.find(c => c.nome === value);
+      if (clienteEncontrado) {
+        setFormData({ ...formData, clienteNome: value, clienteTelefone: clienteEncontrado.telefone || '' });
+        return;
+      }
+    }
+    setFormData({ ...formData, [name]: value });
+  };
+
+  const handleAddServico = async () => {
+    if (!servicoNomeInput || !servicoPrecoInput) return;
+    const precoNum = parseFloat(servicoPrecoInput.replace(',', '.'));
+    
+    let servico = servicosCatalogo.find(s => s.nome.toLowerCase() === servicoNomeInput.toLowerCase());
+    
+    if (!servico && currentUser) {
+      setIsLoading(true);
+      try {
+        const q = query(collection(db, 'servicos'), where('tenantId', '==', currentUser.uid));
+        const snap = await getDocs(q);
+        const nextId = snap.size + 1;
+        
+        const newRef = await addDoc(collection(db, 'servicos'), {
+          codigo: String(nextId),
+          nome: servicoNomeInput,
+          preco: precoNum,
+          categoria: 'Geral',
+          tenantId: currentUser.uid,
+          createdAt: serverTimestamp()
+        });
+        servico = { id: newRef.id, nome: servicoNomeInput, preco: precoNum };
+        setServicosCatalogo([...servicosCatalogo, servico]);
+        showSuccess('Serviço cadastrado no catálogo!');
+      } catch (err) {
+        showError('Erro', 'Não foi possível cadastrar o serviço.');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    
+    if (servico) {
+      setServicosSelecionados([...servicosSelecionados, { ...servico, preco: precoNum, quantidade: 1 }]);
+      setServicoNomeInput('');
+      setServicoPrecoInput('');
+    }
+  };
+
+  const handleRemoveServico = (index: number) => {
+    const novos = [...servicosSelecionados];
+    novos.splice(index, 1);
+    setServicosSelecionados(novos);
+  };
+
+  const updatePrecoServico = (index: number, preco: number) => {
+    const novos = [...servicosSelecionados];
+    novos[index].preco = Math.max(0, preco);
+    setServicosSelecionados(novos);
+  };
+
+  const handleAddPeca = async () => {
+    if (!pecaNomeInput || !pecaPrecoInput) return;
+    const precoNum = parseFloat(pecaPrecoInput.replace(',', '.'));
+    
+    let peca = pecasEstoque.find(p => p.nome.toLowerCase() === pecaNomeInput.toLowerCase());
+    
+    if (!peca && currentUser) {
+      setIsLoading(true);
+      try {
+        const q = query(collection(db, 'estoque'), where('tenantId', '==', currentUser.uid));
+        const snap = await getDocs(q);
+        const nextId = snap.size + 1;
+        
+        const newRef = await addDoc(collection(db, 'estoque'), {
+          codigo: String(nextId),
+          nome: pecaNomeInput,
+          precoVenda: precoNum,
+          categoria: 'Peças Adicionais',
+          quantidade: 10, // Base default para não zerar logo de cara
+          tenantId: currentUser.uid,
+          createdAt: serverTimestamp()
+        });
+        peca = { id: newRef.id, nome: pecaNomeInput, precoVenda: precoNum };
+        setPecasEstoque([...pecasEstoque, peca]);
+        showSuccess('Peça adicionada ao estoque!');
+      } catch (err) {
+        showError('Erro', 'Não foi possível cadastrar a peça no estoque.');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    
+    if (peca) {
+      setPecasSelecionadas([...pecasSelecionadas, { id: peca.id, nome: peca.nome, preco: precoNum, quantidade: 1 }]);
+      setPecaNomeInput('');
+      setPecaPrecoInput('');
+    }
+  };
+
+  const handleRemovePeca = (index: number) => {
+    const novas = [...pecasSelecionadas];
+    novas.splice(index, 1);
+    setPecasSelecionadas(novas);
+  };
+
+  const updateQuantidadePeca = (index: number, qtd: number) => {
+    const novas = [...pecasSelecionadas];
+    novas[index].quantidade = Math.max(1, qtd);
+    setPecasSelecionadas(novas);
+  };
+
+  const updatePrecoPeca = (index: number, preco: number) => {
+    const novas = [...pecasSelecionadas];
+    novas[index].preco = Math.max(0, preco);
+    setPecasSelecionadas(novas);
+  };
+
+  const totalServicos = servicosSelecionados.reduce((acc, curr) => acc + (curr.preco * curr.quantidade), 0);
+  const totalPecas = pecasSelecionadas.reduce((acc, curr) => acc + (curr.preco * curr.quantidade), 0);
+  const totalOS = totalServicos + totalPecas;
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Finalizada': return '#10b981'; // Verde
+      case 'Orçamento Pendente': return '#3b82f6'; // Azul
+      case 'Aguardando Peça': return '#f59e0b'; // Amarelo
+      case 'Em Manutenção': return '#8b5cf6'; // Roxo
+      case 'Cancelada': return '#ef4444'; // Vermelho
+      default: return '#6b7280'; // Cinza
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.clienteNome || !formData.placa) {
+      showError('Campos incompletos', 'Por favor, preencha o Nome do Cliente e a Placa.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // 1. Check and Create Client if new
+      if (!currentUser) return;
+      const clienteExiste = clientesDisponiveis.some(c => c.nome.toLowerCase() === formData.clienteNome.toLowerCase());
+      if (!clienteExiste) {
+        const qC = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
+        const snapC = await getDocs(qC);
+        const nextId = snapC.size + 1;
+
+        await addDoc(collection(db, 'clientes'), {
+          codigo: String(nextId),
+          nome: formData.clienteNome,
+          telefone: formData.clienteTelefone,
+          tenantId: currentUser.uid,
+          createdAt: serverTimestamp()
+        });
+      }
+
+      // 2. Prepare OS Data
+      const osData = {
+        ...formData,
+        servicos: servicosSelecionados,
+        pecas: pecasSelecionadas,
+        valorTotal: totalOS,
+        statusColor: getStatusColor(formData.status),
+      };
+
+      let osId = id;
+
+      if (isEditing && id) {
+        const docRef = doc(db, 'ordens_de_servico', id);
+        await updateDoc(docRef, { ...osData, updatedAt: serverTimestamp() });
+      } else {
+        const newOsRef = await addDoc(collection(db, 'ordens_de_servico'), { 
+          ...osData, 
+          tenantId: currentUser.uid,
+          createdAt: serverTimestamp() 
+        });
+        osId = newOsRef.id;
+      }
+
+      // 4. Integração BLINDADA com o Financeiro (Evita duplicação)
+      if (osId) {
+        const transacaoRef = doc(db, 'transacoes', osId);
+        
+        const transacaoData = {
+          descricao: `Recebimento OS #${formData.numeroOS || osId.substring(0,6).toUpperCase()}`,
+          categoria: 'Serviços Automotivos',
+          valor: totalOS,
+          tipo: 'entrada',
+          status: formData.status === 'Finalizada' ? 'Paga' : (formData.status === 'Cancelada' ? 'Cancelada' : 'Pendente'),
+          osId: osId,
+          clienteNome: formData.clienteNome,
+          tenantId: currentUser.uid
+        };
+
+        if (formData.status === 'Finalizada') {
+          await setDoc(transacaoRef, { ...transacaoData, createdAt: serverTimestamp() }, { merge: true });
+        } else if (isEditing) {
+          // Se reabriu a OS (não está mais finalizada) ou Cancelou, atualiza a transação para não somar no caixa
+          await setDoc(transacaoRef, { ...transacaoData }, { merge: true });
+        }
+      }
+      
+      showSuccess(`OS ${isEditing ? 'atualizada' : 'criada'}!`);
+      navigate('/os');
+    } catch (error) {
+      console.error('Erro ao salvar OS:', error);
+      showError('Erro ao salvar', 'Verifique a conexão e tente novamente.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isFetchingOS) {
+    return <div style={{ padding: '40px', textAlign: 'center', color: 'white' }}>Carregando dados da Ordem de Serviço...</div>;
+  }
+
+  return (
+    <div className="os-page">
+      <div className="page-header">
+        <div className="header-title-group">
+          <button className="icon-btn back-btn" onClick={() => navigate('/os')}><ArrowLeft size={20} /></button>
+          <div>
+            <h1 className="page-title">{isEditing ? 'Editar Ordem de Serviço' : 'Nova Ordem de Serviço'}</h1>
+            <p className="page-subtitle">{isEditing ? `Gerenciando OS #${formData.numeroOS || id?.substring(0,6).toUpperCase()}` : `Preencha os dados (OS #${formData.numeroOS})`}</p>
+          </div>
+        </div>
+        <button className="btn-primary" onClick={handleSave} disabled={isLoading} style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center' }}>
+          {isLoading ? <Loader2 size={18} className="spin-icon" style={{ marginRight: 8 }} /> : <Save size={18} style={{ marginRight: 8 }} />}
+          {isLoading ? 'Salvando...' : 'Salvar OS'}
+        </button>
+      </div>
+
+      <div className="form-grid">
+        <div className="form-column">
+          
+          {/* Controle de Status */}
+          <div className="card form-section" style={{ border: `1px solid ${getStatusColor(formData.status)}50` }}>
+             <div className="section-header">
+              <Activity size={20} className="section-icon" style={{ color: getStatusColor(formData.status) }} />
+              <h3>Status da Ordem de Serviço</h3>
+            </div>
+            <div className="input-group">
+              <select 
+                name="status" 
+                value={formData.status} 
+                onChange={handleChange} 
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white', fontWeight: 'bold' }}
+              >
+                <option value="Orçamento Pendente">Orçamento Pendente</option>
+                <option value="Aguardando Peça">Aguardando Peça</option>
+                <option value="Em Manutenção">Em Manutenção</option>
+                <option value="Finalizada">Finalizada (Gera Receita no Caixa)</option>
+                <option value="Cancelada">Cancelada</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="card form-section">
+            <div className="section-header">
+              <User size={20} className="section-icon" />
+              <h3>Dados do Cliente</h3>
+            </div>
+            <div className="input-group" style={{ position: 'relative' }} ref={dropdownRef}>
+              <label>Nome do Cliente *</label>
+              <input 
+                type="text" 
+                name="clienteNome" 
+                placeholder="Busque ou digite novo..." 
+                value={formData.clienteNome} 
+                onChange={(e) => {
+                  handleChange(e);
+                  setIsClientDropdownOpen(true);
+                }} 
+                onFocus={() => setIsClientDropdownOpen(true)}
+                autoComplete="off" 
+              />
+              {isClientDropdownOpen && (
+                <div style={{
+                  position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
+                  backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-md)', maxHeight: '200px', overflowY: 'auto',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.5)', zIndex: 50
+                }}>
+                  {clientesDisponiveis
+                    .filter(c => c.nome.toLowerCase().includes(formData.clienteNome.toLowerCase()))
+                    .map(c => (
+                      <div 
+                        key={c.id} 
+                        onClick={() => {
+                          setFormData({ ...formData, clienteNome: c.nome, clienteTelefone: c.telefone || '' });
+                          setIsClientDropdownOpen(false);
+                        }}
+                        style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                      >
+                        <span style={{ fontWeight: 500, fontSize: '14px' }}>{c.nome}</span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{c.telefone}</span>
+                      </div>
+                    ))}
+                  {formData.clienteNome && !clientesDisponiveis.some(c => c.nome.toLowerCase() === formData.clienteNome.toLowerCase()) && (
+                    <div style={{ padding: '12px 16px', color: 'var(--accent-purple)', fontSize: '13px', fontWeight: 500 }}>
+                      <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }}/>
+                      Cadastrar "{formData.clienteNome}" como novo cliente
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="input-group">
+              <label>Telefone / WhatsApp</label>
+              <input type="text" name="clienteTelefone" placeholder="(00) 00000-0000" value={formData.clienteTelefone} onChange={handleChange} />
+            </div>
+          </div>
+
+          <div className="card form-section">
+            <div className="section-header">
+              <Car size={20} className="section-icon" />
+              <h3>Dados do Veículo</h3>
+            </div>
+            <div className="grid-2-col">
+              <div className="input-group"><label>Placa *</label><input type="text" name="placa" placeholder="ABC-1234" style={{ textTransform: 'uppercase' }} value={formData.placa} onChange={handleChange} /></div>
+              <div className="input-group"><label>Modelo</label><input type="text" name="modelo" placeholder="Ex: Honda Civic" value={formData.modelo} onChange={handleChange} /></div>
+              <div className="input-group"><label>Ano</label><input type="text" name="ano" placeholder="Ex: 2018" value={formData.ano} onChange={handleChange} /></div>
+              <div className="input-group"><label>Cor</label><input type="text" name="cor" placeholder="Ex: Prata" value={formData.cor} onChange={handleChange} /></div>
+            </div>
+          </div>
+
+          <div className="card form-section">
+            <div className="section-header">
+              <FileText size={20} className="section-icon" />
+              <h3>Inclusão de Serviços</h3>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              <input 
+                type="text" 
+                placeholder="Busque ou digite novo Serviço"
+                value={servicoNomeInput}
+                onChange={(e) => {
+                  setServicoNomeInput(e.target.value);
+                  const exists = servicosCatalogo.find(s => s.nome.toLowerCase() === e.target.value.toLowerCase());
+                  if (exists) setServicoPrecoInput(String(exists.preco));
+                }}
+                list="servicos-list"
+                style={{ flex: 2, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+              />
+              <datalist id="servicos-list">
+                {servicosCatalogo.map(s => <option key={s.id} value={s.nome} />)}
+              </datalist>
+
+              <input 
+                type="number" 
+                placeholder="R$ Valor"
+                value={servicoPrecoInput}
+                onChange={(e) => setServicoPrecoInput(e.target.value)}
+                style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+              />
+              
+              <button className="btn-secondary" type="button" onClick={handleAddServico} disabled={!servicoNomeInput || !servicoPrecoInput}><Plus size={18} /></button>
+            </div>
+            
+            {servicosSelecionados.length > 0 && (
+              <div style={{ backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', padding: '12px' }}>
+                <table style={{ width: '100%', fontSize: '13px' }}>
+                  <tbody>
+                    {servicosSelecionados.map((s, index) => (
+                      <tr key={index} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                        <td style={{ padding: '8px 0' }}>{s.nome}</td>
+                        <td style={{ padding: '8px 0', width: '120px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <span style={{ color: 'var(--text-muted)', marginRight: '4px' }}>R$</span>
+                            <input 
+                              type="number" 
+                              value={s.preco} 
+                              onChange={e => updatePrecoServico(index, Number(e.target.value))}
+                              style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'white', padding: '6px', borderRadius: '4px', fontSize: '13px' }} 
+                              min="0" 
+                              step="0.01"
+                            />
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'right', width: '40px' }}>
+                          <button onClick={() => handleRemoveServico(index)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={{ padding: '12px 0 0', fontWeight: 'bold' }}>Subtotal Serviços:</td>
+                      <td colSpan={2} style={{ textAlign: 'right', padding: '12px 0 0', fontWeight: 'bold', color: '#10b981', fontSize: '14px' }}>
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalServicos)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+          
+          <div className="card form-section">
+            <div className="section-header">
+              <Package size={20} className="section-icon" />
+              <h3>Inclusão de Peças (Estoque)</h3>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              <input 
+                type="text" 
+                placeholder="Busque ou digite nova Peça"
+                value={pecaNomeInput}
+                onChange={(e) => {
+                  setPecaNomeInput(e.target.value);
+                  const exists = pecasEstoque.find(p => p.nome.toLowerCase() === e.target.value.toLowerCase());
+                  if (exists) setPecaPrecoInput(String(exists.precoVenda));
+                }}
+                list="pecas-list"
+                style={{ flex: 2, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+              />
+              <datalist id="pecas-list">
+                {pecasEstoque.map(p => <option key={p.id} value={p.nome} />)}
+              </datalist>
+
+              <input 
+                type="number" 
+                placeholder="R$ Valor"
+                value={pecaPrecoInput}
+                onChange={(e) => setPecaPrecoInput(e.target.value)}
+                style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+              />
+              
+              <button className="btn-secondary" type="button" onClick={handleAddPeca} disabled={!pecaNomeInput || !pecaPrecoInput}><Plus size={18} /></button>
+            </div>
+            
+            {pecasSelecionadas.length > 0 && (
+              <div style={{ backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', padding: '12px' }}>
+                <table style={{ width: '100%', fontSize: '13px' }}>
+                  <tbody>
+                    {pecasSelecionadas.map((p, index) => (
+                      <tr key={index} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                        <td style={{ padding: '8px 0' }}>{p.nome}</td>
+                        <td style={{ padding: '8px 0', width: '70px' }}>
+                          <input 
+                            type="number" 
+                            value={p.quantidade} 
+                            onChange={e => updateQuantidadePeca(index, Number(e.target.value))}
+                            style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'white', padding: '6px', borderRadius: '4px', fontSize: '13px' }} 
+                            min="1" 
+                          />
+                        </td>
+                        <td style={{ padding: '8px 0', width: '120px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <span style={{ color: 'var(--text-muted)', marginRight: '4px' }}>R$</span>
+                            <input 
+                              type="number" 
+                              value={p.preco} 
+                              onChange={e => updatePrecoPeca(index, Number(e.target.value))}
+                              style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'white', padding: '6px', borderRadius: '4px', fontSize: '13px' }} 
+                              min="0" 
+                              step="0.01"
+                            />
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'right', width: '40px' }}>
+                          <button onClick={() => handleRemovePeca(index)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={2} style={{ padding: '12px 0 0', fontWeight: 'bold' }}>Subtotal Peças:</td>
+                      <td colSpan={2} style={{ textAlign: 'right', padding: '12px 0 0', fontWeight: 'bold', color: '#10b981', fontSize: '14px' }}>
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPecas)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+          
+          <div className="card form-section" style={{ backgroundColor: '#10b98115', border: '1px solid #10b98150' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '18px' }}>VALOR TOTAL DA OS</h3>
+              <h2 style={{ margin: 0, fontSize: '24px', color: '#10b981' }}>
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalOS)}
+              </h2>
+            </div>
+          </div>
+        </div>
+
+        <div className="form-column">
+          <div className="card form-section fill-height">
+            <div className="section-header">
+              <FileText size={20} className="section-icon" />
+              <h3>Relatório Técnico (Impressão)</h3>
+            </div>
+            <div className="input-group">
+              <label>Defeito Relatado (Cliente)</label>
+              <textarea name="defeitoRelatado" placeholder="Descreva o problema reclamado pelo cliente..." rows={3} value={formData.defeitoRelatado} onChange={handleChange}></textarea>
+            </div>
+            <div className="input-group" style={{ flex: 1 }}>
+              <label>Relatório do Técnico (O que foi feito)</label>
+              <textarea name="relatorioTecnico" placeholder="Descreva tecnicamente o que foi encontrado e reparado no veículo..." rows={10} value={formData.relatorioTecnico} onChange={handleChange}></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Botão de Salvar no final da página, alinhado à direita */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
+        <button 
+          className="btn-primary" 
+          onClick={handleSave} 
+          disabled={isLoading} 
+          style={{ 
+            padding: '16px 32px', 
+            borderRadius: '8px', 
+            display: 'flex', 
+            alignItems: 'center',
+            fontSize: '16px',
+            fontWeight: 'bold',
+            opacity: isLoading ? 0.8 : 1,
+            transition: 'all 0.2s ease',
+          }}
+        >
+          {isLoading ? <Loader2 size={20} className="spin-icon" style={{ marginRight: 8 }} /> : <Save size={20} style={{ marginRight: 8 }} />}
+          {isLoading ? 'Salvando...' : 'SALVAR ORDEM DE SERVIÇO'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default OSForm;

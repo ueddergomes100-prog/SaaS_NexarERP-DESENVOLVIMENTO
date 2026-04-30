@@ -6,7 +6,11 @@ import AppLayout from './components/layout/AppLayout';
 import Login from './pages/Auth/Login';
 import Register from './pages/Auth/Register';
 import Dashboard from './pages/Dashboard/Dashboard';
+import Orcamentos from './pages/Orcamentos/Orcamentos';
+import PedidoVendas from './pages/Vendas/PedidoVendas';
+import RelatoriosVendas from './pages/Vendas/RelatoriosVendas';
 import OSList from './pages/OS/OSList';
+import RelatoriosMecanica from './pages/OS/RelatoriosMecanica';
 import OSForm from './pages/OS/OSForm';
 import OsPrint from './pages/OS/OsPrint';
 import EstoqueList from './pages/Estoque/EstoqueList';
@@ -22,6 +26,7 @@ import ServicosList from './pages/Servicos/ServicosList';
 import ServicoForm from './pages/Servicos/ServicoForm';
 import CategoriasList from './pages/Categorias/CategoriasList';
 import CategoriaForm from './pages/Categorias/CategoriaForm';
+import NFE from './pages/Fiscal/NFE';
 
 function App() {
   const [splashState, setSplashState] = useState<'visible' | 'fading' | 'hidden'>('visible');
@@ -87,10 +92,15 @@ function App() {
                 <Route index element={<Navigate to="/dashboard" replace />} />
                 <Route path="dashboard" element={<Dashboard />} />
                 
+                <Route path="orcamentos" element={<Orcamentos />} />
+                <Route path="pedidos-venda" element={<PedidoVendas />} />
+                <Route path="relatorios-vendas" element={<RelatoriosVendas />} />
+                
                 <Route path="os" element={<OSList />} />
                 <Route path="os/nova" element={<OSForm />} />
                 <Route path="os/editar/:id" element={<OSForm />} />
                 <Route path="os/print/:id" element={<OsPrint />} />
+                <Route path="relatorios-mecanica" element={<RelatoriosMecanica />} />
                 
                 <Route path="estoque" element={<EstoqueList />} />
                 <Route path="estoque/nova" element={<EstoqueForm />} />
@@ -106,6 +116,8 @@ function App() {
                 
                 <Route path="financeiro/caixa" element={<Caixa />} />
                 <Route path="financeiro/faturamento" element={<Faturamento />} />
+                
+                <Route path="fiscal/nfe" element={<NFE />} />
                 
                 <Route path="clientes" element={<ClientesList />} />
                 <Route path="clientes/novo" element={<ClienteForm />} />

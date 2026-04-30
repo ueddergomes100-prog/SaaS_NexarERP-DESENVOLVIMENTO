@@ -22,6 +22,7 @@ const OSList: React.FC = () => {
   const [osList, setOsList] = useState<OSData[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'Ativas' | 'Finalizadas' | 'Canceladas'>('Ativas');
+  const [searchTerm, setSearchTerm] = useState('');
   const { currentUser } = useAuth();
 
   useEffect(() => {
@@ -50,9 +51,20 @@ const OSList: React.FC = () => {
   }, [currentUser]);
 
   const filteredOsList = osList.filter(os => {
-    if (activeTab === 'Canceladas') return os.status === 'Cancelada';
-    if (activeTab === 'Finalizadas') return os.status === 'Finalizada';
-    return os.status !== 'Cancelada' && os.status !== 'Finalizada';
+    let matchesTab = false;
+    if (activeTab === 'Canceladas') matchesTab = os.status === 'Cancelada';
+    else if (activeTab === 'Finalizadas') matchesTab = os.status === 'Finalizada';
+    else matchesTab = os.status !== 'Cancelada' && os.status !== 'Finalizada';
+
+    if (!matchesTab) return false;
+    if (!searchTerm) return true;
+
+    const term = searchTerm.toLowerCase();
+    return (
+      (os.clienteNome && os.clienteNome.toLowerCase().includes(term)) ||
+      (os.placa && os.placa.toLowerCase().includes(term)) ||
+      (os.numeroOS && os.numeroOS.toLowerCase().includes(term))
+    );
   });
 
   return (
@@ -120,7 +132,12 @@ const OSList: React.FC = () => {
         <div className="list-toolbar">
           <div className="search-box">
             <Search size={18} className="search-icon" />
-            <input type="text" placeholder="Buscar por placa, cliente ou nº OS..." />
+            <input 
+              type="text" 
+              placeholder="Buscar por placa, cliente ou nº OS..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
           <button className="btn-secondary filter-btn">
             <Filter size={18} style={{ marginRight: 8 }} />
@@ -147,7 +164,9 @@ const OSList: React.FC = () => {
                 </tr>
               ) : filteredOsList.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Nenhuma Ordem de Serviço encontrada nesta aba.</td>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>
+                    {searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhuma Ordem de Serviço encontrada nesta aba."}
+                  </td>
                 </tr>
               ) : (
                 filteredOsList.map((os) => (

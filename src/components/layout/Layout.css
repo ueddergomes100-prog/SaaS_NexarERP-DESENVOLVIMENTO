@@ -316,3 +316,53 @@
   70% { box-shadow: 0 0 0 6px rgba(139, 92, 246, 0); }
   100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
 }
+
+/* Mini Sidebar Styles */
+body.mini-sidebar .sidebar {
+  width: 80px;
+}
+
+body.mini-sidebar .sidebar-logo h2 {
+  display: none;
+}
+
+body.mini-sidebar .sidebar-logo {
+  padding: 0;
+  justify-content: center;
+}
+
+body.mini-sidebar .nav-label {
+  display: none !important;
+}
+
+body.mini-sidebar .nav-item span {
+  display: none;
+}
+
+body.mini-sidebar .nav-item {
+  justify-content: center;
+  padding: 12px 0;
+  margin-bottom: 4px;
+}
+
+body.mini-sidebar .expand-toggle-container {
+  display: none !important;
+}
+
+body.mini-sidebar .logout-text {
+  display: none;
+}
+
+body.mini-sidebar .logout-btn {
+  justify-content: center !important;
+  padding: 12px 0 !important;
+}
+
+.spin-animation {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

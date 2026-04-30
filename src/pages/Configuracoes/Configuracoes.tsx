@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell } from 'lucide-react';
+import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -11,6 +11,7 @@ const Configuracoes: React.FC = () => {
   const [isFetching, setIsFetching] = useState(true);
   const [isEditingMode, setIsEditingMode] = useState(true);
   const [showSuccessAnim, setShowSuccessAnim] = useState(false);
+  const [showDadosOficina, setShowDadosOficina] = useState(false);
 
   const [formData, setFormData] = useState({
     nomeOficina: '',
@@ -122,12 +123,22 @@ const Configuracoes: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px', maxWidth: '800px', opacity: isEditingMode ? 1 : 0.8, pointerEvents: isEditingMode ? 'auto' : 'none' }}>
         {/* Dados da Oficina */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)' }}>
-            <Store size={20} style={{ color: 'var(--accent-purple)' }} />
-            <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Dados da Oficina (Cabeçalho OS)</h3>
+          <div 
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showDadosOficina ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+            onClick={() => setShowDadosOficina(!showDadosOficina)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Store size={20} style={{ color: 'var(--accent-purple)' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Dados da Oficina (Cabeçalho OS)</h3>
+            </div>
+            <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {showDadosOficina ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
           </div>
           
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+          {showDadosOficina && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome da Oficina Fantasia</label>
               <input 
@@ -208,6 +219,8 @@ const Configuracoes: React.FC = () => {
               style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} 
             />
           </div>
+            </>
+          )}
         </div>
 
         {/* Preferências do Sistema */}

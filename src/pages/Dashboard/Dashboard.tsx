@@ -5,7 +5,9 @@ import {
   CheckCircle, 
   Users, 
   TrendingUp,
-  MoreVertical
+  MoreVertical,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -40,8 +42,15 @@ const Dashboard: React.FC = () => {
   const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
   const [loading, setLoading] = useState(true);
   const [tableTab, setTableTab] = useState<'Ativas' | 'Finalizadas'>('Ativas');
+  const [hideData, setHideData] = useState(() => localStorage.getItem('nexus_hide_dashboard') === 'true');
 
   const { currentUser } = useAuth();
+
+  const toggleHideData = () => {
+    const newVal = !hideData;
+    setHideData(newVal);
+    localStorage.setItem('nexus_hide_dashboard', String(newVal));
+  };
 
   useEffect(() => {
     if (!currentUser) return;
@@ -174,7 +183,17 @@ const Dashboard: React.FC = () => {
     <div className="dashboard">
       <div className="dashboard-header">
         <div>
-          <h1 className="page-title">Dashboard</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <h1 className="page-title">Dashboard</h1>
+            <button 
+              className="icon-btn" 
+              onClick={toggleHideData} 
+              title={hideData ? "Mostrar valores" : "Ocultar valores"}
+              style={{ backgroundColor: 'var(--bg-secondary)' }}
+            >
+              {hideData ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
+          </div>
           <p className="page-subtitle">Visão geral do sistema e métricas em tempo real</p>
         </div>
         <button className="btn-primary" onClick={() => navigate('/os/nova')}>
@@ -191,7 +210,7 @@ const Dashboard: React.FC = () => {
             <span className="stat-trend positive">Atual</span>
           </div>
           <div className="stat-info">
-            <h3>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(faturamentoMes)}</h3>
+            <h3>{hideData ? 'R$ •••••' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(faturamentoMes)}</h3>
             <p>Faturamento Mês</p>
           </div>
         </div>
@@ -204,7 +223,7 @@ const Dashboard: React.FC = () => {
             <span className="stat-trend positive">Atual</span>
           </div>
           <div className="stat-info">
-            <h3>{osFinalizadasMes}</h3>
+            <h3>{hideData ? '•••' : osFinalizadasMes}</h3>
             <p>OS Finalizadas Mês</p>
           </div>
         </div>
@@ -217,7 +236,7 @@ const Dashboard: React.FC = () => {
             <span className="stat-trend positive">Atual</span>
           </div>
           <div className="stat-info">
-            <h3>{clientesUnicosMes}</h3>
+            <h3>{hideData ? '•••' : clientesUnicosMes}</h3>
             <p>Clientes Atendidos Mês</p>
           </div>
         </div>
@@ -230,7 +249,7 @@ const Dashboard: React.FC = () => {
             <span className="stat-trend positive">Hoje</span>
           </div>
           <div className="stat-info">
-            <h3>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(faturamentoHoje)}</h3>
+            <h3>{hideData ? 'R$ •••••' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(faturamentoHoje)}</h3>
             <p>Faturamento Hoje</p>
           </div>
         </div>
@@ -242,7 +261,7 @@ const Dashboard: React.FC = () => {
             <h3>Fluxo de Caixa Mensal (Últimos 6 meses)</h3>
             <button className="icon-btn" onClick={() => navigate('/financeiro/caixa')}><MoreVertical size={18} /></button>
           </div>
-          <div className="chart-wrapper">
+          <div className="chart-wrapper" style={{ filter: hideData ? 'blur(6px)' : 'none', transition: 'filter 0.3s', userSelect: hideData ? 'none' : 'auto', pointerEvents: hideData ? 'none' : 'auto' }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={cashFlowData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
@@ -265,7 +284,7 @@ const Dashboard: React.FC = () => {
             <h3>Status de OS Ativas</h3>
             <button className="icon-btn" onClick={() => navigate('/os')}><MoreVertical size={18} /></button>
           </div>
-          <div className="chart-wrapper pie-wrapper">
+          <div className="chart-wrapper pie-wrapper" style={{ filter: hideData ? 'blur(6px)' : 'none', transition: 'filter 0.3s', userSelect: hideData ? 'none' : 'auto', pointerEvents: hideData ? 'none' : 'auto' }}>
             {osStatusData.length > 0 ? (
               <>
                 <ResponsiveContainer width="100%" height="100%">

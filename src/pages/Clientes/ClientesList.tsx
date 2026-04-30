@@ -20,6 +20,7 @@ const ClientesList: React.FC = () => {
   const navigate = useNavigate();
   const [clientes, setClientes] = useState<ClienteData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const { currentUser } = useAuth();
 
@@ -57,6 +58,16 @@ const ClientesList: React.FC = () => {
     }
   };
 
+  const filteredClientes = clientes.filter(cliente => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      (cliente.nome && cliente.nome.toLowerCase().includes(term)) ||
+      (cliente.documento && cliente.documento.includes(searchTerm)) ||
+      (cliente.telefone && cliente.telefone.includes(searchTerm))
+    );
+  });
+
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -76,6 +87,8 @@ const ClientesList: React.FC = () => {
             <input 
               type="text" 
               placeholder="Buscar cliente, CPF ou telefone..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'white' }}
             />
           </div>
@@ -101,15 +114,15 @@ const ClientesList: React.FC = () => {
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando clientes...</td>
                 </tr>
-              ) : clientes.length === 0 ? (
+              ) : filteredClientes.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
                     <Users size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-                    <p>Nenhum cliente cadastrado.</p>
+                    <p>{searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhum cliente cadastrado."}</p>
                   </td>
                 </tr>
               ) : (
-                clientes.map((cliente) => (
+                filteredClientes.map((cliente) => (
                   <tr key={cliente.id}>
                     <td style={{ color: 'var(--text-muted)' }}>{cliente.codigo || '-'}</td>
                     <td className="font-medium">{cliente.nome}</td>

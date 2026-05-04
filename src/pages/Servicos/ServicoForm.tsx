@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Wrench, Loader2 } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, getDoc, getDocs, serverTimestamp, query, where } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
@@ -44,8 +44,8 @@ const ServicoForm: React.FC = () => {
         } else {
           // Gerar código sequencial para novo cadastro
           const q = query(collection(db, 'servicos'), where('tenantId', '==', currentUser.uid));
-          const snap = await getDocs(q);
-          const nextId = snap.size + 1;
+          const snap = await getCountFromServer(q);
+          const nextId = snap.data().count + 1;
           setFormData(prev => ({ ...prev, codigo: String(nextId) }));
         }
       } catch (error) {

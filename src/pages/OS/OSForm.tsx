@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, setDoc, getDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, setDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
@@ -112,8 +112,8 @@ const OSForm: React.FC = () => {
         }
       } else {
         try {
-          const snapOS = await getDocs(query(collection(db, 'ordens_de_servico'), where('tenantId', '==', currentUser.uid)));
-          const nextOsNum = String(snapOS.size + 1).padStart(2, '0');
+          const snapOS = await getCountFromServer(query(collection(db, 'ordens_de_servico'), where('tenantId', '==', currentUser.uid)));
+          const nextOsNum = String(snapOS.data().count + 1).padStart(2, '0');
           setFormData(prev => ({ ...prev, numeroOS: nextOsNum }));
         } catch (err) {
           console.error("Erro ao buscar contagem de OS", err);
@@ -146,8 +146,8 @@ const OSForm: React.FC = () => {
       setIsLoading(true);
       try {
         const q = query(collection(db, 'servicos'), where('tenantId', '==', currentUser.uid));
-        const snap = await getDocs(q);
-        const nextId = snap.size + 1;
+        const snap = await getCountFromServer(q);
+        const nextId = snap.data().count + 1;
         
         const newRef = await addDoc(collection(db, 'servicos'), {
           codigo: String(nextId),
@@ -196,8 +196,8 @@ const OSForm: React.FC = () => {
       setIsLoading(true);
       try {
         const q = query(collection(db, 'estoque'), where('tenantId', '==', currentUser.uid));
-        const snap = await getDocs(q);
-        const nextId = snap.size + 1;
+        const snap = await getCountFromServer(q);
+        const nextId = snap.data().count + 1;
         
         const newRef = await addDoc(collection(db, 'estoque'), {
           codigo: String(nextId),
@@ -273,8 +273,8 @@ const OSForm: React.FC = () => {
       const clienteExiste = clientesDisponiveis.some(c => c.nome.toLowerCase() === formData.clienteNome.toLowerCase());
       if (!clienteExiste) {
         const qC = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
-        const snapC = await getDocs(qC);
-        const nextId = snapC.size + 1;
+        const snapC = await getCountFromServer(qC);
+        const nextId = snapC.data().count + 1;
 
         await addDoc(collection(db, 'clientes'), {
           codigo: String(nextId),

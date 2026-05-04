@@ -124,11 +124,8 @@ const TopBar: React.FC = () => {
     setShowDropdown(!showDropdown);
   };
 
-  const handleSearch = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setSearchTerm(value);
-    
-    if (value.length < 2) {
+  useEffect(() => {
+    if (searchTerm.length < 2) {
       setSearchResults([]);
       setShowSearchDropdown(false);
       return;
@@ -136,55 +133,64 @@ const TopBar: React.FC = () => {
 
     setShowSearchDropdown(true);
     setIsSearching(true);
-    const termLower = value.toLowerCase();
 
-    try {
-      const results: any[] = [];
-      const qOs = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', currentUser.uid));
-      const qClientes = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
-      
-      const [osSnap, clientesSnap] = await Promise.all([getDocs(qOs), getDocs(qClientes)]);
-      
-      osSnap.forEach(doc => {
-        const data = doc.data();
-        if (
-          (data.clienteNome && data.clienteNome.toLowerCase().includes(termLower)) ||
-          (data.placa && data.placa.toLowerCase().includes(termLower)) ||
-          (data.numeroOS && data.numeroOS.toLowerCase().includes(termLower))
-        ) {
-          results.push({
-            type: 'OS',
-            id: doc.id,
-            title: `OS #${data.numeroOS || doc.id.substring(0,8).toUpperCase()} - Placa: ${data.placa?.toUpperCase()}`,
-            subtitle: data.clienteNome,
-            link: `/os/editar/${doc.id}`
-          });
-        }
-      });
+    const debounceTimer = setTimeout(async () => {
+      const termLower = searchTerm.toLowerCase();
+      try {
+        if (!currentUser) return;
+        const results: any[] = [];
+        const qOs = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', currentUser.uid));
+        const qClientes = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
+        
+        const [osSnap, clientesSnap] = await Promise.all([getDocs(qOs), getDocs(qClientes)]);
+        
+        osSnap.forEach(doc => {
+          const data = doc.data();
+          if (
+            (data.clienteNome && data.clienteNome.toLowerCase().includes(termLower)) ||
+            (data.placa && data.placa.toLowerCase().includes(termLower)) ||
+            (data.numeroOS && data.numeroOS.toLowerCase().includes(termLower))
+          ) {
+            results.push({
+              type: 'OS',
+              id: doc.id,
+              title: `OS #${data.numeroOS || doc.id.substring(0,8).toUpperCase()} - Placa: ${data.placa?.toUpperCase()}`,
+              subtitle: data.clienteNome,
+              link: `/os/editar/${doc.id}`
+            });
+          }
+        });
 
-      clientesSnap.forEach(doc => {
-        const data = doc.data();
-        if (
-          (data.nome && data.nome.toLowerCase().includes(termLower)) ||
-          (data.telefone && data.telefone.includes(termLower)) ||
-          (data.documento && data.documento.includes(termLower))
-        ) {
-          results.push({
-            type: 'Cliente',
-            id: doc.id,
-            title: data.nome,
-            subtitle: data.telefone || data.documento || 'Sem detalhes',
-            link: `/clientes/editar/${doc.id}`
-          });
-        }
-      });
+        clientesSnap.forEach(doc => {
+          const data = doc.data();
+          if (
+            (data.nome && data.nome.toLowerCase().includes(termLower)) ||
+            (data.telefone && data.telefone.includes(termLower)) ||
+            (data.documento && data.documento.includes(termLower))
+          ) {
+            results.push({
+              type: 'Cliente',
+              id: doc.id,
+              title: data.nome,
+              subtitle: data.telefone || data.documento || 'Sem detalhes',
+              link: `/clientes/editar/${doc.id}`
+            });
+          }
+        });
 
-      setSearchResults(results.slice(0, 10)); // Top 10 results max
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setIsSearching(false);
-    }
+        setSearchResults(results.slice(0, 10)); // Top 10 results max
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [searchTerm, currentUser]);
+
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
   };
 
   const goToResult = (link: string) => {

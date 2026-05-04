@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Bell, Loader2, Plus, Trash2 } from 'lucide-react';
-import { collection, addDoc, serverTimestamp, getDocs, query, where, doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, where, doc, getDoc, updateDoc, deleteDoc, getCountFromServer } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError } from '../../utils/alerts';
+import { showSuccess, showError, confirmDelete } from '../../utils/alerts';
 
 interface ClienteBasico {
   id: string;
@@ -131,8 +131,8 @@ const LembreteForm: React.FC = () => {
       const clienteExiste = clientesDisponiveis.some(c => c.nome.toLowerCase() === formData.clienteNome.toLowerCase());
       if (!clienteExiste) {
         const qC = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
-        const snapC = await getDocs(qC);
-        const nextId = snapC.size + 1;
+        const snapC = await getCountFromServer(qC);
+        const nextId = snapC.data().count + 1;
 
         await addDoc(collection(db, 'clientes'), {
           codigo: String(nextId),
@@ -178,15 +178,16 @@ const LembreteForm: React.FC = () => {
     }
   };
 
-  const handleCancel = async () => {
+  const handleDelete = async () => {
     if (!id) return;
-    if (window.confirm("Deseja realmente cancelar este lembrete?")) {
+    const confirmed = await confirmDelete(`o lembrete deste cliente`);
+    if (confirmed) {
       try {
-        await updateDoc(doc(db, 'lembretes', id), { status: 'Cancelado' });
-        showSuccess('Lembrete cancelado!');
+        await deleteDoc(doc(db, 'lembretes', id));
+        showSuccess('Lembrete excluído!');
         navigate('/lembretes');
       } catch (err) {
-        showError('Erro', 'Não foi possível cancelar o lembrete.');
+        showError('Erro', 'Não foi possível excluir o lembrete.');
       }
     }
   };
@@ -211,11 +212,11 @@ const LembreteForm: React.FC = () => {
           {isEditing && (
             <button 
               className="btn-secondary" 
-              onClick={handleCancel}
+              onClick={handleDelete}
               style={{ color: '#ef4444', borderColor: '#ef444450', display: 'flex', alignItems: 'center' }}
             >
               <Trash2 size={18} style={{ marginRight: 8 }} />
-              Cancelar Lembrete
+              Excluir Lembrete
             </button>
           )}
           <button 

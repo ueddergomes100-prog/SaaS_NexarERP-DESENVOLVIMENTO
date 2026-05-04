@@ -181,7 +181,7 @@ const LembretesList: React.FC = () => {
                         <button 
                           className="icon-btn"
                           onClick={() => navigate(`/lembretes/editar/${lembrete.id}`)}
-                          title="Editar/Cancelar Lembrete"
+                          title="Editar/Excluir Lembrete"
                         >
                           <Edit2 size={16} />
                         </button>

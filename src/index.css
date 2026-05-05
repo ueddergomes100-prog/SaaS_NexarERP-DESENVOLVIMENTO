@@ -105,3 +105,40 @@ button {
   height: 100%;
   width: 100%;
 }
+@media (max-width: 768px) {
+  [style*="grid-template-columns: repeat(4, 1fr)"],
+  [style*="grid-template-columns: 1fr 1fr"],
+  [style*="grid-template-columns: 1fr 300px"],
+  [style*="grid-template-columns: 2fr 1fr"],
+  [style*="grid-template-columns: repeat(3, 1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+  [style*="width: 400px"],
+  [style*="width: 500px"],
+  [style*="width: 600px"] {
+    width: 100% !important;
+  }
+  .card {
+    padding: 16px !important;
+  }
+  .table-container {
+    overflow-x: auto;
+  }
+  .table-container table {
+    min-width: 600px;
+  }
+}
+@media (max-width: 768px) {
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  div[style*="position: fixed"][style*="z-index: 1000"] > div,
+  div[style*="position: fixed"][style*="z-index: 999"] > div {
+    width: 95% !important;
+    max-width: 95% !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+  }
+}

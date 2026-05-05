@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown } from 'lucide-react';
+import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -269,8 +269,16 @@ const TopBar: React.FC = () => {
 
   return (
     <header className="topbar">
-      <div className="topbar-search" ref={searchRef}>
-        <Search className="search-icon" size={18} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%' }}>
+        <button 
+          className="mobile-menu-btn" 
+          onClick={() => document.body.classList.toggle('mobile-sidebar-open')}
+          style={{ display: 'none', background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '8px', marginLeft: '-8px' }}
+        >
+          <Menu size={24} />
+        </button>
+        <div className="topbar-search" ref={searchRef}>
+          <Search className="search-icon" size={18} />
         <input 
           type="text" 
           placeholder="Buscar OS, cliente, placa ou peça..." 
@@ -331,6 +339,7 @@ const TopBar: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
       </div>
       
       <div className="topbar-actions">

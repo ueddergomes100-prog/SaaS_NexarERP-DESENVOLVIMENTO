@@ -114,9 +114,14 @@ const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="sidebar">
+    <>
       <div 
-        className="sidebar-logo" 
+        className="mobile-sidebar-overlay" 
+        onClick={() => document.body.classList.remove('mobile-sidebar-open')}
+      ></div>
+      <aside className="sidebar">
+        <div 
+          className="sidebar-logo" 
         onClick={handleGoHome} 
         style={{ cursor: 'pointer' }}
         title={userRole === 'SuperAdmin' ? "Ir para Painel SaaS" : "Ir para Dashboard"}
@@ -442,7 +447,9 @@ const Sidebar: React.FC = () => {
           </div>
         </div>
       )}
+      
     </aside>
+    </>
   );
 };
 

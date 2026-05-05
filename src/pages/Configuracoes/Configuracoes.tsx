@@ -26,6 +26,7 @@ const Configuracoes: React.FC = () => {
   const [isSavingPermissions, setIsSavingPermissions] = useState(false);
 
   const [formData, setFormData] = useState({
+    logo: '',
     nomeOficina: '',
     nomeUsuario: '',
     cnpj: '',
@@ -270,6 +271,54 @@ const Configuracoes: React.FC = () => {
           
           {showDadosOficina && (
             <>
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Logotipo da Oficina (Aparecerá na Impressão)</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  {formData.logo ? (
+                    <div style={{ position: 'relative', width: '100px', height: '100px', borderRadius: '8px', border: '1px solid var(--border-color)', overflow: 'hidden', backgroundColor: 'white' }}>
+                      <img src={formData.logo} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                      {isEditingMode && (
+                        <button type="button" onClick={() => setFormData({...formData, logo: ''})} style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(239, 68, 68, 0.9)', color: 'white', border: 'none', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ width: '100px', height: '100px', borderRadius: '8px', border: '1px dashed var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+                      <Store size={32} />
+                    </div>
+                  )}
+                  {isEditingMode && (
+                    <div>
+                      <label htmlFor="logo-upload" className="btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '8px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
+                        <Plus size={16} /> Carregar Logo
+                      </label>
+                      <input 
+                        id="logo-upload" 
+                        type="file" 
+                        accept="image/png, image/jpeg, image/jpg" 
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 1024 * 1024 * 2) { 
+                              showError('Erro', 'A imagem deve ter no máximo 2MB.');
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setFormData({...formData, logo: reader.result as string});
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                      <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>Formatos: PNG, JPG (Máx 2MB)</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome da Oficina Fantasia</label>

@@ -50,12 +50,22 @@ const OSForm: React.FC = () => {
   const { currentUser, tenantId } = useAuth();
   
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+  const [isServicoDropdownOpen, setIsServicoDropdownOpen] = useState(false);
+  const [isPecaDropdownOpen, setIsPecaDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const servicoDropdownRef = useRef<HTMLDivElement>(null);
+  const pecaDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsClientDropdownOpen(false);
+      }
+      if (servicoDropdownRef.current && !servicoDropdownRef.current.contains(event.target as Node)) {
+        setIsServicoDropdownOpen(false);
+      }
+      if (pecaDropdownRef.current && !pecaDropdownRef.current.contains(event.target as Node)) {
+        setIsPecaDropdownOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -456,15 +466,40 @@ const OSForm: React.FC = () => {
             {formData.status === 'Finalizada' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px', padding: '16px', backgroundColor: 'rgba(16, 185, 129, 0.05)', borderRadius: 'var(--radius-md)', border: '1px dashed rgba(16, 185, 129, 0.3)' }}>
                 <div className="input-group">
-                  <label>Forma de Pagamento</label>
-                  <select name="formaPagamento" value={formData.formaPagamento} onChange={handleChange} style={{ backgroundColor: 'var(--bg-secondary)', width: '100%' }}>
-                    <option value="Dinheiro">Dinheiro</option>
-                    <option value="Pix">Pix</option>
-                    <option value="Cartão de Crédito">Cartão de Crédito</option>
-                    <option value="Cartão de Débito">Cartão de Débito</option>
-                    <option value="Boleto">Boleto</option>
-                    <option value="A Prazo / Fiado">A Prazo / Fiado</option>
-                  </select>
+                  <label style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#10b981', fontWeight: 700 }}>Selecione a Forma de Pagamento</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px', marginTop: '8px' }}>
+                    {[
+                      { value: 'Dinheiro', icon: '💵' },
+                      { value: 'Pix', icon: '💠' },
+                      { value: 'Cartão de Crédito', icon: '💳' },
+                      { value: 'Cartão de Débito', icon: '💳' },
+                      { value: 'Boleto', icon: '📄' },
+                      { value: 'A Prazo / Fiado', icon: '🤝' }
+                    ].map(metodo => (
+                      <div 
+                        key={metodo.value}
+                        onClick={() => setFormData({...formData, formaPagamento: metodo.value})}
+                        style={{
+                          backgroundColor: formData.formaPagamento === metodo.value ? 'rgba(16, 185, 129, 0.2)' : 'var(--bg-secondary)',
+                          border: `1px solid ${formData.formaPagamento === metodo.value ? '#10b981' : 'var(--border-color)'}`,
+                          padding: '12px 8px',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          transition: 'all 0.2s',
+                          transform: formData.formaPagamento === metodo.value ? 'scale(1.02)' : 'scale(1)',
+                          boxShadow: formData.formaPagamento === metodo.value ? '0 4px 12px rgba(16, 185, 129, 0.2)' : 'none'
+                        }}
+                      >
+                        <span style={{ fontSize: '20px' }}>{metodo.icon}</span>
+                        <span style={{ fontSize: '12px', fontWeight: formData.formaPagamento === metodo.value ? 600 : 400, color: formData.formaPagamento === metodo.value ? '#10b981' : 'var(--text-primary)', textAlign: 'center' }}>{metodo.value}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                   {(formData.formaPagamento === 'Dinheiro' || formData.formaPagamento === 'Pix') 
@@ -570,22 +605,53 @@ const OSForm: React.FC = () => {
               </select>
             </div>
 
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-              <input 
-                type="text" 
-                placeholder="Busque ou digite novo Serviço"
-                value={servicoNomeInput}
-                onChange={(e) => {
-                  setServicoNomeInput(e.target.value);
-                  const exists = servicosCatalogo.find(s => s.nome.toLowerCase() === e.target.value.toLowerCase());
-                  if (exists) setServicoPrecoInput(String(exists.preco));
-                }}
-                list="servicos-list"
-                style={{ flex: 2, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
-              />
-              <datalist id="servicos-list">
-                {servicosCatalogo.map(s => <option key={s.id} value={s.nome} />)}
-              </datalist>
+            <div className="item-add-container" style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              <div style={{ flex: 2, position: 'relative' }} ref={servicoDropdownRef}>
+                <input 
+                  type="text" 
+                  placeholder="Busque ou digite novo Serviço"
+                  value={servicoNomeInput}
+                  onChange={(e) => {
+                    setServicoNomeInput(e.target.value);
+                    setIsServicoDropdownOpen(true);
+                    const exists = servicosCatalogo.find(s => s.nome.toLowerCase() === e.target.value.toLowerCase());
+                    if (exists) setServicoPrecoInput(String(exists.preco));
+                  }}
+                  onFocus={() => setIsServicoDropdownOpen(true)}
+                  autoComplete="off"
+                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+                />
+                {isServicoDropdownOpen && servicosCatalogo.filter(s => s.nome.toLowerCase().includes(servicoNomeInput.toLowerCase())).length > 0 && (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
+                    backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-md)', maxHeight: '200px', overflowY: 'auto',
+                    zIndex: 50, boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
+                  }}>
+                    {servicosCatalogo
+                      .filter(s => s.nome.toLowerCase().includes(servicoNomeInput.toLowerCase()))
+                      .map(s => (
+                        <div 
+                          key={s.id}
+                          onClick={() => {
+                            setServicoNomeInput(s.nome);
+                            setServicoPrecoInput(String(s.preco));
+                            setIsServicoDropdownOpen(false);
+                          }}
+                          style={{
+                            padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)',
+                            display: 'flex', justifyContent: 'space-between', fontSize: '13px', alignItems: 'center', gap: '12px'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                        >
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.nome}</span>
+                          <span style={{ color: '#10b981', fontWeight: 600, flexShrink: 0 }}>R$ {s.preco.toFixed(2)}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
 
               <input 
                 type="number" 
@@ -649,22 +715,53 @@ const OSForm: React.FC = () => {
                 </span>
               )}
             </div>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-              <input 
-                type="text" 
-                placeholder="Busque ou digite nova Peça"
-                value={pecaNomeInput}
-                onChange={(e) => {
-                  setPecaNomeInput(e.target.value);
-                  const exists = pecasEstoque.find(p => p.nome.toLowerCase() === e.target.value.toLowerCase());
-                  if (exists) setPecaPrecoInput(String(exists.precoVenda));
-                }}
-                list="pecas-list"
-                style={{ flex: 2, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
-              />
-              <datalist id="pecas-list">
-                {pecasEstoque.map(p => <option key={p.id} value={p.nome} />)}
-              </datalist>
+            <div className="item-add-container" style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              <div style={{ flex: 2, position: 'relative' }} ref={pecaDropdownRef}>
+                <input 
+                  type="text" 
+                  placeholder="Busque ou digite nova Peça"
+                  value={pecaNomeInput}
+                  onChange={(e) => {
+                    setPecaNomeInput(e.target.value);
+                    setIsPecaDropdownOpen(true);
+                    const exists = pecasEstoque.find(p => p.nome.toLowerCase() === e.target.value.toLowerCase());
+                    if (exists) setPecaPrecoInput(String(exists.precoVenda));
+                  }}
+                  onFocus={() => setIsPecaDropdownOpen(true)}
+                  autoComplete="off"
+                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+                />
+                {isPecaDropdownOpen && pecasEstoque.filter(p => p.nome.toLowerCase().includes(pecaNomeInput.toLowerCase())).length > 0 && (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
+                    backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-md)', maxHeight: '200px', overflowY: 'auto',
+                    zIndex: 50, boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
+                  }}>
+                    {pecasEstoque
+                      .filter(p => p.nome.toLowerCase().includes(pecaNomeInput.toLowerCase()))
+                      .map(p => (
+                        <div 
+                          key={p.id}
+                          onClick={() => {
+                            setPecaNomeInput(p.nome);
+                            setPecaPrecoInput(String(p.precoVenda));
+                            setIsPecaDropdownOpen(false);
+                          }}
+                          style={{
+                            padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)',
+                            display: 'flex', justifyContent: 'space-between', fontSize: '13px', alignItems: 'center', gap: '12px'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                        >
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nome}</span>
+                          <span style={{ color: '#10b981', fontWeight: 600, flexShrink: 0 }}>R$ {p.precoVenda.toFixed(2)}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
 
               <input 
                 type="number" 
@@ -726,7 +823,7 @@ const OSForm: React.FC = () => {
           </div>
           
           <div className="card form-section" style={{ backgroundColor: '#10b98115', border: '1px solid #10b98150' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="total-os-container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: 0, fontSize: '18px' }}>VALOR TOTAL DA OS</h3>
               <h2 style={{ margin: 0, fontSize: '24px', color: '#10b981' }}>
                 {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalOS)}
@@ -754,7 +851,7 @@ const OSForm: React.FC = () => {
       </div>
 
       {/* Botão de Salvar no final da página, alinhado à direita */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
+      <div className="save-os-container" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
         <button 
           className="btn-primary" 
           onClick={handleSave} 

@@ -142,3 +142,25 @@ button {
     overflow-y: auto !important;
   }
 }
+@media (max-width: 768px) {
+  .item-add-container {
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+  .item-add-container > input, .item-add-container > select, .item-add-container > button {
+    width: 100% !important;
+    flex: none !important;
+  }
+  .total-os-container {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+  }
+  .save-os-container {
+    justify-content: stretch !important;
+  }
+  .save-os-container > button {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+}

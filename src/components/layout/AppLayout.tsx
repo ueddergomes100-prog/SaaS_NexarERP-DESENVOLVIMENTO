@@ -63,7 +63,7 @@ const AppLayout: React.FC = () => {
         <div className="main-content">
           <TopBar />
           <main className="page-content">
-            <div key={location.pathname} className="page-transition">
+            <div className="page-transition">
               <Outlet />
             </div>
           </main>

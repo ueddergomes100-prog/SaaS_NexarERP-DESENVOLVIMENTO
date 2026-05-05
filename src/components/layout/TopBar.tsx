@@ -269,7 +269,7 @@ const TopBar: React.FC = () => {
 
   return (
     <header className="topbar">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
         <button 
           className="mobile-menu-btn" 
           onClick={() => document.body.classList.toggle('mobile-sidebar-open')}

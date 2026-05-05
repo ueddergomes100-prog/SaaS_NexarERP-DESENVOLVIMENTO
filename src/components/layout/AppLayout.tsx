@@ -13,6 +13,16 @@ const AppLayout: React.FC = () => {
   const location = useLocation();
 
   useEffect(() => {
+    // Retrigger animation without destroying the DOM node (fixes Google Translate crash)
+    const pageEl = document.querySelector('.page-transition') as HTMLElement;
+    if (pageEl) {
+      pageEl.style.animation = 'none';
+      void pageEl.offsetWidth; // Force reflow
+      pageEl.style.animation = 'pageFadeIn 0.35s cubic-bezier(0.25, 1, 0.5, 1) forwards';
+    }
+  }, [location.pathname]);
+
+  useEffect(() => {
     const unsub = onSnapshot(doc(db, 'system_alerts', 'global'), (snap) => {
       if (snap.exists()) {
         const data = snap.data();

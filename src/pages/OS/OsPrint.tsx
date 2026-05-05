@@ -91,7 +91,6 @@ const OsPrint: React.FC = () => {
             <h1>ORDEM DE SERVIÇO</h1>
             <h2 className="os-number">Nº {osData.numeroOS || osData.id.substring(0, 6).toUpperCase()}</h2>
             <p><strong>Data:</strong> {dataCriacao}</p>
-            <p><strong>Status:</strong> {osData.status}</p>
           </div>
         </div>
 

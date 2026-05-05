@@ -19,14 +19,21 @@ import LembretesList from './pages/Lembretes/LembretesList';
 import LembreteForm from './pages/Lembretes/LembreteForm';
 import Caixa from './pages/Financeiro/Caixa';
 import Faturamento from './pages/Financeiro/Faturamento';
+import ContasReceber from './pages/Financeiro/ContasReceber';
+import RelatorioComissoes from './pages/Financeiro/RelatorioComissoes';
 import ClientesList from './pages/Clientes/ClientesList';
 import ClienteForm from './pages/Clientes/ClienteForm';
+import UsuariosList from './pages/Usuarios/UsuariosList';
 import Configuracoes from './pages/Configuracoes/Configuracoes';
 import ServicosList from './pages/Servicos/ServicosList';
 import ServicoForm from './pages/Servicos/ServicoForm';
 import CategoriasList from './pages/Categorias/CategoriasList';
 import CategoriaForm from './pages/Categorias/CategoriaForm';
+import Agenda from './pages/CRM/Agenda';
 import NFE from './pages/Fiscal/NFE';
+import EntradaNFE from './pages/Fiscal/EntradaNFE';
+import SuperAdmin from './pages/Admin/SuperAdmin';
+import UsuarioForm from './pages/Usuarios/UsuarioForm';
 
 function App() {
   const [splashState, setSplashState] = useState<'visible' | 'fading' | 'hidden'>('visible');
@@ -74,7 +81,7 @@ function App() {
             letterSpacing: '2px',
             animation: 'drawLogo 1s ease-out forwards'
           }}>
-            NEXUS ERP
+            NEXAR ERP
           </h1>
         </div>
       )}
@@ -110,24 +117,34 @@ function App() {
                 <Route path="servicos/novo" element={<ServicoForm />} />
                 <Route path="servicos/editar/:id" element={<ServicoForm />} />
                 
-                <Route path="lembretes" element={<LembretesList />} />
-                <Route path="lembretes/novo" element={<LembreteForm />} />
-                <Route path="lembretes/editar/:id" element={<LembreteForm />} />
+                <Route path="crm/lembretes" element={<LembretesList />} />
+                <Route path="crm/lembretes/novo" element={<LembreteForm />} />
+                <Route path="crm/lembretes/editar/:id" element={<LembreteForm />} />
+                <Route path="crm/agenda" element={<Agenda />} />
                 
                 <Route path="financeiro/caixa" element={<Caixa />} />
+                <Route path="financeiro/contas-receber" element={<ContasReceber />} />
                 <Route path="financeiro/faturamento" element={<Faturamento />} />
+                <Route path="financeiro/comissoes" element={<RelatorioComissoes />} />
                 
                 <Route path="fiscal/nfe" element={<NFE />} />
+                <Route path="fiscal/entrada-nfe" element={<EntradaNFE />} />
                 
                 <Route path="clientes" element={<ClientesList />} />
                 <Route path="clientes/novo" element={<ClienteForm />} />
                 <Route path="clientes/editar/:id" element={<ClienteForm />} />
+                
+                <Route path="usuarios" element={<UsuariosList />} />
+                <Route path="usuarios/novo" element={<UsuarioForm />} />
                 
                 <Route path="categorias" element={<CategoriasList />} />
                 <Route path="categorias/nova" element={<CategoriaForm />} />
                 <Route path="categorias/editar/:id" element={<CategoriaForm />} />
                 
                 <Route path="configuracoes" element={<Configuracoes />} />
+                
+                {/* Painel SaaS */}
+                <Route path="superadmin" element={<SuperAdmin />} />
               </Route>
             </Route>
             

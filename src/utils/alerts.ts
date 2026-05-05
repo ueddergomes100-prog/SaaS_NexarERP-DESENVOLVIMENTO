@@ -1,6 +1,6 @@
 import Swal from 'sweetalert2';
 
-const NexusSwal = Swal.mixin({
+export const NexusSwal = Swal.mixin({
   background: '#1c1c1f',
   color: '#ffffff',
   confirmButtonColor: '#8b5cf6',

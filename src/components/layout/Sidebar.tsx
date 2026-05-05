@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -12,19 +12,24 @@ import {
   Tags,
   Briefcase,
   LogOut,
+  UserCog,
   FileText,
   ShoppingCart,
   BarChart2,
   PieChart,
   ChevronDown,
   ChevronRight,
-  Receipt
+  Receipt,
+  Calendar,
+  Inbox,
+  Clock,
+  DollarSign
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import './Layout.css';
 
 const Sidebar: React.FC = () => {
-  const { logout } = useAuth();
+  const { logout, userRole, userPermissions } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isNavigatingHome, setIsNavigatingHome] = useState(false);
   const navigate = useNavigate();
@@ -56,18 +61,27 @@ const Sidebar: React.FC = () => {
     };
   });
 
+  useEffect(() => {
+    const onTriggerLogout = () => {
+      handleLogout();
+    };
+    window.addEventListener('trigger-logout', onTriggerLogout);
+    return () => window.removeEventListener('trigger-logout', onTriggerLogout);
+  }, []);
+
   const groupRoutes = {
     visaoGeral: ['/dashboard'],
     vendas: ['/pedidos-venda', '/orcamentos', '/relatorios-vendas'],
     mecanica: ['/os', '/relatorios-mecanica'],
     fiscal: ['/fiscal/nfe'],
-    cadastros: ['/clientes', '/estoque', '/servicos', '/categorias'],
+    cadastros: ['/clientes', '/estoque', '/servicos', '/categorias', '/usuarios'],
     financeiro: ['/financeiro/caixa', '/financeiro/faturamento'],
-    ferramentas: ['/lembretes'],
-    admin: ['/configuracoes']
+    admin: ['/configuracoes'],
+    crm: ['/crm/agenda', '/crm/lembretes']
   };
 
   const isGroupActive = (group: keyof typeof groupRoutes) => {
+    if (!groupRoutes[group]) return false;
     return groupRoutes[group].some(route => location.pathname.startsWith(route));
   };
 
@@ -105,21 +119,34 @@ const Sidebar: React.FC = () => {
         className="sidebar-logo" 
         onClick={handleGoHome} 
         style={{ cursor: 'pointer' }}
-        title="Ir para Dashboard"
+        title={userRole === 'SuperAdmin' ? "Ir para Painel SaaS" : "Ir para Dashboard"}
       >
         <div className="logo-icon">N</div>
-        <h2>Nexus ERP</h2>
+        <h2>Nexar ERP</h2>
       </div>
 
       <nav className="sidebar-nav">
         <div className="nav-group">
           <div className="nav-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingRight: '8px', opacity: isGroupActive('visaoGeral') ? 1 : 0.7 }}>
-            <span>Visão Geral</span>
+            <span>{userRole === 'SuperAdmin' ? 'SaaS Control' : 'Visão Geral'}</span>
           </div>
-          <NavLink to="/dashboard" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-            <LayoutDashboard size={20} />
-            <span>Dashboard</span>
-          </NavLink>
+          {userRole === 'SuperAdmin' ? (
+            <>
+              <NavLink to="/superadmin" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                <LayoutDashboard size={20} />
+                <span>Painel de Vendas SaaS</span>
+              </NavLink>
+              <NavLink to="/superadmin" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                <Users size={20} />
+                <span>Carteira de Clientes</span>
+              </NavLink>
+            </>
+          ) : (
+            <NavLink to="/dashboard" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+              <LayoutDashboard size={20} />
+              <span>Dashboard da Oficina</span>
+            </NavLink>
+          )}
         </div>
 
         {/* Chavinha Expandir Tudo */}
@@ -152,56 +179,87 @@ const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        <div className="nav-group">
-          <div className="nav-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: (expandAll || isGroupActive('cadastros')) ? 'default' : 'pointer', paddingRight: '8px', opacity: isGroupActive('cadastros') ? 1 : 0.7 }} onClick={() => !expandAll && toggleGroup('cadastros')}>
+        {/* Módulos do Lojista - Só exibe se NÃO for SuperAdmin, pois o SuperAdmin quer a visão limpa do SaaS */}
+        {userRole !== 'SuperAdmin' && (
+          <>
+            {(userRole === 'Admin' || ['cadastros.clientes', 'cadastros.estoque', 'cadastros.servicos', 'cadastros.categorias'].some(p => userPermissions?.includes(p))) && (
+          <div className="nav-group">
+            <div className="nav-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: (expandAll || isGroupActive('cadastros')) ? 'default' : 'pointer', paddingRight: '8px', opacity: isGroupActive('cadastros') ? 1 : 0.7 }} onClick={() => !expandAll && toggleGroup('cadastros')}>
             <span>Cadastros</span>
             {!expandAll && (isExpanded('cadastros') ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
           </div>
           {isExpanded('cadastros') && (
             <>
-              <NavLink to="/clientes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <Users size={20} />
-                <span>Clientes</span>
-              </NavLink>
-              <NavLink to="/estoque" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <Car size={20} />
-                <span>Estoque / Peças</span>
-              </NavLink>
-              <NavLink to="/servicos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <Briefcase size={20} />
-                <span>Cadastro de Serviços</span>
-              </NavLink>
-              <NavLink to="/categorias" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <Tags size={20} />
-                <span>Categorias</span>
-              </NavLink>
+              {(userRole === 'Admin' || userPermissions?.includes('cadastros.clientes')) && (
+                <NavLink to="/clientes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Users size={20} />
+                  <span>Clientes</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('administrativo.equipe')) && (
+                <NavLink to="/usuarios" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <UserCog size={20} />
+                  <span>Usuários</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('cadastros.estoque')) && (
+                <NavLink to="/estoque" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Car size={20} />
+                  <span>Estoque / Peças</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('cadastros.servicos')) && (
+                <NavLink to="/servicos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Briefcase size={20} />
+                  <span>Cadastro de Serviços</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('cadastros.categorias')) && (
+                <NavLink to="/categorias" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Tags size={20} />
+                  <span>Categorias</span>
+                </NavLink>
+              )}
             </>
           )}
         </div>
+        )}
 
+        {(userRole === 'Admin' || ['vendas.pedidos', 'vendas.orcamentos', 'vendas.relatorios'].some(p => userPermissions?.includes(p))) && (
         <div className="nav-group">
           <div className="nav-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: (expandAll || isGroupActive('vendas')) ? 'default' : 'pointer', paddingRight: '8px', opacity: isGroupActive('vendas') ? 1 : 0.7 }} onClick={() => !expandAll && toggleGroup('vendas')}>
-            <span>Vendas</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>Vendas</span>
+              <span style={{ fontSize: '9px', backgroundColor: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(245, 158, 11, 0.3)', textTransform: 'none', letterSpacing: '0' }}>Em desenvolvimento</span>
+            </div>
             {!expandAll && (isExpanded('vendas') ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
           </div>
           {isExpanded('vendas') && (
             <>
-              <NavLink to="/pedidos-venda" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <ShoppingCart size={20} />
-                <span>Pedido de Vendas</span>
-              </NavLink>
-              <NavLink to="/orcamentos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <FileText size={20} />
-                <span>Orçamentos</span>
-              </NavLink>
-              <NavLink to="/relatorios-vendas" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <BarChart2 size={20} />
-                <span>Relatórios</span>
-              </NavLink>
+              {(userRole === 'Admin' || userPermissions?.includes('vendas.pedidos')) && (
+                <NavLink to="/pedidos-venda" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <ShoppingCart size={20} />
+                  <span>Pedido de Vendas</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('vendas.orcamentos')) && (
+                <NavLink to="/orcamentos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <FileText size={20} />
+                  <span>Orçamentos</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('vendas.relatorios')) && (
+                <NavLink to="/relatorios-vendas" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <BarChart2 size={20} />
+                  <span>Relatórios</span>
+                </NavLink>
+              )}
             </>
           )}
         </div>
+        )}
 
+        {(userRole === 'Admin' || ['mecanica.os', 'mecanica.imprimir', 'mecanica.relatorios'].some(p => userPermissions?.includes(p))) && (
         <div className="nav-group">
           <div className="nav-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: (expandAll || isGroupActive('mecanica')) ? 'default' : 'pointer', paddingRight: '8px', opacity: isGroupActive('mecanica') ? 1 : 0.7 }} onClick={() => !expandAll && toggleGroup('mecanica')}>
             <span>Mecânica</span>
@@ -209,33 +267,77 @@ const Sidebar: React.FC = () => {
           </div>
           {isExpanded('mecanica') && (
             <>
-              <NavLink to="/os" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <Wrench size={20} />
-                <span>Ordens de Serviço</span>
-              </NavLink>
-              <NavLink to="/relatorios-mecanica" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <PieChart size={20} />
-                <span>Relatórios</span>
-              </NavLink>
+              {(userRole === 'Admin' || userPermissions?.includes('mecanica.os')) && (
+                <NavLink to="/os" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Wrench size={20} />
+                  <span>Ordens de Serviço</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('mecanica.relatorios')) && (
+                <NavLink to="/relatorios-mecanica" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <PieChart size={20} />
+                  <span>Relatórios</span>
+                </NavLink>
+              )}
             </>
           )}
         </div>
+        )}
 
+        {(userRole === 'Admin' || ['crm.agenda', 'crm.alertas'].some(p => userPermissions?.includes(p))) && (
+        <div className="nav-group">
+          <div className="nav-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: (expandAll || isGroupActive('crm')) ? 'default' : 'pointer', paddingRight: '8px', opacity: isGroupActive('crm') ? 1 : 0.7 }} onClick={() => !expandAll && toggleGroup('crm')}>
+            <span>CRM & Agenda</span>
+            {!expandAll && (isExpanded('crm') ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
+          </div>
+          {isExpanded('crm') && (
+            <>
+              {(userRole === 'Admin' || userPermissions?.includes('crm.agenda')) && (
+                <NavLink to="/crm/agenda" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Calendar size={20} />
+                  <span>Agendamentos</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('crm.alertas')) && (
+                <NavLink to="/crm/lembretes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Bell size={20} />
+                  <span>Alertas de Retorno</span>
+                </NavLink>
+              )}
+            </>
+          )}
+        </div>
+        )}
+
+        {(userRole === 'Admin' || ['fiscal.emitir', 'fiscal.entrada'].some(p => userPermissions?.includes(p))) && (
         <div className="nav-group">
           <div className="nav-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: (expandAll || isGroupActive('fiscal')) ? 'default' : 'pointer', paddingRight: '8px', opacity: isGroupActive('fiscal') ? 1 : 0.7 }} onClick={() => !expandAll && toggleGroup('fiscal')}>
-            <span>Fiscal</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>Fiscal</span>
+              <span style={{ fontSize: '9px', backgroundColor: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(245, 158, 11, 0.3)', textTransform: 'none', letterSpacing: '0' }}>Em desenvolvimento</span>
+            </div>
             {!expandAll && (isExpanded('fiscal') ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
           </div>
           {isExpanded('fiscal') && (
             <>
-              <NavLink to="/fiscal/nfe" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <Receipt size={20} />
-                <span>Emitir Nota Fiscal</span>
-              </NavLink>
+              {(userRole === 'Admin' || userPermissions?.includes('fiscal.emitir')) && (
+                <NavLink to="/fiscal/nfe" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Receipt size={20} />
+                  <span>Emitir Nota Fiscal</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('fiscal.entrada')) && (
+                <NavLink to="/fiscal/entrada-nfe" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Inbox size={20} />
+                  <span>Entrada de XML</span>
+                </NavLink>
+              )}
             </>
           )}
         </div>
+        )}
 
+        {(userRole === 'Admin' || ['financeiro.caixa', 'financeiro.receber', 'financeiro.faturamento', 'financeiro.comissoes'].some(p => userPermissions?.includes(p))) && (
         <div className="nav-group">
           <div className="nav-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: (expandAll || isGroupActive('financeiro')) ? 'default' : 'pointer', paddingRight: '8px', opacity: isGroupActive('financeiro') ? 1 : 0.7 }} onClick={() => !expandAll && toggleGroup('financeiro')}>
             <span>Financeiro</span>
@@ -243,33 +345,38 @@ const Sidebar: React.FC = () => {
           </div>
           {isExpanded('financeiro') && (
             <>
-              <NavLink to="/financeiro/caixa" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <Wallet size={20} />
-                <span>Fluxo de Caixa</span>
-              </NavLink>
-              <NavLink to="/financeiro/faturamento" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <TrendingUp size={20} />
-                <span>Faturamento</span>
-              </NavLink>
+              {(userRole === 'Admin' || userPermissions?.includes('financeiro.caixa')) && (
+                <NavLink to="/financeiro/caixa" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Wallet size={20} />
+                  <span>Fluxo de Caixa</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('financeiro.receber')) && (
+                <NavLink to="/financeiro/contas-receber" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Clock size={20} />
+                  <span>Contas a Receber</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('financeiro.faturamento')) && (
+                <NavLink to="/financeiro/faturamento" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <TrendingUp size={20} />
+                  <span>Faturamento</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('financeiro.comissoes')) && (
+                <NavLink to="/financeiro/comissoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <DollarSign size={20} />
+                  <span>Comissões a Pagar</span>
+                </NavLink>
+              )}
             </>
           )}
         </div>
+        )}
 
-        <div className="nav-group">
-          <div className="nav-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: (expandAll || isGroupActive('ferramentas')) ? 'default' : 'pointer', paddingRight: '8px', opacity: isGroupActive('ferramentas') ? 1 : 0.7 }} onClick={() => !expandAll && toggleGroup('ferramentas')}>
-            <span>Ferramentas</span>
-            {!expandAll && (isExpanded('ferramentas') ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
-          </div>
-          {isExpanded('ferramentas') && (
-            <>
-              <NavLink to="/lembretes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <Bell size={20} />
-                <span>Lembretes CRM</span>
-              </NavLink>
-            </>
-          )}
-        </div>
 
+
+        {(userRole === 'Admin' || ['administrativo.config', 'administrativo.equipe'].some(p => userPermissions?.includes(p))) && (
         <div className="nav-group">
           <div className="nav-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: (expandAll || isGroupActive('admin')) ? 'default' : 'pointer', paddingRight: '8px', opacity: isGroupActive('admin') ? 1 : 0.7 }} onClick={() => !expandAll && toggleGroup('admin')}>
             <span>Administrativo</span>
@@ -277,13 +384,20 @@ const Sidebar: React.FC = () => {
           </div>
           {isExpanded('admin') && (
             <>
-              <NavLink to="/configuracoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <Settings size={20} />
-                <span>Configurações</span>
-              </NavLink>
+              {(userRole === 'Admin' || userPermissions?.includes('administrativo.config')) && (
+                <NavLink to="/configuracoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Settings size={20} />
+                  <span>Configurações</span>
+                </NavLink>
+              )}
             </>
           )}
         </div>
+        )}
+        </>
+        )}
+        
+        {/* Painel SaaS Bottom removido, pois agora é o menu principal */}
       </nav>
 
       <div style={{ padding: '20px', borderTop: '1px solid var(--border-color)', marginTop: 'auto' }}>

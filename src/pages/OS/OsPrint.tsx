@@ -79,10 +79,10 @@ const OsPrint: React.FC = () => {
       <div className="a4-page">
         <div className="a4-header">
           <div className="a4-logo">
-            <h2>{configData?.nomeOficina || 'NEXUS OFICINA'}</h2>
+            <h2>{configData?.nomeOficina || 'NEXAR OFICINA'}</h2>
             <p>CNPJ: {configData?.cnpj || '00.000.000/0001-00'}</p>
             <p>{configData?.endereco || 'Av. das Indústrias, 1000 - São Paulo, SP'}</p>
-            <p>{configData?.telefone || '(11) 3333-4444'} | {configData?.email || 'contato@nexusoficina.com.br'}</p>
+            <p>{configData?.telefone || '(11) 3333-4444'} | {configData?.email || 'contato@nexaroficina.com.br'}</p>
           </div>
           <div className="a4-os-info">
             <h1>ORDEM DE SERVIÇO</h1>
@@ -179,7 +179,7 @@ const OsPrint: React.FC = () => {
 
         <div className="a4-footer">
           <p>{configData?.garantiaPadrao || 'Garantia de 90 dias para peças e serviços executados de acordo com o Código de Defesa do Consumidor.'}</p>
-          <p>Gerado pelo Sistema Nexus ERP.</p>
+          <p>Gerado pelo Sistema Nexar ERP.</p>
         </div>
       </div>
     </div>

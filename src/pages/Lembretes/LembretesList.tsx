@@ -49,7 +49,7 @@ const LembretesList: React.FC = () => {
 
   const formatWhatsAppMessage = (lembrete: LembreteData) => {
     return encodeURIComponent(
-      `Olá, ${lembrete.clienteNome}! Tudo bem? Somos da Oficina Nexus.\n\nVimos no nosso sistema que está chegando a hora da manutenção preventiva (${lembrete.motivoLembrete}) do seu ${lembrete.modelo || 'veículo'} (Placa ${lembrete.placa}).\n\nPodemos agendar um horário para você nesta semana?`
+      `Olá, ${lembrete.clienteNome}! Tudo bem? Somos da Oficina Nexar.\n\nVimos no nosso sistema que está chegando a hora da manutenção preventiva (${lembrete.motivoLembrete}) do seu ${lembrete.modelo || 'veículo'} (Placa ${lembrete.placa}).\n\nPodemos agendar um horário para você nesta semana?`
     );
   };
 
@@ -115,7 +115,7 @@ const LembretesList: React.FC = () => {
           <h1 className="page-title">Lembretes CRM</h1>
           <p className="page-subtitle">Aviso proativo de manutenção para seus clientes</p>
         </div>
-        <button className="btn-primary" onClick={() => navigate('/lembretes/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button className="btn-primary" onClick={() => navigate('/crm/lembretes/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Plus size={18} /> Novo Lembrete
         </button>
       </div>
@@ -180,7 +180,7 @@ const LembretesList: React.FC = () => {
                         </button>
                         <button 
                           className="icon-btn"
-                          onClick={() => navigate(`/lembretes/editar/${lembrete.id}`)}
+                          onClick={() => navigate(`/crm/lembretes/editar/${lembrete.id}`)}
                           title="Editar/Excluir Lembrete"
                         >
                           <Edit2 size={16} />

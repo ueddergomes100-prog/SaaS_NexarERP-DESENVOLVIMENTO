@@ -169,7 +169,7 @@ const LembreteForm: React.FC = () => {
         showSuccess('Lembrete salvo com sucesso!');
       }
       
-      navigate('/lembretes');
+      navigate('/crm/lembretes');
     } catch (error) {
       console.error('Erro ao salvar lembrete:', error);
       showError('Erro', 'Erro ao salvar lembrete. Tente novamente.');
@@ -185,7 +185,7 @@ const LembreteForm: React.FC = () => {
       try {
         await deleteDoc(doc(db, 'lembretes', id));
         showSuccess('Lembrete excluído!');
-        navigate('/lembretes');
+        navigate('/crm/lembretes');
       } catch (err) {
         showError('Erro', 'Não foi possível excluir o lembrete.');
       }
@@ -200,9 +200,7 @@ const LembreteForm: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <button className="icon-btn" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }} onClick={() => navigate('/lembretes')}>
-            <ArrowLeft size={20} />
-          </button>
+          <button className="icon-btn back-btn" onClick={() => navigate('/crm/lembretes')} title="Voltar"><ArrowLeft size={20} /></button>
           <div>
             <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px 0' }}>{isEditing ? 'Editar Lembrete CRM' : 'Novo Lembrete CRM'}</h1>
             <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>{isEditing ? 'Atualize as informações do aviso de manutenção' : 'Crie um aviso futuro de manutenção para um cliente'}</p>

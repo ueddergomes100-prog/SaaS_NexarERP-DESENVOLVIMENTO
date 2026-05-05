@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, Printer, Edit } from 'lucide-react';
-import { collection, query, onSnapshot, where } from 'firebase/firestore';
+import { Plus, Search, Filter, Printer, Edit, MessageCircle, Trash2 } from 'lucide-react';
+import { collection, query, onSnapshot, where, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import './OS.css';
 
 interface OSData {
@@ -15,6 +16,8 @@ interface OSData {
   status: string;
   statusColor: string;
   createdAt: any;
+  clienteTelefone?: string;
+  total?: number;
 }
 
 const OSList: React.FC = () => {
@@ -49,6 +52,53 @@ const OSList: React.FC = () => {
 
     return () => unsubscribe();
   }, [currentUser]);
+
+  const handleOpenWhatsApp = (os: OSData) => {
+    if (!os.clienteTelefone) {
+      alert("Esta Ordem de Serviço não possui telefone de cliente vinculado.");
+      return;
+    }
+    
+    // Limpar telefone (remover não numéricos)
+    const telLimpado = os.clienteTelefone.replace(/\D/g, '');
+    if (telLimpado.length < 10) {
+      alert("Número de telefone inválido.");
+      return;
+    }
+
+    const mensagem = encodeURIComponent(
+      `Olá, ${os.clienteNome}! Tudo bem?\n\n` +
+      `Somos da Oficina Nexar. Gostaríamos de atualizar sobre o serviço do seu ${os.modelo || 'veículo'} (Placa: ${os.placa.toUpperCase()}).\n` +
+      `O status atual da sua OS #${os.numeroOS || os.id.substring(0,8).toUpperCase()} é: *${os.status}*.\n\n` +
+      `Acesse seu orçamento/OS neste link: (Link do PDF aqui)`
+    );
+
+    window.open(`https://wa.me/55${telLimpado}?text=${mensagem}`, '_blank');
+  };
+
+  const handleDeleteOS = async (osId: string) => {
+    const confirm = await NexusSwal.fire({
+      title: 'Excluir Definitivamente?',
+      text: 'Esta ação removerá a OS do sistema para sempre. Não pode ser desfeita.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, excluir',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#ef4444'
+    });
+
+    if (confirm.isConfirmed) {
+      try {
+        await deleteDoc(doc(db, 'ordens_de_servico', osId));
+        try {
+          await deleteDoc(doc(db, 'transacoes', osId));
+        } catch(e) {}
+        showSuccess('OS excluída com sucesso!');
+      } catch(err) {
+        showError('Erro', 'Não foi possível excluir a Ordem de Serviço.');
+      }
+    }
+  };
 
   const filteredOsList = osList.filter(os => {
     let matchesTab = false;
@@ -187,6 +237,14 @@ const OSList: React.FC = () => {
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button 
                           className="icon-btn" 
+                          onClick={() => handleOpenWhatsApp(os)}
+                          title="Enviar por WhatsApp"
+                          style={{ color: '#10b981' }}
+                        >
+                          <MessageCircle size={18} />
+                        </button>
+                        <button 
+                          className="icon-btn" 
                           onClick={() => navigate(`/os/editar/${os.id}`)}
                           title="Editar OS"
                         >
@@ -199,6 +257,16 @@ const OSList: React.FC = () => {
                         >
                           <Printer size={18} />
                         </button>
+                        {os.status === 'Cancelada' && (
+                          <button 
+                            className="icon-btn" 
+                            onClick={() => handleDeleteOS(os.id)}
+                            title="Excluir Definitivamente"
+                            style={{ color: '#ef4444' }}
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

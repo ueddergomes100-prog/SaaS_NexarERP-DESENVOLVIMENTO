@@ -24,7 +24,14 @@ const OSForm: React.FC = () => {
     defeitoRelatado: '', relatorioTecnico: '',
     status: 'Orçamento Pendente', // Status padrão na criação
     numeroOS: '',
+    estoqueBaixado: false,
+    formaPagamento: 'Dinheiro',
+    statusPagamento: 'Pendente',
+    mecanicoId: '',
+    mecanicoNome: '',
   });
+
+  const [mecanicosDisponiveis, setMecanicosDisponiveis] = useState<{id: string, nome: string}[]>([]);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingOS, setIsFetchingOS] = useState(isEditing);
@@ -40,7 +47,7 @@ const OSForm: React.FC = () => {
   const [pecaPrecoInput, setPecaPrecoInput] = useState('');
   const [pecasSelecionadas, setPecasSelecionadas] = useState<PecaSelecionada[]>([]);
 
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
   
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -57,28 +64,35 @@ const OSForm: React.FC = () => {
 
   useEffect(() => {
     const fetchInitialData = async () => {
-      if (!currentUser) return;
+      if (!currentUser || !tenantId) return;
 
       // Fetch Clientes
-      const qC = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
+      const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
       const snapC = await getDocs(qC);
       const dataC: ClienteBasico[] = [];
       snapC.forEach((doc) => dataC.push({ id: doc.id, nome: doc.data().nome, telefone: doc.data().telefone }));
       setClientesDisponiveis(dataC);
 
       // Fetch Serviços
-      const qS = query(collection(db, 'servicos'), where('tenantId', '==', currentUser.uid));
+      const qS = query(collection(db, 'servicos'), where('tenantId', '==', tenantId));
       const snapS = await getDocs(qS);
       const dataS: ServicoData[] = [];
       snapS.forEach((doc) => dataS.push({ id: doc.id, nome: doc.data().nome, preco: doc.data().preco }));
       setServicosCatalogo(dataS);
 
       // Fetch Estoque
-      const qE = query(collection(db, 'estoque'), where('tenantId', '==', currentUser.uid));
+      const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
       const snapE = await getDocs(qE);
       const dataE: PecaData[] = [];
       snapE.forEach((doc) => dataE.push({ id: doc.id, nome: doc.data().nome, precoVenda: doc.data().precoVenda }));
       setPecasEstoque(dataE);
+
+      // Fetch Mecânicos
+      const qM = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId), where('recebeComissao', '==', true));
+      const snapM = await getDocs(qM);
+      const dataM: {id: string, nome: string}[] = [];
+      snapM.forEach((doc) => dataM.push({ id: doc.id, nome: doc.data().nome }));
+      setMecanicosDisponiveis(dataM);
 
       // Fetch OS se for Edição
       if (isEditing && id) {
@@ -98,6 +112,11 @@ const OSForm: React.FC = () => {
               relatorioTecnico: os.relatorioTecnico || '',
               status: os.status || 'Orçamento Pendente',
               numeroOS: os.numeroOS || '',
+              estoqueBaixado: os.estoqueBaixado || false,
+              formaPagamento: os.formaPagamento || 'Dinheiro',
+              statusPagamento: os.statusPagamento || 'Pendente',
+              mecanicoId: os.mecanicoId || '',
+              mecanicoNome: os.mecanicoNome || '',
             });
             setServicosSelecionados(os.servicos || []);
             setPecasSelecionadas(os.pecas || []);
@@ -112,7 +131,7 @@ const OSForm: React.FC = () => {
         }
       } else {
         try {
-          const snapOS = await getCountFromServer(query(collection(db, 'ordens_de_servico'), where('tenantId', '==', currentUser.uid)));
+          const snapOS = await getCountFromServer(query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId)));
           const nextOsNum = String(snapOS.data().count + 1).padStart(2, '0');
           setFormData(prev => ({ ...prev, numeroOS: nextOsNum }));
         } catch (err) {
@@ -122,7 +141,7 @@ const OSForm: React.FC = () => {
       }
     };
     fetchInitialData();
-  }, [id, isEditing, navigate, currentUser]);
+  }, [id, isEditing, navigate, currentUser, tenantId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -132,6 +151,11 @@ const OSForm: React.FC = () => {
         setFormData({ ...formData, clienteNome: value, clienteTelefone: clienteEncontrado.telefone || '' });
         return;
       }
+    }
+    if (name === 'mecanicoId') {
+      const mecEncontrado = mecanicosDisponiveis.find(m => m.id === value);
+      setFormData({ ...formData, mecanicoId: value, mecanicoNome: mecEncontrado ? mecEncontrado.nome : '' });
+      return;
     }
     setFormData({ ...formData, [name]: value });
   };
@@ -285,13 +309,51 @@ const OSForm: React.FC = () => {
         });
       }
 
-      // 2. Prepare OS Data
+      // 2. Lógica de Baixa/Retorno de Estoque
+      let estoqueFoiBaixado = formData.estoqueBaixado || false;
+
+      if (formData.status === 'Finalizada' && !estoqueFoiBaixado) {
+        for (const peca of pecasSelecionadas) {
+          if (peca.id) {
+            try {
+              const pecaRef = doc(db, 'estoque', peca.id);
+              const pecaSnap = await getDoc(pecaRef);
+              if (pecaSnap.exists()) {
+                const atual = pecaSnap.data().quantidade || 0;
+                await updateDoc(pecaRef, { quantidade: Math.max(0, atual - peca.quantidade) });
+              }
+            } catch (err) {
+              console.error(`Erro ao dar baixa na peça ${peca.nome}:`, err);
+            }
+          }
+        }
+        estoqueFoiBaixado = true;
+      } else if (formData.status === 'Cancelada' && estoqueFoiBaixado) {
+        for (const peca of pecasSelecionadas) {
+          if (peca.id) {
+            try {
+              const pecaRef = doc(db, 'estoque', peca.id);
+              const pecaSnap = await getDoc(pecaRef);
+              if (pecaSnap.exists()) {
+                const atual = pecaSnap.data().quantidade || 0;
+                await updateDoc(pecaRef, { quantidade: atual + peca.quantidade });
+              }
+            } catch (err) {
+              console.error(`Erro ao retornar peça ${peca.nome}:`, err);
+            }
+          }
+        }
+        estoqueFoiBaixado = false;
+      }
+
+      // 3. Prepare OS Data
       const osData = {
         ...formData,
         servicos: servicosSelecionados,
         pecas: pecasSelecionadas,
         valorTotal: totalOS,
         statusColor: getStatusColor(formData.status),
+        estoqueBaixado: estoqueFoiBaixado
       };
 
       let osId = id;
@@ -312,12 +374,18 @@ const OSForm: React.FC = () => {
       if (osId) {
         const transacaoRef = doc(db, 'transacoes', osId);
         
+        let calcStatusPagamento = 'Pendente'; // Cartão, Boleto, Fiado vão pro Contas a Receber
+        if (formData.formaPagamento === 'Dinheiro' || formData.formaPagamento === 'Pix') {
+          calcStatusPagamento = 'Paga'; // Dinheiro e Pix vão direto pro Caixa Principal
+        }
+
         const transacaoData = {
           descricao: `Recebimento OS #${formData.numeroOS || osId.substring(0,6).toUpperCase()}`,
           categoria: 'Serviços Automotivos',
           valor: totalOS,
           tipo: 'entrada',
-          status: formData.status === 'Finalizada' ? 'Paga' : (formData.status === 'Cancelada' ? 'Cancelada' : 'Pendente'),
+          formaPagamento: formData.formaPagamento,
+          status: formData.status === 'Finalizada' ? calcStatusPagamento : (formData.status === 'Cancelada' ? 'Cancelada' : 'Pendente'),
           osId: osId,
           clienteNome: formData.clienteNome,
           tenantId: currentUser.uid
@@ -384,6 +452,27 @@ const OSForm: React.FC = () => {
                 <option value="Cancelada">Cancelada</option>
               </select>
             </div>
+            
+            {formData.status === 'Finalizada' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px', padding: '16px', backgroundColor: 'rgba(16, 185, 129, 0.05)', borderRadius: 'var(--radius-md)', border: '1px dashed rgba(16, 185, 129, 0.3)' }}>
+                <div className="input-group">
+                  <label>Forma de Pagamento</label>
+                  <select name="formaPagamento" value={formData.formaPagamento} onChange={handleChange} style={{ backgroundColor: 'var(--bg-secondary)', width: '100%' }}>
+                    <option value="Dinheiro">Dinheiro</option>
+                    <option value="Pix">Pix</option>
+                    <option value="Cartão de Crédito">Cartão de Crédito</option>
+                    <option value="Cartão de Débito">Cartão de Débito</option>
+                    <option value="Boleto">Boleto</option>
+                    <option value="A Prazo / Fiado">A Prazo / Fiado</option>
+                  </select>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  {(formData.formaPagamento === 'Dinheiro' || formData.formaPagamento === 'Pix') 
+                    ? <span style={{ color: '#10b981' }}>✓ Irá somar automaticamente no saldo do <strong>Caixa</strong>.</span>
+                    : <span style={{ color: '#f59e0b' }}>ℹ️ Será enviado para a tela de <strong>Contas a Receber</strong> (Aguardando Conciliação).</span>}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="card form-section">
@@ -460,8 +549,27 @@ const OSForm: React.FC = () => {
           <div className="card form-section">
             <div className="section-header">
               <FileText size={20} className="section-icon" />
-              <h3>Inclusão de Serviços</h3>
+              <h3>Inclusão de Serviços e Mão de Obra</h3>
             </div>
+            
+            <div className="input-group" style={{ marginBottom: '20px', paddingBottom: '20px', borderBottom: '1px dashed var(--border-color)' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                Mecânico Responsável (Gera Comissão)
+                <span style={{ fontSize: '11px', backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '2px 6px', borderRadius: '4px' }}>Opcional</span>
+              </label>
+              <select 
+                name="mecanicoId" 
+                value={formData.mecanicoId} 
+                onChange={handleChange} 
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white', width: '100%' }}
+              >
+                <option value="">-- Selecione o Mecânico (Nenhum) --</option>
+                {mecanicosDisponiveis.map(m => (
+                  <option key={m.id} value={m.id}>{m.nome}</option>
+                ))}
+              </select>
+            </div>
+
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
               <input 
                 type="text" 
@@ -530,9 +638,16 @@ const OSForm: React.FC = () => {
           </div>
           
           <div className="card form-section">
-            <div className="section-header">
-              <Package size={20} className="section-icon" />
-              <h3>Inclusão de Peças (Estoque)</h3>
+            <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Package size={20} className="section-icon" />
+                <h3>Inclusão de Peças (Estoque)</h3>
+              </div>
+              {formData.estoqueBaixado && (
+                <span style={{ fontSize: '11px', backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '4px 8px', borderRadius: '4px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  Estoque Baixado
+                </span>
+              )}
             </div>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
               <input 

@@ -7,7 +7,8 @@ import {
   TrendingUp,
   MoreVertical,
   Eye,
-  EyeOff
+  EyeOff,
+  Clock
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -43,8 +44,21 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [tableTab, setTableTab] = useState<'Ativas' | 'Finalizadas'>('Ativas');
   const [hideData, setHideData] = useState(() => localStorage.getItem('nexus_hide_dashboard') === 'true');
+  const [currentDate, setCurrentDate] = useState(new Date());
 
-  const { currentUser } = useAuth();
+  const { currentUser, userRole, userPermissions, loading: authLoading } = useAuth();
+  const hasFinancialAccess = userRole === 'Admin' || userPermissions?.includes('dashboard.valores');
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentDate(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (userRole === 'SuperAdmin') {
+      navigate('/superadmin');
+    }
+  }, [userRole, navigate]);
 
   const toggleHideData = () => {
     const newVal = !hideData;
@@ -75,24 +89,28 @@ const Dashboard: React.FC = () => {
       setLoading(false);
     });
 
-    // Busca Transações Financeiras do usuário logado
-    const qTransacoes = query(
-      collection(db, 'transacoes'),
-      where('tenantId', '==', currentUser.uid)
-    );
-    const unsubscribeTrans = onSnapshot(qTransacoes, (querySnapshot) => {
-      const data: TransacaoData[] = [];
-      querySnapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as TransacaoData);
+    let unsubscribeTrans = () => {};
+    
+    if (hasFinancialAccess) {
+      // Busca Transações Financeiras do usuário logado (Somente se tiver acesso)
+      const qTransacoes = query(
+        collection(db, 'transacoes'),
+        where('tenantId', '==', currentUser.uid)
+      );
+      unsubscribeTrans = onSnapshot(qTransacoes, (querySnapshot) => {
+        const data: TransacaoData[] = [];
+        querySnapshot.forEach((doc) => {
+          data.push({ id: doc.id, ...doc.data() } as TransacaoData);
+        });
+        setTransacoes(data);
       });
-      setTransacoes(data);
-    });
+    }
 
     return () => {
       unsubscribeOs();
       unsubscribeTrans();
     };
-  }, [currentUser]);
+  }, [currentUser, hasFinancialAccess]);
 
   // -- Cálculos de Métricas --
   const hoje = new Date();
@@ -179,9 +197,20 @@ const Dashboard: React.FC = () => {
     });
   }
 
+  const formattedDate = new Intl.DateTimeFormat('pt-BR', { 
+    weekday: 'long', 
+    day: 'numeric', 
+    month: 'long'
+  }).format(currentDate);
+
+  const formattedTime = new Intl.DateTimeFormat('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(currentDate);
+
   return (
     <div className="dashboard">
-      <div className="dashboard-header">
+      <div className="dashboard-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <h1 className="page-title">Dashboard</h1>
@@ -196,24 +225,48 @@ const Dashboard: React.FC = () => {
           </div>
           <p className="page-subtitle">Visão geral do sistema e métricas em tempo real</p>
         </div>
-        <button className="btn-primary" onClick={() => navigate('/os/nova')}>
-          Nova Ordem de Serviço
-        </button>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
+          <div style={{ 
+            display: 'flex', alignItems: 'center', gap: '16px', 
+            backgroundColor: 'var(--bg-secondary)', padding: '12px 24px', 
+            borderRadius: '16px', border: '1px solid var(--border-color)',
+            boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)', textTransform: 'capitalize' }}>
+                {formattedDate}
+              </span>
+              <span style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--text-primary)', letterSpacing: '1px' }}>
+                {formattedTime}
+              </span>
+            </div>
+            <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'rgba(139, 92, 246, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b5cf6' }}>
+              <Clock size={20} />
+            </div>
+          </div>
+          
+          <button className="btn-primary" onClick={() => navigate('/os/nova')}>
+            Nova Ordem de Serviço
+          </button>
+        </div>
       </div>
 
       <div className="summary-cards">
-        <div className="card stat-card">
-          <div className="stat-header">
-            <div className="stat-icon purple-bg">
-              <DollarSign size={24} />
+        {hasFinancialAccess && (
+          <div className="card stat-card">
+            <div className="stat-header">
+              <div className="stat-icon purple-bg">
+                <DollarSign size={24} />
+              </div>
+              <span className="stat-trend positive">Atual</span>
             </div>
-            <span className="stat-trend positive">Atual</span>
+            <div className="stat-info">
+              <h3>{hideData ? 'R$ •••••' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(faturamentoMes)}</h3>
+              <p>Faturamento Mês</p>
+            </div>
           </div>
-          <div className="stat-info">
-            <h3>{hideData ? 'R$ •••••' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(faturamentoMes)}</h3>
-            <p>Faturamento Mês</p>
-          </div>
-        </div>
+        )}
 
         <div className="card stat-card">
           <div className="stat-header">
@@ -241,45 +294,49 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="card stat-card">
-          <div className="stat-header">
-            <div className="stat-icon yellow-bg">
-              <TrendingUp size={24} />
+        {hasFinancialAccess && (
+          <div className="card stat-card">
+            <div className="stat-header">
+              <div className="stat-icon yellow-bg">
+                <TrendingUp size={24} />
+              </div>
+              <span className="stat-trend positive">Hoje</span>
             </div>
-            <span className="stat-trend positive">Hoje</span>
+            <div className="stat-info">
+              <h3>{hideData ? 'R$ •••••' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(faturamentoHoje)}</h3>
+              <p>Faturamento Hoje</p>
+            </div>
           </div>
-          <div className="stat-info">
-            <h3>{hideData ? 'R$ •••••' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(faturamentoHoje)}</h3>
-            <p>Faturamento Hoje</p>
-          </div>
-        </div>
+        )}
       </div>
 
       <div className="dashboard-charts">
-        <div className="card chart-container">
-          <div className="card-header">
-            <h3>Fluxo de Caixa Mensal (Últimos 6 meses)</h3>
-            <button className="icon-btn" onClick={() => navigate('/financeiro/caixa')}><MoreVertical size={18} /></button>
+        {hasFinancialAccess && (
+          <div className="card chart-container">
+            <div className="card-header">
+              <h3>Fluxo de Caixa Mensal (Últimos 6 meses)</h3>
+              <button className="icon-btn" onClick={() => navigate('/financeiro/caixa')}><MoreVertical size={18} /></button>
+            </div>
+            <div className="chart-wrapper" style={{ filter: hideData ? 'blur(6px)' : 'none', transition: 'filter 0.3s', userSelect: hideData ? 'none' : 'auto', pointerEvents: hideData ? 'none' : 'auto' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={cashFlowData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                  <XAxis dataKey="name" stroke="#a0a0ab" tick={{fill: '#a0a0ab'}} axisLine={false} tickLine={false} />
+                  <YAxis stroke="#a0a0ab" tick={{fill: '#a0a0ab'}} axisLine={false} tickLine={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#1a1a1e', borderColor: '#27272a', color: '#f8f8f8' }}
+                    itemStyle={{ color: '#f8f8f8' }}
+                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                  />
+                  <Bar dataKey="entradas" fill="#8b5cf6" radius={[4, 4, 0, 0]} name="Entradas (R$)" />
+                  <Bar dataKey="saidas" fill="#ef4444" radius={[4, 4, 0, 0]} name="Saídas (R$)" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-          <div className="chart-wrapper" style={{ filter: hideData ? 'blur(6px)' : 'none', transition: 'filter 0.3s', userSelect: hideData ? 'none' : 'auto', pointerEvents: hideData ? 'none' : 'auto' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={cashFlowData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                <XAxis dataKey="name" stroke="#a0a0ab" tick={{fill: '#a0a0ab'}} axisLine={false} tickLine={false} />
-                <YAxis stroke="#a0a0ab" tick={{fill: '#a0a0ab'}} axisLine={false} tickLine={false} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#1a1a1e', borderColor: '#27272a', color: '#f8f8f8' }}
-                  itemStyle={{ color: '#f8f8f8' }}
-                  cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                />
-                <Bar dataKey="entradas" fill="#8b5cf6" radius={[4, 4, 0, 0]} name="Entradas (R$)" />
-                <Bar dataKey="saidas" fill="#ef4444" radius={[4, 4, 0, 0]} name="Saídas (R$)" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        )}
 
-        <div className="card chart-container small">
+        <div className={`card chart-container small`} style={{ gridColumn: !hasFinancialAccess ? '1 / -1' : undefined }}>
           <div className="card-header">
             <h3>Status de OS Ativas</h3>
             <button className="icon-btn" onClick={() => navigate('/os')}><MoreVertical size={18} /></button>

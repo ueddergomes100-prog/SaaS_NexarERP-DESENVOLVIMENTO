@@ -1,18 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Bell, User, Calendar, X, Loader2 } from 'lucide-react';
+import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import PerfilModal from './PerfilModal';
 import './Layout.css';
 
 const TopBar: React.FC = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<any[]>([]);
   const [configData, setConfigData] = useState<any>(null);
+  const [userData, setUserData] = useState<any>(null);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [showPerfilModal, setShowPerfilModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const profileDropdownRef = useRef<HTMLDivElement>(null);
   
   // Global search state
   const [searchTerm, setSearchTerm] = useState('');
@@ -58,53 +63,108 @@ const TopBar: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !tenantId) return;
 
-    const configUnsub = onSnapshot(doc(db, 'configuracoes', currentUser.uid), (docSnap) => {
-      let diasNotificacao = 15;
+    let diasNotificacao = 15;
+    let currentLembretes: any[] = [];
+    let currentAgendamentos: any[] = [];
+
+    const updateNotifs = () => {
+      const notifs = [...currentLembretes, ...currentAgendamentos];
+      notifs.sort((a, b) => a.diasRestantes - b.diasRestantes);
+      setNotifications(notifs);
+    };
+
+    let userUnsub = () => {};
+    if (userRole !== 'Admin' && userRole !== 'SuperAdmin') {
+      userUnsub = onSnapshot(doc(db, 'usuarios', currentUser.uid), (docSnap) => {
+        if (docSnap.exists()) {
+          setUserData(docSnap.data());
+        }
+      });
+    }
+
+    const configUnsub = onSnapshot(doc(db, 'configuracoes', tenantId), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setConfigData(data);
         diasNotificacao = Number(data.diasNotificacaoLembrete || 15);
+        updateNotifs();
       }
-      
-      // Listen to lembretes
-      const q = query(collection(db, 'lembretes'), where('tenantId', '==', currentUser.uid), where('status', '==', 'Pendente'));
-      const lembretesUnsub = onSnapshot(q, (snap) => {
-        const notifs: any[] = [];
-        const hoje = new Date();
-        hoje.setHours(0,0,0,0);
+    });
+    
+    // Listen to Lembretes (Alertas de Retorno)
+    const qLembretes = query(collection(db, 'lembretes'), where('tenantId', '==', tenantId), where('status', '==', 'Pendente'));
+    const lembretesUnsub = onSnapshot(qLembretes, (snap) => {
+      const temp: any[] = [];
+      const hoje = new Date();
+      hoje.setHours(0,0,0,0);
 
-        snap.forEach(d => {
-          const lembrete = d.data();
-          if (lembrete.dataPrevisao) {
-            // Lembrete data format is 'YYYY-MM-DD'
-            const [y, m, day] = lembrete.dataPrevisao.split('-');
-            const prev = new Date(Number(y), Number(m) - 1, Number(day));
-            
-            const diffTime = prev.getTime() - hoje.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            
-            if (diffDays <= diasNotificacao) {
-              notifs.push({
-                id: d.id,
-                ...lembrete,
-                diasRestantes: diffDays
-              });
-            }
+      snap.forEach(d => {
+        const lembrete = d.data();
+        if (lembrete.dataPrevisao) {
+          const [y, m, day] = lembrete.dataPrevisao.split('-');
+          const prev = new Date(Number(y), Number(m) - 1, Number(day));
+          
+          const diffTime = prev.getTime() - hoje.getTime();
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          
+          if (diffDays > 0 && diffDays <= diasNotificacao) {
+            temp.push({
+              id: d.id,
+              tipoLogico: 'lembrete',
+              labelTipo: 'Lembrete de Retorno',
+              ...lembrete,
+              diasRestantes: diffDays
+            });
           }
-        });
-        
-        // Sort by closest date
-        notifs.sort((a, b) => a.diasRestantes - b.diasRestantes);
-        setNotifications(notifs);
+        }
       });
-
-      return () => lembretesUnsub();
+      
+      currentLembretes = temp;
+      updateNotifs();
     });
 
-    return () => configUnsub();
-  }, [currentUser]);
+    // Listen to Agendamentos
+    const qAgendamentos = query(collection(db, 'agendamentos'), where('tenantId', '==', tenantId), where('status', '==', 'Agendado'));
+    const agendamentosUnsub = onSnapshot(qAgendamentos, (snap) => {
+      const temp: any[] = [];
+      const hoje = new Date();
+      hoje.setHours(0,0,0,0);
+
+      snap.forEach(d => {
+        const ag = d.data();
+        if (ag.data) {
+          const [y, m, day] = ag.data.split('-');
+          const prev = new Date(Number(y), Number(m) - 1, Number(day));
+          
+          const diffTime = prev.getTime() - hoje.getTime();
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          
+          if (diffDays > 0 && diffDays <= diasNotificacao) {
+            temp.push({
+              id: d.id,
+              tipoLogico: 'agendamento',
+              labelTipo: 'Agendamento Marcado',
+              veiculo: ag.veiculo,
+              clienteNome: ag.clienteNome,
+              diasRestantes: diffDays
+            });
+          }
+        }
+      });
+      
+      currentAgendamentos = temp;
+      updateNotifs();
+    });
+
+    return () => {
+      configUnsub();
+      lembretesUnsub();
+      agendamentosUnsub();
+      userUnsub();
+    };
+  }, [currentUser, tenantId, userRole]);
 
   // Handle clicking outside to close dropdowns
   useEffect(() => {
@@ -114,6 +174,9 @@ const TopBar: React.FC = () => {
       }
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
         setShowSearchDropdown(false);
+      }
+      if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target as Node)) {
+        setShowProfileDropdown(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -333,20 +396,27 @@ const TopBar: React.FC = () => {
                       padding: '16px', borderBottom: '1px solid var(--border-color)', 
                       display: 'flex', gap: '12px', cursor: 'pointer', transition: 'background 0.2s'
                     }}
-                    onClick={goToLembretes}
+                    onClick={() => {
+                      if (notif.tipoLogico === 'agendamento') navigate('/crm/agenda');
+                      else navigate('/crm/lembretes');
+                      setShowDropdown(false);
+                    }}
                     onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
                     onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                     >
-                      <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: notif.diasRestantes <= 0 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: notif.diasRestantes <= 0 ? '#ef4444' : '#f59e0b', flexShrink: 0 }}>
+                      <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(139, 92, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b5cf6', flexShrink: 0 }}>
                         <Calendar size={16} />
                       </div>
                       <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                          <span style={{ fontSize: '10px', backgroundColor: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-muted)', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                            {notif.labelTipo}
+                          </span>
+                        </div>
                         <p style={{ margin: '0 0 4px 0', fontSize: '13px', fontWeight: 600 }}>{notif.veiculo}</p>
                         <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-secondary)' }}>Cliente: {notif.clienteNome}</p>
-                        <p style={{ margin: 0, fontSize: '11px', color: notif.diasRestantes <= 0 ? '#ef4444' : '#f59e0b', fontWeight: 500 }}>
-                          {notif.diasRestantes < 0 ? `Vencido há ${Math.abs(notif.diasRestantes)} dias` : 
-                           notif.diasRestantes === 0 ? 'Vence hoje!' :
-                           `Vence em ${notif.diasRestantes} dias`}
+                        <p style={{ margin: 0, fontSize: '11px', color: '#f59e0b', fontWeight: 500 }}>
+                          Faltam {notif.diasRestantes} dias
                         </p>
                       </div>
                     </div>
@@ -365,16 +435,75 @@ const TopBar: React.FC = () => {
           )}
         </div>
 
-        <div className="profile-menu">
-          <div className="profile-avatar">
-            <User size={20} />
+        <div style={{ position: 'relative' }} ref={profileDropdownRef}>
+          <div className="profile-menu" onClick={() => setShowProfileDropdown(!showProfileDropdown)} style={{ cursor: 'pointer' }}>
+            <div className="profile-avatar">
+              <User size={20} />
+            </div>
+            <div className="profile-info">
+              <span className="profile-name">{userData?.nome || configData?.nomeUsuario || 'Administrador'}</span>
+              <span className="profile-role">{configData?.nomeOficina || 'Oficina Logada'}</span>
+            </div>
+            <ChevronDown size={16} style={{ color: 'var(--text-muted)', marginLeft: '8px' }} />
           </div>
-          <div className="profile-info">
-            <span className="profile-name">{configData?.nomeUsuario || 'Administrador'}</span>
-            <span className="profile-role">{configData?.nomeOficina || 'Oficina Logada'}</span>
-          </div>
+
+          {showProfileDropdown && (
+            <div style={{
+              position: 'absolute', top: '50px', right: '0', width: '220px', 
+              backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)',
+              boxShadow: '0 10px 25px rgba(0,0,0,0.5)', border: '1px solid var(--border-color)',
+              zIndex: 1000, overflow: 'hidden', animation: 'fadeInUpLogout 0.2s ease-out forwards',
+              display: 'flex', flexDirection: 'column'
+            }}>
+              <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '14px' }}>{userData?.nome || configData?.nomeUsuario || 'Administrador'}</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{currentUser?.email || 'Usuário do Sistema'}</span>
+              </div>
+              
+              <div style={{ padding: '8px' }}>
+                <button 
+                  onClick={() => { setShowProfileDropdown(false); setShowPerfilModal(true); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 'var(--radius-md)', transition: 'background 0.2s', textAlign: 'left', fontSize: '13px' }}
+                  onMouseOver={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'white'; }}
+                  onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                >
+                  <User size={16} /> Meu Perfil
+                </button>
+
+                {(userRole === 'Admin' || userPermissions?.includes('administrativo.config')) && (
+                  <button 
+                    onClick={() => { setShowProfileDropdown(false); navigate('/configuracoes'); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 'var(--radius-md)', transition: 'background 0.2s', textAlign: 'left', fontSize: '13px' }}
+                    onMouseOver={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'white'; }}
+                    onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                  >
+                    <Settings size={16} /> Configurações
+                  </button>
+                )}
+              </div>
+
+              <div style={{ padding: '8px', borderTop: '1px solid var(--border-color)' }}>
+                <button 
+                  onClick={() => { setShowProfileDropdown(false); window.dispatchEvent(new Event('trigger-logout')); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', borderRadius: 'var(--radius-md)', transition: 'background 0.2s', textAlign: 'left', fontSize: '13px', fontWeight: 500 }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <LogOut size={16} /> Sair do Sistema
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {showPerfilModal && (
+        <PerfilModal 
+          onClose={() => setShowPerfilModal(false)} 
+          userData={userData} 
+          configData={configData} 
+        />
+      )}
     </header>
   );
 };

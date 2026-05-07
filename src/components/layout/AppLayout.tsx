@@ -40,7 +40,7 @@ const AppLayout: React.FC = () => {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+    <div className="app-layout-wrapper" style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
       {globalAlert && !hideAlert && (
         <div style={{ 
           backgroundColor: '#f59e0b', 

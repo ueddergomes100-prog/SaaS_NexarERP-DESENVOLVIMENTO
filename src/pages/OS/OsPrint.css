@@ -145,22 +145,53 @@
 }
 
 @media print {
-  body * {
-    visibility: hidden;
+  /* Override main layout constraints to allow scrolling/multiple pages */
+  body, html, #root, .app-layout-wrapper, .app-container, .main-content, .page-content {
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    position: static !important;
   }
-  .a4-page, .a4-page * {
-    visibility: visible;
-  }
-  .a4-page {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    margin: 0;
-    padding: 0;
-    box-shadow: none;
-  }
-  .no-print {
+
+  /* Hide navigation elements */
+  .sidebar, .topbar, .mobile-menu-btn, .mobile-sidebar-overlay, .no-print {
     display: none !important;
+  }
+
+  .print-layout-wrapper {
+    background-color: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .a4-page {
+    position: relative !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    page-break-after: auto;
+    page-break-inside: auto;
+  }
+
+  /* Prevent table rows from splitting across pages */
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  /* Repeat table headers and footers on new pages */
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-row-group;
+  }
+
+  /* Prevent sections from splitting awkwardly */
+  .a4-header, .a4-grid, .a4-signatures, .a4-footer {
+    page-break-inside: avoid;
   }
 }

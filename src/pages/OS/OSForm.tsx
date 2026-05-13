@@ -304,15 +304,15 @@ const OSForm: React.FC = () => {
     try {
       // 1. Check and Create Client if new
       if (!currentUser) return;
-      const clienteExiste = clientesDisponiveis.some(c => c.nome.toLowerCase() === formData.clienteNome.toLowerCase());
-      if (!clienteExiste) {
+      const clienteExiste = clientesDisponiveis.some(c => c.nome.toUpperCase() === formData.clienteNome.toUpperCase().trim());
+      if (!clienteExiste && formData.clienteNome.trim()) {
         const qC = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
         const snapC = await getCountFromServer(qC);
         const nextId = snapC.data().count + 1;
 
         await addDoc(collection(db, 'clientes'), {
           codigo: String(nextId),
-          nome: formData.clienteNome,
+          nome: formData.clienteNome.toUpperCase().trim(),
           telefone: formData.clienteTelefone,
           tenantId: currentUser.uid,
           createdAt: serverTimestamp()
@@ -359,6 +359,7 @@ const OSForm: React.FC = () => {
       // 3. Prepare OS Data
       const osData = {
         ...formData,
+        clienteNome: formData.clienteNome.toUpperCase().trim(),
         servicos: servicosSelecionados,
         pecas: pecasSelecionadas,
         valorTotal: totalOS,
@@ -397,7 +398,7 @@ const OSForm: React.FC = () => {
           formaPagamento: formData.formaPagamento,
           status: formData.status === 'Finalizada' ? calcStatusPagamento : (formData.status === 'Cancelada' ? 'Cancelada' : 'Pendente'),
           osId: osId,
-          clienteNome: formData.clienteNome,
+          clienteNome: formData.clienteNome.toUpperCase().trim(),
           tenantId: currentUser.uid
         };
 
@@ -528,6 +529,7 @@ const OSForm: React.FC = () => {
                 }} 
                 onFocus={() => setIsClientDropdownOpen(true)}
                 autoComplete="off" 
+                style={{ textTransform: 'uppercase' }}
               />
               {isClientDropdownOpen && (
                 <div style={{

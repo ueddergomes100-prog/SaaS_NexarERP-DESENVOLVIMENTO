@@ -50,16 +50,21 @@ const CategoriaForm: React.FC = () => {
     
     setIsLoading(true);
     try {
+      const dataToSave = {
+        ...formData,
+        nome: formData.nome.toUpperCase().trim()
+      };
+
       if (isEditing && id) {
         await updateDoc(doc(db, 'categorias', id), {
-          ...formData,
+          ...dataToSave,
           updatedAt: serverTimestamp()
         });
         showSuccess('Categoria atualizada!');
       } else {
         if (!currentUser) return;
         await addDoc(collection(db, 'categorias'), {
-          ...formData,
+          ...dataToSave,
           tenantId: currentUser.uid,
           createdAt: serverTimestamp()
         });
@@ -104,7 +109,7 @@ const CategoriaForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome da Categoria *</label>
-              <input type="text" name="nome" placeholder="Ex: Suspensão, Óleos, Mão de Obra..." value={formData.nome} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} />
+              <input type="text" name="nome" placeholder="Ex: SUSPENSÃO, ÓLEOS, MÃO DE OBRA..." value={formData.nome} onChange={handleChange} style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} />
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Tipo *</label>

@@ -70,18 +70,22 @@ const ServicoForm: React.FC = () => {
     
     setIsLoading(true);
     try {
+      const dataToSave = {
+        ...formData,
+        nome: formData.nome.toUpperCase().trim(),
+        preco: Number(String(formData.preco).replace(',','.'))
+      };
+
       if (isEditing && id) {
         await updateDoc(doc(db, 'servicos', id), {
-          ...formData,
-          preco: Number(String(formData.preco).replace(',','.')),
+          ...dataToSave,
           updatedAt: serverTimestamp()
         });
         showSuccess('Serviço atualizado!');
       } else {
         if (!currentUser) return;
         await addDoc(collection(db, 'servicos'), {
-          ...formData,
-          preco: Number(String(formData.preco).replace(',','.')),
+          ...dataToSave,
           tenantId: currentUser.uid,
           createdAt: serverTimestamp()
         });
@@ -130,7 +134,7 @@ const ServicoForm: React.FC = () => {
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome do Serviço *</label>
-              <input type="text" name="nome" placeholder="Ex: Alinhamento e Balanceamento" value={formData.nome} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} />
+              <input type="text" name="nome" placeholder="Ex: ALINHAMENTO E BALANCEAMENTO" value={formData.nome} onChange={handleChange} style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} />
             </div>
           </div>
 

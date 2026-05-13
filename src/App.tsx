@@ -14,6 +14,8 @@ import OSList from './pages/OS/OSList';
 import RelatoriosMecanica from './pages/OS/RelatoriosMecanica';
 import OSForm from './pages/OS/OSForm';
 import OsPrint from './pages/OS/OsPrint';
+import PedidoVendaForm from './pages/Vendas/PedidoVendaForm';
+import PedidoPrint from './pages/Vendas/PedidoPrint';
 import EstoqueList from './pages/Estoque/EstoqueList';
 import EstoqueForm from './pages/Estoque/EstoqueForm';
 import LembretesList from './pages/Lembretes/LembretesList';
@@ -21,6 +23,7 @@ import LembreteForm from './pages/Lembretes/LembreteForm';
 import Caixa from './pages/Financeiro/Caixa';
 import Faturamento from './pages/Financeiro/Faturamento';
 import ContasReceber from './pages/Financeiro/ContasReceber';
+import ContasPagar from './pages/Financeiro/ContasPagar';
 import RelatorioComissoes from './pages/Financeiro/RelatorioComissoes';
 import ClientesList from './pages/Clientes/ClientesList';
 import ClienteForm from './pages/Clientes/ClienteForm';
@@ -103,6 +106,9 @@ function App() {
                 
                 <Route path="orcamentos" element={<Orcamentos />} />
                 <Route path="pedidos-venda" element={<PedidoVendas />} />
+                <Route path="pedidos-venda/novo" element={<PedidoVendaForm />} />
+                <Route path="pedidos-venda/visualizar/:id" element={<PedidoVendaForm />} />
+                <Route path="pedidos-venda/print/:id" element={<PedidoPrint />} />
                 <Route path="relatorios-vendas" element={<RelatoriosVendas />} />
                 
                 <Route path="os" element={<OSList />} />
@@ -126,6 +132,7 @@ function App() {
                 
                 <Route path="financeiro/caixa" element={<Caixa />} />
                 <Route path="financeiro/contas-receber" element={<ContasReceber />} />
+                <Route path="financeiro/contas-pagar" element={<ContasPagar />} />
                 <Route path="financeiro/faturamento" element={<Faturamento />} />
                 <Route path="financeiro/comissoes" element={<RelatorioComissoes />} />
                 

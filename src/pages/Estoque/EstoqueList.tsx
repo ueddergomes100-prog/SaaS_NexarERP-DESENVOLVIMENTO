@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Filter, AlertCircle, Package, Edit, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, doc, deleteDoc, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, deleteDoc, where, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
+import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import './Estoque.css';
 
 interface PecaData {
@@ -56,6 +56,35 @@ const EstoqueList: React.FC = () => {
     }
   };
 
+  const handleFixNames = async () => {
+    const isConfirmed = await NexusSwal.fire({
+      title: 'Padronizar Nomes?',
+      text: 'Isto converterá o nome de TODAS as peças do estoque para MAIÚSCULAS.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, padronizar agora'
+    });
+
+    if (isConfirmed.isConfirmed) {
+      setLoading(true);
+      try {
+        let count = 0;
+        for (const p of pecasList) {
+          const upName = p.nome.toUpperCase().trim();
+          if (p.nome !== upName) {
+            await updateDoc(doc(db, 'estoque', p.id), { nome: upName });
+            count++;
+          }
+        }
+        showSuccess(`Pronto! ${count} peças foram atualizadas.`);
+      } catch(err) {
+        showError('Erro', 'Ocorreu um erro na migração.');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
   const getStatusBadge = (quantidade: number) => {
     if (quantidade <= 0) {
       return (
@@ -88,13 +117,18 @@ const EstoqueList: React.FC = () => {
           <h1 className="page-title">Estoque e Peças</h1>
           <p className="page-subtitle">Controle de inventário e cadastro de peças</p>
         </div>
-        <button 
-          className="btn-primary"
-          onClick={() => navigate('/estoque/nova')}
-        >
-          <Plus size={18} style={{ marginRight: 8 }} />
-          Nova Peça
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+            Padronizar (A-Z)
+          </button>
+          <button 
+            className="btn-primary"
+            onClick={() => navigate('/estoque/nova')}
+          >
+            <Plus size={18} style={{ marginRight: 8 }} />
+            Nova Peça
+          </button>
+        </div>
       </div>
 
       <div className="dashboard-charts" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: '8px' }}>

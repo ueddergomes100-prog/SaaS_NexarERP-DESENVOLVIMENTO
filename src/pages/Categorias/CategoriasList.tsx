@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Plus, Tags, Edit, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, deleteDoc, doc, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
+import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 
 interface CategoriaData {
   id: string;
@@ -44,6 +44,35 @@ const CategoriasList: React.FC = () => {
     }
   };
 
+  const handleFixNames = async () => {
+    const isConfirmed = await NexusSwal.fire({
+      title: 'Padronizar Nomes?',
+      text: 'Isto converterá o nome de TODAS as categorias para MAIÚSCULAS.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, padronizar agora'
+    });
+
+    if (isConfirmed.isConfirmed) {
+      setLoading(true);
+      try {
+        let count = 0;
+        for (const c of categorias) {
+          const upName = c.nome.toUpperCase().trim();
+          if (c.nome !== upName) {
+            await updateDoc(doc(db, 'categorias', c.id), { nome: upName });
+            count++;
+          }
+        }
+        showSuccess(`Pronto! ${count} categorias foram atualizadas.`);
+      } catch(err) {
+        showError('Erro', 'Ocorreu um erro na migração.');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -51,9 +80,14 @@ const CategoriasList: React.FC = () => {
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, marginBottom: '4px' }}>Categorias</h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Classificação de produtos e serviços</p>
         </div>
-        <button className="btn-primary" onClick={() => navigate('/categorias/nova')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Plus size={18} /> Nova Categoria
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+            Padronizar (A-Z)
+          </button>
+          <button className="btn-primary" onClick={() => navigate('/categorias/nova')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={18} /> Nova Categoria
+          </button>
+        </div>
       </div>
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>

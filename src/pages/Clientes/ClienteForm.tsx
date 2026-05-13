@@ -30,7 +30,13 @@ const ClienteForm: React.FC = () => {
         if (isEditing && id) {
           const docSnap = await getDoc(doc(db, 'clientes', id));
           if (docSnap.exists()) {
-            setFormData(docSnap.data() as any);
+            const data = docSnap.data() as any;
+            if (data.isPadrao) {
+              showError('Bloqueado', 'O Consumidor Final é um padrão do sistema e não pode ser editado.');
+              navigate('/clientes');
+              return;
+            }
+            setFormData(data);
           }
         } else {
           // Gerar código sequencial para novo cadastro (isolado por tenant)
@@ -63,13 +69,15 @@ const ClienteForm: React.FC = () => {
     setIsLoading(true);
 
     try {
+      const dataToSave = { ...formData, nome: formData.nome.toUpperCase().trim() };
+
       if (isEditing && id) {
-        await updateDoc(doc(db, 'clientes', id), { ...formData, updatedAt: serverTimestamp() });
+        await updateDoc(doc(db, 'clientes', id), { ...dataToSave, updatedAt: serverTimestamp() });
         showSuccess('Cliente atualizado!');
       } else {
         if (!currentUser) return;
         await addDoc(collection(db, 'clientes'), { 
-          ...formData, 
+          ...dataToSave, 
           tenantId: currentUser.uid,
           createdAt: serverTimestamp() 
         });
@@ -136,10 +144,10 @@ const ClienteForm: React.FC = () => {
               <input 
                 type="text" 
                 name="nome"
-                placeholder="Ex: João da Silva" 
+                placeholder="Ex: JOÃO DA SILVA" 
                 value={formData.nome}
                 onChange={handleChange}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+                style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
               />
             </div>
           </div>

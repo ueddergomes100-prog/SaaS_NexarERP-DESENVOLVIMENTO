@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Filter, Plus, Users, Edit, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, doc, deleteDoc, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, deleteDoc, where, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
+import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 
 interface ClienteData {
   id: string;
@@ -13,6 +13,7 @@ interface ClienteData {
   telefone: string;
   email: string;
   documento: string; // CPF/CNPJ
+  isPadrao?: boolean;
   createdAt: any;
 }
 
@@ -58,6 +59,35 @@ const ClientesList: React.FC = () => {
     }
   };
 
+  const handleFixNames = async () => {
+    const isConfirmed = await NexusSwal.fire({
+      title: 'Padronizar Nomes?',
+      text: 'Isto converterá o nome de TODOS os clientes para MAIÚSCULAS.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, padronizar agora'
+    });
+
+    if (isConfirmed.isConfirmed) {
+      setLoading(true);
+      try {
+        let count = 0;
+        for (const c of clientes) {
+          const upName = c.nome.toUpperCase().trim();
+          if (c.nome !== upName) {
+            await updateDoc(doc(db, 'clientes', c.id), { nome: upName });
+            count++;
+          }
+        }
+        showSuccess(`Pronto! ${count} clientes foram atualizados.`);
+      } catch(err) {
+        showError('Erro', 'Ocorreu um erro na migração.');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
   const filteredClientes = clientes.filter(cliente => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
@@ -75,9 +105,14 @@ const ClientesList: React.FC = () => {
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, marginBottom: '4px' }}>Clientes</h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Gerenciamento da sua base de clientes</p>
         </div>
-        <button className="btn-primary" onClick={() => navigate('/clientes/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Plus size={18} /> Novo Cliente
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+            Padronizar (A-Z)
+          </button>
+          <button className="btn-primary" onClick={() => navigate('/clientes/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={18} /> Novo Cliente
+          </button>
+        </div>
       </div>
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
@@ -130,14 +165,18 @@ const ClientesList: React.FC = () => {
                     <td>{cliente.documento || '-'}</td>
                     <td>{cliente.email || '-'}</td>
                     <td>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="icon-btn" title="Editar" onClick={() => navigate(`/clientes/editar/${cliente.id}`)}>
-                          <Edit size={16} />
-                        </button>
-                        <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(cliente.id)}>
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
+                      {cliente.isPadrao ? (
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Sistema Padrão</span>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button className="icon-btn" title="Editar" onClick={() => navigate(`/clientes/editar/${cliente.id}`)}>
+                            <Edit size={16} />
+                          </button>
+                          <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(cliente.id)}>
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))

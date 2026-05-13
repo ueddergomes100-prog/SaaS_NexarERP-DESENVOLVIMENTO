@@ -75,7 +75,7 @@ const Sidebar: React.FC = () => {
     mecanica: ['/os', '/relatorios-mecanica'],
     fiscal: ['/fiscal/nfe'],
     cadastros: ['/clientes', '/estoque', '/servicos', '/categorias', '/usuarios'],
-    financeiro: ['/financeiro/caixa', '/financeiro/faturamento'],
+    financeiro: ['/financeiro/caixa', '/financeiro/contas-receber', '/financeiro/contas-pagar', '/financeiro/faturamento', '/financeiro/comissoes'],
     admin: ['/configuracoes'],
     crm: ['/crm/agenda', '/crm/lembretes']
   };
@@ -360,6 +360,15 @@ const Sidebar: React.FC = () => {
                 <NavLink to="/financeiro/contas-receber" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                   <Clock size={20} />
                   <span>Contas a Receber</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('financeiro.receber')) && (
+                <NavLink to="/financeiro/contas-pagar" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Receipt size={20} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
+                    <span>Contas a Pagar</span>
+                    <span style={{ fontSize: '8px', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', padding: '1px 4px', borderRadius: '3px', border: '1px solid rgba(245, 158, 11, 0.2)', textTransform: 'none', letterSpacing: '0', whiteSpace: 'nowrap' }}>Em desenvolvimento</span>
+                  </div>
                 </NavLink>
               )}
               {(userRole === 'Admin' || userPermissions?.includes('financeiro.faturamento')) && (

@@ -170,6 +170,12 @@ const Dashboard: React.FC = () => {
     .filter(t => t.tipo === 'entrada')
     .reduce((acc, curr) => acc + Number(curr.valor), 0);
 
+  const despesasMes = transacoesPagasMes
+    .filter(t => t.tipo === 'saida')
+    .reduce((acc, curr) => acc + Number(curr.valor), 0);
+
+  const lucroLiquidoMes = faturamentoMes - despesasMes;
+
   // Agrupando dados para o Gráfico de Fluxo de Caixa
   const mesesAbreviados = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   
@@ -254,16 +260,33 @@ const Dashboard: React.FC = () => {
 
       <div className="summary-cards">
         {hasFinancialAccess && (
+          <div className="card stat-card" style={{ borderLeft: '4px solid #10b981' }}>
+            <div className="stat-header">
+              <div className="stat-icon green-bg" style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+                <TrendingUp size={24} />
+              </div>
+              <span className="stat-trend positive">Líquido</span>
+            </div>
+            <div className="stat-info">
+              <h3 style={{ color: lucroLiquidoMes >= 0 ? '#10b981' : '#ef4444' }}>
+                {hideData ? 'R$ •••••' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(lucroLiquidoMes)}
+              </h3>
+              <p>Lucro Líquido Mês</p>
+            </div>
+          </div>
+        )}
+
+        {hasFinancialAccess && (
           <div className="card stat-card">
             <div className="stat-header">
               <div className="stat-icon purple-bg">
                 <DollarSign size={24} />
               </div>
-              <span className="stat-trend positive">Atual</span>
+              <span className="stat-trend positive">Bruto</span>
             </div>
             <div className="stat-info">
               <h3>{hideData ? 'R$ •••••' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(faturamentoMes)}</h3>
-              <p>Faturamento Mês</p>
+              <p>Receita Bruta Mês</p>
             </div>
           </div>
         )}

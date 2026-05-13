@@ -79,6 +79,7 @@ const EstoqueForm: React.FC = () => {
     try {
       const pecaData = {
         ...formData,
+        nome: formData.nome.toUpperCase().trim(),
         quantidade: Number(formData.quantidade) || 0,
         estoqueMinimo: Number(formData.estoqueMinimo) || 0,
         precoCusto: Number(formData.precoCusto) || 0,
@@ -150,9 +151,10 @@ const EstoqueForm: React.FC = () => {
               <input 
                 type="text" 
                 name="nome"
-                placeholder="Ex: Filtro de Óleo" 
+                placeholder="Ex: FILTRO DE ÓLEO" 
                 value={formData.nome}
                 onChange={handleChange}
+                style={{ textTransform: 'uppercase' }}
               />
             </div>
 

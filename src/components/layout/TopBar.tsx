@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu } from 'lucide-react';
+import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -28,6 +28,20 @@ const TopBar: React.FC = () => {
 
   const [expandAll, setExpandAll] = useState(() => localStorage.getItem('nexus_sidebar_expand_all') === 'true');
   const [miniSidebar, setMiniSidebar] = useState(() => localStorage.getItem('nexus_mini_sidebar') === 'true');
+  const [theme, setTheme] = useState(() => localStorage.getItem('nexus_theme') || 'dark');
+
+  useEffect(() => {
+    if (theme === 'light') {
+      document.body.classList.add('light-theme');
+    } else {
+      document.body.classList.remove('light-theme');
+    }
+    localStorage.setItem('nexus_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
 
   useEffect(() => {
     const updateState = () => {
@@ -372,6 +386,28 @@ const TopBar: React.FC = () => {
             }} />
           </div>
         </div>
+
+        <button 
+          className="action-btn theme-toggle-btn" 
+          onClick={toggleTheme}
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            width: '40px',
+            height: '40px',
+            borderRadius: '50%',
+            backgroundColor: 'var(--bg-tertiary)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border-color)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            marginRight: '8px'
+          }}
+          title={theme === 'dark' ? "Mudar para tema claro" : "Mudar para tema escuro"}
+        >
+          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+        </button>
 
         <div style={{ position: 'relative' }} ref={dropdownRef}>
           <button className="action-btn notifications-btn" onClick={handleNotificationClick}>

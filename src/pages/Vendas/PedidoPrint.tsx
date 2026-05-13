@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft } from 'lucide-react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import '../OS/OsPrint.css'; // Reusing OS print styles
@@ -9,25 +9,38 @@ import '../OS/OsPrint.css'; // Reusing OS print styles
 const PedidoPrint: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
   const [pedidoData, setPedidoData] = useState<any>(null);
+  const [clientData, setClientData] = useState<any>(null);
   const [configData, setConfigData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchPedido = async () => {
-      if (!id) return;
+      if (!id || !tenantId) return;
       try {
         const docRef = doc(db, 'pedidos_venda', id);
         const docSnap = await getDoc(docRef);
+        
         if (docSnap.exists()) {
-          setPedidoData({ id: docSnap.id, ...docSnap.data() });
+          const data = { id: docSnap.id, ...docSnap.data() };
+          setPedidoData(data);
+
+          // Buscar dados detalhados do cliente
+          const qC = query(
+            collection(db, 'clientes'), 
+            where('tenantId', '==', tenantId),
+            where('nome', '==', data.clienteNome)
+          );
+          const snapC = await getDocs(qC);
+          if (!snapC.empty) {
+            setClientData(snapC.docs[0].data());
+          }
         } else {
           alert('Pedido não encontrado!');
           navigate('/pedidos-venda');
         }
 
-        // Fetch configs
         if (currentUser) {
           const configRef = doc(db, 'configuracoes', currentUser.uid);
           const configSnap = await getDoc(configRef);
@@ -42,7 +55,7 @@ const PedidoPrint: React.FC = () => {
       }
     };
     fetchPedido();
-  }, [id, navigate, currentUser]);
+  }, [id, navigate, currentUser, tenantId]);
 
   const handlePrint = () => {
     window.print();
@@ -89,8 +102,21 @@ const PedidoPrint: React.FC = () => {
           </div>
         </div>
 
-        <div className="a4-grid">
-          <p><strong>Cliente:</strong> {pedidoData.clienteNome}</p>
+        <div className="a4-section">
+          <h3 className="section-title">Dados do Cliente</h3>
+          <div className="a4-grid">
+            <p><strong>Nome:</strong> {pedidoData.clienteNome}</p>
+            <p><strong>CPF/CNPJ:</strong> {clientData?.documento || '---'}</p>
+            <p><strong>Telefone:</strong> {clientData?.telefone || '---'}</p>
+            <p><strong>E-mail:</strong> {clientData?.email || '---'}</p>
+          </div>
+          <div style={{ marginTop: '8px', borderTop: '1px solid #eee', paddingTop: '8px' }}>
+            <p><strong>Endereço:</strong> {clientData?.endereco || '---'}{clientData?.numero ? `, ${clientData.numero}` : ''}</p>
+            <p><strong>Bairro:</strong> {clientData?.bairro || '---'}</p>
+          </div>
+        </div>
+
+        <div className="a4-section">
           <p><strong>Forma de Pagamento:</strong> {pedidoData.formaPagamento}</p>
         </div>
 

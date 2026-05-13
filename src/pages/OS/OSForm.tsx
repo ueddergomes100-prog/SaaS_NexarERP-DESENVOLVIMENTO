@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, setDoc } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, setDoc, orderBy, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
@@ -29,6 +29,7 @@ const OSForm: React.FC = () => {
     statusPagamento: 'Pendente',
     mecanicoId: '',
     mecanicoNome: '',
+    orcamentoId: '',
   });
 
   const [mecanicosDisponiveis, setMecanicosDisponiveis] = useState<{id: string, nome: string}[]>([]);
@@ -127,6 +128,7 @@ const OSForm: React.FC = () => {
               statusPagamento: os.statusPagamento || 'Pendente',
               mecanicoId: os.mecanicoId || '',
               mecanicoNome: os.mecanicoNome || '',
+              orcamentoId: os.orcamentoId || '',
             });
             setServicosSelecionados(os.servicos || []);
             setPecasSelecionadas(os.pecas || []);
@@ -141,11 +143,20 @@ const OSForm: React.FC = () => {
         }
       } else {
         try {
-          const snapOS = await getCountFromServer(query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId)));
-          const nextOsNum = String(snapOS.data().count + 1).padStart(2, '0');
+          const qLast = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId), orderBy('numeroOS', 'desc'), limit(1));
+          const snapOS = await getDocs(qLast);
+          let nextOsNum = '01';
+          if (!snapOS.empty) {
+            const lastNum = parseInt(snapOS.docs[0].data().numeroOS) || 0;
+            nextOsNum = String(lastNum + 1).padStart(2, '0');
+          }
           setFormData(prev => ({ ...prev, numeroOS: nextOsNum }));
         } catch (err) {
-          console.error("Erro ao buscar contagem de OS", err);
+          console.error("Erro ao buscar sequencia de OS", err);
+          // Fallback para contagem simples se falhar
+          const snapCount = await getCountFromServer(query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId)));
+          const fallbackNum = String(snapCount.data().count + 1).padStart(2, '0');
+          setFormData(prev => ({ ...prev, numeroOS: fallbackNum }));
         }
         setIsFetchingOS(false);
       }
@@ -409,6 +420,16 @@ const OSForm: React.FC = () => {
           await setDoc(transacaoRef, { ...transacaoData }, { merge: true });
         }
       }
+
+      // 5. Atualizar Orçamento vinculado
+      if (formData.orcamentoId) {
+        try {
+          const novoStatusOrcamento = formData.status === 'Cancelada' ? 'Pendente' : 'Finalizado';
+          await updateDoc(doc(db, 'orcamentos', formData.orcamentoId), { status: novoStatusOrcamento });
+        } catch (err) {
+          console.error("Erro ao atualizar orçamento vinculado:", err);
+        }
+      }
       
       showSuccess(`OS ${isEditing ? 'atualizada' : 'criada'}!`);
       navigate('/os');
@@ -532,27 +553,20 @@ const OSForm: React.FC = () => {
                 style={{ textTransform: 'uppercase' }}
               />
               {isClientDropdownOpen && (
-                <div style={{
-                  position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
-                  backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
-                  borderRadius: 'var(--radius-md)', maxHeight: '200px', overflowY: 'auto',
-                  boxShadow: '0 10px 25px rgba(0,0,0,0.5)', zIndex: 50
-                }}>
+                <div className="select-dropdown">
                   {clientesDisponiveis
                     .filter(c => c.nome.toLowerCase().includes(formData.clienteNome.toLowerCase()))
                     .map(c => (
                       <div 
                         key={c.id} 
+                        className="select-option"
                         onClick={() => {
                           setFormData({ ...formData, clienteNome: c.nome, clienteTelefone: c.telefone || '' });
                           setIsClientDropdownOpen(false);
                         }}
-                        style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
-                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                       >
-                        <span style={{ fontWeight: 500, fontSize: '14px' }}>{c.nome}</span>
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{c.telefone}</span>
+                        <span>{c.nome}</span>
+                        <span>{c.telefone}</span>
                       </div>
                     ))}
                   {formData.clienteNome && !clientesDisponiveis.some(c => c.nome.toLowerCase() === formData.clienteNome.toLowerCase()) && (
@@ -624,31 +638,21 @@ const OSForm: React.FC = () => {
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
                 />
                 {isServicoDropdownOpen && servicosCatalogo.filter(s => s.nome.toLowerCase().includes(servicoNomeInput.toLowerCase())).length > 0 && (
-                  <div style={{
-                    position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
-                    backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
-                    borderRadius: 'var(--radius-md)', maxHeight: '200px', overflowY: 'auto',
-                    zIndex: 50, boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
-                  }}>
+                  <div className="select-dropdown">
                     {servicosCatalogo
                       .filter(s => s.nome.toLowerCase().includes(servicoNomeInput.toLowerCase()))
                       .map(s => (
                         <div 
                           key={s.id}
+                          className="select-option"
                           onClick={() => {
                             setServicoNomeInput(s.nome);
                             setServicoPrecoInput(String(s.preco));
                             setIsServicoDropdownOpen(false);
                           }}
-                          style={{
-                            padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)',
-                            display: 'flex', justifyContent: 'space-between', fontSize: '13px', alignItems: 'center', gap: '12px'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
-                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                         >
-                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.nome}</span>
-                          <span style={{ color: '#10b981', fontWeight: 600, flexShrink: 0 }}>R$ {s.preco.toFixed(2)}</span>
+                          <span>{s.nome}</span>
+                          <span>R$ {s.preco.toFixed(2)}</span>
                         </div>
                       ))}
                   </div>
@@ -734,31 +738,21 @@ const OSForm: React.FC = () => {
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
                 />
                 {isPecaDropdownOpen && pecasEstoque.filter(p => p.nome.toLowerCase().includes(pecaNomeInput.toLowerCase())).length > 0 && (
-                  <div style={{
-                    position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
-                    backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
-                    borderRadius: 'var(--radius-md)', maxHeight: '200px', overflowY: 'auto',
-                    zIndex: 50, boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
-                  }}>
+                  <div className="select-dropdown">
                     {pecasEstoque
                       .filter(p => p.nome.toLowerCase().includes(pecaNomeInput.toLowerCase()))
                       .map(p => (
                         <div 
                           key={p.id}
+                          className="select-option"
                           onClick={() => {
                             setPecaNomeInput(p.nome);
                             setPecaPrecoInput(String(p.precoVenda));
                             setIsPecaDropdownOpen(false);
                           }}
-                          style={{
-                            padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)',
-                            display: 'flex', justifyContent: 'space-between', fontSize: '13px', alignItems: 'center', gap: '12px'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
-                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                         >
-                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nome}</span>
-                          <span style={{ color: '#10b981', fontWeight: 600, flexShrink: 0 }}>R$ {p.precoVenda.toFixed(2)}</span>
+                          <span>{p.nome}</span>
+                          <span>R$ {p.precoVenda.toFixed(2)}</span>
                         </div>
                       ))}
                   </div>
@@ -853,7 +847,7 @@ const OSForm: React.FC = () => {
       </div>
 
       {/* Botão de Salvar no final da página, alinhado à direita */}
-      <div className="save-os-container" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
+      <div className="save-os-container" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px', marginBottom: '40px' }}>
         <button 
           className="btn-primary" 
           onClick={handleSave} 

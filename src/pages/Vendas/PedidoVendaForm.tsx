@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, User, Package, Save, Trash2, XCircle, Printer } from 'lucide-react';
-import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, setDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, setDoc, orderBy, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
@@ -21,6 +21,7 @@ const PedidoVendaForm: React.FC = () => {
   const [numeroPedido, setNumeroPedido] = useState('');
   const [status, setStatus] = useState('Aberta');
   const [itens, setItens] = useState<ItemVenda[]>([]);
+  const [orcamentoId, setOrcamentoId] = useState('');
   
   const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
   const [produtosCatalogo, setProdutosCatalogo] = useState<ProdutoEstoque[]>([]);
@@ -83,6 +84,7 @@ const PedidoVendaForm: React.FC = () => {
             setNumeroPedido(p.numeroPedido || '');
             setStatus(p.status || 'Finalizada');
             setItens(p.itens || []);
+            setOrcamentoId(p.orcamentoId || '');
           } else {
             showError('Erro', 'Pedido não encontrado.');
             navigate('/pedidos-venda');
@@ -95,11 +97,18 @@ const PedidoVendaForm: React.FC = () => {
       } else {
         // Novo Pedido - Buscar Próximo Número
         try {
-          const snapP = await getCountFromServer(query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId)));
-          const nextNum = String(snapP.data().count + 1).padStart(4, '0');
+          const qLast = query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), orderBy('numeroPedido', 'desc'), limit(1));
+          const snapP = await getDocs(qLast);
+          let nextNum = '0001';
+          if (!snapP.empty) {
+            const lastNum = parseInt(snapP.docs[0].data().numeroPedido) || 0;
+            nextNum = String(lastNum + 1).padStart(4, '0');
+          }
           setNumeroPedido(nextNum);
         } catch (err) {
-          console.error("Erro ao buscar contagem", err);
+          console.error("Erro ao buscar sequencia", err);
+          const snapP = await getCountFromServer(query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId)));
+          setNumeroPedido(String(snapP.data().count + 1).padStart(4, '0'));
         }
         setIsFetchingData(false);
       }
@@ -295,6 +304,15 @@ const PedidoVendaForm: React.FC = () => {
 
       // 3. Atualizar Transação Financeira
       await setDoc(doc(db, 'transacoes', id), { status: 'Cancelada' }, { merge: true });
+
+      // 4. Reabrir Orçamento se houver orcamentoId
+      if (orcamentoId) {
+        try {
+          await updateDoc(doc(db, 'orcamentos', orcamentoId), { status: 'Pendente' });
+        } catch (err) {
+          console.error("Erro ao reabrir orçamento:", err);
+        }
+      }
 
       showSuccess('Venda cancelada com sucesso!');
       setStatus('Cancelada');

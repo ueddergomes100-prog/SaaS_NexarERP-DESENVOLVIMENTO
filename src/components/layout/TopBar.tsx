@@ -408,7 +408,6 @@ const TopBar: React.FC = () => {
         >
           {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
         </button>
-
         <div style={{ position: 'relative' }} ref={dropdownRef}>
           <button className="action-btn notifications-btn" onClick={handleNotificationClick}>
             <Bell size={20} />

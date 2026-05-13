@@ -8,6 +8,8 @@ import Login from './pages/Auth/Login';
 import Register from './pages/Auth/Register';
 import Dashboard from './pages/Dashboard/Dashboard';
 import Orcamentos from './pages/Orcamentos/Orcamentos';
+import OrcamentoForm from './pages/Orcamentos/OrcamentoForm';
+import OrcamentoPrint from './pages/Orcamentos/OrcamentoPrint';
 import PedidoVendas from './pages/Vendas/PedidoVendas';
 import RelatoriosVendas from './pages/Vendas/RelatoriosVendas';
 import OSList from './pages/OS/OSList';
@@ -40,76 +42,30 @@ import SuperAdmin from './pages/Admin/SuperAdmin';
 import UsuarioForm from './pages/Usuarios/UsuarioForm';
 
 function App() {
-  const [splashState, setSplashState] = useState<'visible' | 'fading' | 'hidden'>('visible');
-
-  useEffect(() => {
-    const fadeTimer = setTimeout(() => setSplashState('fading'), 1500);
-    const hideTimer = setTimeout(() => setSplashState('hidden'), 2000);
-    return () => { clearTimeout(fadeTimer); clearTimeout(hideTimer); };
-  }, []);
-
   return (
     <>
-      {splashState !== 'hidden' && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'var(--bg-primary)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          opacity: splashState === 'fading' ? 0 : 1,
-          transition: 'opacity 0.5s ease-in-out'
-        }}>
-          <div style={{
-            width: '80px', height: '80px',
-            backgroundColor: 'var(--accent-purple)',
-            borderRadius: '16px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '48px',
-            fontWeight: 'bold',
-            color: 'white',
-            animation: 'pulseLogo 1.5s infinite ease-in-out',
-            boxShadow: '0 0 20px rgba(139, 92, 246, 0.5)'
-          }}>
-            N
-          </div>
-          <h1 style={{
-            marginTop: '24px',
-            fontSize: '24px',
-            color: 'white',
-            letterSpacing: '2px',
-            animation: 'drawLogo 1s ease-out forwards'
-          }}>
-            NEXAR ERP
-          </h1>
-        </div>
-      )}
-
       <AuthProvider>
-        <ErrorBoundary>
         <BrowserRouter>
-          <Routes>
-            {/* Rotas Públicas */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/cadastro" element={<Register />} />
+            <Routes>
+              {/* Rotas Públicas */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/cadastro" element={<Register />} />
 
-            {/* Rotas Protegidas (Exigem Login) */}
-            <Route element={<ProtectedRoute />}>
-              <Route path="/" element={<AppLayout />}>
-                <Route index element={<Navigate to="/dashboard" replace />} />
-                <Route path="dashboard" element={<Dashboard />} />
-                
-                <Route path="orcamentos" element={<Orcamentos />} />
-                <Route path="pedidos-venda" element={<PedidoVendas />} />
-                <Route path="pedidos-venda/novo" element={<PedidoVendaForm />} />
-                <Route path="pedidos-venda/visualizar/:id" element={<PedidoVendaForm />} />
-                <Route path="pedidos-venda/print/:id" element={<PedidoPrint />} />
-                <Route path="relatorios-vendas" element={<RelatoriosVendas />} />
+              {/* Rotas Protegidas (Exigem Login) */}
+              <Route element={<ProtectedRoute />}>
+                <Route path="/" element={<AppLayout />}>
+                  <Route index element={<Navigate to="/dashboard" replace />} />
+                  <Route path="dashboard" element={<Dashboard />} />
+                  
+                  <Route path="orcamentos" element={<Orcamentos />} />
+                  <Route path="orcamentos/novo" element={<OrcamentoForm />} />
+                  <Route path="orcamentos/editar/:id" element={<OrcamentoForm />} />
+                  <Route path="orcamentos/print/:id" element={<OrcamentoPrint />} />
+                  <Route path="pedidos-venda" element={<PedidoVendas />} />
+                  <Route path="pedidos-venda/novo" element={<PedidoVendaForm />} />
+                  <Route path="pedidos-venda/visualizar/:id" element={<PedidoVendaForm />} />
+                  <Route path="pedidos-venda/print/:id" element={<PedidoPrint />} />
+                  <Route path="relatorios-vendas" element={<RelatoriosVendas />} />
                 
                 <Route path="os" element={<OSList />} />
                 <Route path="os/nova" element={<OSForm />} />
@@ -161,7 +117,6 @@ function App() {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>
-        </ErrorBoundary>
       </AuthProvider>
     </>
   );

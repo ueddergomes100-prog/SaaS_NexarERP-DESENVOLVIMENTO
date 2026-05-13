@@ -233,10 +233,7 @@ const Sidebar: React.FC = () => {
         {(userRole === 'Admin' || ['vendas.pedidos', 'vendas.orcamentos', 'vendas.relatorios'].some(p => userPermissions?.includes(p))) && (
         <div className="nav-group">
           <div className="nav-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: (expandAll || isGroupActive('vendas')) ? 'default' : 'pointer', paddingRight: '8px', opacity: isGroupActive('vendas') ? 1 : 0.7 }} onClick={() => !expandAll && toggleGroup('vendas')}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>Vendas</span>
-              <span style={{ fontSize: '9px', backgroundColor: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(245, 158, 11, 0.3)', textTransform: 'none', letterSpacing: '0' }}>Em desenvolvimento</span>
-            </div>
+            <span>Vendas</span>
             {!expandAll && (isExpanded('vendas') ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
           </div>
           {isExpanded('vendas') && (
@@ -362,13 +359,10 @@ const Sidebar: React.FC = () => {
                   <span>Contas a Receber</span>
                 </NavLink>
               )}
-              {(userRole === 'Admin' || userPermissions?.includes('financeiro.receber')) && (
+              {(userRole === 'Admin' || userPermissions?.includes('financeiro.pagar')) && (
                 <NavLink to="/financeiro/contas-pagar" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                   <Receipt size={20} />
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
-                    <span>Contas a Pagar</span>
-                    <span style={{ fontSize: '8px', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', padding: '1px 4px', borderRadius: '3px', border: '1px solid rgba(245, 158, 11, 0.2)', textTransform: 'none', letterSpacing: '0', whiteSpace: 'nowrap' }}>Em desenvolvimento</span>
-                  </div>
+                  <span>Contas a Pagar</span>
                 </NavLink>
               )}
               {(userRole === 'Admin' || userPermissions?.includes('financeiro.faturamento')) && (

@@ -101,6 +101,7 @@ function App() {
                 
                 <Route path="usuarios" element={<UsuariosList />} />
                 <Route path="usuarios/novo" element={<UsuarioForm />} />
+                <Route path="usuarios/editar/:id" element={<UsuarioForm />} />
                 
                 <Route path="categorias" element={<CategoriasList />} />
                 <Route path="categorias/nova" element={<CategoriaForm />} />

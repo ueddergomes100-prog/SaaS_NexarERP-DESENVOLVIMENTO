@@ -34,7 +34,8 @@ const PedidoVendaForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingData, setIsFetchingData] = useState(true);
 
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
+  const canEditVenda = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.alterar'));
   
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const [isProdutoDropdownOpen, setIsProdutoDropdownOpen] = useState(false);
@@ -182,13 +183,13 @@ const PedidoVendaForm: React.FC = () => {
       // 1. Cadastrar Cliente (se não existir)
       const clienteExiste = clientesDisponiveis.some(c => c.nome.toUpperCase() === finalClienteNome);
       if (!clienteExiste) {
-        const qC = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
+        const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
         const snapC = await getCountFromServer(qC);
         await addDoc(collection(db, 'clientes'), {
           codigo: String(snapC.data().count + 1),
           nome: finalClienteNome,
           isPadrao: finalClienteNome === 'CONSUMIDOR FINAL',
-          tenantId: currentUser.uid,
+          tenantId,
           createdAt: serverTimestamp()
         });
       }
@@ -219,7 +220,7 @@ const PedidoVendaForm: React.FC = () => {
         valorTotal: valorTotalPedido,
         formaPagamento,
         status: 'Finalizada',
-        tenantId: currentUser.uid,
+        tenantId,
         createdAt: serverTimestamp()
       };
 
@@ -238,7 +239,7 @@ const PedidoVendaForm: React.FC = () => {
         status: statusTransacao,
         pedidoId: newPedidoRef.id,
         clienteNome: finalClienteNome,
-        tenantId: currentUser.uid,
+        tenantId,
         createdAt: serverTimestamp()
       });
 
@@ -348,9 +349,11 @@ const PedidoVendaForm: React.FC = () => {
               <button className="btn-secondary" onClick={() => navigate(`/pedidos-venda/print/${id}`)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Printer size={18} /> Imprimir Recibo
               </button>
-              <button className="btn-secondary" onClick={handleCancelarVenda} disabled={isLoading} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>
-                <XCircle size={18} /> Estornar/Cancelar
-              </button>
+              {canEditVenda && (
+                <button className="btn-secondary" onClick={handleCancelarVenda} disabled={isLoading} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>
+                  <XCircle size={18} /> Estornar/Cancelar
+                </button>
+              )}
             </>
           )}
           {!isViewing && (

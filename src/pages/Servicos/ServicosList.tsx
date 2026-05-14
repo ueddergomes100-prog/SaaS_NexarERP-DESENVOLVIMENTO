@@ -19,11 +19,11 @@ const ServicosList: React.FC = () => {
   const [servicos, setServicos] = useState<ServicoData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
 
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(collection(db, 'servicos'), where('tenantId', '==', currentUser.uid));
+    const q = query(collection(db, 'servicos'), where('tenantId', '==', tenantId));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data: ServicoData[] = [];
       snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as ServicoData));

@@ -42,7 +42,7 @@ const PedidoPrint: React.FC = () => {
         }
 
         if (currentUser) {
-          const configRef = doc(db, 'configuracoes', currentUser.uid);
+          const configRef = doc(db, 'configuracoes', tenantId || '');
           const configSnap = await getDoc(configRef);
           if (configSnap.exists()) {
             setConfigData(configSnap.data());

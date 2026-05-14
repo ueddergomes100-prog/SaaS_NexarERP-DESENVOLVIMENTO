@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Save, UserCog, AlertCircle } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { collection, setDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { useNavigate, useParams } from 'react-router-dom';
+import { collection, setDoc, doc, serverTimestamp, getDoc, updateDoc } from 'firebase/firestore';
 import { db, firebaseConfig } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
@@ -12,6 +12,8 @@ import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth'
 
 const UsuarioForm: React.FC = () => {
   const navigate = useNavigate();
+  const { id } = useParams();
+  const isEditing = !!id;
   const { tenantId, currentUser } = useAuth();
   
   const [formData, setFormData] = useState({
@@ -21,6 +23,23 @@ const UsuarioForm: React.FC = () => {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [shopPrefix, setShopPrefix] = useState('');
+
+  React.useEffect(() => {
+    if (isEditing && id) {
+      const fetchUser = async () => {
+        const userSnap = await getDoc(doc(db, 'usuarios', id));
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          setFormData({
+            nome: data.nome || '',
+            username: data.username || '',
+            senha: ''
+          });
+        }
+      };
+      fetchUser();
+    }
+  }, [id, isEditing]);
 
   React.useEffect(() => {
     const fetchShopPrefix = async () => {
@@ -49,6 +68,25 @@ const UsuarioForm: React.FC = () => {
     e.preventDefault();
     if (!tenantId || !currentUser) return;
     
+    setIsLoading(true);
+
+    if (isEditing && id) {
+      try {
+        await updateDoc(doc(db, 'usuarios', id), {
+          nome: formData.nome,
+          updatedAt: serverTimestamp()
+        });
+        showSuccess('Usuário atualizado com sucesso!');
+        navigate('/usuarios');
+      } catch (err) {
+        console.error(err);
+        showError('Erro', 'Não foi possível atualizar o usuário.');
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
     // Validação básica do username (sem espaços, minúsculo)
     const usernameLimpo = formData.username.trim().toLowerCase().replace(/\s+/g, '');
     const prefixo = shopPrefix || tenantId.substring(0, 4).toLowerCase();
@@ -119,23 +157,25 @@ const UsuarioForm: React.FC = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button className="icon-btn back-btn" onClick={() => navigate('/usuarios')} title="Voltar"><ArrowLeft size={20} /></button>
           <div>
-            <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px 0' }}>Novo Usuário</h1>
-            <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Cadastre um funcionário para acessar o sistema</p>
+            <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px 0' }}>{isEditing ? 'Editar Usuário' : 'Novo Usuário'}</h1>
+            <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>{isEditing ? 'Altere o nome do funcionário' : 'Cadastre um funcionário para acessar o sistema'}</p>
           </div>
         </div>
       </div>
 
-          <div className="card" style={{ marginBottom: '24px', backgroundColor: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
-            <div style={{ display: 'flex', gap: '12px', padding: '16px' }}>
-              <AlertCircle size={24} color="#8b5cf6" style={{ flexShrink: 0 }} />
-              <div>
-                <h4 style={{ color: '#8b5cf6', margin: '0 0 4px', fontSize: '14px' }}>Como seu funcionário fará o Login?</h4>
-                <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  Ele deverá informar o <strong>CNPJ da Empresa</strong> e o nome de usuário (ex: <strong style={{ color: 'white' }}>{formData.username.trim().toLowerCase().replace(/\s+/g, '') || 'nome'}</strong>).
-                </p>
+          {!isEditing && (
+            <div className="card" style={{ marginBottom: '24px', backgroundColor: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
+              <div style={{ display: 'flex', gap: '12px', padding: '16px' }}>
+                <AlertCircle size={24} color="#8b5cf6" style={{ flexShrink: 0 }} />
+                <div>
+                  <h4 style={{ color: '#8b5cf6', margin: '0 0 4px', fontSize: '14px' }}>Como seu funcionário fará o Login?</h4>
+                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    Ele deverá informar o <strong>CNPJ da Empresa</strong> e o nome de usuário (ex: <strong style={{ color: 'white' }}>{formData.username.trim().toLowerCase().replace(/\s+/g, '') || 'nome'}</strong>).
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
       <form onSubmit={handleSubmit} className="card form-grid" style={{ padding: '24px' }}>
         <div className="section-header" style={{ gridColumn: 'span 12', paddingBottom: '16px', borderBottom: '1px solid var(--border-color)', marginBottom: '8px' }}>
@@ -155,32 +195,36 @@ const UsuarioForm: React.FC = () => {
         </div>
 
 
-        <div className="input-group" style={{ gridColumn: 'span 6' }}>
-          <label>Nome de Usuário para Login *</label>
-          <input 
-            type="text" 
-            placeholder="ex: joao"
-            value={formData.username}
-            onChange={(e) => setFormData({...formData, username: e.target.value})}
-            required
-            style={{ width: '100%' }}
-          />
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Na tela de login, ele informará Código da Empresa: <strong>{shopPrefix || tenantId?.substring(0,4).toLowerCase()}</strong> e Usuário: <strong>{formData.username.toLowerCase().replace(/\s+/g, '') || 'joao'}</strong>
-          </span>
-        </div>
+        {!isEditing && (
+          <>
+            <div className="input-group" style={{ gridColumn: 'span 6' }}>
+              <label>Nome de Usuário para Login *</label>
+              <input 
+                type="text" 
+                placeholder="ex: joao"
+                value={formData.username}
+                onChange={(e) => setFormData({...formData, username: e.target.value})}
+                required
+                style={{ width: '100%' }}
+              />
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Na tela de login, ele informará Código da Empresa: <strong>{shopPrefix || tenantId?.substring(0,4).toLowerCase()}</strong> e Usuário: <strong>{formData.username.toLowerCase().replace(/\s+/g, '') || 'joao'}</strong>
+              </span>
+            </div>
 
-        <div className="input-group" style={{ gridColumn: 'span 6' }}>
-          <label>Senha de Acesso *</label>
-          <input 
-            type="password" 
-            placeholder="Mínimo 6 caracteres"
-            value={formData.senha}
-            onChange={(e) => setFormData({...formData, senha: e.target.value})}
-            required
-            minLength={6}
-          />
-        </div>
+            <div className="input-group" style={{ gridColumn: 'span 6' }}>
+              <label>Senha de Acesso *</label>
+              <input 
+                type="password" 
+                placeholder="Mínimo 6 caracteres"
+                value={formData.senha}
+                onChange={(e) => setFormData({...formData, senha: e.target.value})}
+                required
+                minLength={6}
+              />
+            </div>
+          </>
+        )}
 
         <div className="input-group" style={{ gridColumn: 'span 12', marginTop: '8px' }}>
           <div style={{ padding: '12px 16px', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: 'var(--radius-md)', color: '#3b82f6', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>

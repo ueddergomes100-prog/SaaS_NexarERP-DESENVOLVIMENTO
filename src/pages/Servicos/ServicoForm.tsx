@@ -20,7 +20,7 @@ const ServicoForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -28,7 +28,7 @@ const ServicoForm: React.FC = () => {
         if (!currentUser) return;
 
         // Fetch Categorias
-        const qCat = query(collection(db, 'categorias'), where('tenantId', '==', currentUser.uid));
+        const qCat = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
         const snapCat = await getDocs(qCat);
         const cats: string[] = [];
         snapCat.forEach(d => {
@@ -43,7 +43,7 @@ const ServicoForm: React.FC = () => {
           }
         } else {
           // Gerar código sequencial para novo cadastro
-          const q = query(collection(db, 'servicos'), where('tenantId', '==', currentUser.uid));
+          const q = query(collection(db, 'servicos'), where('tenantId', '==', tenantId));
           const snap = await getCountFromServer(q);
           const nextId = snap.data().count + 1;
           setFormData(prev => ({ ...prev, codigo: String(nextId) }));
@@ -86,7 +86,7 @@ const ServicoForm: React.FC = () => {
         if (!currentUser) return;
         await addDoc(collection(db, 'servicos'), {
           ...dataToSave,
-          tenantId: currentUser.uid,
+          tenantId,
           createdAt: serverTimestamp()
         });
         showSuccess('Serviço cadastrado!');

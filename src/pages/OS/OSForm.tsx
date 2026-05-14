@@ -48,7 +48,7 @@ const OSForm: React.FC = () => {
   const [pecaPrecoInput, setPecaPrecoInput] = useState('');
   const [pecasSelecionadas, setPecasSelecionadas] = useState<PecaSelecionada[]>([]);
 
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, userRole } = useAuth();
   
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const [isServicoDropdownOpen, setIsServicoDropdownOpen] = useState(false);
@@ -98,11 +98,11 @@ const OSForm: React.FC = () => {
       snapE.forEach((doc) => dataE.push({ id: doc.id, nome: doc.data().nome, precoVenda: doc.data().precoVenda }));
       setPecasEstoque(dataE);
 
-      // Fetch Mecânicos
-      const qM = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId), where('recebeComissao', '==', true));
+      // Fetch Mecânicos (agora todos os usuários do tenant)
+      const qM = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
       const snapM = await getDocs(qM);
       const dataM: {id: string, nome: string}[] = [];
-      snapM.forEach((doc) => dataM.push({ id: doc.id, nome: doc.data().nome }));
+      snapM.forEach((doc) => dataM.push({ id: doc.id, nome: doc.data().nome || doc.data().nomeResponsavel || 'Administrador' }));
       setMecanicosDisponiveis(dataM);
 
       // Fetch OS se for Edição
@@ -142,6 +142,14 @@ const OSForm: React.FC = () => {
           setIsFetchingOS(false);
         }
       } else {
+        // Pre-fill mecanicoId with current user
+        const loggedInUser = dataM.find(u => u.id === currentUser.uid);
+        setFormData(prev => ({
+          ...prev,
+          mecanicoId: currentUser.uid,
+          mecanicoNome: loggedInUser?.nome || 'Administrador'
+        }));
+
         try {
           const qLast = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId), orderBy('numeroOS', 'desc'), limit(1));
           const snapOS = await getDocs(qLast);
@@ -150,13 +158,31 @@ const OSForm: React.FC = () => {
             const lastNum = parseInt(snapOS.docs[0].data().numeroOS) || 0;
             nextOsNum = String(lastNum + 1).padStart(2, '0');
           }
-          setFormData(prev => ({ ...prev, numeroOS: nextOsNum }));
+          
+          const currentUserObj = dataM.find(m => m.id === currentUser.uid);
+          const defaultNome = currentUserObj ? currentUserObj.nome : (currentUser.displayName || '');
+          
+          setFormData(prev => ({ 
+            ...prev, 
+            numeroOS: nextOsNum,
+            mecanicoId: currentUser.uid,
+            mecanicoNome: defaultNome
+          }));
         } catch (err) {
           console.error("Erro ao buscar sequencia de OS", err);
           // Fallback para contagem simples se falhar
           const snapCount = await getCountFromServer(query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId)));
           const fallbackNum = String(snapCount.data().count + 1).padStart(2, '0');
-          setFormData(prev => ({ ...prev, numeroOS: fallbackNum }));
+          
+          const currentUserObj = dataM.find(m => m.id === currentUser.uid);
+          const defaultNome = currentUserObj ? currentUserObj.nome : (currentUser.displayName || '');
+          
+          setFormData(prev => ({ 
+            ...prev, 
+            numeroOS: fallbackNum,
+            mecanicoId: currentUser.uid,
+            mecanicoNome: defaultNome
+          }));
         }
         setIsFetchingOS(false);
       }
@@ -190,7 +216,7 @@ const OSForm: React.FC = () => {
     if (!servico && currentUser) {
       setIsLoading(true);
       try {
-        const q = query(collection(db, 'servicos'), where('tenantId', '==', currentUser.uid));
+        const q = query(collection(db, 'servicos'), where('tenantId', '==', tenantId));
         const snap = await getCountFromServer(q);
         const nextId = snap.data().count + 1;
         
@@ -199,7 +225,7 @@ const OSForm: React.FC = () => {
           nome: servicoNomeInput,
           preco: precoNum,
           categoria: 'Geral',
-          tenantId: currentUser.uid,
+          tenantId,
           createdAt: serverTimestamp()
         });
         servico = { id: newRef.id, nome: servicoNomeInput, preco: precoNum };
@@ -240,7 +266,7 @@ const OSForm: React.FC = () => {
     if (!peca && currentUser) {
       setIsLoading(true);
       try {
-        const q = query(collection(db, 'estoque'), where('tenantId', '==', currentUser.uid));
+        const q = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
         const snap = await getCountFromServer(q);
         const nextId = snap.data().count + 1;
         
@@ -250,7 +276,7 @@ const OSForm: React.FC = () => {
           precoVenda: precoNum,
           categoria: 'Peças Adicionais',
           quantidade: 10, // Base default para não zerar logo de cara
-          tenantId: currentUser.uid,
+          tenantId,
           createdAt: serverTimestamp()
         });
         peca = { id: newRef.id, nome: pecaNomeInput, precoVenda: precoNum };
@@ -317,7 +343,7 @@ const OSForm: React.FC = () => {
       if (!currentUser) return;
       const clienteExiste = clientesDisponiveis.some(c => c.nome.toUpperCase() === formData.clienteNome.toUpperCase().trim());
       if (!clienteExiste && formData.clienteNome.trim()) {
-        const qC = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
+        const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
         const snapC = await getCountFromServer(qC);
         const nextId = snapC.data().count + 1;
 
@@ -325,7 +351,7 @@ const OSForm: React.FC = () => {
           codigo: String(nextId),
           nome: formData.clienteNome.toUpperCase().trim(),
           telefone: formData.clienteTelefone,
-          tenantId: currentUser.uid,
+          tenantId,
           createdAt: serverTimestamp()
         });
       }
@@ -386,7 +412,7 @@ const OSForm: React.FC = () => {
       } else {
         const newOsRef = await addDoc(collection(db, 'ordens_de_servico'), { 
           ...osData, 
-          tenantId: currentUser.uid,
+          tenantId,
           createdAt: serverTimestamp() 
         });
         osId = newOsRef.id;
@@ -410,7 +436,7 @@ const OSForm: React.FC = () => {
           status: formData.status === 'Finalizada' ? calcStatusPagamento : (formData.status === 'Cancelada' ? 'Cancelada' : 'Pendente'),
           osId: osId,
           clienteNome: formData.clienteNome.toUpperCase().trim(),
-          tenantId: currentUser.uid
+          tenantId
         };
 
         if (formData.status === 'Finalizada') {
@@ -605,16 +631,33 @@ const OSForm: React.FC = () => {
             
             <div className="input-group" style={{ marginBottom: '20px', paddingBottom: '20px', borderBottom: '1px dashed var(--border-color)' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                Mecânico Responsável (Gera Comissão)
-                <span style={{ fontSize: '11px', backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '2px 6px', borderRadius: '4px' }}>Opcional</span>
+                Funcionário Responsável
               </label>
               <select 
                 name="mecanicoId" 
                 value={formData.mecanicoId} 
-                onChange={handleChange} 
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white', width: '100%' }}
+                onChange={(e) => {
+                  const selectedId = e.target.value;
+                  const selectedUser = mecanicosDisponiveis.find(m => m.id === selectedId);
+                  setFormData({
+                    ...formData,
+                    mecanicoId: selectedId,
+                    mecanicoNome: selectedUser?.nome || ''
+                  });
+                }} 
+                disabled={userRole !== 'Admin' && userRole !== 'SuperAdmin'}
+                style={{ 
+                  backgroundColor: 'var(--bg-tertiary)', 
+                  border: '1px solid var(--border-color)', 
+                  borderRadius: 'var(--radius-md)', 
+                  padding: '12px 16px', 
+                  color: 'white', 
+                  width: '100%',
+                  opacity: (userRole !== 'Admin' && userRole !== 'SuperAdmin') ? 0.7 : 1,
+                  cursor: (userRole !== 'Admin' && userRole !== 'SuperAdmin') ? 'not-allowed' : 'pointer'
+                }}
               >
-                <option value="">-- Selecione o Mecânico (Nenhum) --</option>
+                <option value="">-- Selecione o Funcionário (Nenhum) --</option>
                 {mecanicosDisponiveis.map(m => (
                   <option key={m.id} value={m.id}>{m.nome}</option>
                 ))}

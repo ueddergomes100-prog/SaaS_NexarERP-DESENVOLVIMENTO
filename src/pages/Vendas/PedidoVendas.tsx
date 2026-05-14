@@ -8,7 +8,10 @@ import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 
 const PedidoVendas: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
+  
+  const canDeleteVenda = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.excluir'));
+  
   const [pedidos, setPedidos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -19,7 +22,7 @@ const PedidoVendas: React.FC = () => {
 
     const q = query(
       collection(db, 'pedidos_venda'),
-      where('tenantId', '==', currentUser.uid)
+      where('tenantId', '==', tenantId)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -160,9 +163,11 @@ const PedidoVendas: React.FC = () => {
                       <button onClick={() => navigate(`/pedidos-venda/print/${p.id}`)} className="icon-btn" title="Imprimir Recibo" style={{ color: '#10b981' }}>
                         <Printer size={18} />
                       </button>
-                      <button onClick={() => handleDelete(p.id)} className="icon-btn" title="Excluir" style={{ color: '#ef4444' }}>
-                        <Trash2 size={18} />
-                      </button>
+                      {canDeleteVenda && (
+                        <button onClick={() => handleDelete(p.id)} className="icon-btn" title="Excluir" style={{ color: '#ef4444' }}>
+                          <Trash2 size={18} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))

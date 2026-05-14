@@ -26,11 +26,14 @@ const OSList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'Ativas' | 'Finalizadas' | 'Canceladas'>('Ativas');
   const [searchTerm, setSearchTerm] = useState('');
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
+
+  const canEditOS = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('mecanica.os_alterar'));
+  const canDeleteOS = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('mecanica.os_excluir'));
 
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', currentUser.uid));
+    const q = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId));
     
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const osData: OSData[] = [];
@@ -243,13 +246,15 @@ const OSList: React.FC = () => {
                         >
                           <MessageCircle size={18} />
                         </button>
-                        <button 
-                          className="icon-btn" 
-                          onClick={() => navigate(`/os/editar/${os.id}`)}
-                          title="Editar OS"
-                        >
-                          <Edit size={18} />
-                        </button>
+                        {canEditOS && (
+                          <button 
+                            className="icon-btn" 
+                            onClick={() => navigate(`/os/editar/${os.id}`)}
+                            title="Editar OS"
+                          >
+                            <Edit size={18} />
+                          </button>
+                        )}
                         <button 
                           className="icon-btn" 
                           onClick={() => navigate(`/os/print/${os.id}`)}
@@ -257,7 +262,7 @@ const OSList: React.FC = () => {
                         >
                           <Printer size={18} />
                         </button>
-                        {os.status === 'Cancelada' && (
+                        {os.status === 'Cancelada' && canDeleteOS && (
                           <button 
                             className="icon-btn" 
                             onClick={() => handleDeleteOS(os.id)}

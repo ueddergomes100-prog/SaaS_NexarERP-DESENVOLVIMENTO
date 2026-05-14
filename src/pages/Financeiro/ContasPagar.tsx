@@ -23,7 +23,7 @@ const ContasPagar: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
 
   // Categorias de despesa do plano de contas
   const [categoriasDespesa, setCategoriasDespesa] = useState<string[]>(['Aluguel', 'Água/Luz/Internet', 'Salários', 'Fornecedores de Peças', 'Outros']);
@@ -42,7 +42,7 @@ const ContasPagar: React.FC = () => {
     // Escutar apenas transacoes de saída que estão pendentes
     const q = query(
       collection(db, 'transacoes'), 
-      where('tenantId', '==', currentUser.uid),
+      where('tenantId', '==', tenantId),
       where('tipo', '==', 'saida'),
       where('status', '==', 'Pendente')
     );
@@ -67,7 +67,7 @@ const ContasPagar: React.FC = () => {
     // Buscar Plano de Contas das configurações
     const fetchConfig = async () => {
       try {
-        const configRef = doc(db, 'configuracoes', currentUser.uid);
+        const configRef = doc(db, 'configuracoes', tenantId || '');
         const configSnap = await getDoc(configRef);
         if (configSnap.exists()) {
           const data = configSnap.data();
@@ -134,7 +134,7 @@ const ContasPagar: React.FC = () => {
         categoria: formData.categoria.toUpperCase().trim(),
         status: formData.status,
         tipo: 'saida',
-        tenantId: currentUser.uid,
+        tenantId,
         createdAt: serverTimestamp()
       });
       

@@ -23,12 +23,12 @@ const ClientesList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
 
   useEffect(() => {
     if (!currentUser) return;
 
-    const q = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
+    const q = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
     
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const data: ClienteData[] = [];

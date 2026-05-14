@@ -37,7 +37,7 @@ const Agenda: React.FC = () => {
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
   const navigate = useNavigate();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -57,7 +57,7 @@ const Agenda: React.FC = () => {
     if (!currentUser) return;
 
     // Buscar Clientes
-    const qClientes = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
+    const qClientes = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
     const unsubscribeClientes = onSnapshot(qClientes, (snap) => {
       const cliData: ClienteBasico[] = [];
       snap.forEach(doc => cliData.push({ id: doc.id, nome: doc.data().nome, telefone: doc.data().telefone }));
@@ -65,7 +65,7 @@ const Agenda: React.FC = () => {
     });
 
     // Buscar Agendamentos
-    const qAgendamentos = query(collection(db, 'agendamentos'), where('tenantId', '==', currentUser.uid));
+    const qAgendamentos = query(collection(db, 'agendamentos'), where('tenantId', '==', tenantId));
     const unsubscribeAgendamentos = onSnapshot(qAgendamentos, (snap) => {
       const agData: Agendamento[] = [];
       snap.forEach(doc => agData.push({ id: doc.id, ...doc.data() } as Agendamento));
@@ -107,7 +107,7 @@ const Agenda: React.FC = () => {
       await addDoc(collection(db, 'agendamentos'), {
         ...formData,
         status: 'Agendado',
-        tenantId: currentUser.uid,
+        tenantId,
         createdAt: serverTimestamp()
       });
       showSuccess('Agendamento criado com sucesso!');

@@ -17,11 +17,11 @@ const CategoriasList: React.FC = () => {
   const [categorias, setCategorias] = useState<CategoriaData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
 
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(collection(db, 'categorias'), where('tenantId', '==', currentUser.uid));
+    const q = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data: CategoriaData[] = [];
       snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as CategoriaData));

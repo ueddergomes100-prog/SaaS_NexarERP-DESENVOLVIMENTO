@@ -47,6 +47,8 @@ const Register: React.FC = () => {
         uid: user.uid,
         nomeOficina,
         nomeResponsavel,
+        nome: nomeResponsavel,
+        username: nomeResponsavel.split(' ')[0].toLowerCase() + Math.floor(Math.random() * 1000),
         cnpj: cnpjLimpo,
         email,
         role: 'Admin', // Garante que a pessoa nova seja dona da oficina

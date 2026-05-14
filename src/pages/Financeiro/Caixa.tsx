@@ -24,7 +24,7 @@ const Caixa: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showSaldo, setShowSaldo] = useState(false);
   const [diasFiltro, setDiasFiltro] = useState<number>(30); // Padrão 30 dias
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -47,7 +47,7 @@ const Caixa: React.FC = () => {
     if (!currentUser) return;
     
     // Escutar transacoes
-    const q = query(collection(db, 'transacoes'), where('tenantId', '==', currentUser.uid));
+    const q = query(collection(db, 'transacoes'), where('tenantId', '==', tenantId));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const data: TransacaoData[] = [];
       querySnapshot.forEach((doc) => {
@@ -68,7 +68,7 @@ const Caixa: React.FC = () => {
     // Buscar Plano de Contas das configurações
     const fetchConfig = async () => {
       try {
-        const configRef = doc(db, 'configuracoes', currentUser.uid);
+        const configRef = doc(db, 'configuracoes', tenantId || '');
         const configSnap = await getDoc(configRef);
         if (configSnap.exists()) {
           const data = configSnap.data();
@@ -134,7 +134,7 @@ const Caixa: React.FC = () => {
         categoria: formData.categoria,
         status: formData.status,
         tipo: modalTipo,
-        tenantId: currentUser.uid,
+        tenantId,
         createdAt: serverTimestamp()
       });
       

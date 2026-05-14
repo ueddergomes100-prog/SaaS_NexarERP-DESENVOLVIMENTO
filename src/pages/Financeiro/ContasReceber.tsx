@@ -22,7 +22,7 @@ interface TransacaoData {
 const ContasReceber: React.FC = () => {
   const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
   const [loading, setLoading] = useState(true);
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
 
   useEffect(() => {
     if (!currentUser) return;
@@ -30,7 +30,7 @@ const ContasReceber: React.FC = () => {
     // Escutar apenas transacoes de entrada que estão pendentes
     const q = query(
       collection(db, 'transacoes'), 
-      where('tenantId', '==', currentUser.uid),
+      where('tenantId', '==', tenantId),
       where('tipo', '==', 'entrada'),
       where('status', '==', 'Pendente')
     );

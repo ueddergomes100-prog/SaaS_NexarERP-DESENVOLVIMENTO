@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserCog, Plus, Search, Filter, Edit2, Trash2 } from 'lucide-react';
-import { collection, query, where, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, deleteDoc, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -9,6 +9,7 @@ import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
 interface UsuarioData {
   id: string;
   nome: string;
+  nomeResponsavel?: string;
   username: string;
   email: string;
   role: string;
@@ -41,6 +42,19 @@ const UsuariosList: React.FC = () => {
     if (userRole !== 'Admin') {
       showError('Negado', 'Apenas o administrador pode excluir usuários.');
       return;
+    }
+
+    try {
+      // Verificar se o funcionário já possui Movimentação (Ordens de Serviço, etc.)
+      const qOS = query(collection(db, 'ordens_de_servico'), where('mecanicoId', '==', id), limit(1));
+      const snapOS = await getDocs(qOS);
+
+      if (!snapOS.empty) {
+        showError('Ação Bloqueada', 'Este funcionário possui Ordens de Serviço vinculadas. Não é possível excluí-lo para não corromper relatórios. Por favor, apenas altere o nome dele ou desative-o.');
+        return;
+      }
+    } catch (err) {
+      console.error("Erro ao verificar movimentações:", err);
     }
 
     const confirmed = await confirmDelete('este usuário');
@@ -121,7 +135,7 @@ const UsuariosList: React.FC = () => {
               ) : (
                 usuarios.map(user => (
                   <tr key={user.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <td style={{ padding: '16px', fontWeight: 500 }}>{user.nome || 'S/N'}</td>
+                    <td style={{ padding: '16px', fontWeight: 500 }}>{user.nome || user.nomeResponsavel || 'S/N'}</td>
                     <td style={{ padding: '16px', color: 'var(--text-muted)' }}>
                       {user.username ? (user.username.includes('-') ? user.username.split('-').slice(1).join('-') : user.username) : user.email}
                     </td>
@@ -135,9 +149,14 @@ const UsuariosList: React.FC = () => {
                     {userRole === 'Admin' && (
                       <td style={{ padding: '16px', textAlign: 'right' }}>
                         {user.role !== 'Admin' && (
-                          <button className="icon-btn" style={{ color: '#ef4444' }} onClick={() => handleDelete(user.id, user.username)} title="Remover Acesso">
-                            <Trash2 size={18} />
-                          </button>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                            <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => navigate(`/usuarios/editar/${user.id}`)} title="Editar Usuário">
+                              <Edit2 size={18} />
+                            </button>
+                            <button className="icon-btn" style={{ color: '#ef4444' }} onClick={() => handleDelete(user.id, user.username)} title="Remover Acesso">
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
                         )}
                       </td>
                     )}

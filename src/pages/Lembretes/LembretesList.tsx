@@ -24,11 +24,11 @@ const LembretesList: React.FC = () => {
   const [lembretes, setLembretes] = useState<LembreteData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
 
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(collection(db, 'lembretes'), where('tenantId', '==', currentUser.uid));
+    const q = query(collection(db, 'lembretes'), where('tenantId', '==', tenantId));
     
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const data: LembreteData[] = [];

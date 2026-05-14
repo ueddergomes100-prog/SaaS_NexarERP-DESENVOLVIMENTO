@@ -17,7 +17,7 @@ const CategoriaForm: React.FC = () => {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
 
   useEffect(() => {
     if (isEditing && id) {
@@ -65,7 +65,7 @@ const CategoriaForm: React.FC = () => {
         if (!currentUser) return;
         await addDoc(collection(db, 'categorias'), {
           ...dataToSave,
-          tenantId: currentUser.uid,
+          tenantId,
           createdAt: serverTimestamp()
         });
         showSuccess('Categoria cadastrada!');

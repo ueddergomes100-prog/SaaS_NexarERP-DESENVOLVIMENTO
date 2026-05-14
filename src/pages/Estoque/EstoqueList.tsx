@@ -21,11 +21,11 @@ const EstoqueList: React.FC = () => {
   const [pecasList, setPecasList] = useState<PecaData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
 
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(collection(db, 'estoque'), where('tenantId', '==', currentUser.uid));
+    const q = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
     
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const pecas: PecaData[] = [];

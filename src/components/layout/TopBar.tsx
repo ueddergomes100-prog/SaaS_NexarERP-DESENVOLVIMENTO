@@ -216,8 +216,8 @@ const TopBar: React.FC = () => {
       try {
         if (!currentUser) return;
         const results: any[] = [];
-        const qOs = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', currentUser.uid));
-        const qClientes = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
+        const qOs = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId));
+        const qClientes = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
         
         const [osSnap, clientesSnap] = await Promise.all([getDocs(qOs), getDocs(qClientes)]);
         

@@ -6,7 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 
 const Configuracoes: React.FC = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
   const [isEditingMode, setIsEditingMode] = useState(true);
@@ -21,8 +21,10 @@ const Configuracoes: React.FC = () => {
   const [tenantUsers, setTenantUsers] = useState<any[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [selectedUserPermissions, setSelectedUserPermissions] = useState<string[]>([]);
-  const [recebeComissao, setRecebeComissao] = useState(false);
-  const [comissaoPercentual, setComissaoPercentual] = useState(0);
+  const [recebeComissaoServicos, setRecebeComissaoServicos] = useState(false);
+  const [comissaoPercentualServicos, setComissaoPercentualServicos] = useState(0);
+  const [recebeComissaoPecas, setRecebeComissaoPecas] = useState(false);
+  const [comissaoPercentualPecas, setComissaoPercentualPecas] = useState(0);
   const [isSavingPermissions, setIsSavingPermissions] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -44,7 +46,7 @@ const Configuracoes: React.FC = () => {
       if (!currentUser) return;
       try {
         // Busca Configurações
-        const docRef = doc(db, 'configuracoes', currentUser.uid);
+        const docRef = doc(db, 'configuracoes', tenantId || '');
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const data = docSnap.data();
@@ -79,7 +81,7 @@ const Configuracoes: React.FC = () => {
         }
 
         // Busca Usuários da Oficina para o Controle de Permissões
-        const qUsers = query(collection(db, 'usuarios'), where('tenantId', '==', currentUser.uid));
+        const qUsers = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
         const qSnap = await getDocs(qUsers);
         const usersList: any[] = [];
         qSnap.forEach(u => {
@@ -138,10 +140,10 @@ const Configuracoes: React.FC = () => {
     
     setIsLoading(true);
     try {
-      const docRef = doc(db, 'configuracoes', currentUser.uid);
+      const docRef = doc(db, 'configuracoes', tenantId || '');
       await setDoc(docRef, {
         ...formData,
-        tenantId: currentUser.uid,
+        tenantId,
         updatedAt: serverTimestamp(),
       }, { merge: true });
       
@@ -163,12 +165,16 @@ const Configuracoes: React.FC = () => {
     if (uId) {
       const user = tenantUsers.find(u => u.id === uId);
       setSelectedUserPermissions(user?.permissoes || []);
-      setRecebeComissao(user?.recebeComissao || false);
-      setComissaoPercentual(user?.comissaoPercentual || 0);
+      setRecebeComissaoServicos(user?.recebeComissaoServicos || false);
+      setComissaoPercentualServicos(user?.comissaoPercentualServicos || 0);
+      setRecebeComissaoPecas(user?.recebeComissaoPecas || false);
+      setComissaoPercentualPecas(user?.comissaoPercentualPecas || 0);
     } else {
       setSelectedUserPermissions([]);
-      setRecebeComissao(false);
-      setComissaoPercentual(0);
+      setRecebeComissaoServicos(false);
+      setComissaoPercentualServicos(0);
+      setRecebeComissaoPecas(false);
+      setComissaoPercentualPecas(0);
     }
   };
 
@@ -184,15 +190,19 @@ const Configuracoes: React.FC = () => {
     try {
       await updateDoc(doc(db, 'usuarios', selectedUserId), {
         permissoes: selectedUserPermissions,
-        recebeComissao: recebeComissao,
-        comissaoPercentual: comissaoPercentual
+        recebeComissaoServicos: recebeComissaoServicos,
+        comissaoPercentualServicos: comissaoPercentualServicos,
+        recebeComissaoPecas: recebeComissaoPecas,
+        comissaoPercentualPecas: comissaoPercentualPecas
       });
       // Atualiza o estado local para não perder
       setTenantUsers(prev => prev.map(u => u.id === selectedUserId ? { 
         ...u, 
         permissoes: selectedUserPermissions,
-        recebeComissao: recebeComissao,
-        comissaoPercentual: comissaoPercentual 
+        recebeComissaoServicos: recebeComissaoServicos,
+        comissaoPercentualServicos: comissaoPercentualServicos,
+        recebeComissaoPecas: recebeComissaoPecas,
+        comissaoPercentualPecas: comissaoPercentualPecas 
       } : u));
       
       setShowSuccessAnim(true);
@@ -598,30 +608,58 @@ const Configuracoes: React.FC = () => {
                       Regras de Comissão
                     </h4>
                     
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)' }}>
-                        <input 
-                          type="checkbox" 
-                          checked={recebeComissao}
-                          onChange={(e) => setRecebeComissao(e.target.checked)}
-                          style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
-                        />
-                        Funcionário Recebe Comissão?
-                      </label>
-
-                      {recebeComissao && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Porcentagem (%) da mão de obra:</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)' }}>
                           <input 
-                            type="number" 
-                            min="0"
-                            max="100"
-                            value={comissaoPercentual}
-                            onChange={(e) => setComissaoPercentual(Number(e.target.value))}
-                            style={{ width: '80px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'white', fontSize: '14px', outline: 'none' }}
+                            type="checkbox" 
+                            checked={recebeComissaoServicos}
+                            onChange={(e) => setRecebeComissaoServicos(e.target.checked)}
+                            style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
                           />
-                        </div>
-                      )}
+                          Comissão em Serviços?
+                        </label>
+
+                        {recebeComissaoServicos && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Porcentagem (%):</label>
+                            <input 
+                              type="number" 
+                              min="0"
+                              max="100"
+                              value={comissaoPercentualServicos}
+                              onChange={(e) => setComissaoPercentualServicos(Number(e.target.value))}
+                              style={{ width: '80px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'white', fontSize: '14px', outline: 'none' }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={recebeComissaoPecas}
+                            onChange={(e) => setRecebeComissaoPecas(e.target.checked)}
+                            style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
+                          />
+                          Comissão em Peças?
+                        </label>
+
+                        {recebeComissaoPecas && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Porcentagem (%):</label>
+                            <input 
+                              type="number" 
+                              min="0"
+                              max="100"
+                              value={comissaoPercentualPecas}
+                              onChange={(e) => setComissaoPercentualPecas(Number(e.target.value))}
+                              style={{ width: '80px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'white', fontSize: '14px', outline: 'none' }}
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -632,7 +670,7 @@ const Configuracoes: React.FC = () => {
                       Módulos Permitidos
                     </h4>
                   
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px', marginTop: '16px' }}>
                     {[
                       { id: 'dashboard.valores', label: 'Dashboard: Visão Financeira', color: '#10b981' },
                       { id: 'cadastros.clientes', label: 'Cadastros: Clientes', color: '#8b5cf6' },
@@ -640,9 +678,15 @@ const Configuracoes: React.FC = () => {
                       { id: 'cadastros.servicos', label: 'Cadastros: Serviços', color: '#8b5cf6' },
                       { id: 'cadastros.categorias', label: 'Cadastros: Categorias', color: '#8b5cf6' },
                       { id: 'vendas.pedidos', label: 'Vendas: Pedido de Vendas', color: '#f59e0b' },
+                      { id: 'vendas.alterar', label: 'Vendas: Alterar Pedidos', color: '#f59e0b' },
+                      { id: 'vendas.excluir', label: 'Vendas: Excluir Pedidos', color: '#ef4444' },
                       { id: 'vendas.orcamentos', label: 'Vendas: Orçamentos', color: '#f59e0b' },
+                      { id: 'vendas.orcamentos_alterar', label: 'Vendas: Alterar Orçamentos', color: '#f59e0b' },
+                      { id: 'vendas.orcamentos_excluir', label: 'Vendas: Excluir Orçamentos', color: '#ef4444' },
                       { id: 'vendas.relatorios', label: 'Vendas: Relatórios', color: '#f59e0b' },
                       { id: 'mecanica.os', label: 'Mecânica: Ordens de Serviço', color: '#3b82f6' },
+                      { id: 'mecanica.os_alterar', label: 'Mecânica: Alterar OS', color: '#3b82f6' },
+                      { id: 'mecanica.os_excluir', label: 'Mecânica: Excluir OS', color: '#ef4444' },
                       { id: 'mecanica.relatorios', label: 'Mecânica: Relatórios', color: '#3b82f6' },
                       { id: 'crm.agenda', label: 'CRM: Agendamentos', color: '#ec4899' },
                       { id: 'crm.alertas', label: 'CRM: Alertas de Retorno', color: '#ec4899' },
@@ -654,17 +698,31 @@ const Configuracoes: React.FC = () => {
                       { id: 'financeiro.comissoes', label: 'Financeiro: Comissões', color: '#10b981' },
                       { id: 'administrativo.config', label: 'Admin: Configurações', color: '#6b7280' },
                       { id: 'administrativo.equipe', label: 'Admin: Equipe e Acessos', color: '#6b7280' }
-                    ].map(mod => (
-                      <label key={mod.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-primary)', padding: '10px 12px', borderRadius: 'var(--radius-md)', borderLeft: `3px solid ${mod.color}` }}>
-                        <input 
-                          type="checkbox" 
-                          checked={selectedUserPermissions.includes(mod.id)}
-                          onChange={() => togglePermission(mod.id)}
-                          style={{ width: '16px', height: '16px', accentColor: mod.color, cursor: 'pointer' }}
-                        />
-                        {mod.label}
-                      </label>
-                    ))}
+                    ].map(mod => {
+                      const isChecked = selectedUserPermissions.includes(mod.id);
+                      return (
+                        <label key={mod.id} style={{ 
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', 
+                          fontSize: '13px', color: isChecked ? 'white' : 'var(--text-secondary)', 
+                          backgroundColor: isChecked ? 'rgba(255,255,255,0.03)' : 'var(--bg-primary)', 
+                          padding: '14px 16px', borderRadius: 'var(--radius-md)', 
+                          border: `1px solid ${isChecked ? mod.color : 'var(--border-color)'}`, 
+                          borderLeft: `4px solid ${isChecked ? mod.color : 'transparent'}`, 
+                          transition: 'all 0.2s', boxShadow: isChecked ? `0 0 10px ${mod.color}20` : 'none'
+                        }}>
+                          <span style={{ fontWeight: isChecked ? 600 : 400 }}>{mod.label}</span>
+                          <div style={{ position: 'relative', width: '40px', height: '22px', backgroundColor: isChecked ? mod.color : 'var(--bg-tertiary)', borderRadius: '20px', transition: 'all 0.3s', border: `1px solid ${isChecked ? mod.color : 'var(--border-color)'}` }}>
+                            <div style={{ position: 'absolute', top: '2px', left: isChecked ? '20px' : '2px', width: '16px', height: '16px', backgroundColor: isChecked ? '#fff' : 'var(--text-muted)', borderRadius: '50%', transition: 'all 0.3s', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />
+                          </div>
+                          <input 
+                            type="checkbox" 
+                            checked={isChecked}
+                            onChange={() => togglePermission(mod.id)}
+                            style={{ display: 'none' }}
+                          />
+                        </label>
+                      );
+                    })}
                   </div>
                   </div>
 

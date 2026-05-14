@@ -3,6 +3,7 @@ import { DollarSign, Download, Search, Filter, Loader2, User } from 'lucide-reac
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -13,7 +14,11 @@ interface ComissaoMecanico {
   mecanicoNome: string;
   osFinalizadas: number;
   totalMaoDeObra: number;
-  percentual: number;
+  totalPecas: number;
+  percentualServicos: number;
+  percentualPecas: number;
+  valorComissaoServicos: number;
+  valorComissaoPecas: number;
   valorComissao: number;
 }
 
@@ -29,8 +34,8 @@ const RelatorioComissoes: React.FC = () => {
       setIsLoading(true);
 
       try {
-        // 1. Fetch mechanics that receive commission
-        const qM = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId), where('recebeComissao', '==', true));
+        // 1. Fetch mechanics (todos os usuários para exibir no gráfico e tabela)
+        const qM = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
         const snapM = await getDocs(qM);
         const mapMecanicos = new Map<string, any>();
         snapM.forEach(doc => mapMecanicos.set(doc.id, doc.data()));
@@ -45,24 +50,58 @@ const RelatorioComissoes: React.FC = () => {
         mapMecanicos.forEach((mecData, mId) => {
           agregacao.set(mId, {
             mecanicoId: mId,
-            mecanicoNome: mecData.nome,
+            mecanicoNome: mecData.nome || 'Sem Nome',
             osFinalizadas: 0,
             totalMaoDeObra: 0,
-            percentual: mecData.comissaoPercentual || 0,
+            totalPecas: 0,
+            percentualServicos: Number(mecData.comissaoPercentualServicos) || 0,
+            percentualPecas: Number(mecData.comissaoPercentualPecas) || 0,
+            valorComissaoServicos: 0,
+            valorComissaoPecas: 0,
             valorComissao: 0
           });
         });
 
         snapOS.forEach(doc => {
           const os = doc.data();
-          if (os.mecanicoId && mapMecanicos.has(os.mecanicoId)) {
-            // Calculate total services value
-            const totalServicos = (os.servicos || []).reduce((acc: number, s: any) => acc + (Number(s.preco) * (s.quantidade || 1)), 0);
+          if (os.mecanicoId) {
+            let atual = agregacao.get(os.mecanicoId);
             
-            const atual = agregacao.get(os.mecanicoId)!;
+            // Se o mecânico foi excluído, mas ainda tem OS vinculada, criamos uma entrada temporária
+            if (!atual) {
+              atual = {
+                mecanicoId: os.mecanicoId,
+                mecanicoNome: `[Excluído] Func. Antigo`,
+                osFinalizadas: 0,
+                totalMaoDeObra: 0,
+                totalPecas: 0,
+                percentualServicos: 0,
+                percentualPecas: 0,
+                valorComissaoServicos: 0,
+                valorComissaoPecas: 0,
+                valorComissao: 0
+              };
+            }
+
+            // Calculate total services value
+            const totalServicos = (os.servicos || []).reduce((acc: number, s: any) => {
+              const preco = Number(s.preco) || 0;
+              const qtd = Number(s.quantidade) || 1;
+              return acc + (preco * qtd);
+            }, 0);
+            
+            const totalPecas = (os.pecas || []).reduce((acc: number, p: any) => {
+              const preco = Number(p.preco) || Number(p.precoVenda) || Number(p.precoUnitario) || 0;
+              const qtd = Number(p.quantidade) || 1;
+              return acc + (preco * qtd);
+            }, 0);
+            
             atual.osFinalizadas += 1;
             atual.totalMaoDeObra += totalServicos;
-            atual.valorComissao = atual.totalMaoDeObra * (atual.percentual / 100);
+            atual.totalPecas += totalPecas;
+            atual.valorComissaoServicos = atual.totalMaoDeObra * (atual.percentualServicos / 100);
+            atual.valorComissaoPecas = atual.totalPecas * (atual.percentualPecas / 100);
+            atual.valorComissao = atual.valorComissaoServicos + atual.valorComissaoPecas;
             
             agregacao.set(os.mecanicoId, atual);
           }
@@ -79,7 +118,7 @@ const RelatorioComissoes: React.FC = () => {
     fetchComissoes();
   }, [tenantId, currentUser]);
 
-  const filtrados = comissoes.filter(c => c.mecanicoNome.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filtrados = comissoes.filter(c => (c.mecanicoNome || 'Sem Nome').toLowerCase().includes((searchTerm || '').toLowerCase()));
   const totalGeralComissoes = filtrados.reduce((acc, c) => acc + c.valorComissao, 0);
 
   return (
@@ -106,9 +145,32 @@ const RelatorioComissoes: React.FC = () => {
         </div>
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
           <h3 style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '8px' }}>Mecânicos Produtivos</h3>
-          <p style={{ fontSize: '28px', fontWeight: 700, color: 'white', margin: 0 }}>
+          <p style={{ fontSize: '28px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
             {filtrados.filter(c => c.osFinalizadas > 0).length} / {filtrados.length}
           </p>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
+        <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '16px' }}>Comissões por Funcionário</h3>
+        <div style={{ height: '300px' }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={filtrados} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
+              <XAxis dataKey="mecanicoNome" stroke="#888" tick={{ fill: '#888' }} />
+              <YAxis stroke="#888" tick={{ fill: '#888' }} tickFormatter={(value) => `R$ ${value}`} width={80} />
+              <Tooltip 
+                cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', color: 'white', borderRadius: '8px' }}
+                formatter={(value: number) => [formatCurrency(value), 'Comissão']}
+              />
+              <Bar dataKey="valorComissao" radius={[4, 4, 0, 0]}>
+                {filtrados.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.valorComissao > 0 ? '#10b981' : '#4b5563'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
@@ -135,8 +197,9 @@ const RelatorioComissoes: React.FC = () => {
               <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '13px', textTransform: 'uppercase' }}>
                 <th style={{ padding: '16px' }}>Mecânico</th>
                 <th style={{ padding: '16px', textAlign: 'center' }}>OS Finalizadas</th>
-                <th style={{ padding: '16px' }}>Base de Cálculo (Mão de Obra)</th>
-                <th style={{ padding: '16px', textAlign: 'center' }}>% Comissão</th>
+                <th style={{ padding: '16px' }}>Base Serviço</th>
+                <th style={{ padding: '16px' }}>Base Peças</th>
+                <th style={{ padding: '16px', textAlign: 'center' }}>% Serv / % Peça</th>
                 <th style={{ padding: '16px' }}>Valor a Pagar</th>
                 <th style={{ padding: '16px', textAlign: 'right' }}>Ações</th>
               </tr>
@@ -165,10 +228,14 @@ const RelatorioComissoes: React.FC = () => {
                       {c.mecanicoNome}
                     </td>
                     <td style={{ padding: '16px', textAlign: 'center' }}>{c.osFinalizadas}</td>
-                    <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{formatCurrency(c.totalMaoDeObra)}</td>
+                    <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{formatCurrency(c.totalMaoDeObra)}<br/><span style={{fontSize: '11px', color: '#10b981'}}>+ {formatCurrency(c.valorComissaoServicos)}</span></td>
+                    <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{formatCurrency(c.totalPecas)}<br/><span style={{fontSize: '11px', color: '#10b981'}}>+ {formatCurrency(c.valorComissaoPecas)}</span></td>
                     <td style={{ padding: '16px', textAlign: 'center' }}>
-                      <span style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', padding: '4px 8px', borderRadius: '4px', fontWeight: 600 }}>
-                        {c.percentual}%
+                      <span style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', padding: '4px 8px', borderRadius: '4px', fontWeight: 600, marginRight: '4px' }}>
+                        {c.percentualServicos}%
+                      </span>
+                      <span style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '4px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                        {c.percentualPecas}%
                       </span>
                     </td>
                     <td style={{ padding: '16px', fontWeight: 700, color: '#10b981' }}>{formatCurrency(c.valorComissao)}</td>

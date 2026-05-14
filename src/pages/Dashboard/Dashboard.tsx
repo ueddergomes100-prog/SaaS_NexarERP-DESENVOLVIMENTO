@@ -46,7 +46,7 @@ const Dashboard: React.FC = () => {
   const [hideData, setHideData] = useState(() => localStorage.getItem('nexus_hide_dashboard') === 'true');
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  const { currentUser, userRole, userPermissions, loading: authLoading } = useAuth();
+  const { currentUser, userRole, userPermissions, loading: authLoading, tenantId } = useAuth();
   const hasFinancialAccess = userRole === 'Admin' || userPermissions?.includes('dashboard.valores');
 
   useEffect(() => {
@@ -72,7 +72,7 @@ const Dashboard: React.FC = () => {
     // Busca Ordens de Serviço do usuário logado
     const qOs = query(
       collection(db, 'ordens_de_servico'), 
-      where('tenantId', '==', currentUser.uid)
+      where('tenantId', '==', tenantId)
     );
     const unsubscribeOs = onSnapshot(qOs, (querySnapshot) => {
       let data: OSData[] = [];
@@ -95,7 +95,7 @@ const Dashboard: React.FC = () => {
       // Busca Transações Financeiras do usuário logado (Somente se tiver acesso)
       const qTransacoes = query(
         collection(db, 'transacoes'),
-        where('tenantId', '==', currentUser.uid)
+        where('tenantId', '==', tenantId)
       );
       unsubscribeTrans = onSnapshot(qTransacoes, (querySnapshot) => {
         const data: TransacaoData[] = [];
@@ -412,7 +412,7 @@ const Dashboard: React.FC = () => {
               style={{ 
                 cursor: 'pointer', 
                 margin: 0,
-                color: tableTab === 'Ativas' ? 'white' : 'var(--text-muted)',
+                color: tableTab === 'Ativas' ? 'var(--text-primary)' : 'var(--text-muted)',
                 borderBottom: tableTab === 'Ativas' ? '2px solid var(--accent-purple)' : '2px solid transparent',
                 paddingBottom: '4px',
                 transition: 'all 0.2s'
@@ -425,7 +425,7 @@ const Dashboard: React.FC = () => {
               style={{ 
                 cursor: 'pointer', 
                 margin: 0,
-                color: tableTab === 'Finalizadas' ? 'white' : 'var(--text-muted)',
+                color: tableTab === 'Finalizadas' ? 'var(--text-primary)' : 'var(--text-muted)',
                 borderBottom: tableTab === 'Finalizadas' ? '2px solid #10b981' : '2px solid transparent',
                 paddingBottom: '4px',
                 transition: 'all 0.2s'

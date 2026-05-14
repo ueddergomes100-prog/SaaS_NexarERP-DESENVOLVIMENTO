@@ -25,8 +25,11 @@ interface Orcamento {
 
 const Orcamentos: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId } = useAuth();
+  const { tenantId, userRole, userPermissions } = useAuth();
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
+
+  const canEditOrcamento = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.orcamentos_alterar'));
+  const canDeleteOrcamento = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.orcamentos_excluir'));
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -199,20 +202,24 @@ const Orcamentos: React.FC = () => {
                           >
                             <Printer size={18} />
                           </button>
-                          <button 
-                            title="Editar"
-                            onClick={() => navigate(`/orcamentos/editar/${orc.id}`)}
-                            style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-tertiary)', color: 'white', border: 'none', cursor: 'pointer' }}
-                          >
-                            <Edit2 size={18} />
-                          </button>
-                          <button 
-                            title="Excluir"
-                            onClick={() => handleDelete(orc.id)}
-                            style={{ padding: '8px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}
-                          >
-                            <Trash2 size={18} />
-                          </button>
+                          {canEditOrcamento && (
+                            <button 
+                              title="Editar"
+                              onClick={() => navigate(`/orcamentos/editar/${orc.id}`)}
+                              style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-tertiary)', color: 'white', border: 'none', cursor: 'pointer' }}
+                            >
+                              <Edit2 size={18} />
+                            </button>
+                          )}
+                          {canDeleteOrcamento && (
+                            <button 
+                              title="Excluir"
+                              onClick={() => handleDelete(orc.id)}
+                              style={{ padding: '8px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

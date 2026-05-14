@@ -142,8 +142,8 @@ const RelatoriosVendas: React.FC = () => {
       }
 
       qtdVendas++;
-      const valor = p.valorTotal || 0;
-      const descontos = p.valorTotalDescontos || 0;
+      const valor = Number(p.valorTotal) || 0;
+      const descontos = Number(p.valorTotalDescontos) || 0;
       faturamentoBruto += valor;
       totalDescontos += descontos;
 
@@ -169,10 +169,14 @@ const RelatoriosVendas: React.FC = () => {
       // Itens (Produtos e Lucro)
       if (p.itens && Array.isArray(p.itens)) {
         p.itens.forEach((item: any) => {
-          const itemCusto = (data.estoque[item.id]?.precoCusto || 0) * item.quantidade;
+          const qtd = Number(item.quantidade) || 0;
+          const subtotal = Number(item.subtotal) || 0;
+          const custo = Number(data.estoque[item.id]?.precoCusto) || 0;
+          
+          const itemCusto = custo * qtd;
           custoTotal += itemCusto;
           
-          const itemLucro = item.subtotal - itemCusto;
+          const itemLucro = subtotal - itemCusto;
           if (porVendedor[vendId]) porVendedor[vendId].lucro += itemLucro;
 
           if (!porProduto[item.id]) {
@@ -184,8 +188,8 @@ const RelatoriosVendas: React.FC = () => {
               estoque: data.estoque[item.id]?.quantidade || 0 
             };
           }
-          porProduto[item.id].qtd += item.quantidade;
-          porProduto[item.id].total += item.subtotal;
+          porProduto[item.id].qtd += qtd;
+          porProduto[item.id].total += subtotal;
           porProduto[item.id].lucro += itemLucro;
         });
       }
@@ -324,7 +328,7 @@ const RelatoriosVendas: React.FC = () => {
                 <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value: number) => `R$${value}`} />
                 <Tooltip 
                   contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px' }}
-                  itemStyle={{ color: 'white' }}
+                  itemStyle={{ color: 'var(--text-primary)' }}
                 />
                 <Area type="monotone" dataKey="faturamento" stroke="#8b5cf6" fillOpacity={1} fill="url(#colorFat)" strokeWidth={3} />
               </AreaChart>
@@ -444,7 +448,7 @@ const RelatoriosVendas: React.FC = () => {
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>VALOR PERDIDO ESTIMADO</div>
                 <div style={{ fontSize: '24px', fontWeight: 800, color: '#ef4444' }}>
-                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(data.pedidos.filter(p => p.status === 'Cancelada').reduce((acc, p) => acc + (p.valorTotal || 0), 0))}
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(data.pedidos.filter(p => p.status === 'Cancelada').reduce((acc, p) => acc + (Number(p.valorTotal) || 0), 0))}
                 </div>
               </div>
             </div>
@@ -468,7 +472,7 @@ const RelatoriosVendas: React.FC = () => {
             <div style={{ padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '8px', textAlign: 'center', gridColumn: 'span 2' }}>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>VALOR EM POTENCIAL (ORÇAMENTOS EM ABERTO)</div>
               <div style={{ fontSize: '20px', fontWeight: 800, color: '#f59e0b' }}>
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(filteredData.orcamentosFiltrados.filter(o => o.status === 'Pendente' || o.status === 'Aprovado').reduce((acc, o) => acc + (o.valorTotal || 0), 0))}
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(filteredData.orcamentosFiltrados.filter(o => o.status === 'Pendente' || o.status === 'Aprovado').reduce((acc, o) => acc + (Number(o.valorTotal) || 0), 0))}
               </div>
             </div>
           </div>

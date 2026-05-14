@@ -30,7 +30,7 @@ const LembreteForm: React.FC = () => {
   const [isFetching, setIsFetching] = useState(isEditing);
   const [motivoPersonalizado, setMotivoPersonalizado] = useState('');
   const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
-  const { currentUser } = useAuth();
+  const { currentUser, tenantId } = useAuth();
   
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -48,7 +48,7 @@ const LembreteForm: React.FC = () => {
   useEffect(() => {
     const fetchClientes = async () => {
       if (!currentUser) return;
-      const q = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
+      const q = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
       const querySnapshot = await getDocs(q);
       const data: ClienteBasico[] = [];
       querySnapshot.forEach((doc) => {
@@ -130,7 +130,7 @@ const LembreteForm: React.FC = () => {
       // Garantir que cliente existe
       const clienteExiste = clientesDisponiveis.some(c => c.nome.toLowerCase() === formData.clienteNome.toLowerCase());
       if (!clienteExiste) {
-        const qC = query(collection(db, 'clientes'), where('tenantId', '==', currentUser.uid));
+        const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
         const snapC = await getCountFromServer(qC);
         const nextId = snapC.data().count + 1;
 
@@ -138,7 +138,7 @@ const LembreteForm: React.FC = () => {
           codigo: String(nextId),
           nome: formData.clienteNome,
           telefone: formData.telefone,
-          tenantId: currentUser.uid,
+          tenantId,
           createdAt: serverTimestamp()
         });
       }
@@ -151,7 +151,7 @@ const LembreteForm: React.FC = () => {
         ...formData,
         motivoLembrete: motivoFinal,
         dataPrevisao: dataPrevDate,
-        tenantId: currentUser.uid,
+        tenantId,
       };
 
       if (isEditing && id) {

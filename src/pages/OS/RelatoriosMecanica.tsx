@@ -93,7 +93,7 @@ const RelatoriosMecanica: React.FC = () => {
     const timelineData: Record<string, { name: string, qtd: number, valor: number }> = {};
 
     filteredData.forEach(o => {
-      const valor = o.total || 0;
+      const valor = Number(o.valorTotal || o.total || 0);
       const status = o.status || 'Pendente';
       
       // Timeline
@@ -111,8 +111,8 @@ const RelatoriosMecanica: React.FC = () => {
         receitaTotal += valor;
         
         // Calcular serviços vs peças
-        const servicosValor = o.servicos?.reduce((acc: number, s: any) => acc + (s.preco * s.quantidade), 0) || 0;
-        const pecasValor = o.pecas?.reduce((acc: number, p: any) => acc + (p.preco * p.quantidade), 0) || 0;
+        const servicosValor = o.servicos?.reduce((acc: number, s: any) => acc + (Number(s.preco || 0) * Number(s.quantidade || 1)), 0) || 0;
+        const pecasValor = o.pecas?.reduce((acc: number, p: any) => acc + (Number(p.preco || 0) * Number(p.quantidade || 1)), 0) || 0;
         
         receitaServicos += servicosValor;
         receitaPecas += pecasValor;
@@ -234,7 +234,7 @@ const RelatoriosMecanica: React.FC = () => {
               <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
               <Tooltip 
                 contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px' }}
-                itemStyle={{ color: 'white' }}
+                itemStyle={{ color: 'var(--text-primary)' }}
               />
               <Area type="monotone" dataKey="qtd" stroke="#3b82f6" fillOpacity={1} fill="url(#colorOS)" strokeWidth={3} />
             </AreaChart>

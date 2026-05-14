@@ -27,7 +27,7 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({ title, icon: Icon, children
           display: 'flex', 
           alignItems: 'center', 
           gap: '8px',
-          color: 'white'
+          color: 'var(--text-primary)'
         }}>
           {Icon && <Icon size={18} style={{ color: 'var(--accent-purple)' }} />}
           {title}

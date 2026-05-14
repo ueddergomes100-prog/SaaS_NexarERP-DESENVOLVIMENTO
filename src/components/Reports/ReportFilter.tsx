@@ -33,7 +33,7 @@ const ReportFilter: React.FC<ReportFilterProps> = ({
               border: '1px solid var(--border-color)', 
               borderRadius: 'var(--radius-md)', 
               padding: '10px 16px', 
-              color: 'white',
+              color: 'var(--text-primary)',
               minWidth: '150px'
             }}
           >
@@ -54,7 +54,7 @@ const ReportFilter: React.FC<ReportFilterProps> = ({
                 type="date" 
                 value={startDate}
                 onChange={(e) => setStartDate?.(e.target.value)}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 16px', color: 'white' }}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 16px', color: 'var(--text-primary)' }}
               />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -63,7 +63,7 @@ const ReportFilter: React.FC<ReportFilterProps> = ({
                 type="date" 
                 value={endDate}
                 onChange={(e) => setEndDate?.(e.target.value)}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 16px', color: 'white' }}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 16px', color: 'var(--text-primary)' }}
               />
             </div>
           </>

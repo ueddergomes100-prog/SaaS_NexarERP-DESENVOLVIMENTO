@@ -229,7 +229,7 @@ const RelatoriosMecanica: React.FC = () => {
                   <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
               <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
               <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
               <Tooltip 
@@ -286,7 +286,7 @@ const RelatoriosMecanica: React.FC = () => {
                 <tr key={i} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s' }}>
                   <td style={{ padding: '16px 8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: COLORS[i % COLORS.length], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700 }}>
+                      <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: COLORS[i % COLORS.length], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: 'white' }}>
                         {mec.nome.charAt(0)}
                       </div>
                       <span style={{ fontWeight: 600 }}>{mec.nome}</span>

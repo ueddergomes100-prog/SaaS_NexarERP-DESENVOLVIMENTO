@@ -40,7 +40,7 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, icon: Icon, color, tr
       </div>
       
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-        <h2 style={{ fontSize: '28px', fontWeight: 800, color: 'white', margin: 0 }}>
+        <h2 style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
           {value}
         </h2>
         {trend && (

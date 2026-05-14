@@ -323,7 +323,7 @@ const RelatoriosVendas: React.FC = () => {
                     <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
                 <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
                 <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value: number) => `R$${value}`} />
                 <Tooltip 
@@ -380,7 +380,8 @@ const RelatoriosVendas: React.FC = () => {
               }}>
                 <div style={{ 
                   width: '32px', height: '32px', borderRadius: '50%', backgroundColor: idx === 0 ? '#f59e0b' : 'var(--border-color)', 
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '14px' 
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '14px',
+                  color: idx === 0 ? 'white' : 'var(--text-primary)' 
                 }}>
                   {idx + 1}
                 </div>

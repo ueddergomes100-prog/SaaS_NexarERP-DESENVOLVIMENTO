@@ -9,7 +9,7 @@ import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
 interface ProdutoEstoque { id: string; nome: string; precoVenda: number; quantidade: number; codigo: string; }
-interface ItemVenda { id: string; nome: string; precoUnitario: number; quantidade: number; desconto: number; subtotal: number; }
+interface ItemVenda { id: string; nome: string; precoUnitario: number; quantidade: number; desconto: number; subtotal: number; quantidadeJaDevolvida?: number; }
 
 const PedidoVendaForm: React.FC = () => {
   const navigate = useNavigate();
@@ -33,6 +33,7 @@ const PedidoVendaForm: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingData, setIsFetchingData] = useState(true);
+  const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
 
   const { currentUser, tenantId, userRole, userPermissions } = useAuth();
   const canEditVenda = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.alterar'));
@@ -41,6 +42,13 @@ const PedidoVendaForm: React.FC = () => {
   const [isProdutoDropdownOpen, setIsProdutoDropdownOpen] = useState(false);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
   const produtoDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const isConsumidorFinal = clienteNome.toLowerCase().includes('consumidor final');
+    if (isConsumidorFinal && formaPagamento !== 'Dinheiro' && formaPagamento !== 'Pix') {
+      setFormaPagamento('Dinheiro');
+    }
+  }, [clienteNome, formaPagamento]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -70,8 +78,17 @@ const PedidoVendaForm: React.FC = () => {
       const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
       const snapE = await getDocs(qE);
       const dataE: ProdutoEstoque[] = [];
-      snapE.forEach((doc) => dataE.push({ id: doc.id, nome: doc.data().nome, precoVenda: doc.data().precoVenda, quantidade: doc.data().quantidade, codigo: doc.data().codigo || '' }));
+      snapE.forEach((doc) => dataE.push({ id: doc.id, nome: doc.data().nome, precoVenda: doc.data().precoVenda, quantidade: doc.data().quantidade || 0, codigo: doc.data().codigo || '' }));
       setProdutosCatalogo(dataE);
+
+      // Fetch Configurações
+      try {
+        const configRef = doc(db, 'configuracoes', tenantId);
+        const configSnap = await getDoc(configRef);
+        if (configSnap.exists()) {
+          setPermitirVendaSemEstoque(configSnap.data().venderSemEstoque === true);
+        }
+      } catch (err) { console.error(err); }
 
       // Fetch Pedido se for Visualização
       if (isViewing && id) {
@@ -131,8 +148,8 @@ const PedidoVendaForm: React.FC = () => {
     const produtoEncontrado = produtosCatalogo.find(p => p.nome.toLowerCase() === produtoBusca.toLowerCase() || p.codigo === produtoBusca);
     
     if (produtoEncontrado) {
-      if (produtoQtd > produtoEncontrado.quantidade) {
-        showError('Estoque Insuficiente', `Você tem apenas ${produtoEncontrado.quantidade} un. de ${produtoEncontrado.nome} em estoque.`);
+      if (!permitirVendaSemEstoque && produtoQtd > (produtoEncontrado.quantidade || 0)) {
+        showError('Estoque Insuficiente', `Você tem apenas ${produtoEncontrado.quantidade || 0} un. de ${produtoEncontrado.nome} em estoque. Venda sem estoque desativada.`);
         return;
       }
     }
@@ -221,6 +238,7 @@ const PedidoVendaForm: React.FC = () => {
         formaPagamento,
         status: 'Finalizada',
         tenantId,
+        usuarioResponsavelId: currentUser.uid,
         createdAt: serverTimestamp()
       };
 
@@ -271,6 +289,12 @@ const PedidoVendaForm: React.FC = () => {
   const handleCancelarVenda = async () => {
     if (!currentUser || !id) return;
     
+    const temDevolucao = itens.some(item => (item.quantidadeJaDevolvida || 0) > 0);
+    if (temDevolucao) {
+      showError('Operação Bloqueada', 'Não é possível cancelar uma venda que já possui itens devolvidos. O cancelamento só é permitido caso nenhuma devolução tenha sido feita.');
+      return;
+    }
+
     const confirm = await NexusSwal.fire({
       title: 'Cancelar Venda?',
       text: 'O estoque será devolvido e a transação financeira será estornada.',
@@ -326,7 +350,7 @@ const PedidoVendaForm: React.FC = () => {
   };
 
   if (isFetchingData) {
-    return <div style={{ padding: '40px', textAlign: 'center', color: 'white' }}>Carregando dados da Venda...</div>;
+    return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando dados da Venda...</div>;
   }
 
   return (
@@ -350,7 +374,18 @@ const PedidoVendaForm: React.FC = () => {
                 <Printer size={18} /> Imprimir Recibo
               </button>
               {canEditVenda && (
-                <button className="btn-secondary" onClick={handleCancelarVenda} disabled={isLoading} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>
+                <button 
+                  className="btn-secondary" 
+                  onClick={handleCancelarVenda} 
+                  disabled={isLoading || itens.some(item => (item.quantidadeJaDevolvida || 0) > 0)} 
+                  style={{ 
+                    display: 'flex', alignItems: 'center', gap: '8px', 
+                    color: itens.some(item => (item.quantidadeJaDevolvida || 0) > 0) ? 'var(--text-muted)' : '#ef4444', 
+                    borderColor: itens.some(item => (item.quantidadeJaDevolvida || 0) > 0) ? 'var(--border-color)' : 'rgba(239,68,68,0.3)',
+                    cursor: itens.some(item => (item.quantidadeJaDevolvida || 0) > 0) ? 'not-allowed' : 'pointer'
+                  }}
+                  title={itens.some(item => (item.quantidadeJaDevolvida || 0) > 0) ? 'Não é possível cancelar: há itens devolvidos' : 'Cancelar Venda'}
+                >
                   <XCircle size={18} /> Estornar/Cancelar
                 </button>
               )}
@@ -386,7 +421,7 @@ const PedidoVendaForm: React.FC = () => {
                 onFocus={() => setIsClientDropdownOpen(true)}
                 disabled={isViewing}
                 autoComplete="off" 
-                style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white', width: '100%' }}
+                style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
               />
               {!isViewing && isClientDropdownOpen && clientesDisponiveis.filter(c => c.nome.toLowerCase().includes(clienteNome.toLowerCase())).length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', maxHeight: '200px', overflowY: 'auto', zIndex: 50, boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
@@ -430,7 +465,7 @@ const PedidoVendaForm: React.FC = () => {
                     }}
                     onFocus={() => setIsProdutoDropdownOpen(true)}
                     autoComplete="off"
-                    style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+                    style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
                   />
                   {isProdutoDropdownOpen && produtosCatalogo.filter(p => p.nome.toLowerCase().includes(produtoBusca.toLowerCase()) || p.codigo.includes(produtoBusca)).length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', maxHeight: '250px', overflowY: 'auto', zIndex: 50, boxShadow: '0 4px 15px rgba(0,0,0,0.5)' }}>
@@ -455,17 +490,17 @@ const PedidoVendaForm: React.FC = () => {
 
                 <div style={{ flex: '0.5', minWidth: '80px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Qtd</label>
-                  <input type="number" min="1" value={produtoQtd} onChange={(e) => setProdutoQtd(Number(e.target.value))} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} />
+                  <input type="number" min="1" value={produtoQtd} onChange={(e) => setProdutoQtd(Number(e.target.value))} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
                 </div>
                 
                 <div style={{ flex: '0.8', minWidth: '100px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Preço Unt.</label>
-                  <input type="number" step="0.01" value={produtoPreco} onChange={(e) => setProdutoPreco(Number(e.target.value))} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} />
+                  <input type="number" step="0.01" value={produtoPreco} onChange={(e) => setProdutoPreco(Number(e.target.value))} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
                 </div>
 
                 <div style={{ flex: '0.8', minWidth: '100px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Desc. (R$)</label>
-                  <input type="number" step="0.01" value={produtoDesconto} onChange={(e) => setProdutoDesconto(Number(e.target.value))} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} />
+                  <input type="number" step="0.01" value={produtoDesconto} onChange={(e) => setProdutoDesconto(Number(e.target.value))} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
                 </div>
 
                 <button type="button" onClick={handleAddItem} className="btn-primary" style={{ padding: '12px 24px', whiteSpace: 'nowrap' }}>
@@ -557,7 +592,13 @@ const PedidoVendaForm: React.FC = () => {
                   { value: 'Cartão de Crédito', icon: '💳' },
                   { value: 'Cartão de Débito', icon: '💳' },
                   { value: 'A Prazo / Fiado', icon: '🤝' }
-                ].map(metodo => (
+                ].filter(metodo => {
+                  const isConsumidorFinal = clienteNome.toLowerCase().includes('consumidor final');
+                  if (isConsumidorFinal) {
+                    return metodo.value === 'Dinheiro' || metodo.value === 'Pix';
+                  }
+                  return true;
+                }).map(metodo => (
                   <div 
                     key={metodo.value}
                     onClick={() => setFormaPagamento(metodo.value)}

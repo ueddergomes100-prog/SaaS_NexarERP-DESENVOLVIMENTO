@@ -108,7 +108,7 @@ const EstoqueForm: React.FC = () => {
     }
   };
 
-  if (isFetching) return <div style={{ padding: '40px', color: 'white' }}>Carregando...</div>;
+  if (isFetching) return <div style={{ padding: '40px', color: 'var(--text-primary)' }}>Carregando...</div>;
 
   return (
     <div className="estoque-page">

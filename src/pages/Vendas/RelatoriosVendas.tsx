@@ -161,7 +161,7 @@ const RelatoriosVendas: React.FC = () => {
 
       // Vendedor (Baseado no usuarioResponsavelId ou similar)
       const vendId = p.usuarioResponsavelId || 'admin';
-      const vendNome = data.usuarios[vendId]?.nome || 'ADMINISTRADOR';
+      const vendNome = data.usuarios[vendId]?.nome || data.usuarios[vendId]?.email || 'ADMINISTRADOR';
       if (!porVendedor[vendId]) porVendedor[vendId] = { nome: vendNome, total: 0, qtd: 0, lucro: 0 };
       porVendedor[vendId].total += valor;
       porVendedor[vendId].qtd += 1;
@@ -179,8 +179,9 @@ const RelatoriosVendas: React.FC = () => {
           const itemLucro = subtotal - itemCusto;
           if (porVendedor[vendId]) porVendedor[vendId].lucro += itemLucro;
 
-          if (!porProduto[item.id]) {
-            porProduto[item.id] = { 
+          const productId = item.id === 'avulso' ? `avulso_${item.nome}` : item.id;
+          if (!porProduto[productId]) {
+            porProduto[productId] = { 
               nome: item.nome, 
               qtd: 0, 
               total: 0, 
@@ -188,9 +189,9 @@ const RelatoriosVendas: React.FC = () => {
               estoque: data.estoque[item.id]?.quantidade || 0 
             };
           }
-          porProduto[item.id].qtd += qtd;
-          porProduto[item.id].total += subtotal;
-          porProduto[item.id].lucro += itemLucro;
+          porProduto[productId].qtd += qtd;
+          porProduto[productId].total += subtotal;
+          porProduto[productId].lucro += itemLucro;
         });
       }
     });

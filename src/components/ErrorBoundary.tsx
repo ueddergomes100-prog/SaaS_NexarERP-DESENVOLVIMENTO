@@ -6,7 +6,7 @@ export class ErrorBoundary extends React.Component<{children: React.ReactNode}, 
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{padding: '20px', color: 'white', background: 'red', height: '100vh', overflow: 'auto'}}>
+        <div style={{padding: '20px', color: 'var(--text-primary)', background: 'red', height: '100vh', overflow: 'auto'}}>
           <h2>Algo deu errado (Crash Detectado)</h2>
           <pre>{this.state.error?.toString()}</pre>
           <button onClick={() => window.location.reload()} style={{padding: '10px', marginTop: '20px'}}>Recarregar</button>

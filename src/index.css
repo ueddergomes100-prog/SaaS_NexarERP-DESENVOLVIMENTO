@@ -178,3 +178,17 @@ button {
     justify-content: center !important;
   }
 }
+
+/* Correção visual para selects do SweetAlert2 */
+.swal2-select {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 12px !important;
+}
+
+.swal2-select option {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}

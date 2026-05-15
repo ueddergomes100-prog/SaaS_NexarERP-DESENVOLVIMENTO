@@ -14,7 +14,7 @@ const ProtectedRoute: React.FC = () => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: 'white'
+        color: 'var(--text-primary)'
       }}>
         <div style={{
           width: '60px', height: '60px',

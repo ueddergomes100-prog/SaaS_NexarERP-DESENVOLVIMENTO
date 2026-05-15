@@ -42,24 +42,52 @@ const Faturamento: React.FC = () => {
   // Filtra transações apenas do ano selecionado e Pagas
   const transacoesAno = transacoes.filter(t => {
     if (t.status !== 'Paga') return false;
-    if (!t.data) return false;
-    return t.data.startsWith(String(anoFiltro));
+    
+    let year = '';
+    if (t.data) {
+      year = t.data.substring(0, 4);
+    } else if (t.createdAt?.seconds) {
+      year = String(new Date(t.createdAt.seconds * 1000).getFullYear());
+    }
+    
+    return year === String(anoFiltro);
   });
 
   // --- CÁLCULOS DO DRE SIMPLIFICADO ---
-  const receitaBruta = transacoesAno.filter(t => t.tipo === 'entrada').reduce((acc, curr) => acc + curr.valor, 0);
+  const receitasFiltradas = transacoesAno.filter(t => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução');
+  
+  const receitaServicos = receitasFiltradas.filter(t => t.categoria === 'Serviços' || t.categoria === 'Serviços Automotivos').reduce((acc, curr) => acc + curr.valor, 0);
+  const receitaPecas = receitasFiltradas.filter(t => t.categoria === 'Venda de Peças').reduce((acc, curr) => acc + curr.valor, 0);
+  const receitaOutros = receitasFiltradas.filter(t => t.categoria !== 'Serviços' && t.categoria !== 'Serviços Automotivos' && t.categoria !== 'Venda de Peças').reduce((acc, curr) => acc + curr.valor, 0);
+
+  const receitaBruta = receitaServicos + receitaPecas + receitaOutros;
   const totalDespesas = transacoesAno.filter(t => t.tipo === 'saida').reduce((acc, curr) => acc + curr.valor, 0);
   const lucroLiquido = receitaBruta - totalDespesas;
   const margemLucro = receitaBruta > 0 ? (lucroLiquido / receitaBruta) * 100 : 0;
+
+  // --- FORMAS DE PAGAMENTO ---
+  const formasPagamento: Record<string, number> = {};
+  receitasFiltradas.forEach(t => {
+    const f = t.formaPagamento || 'Não informada';
+    formasPagamento[f] = (formasPagamento[f] || 0) + t.valor;
+  });
 
   // --- CÁLCULOS DO BALANCETE MENSAL ---
   const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   
   const balanceteMeses = meses.map((nomeMes, index) => {
     const mesStr = String(index + 1).padStart(2, '0');
-    const transacoesMes = transacoesAno.filter(t => t.data && t.data.substring(5, 7) === mesStr);
+    const transacoesMes = transacoesAno.filter(t => {
+      let month = '';
+      if (t.data) {
+        month = t.data.substring(5, 7);
+      } else if (t.createdAt?.seconds) {
+        month = String(new Date(t.createdAt.seconds * 1000).getMonth() + 1).padStart(2, '0');
+      }
+      return month === mesStr;
+    });
     
-    const receitas = transacoesMes.filter(t => t.tipo === 'entrada').reduce((acc, curr) => acc + curr.valor, 0);
+    const receitas = transacoesMes.filter(t => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução').reduce((acc, curr) => acc + curr.valor, 0);
     const despesas = transacoesMes.filter(t => t.tipo === 'saida').reduce((acc, curr) => acc + curr.valor, 0);
     const saldo = receitas - despesas;
     
@@ -88,7 +116,7 @@ const Faturamento: React.FC = () => {
           <select 
             value={anoFiltro}
             onChange={(e) => setAnoFiltro(Number(e.target.value))}
-            style={{ padding: '10px 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'white' }}
+            style={{ padding: '10px 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
           >
             {[...Array(5)].map((_, i) => {
               const ano = new Date().getFullYear() - i;
@@ -111,13 +139,42 @@ const Faturamento: React.FC = () => {
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>1. Receita Bruta (Vendas/Serviços)</span>
+              <span style={{ color: 'var(--text-secondary)' }}>1. Receita Bruta Total</span>
               <span style={{ fontWeight: 600, color: '#10b981' }}>{formatCurrency(receitaBruta)}</span>
+            </div>
+            
+            <div style={{ paddingLeft: '24px', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
+                <span>↳ Venda de Peças (Pedidos de Venda)</span>
+                <span>{formatCurrency(receitaPecas)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
+                <span>↳ Serviços (Mão de Obra / OS)</span>
+                <span>{formatCurrency(receitaServicos)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
+                <span>↳ Outras Receitas</span>
+                <span>{formatCurrency(receitaOutros)}</span>
+              </div>
             </div>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
               <span style={{ color: 'var(--text-secondary)' }}>2. (-) Despesas / Custos Totais</span>
               <span style={{ fontWeight: 600, color: '#ef4444' }}>{formatCurrency(totalDespesas)}</span>
+            </div>
+
+            <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '8px 0' }}></div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>Receitas por Forma de Pagamento</span>
+            </div>
+            <div style={{ paddingLeft: '24px', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
+              {Object.entries(formasPagamento).sort((a,b) => b[1] - a[1]).map(([forma, valor]) => (
+                <div key={forma} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
+                  <span>↳ {forma}</span>
+                  <span>{formatCurrency(valor)}</span>
+                </div>
+              ))}
             </div>
 
             <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '8px 0' }}></div>

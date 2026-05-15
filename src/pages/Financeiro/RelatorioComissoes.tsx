@@ -13,8 +13,11 @@ interface ComissaoMecanico {
   mecanicoId: string;
   mecanicoNome: string;
   osFinalizadas: number;
+  vendasFinalizadas: number;
   totalMaoDeObra: number;
   totalPecas: number;
+  totalVendasDiretas: number;
+  totalDevolucoes: number;
   percentualServicos: number;
   percentualPecas: number;
   valorComissaoServicos: number;
@@ -52,8 +55,11 @@ const RelatorioComissoes: React.FC = () => {
             mecanicoId: mId,
             mecanicoNome: mecData.nome || 'Sem Nome',
             osFinalizadas: 0,
+            vendasFinalizadas: 0,
             totalMaoDeObra: 0,
             totalPecas: 0,
+            totalVendasDiretas: 0,
+            totalDevolucoes: 0,
             percentualServicos: Number(mecData.comissaoPercentualServicos) || 0,
             percentualPecas: Number(mecData.comissaoPercentualPecas) || 0,
             valorComissaoServicos: 0,
@@ -73,8 +79,11 @@ const RelatorioComissoes: React.FC = () => {
                 mecanicoId: os.mecanicoId,
                 mecanicoNome: `[Excluído] Func. Antigo`,
                 osFinalizadas: 0,
+                vendasFinalizadas: 0,
                 totalMaoDeObra: 0,
                 totalPecas: 0,
+                totalVendasDiretas: 0,
+                totalDevolucoes: 0,
                 percentualServicos: 0,
                 percentualPecas: 0,
                 valorComissaoServicos: 0,
@@ -99,12 +108,57 @@ const RelatorioComissoes: React.FC = () => {
             atual.osFinalizadas += 1;
             atual.totalMaoDeObra += totalServicos;
             atual.totalPecas += totalPecas;
-            atual.valorComissaoServicos = atual.totalMaoDeObra * (atual.percentualServicos / 100);
-            atual.valorComissaoPecas = atual.totalPecas * (atual.percentualPecas / 100);
-            atual.valorComissao = atual.valorComissaoServicos + atual.valorComissaoPecas;
             
             agregacao.set(os.mecanicoId, atual);
           }
+        });
+
+        // 3. Fetch Vendas Diretas (pedidos_venda)
+        const qVendas = query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where('status', 'in', ['Concluída', 'Faturada', 'Finalizada']));
+        const snapVendas = await getDocs(qVendas);
+        snapVendas.forEach(doc => {
+          const v = doc.data();
+          if (v.usuarioResponsavelId) {
+            let atual = agregacao.get(v.usuarioResponsavelId);
+            if (!atual) return; // Ignorar vendas de usuários não mapeados para comissão
+            
+            const totalVenda = (v.itens || []).reduce((acc: number, item: any) => {
+              // Já calculamos descontos no subtotal, então preferimos usar subtotal, ou recalcular
+              return acc + (Number(item.subtotal) || ((Number(item.precoUnitario) * Number(item.quantidade)) - Number(item.desconto || 0)));
+            }, 0);
+            
+            atual.vendasFinalizadas += 1;
+            atual.totalVendasDiretas += totalVenda;
+            atual.totalPecas += totalVenda; // Vendas diretas contam como 'Peças' para fins de comissão
+            
+            agregacao.set(v.usuarioResponsavelId, atual);
+          }
+        });
+
+        // 4. Fetch Devoluções e descontar
+        const qDev = query(collection(db, 'devolucoes_venda'), where('tenantId', '==', tenantId), where('status', '==', 'concluida'));
+        const snapDev = await getDocs(qDev);
+        snapDev.forEach(doc => {
+          const d = doc.data();
+          if (d.usuarioResponsavelId) {
+            let atual = agregacao.get(d.usuarioResponsavelId);
+            if (!atual) return;
+            
+            const valorDevolvido = Number(d.valorTotalDevolvido) || 0;
+            atual.totalDevolucoes += valorDevolvido;
+            atual.totalPecas -= valorDevolvido; // Abate do total de comissionamento de vendas/peças
+            
+            agregacao.set(d.usuarioResponsavelId, atual);
+          }
+        });
+
+        // 5. Calculate Final Commissions
+        agregacao.forEach(atual => {
+          atual.valorComissaoServicos = atual.totalMaoDeObra * (atual.percentualServicos / 100);
+          // Previne comissão negativa caso devoluções superem vendas no mês (ou define regras)
+          const basePecas = Math.max(0, atual.totalPecas); 
+          atual.valorComissaoPecas = basePecas * (atual.percentualPecas / 100);
+          atual.valorComissao = atual.valorComissaoServicos + atual.valorComissaoPecas;
         });
 
         setComissoes(Array.from(agregacao.values()).sort((a, b) => b.valorComissao - a.valorComissao));
@@ -131,7 +185,7 @@ const RelatorioComissoes: React.FC = () => {
           </h1>
           <p style={{ color: 'var(--text-muted)' }}>Acompanhamento e fechamento das comissões da equipe técnica</p>
         </div>
-        <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'white' }}>
+        <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}>
           <Download size={18} /> Exportar Completo
         </button>
       </div>
@@ -161,7 +215,7 @@ const RelatorioComissoes: React.FC = () => {
               <YAxis stroke="#888" tick={{ fill: '#888' }} tickFormatter={(value) => `R$ ${value}`} width={80} />
               <Tooltip 
                 cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', color: 'white', borderRadius: '8px' }}
+                contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', color: 'var(--text-primary)', borderRadius: '8px' }}
                 formatter={(value: number) => [formatCurrency(value), 'Comissão']}
               />
               <Bar dataKey="valorComissao" radius={[4, 4, 0, 0]}>
@@ -183,10 +237,10 @@ const RelatorioComissoes: React.FC = () => {
               placeholder="Buscar por mecânico..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ width: '100%', padding: '12px 16px 12px 48px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'white' }}
+              style={{ width: '100%', padding: '12px 16px 12px 48px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
-          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'white' }}>
+          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}>
             <Filter size={20} /> Fechamento do Mês
           </button>
         </div>
@@ -195,10 +249,10 @@ const RelatorioComissoes: React.FC = () => {
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '13px', textTransform: 'uppercase' }}>
-                <th style={{ padding: '16px' }}>Mecânico</th>
-                <th style={{ padding: '16px', textAlign: 'center' }}>OS Finalizadas</th>
-                <th style={{ padding: '16px' }}>Base Serviço</th>
-                <th style={{ padding: '16px' }}>Base Peças</th>
+                <th style={{ padding: '16px' }}>Mecânico / Vendedor</th>
+                <th style={{ padding: '16px', textAlign: 'center' }}>Qtd. OS / Vendas</th>
+                <th style={{ padding: '16px' }}>Base Serviço (OS)</th>
+                <th style={{ padding: '16px' }}>Base Peças/Vendas</th>
                 <th style={{ padding: '16px', textAlign: 'center' }}>% Serv / % Peça</th>
                 <th style={{ padding: '16px' }}>Valor a Pagar</th>
                 <th style={{ padding: '16px', textAlign: 'right' }}>Ações</th>
@@ -227,9 +281,24 @@ const RelatorioComissoes: React.FC = () => {
                       </div>
                       {c.mecanicoNome}
                     </td>
-                    <td style={{ padding: '16px', textAlign: 'center' }}>{c.osFinalizadas}</td>
-                    <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{formatCurrency(c.totalMaoDeObra)}<br/><span style={{fontSize: '11px', color: '#10b981'}}>+ {formatCurrency(c.valorComissaoServicos)}</span></td>
-                    <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{formatCurrency(c.totalPecas)}<br/><span style={{fontSize: '11px', color: '#10b981'}}>+ {formatCurrency(c.valorComissaoPecas)}</span></td>
+                    <td style={{ padding: '16px', textAlign: 'center' }}>
+                      <span title="OS Finalizadas" style={{ color: 'var(--text-muted)' }}>{c.osFinalizadas} OS</span><br/>
+                      <span title="Vendas Diretas" style={{ fontSize: '12px', color: '#8b5cf6' }}>{c.vendasFinalizadas} Vendas</span>
+                    </td>
+                    <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>
+                      {formatCurrency(c.totalMaoDeObra)}<br/>
+                      <span style={{fontSize: '11px', color: '#10b981'}}>+ {formatCurrency(c.valorComissaoServicos)}</span>
+                    </td>
+                    <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>
+                      {formatCurrency(c.totalPecas)}
+                      {c.totalDevolucoes > 0 && (
+                        <span style={{fontSize: '10px', color: '#ef4444', marginLeft: '4px'}} title={`Inclui -${formatCurrency(c.totalDevolucoes)} de devoluções`}>
+                          (Abatido: {formatCurrency(c.totalDevolucoes)})
+                        </span>
+                      )}
+                      <br/>
+                      <span style={{fontSize: '11px', color: '#10b981'}}>+ {formatCurrency(c.valorComissaoPecas)}</span>
+                    </td>
                     <td style={{ padding: '16px', textAlign: 'center' }}>
                       <span style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', padding: '4px 8px', borderRadius: '4px', fontWeight: 600, marginRight: '4px' }}>
                         {c.percentualServicos}%

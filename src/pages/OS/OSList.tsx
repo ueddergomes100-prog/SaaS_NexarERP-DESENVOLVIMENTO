@@ -145,7 +145,7 @@ const OSList: React.FC = () => {
             border: 'none', 
             cursor: 'pointer',
             backgroundColor: activeTab === 'Ativas' ? 'var(--accent-purple)' : 'var(--bg-secondary)',
-            color: 'white',
+            color: 'var(--text-primary)',
             fontWeight: 600
           }}
         >
@@ -159,7 +159,7 @@ const OSList: React.FC = () => {
             border: 'none', 
             cursor: 'pointer',
             backgroundColor: activeTab === 'Finalizadas' ? '#10b981' : 'var(--bg-secondary)',
-            color: 'white',
+            color: 'var(--text-primary)',
             fontWeight: 600
           }}
         >
@@ -173,7 +173,7 @@ const OSList: React.FC = () => {
             border: 'none', 
             cursor: 'pointer',
             backgroundColor: activeTab === 'Canceladas' ? '#ef4444' : 'var(--bg-secondary)',
-            color: 'white',
+            color: 'var(--text-primary)',
             fontWeight: 600
           }}
         >

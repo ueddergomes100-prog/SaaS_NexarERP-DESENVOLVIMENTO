@@ -12,6 +12,13 @@ interface ClienteBasico {
   telefone: string;
 }
 
+interface VeiculoBasico {
+  id: string;
+  placa: string;
+  modelo: string;
+  clienteId: string;
+}
+
 const LembreteForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -30,6 +37,9 @@ const LembreteForm: React.FC = () => {
   const [isFetching, setIsFetching] = useState(isEditing);
   const [motivoPersonalizado, setMotivoPersonalizado] = useState('');
   const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
+  const [veiculosDisponiveis, setVeiculosDisponiveis] = useState<VeiculoBasico[]>([]);
+  const [veiculosDoCliente, setVeiculosDoCliente] = useState<VeiculoBasico[]>([]);
+  const [isVeiculoDropdownOpen, setIsVeiculoDropdownOpen] = useState(false);
   const { currentUser, tenantId } = useAuth();
   
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
@@ -55,6 +65,12 @@ const LembreteForm: React.FC = () => {
         data.push({ id: doc.id, nome: doc.data().nome, telefone: doc.data().telefone });
       });
       setClientesDisponiveis(data);
+
+      const qVeic = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId));
+      const snapVeic = await getDocs(qVeic);
+      const veicData: VeiculoBasico[] = [];
+      snapVeic.forEach((doc) => veicData.push({ id: doc.id, placa: doc.data().placa, modelo: doc.data().modelo, clienteId: doc.data().clienteId }));
+      setVeiculosDisponiveis(veicData);
 
       if (isEditing && id) {
         try {
@@ -193,7 +209,7 @@ const LembreteForm: React.FC = () => {
   };
 
   if (isFetching) {
-    return <div style={{ padding: '40px', color: 'white', textAlign: 'center' }}>Carregando dados do lembrete...</div>;
+    return <div style={{ padding: '40px', color: 'var(--text-primary)', textAlign: 'center' }}>Carregando dados do lembrete...</div>;
   }
 
   return (
@@ -254,7 +270,7 @@ const LembreteForm: React.FC = () => {
                 }}
                 onFocus={() => setIsClientDropdownOpen(true)}
                 autoComplete="off"
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
               
               {isClientDropdownOpen && (
@@ -270,8 +286,23 @@ const LembreteForm: React.FC = () => {
                       <div 
                         key={c.id} 
                         onClick={() => {
-                          setFormData({ ...formData, clienteNome: c.nome, telefone: c.telefone || '' });
                           setIsClientDropdownOpen(false);
+                          
+                          const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === c.id);
+                          if (vDoCliente.length === 1) {
+                            const v = vDoCliente[0];
+                            setFormData({ ...formData, clienteNome: c.nome, telefone: c.telefone || '', placa: v.placa, modelo: v.modelo });
+                            setVeiculosDoCliente([]);
+                            setIsVeiculoDropdownOpen(false);
+                          } else if (vDoCliente.length > 1) {
+                            setFormData({ ...formData, clienteNome: c.nome, telefone: c.telefone || '' });
+                            setVeiculosDoCliente(vDoCliente);
+                            setIsVeiculoDropdownOpen(true);
+                          } else {
+                            setFormData({ ...formData, clienteNome: c.nome, telefone: c.telefone || '', placa: '', modelo: '' });
+                            setVeiculosDoCliente([]);
+                            setIsVeiculoDropdownOpen(false);
+                          }
                         }}
                         style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                         onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
@@ -298,10 +329,39 @@ const LembreteForm: React.FC = () => {
                 placeholder="(00) 00000-0000" 
                 value={formData.telefone}
                 onChange={handleChange}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
             </div>
           </div>
+
+
+          {isVeiculoDropdownOpen && veiculosDoCliente.length > 1 && (
+            <div style={{ padding: '16px', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px dashed #3b82f6', borderRadius: '8px' }}>
+              <p style={{ color: '#3b82f6', marginBottom: '12px', fontWeight: 'bold' }}>Selecione o veículo para o lembrete:</p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {veiculosDoCliente.map(v => (
+                  <button 
+                    key={v.id} 
+                    type="button"
+                    onClick={() => {
+                      setFormData(prev => ({...prev, placa: v.placa, modelo: v.modelo}));
+                      setIsVeiculoDropdownOpen(false);
+                    }}
+                    style={{ padding: '8px 16px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    {v.placa} - {v.modelo}
+                  </button>
+                ))}
+                <button 
+                  type="button" 
+                  onClick={() => setIsVeiculoDropdownOpen(false)} 
+                  style={{ padding: '8px 16px', backgroundColor: 'transparent', color: '#3b82f6', border: '1px solid #3b82f6', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  Outro / Não informar
+                </button>
+              </div>
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -312,7 +372,7 @@ const LembreteForm: React.FC = () => {
                 placeholder="Ex: Fiat Uno" 
                 value={formData.modelo}
                 onChange={handleChange}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -323,7 +383,7 @@ const LembreteForm: React.FC = () => {
                 placeholder="ABC-1234" 
                 value={formData.placa}
                 onChange={handleChange}
-                style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+                style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
             </div>
           </div>
@@ -351,7 +411,7 @@ const LembreteForm: React.FC = () => {
                   placeholder="Digite o motivo..." 
                   value={motivoPersonalizado}
                   onChange={(e) => setMotivoPersonalizado(e.target.value)}
-                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white', marginTop: '8px' }}
+                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', marginTop: '8px' }}
                 />
               )}
             </div>
@@ -362,7 +422,7 @@ const LembreteForm: React.FC = () => {
                 name="dataPrevisao"
                 value={formData.dataPrevisao}
                 onChange={handleChange}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white', colorScheme: 'dark' }}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', colorScheme: 'dark' }}
               />
               <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
                 {[7, 30, 90, 180].map((days) => (
@@ -398,7 +458,7 @@ const LembreteForm: React.FC = () => {
               placeholder="Ex: 10/05/2026"
               value={formData.ultimaRevisao}
               onChange={handleChange}
-              style={{ width: '50%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+              style={{ width: '50%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
             />
           </div>
 

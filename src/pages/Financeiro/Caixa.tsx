@@ -101,7 +101,7 @@ const Caixa: React.FC = () => {
     return dataTransacao >= limite;
   });
 
-  const totalEntradas = filteredTransacoes.filter(t => t.tipo === 'entrada' && t.status === 'Paga').reduce((acc, curr) => acc + curr.valor, 0);
+  const totalEntradas = filteredTransacoes.filter(t => t.tipo === 'entrada' && t.status === 'Paga' && t.formaPagamento !== 'Crédito de Devolução').reduce((acc, curr) => acc + curr.valor, 0);
   const totalSaidas = filteredTransacoes.filter(t => t.tipo === 'saida' && t.status === 'Paga').reduce((acc, curr) => acc + curr.valor, 0);
   const saldoAtual = totalEntradas - totalSaidas;
 
@@ -230,7 +230,7 @@ const Caixa: React.FC = () => {
               style={{ 
                 backgroundColor: 'var(--bg-tertiary)', 
                 border: '1px solid var(--border-color)', 
-                color: 'white', 
+                color: 'var(--text-primary)', 
                 padding: '8px 12px', 
                 borderRadius: 'var(--radius-md)' 
               }}
@@ -331,7 +331,7 @@ const Caixa: React.FC = () => {
                   value={formData.descricao} 
                   onChange={(e) => setFormData({...formData, descricao: e.target.value})} 
                   placeholder={modalTipo === 'entrada' ? "Ex: Troca de óleo Corsa" : "Ex: Conta de Luz"} 
-                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'white' }}
+                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)' }}
                   required
                 />
               </div>
@@ -345,7 +345,7 @@ const Caixa: React.FC = () => {
                     value={formData.valor} 
                     onChange={(e) => setFormData({...formData, valor: e.target.value})} 
                     placeholder="0,00" 
-                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'white', fontWeight: 600, fontSize: '16px' }}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)', fontWeight: 600, fontSize: '16px' }}
                     required
                   />
                 </div>
@@ -355,7 +355,7 @@ const Caixa: React.FC = () => {
                     type="date" 
                     value={formData.data} 
                     onChange={(e) => setFormData({...formData, data: e.target.value})} 
-                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'white' }}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)' }}
                     required
                   />
                 </div>
@@ -366,7 +366,7 @@ const Caixa: React.FC = () => {
                 <select 
                   value={formData.categoria} 
                   onChange={(e) => setFormData({...formData, categoria: e.target.value})}
-                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'white' }}
+                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)' }}
                   required
                 >
                   <option value="">Selecione uma categoria...</option>

@@ -286,7 +286,7 @@ const RelatoriosMecanica: React.FC = () => {
                 <tr key={i} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s' }}>
                   <td style={{ padding: '16px 8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: COLORS[i % COLORS.length], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: 'white' }}>
+                      <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: COLORS[i % COLORS.length], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
                         {mec.nome.charAt(0)}
                       </div>
                       <span style={{ fontWeight: 600 }}>{mec.nome}</span>

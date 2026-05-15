@@ -12,6 +12,7 @@ import OrcamentoForm from './pages/Orcamentos/OrcamentoForm';
 import OrcamentoPrint from './pages/Orcamentos/OrcamentoPrint';
 import PedidoVendas from './pages/Vendas/PedidoVendas';
 import RelatoriosVendas from './pages/Vendas/RelatoriosVendas';
+import DevolucoesVenda from './pages/Vendas/DevolucoesVenda';
 import OSList from './pages/OS/OSList';
 import RelatoriosMecanica from './pages/OS/RelatoriosMecanica';
 import OSForm from './pages/OS/OSForm';
@@ -40,6 +41,11 @@ import NFE from './pages/Fiscal/NFE';
 import EntradaNFE from './pages/Fiscal/EntradaNFE';
 import SuperAdmin from './pages/Admin/SuperAdmin';
 import UsuarioForm from './pages/Usuarios/UsuarioForm';
+import VeiculosList from './pages/Veiculos/VeiculosList';
+import VeiculoForm from './pages/Veiculos/VeiculoForm';
+import RelatoriosDiversos from './pages/RelatoriosDiversos/RelatoriosDiversos';
+import PrintRelatorioVeiculos from './pages/RelatoriosDiversos/PrintRelatorioVeiculos';
+import PrintRelatorioFinanceiro from './pages/RelatoriosDiversos/PrintRelatorioFinanceiro';
 
 function App() {
   return (
@@ -65,6 +71,7 @@ function App() {
                   <Route path="pedidos-venda/novo" element={<PedidoVendaForm />} />
                   <Route path="pedidos-venda/visualizar/:id" element={<PedidoVendaForm />} />
                   <Route path="pedidos-venda/print/:id" element={<PedidoPrint />} />
+                  <Route path="vendas/devolucoes" element={<DevolucoesVenda />} />
                   <Route path="relatorios-vendas" element={<RelatoriosVendas />} />
                 
                 <Route path="os" element={<OSList />} />
@@ -99,6 +106,10 @@ function App() {
                 <Route path="clientes/novo" element={<ClienteForm />} />
                 <Route path="clientes/editar/:id" element={<ClienteForm />} />
                 
+                <Route path="veiculos" element={<VeiculosList />} />
+                <Route path="veiculos/novo" element={<VeiculoForm />} />
+                <Route path="veiculos/editar/:id" element={<VeiculoForm />} />
+                
                 <Route path="usuarios" element={<UsuariosList />} />
                 <Route path="usuarios/novo" element={<UsuarioForm />} />
                 <Route path="usuarios/editar/:id" element={<UsuarioForm />} />
@@ -108,6 +119,10 @@ function App() {
                 <Route path="categorias/editar/:id" element={<CategoriaForm />} />
                 
                 <Route path="configuracoes" element={<Configuracoes />} />
+                
+                <Route path="relatorios-diversos" element={<RelatoriosDiversos />} />
+                <Route path="relatorios-diversos/print/veiculos" element={<PrintRelatorioVeiculos />} />
+                <Route path="relatorios-diversos/print/financeiro" element={<PrintRelatorioFinanceiro />} />
                 
                 {/* Painel SaaS */}
                 <Route path="superadmin" element={<SuperAdmin />} />

@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
+interface VeiculoBasico { id: string; placa: string; modelo: string; clienteId: string; }
 interface Agendamento {
   id: string;
   data: string; // YYYY-MM-DD
@@ -23,6 +24,9 @@ const Agenda: React.FC = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
+  const [veiculosDisponiveis, setVeiculosDisponiveis] = useState<VeiculoBasico[]>([]);
+  const [veiculosDoCliente, setVeiculosDoCliente] = useState<VeiculoBasico[]>([]);
+  const [isVeiculoDropdownOpen, setIsVeiculoDropdownOpen] = useState(false);
   
   // Form Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -64,6 +68,14 @@ const Agenda: React.FC = () => {
       setClientesDisponiveis(cliData);
     });
 
+    // Buscar Veículos
+    const qVeiculos = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId));
+    const unsubscribeVeiculos = onSnapshot(qVeiculos, (snap) => {
+      const vData: VeiculoBasico[] = [];
+      snap.forEach(doc => vData.push({ id: doc.id, placa: doc.data().placa, modelo: doc.data().modelo, clienteId: doc.data().clienteId }));
+      setVeiculosDisponiveis(vData);
+    });
+
     // Buscar Agendamentos
     const qAgendamentos = query(collection(db, 'agendamentos'), where('tenantId', '==', tenantId));
     const unsubscribeAgendamentos = onSnapshot(qAgendamentos, (snap) => {
@@ -74,6 +86,7 @@ const Agenda: React.FC = () => {
 
     return () => {
       unsubscribeClientes();
+      unsubscribeVeiculos();
       unsubscribeAgendamentos();
     };
   }, [currentUser]);
@@ -242,7 +255,7 @@ const Agenda: React.FC = () => {
                         onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
                         title={`${ag.hora} - ${ag.clienteNome} (Clique para opções)`}
                       >
-                        <strong style={{ display: 'block', color: 'white' }}>{ag.hora} - {ag.veiculo || 'S/V'}</strong>
+                        <strong style={{ display: 'block', color: 'var(--text-primary)' }}>{ag.hora} - {ag.veiculo || 'S/V'}</strong>
                         <span style={{ color: 'var(--text-muted)' }}>{ag.clienteNome}</span>
                       </div>
                     ))}
@@ -298,7 +311,25 @@ const Agenda: React.FC = () => {
                       .map(c => (
                         <div 
                           key={c.id} 
-                          onClick={() => { setFormData({ ...formData, clienteNome: c.nome, clienteId: c.id }); setIsClientDropdownOpen(false); }}
+                          onClick={() => {
+                            setIsClientDropdownOpen(false);
+                            
+                            const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === c.id);
+                            if (vDoCliente.length === 1) {
+                              const v = vDoCliente[0];
+                              setFormData({ ...formData, clienteNome: c.nome, clienteId: c.id, veiculo: `${v.placa} - ${v.modelo}` });
+                              setVeiculosDoCliente([]);
+                              setIsVeiculoDropdownOpen(false);
+                            } else if (vDoCliente.length > 1) {
+                              setFormData({ ...formData, clienteNome: c.nome, clienteId: c.id });
+                              setVeiculosDoCliente(vDoCliente);
+                              setIsVeiculoDropdownOpen(true);
+                            } else {
+                              setFormData({ ...formData, clienteNome: c.nome, clienteId: c.id, veiculo: '' });
+                              setVeiculosDoCliente([]);
+                              setIsVeiculoDropdownOpen(false);
+                            }
+                          }}
                           style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)' }}
                         >
                           <span style={{ fontWeight: 500, fontSize: '14px' }}>{c.nome}</span>
@@ -315,6 +346,34 @@ const Agenda: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {isVeiculoDropdownOpen && veiculosDoCliente.length > 1 && (
+                <div style={{ padding: '16px', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px dashed #3b82f6', borderRadius: '8px' }}>
+                  <p style={{ color: '#3b82f6', marginBottom: '12px', fontWeight: 'bold' }}>Selecione o veículo:</p>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {veiculosDoCliente.map(v => (
+                      <button 
+                        key={v.id} 
+                        type="button"
+                        onClick={() => {
+                          setFormData(prev => ({...prev, veiculo: `${v.placa} - ${v.modelo}`}));
+                          setIsVeiculoDropdownOpen(false);
+                        }}
+                        style={{ padding: '8px 16px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        {v.placa} - {v.modelo}
+                      </button>
+                    ))}
+                    <button 
+                      type="button" 
+                      onClick={() => setIsVeiculoDropdownOpen(false)} 
+                      style={{ padding: '8px 16px', backgroundColor: 'transparent', color: '#3b82f6', border: '1px solid #3b82f6', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      Outro / Não informar
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="input-group">
                 <label>Veículo (Placa / Modelo)</label>

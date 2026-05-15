@@ -16,6 +16,7 @@ import '../OS/OS.css';
 interface ClienteBasico { id: string; nome: string; telefone: string; }
 interface ServicoData { id: string; nome: string; preco: number; }
 interface ItemOrcamento { id: string; nome: string; preco: number; quantidade: number; tipo: 'servico' | 'peca'; }
+interface VeiculoBasico { id: string; placa: string; modelo: string; ano: string; cor: string; clienteId: string; }
 
 const OrcamentoForm: React.FC = () => {
   const navigate = useNavigate();
@@ -37,7 +38,11 @@ const OrcamentoForm: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
+  const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
   const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
+  const [veiculosDisponiveis, setVeiculosDisponiveis] = useState<VeiculoBasico[]>([]);
+  const [veiculosDoCliente, setVeiculosDoCliente] = useState<VeiculoBasico[]>([]);
+  const [isVeiculoDropdownOpen, setIsVeiculoDropdownOpen] = useState(false);
   
   const [servicosCatalogo, setServicosCatalogo] = useState<ServicoData[]>([]);
   const [servicoNomeInput, setServicoNomeInput] = useState('');
@@ -80,6 +85,12 @@ const OrcamentoForm: React.FC = () => {
         snapC.forEach((doc) => dataC.push({ id: doc.id, nome: doc.data().nome, telefone: doc.data().telefone }));
         setClientesDisponiveis(dataC);
 
+        const qV = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId));
+        const snapV = await getDocs(qV);
+        const dataV: VeiculoBasico[] = [];
+        snapV.forEach((doc) => dataV.push({ id: doc.id, placa: doc.data().placa, modelo: doc.data().modelo, ano: doc.data().ano, cor: doc.data().cor, clienteId: doc.data().clienteId }));
+        setVeiculosDisponiveis(dataV);
+
         const qS = query(collection(db, 'servicos'), where('tenantId', '==', tenantId));
         const snapS = await getDocs(qS);
         const dataS: ServicoData[] = [];
@@ -91,6 +102,15 @@ const OrcamentoForm: React.FC = () => {
         const dataE: any[] = [];
         snapE.forEach((doc) => dataE.push({ id: doc.id, ...doc.data() }));
         setPecasEstoque(dataE);
+
+        // Fetch Configurações
+        try {
+          const configRef = doc(db, 'configuracoes', tenantId);
+          const configSnap = await getDoc(configRef);
+          if (configSnap.exists()) {
+            setPermitirVendaSemEstoque(configSnap.data().venderSemEstoque === true);
+          }
+        } catch (err) { console.error(err); }
 
         if (isEditing && id) {
           const docRef = doc(db, 'orcamentos', id);
@@ -144,6 +164,15 @@ const OrcamentoForm: React.FC = () => {
     const catalogo = tipo === 'servico' ? servicosCatalogo : pecasEstoque;
     const exists = catalogo.find(i => i.nome.toLowerCase() === nome.toLowerCase());
 
+    if (tipo === 'peca') {
+      if (!permitirVendaSemEstoque && exists) {
+        if (1 > (exists.quantidade || 0)) {
+          showError('Estoque Insuficiente', `Você tem apenas ${exists.quantidade || 0} un. no estoque. Venda sem estoque desativada.`);
+          return;
+        }
+      }
+    }
+
     const novoItem: ItemOrcamento = {
       id: exists?.id || 'avulso',
       nome: nome.toUpperCase(),
@@ -169,7 +198,17 @@ const OrcamentoForm: React.FC = () => {
 
   const updateItemQtd = (index: number, qtd: number) => {
     const novos = [...itens];
-    novos[index].quantidade = Math.max(1, qtd);
+    const novaQtd = Math.max(1, qtd);
+    
+    if (novos[index].tipo === 'peca' && !permitirVendaSemEstoque) {
+      const pecaEstoque = pecasEstoque.find(p => p.id === novos[index].id);
+      if (pecaEstoque && novaQtd > (pecaEstoque.quantidade || 0)) {
+        showError('Estoque Insuficiente', `Você tem apenas ${pecaEstoque.quantidade || 0} un. no estoque.`);
+        return;
+      }
+    }
+
+    novas[index].quantidade = novaQtd;
     setItens(novos);
   };
 
@@ -310,6 +349,7 @@ const OrcamentoForm: React.FC = () => {
           formaPagamento: 'Dinheiro',
           status: 'Finalizada',
           tenantId,
+          usuarioResponsavelId: currentUser.uid,
           createdAt: serverTimestamp(),
           orcamentoId: id
         };
@@ -432,8 +472,23 @@ const OrcamentoForm: React.FC = () => {
                       key={cliente.id} 
                       className="select-option"
                       onClick={() => {
-                        setFormData({...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone});
                         setIsClientDropdownOpen(false);
+                        
+                        const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === cliente.id);
+                        if (vDoCliente.length === 1) {
+                          const v = vDoCliente[0];
+                          setFormData({...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone, placa: v.placa, modelo: v.modelo, ano: v.ano, cor: v.cor});
+                          setVeiculosDoCliente([]);
+                          setIsVeiculoDropdownOpen(false);
+                        } else if (vDoCliente.length > 1) {
+                          setFormData({...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone});
+                          setVeiculosDoCliente(vDoCliente);
+                          setIsVeiculoDropdownOpen(true);
+                        } else {
+                          setFormData({...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone});
+                          setVeiculosDoCliente([]);
+                          setIsVeiculoDropdownOpen(false);
+                        }
                       }}
                     >
                       <span>{cliente.nome}</span>
@@ -454,6 +509,35 @@ const OrcamentoForm: React.FC = () => {
               <Car size={20} className="section-icon" />
               <h3>Dados do Veículo</h3>
             </div>
+
+            {isVeiculoDropdownOpen && veiculosDoCliente.length > 1 && (
+              <div style={{ padding: '16px', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px dashed #3b82f6', borderRadius: '8px', marginBottom: '16px' }}>
+                <p style={{ color: '#3b82f6', marginBottom: '12px', fontWeight: 'bold' }}>Este cliente possui múltiplos veículos. Selecione qual será atendido:</p>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {veiculosDoCliente.map(v => (
+                    <button 
+                      key={v.id} 
+                      type="button"
+                      onClick={() => {
+                        setFormData(prev => ({...prev, placa: v.placa, modelo: v.modelo, ano: v.ano, cor: v.cor}));
+                        setIsVeiculoDropdownOpen(false);
+                      }}
+                      style={{ padding: '8px 16px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      {v.placa} - {v.modelo}
+                    </button>
+                  ))}
+                  <button 
+                    type="button" 
+                    onClick={() => setIsVeiculoDropdownOpen(false)} 
+                    style={{ padding: '8px 16px', backgroundColor: 'transparent', color: '#3b82f6', border: '1px solid #3b82f6', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    Outro / Novo
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="grid-2-col">
               <div className="input-group"><label>Placa</label><input type="text" name="placa" value={formData.placa} onChange={handleChange} placeholder="AAA-0000" style={{ textTransform: 'uppercase' }} /></div>
               <div className="input-group"><label>Modelo</label><input type="text" name="modelo" value={formData.modelo} onChange={handleChange} placeholder="Ex: Civic" /></div>
@@ -474,7 +558,7 @@ const OrcamentoForm: React.FC = () => {
               </div>
               <div className="input-group">
                 <label>Status</label>
-                <select name="status" value={formData.status} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}>
+                <select name="status" value={formData.status} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}>
                   <option value="Pendente">Pendente</option>
                   <option value="Aprovado">Aprovado</option>
                   <option value="Recusado">Recusado</option>
@@ -616,7 +700,7 @@ const OrcamentoForm: React.FC = () => {
               <FileText size={20} className="section-icon" />
               <h3>Observações Internas / Cliente</h3>
             </div>
-            <textarea name="observacoes" value={formData.observacoes} onChange={handleChange} placeholder="Ex: Desconto condicionado ao pagamento à vista..." rows={4} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'white' }} />
+            <textarea name="observacoes" value={formData.observacoes} onChange={handleChange} placeholder="Ex: Desconto condicionado ao pagamento à vista..." rows={4} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)' }} />
           </div>
       </div>
     </div>

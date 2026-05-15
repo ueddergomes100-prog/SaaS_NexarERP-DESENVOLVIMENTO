@@ -126,10 +126,10 @@ const Orcamentos: React.FC = () => {
               placeholder="Buscar por cliente ou número..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ width: '100%', padding: '12px 16px 12px 48px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'white' }}
+              style={{ width: '100%', padding: '12px 16px 12px 48px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
-          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'white' }}>
+          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}>
             <Filter size={20} /> Filtros
           </button>
         </div>
@@ -206,7 +206,7 @@ const Orcamentos: React.FC = () => {
                             <button 
                               title="Editar"
                               onClick={() => navigate(`/orcamentos/editar/${orc.id}`)}
-                              style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-tertiary)', color: 'white', border: 'none', cursor: 'pointer' }}
+                              style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: 'none', cursor: 'pointer' }}
                             >
                               <Edit2 size={18} />
                             </button>

@@ -79,7 +79,7 @@ const CategoriaForm: React.FC = () => {
     }
   };
 
-  if (isFetching) return <div style={{ padding: '40px', color: 'white' }}>Carregando...</div>;
+  if (isFetching) return <div style={{ padding: '40px', color: 'var(--text-primary)' }}>Carregando...</div>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -109,11 +109,11 @@ const CategoriaForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome da Categoria *</label>
-              <input type="text" name="nome" placeholder="Ex: SUSPENSÃO, ÓLEOS, MÃO DE OBRA..." value={formData.nome} onChange={handleChange} style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} />
+              <input type="text" name="nome" placeholder="Ex: SUSPENSÃO, ÓLEOS, MÃO DE OBRA..." value={formData.nome} onChange={handleChange} style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Tipo *</label>
-              <select name="tipo" value={formData.tipo} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}>
+              <select name="tipo" value={formData.tipo} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}>
                 <option value="Peça">Peça / Produto</option>
                 <option value="Serviço">Serviço</option>
               </select>

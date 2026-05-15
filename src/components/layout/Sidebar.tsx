@@ -23,7 +23,10 @@ import {
   Calendar,
   Inbox,
   Clock,
-  DollarSign
+  DollarSign,
+  Package,
+  Printer,
+  RotateCcw
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import './Layout.css';
@@ -74,9 +77,9 @@ const Sidebar: React.FC = () => {
     vendas: ['/pedidos-venda', '/orcamentos', '/relatorios-vendas'],
     mecanica: ['/os', '/relatorios-mecanica'],
     fiscal: ['/fiscal/nfe'],
-    cadastros: ['/clientes', '/estoque', '/servicos', '/categorias', '/usuarios'],
+    cadastros: ['/clientes', '/veiculos', '/estoque', '/servicos', '/categorias', '/usuarios'],
     financeiro: ['/financeiro/caixa', '/financeiro/contas-receber', '/financeiro/contas-pagar', '/financeiro/faturamento', '/financeiro/comissoes'],
-    admin: ['/configuracoes'],
+    admin: ['/configuracoes', '/relatorios-diversos'],
     crm: ['/crm/agenda', '/crm/lembretes']
   };
 
@@ -176,7 +179,7 @@ const Sidebar: React.FC = () => {
               left: expandAll ? '14px' : '0px', 
               width: '16px', 
               height: '16px', 
-              backgroundColor: '#fff', 
+              backgroundcolor: 'var(--text-primary)', 
               borderRadius: '50%', 
               transition: 'left 0.3s',
               boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
@@ -207,9 +210,15 @@ const Sidebar: React.FC = () => {
                   <span>Usuários</span>
                 </NavLink>
               )}
+              {(userRole === 'Admin' || userPermissions?.includes('cadastros.clientes')) && (
+                <NavLink to="/veiculos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Car size={20} />
+                  <span>Veículos</span>
+                </NavLink>
+              )}
               {(userRole === 'Admin' || userPermissions?.includes('cadastros.estoque')) && (
                 <NavLink to="/estoque" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                  <Car size={20} />
+                  <Package size={20} />
                   <span>Estoque / Peças</span>
                 </NavLink>
               )}
@@ -242,6 +251,12 @@ const Sidebar: React.FC = () => {
                 <NavLink to="/pedidos-venda" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                   <ShoppingCart size={20} />
                   <span>Pedido de Vendas</span>
+                </NavLink>
+              )}
+              {(userRole === 'Admin' || userPermissions?.includes('vendas.devolucao')) && (
+                <NavLink to="/vendas/devolucoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <RotateCcw size={20} />
+                  <span>Devolução de Venda</span>
                 </NavLink>
               )}
               {(userRole === 'Admin' || userPermissions?.includes('vendas.orcamentos')) && (
@@ -392,6 +407,12 @@ const Sidebar: React.FC = () => {
           </div>
           {isExpanded('admin') && (
             <>
+              {(userRole === 'Admin') && (
+                <NavLink to="/relatorios-diversos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Printer size={20} />
+                  <span>Relatórios Diversos</span>
+                </NavLink>
+              )}
               {(userRole === 'Admin' || userPermissions?.includes('administrativo.config')) && (
                 <NavLink to="/configuracoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                   <Settings size={20} />

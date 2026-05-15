@@ -62,7 +62,7 @@ const OsPrint: React.FC = () => {
   };
 
   if (loading) {
-    return <div style={{ padding: '40px', textAlign: 'center', color: 'white' }}>Carregando dados para impressão...</div>;
+    return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando dados para impressão...</div>;
   }
 
   if (!osData) return null;

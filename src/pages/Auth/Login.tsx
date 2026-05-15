@@ -99,7 +99,7 @@ const Login: React.FC = () => {
             <div style={{
               position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '44px', fontWeight: 'bold', color: 'white',
+              fontSize: '44px', fontWeight: 'bold', color: 'var(--text-primary)',
               background: 'linear-gradient(135deg, #a78bfa, #3b82f6)',
               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
               filter: 'drop-shadow(0 0 10px rgba(139, 92, 246, 0.4))'
@@ -112,7 +112,7 @@ const Login: React.FC = () => {
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px',
             opacity: 0, animation: 'slideUpFade 0.6s ease-out 0.2s forwards'
           }}>
-            <h2 style={{ color: 'white', fontSize: '24px', fontWeight: 600, letterSpacing: '1px' }}>
+            <h2 style={{ color: 'var(--text-primary)', fontSize: '24px', fontWeight: 600, letterSpacing: '1px' }}>
               Iniciando Ambiente
             </h2>
             

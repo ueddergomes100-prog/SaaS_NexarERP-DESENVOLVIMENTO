@@ -170,7 +170,7 @@ const UsuarioForm: React.FC = () => {
                 <div>
                   <h4 style={{ color: '#8b5cf6', margin: '0 0 4px', fontSize: '14px' }}>Como seu funcionário fará o Login?</h4>
                   <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    Ele deverá informar o <strong>CNPJ da Empresa</strong> e o nome de usuário (ex: <strong style={{ color: 'white' }}>{formData.username.trim().toLowerCase().replace(/\s+/g, '') || 'nome'}</strong>).
+                    Ele deverá informar o <strong>CNPJ da Empresa</strong> e o nome de usuário (ex: <strong style={{ color: 'var(--text-primary)' }}>{formData.username.trim().toLowerCase().replace(/\s+/g, '') || 'nome'}</strong>).
                   </p>
                 </div>
               </div>

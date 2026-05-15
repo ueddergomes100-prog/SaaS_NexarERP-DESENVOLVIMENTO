@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon } from 'lucide-react';
+import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, Receipt } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -82,9 +82,10 @@ const TopBar: React.FC = () => {
     let diasNotificacao = 15;
     let currentLembretes: any[] = [];
     let currentAgendamentos: any[] = [];
+    let currentContasPagar: any[] = [];
 
     const updateNotifs = () => {
-      const notifs = [...currentLembretes, ...currentAgendamentos];
+      const notifs = [...currentLembretes, ...currentAgendamentos, ...currentContasPagar];
       notifs.sort((a, b) => a.diasRestantes - b.diasRestantes);
       setNotifications(notifs);
     };
@@ -172,10 +173,42 @@ const TopBar: React.FC = () => {
       updateNotifs();
     });
 
+    let contasPagarUnsub = () => {};
+    const hasContasPagarAccess = userRole === 'Admin' || userRole === 'SuperAdmin' || userPermissions?.includes('financeiro.pagar');
+    
+    if (hasContasPagarAccess) {
+      const qContasPagar = query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('tipo', '==', 'saida'), where('status', '==', 'Pendente'));
+      contasPagarUnsub = onSnapshot(qContasPagar, (snap) => {
+        const temp: any[] = [];
+        const hojeStr = new Date().toISOString().split('T')[0];
+        
+        const dismissedStr = localStorage.getItem(`nexus_dismissed_notifs_${currentUser.uid}`);
+        const dismissed = dismissedStr ? JSON.parse(dismissedStr) : [];
+        
+        snap.forEach(d => {
+          const t = d.data();
+          if (t.data === hojeStr && !dismissed.includes(d.id)) {
+            temp.push({
+              id: d.id,
+              tipoLogico: 'conta_pagar',
+              labelTipo: 'Conta a Pagar Hoje',
+              veiculo: t.descricao || 'Despesa',
+              clienteNome: t.categoria || 'Financeiro',
+              diasRestantes: 0
+            });
+          }
+        });
+        
+        currentContasPagar = temp;
+        updateNotifs();
+      });
+    }
+
     return () => {
       configUnsub();
       lembretesUnsub();
       agendamentosUnsub();
+      contasPagarUnsub();
       userUnsub();
     };
   }, [currentUser, tenantId, userRole]);
@@ -199,6 +232,24 @@ const TopBar: React.FC = () => {
 
   const handleNotificationClick = () => {
     setShowDropdown(!showDropdown);
+  };
+
+  const handleDismissNotification = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!currentUser) return;
+    
+    // Save dismissal
+    const key = `nexus_dismissed_notifs_${currentUser.uid}`;
+    const dismissedStr = localStorage.getItem(key);
+    const dismissed = dismissedStr ? JSON.parse(dismissedStr) : [];
+    
+    if (!dismissed.includes(id)) {
+      dismissed.push(id);
+      localStorage.setItem(key, JSON.stringify(dismissed));
+    }
+    
+    // Update UI immediately
+    setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
   useEffect(() => {
@@ -379,7 +430,7 @@ const TopBar: React.FC = () => {
               left: miniSidebar && expandAll ? '14px' : '0px', 
               width: '16px', 
               height: '16px', 
-              backgroundColor: '#fff', 
+              backgroundcolor: 'var(--text-primary)', 
               borderRadius: '50%', 
               transition: 'left 0.3s',
               boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
@@ -438,31 +489,46 @@ const TopBar: React.FC = () => {
                   notifications.map((notif) => (
                     <div key={notif.id} style={{ 
                       padding: '16px', borderBottom: '1px solid var(--border-color)', 
-                      display: 'flex', gap: '12px', cursor: 'pointer', transition: 'background 0.2s'
+                      display: 'flex', gap: '12px', cursor: 'pointer', transition: 'background 0.2s', position: 'relative'
                     }}
                     onClick={() => {
                       if (notif.tipoLogico === 'agendamento') navigate('/crm/agenda');
+                      else if (notif.tipoLogico === 'conta_pagar') navigate('/financeiro/contas-pagar');
                       else navigate('/crm/lembretes');
                       setShowDropdown(false);
                     }}
                     onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
                     onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                     >
-                      <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(139, 92, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b5cf6', flexShrink: 0 }}>
-                        <Calendar size={16} />
+                      <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: notif.tipoLogico === 'conta_pagar' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(139, 92, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: notif.tipoLogico === 'conta_pagar' ? '#ef4444' : '#8b5cf6', flexShrink: 0 }}>
+                        {notif.tipoLogico === 'conta_pagar' ? <Receipt size={16} /> : <Calendar size={16} />}
                       </div>
-                      <div>
+                      <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                           <span style={{ fontSize: '10px', backgroundColor: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-muted)', fontWeight: 'bold', textTransform: 'uppercase' }}>
                             {notif.labelTipo}
                           </span>
                         </div>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '13px', fontWeight: 600 }}>{notif.veiculo}</p>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-secondary)' }}>Cliente: {notif.clienteNome}</p>
-                        <p style={{ margin: 0, fontSize: '11px', color: '#f59e0b', fontWeight: 500 }}>
-                          Faltam {notif.diasRestantes} dias
+                        <p style={{ margin: '0 0 4px 0', fontSize: '13px', fontWeight: 600, paddingRight: '20px' }}>{notif.veiculo}</p>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          {notif.tipoLogico === 'conta_pagar' ? `Categoria: ${notif.clienteNome}` : `Cliente: ${notif.clienteNome}`}
+                        </p>
+                        <p style={{ margin: 0, fontSize: '11px', color: notif.tipoLogico === 'conta_pagar' ? '#ef4444' : '#f59e0b', fontWeight: 500 }}>
+                          {notif.tipoLogico === 'conta_pagar' ? 'Vence Hoje' : `Faltam ${notif.diasRestantes} dias`}
                         </p>
                       </div>
+                      
+                      {notif.tipoLogico === 'conta_pagar' && (
+                        <button 
+                          onClick={(e) => handleDismissNotification(e, notif.id)}
+                          style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%' }}
+                          title="Remover aviso"
+                          onMouseOver={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                          onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
                     </div>
                   ))
                 )}

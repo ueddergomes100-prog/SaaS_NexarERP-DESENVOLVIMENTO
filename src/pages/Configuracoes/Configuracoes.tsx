@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X } from 'lucide-react';
+import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,6 +14,7 @@ const Configuracoes: React.FC = () => {
   const [showDadosOficina, setShowDadosOficina] = useState(false);
   const [showPermissoes, setShowPermissoes] = useState(false);
   const [showPlanoContas, setShowPlanoContas] = useState(false);
+  const [showConfigAvancadas, setShowConfigAvancadas] = useState(false);
   const [novaReceitaInput, setNovaReceitaInput] = useState('');
   const [novaDespesaInput, setNovaDespesaInput] = useState('');
   
@@ -37,6 +38,8 @@ const Configuracoes: React.FC = () => {
     email: '',
     garantiaPadrao: '',
     diasNotificacaoLembrete: '15',
+    venderSemEstoque: false,
+    diasCrediario: '30',
     planoContasReceitas: ['Serviços', 'Venda de Peças', 'Outras Receitas'],
     planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Peças', 'Marketing', 'Manutenção', 'Outros'],
   });
@@ -57,6 +60,8 @@ const Configuracoes: React.FC = () => {
 
           setFormData({
             ...data,
+            venderSemEstoque: data.venderSemEstoque ?? false,
+            diasCrediario: data.diasCrediario ?? '30',
             planoContasReceitas: receitas,
             planoContasDespesas: despesas
           } as any);
@@ -86,10 +91,8 @@ const Configuracoes: React.FC = () => {
         const usersList: any[] = [];
         qSnap.forEach(u => {
           const uData = u.data();
-          // Não lista o próprio dono (Admin) porque ele já tem acesso a tudo
-          if (uData.role !== 'Admin' && u.id !== currentUser.uid) {
-            usersList.push({ id: u.id, ...uData });
-          }
+          // Allow listing Admin to satisfy user request
+          usersList.push({ id: u.id, ...uData });
         });
         setTenantUsers(usersList);
 
@@ -218,7 +221,7 @@ const Configuracoes: React.FC = () => {
   };
 
   if (isFetching) {
-    return <div style={{ padding: '40px', color: 'white', textAlign: 'center' }}>Carregando configurações...</div>;
+    return <div style={{ padding: '40px', color: 'var(--text-primary)', textAlign: 'center' }}>Carregando configurações...</div>;
   }
 
   return (
@@ -253,7 +256,7 @@ const Configuracoes: React.FC = () => {
       {showSuccessAnim && (
         <div style={{
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-          backgroundColor: 'rgba(16, 185, 129, 0.9)', color: 'white', padding: '24px 48px',
+          backgroundColor: 'rgba(16, 185, 129, 0.9)', color: 'var(--text-primary)', padding: '24px 48px',
           borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', alignItems: 'center',
           gap: '12px', zIndex: 1000, boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
           animation: 'fadeInUpLogout 0.3s ease-out forwards'
@@ -288,7 +291,7 @@ const Configuracoes: React.FC = () => {
                     <div style={{ position: 'relative', width: '100px', height: '100px', borderRadius: '8px', border: '1px solid var(--border-color)', overflow: 'hidden', backgroundColor: 'white' }}>
                       <img src={formData.logo} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                       {isEditingMode && (
-                        <button type="button" onClick={() => setFormData({...formData, logo: ''})} style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(239, 68, 68, 0.9)', color: 'white', border: 'none', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                        <button type="button" onClick={() => setFormData({...formData, logo: ''})} style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(239, 68, 68, 0.9)', color: 'var(--text-primary)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
                           <X size={14} />
                         </button>
                       )}
@@ -339,7 +342,7 @@ const Configuracoes: React.FC = () => {
                 value={formData.nomeOficina} 
                 onChange={handleChange} 
                 disabled={!isEditingMode}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} 
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
               />
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -351,7 +354,7 @@ const Configuracoes: React.FC = () => {
                 value={formData.nomeUsuario} 
                 onChange={handleChange} 
                 disabled={!isEditingMode}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} 
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
               />
             </div>
           </div>
@@ -377,7 +380,7 @@ const Configuracoes: React.FC = () => {
                 }}
                 maxLength={18}
                 disabled={!isEditingMode}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} 
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
               />
             </div>
           </div>
@@ -392,7 +395,7 @@ const Configuracoes: React.FC = () => {
                 value={formData.telefone} 
                 onChange={handleChange} 
                 disabled={!isEditingMode}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} 
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
               />
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -404,7 +407,7 @@ const Configuracoes: React.FC = () => {
                 value={formData.email} 
                 onChange={handleChange} 
                 disabled={!isEditingMode}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} 
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
               />
             </div>
           </div>
@@ -418,7 +421,7 @@ const Configuracoes: React.FC = () => {
               value={formData.endereco} 
               onChange={handleChange} 
               disabled={!isEditingMode}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} 
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
             />
           </div>
             </>
@@ -441,7 +444,7 @@ const Configuracoes: React.FC = () => {
               value={formData.garantiaPadrao} 
               onChange={handleChange} 
               disabled={!isEditingMode}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white', resize: 'vertical' }} 
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', resize: 'vertical' }} 
             />
           </div>
         </div>
@@ -460,7 +463,7 @@ const Configuracoes: React.FC = () => {
               value={formData.diasNotificacaoLembrete} 
               onChange={handleChange} 
               disabled={!isEditingMode}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white', maxWidth: '300px' }} 
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', maxWidth: '300px' }} 
             >
               <option value="15">15 Dias antes</option>
               <option value="30">30 Dias antes</option>
@@ -500,7 +503,7 @@ const Configuracoes: React.FC = () => {
                     onChange={(e) => setNovaReceitaInput(e.target.value)} 
                     disabled={!isEditingMode}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddReceita())}
-                    style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'white', fontSize: '13px' }} 
+                    style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)', fontSize: '13px' }} 
                   />
                   <button type="button" onClick={handleAddReceita} disabled={!isEditingMode || !novaReceitaInput.trim()} style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: 'var(--radius-md)', padding: '0 12px', cursor: (!isEditingMode || !novaReceitaInput.trim()) ? 'not-allowed' : 'pointer', opacity: (!isEditingMode || !novaReceitaInput.trim()) ? 0.5 : 1 }}>
                     <Plus size={18} />
@@ -510,7 +513,7 @@ const Configuracoes: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
                   {formData.planoContasReceitas.map((cat, idx) => (
                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-tertiary)', padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                      <span style={{ fontSize: '13px', color: 'white' }}>{cat}</span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-primary)' }}>{cat}</span>
                       <button type="button" onClick={() => handleRemoveReceita(idx)} disabled={!isEditingMode} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: isEditingMode ? 'pointer' : 'not-allowed', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <X size={14} style={{ opacity: isEditingMode ? 1 : 0.5 }} />
                       </button>
@@ -534,7 +537,7 @@ const Configuracoes: React.FC = () => {
                     onChange={(e) => setNovaDespesaInput(e.target.value)} 
                     disabled={!isEditingMode}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddDespesa())}
-                    style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'white', fontSize: '13px' }} 
+                    style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)', fontSize: '13px' }} 
                   />
                   <button type="button" onClick={handleAddDespesa} disabled={!isEditingMode || !novaDespesaInput.trim()} style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 'var(--radius-md)', padding: '0 12px', cursor: (!isEditingMode || !novaDespesaInput.trim()) ? 'not-allowed' : 'pointer', opacity: (!isEditingMode || !novaDespesaInput.trim()) ? 0.5 : 1 }}>
                     <Plus size={18} />
@@ -544,7 +547,7 @@ const Configuracoes: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
                   {formData.planoContasDespesas.map((cat, idx) => (
                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-tertiary)', padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                      <span style={{ fontSize: '13px', color: 'white' }}>{cat}</span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-primary)' }}>{cat}</span>
                       <button type="button" onClick={() => handleRemoveDespesa(idx)} disabled={!isEditingMode} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: isEditingMode ? 'pointer' : 'not-allowed', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <X size={14} style={{ opacity: isEditingMode ? 1 : 0.5 }} />
                       </button>
@@ -558,6 +561,69 @@ const Configuracoes: React.FC = () => {
 
               <div style={{ gridColumn: '1 / -1' }}>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Estas categorias aparecerão automaticamente na hora de lançar uma nova Receita ou Despesa no Fluxo de Caixa.</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Configurações Avançadas */}
+        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div 
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showConfigAvancadas ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+            onClick={() => setShowConfigAvancadas(!showConfigAvancadas)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Sliders size={20} style={{ color: 'var(--accent-purple)' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Configurações Avançadas</h3>
+            </div>
+            <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {showConfigAvancadas ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
+          </div>
+          
+          {showConfigAvancadas && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Permitir Venda Sem Estoque</label>
+                <div style={{ display: 'flex', gap: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input 
+                      type="radio" 
+                      name="venderSemEstoque" 
+                      checked={formData.venderSemEstoque === true}
+                      onChange={() => setFormData({ ...formData, venderSemEstoque: true })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Sim
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input 
+                      type="radio" 
+                      name="venderSemEstoque" 
+                      checked={formData.venderSemEstoque === false}
+                      onChange={() => setFormData({ ...formData, venderSemEstoque: false })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Não
+                  </label>
+                </div>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Se "Sim", o sistema permitirá adicionar itens na OS e Vendas mesmo que o estoque seja insuficiente.</p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Dias de Crediário Padrão</label>
+                <input 
+                  type="text" 
+                  name="diasCrediario" 
+                  placeholder="Ex: 15, 30, 45"
+                  value={formData.diasCrediario} 
+                  onChange={handleChange} 
+                  disabled={!isEditingMode}
+                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
+                />
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Intervalo de dias (ex: "30" ou "15, 30, 45") usado para preencher os vencimentos ao finalizar vendas a prazo.</p>
               </div>
             </div>
           )}
@@ -589,7 +655,7 @@ const Configuracoes: React.FC = () => {
                 <select 
                   value={selectedUserId} 
                   onChange={handleUserSelect}
-                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }} 
+                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
                 >
                   <option value="">-- Escolha um usuário --</option>
                   {tenantUsers.map(u => (
@@ -629,7 +695,7 @@ const Configuracoes: React.FC = () => {
                               max="100"
                               value={comissaoPercentualServicos}
                               onChange={(e) => setComissaoPercentualServicos(Number(e.target.value))}
-                              style={{ width: '80px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'white', fontSize: '14px', outline: 'none' }}
+                              style={{ width: '80px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
                             />
                           </div>
                         )}
@@ -655,7 +721,7 @@ const Configuracoes: React.FC = () => {
                               max="100"
                               value={comissaoPercentualPecas}
                               onChange={(e) => setComissaoPercentualPecas(Number(e.target.value))}
-                              style={{ width: '80px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'white', fontSize: '14px', outline: 'none' }}
+                              style={{ width: '80px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
                             />
                           </div>
                         )}
@@ -680,6 +746,7 @@ const Configuracoes: React.FC = () => {
                       { id: 'vendas.pedidos', label: 'Vendas: Pedido de Vendas', color: '#f59e0b' },
                       { id: 'vendas.alterar', label: 'Vendas: Alterar Pedidos', color: '#f59e0b' },
                       { id: 'vendas.excluir', label: 'Vendas: Excluir Pedidos', color: '#ef4444' },
+                      { id: 'vendas.devolucao', label: 'Vendas: Devolução de Venda', color: '#ef4444' },
                       { id: 'vendas.orcamentos', label: 'Vendas: Orçamentos', color: '#f59e0b' },
                       { id: 'vendas.orcamentos_alterar', label: 'Vendas: Alterar Orçamentos', color: '#f59e0b' },
                       { id: 'vendas.orcamentos_excluir', label: 'Vendas: Excluir Orçamentos', color: '#ef4444' },
@@ -731,7 +798,7 @@ const Configuracoes: React.FC = () => {
                       onClick={handleSavePermissions}
                       disabled={isSavingPermissions}
                       style={{ 
-                        backgroundColor: 'var(--accent-purple)', color: 'white', border: 'none', 
+                        backgroundColor: 'var(--accent-purple)', color: 'var(--text-primary)', border: 'none', 
                         padding: '10px 20px', borderRadius: 'var(--radius-md)', fontWeight: 600, 
                         cursor: isSavingPermissions ? 'not-allowed' : 'pointer', opacity: isSavingPermissions ? 0.7 : 1,
                         display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s'

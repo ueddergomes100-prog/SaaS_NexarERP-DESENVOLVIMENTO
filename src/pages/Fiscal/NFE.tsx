@@ -66,7 +66,7 @@ const NFE: React.FC = () => {
               placeholder="Buscar por número ou cliente..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ width: '100%', padding: '10px 10px 10px 40px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'white' }}
+              style={{ width: '100%', padding: '10px 10px 10px 40px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
             />
           </div>
           <button className="btn-secondary filter-btn" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -152,7 +152,7 @@ const NFE: React.FC = () => {
                   <select 
                     value={formData.tipo}
                     onChange={(e) => setFormData({...formData, tipo: e.target.value})}
-                    style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'white' }}
+                    style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                   >
                     <option value="NFS-e">NFS-e (Serviços / Mão de Obra)</option>
                     <option value="NF-e">NF-e (Produtos / Peças)</option>
@@ -166,7 +166,7 @@ const NFE: React.FC = () => {
                     placeholder="Nº da OS"
                     value={formData.osId}
                     onChange={(e) => setFormData({...formData, osId: e.target.value})}
-                    style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'white' }}
+                    style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                   />
                 </div>
 
@@ -178,7 +178,7 @@ const NFE: React.FC = () => {
                     value={formData.cliente}
                     onChange={(e) => setFormData({...formData, cliente: e.target.value})}
                     required
-                    style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'white' }}
+                    style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                   />
                 </div>
 
@@ -190,7 +190,7 @@ const NFE: React.FC = () => {
                     value={formData.descricao}
                     onChange={(e) => setFormData({...formData, descricao: e.target.value})}
                     required
-                    style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'white', resize: 'vertical' }}
+                    style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', resize: 'vertical' }}
                   />
                 </div>
 
@@ -203,7 +203,7 @@ const NFE: React.FC = () => {
                     value={formData.valor}
                     onChange={(e) => setFormData({...formData, valor: e.target.value})}
                     required
-                    style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'white', fontSize: '18px', fontWeight: 'bold' }}
+                    style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '18px', fontWeight: 'bold' }}
                   />
                 </div>
               </div>

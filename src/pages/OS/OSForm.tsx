@@ -10,8 +10,9 @@ import './OS.css';
 interface ClienteBasico { id: string; nome: string; telefone: string; }
 interface ServicoData { id: string; nome: string; preco: number; }
 interface ServicoSelecionado { id: string; nome: string; preco: number; quantidade: number; }
-interface PecaData { id: string; nome: string; precoVenda: number; }
+interface PecaData { id: string; nome: string; precoVenda: number; quantidade?: number; }
 interface PecaSelecionada { id: string; nome: string; preco: number; quantidade: number; }
+interface VeiculoBasico { id: string; placa: string; modelo: string; ano: string; cor: string; clienteId: string; }
 
 const OSForm: React.FC = () => {
   const navigate = useNavigate();
@@ -37,6 +38,9 @@ const OSForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingOS, setIsFetchingOS] = useState(isEditing);
   const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
+  const [veiculosDisponiveis, setVeiculosDisponiveis] = useState<VeiculoBasico[]>([]);
+  const [veiculosDoCliente, setVeiculosDoCliente] = useState<VeiculoBasico[]>([]);
+  const [isVeiculoDropdownOpen, setIsVeiculoDropdownOpen] = useState(false);
   
   const [servicosCatalogo, setServicosCatalogo] = useState<ServicoData[]>([]);
   const [servicoNomeInput, setServicoNomeInput] = useState('');
@@ -47,6 +51,7 @@ const OSForm: React.FC = () => {
   const [pecaNomeInput, setPecaNomeInput] = useState('');
   const [pecaPrecoInput, setPecaPrecoInput] = useState('');
   const [pecasSelecionadas, setPecasSelecionadas] = useState<PecaSelecionada[]>([]);
+  const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
 
   const { currentUser, tenantId, userRole } = useAuth();
   
@@ -56,6 +61,13 @@ const OSForm: React.FC = () => {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const servicoDropdownRef = useRef<HTMLDivElement>(null);
   const pecaDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const isConsumidorFinal = formData.clienteNome.toLowerCase().includes('consumidor final');
+    if (isConsumidorFinal && formData.formaPagamento !== 'Dinheiro' && formData.formaPagamento !== 'Pix') {
+      setFormData(prev => ({ ...prev, formaPagamento: 'Dinheiro' }));
+    }
+  }, [formData.clienteNome, formData.formaPagamento]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -84,6 +96,13 @@ const OSForm: React.FC = () => {
       snapC.forEach((doc) => dataC.push({ id: doc.id, nome: doc.data().nome, telefone: doc.data().telefone }));
       setClientesDisponiveis(dataC);
 
+      // Fetch Veículos
+      const qV = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId));
+      const snapV = await getDocs(qV);
+      const dataV: VeiculoBasico[] = [];
+      snapV.forEach((doc) => dataV.push({ id: doc.id, placa: doc.data().placa, modelo: doc.data().modelo, ano: doc.data().ano, cor: doc.data().cor, clienteId: doc.data().clienteId }));
+      setVeiculosDisponiveis(dataV);
+
       // Fetch Serviços
       const qS = query(collection(db, 'servicos'), where('tenantId', '==', tenantId));
       const snapS = await getDocs(qS);
@@ -95,8 +114,17 @@ const OSForm: React.FC = () => {
       const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
       const snapE = await getDocs(qE);
       const dataE: PecaData[] = [];
-      snapE.forEach((doc) => dataE.push({ id: doc.id, nome: doc.data().nome, precoVenda: doc.data().precoVenda }));
+      snapE.forEach((doc) => dataE.push({ id: doc.id, nome: doc.data().nome, precoVenda: doc.data().precoVenda, quantidade: doc.data().quantidade || 0 }));
       setPecasEstoque(dataE);
+
+      // Fetch Configurações
+      try {
+        const configRef = doc(db, 'configuracoes', tenantId);
+        const configSnap = await getDoc(configRef);
+        if (configSnap.exists()) {
+          setPermitirVendaSemEstoque(configSnap.data().venderSemEstoque === true);
+        }
+      } catch (err) { console.error(err); }
 
       // Fetch Mecânicos (agora todos os usuários do tenant)
       const qM = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
@@ -290,6 +318,10 @@ const OSForm: React.FC = () => {
     }
     
     if (peca) {
+      if (!permitirVendaSemEstoque && (peca.quantidade || 0) < 1) {
+        showError('Estoque Insuficiente', `A peça ${peca.nome} está sem estoque. Venda sem estoque desativada.`);
+        return;
+      }
       setPecasSelecionadas([...pecasSelecionadas, { id: peca.id, nome: peca.nome, preco: precoNum, quantidade: 1 }]);
       setPecaNomeInput('');
       setPecaPrecoInput('');
@@ -304,7 +336,17 @@ const OSForm: React.FC = () => {
 
   const updateQuantidadePeca = (index: number, qtd: number) => {
     const novas = [...pecasSelecionadas];
-    novas[index].quantidade = Math.max(1, qtd);
+    const novaQtd = Math.max(1, qtd);
+    
+    if (!permitirVendaSemEstoque) {
+      const pecaEstoque = pecasEstoque.find(p => p.id === novas[index].id);
+      if (pecaEstoque && novaQtd > (pecaEstoque.quantidade || 0)) {
+        showError('Estoque Insuficiente', `Você tem apenas ${pecaEstoque.quantidade || 0} un. no estoque.`);
+        return;
+      }
+    }
+    
+    novas[index].quantidade = novaQtd;
     setPecasSelecionadas(novas);
   };
 
@@ -376,21 +418,34 @@ const OSForm: React.FC = () => {
         }
         estoqueFoiBaixado = true;
       } else if (formData.status === 'Cancelada' && estoqueFoiBaixado) {
-        for (const peca of pecasSelecionadas) {
-          if (peca.id) {
-            try {
-              const pecaRef = doc(db, 'estoque', peca.id);
-              const pecaSnap = await getDoc(pecaRef);
-              if (pecaSnap.exists()) {
-                const atual = pecaSnap.data().quantidade || 0;
-                await updateDoc(pecaRef, { quantidade: atual + peca.quantidade });
+        const confirmRetorno = await NexusSwal.fire({
+          title: 'Retornar Estoque?',
+          text: 'Esta OS foi cancelada. Deseja retornar as peças utilizadas para o estoque?',
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonText: 'Sim, retornar peças',
+          cancelButtonText: 'Não, manter fora do estoque'
+        });
+
+        if (confirmRetorno.isConfirmed) {
+          for (const peca of pecasSelecionadas) {
+            if (peca.id) {
+              try {
+                const pecaRef = doc(db, 'estoque', peca.id);
+                const pecaSnap = await getDoc(pecaRef);
+                if (pecaSnap.exists()) {
+                  const atual = pecaSnap.data().quantidade || 0;
+                  await updateDoc(pecaRef, { quantidade: atual + peca.quantidade });
+                }
+              } catch (err) {
+                console.error(`Erro ao retornar peça ${peca.nome}:`, err);
               }
-            } catch (err) {
-              console.error(`Erro ao retornar peça ${peca.nome}:`, err);
             }
           }
+          estoqueFoiBaixado = false;
+        } else {
+          // Mantém como baixado para não perguntar de novo
         }
-        estoqueFoiBaixado = false;
       }
 
       // 3. Prepare OS Data
@@ -429,7 +484,7 @@ const OSForm: React.FC = () => {
 
         const transacaoData = {
           descricao: `Recebimento OS #${formData.numeroOS || osId.substring(0,6).toUpperCase()}`,
-          categoria: 'Serviços Automotivos',
+          categoria: 'Serviços',
           valor: totalOS,
           tipo: 'entrada',
           formaPagamento: formData.formaPagamento,
@@ -468,7 +523,7 @@ const OSForm: React.FC = () => {
   };
 
   if (isFetchingOS) {
-    return <div style={{ padding: '40px', textAlign: 'center', color: 'white' }}>Carregando dados da Ordem de Serviço...</div>;
+    return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando dados da Ordem de Serviço...</div>;
   }
 
   return (
@@ -501,7 +556,7 @@ const OSForm: React.FC = () => {
                 name="status" 
                 value={formData.status} 
                 onChange={handleChange} 
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white', fontWeight: 'bold' }}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', fontWeight: 'bold' }}
               >
                 <option value="Orçamento Pendente">Orçamento Pendente</option>
                 <option value="Aguardando Peça">Aguardando Peça</option>
@@ -523,7 +578,13 @@ const OSForm: React.FC = () => {
                       { value: 'Cartão de Débito', icon: '💳' },
                       { value: 'Boleto', icon: '📄' },
                       { value: 'A Prazo / Fiado', icon: '🤝' }
-                    ].map(metodo => (
+                    ].filter(metodo => {
+                      const isConsumidorFinal = formData.clienteNome.toLowerCase().includes('consumidor final');
+                      if (isConsumidorFinal) {
+                        return metodo.value === 'Dinheiro' || metodo.value === 'Pix';
+                      }
+                      return true;
+                    }).map(metodo => (
                       <div 
                         key={metodo.value}
                         onClick={() => setFormData({...formData, formaPagamento: metodo.value})}
@@ -587,8 +648,24 @@ const OSForm: React.FC = () => {
                         key={c.id} 
                         className="select-option"
                         onClick={() => {
-                          setFormData({ ...formData, clienteNome: c.nome, clienteTelefone: c.telefone || '' });
                           setIsClientDropdownOpen(false);
+                          
+                          // Check for vehicles linked to this client
+                          const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === c.id);
+                          if (vDoCliente.length === 1) {
+                            const v = vDoCliente[0];
+                            setFormData({ ...formData, clienteNome: c.nome, clienteTelefone: c.telefone || '', placa: v.placa, modelo: v.modelo, ano: v.ano, cor: v.cor });
+                            setVeiculosDoCliente([]);
+                            setIsVeiculoDropdownOpen(false);
+                          } else if (vDoCliente.length > 1) {
+                            setFormData({ ...formData, clienteNome: c.nome, clienteTelefone: c.telefone || '' });
+                            setVeiculosDoCliente(vDoCliente);
+                            setIsVeiculoDropdownOpen(true);
+                          } else {
+                            setFormData({ ...formData, clienteNome: c.nome, clienteTelefone: c.telefone || '' });
+                            setVeiculosDoCliente([]);
+                            setIsVeiculoDropdownOpen(false);
+                          }
                         }}
                       >
                         <span>{c.nome}</span>
@@ -615,6 +692,35 @@ const OSForm: React.FC = () => {
               <Car size={20} className="section-icon" />
               <h3>Dados do Veículo</h3>
             </div>
+            
+            {isVeiculoDropdownOpen && veiculosDoCliente.length > 1 && (
+              <div style={{ padding: '16px', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px dashed #3b82f6', borderRadius: '8px', marginBottom: '16px' }}>
+                <p style={{ color: '#3b82f6', marginBottom: '12px', fontWeight: 'bold' }}>Este cliente possui múltiplos veículos. Selecione qual será atendido:</p>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {veiculosDoCliente.map(v => (
+                    <button 
+                      key={v.id} 
+                      type="button"
+                      onClick={() => {
+                        setFormData(prev => ({...prev, placa: v.placa, modelo: v.modelo, ano: v.ano, cor: v.cor}));
+                        setIsVeiculoDropdownOpen(false);
+                      }}
+                      style={{ padding: '8px 16px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      {v.placa} - {v.modelo}
+                    </button>
+                  ))}
+                  <button 
+                    type="button" 
+                    onClick={() => setIsVeiculoDropdownOpen(false)} 
+                    style={{ padding: '8px 16px', backgroundColor: 'transparent', color: '#3b82f6', border: '1px solid #3b82f6', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    Outro / Novo
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="grid-2-col">
               <div className="input-group"><label>Placa *</label><input type="text" name="placa" placeholder="ABC-1234" style={{ textTransform: 'uppercase' }} value={formData.placa} onChange={handleChange} /></div>
               <div className="input-group"><label>Modelo</label><input type="text" name="modelo" placeholder="Ex: Honda Civic" value={formData.modelo} onChange={handleChange} /></div>
@@ -651,7 +757,7 @@ const OSForm: React.FC = () => {
                   border: '1px solid var(--border-color)', 
                   borderRadius: 'var(--radius-md)', 
                   padding: '12px 16px', 
-                  color: 'white', 
+                  color: 'var(--text-primary)', 
                   width: '100%',
                   opacity: (userRole !== 'Admin' && userRole !== 'SuperAdmin') ? 0.7 : 1,
                   cursor: (userRole !== 'Admin' && userRole !== 'SuperAdmin') ? 'not-allowed' : 'pointer'
@@ -678,7 +784,7 @@ const OSForm: React.FC = () => {
                   }}
                   onFocus={() => setIsServicoDropdownOpen(true)}
                   autoComplete="off"
-                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
                 />
                 {isServicoDropdownOpen && servicosCatalogo.filter(s => s.nome.toLowerCase().includes(servicoNomeInput.toLowerCase())).length > 0 && (
                   <div className="select-dropdown">
@@ -707,7 +813,7 @@ const OSForm: React.FC = () => {
                 placeholder="R$ Valor"
                 value={servicoPrecoInput}
                 onChange={(e) => setServicoPrecoInput(e.target.value)}
-                style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+                style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
               
               <button className="btn-secondary" type="button" onClick={handleAddServico} disabled={!servicoNomeInput || !servicoPrecoInput}><Plus size={18} /></button>
@@ -727,7 +833,7 @@ const OSForm: React.FC = () => {
                               type="number" 
                               value={s.preco} 
                               onChange={e => updatePrecoServico(index, Number(e.target.value))}
-                              style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'white', padding: '6px', borderRadius: '4px', fontSize: '13px' }} 
+                              style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '4px', fontSize: '13px' }} 
                               min="0" 
                               step="0.01"
                             />
@@ -778,7 +884,7 @@ const OSForm: React.FC = () => {
                   }}
                   onFocus={() => setIsPecaDropdownOpen(true)}
                   autoComplete="off"
-                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
                 />
                 {isPecaDropdownOpen && pecasEstoque.filter(p => p.nome.toLowerCase().includes(pecaNomeInput.toLowerCase())).length > 0 && (
                   <div className="select-dropdown">
@@ -807,7 +913,7 @@ const OSForm: React.FC = () => {
                 placeholder="R$ Valor"
                 value={pecaPrecoInput}
                 onChange={(e) => setPecaPrecoInput(e.target.value)}
-                style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'white' }}
+                style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
               
               <button className="btn-secondary" type="button" onClick={handleAddPeca} disabled={!pecaNomeInput || !pecaPrecoInput}><Plus size={18} /></button>
@@ -825,7 +931,7 @@ const OSForm: React.FC = () => {
                             type="number" 
                             value={p.quantidade} 
                             onChange={e => updateQuantidadePeca(index, Number(e.target.value))}
-                            style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'white', padding: '6px', borderRadius: '4px', fontSize: '13px' }} 
+                            style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '4px', fontSize: '13px' }} 
                             min="1" 
                           />
                         </td>
@@ -836,7 +942,7 @@ const OSForm: React.FC = () => {
                               type="number" 
                               value={p.preco} 
                               onChange={e => updatePrecoPeca(index, Number(e.target.value))}
-                              style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'white', padding: '6px', borderRadius: '4px', fontSize: '13px' }} 
+                              style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '4px', fontSize: '13px' }} 
                               min="0" 
                               step="0.01"
                             />

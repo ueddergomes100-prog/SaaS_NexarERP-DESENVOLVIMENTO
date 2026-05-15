@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingCart, Plus, Search, Filter, FileText, Printer, Trash2 } from 'lucide-react';
-import { collection, query, where, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, deleteDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
@@ -36,20 +36,38 @@ const PedidoVendas: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser]);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (pedido: any) => {
     const confirm = await NexusSwal.fire({
       title: 'Excluir Pedido?',
-      text: 'Se excluir, os relatórios serão afetados permanentemente.',
+      text: 'Se excluir, os relatórios serão afetados permanentemente. Deseja retornar o estoque dos produtos desta venda?',
       icon: 'warning',
+      showDenyButton: true,
       showCancelButton: true,
-      confirmButtonText: 'Excluir',
+      confirmButtonText: 'Sim, retornar estoque',
+      denyButtonText: 'Não, apenas excluir',
       cancelButtonText: 'Cancelar'
     });
 
-    if (confirm.isConfirmed) {
+    if (confirm.isConfirmed || confirm.isDenied) {
       try {
-        await deleteDoc(doc(db, 'pedidos_venda', id));
-        try { await deleteDoc(doc(db, 'transacoes', id)); } catch(e) {}
+        if (confirm.isConfirmed && pedido.status !== 'Cancelada' && pedido.itens) {
+          for (const item of pedido.itens) {
+            if (item.id !== 'avulso') {
+              try {
+                const pecaRef = doc(db, 'estoque', item.id);
+                const pecaSnap = await getDoc(pecaRef);
+                if (pecaSnap.exists()) {
+                  const atual = pecaSnap.data().quantidade || 0;
+                  await updateDoc(pecaRef, { quantidade: atual + item.quantidade });
+                }
+              } catch (e) {
+                console.error("Erro ao retornar estoque:", e);
+              }
+            }
+          }
+        }
+        await deleteDoc(doc(db, 'pedidos_venda', pedido.id));
+        try { await deleteDoc(doc(db, 'transacoes', pedido.id)); } catch(e) {}
         showSuccess('Pedido excluído!');
       } catch (err) {
         showError('Erro', 'Não foi possível excluir.');
@@ -89,7 +107,7 @@ const PedidoVendas: React.FC = () => {
               placeholder="Buscar por cliente ou número do pedido..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ width: '100%', padding: '12px 16px 12px 48px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'white' }}
+              style={{ width: '100%', padding: '12px 16px 12px 48px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
           <div style={{ display: 'flex', backgroundColor: 'var(--bg-tertiary)', padding: '4px', borderRadius: 'var(--radius-md)' }}>
@@ -164,7 +182,7 @@ const PedidoVendas: React.FC = () => {
                         <Printer size={18} />
                       </button>
                       {canDeleteVenda && (
-                        <button onClick={() => handleDelete(p.id)} className="icon-btn" title="Excluir" style={{ color: '#ef4444' }}>
+                        <button onClick={() => handleDelete(p)} className="icon-btn" title="Excluir" style={{ color: '#ef4444' }}>
                           <Trash2 size={18} />
                         </button>
                       )}

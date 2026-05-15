@@ -157,7 +157,7 @@ const Dashboard: React.FC = () => {
   });
 
   const faturamentoMes = transacoesPagasMes
-    .filter(t => t.tipo === 'entrada')
+    .filter(t => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução')
     .reduce((acc, curr) => acc + Number(curr.valor), 0);
 
   const transacoesPagasHoje = transacoesPagasMes.filter(t => {
@@ -167,7 +167,7 @@ const Dashboard: React.FC = () => {
   });
 
   const faturamentoHoje = transacoesPagasHoje
-    .filter(t => t.tipo === 'entrada')
+    .filter(t => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução')
     .reduce((acc, curr) => acc + Number(curr.valor), 0);
 
   const despesasMes = transacoesPagasMes
@@ -193,7 +193,7 @@ const Dashboard: React.FC = () => {
       return date.getMonth() === m && date.getFullYear() === y;
     });
 
-    const entradas = transM.filter(t => t.tipo === 'entrada').reduce((acc, curr) => acc + Number(curr.valor), 0);
+    const entradas = transM.filter(t => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução').reduce((acc, curr) => acc + Number(curr.valor), 0);
     const saidas = transM.filter(t => t.tipo === 'saida').reduce((acc, curr) => acc + Number(curr.valor), 0);
 
     cashFlowData.push({
@@ -347,8 +347,8 @@ const Dashboard: React.FC = () => {
                   <XAxis dataKey="name" stroke="#a0a0ab" tick={{fill: '#a0a0ab'}} axisLine={false} tickLine={false} />
                   <YAxis stroke="#a0a0ab" tick={{fill: '#a0a0ab'}} axisLine={false} tickLine={false} />
                   <Tooltip 
-                    contentStyle={{ backgroundColor: '#1a1a1e', borderColor: '#27272a', color: '#f8f8f8' }}
-                    itemStyle={{ color: '#f8f8f8' }}
+                    contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                    itemStyle={{ color: 'var(--text-primary)' }}
                     cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                   />
                   <Bar dataKey="entradas" fill="#8b5cf6" radius={[4, 4, 0, 0]} name="Entradas (R$)" />
@@ -382,7 +382,7 @@ const Dashboard: React.FC = () => {
                       ))}
                     </Pie>
                     <Tooltip 
-                      contentStyle={{ backgroundColor: '#1a1a1e', borderColor: '#27272a', color: '#f8f8f8' }}
+                      contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
                     />
                   </PieChart>
                 </ResponsiveContainer>

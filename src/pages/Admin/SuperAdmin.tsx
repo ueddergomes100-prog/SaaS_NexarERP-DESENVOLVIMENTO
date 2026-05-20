@@ -14,6 +14,7 @@ interface TenantInfo {
   status: 'Ativo' | 'Inadimplente';
   plano: 'Pro' | 'Premium';
   valor: number;
+  nomeOficina: string;
 }
 
 const SuperAdmin: React.FC = () => {
@@ -21,6 +22,13 @@ const SuperAdmin: React.FC = () => {
   const navigate = useNavigate();
   const [tenants, setTenants] = useState<TenantInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const filteredTenants = tenants.filter(t => 
+    (t.nomeOficina || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (t.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    t.id.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   // Redireciona se não for o SuperAdmin
   useEffect(() => {
@@ -55,7 +63,8 @@ const SuperAdmin: React.FC = () => {
               role: data.role,
               status: data.status || 'Ativo',
               plano: data.plano || 'Pro',
-              valor: data.valorMensalidade || 149.90
+              valor: data.valorMensalidade || 149.90,
+              nomeOficina: data.nomeOficina || 'Sem Nome'
             });
           }
         });
@@ -98,6 +107,49 @@ const SuperAdmin: React.FC = () => {
       } catch (err) {
         console.error(err);
         Swal.fire('Erro', 'Não foi possível atualizar o valor.', 'error');
+      }
+    }
+  };
+
+  const handleEditNome = async (tenantId: string, nomeAtual: string) => {
+    const { value: novoNome } = await Swal.fire({
+      title: 'Editar Nome da Empresa',
+      input: 'text',
+      inputLabel: 'Novo nome da oficina/empresa',
+      inputValue: nomeAtual,
+      showCancelButton: true,
+      inputValidator: (value) => {
+        if (!value || !value.trim()) {
+          return 'Você precisa informar um nome válido!';
+        }
+      }
+    });
+
+    if (novoNome) {
+      setLoading(true);
+      try {
+        await updateDoc(doc(db, 'usuarios', tenantId), {
+          nomeOficina: novoNome.trim()
+        });
+        
+        try {
+          await updateDoc(doc(db, 'configuracoes', tenantId), {
+            nomeOficina: novoNome.trim()
+          });
+        } catch (err) {
+          console.warn("Erro ao atualizar configuracoes da oficina, tentando setDoc com merge...", err);
+          await setDoc(doc(db, 'configuracoes', tenantId), {
+            nomeOficina: novoNome.trim()
+          }, { merge: true });
+        }
+
+        setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, nomeOficina: novoNome.trim() } : t));
+        Swal.fire('Atualizado!', 'Nome da empresa atualizado com sucesso.', 'success');
+      } catch (err) {
+        console.error("Erro ao atualizar nome da empresa", err);
+        Swal.fire('Erro', 'Não foi possível atualizar o nome da empresa.', 'error');
+      } finally {
+        setLoading(false);
       }
     }
   };
@@ -353,6 +405,8 @@ const SuperAdmin: React.FC = () => {
             <input 
               type="text" 
               placeholder="Pesquisar oficina..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '10px 16px 10px 44px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
@@ -365,7 +419,7 @@ const SuperAdmin: React.FC = () => {
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '13px', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '16px 0' }}>ID / E-mail da Oficina</th>
+                  <th style={{ padding: '16px 0' }}>Empresa / E-mail</th>
                   <th style={{ padding: '16px 0' }}>Plano</th>
                   <th style={{ padding: '16px 0' }}>Mensalidade</th>
                   <th style={{ padding: '16px 0' }}>Status Fatura</th>
@@ -373,11 +427,25 @@ const SuperAdmin: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {tenants.map(tenant => (
+                {filteredTenants.map(tenant => (
                   <tr key={tenant.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                     <td style={{ padding: '16px 0' }}>
-                      <div style={{ fontWeight: 600 }}>{tenant.email}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{tenant.id}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {tenant.nomeOficina}
+                        </span>
+                        <button 
+                          className="icon-btn" 
+                          onClick={() => handleEditNome(tenant.id, tenant.nomeOficina)}
+                          style={{ padding: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                          title="Editar Nome da Empresa"
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {tenant.email} <span style={{ opacity: 0.5 }}>•</span> ID: {tenant.id}
+                      </div>
                     </td>
                     <td style={{ padding: '16px 0' }}>
                       <span style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>
@@ -432,9 +500,11 @@ const SuperAdmin: React.FC = () => {
                   </tr>
                 ))}
                 
-                {tenants.length === 0 && (
+                {filteredTenants.length === 0 && (
                   <tr>
-                    <td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhuma oficina cadastrada ainda.</td>
+                    <td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      {tenants.length === 0 ? "Nenhuma oficina cadastrada ainda." : "Nenhuma oficina corresponde à pesquisa."}
+                    </td>
                   </tr>
                 )}
               </tbody>

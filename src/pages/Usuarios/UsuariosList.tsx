@@ -17,7 +17,7 @@ interface UsuarioData {
 }
 
 const UsuariosList: React.FC = () => {
-  const { tenantId, userRole } = useAuth();
+  const { tenantId, userRole, isOwner } = useAuth();
   const navigate = useNavigate();
   const [usuarios, setUsuarios] = useState<UsuarioData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +93,7 @@ const UsuariosList: React.FC = () => {
           </h1>
           <p style={{ color: 'var(--text-muted)' }}>Crie logins para seus funcionários e defina o que eles podem ver no sistema.</p>
         </div>
-        {userRole === 'Admin' && (
+        {isOwner && (
           <button className="btn-primary" onClick={() => navigate('/usuarios/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={20} /> Adicionar Funcionário
           </button>
@@ -120,7 +120,7 @@ const UsuariosList: React.FC = () => {
                 <th style={{ padding: '16px' }}>Login (Usuário)</th>
                 <th style={{ padding: '16px' }}>Nível de Acesso</th>
                 <th style={{ padding: '16px' }}>Status</th>
-                {userRole === 'Admin' && <th style={{ padding: '16px', textAlign: 'right' }}>Ações</th>}
+                {isOwner && <th style={{ padding: '16px', textAlign: 'right' }}>Ações</th>}
               </tr>
             </thead>
             <tbody>
@@ -146,7 +146,7 @@ const UsuariosList: React.FC = () => {
                         Ativo
                       </span>
                     </td>
-                    {userRole === 'Admin' && (
+                    {isOwner && (
                       <td style={{ padding: '16px', textAlign: 'right' }}>
                         {user.role !== 'Admin' && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>

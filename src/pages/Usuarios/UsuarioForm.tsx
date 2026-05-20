@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Save, UserCog, AlertCircle } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { collection, setDoc, doc, serverTimestamp, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, setDoc, doc, serverTimestamp, getDoc, updateDoc, query, where, getDocs } from 'firebase/firestore';
 import { db, firebaseConfig } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
@@ -85,6 +85,25 @@ const UsuarioForm: React.FC = () => {
         setIsLoading(false);
       }
       return;
+    }
+
+    // Validação de Limite de Usuários para a Empresa
+    try {
+      const qUsers = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
+      const qSnap = await getDocs(qUsers);
+      const currentCount = qSnap.size;
+
+      // Obtém o limite configurado no documento do dono da oficina (tenantId)
+      const ownerDoc = await getDoc(doc(db, 'usuarios', tenantId));
+      const limit = ownerDoc.exists() ? (ownerDoc.data().limiteUsuarios !== undefined ? ownerDoc.data().limiteUsuarios : 3) : 3;
+
+      if (currentCount >= limit) {
+        showError('Limite Atingido', `Sua empresa atingiu o limite de ${limit} usuários contratados. Entre em contato com o suporte para alterar o limite do seu plano.`);
+        setIsLoading(false);
+        return;
+      }
+    } catch (e) {
+      console.error("Erro ao validar limite de usuários:", e);
     }
 
     // Validação básica do username (sem espaços, minúsculo)

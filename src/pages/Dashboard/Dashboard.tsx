@@ -46,8 +46,8 @@ const Dashboard: React.FC = () => {
   const [hideData, setHideData] = useState(() => localStorage.getItem('nexus_hide_dashboard') === 'true');
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  const { currentUser, userRole, userPermissions, loading: authLoading, tenantId } = useAuth();
-  const hasFinancialAccess = userRole === 'Admin' || userPermissions?.includes('dashboard.valores');
+  const { currentUser, userRole, userPermissions, loading: authLoading, tenantId, isOwner } = useAuth();
+  const hasFinancialAccess = isOwner || userPermissions?.includes('dashboard.valores');
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentDate(new Date()), 1000);

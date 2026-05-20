@@ -33,7 +33,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import './Layout.css';
 
 const Sidebar: React.FC = () => {
-  const { logout, userRole, userPermissions } = useAuth();
+  const { logout, userRole, userPermissions, blockedModules, isOwner } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isNavigatingHome, setIsNavigatingHome] = useState(false);
   const navigate = useNavigate();
@@ -119,14 +119,30 @@ const Sidebar: React.FC = () => {
     }, 800);
   };
 
-  const hasCadastrosPermission = userRole === 'Admin' || ['cadastros.clientes', 'cadastros.estoque', 'cadastros.servicos', 'cadastros.categorias', 'cadastros.unidades_medida', 'administrativo.equipe'].some(p => userPermissions?.includes(p));
-  const hasComercialPermission = userRole === 'Admin' || ['vendas.pedidos', 'vendas.orcamentos', 'vendas.devolucao', 'vendas.relatorios'].some(p => userPermissions?.includes(p));
-  const hasMecanicaPermission = userRole === 'Admin' || ['mecanica.os', 'mecanica.relatorios'].some(p => userPermissions?.includes(p));
-  const hasCrmPermission = userRole === 'Admin' || ['crm.agenda', 'crm.alertas'].some(p => userPermissions?.includes(p));
-  const hasFinanceiroPermission = userRole === 'Admin' || ['financeiro.caixa', 'financeiro.receber', 'financeiro.pagar', 'financeiro.faturamento', 'financeiro.comissoes'].some(p => userPermissions?.includes(p));
-  const hasFiscalPermission = userRole === 'Admin' || ['fiscal.emitir', 'fiscal.entrada'].some(p => userPermissions?.includes(p));
-  const hasAdministrativoPermission = userRole === 'Admin' || userPermissions?.includes('administrativo.logs');
-  const hasConfiguracoesPermission = userRole === 'Admin' || userPermissions?.includes('administrativo.config');
+  const isBlocked = (mod: string) => blockedModules?.includes(mod);
+
+  const hasCadastrosPermission = (isOwner || userRole === 'SuperAdmin' || ['cadastros.clientes', 'cadastros.estoque', 'cadastros.servicos', 'cadastros.categorias', 'cadastros.unidades_medida', 'administrativo.equipe'].some(p => userPermissions?.includes(p))) &&
+    !['cadastros.clientes', 'cadastros.usuarios', 'cadastros.veiculos', 'cadastros.estoque', 'cadastros.servicos', 'cadastros.categorias', 'cadastros.unidades_medida'].every(item => isBlocked(item));
+
+  const hasComercialPermission = (isOwner || userRole === 'SuperAdmin' || ['vendas.pedidos', 'vendas.orcamentos', 'vendas.devolucao', 'vendas.relatorios'].some(p => userPermissions?.includes(p))) &&
+    !['comercial.pedidos', 'comercial.orcamentos', 'comercial.devolucoes', 'comercial.relatorios'].every(item => isBlocked(item));
+
+  const hasMecanicaPermission = (isOwner || userRole === 'SuperAdmin' || ['mecanica.os', 'mecanica.relatorios'].some(p => userPermissions?.includes(p))) &&
+    !['mecanica.os', 'mecanica.relatorios'].every(item => isBlocked(item));
+
+  const hasCrmPermission = (isOwner || userRole === 'SuperAdmin' || ['crm.agenda', 'crm.alertas'].some(p => userPermissions?.includes(p))) &&
+    !['crm.agenda', 'crm.lembretes'].every(item => isBlocked(item));
+
+  const hasFinanceiroPermission = (isOwner || userRole === 'SuperAdmin' || ['financeiro.caixa', 'financeiro.receber', 'financeiro.pagar', 'financeiro.faturamento', 'financeiro.comissoes'].some(p => userPermissions?.includes(p))) &&
+    !['financeiro.caixa', 'financeiro.receber', 'financeiro.pagar', 'financeiro.faturamento', 'financeiro.comissoes'].every(item => isBlocked(item));
+
+  const hasFiscalPermission = (isOwner || userRole === 'SuperAdmin' || ['fiscal.emitir', 'fiscal.entrada'].some(p => userPermissions?.includes(p))) &&
+    !['fiscal.nfe', 'fiscal.entrada_nfe'].every(item => isBlocked(item));
+
+  const hasAdministrativoPermission = (isOwner || userRole === 'SuperAdmin' || userPermissions?.includes('administrativo.logs')) &&
+    !['logs.relatorios_diversos', 'logs.sistema'].every(item => isBlocked(item));
+
+  const hasConfiguracoesPermission = isOwner || userRole === 'SuperAdmin' || userPermissions?.includes('administrativo.config');
 
   return (
     <>
@@ -219,43 +235,43 @@ const Sidebar: React.FC = () => {
                   </div>
                   <div className={`nav-group-items ${isExpanded('cadastros') ? 'open' : ''}`}>
                     <div className="nav-group-items-inner">
-                      {(userRole === 'Admin' || userPermissions?.includes('cadastros.clientes')) && (
+                      {!isBlocked('cadastros.clientes') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('cadastros.clientes')) && (
                         <NavLink to="/clientes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Users size={20} />
                           <span>Clientes</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('administrativo.equipe')) && (
+                      {!isBlocked('cadastros.usuarios') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('administrativo.equipe')) && (
                         <NavLink to="/usuarios" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <UserCog size={20} />
                           <span>Usuários</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('cadastros.clientes')) && (
+                      {!isBlocked('cadastros.veiculos') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('cadastros.clientes')) && (
                         <NavLink to="/veiculos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Car size={20} />
                           <span>Veículos</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('cadastros.estoque')) && (
+                      {!isBlocked('cadastros.estoque') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('cadastros.estoque')) && (
                         <NavLink to="/estoque" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Package size={20} />
                           <span>Estoque / Peças</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('cadastros.servicos')) && (
+                      {!isBlocked('cadastros.servicos') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('cadastros.servicos')) && (
                         <NavLink to="/servicos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Briefcase size={20} />
                           <span>Cadastro de Serviços</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('cadastros.categorias')) && (
+                      {!isBlocked('cadastros.categorias') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('cadastros.categorias')) && (
                         <NavLink to="/categorias" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Tags size={20} />
                           <span>Categorias</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('cadastros.unidades_medida')) && (
+                      {!isBlocked('cadastros.unidades_medida') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('cadastros.unidades_medida')) && (
                         <NavLink to="/unidades-medida" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Scale size={20} />
                           <span>Unidades de Medida</span>
@@ -283,25 +299,25 @@ const Sidebar: React.FC = () => {
                   </div>
                   <div className={`nav-group-items ${isExpanded('comercial') ? 'open' : ''}`}>
                     <div className="nav-group-items-inner">
-                      {(userRole === 'Admin' || userPermissions?.includes('vendas.pedidos')) && (
+                      {!isBlocked('comercial.pedidos') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('vendas.pedidos')) && (
                         <NavLink to="/pedidos-venda" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <ShoppingCart size={20} />
                           <span>Pedido de Vendas</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('vendas.orcamentos')) && (
+                      {!isBlocked('comercial.orcamentos') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('vendas.orcamentos')) && (
                         <NavLink to="/orcamentos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <FileText size={20} />
                           <span>Orçamentos</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('vendas.devolucao')) && (
+                      {!isBlocked('comercial.devolucoes') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('vendas.devolucao')) && (
                         <NavLink to="/vendas/devolucoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <RotateCcw size={20} />
                           <span>Devolução de Venda</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('vendas.relatorios')) && (
+                      {!isBlocked('comercial.relatorios') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('vendas.relatorios')) && (
                         <NavLink to="/relatorios-vendas" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <BarChart2 size={20} />
                           <span>Relatório de Vendas</span>
@@ -329,13 +345,13 @@ const Sidebar: React.FC = () => {
                   </div>
                   <div className={`nav-group-items ${isExpanded('mecanica') ? 'open' : ''}`}>
                     <div className="nav-group-items-inner">
-                      {(userRole === 'Admin' || userPermissions?.includes('mecanica.os')) && (
+                      {!isBlocked('mecanica.os') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('mecanica.os')) && (
                         <NavLink to="/os" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Wrench size={20} />
                           <span>Ordens de Serviço</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('mecanica.relatorios')) && (
+                      {!isBlocked('mecanica.relatorios') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('mecanica.relatorios')) && (
                         <NavLink to="/relatorios-mecanica" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <PieChart size={20} />
                           <span>Relatório de Serviços</span>
@@ -363,13 +379,13 @@ const Sidebar: React.FC = () => {
                   </div>
                   <div className={`nav-group-items ${isExpanded('crm') ? 'open' : ''}`}>
                     <div className="nav-group-items-inner">
-                      {(userRole === 'Admin' || userPermissions?.includes('crm.agenda')) && (
+                      {!isBlocked('crm.agenda') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('crm.agenda')) && (
                         <NavLink to="/crm/agenda" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Calendar size={20} />
                           <span>Agendamentos</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('crm.alertas')) && (
+                      {!isBlocked('crm.lembretes') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('crm.alertas')) && (
                         <NavLink to="/crm/lembretes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Bell size={20} />
                           <span>Alertas de Retorno</span>
@@ -395,33 +411,32 @@ const Sidebar: React.FC = () => {
                       />
                     )}
                   </div>
-                  <div className={`nav-group-items ${isExpanded('financeiro') ? 'open' : ''}`}>
                     <div className="nav-group-items-inner">
-                      {(userRole === 'Admin' || userPermissions?.includes('financeiro.caixa')) && (
+                      {!isBlocked('financeiro.caixa') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('financeiro.caixa')) && (
                         <NavLink to="/financeiro/caixa" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Wallet size={20} />
                           <span>Fluxo de Caixa</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('financeiro.receber')) && (
+                      {!isBlocked('financeiro.receber') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('financeiro.receber')) && (
                         <NavLink to="/financeiro/contas-receber" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Clock size={20} />
                           <span>Contas a Receber</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('financeiro.pagar')) && (
+                      {!isBlocked('financeiro.pagar') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('financeiro.pagar')) && (
                         <NavLink to="/financeiro/contas-pagar" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Receipt size={20} />
                           <span>Contas a Pagar</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('financeiro.faturamento')) && (
+                      {!isBlocked('financeiro.faturamento') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('financeiro.faturamento')) && (
                         <NavLink to="/financeiro/faturamento" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <TrendingUp size={20} />
                           <span>Faturamento</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('financeiro.comissoes')) && (
+                      {!isBlocked('financeiro.comissoes') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('financeiro.comissoes')) && (
                         <NavLink to="/financeiro/comissoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <DollarSign size={20} />
                           <span>Comissões a Pagar</span>
@@ -452,13 +467,13 @@ const Sidebar: React.FC = () => {
                   </div>
                   <div className={`nav-group-items ${isExpanded('fiscal') ? 'open' : ''}`}>
                     <div className="nav-group-items-inner">
-                      {(userRole === 'Admin' || userPermissions?.includes('fiscal.emitir')) && (
+                      {!isBlocked('fiscal.nfe') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('fiscal.emitir')) && (
                         <NavLink to="/fiscal/nfe" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Receipt size={20} />
                           <span>Emitir Nota Fiscal</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('fiscal.entrada')) && (
+                      {!isBlocked('fiscal.entrada_nfe') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('fiscal.entrada')) && (
                         <NavLink to="/fiscal/entrada-nfe" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Inbox size={20} />
                           <span>Entrada de XML</span>
@@ -486,13 +501,13 @@ const Sidebar: React.FC = () => {
                   </div>
                   <div className={`nav-group-items ${isExpanded('administrativo') ? 'open' : ''}`}>
                     <div className="nav-group-items-inner">
-                      {userRole === 'Admin' && (
+                      {!isBlocked('logs.relatorios_diversos') && (isOwner || userRole === 'SuperAdmin') && (
                         <NavLink to="/relatorios-diversos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Printer size={20} />
                           <span>Relatórios Diversos</span>
                         </NavLink>
                       )}
-                      {(userRole === 'Admin' || userPermissions?.includes('administrativo.logs')) && (
+                      {!isBlocked('logs.sistema') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('administrativo.logs')) && (
                         <NavLink to="/logs-sistema" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <ShieldAlert size={20} />
                           <span>Logs do Sistema</span>
@@ -520,7 +535,7 @@ const Sidebar: React.FC = () => {
                   </div>
                   <div className={`nav-group-items ${isExpanded('configuracoes') ? 'open' : ''}`}>
                     <div className="nav-group-items-inner">
-                      {(userRole === 'Admin' || userPermissions?.includes('administrativo.config')) && (
+                      {((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('administrativo.config')) && (
                         <NavLink to="/configuracoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Settings size={20} />
                           <span>Configurações Gerais</span>

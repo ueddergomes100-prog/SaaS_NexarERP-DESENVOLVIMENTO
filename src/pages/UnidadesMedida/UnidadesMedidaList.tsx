@@ -30,10 +30,10 @@ const UnidadesMedidaList: React.FC = () => {
   });
   const [modalLoading, setModalLoading] = useState(false);
 
-  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const navigate = useNavigate();
 
-  const canAccess = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('cadastros.unidades_medida'));
+  const canAccess = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('cadastros.unidades_medida'));
 
   useEffect(() => {
     if (!currentUser || !tenantId || !canAccess) return;

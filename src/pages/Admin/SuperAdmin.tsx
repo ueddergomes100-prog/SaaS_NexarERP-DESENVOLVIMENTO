@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Ban, Search, ExternalLink, Edit2, Trash2, Megaphone } from 'lucide-react';
+import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Ban, Search, ExternalLink, Edit2, Trash2, Megaphone, Sliders } from 'lucide-react';
 import { collection, query, getDocs, updateDoc, doc, deleteDoc, where, setDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -15,6 +15,8 @@ interface TenantInfo {
   plano: 'Pro' | 'Premium';
   valor: number;
   nomeOficina: string;
+  modulosBloqueados?: string[];
+  limiteUsuarios?: number;
 }
 
 const SuperAdmin: React.FC = () => {
@@ -65,7 +67,9 @@ const SuperAdmin: React.FC = () => {
               status: data.status || 'Ativo',
               plano: data.plano || 'Pro',
               valor: data.valorMensalidade || 149.90,
-              nomeOficina: data.nomeOficina || 'Sem Nome'
+              nomeOficina: data.nomeOficina || 'Sem Nome',
+              modulosBloqueados: data.modulosBloqueados || [],
+              limiteUsuarios: data.limiteUsuarios !== undefined ? data.limiteUsuarios : 3
             });
           }
         });
@@ -230,6 +234,169 @@ const SuperAdmin: React.FC = () => {
       } catch (err) {
         console.error(err);
         Swal.fire('Erro', 'Não foi possível atualizar o aviso global.', 'error');
+      }
+    }
+  };
+
+  const handleEditLimit = async (tenantId: string, currentLimit: number) => {
+    const { value: novoLimite } = await Swal.fire({
+      title: 'Editar Limite de Usuários',
+      input: 'number',
+      inputLabel: 'Quantidade máxima de funcionários/usuários permitidos para esta empresa',
+      inputValue: String(currentLimit),
+      showCancelButton: true,
+      confirmButtonColor: '#8b5cf6',
+      inputValidator: (value) => {
+        if (!value || isNaN(Number(value)) || Number(value) < 1) {
+          return 'Você precisa informar um limite maior ou igual a 1!';
+        }
+      }
+    });
+
+    if (novoLimite) {
+      setLoading(true);
+      try {
+        const val = Number(novoLimite);
+        await updateDoc(doc(db, 'usuarios', tenantId), {
+          limiteUsuarios: val
+        });
+        
+        try {
+          await updateDoc(doc(db, 'configuracoes', tenantId), {
+            limiteUsuarios: val
+          });
+        } catch (e) {
+          await setDoc(doc(db, 'configuracoes', tenantId), {
+            limiteUsuarios: val
+          }, { merge: true });
+        }
+
+        setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, limiteUsuarios: val } : t));
+        Swal.fire('Atualizado!', 'Limite de usuários atualizado com sucesso.', 'success');
+      } catch (err) {
+        console.error(err);
+        Swal.fire('Erro', 'Não foi possível atualizar o limite de usuários.', 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleManageModules = async (tenantId: string, currentBlocked: string[] = []) => {
+    const modules = [
+      { group: 'Cadastros', items: [
+        { id: 'cadastros.clientes', label: 'Clientes' },
+        { id: 'cadastros.usuarios', label: 'Usuários' },
+        { id: 'cadastros.veiculos', label: 'Veículos' },
+        { id: 'cadastros.estoque', label: 'Estoque / Peças' },
+        { id: 'cadastros.servicos', label: 'Cadastro de Serviços' },
+        { id: 'cadastros.categorias', label: 'Categorias' },
+        { id: 'cadastros.unidades_medida', label: 'Unidades de Medida' }
+      ]},
+      { group: 'Comercial & Vendas', items: [
+        { id: 'comercial.pedidos', label: 'Pedido de Vendas' },
+        { id: 'comercial.orcamentos', label: 'Orçamentos' },
+        { id: 'comercial.devolucoes', label: 'Devolução de Venda' },
+        { id: 'comercial.relatorios', label: 'Relatório de Vendas' }
+      ]},
+      { group: 'Mecânica & Serviços', items: [
+        { id: 'mecanica.os', label: 'Ordens de Serviço' },
+        { id: 'mecanica.relatorios', label: 'Relatório de Serviços' }
+      ]},
+      { group: 'CRM & Agenda', items: [
+        { id: 'crm.agenda', label: 'Agendamentos' },
+        { id: 'crm.lembretes', label: 'Alertas de Retorno' }
+      ]},
+      { group: 'Financeiro', items: [
+        { id: 'financeiro.caixa', label: 'Fluxo de Caixa' },
+        { id: 'financeiro.receber', label: 'Contas a Receber' },
+        { id: 'financeiro.pagar', label: 'Contas a Pagar' },
+        { id: 'financeiro.faturamento', label: 'Painel de Faturamento' },
+        { id: 'financeiro.comissoes', label: 'Controle de Comissões' }
+      ]},
+      { group: 'Fiscal', items: [
+        { id: 'fiscal.nfe', label: 'Emitir Nota Fiscal (NFe)' },
+        { id: 'fiscal.entrada_nfe', label: 'Entrada de XML' }
+      ]},
+      { group: 'Administrativo & Logs', items: [
+        { id: 'logs.relatorios_diversos', label: 'Relatórios Diversos' },
+        { id: 'logs.sistema', label: 'Logs do Sistema' }
+      ]}
+    ];
+
+    const htmlContent = `
+      <div style="text-align: left; padding: 5px; max-height: 400px; overflow-y: auto; background-color: var(--bg-secondary); border-radius: 8px;">
+        <p style="margin-bottom: 16px; color: var(--text-secondary); font-size: 13px; font-weight: 500; line-height: 1.4;">
+          Marque quais recursos/telas estarão <strong>ativos</strong> para esta oficina:
+        </p>
+        ${modules.map(group => `
+          <div style="margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px;">
+            <h4 style="color: #8b5cf6; font-size: 12px; font-weight: 700; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px;">${group.group}</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px;">
+              ${group.items.map(m => {
+                const isEnabled = !currentBlocked.includes(m.id);
+                return `
+                  <div style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="mod-${m.id}" ${isEnabled ? 'checked' : ''} style="width: 15px; height: 15px; accent-color: #8b5cf6; cursor: pointer;" />
+                    <label for="mod-${m.id}" style="color: var(--text-primary); font-size: 13px; cursor: pointer; font-weight: 500; margin: 0; line-height: 1.2;">${m.label}</label>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    const { isConfirmed, value: blockedResult } = await Swal.fire({
+      title: 'Configurar Módulos & Telas',
+      html: htmlContent,
+      showCancelButton: true,
+      confirmButtonColor: '#8b5cf6',
+      confirmButtonText: 'Salvar Permissões',
+      cancelButtonText: 'Cancelar',
+      width: '650px',
+      preConfirm: () => {
+        const blocked: string[] = [];
+        modules.forEach(group => {
+          group.items.forEach(m => {
+            const checkbox = document.getElementById(`mod-${m.id}`) as HTMLInputElement;
+            if (checkbox && !checkbox.checked) {
+              blocked.push(m.id);
+            }
+          });
+        });
+        return blocked;
+      }
+    });
+
+    if (isConfirmed && blockedResult !== undefined) {
+      setLoading(true);
+      try {
+        // Salva na coleção usuarios (documento do dono/tenant)
+        await updateDoc(doc(db, 'usuarios', tenantId), {
+          modulosBloqueados: blockedResult
+        });
+        
+        // E também no de configuracoes por consistência
+        try {
+          await updateDoc(doc(db, 'configuracoes', tenantId), {
+            modulosBloqueados: blockedResult
+          });
+        } catch (e) {
+          console.warn("Erro ao salvar modulosBloqueados em configuracoes, fazendo merge...", e);
+          await setDoc(doc(db, 'configuracoes', tenantId), {
+            modulosBloqueados: blockedResult
+          }, { merge: true });
+        }
+
+        setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, modulosBloqueados: blockedResult } : t));
+        Swal.fire('Configuração Salva!', 'Os módulos e telas da oficina foram atualizados com sucesso.', 'success');
+      } catch (err) {
+        console.error("Erro ao gerenciar módulos", err);
+        Swal.fire('Erro', 'Não foi possível atualizar a configuração de módulos.', 'error');
+      } finally {
+        setLoading(false);
       }
     }
   };
@@ -423,6 +590,7 @@ const SuperAdmin: React.FC = () => {
                   <th style={{ padding: '16px 0' }}>Empresa / E-mail</th>
                   <th style={{ padding: '16px 0' }}>Plano</th>
                   <th style={{ padding: '16px 0' }}>Mensalidade</th>
+                  <th style={{ padding: '16px 0' }}>Usuários</th>
                   <th style={{ padding: '16px 0' }}>Status Fatura</th>
                   <th style={{ padding: '16px 0', textAlign: 'right' }}>Ação</th>
                 </tr>
@@ -466,6 +634,19 @@ const SuperAdmin: React.FC = () => {
                         </button>
                       </div>
                     </td>
+                    <td style={{ padding: '16px 0', fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>L: {tenant.limiteUsuarios !== undefined ? tenant.limiteUsuarios : 3}</span>
+                        <button 
+                          className="icon-btn" 
+                          onClick={() => handleEditLimit(tenant.id, tenant.limiteUsuarios !== undefined ? tenant.limiteUsuarios : 3)}
+                          style={{ padding: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          title="Editar Limite de Usuários"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                      </div>
+                    </td>
                     <td style={{ padding: '16px 0' }}>
                       {tenant.status === 'Ativo' ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '14px', fontWeight: 500 }}>
@@ -479,6 +660,14 @@ const SuperAdmin: React.FC = () => {
                     </td>
                     <td style={{ padding: '20px 0', textAlign: 'right' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
+                        <button 
+                          className="btn-secondary" 
+                          onClick={() => handleManageModules(tenant.id, tenant.modulosBloqueados || [])}
+                          style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', border: '1px solid rgba(139, 92, 246, 0.2)' }}
+                          title="Gerenciar Módulos"
+                        >
+                          <Sliders size={14} /> Módulos
+                        </button>
                         {tenant.status === 'Inadimplente' ? (
                           <button className="btn-secondary" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
                             <Ban size={16} style={{ marginRight: '6px' }} /> Suspender

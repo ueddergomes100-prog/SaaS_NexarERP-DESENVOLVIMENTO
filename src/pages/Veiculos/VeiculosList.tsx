@@ -25,9 +25,9 @@ const VeiculosList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
-  const { tenantId, userPermissions, userRole } = useAuth();
+  const { tenantId, userPermissions, userRole, isOwner } = useAuth();
   
-  const canEdit = userRole === 'Admin' || userRole === 'SuperAdmin' || userPermissions?.includes('cadastros.clientes');
+  const canEdit = isOwner || userRole === 'SuperAdmin' || userPermissions?.includes('cadastros.clientes');
 
   const fetchVeiculos = async () => {
     if (!tenantId) return;

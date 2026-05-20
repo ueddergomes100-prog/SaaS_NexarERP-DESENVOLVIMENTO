@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Lock, LogIn, Loader2 } from 'lucide-react';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { auth, db } from '../../services/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import Swal from 'sweetalert2';
 import './Auth.css';
 
 const Login: React.FC = () => {
@@ -54,13 +55,49 @@ const Login: React.FC = () => {
       
       // Buscar tenantId do usuario no Firestore para salvar o log na empresa correta
       let userTenantId = 'geral';
+      let activeSessionId = '';
       try {
         const userDoc = await getDoc(doc(db, 'usuarios', user.uid));
         if (userDoc.exists()) {
-          userTenantId = userDoc.data().tenantId || 'geral';
+          const userData = userDoc.data();
+          userTenantId = userData.tenantId || 'geral';
+          activeSessionId = userData.activeSessionId || '';
         }
       } catch (e) {
         console.error('Erro ao obter tenantId para log de login:', e);
+      }
+
+      if (activeSessionId) {
+        const result = await Swal.fire({
+          title: 'Sessão Ativa Detectada',
+          text: 'Esta conta já possui uma sessão ativa em outro dispositivo ou navegador. Deseja encerrar a outra sessão e entrar aqui?',
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#8b5cf6',
+          cancelButtonColor: '#d33',
+          confirmButtonText: 'Sim, derrubar a outra e entrar',
+          cancelButtonText: 'Não, manter a outra ativa'
+        });
+
+        if (!result.isConfirmed) {
+          // Desloga o usuário e aborta o login
+          await signOut(auth);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Cria um ID de sessão local único
+      const newSessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+      localStorage.setItem('nexus_session_id', newSessionId);
+
+      // Atualiza no Firestore
+      try {
+        await updateDoc(doc(db, 'usuarios', user.uid), {
+          activeSessionId: newSessionId
+        });
+      } catch (e) {
+        console.error('Erro ao registrar nova sessao no firestore:', e);
       }
 
       const { createAuditLog } = await import('../../services/logService');

@@ -8,7 +8,7 @@ import { showSuccess, showError } from '../../utils/alerts';
 
 const DevolucoesVenda: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   
   const [numeroPedidoBusca, setNumeroPedidoBusca] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -25,7 +25,7 @@ const DevolucoesVenda: React.FC = () => {
   const [motivo, setMotivo] = useState('');
   const [observacao, setObservacao] = useState('');
 
-  const canReturn = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.devolucao'));
+  const canReturn = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.devolucao'));
 
   if (!canReturn) {
     return (

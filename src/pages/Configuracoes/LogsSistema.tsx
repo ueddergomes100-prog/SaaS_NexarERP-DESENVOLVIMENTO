@@ -22,7 +22,7 @@ interface LogDocument {
 }
 
 const LogsSistema: React.FC = () => {
-  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   
   // Acesso e Autenticação da Tela
   const [authorized, setAuthorized] = useState(false);
@@ -52,7 +52,7 @@ const LogsSistema: React.FC = () => {
   useEffect(() => {
     if (userRole === null) return; // Aguarda o carregamento da role
 
-    const allowed = userRole === 'Admin' || userRole === 'SuperAdmin' || userPermissions?.includes('administrativo.logs');
+    const allowed = isOwner || userRole === 'SuperAdmin' || userPermissions?.includes('administrativo.logs');
     if (!allowed) {
       setHasPermission(false);
       if (currentUser && tenantId) {

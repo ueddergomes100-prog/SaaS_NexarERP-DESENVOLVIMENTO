@@ -25,11 +25,11 @@ interface Orcamento {
 
 const Orcamentos: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, userRole, userPermissions } = useAuth();
+  const { tenantId, userRole, userPermissions, isOwner } = useAuth();
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
 
-  const canEditOrcamento = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.orcamentos_alterar'));
-  const canDeleteOrcamento = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.orcamentos_excluir'));
+  const canEditOrcamento = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.orcamentos_alterar'));
+  const canDeleteOrcamento = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.orcamentos_excluir'));
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 

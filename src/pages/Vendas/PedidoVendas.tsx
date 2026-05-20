@@ -8,9 +8,9 @@ import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 
 const PedidoVendas: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   
-  const canDeleteVenda = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.excluir'));
+  const canDeleteVenda = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.excluir'));
   
   const [pedidos, setPedidos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

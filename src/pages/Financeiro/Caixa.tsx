@@ -24,9 +24,9 @@ const Caixa: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showSaldo, setShowSaldo] = useState(false);
   const [diasFiltro, setDiasFiltro] = useState<number>(30); // Padrão 30 dias
-  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   
-  const podeEstornar = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('financeiro.estornar'));
+  const podeEstornar = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('financeiro.estornar'));
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);

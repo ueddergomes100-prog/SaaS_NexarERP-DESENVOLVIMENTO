@@ -26,10 +26,10 @@ const OSList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'Ativas' | 'Finalizadas' | 'Canceladas'>('Ativas');
   const [searchTerm, setSearchTerm] = useState('');
-  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
 
-  const canEditOS = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('mecanica.os_alterar'));
-  const canDeleteOS = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('mecanica.os_excluir'));
+  const canEditOS = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('mecanica.os_alterar'));
+  const canDeleteOS = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('mecanica.os_excluir'));
 
   useEffect(() => {
     if (!currentUser) return;

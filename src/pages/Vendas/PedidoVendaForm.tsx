@@ -58,8 +58,8 @@ const PedidoVendaForm: React.FC = () => {
   const [isFetchingData, setIsFetchingData] = useState(true);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
 
-  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
-  const canEditVenda = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.alterar'));
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const canEditVenda = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.alterar'));
   
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const [isProdutoDropdownOpen, setIsProdutoDropdownOpen] = useState(false);

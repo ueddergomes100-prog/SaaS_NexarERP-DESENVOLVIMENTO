@@ -451,11 +451,11 @@ const SuperAdmin: React.FC = () => {
           <p style={{ color: 'var(--text-muted)', fontSize: '16px' }}>Seu centro de comando financeiro e gestão de clientes.</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={handlePublishAlert} style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.2)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button className="btn-secondary" onClick={handlePublishAlert} style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Megaphone size={16} /> Aviso Global
           </button>
-          <button className="btn-secondary" style={{ backgroundColor: 'var(--bg-tertiary)' }}>Exportar Dados</button>
-          <button className="btn-primary" style={{ backgroundColor: '#8b5cf6' }}>Configurações do SaaS</button>
+          <button className="btn-secondary">Exportar Dados</button>
+          <button className="btn-primary">Configurações do SaaS</button>
         </div>
       </div>
 
@@ -663,24 +663,30 @@ const SuperAdmin: React.FC = () => {
                         <button 
                           className="btn-secondary" 
                           onClick={() => handleManageModules(tenant.id, tenant.modulosBloqueados || [])}
-                          style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', border: '1px solid rgba(139, 92, 246, 0.2)' }}
+                          style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', border: '1px solid rgba(139, 92, 246, 0.2)', padding: '6px 12px', borderRadius: 'var(--radius-md)' }}
                           title="Gerenciar Módulos"
                         >
                           <Sliders size={14} /> Módulos
                         </button>
                         {tenant.status === 'Inadimplente' ? (
-                          <button className="btn-secondary" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-                            <Ban size={16} style={{ marginRight: '6px' }} /> Suspender
+                          <button 
+                            className="btn-secondary" 
+                            style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '6px 12px', borderRadius: 'var(--radius-md)' }}
+                          >
+                            <Ban size={14} /> Suspender
                           </button>
                         ) : (
-                          <button className="btn-secondary" style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <button 
+                            className="btn-secondary" 
+                            style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: 'var(--radius-md)' }}
+                          >
                             Acessar Dados <ExternalLink size={14} />
                           </button>
                         )}
                         <button 
                           className="icon-btn" 
                           onClick={() => handleDeleteTenant(tenant.id, tenant.email)}
-                          style={{ padding: '8px', color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
+                          style={{ padding: '8px', color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--radius-md)', border: 'none', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                           title="Excluir Empresa"
                         >
                           <Trash2 size={16} />

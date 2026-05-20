@@ -411,6 +411,7 @@ const Sidebar: React.FC = () => {
                       />
                     )}
                   </div>
+                  <div className={`nav-group-items ${isExpanded('financeiro') ? 'open' : ''}`}>
                     <div className="nav-group-items-inner">
                       {!isBlocked('financeiro.caixa') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('financeiro.caixa')) && (
                         <NavLink to="/financeiro/caixa" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>

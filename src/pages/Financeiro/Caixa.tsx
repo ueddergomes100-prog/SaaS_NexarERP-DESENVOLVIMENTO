@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowUpCircle, ArrowDownCircle, Search, Filter, DollarSign, Eye, EyeOff, Calendar, Plus, X, Loader2, CheckCircle } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, Search, Filter, DollarSign, Eye, EyeOff, Calendar, Plus, X, Loader2, CheckCircle, RotateCcw } from 'lucide-react';
 import { collection, query, onSnapshot, where, addDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -24,7 +24,9 @@ const Caixa: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showSaldo, setShowSaldo] = useState(false);
   const [diasFiltro, setDiasFiltro] = useState<number>(30); // Padrão 30 dias
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
+  
+  const podeEstornar = userRole === 'Admin' || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('financeiro.estornar'));
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -148,6 +150,36 @@ const Caixa: React.FC = () => {
     }
   };
 
+  const handleEstornar = async (id: string, tipo: string) => {
+    if (!podeEstornar) {
+      showError('Sem Permissão', 'Você não tem permissão para estornar lançamentos.');
+      return;
+    }
+
+    const result = await NexusSwal.fire({
+      title: 'Estornar Lançamento?',
+      text: `Ao estornar, este ${tipo === 'entrada' ? 'Recebimento' : 'Pagamento'} voltará para Contas a ${tipo === 'entrada' ? 'Receber' : 'Pagar'} como Pendente. Confirma?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#f59e0b',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Sim, Estornar',
+      cancelButtonText: 'Cancelar'
+    });
+
+    if (result.isConfirmed) {
+      try {
+        await updateDoc(doc(db, 'transacoes', id), {
+          status: 'Pendente'
+        });
+        showSuccess('Lançamento estornado com sucesso!');
+      } catch (error) {
+        console.error("Erro ao estornar:", error);
+        showError('Erro', 'Ocorreu um erro ao estornar a transação.');
+      }
+    }
+  };
+
   return (
     <div className="financeiro-page" style={{ position: 'relative' }}>
       <div className="page-header">
@@ -253,16 +285,17 @@ const Caixa: React.FC = () => {
                 <th>Categoria</th>
                 <th>Status</th>
                 <th style={{ textAlign: 'right' }}>Valor (R$)</th>
+                {podeEstornar && <th style={{ textAlign: 'center', width: '80px' }}>Ações</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>Carregando fluxo de caixa...</td>
+                  <td colSpan={podeEstornar ? 6 : 5} style={{ textAlign: 'center', padding: '20px' }}>Carregando fluxo de caixa...</td>
                 </tr>
               ) : filteredTransacoes.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>Nenhuma transação encontrada no período selecionado.</td>
+                  <td colSpan={podeEstornar ? 6 : 5} style={{ textAlign: 'center', padding: '20px' }}>Nenhuma transação encontrada no período selecionado.</td>
                 </tr>
               ) : (
                 filteredTransacoes.map((t) => (
@@ -290,6 +323,21 @@ const Caixa: React.FC = () => {
                     <td style={{ textAlign: 'right', fontWeight: '600', color: t.tipo === 'entrada' ? '#10b981' : '#ef4444' }}>
                       {t.tipo === 'entrada' ? '+' : '-'} {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor))}
                     </td>
+                    {podeEstornar && (
+                      <td style={{ textAlign: 'center' }}>
+                        <button 
+                          onClick={() => handleEstornar(t.id, t.tipo)}
+                          style={{ 
+                            background: 'none', border: 'none', cursor: 'pointer', 
+                            color: '#f59e0b', display: 'flex', alignItems: 'center', 
+                            justifyContent: 'center', width: '100%' 
+                          }}
+                          title="Estornar e voltar para Pendente"
+                        >
+                          <RotateCcw size={18} />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

@@ -1,19 +1,67 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, Car, Printer, Search, ArrowRight, BarChart2, DollarSign, ArrowUpCircle, ArrowDownCircle, Calendar } from 'lucide-react';
 import '../OS/OS.css'; // Reusing OS styles for consistency
 
 const RelatoriosDiversos: React.FC = () => {
   const navigate = useNavigate();
-  const [activeReport, setActiveReport] = useState<string | null>(null);
+
+  const getDefaultFimDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split('T')[0];
+  };
+
+  const getInitialState = <T,>(key: string, defaultValue: T): T => {
+    try {
+      const item = sessionStorage.getItem(`relatorios_${key}`);
+      return item ? JSON.parse(item) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  };
+
+  const [activeReport, setActiveReport] = useState<string | null>(
+    () => getInitialState('activeReport', null)
+  );
 
   // Filters for Veículos Report
-  const [veiculoSearchTerm, setVeiculoSearchTerm] = useState('');
+  const [veiculoSearchTerm, setVeiculoSearchTerm] = useState(
+    () => getInitialState('veiculoSearchTerm', '')
+  );
 
   // Filters for Financial Reports
-  const [finDataInicio, setFinDataInicio] = useState(new Date().toISOString().split('T')[0]);
-  const [finDataFim, setFinDataFim] = useState(new Date().toISOString().split('T')[0]);
-  const [finStatus, setFinStatus] = useState<'Paga' | 'Pendente'>('Pendente');
+  const [finDataInicio, setFinDataInicio] = useState(
+    () => getInitialState('finDataInicio', new Date().toISOString().split('T')[0])
+  );
+  
+  const [finDataFim, setFinDataFim] = useState(
+    () => getInitialState('finDataFim', getDefaultFimDate())
+  );
+  
+  const [finStatus, setFinStatus] = useState<'Paga' | 'Pendente'>(
+    () => getInitialState('finStatus', 'Pendente')
+  );
+
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_activeReport', JSON.stringify(activeReport));
+  }, [activeReport]);
+
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_veiculoSearchTerm', JSON.stringify(veiculoSearchTerm));
+  }, [veiculoSearchTerm]);
+
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_finDataInicio', JSON.stringify(finDataInicio));
+  }, [finDataInicio]);
+
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_finDataFim', JSON.stringify(finDataFim));
+  }, [finDataFim]);
+
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_finStatus', JSON.stringify(finStatus));
+  }, [finStatus]);
 
   const reports = [
     {

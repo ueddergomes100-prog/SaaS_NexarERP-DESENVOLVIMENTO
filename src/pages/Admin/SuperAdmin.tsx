@@ -41,6 +41,12 @@ const SuperAdmin: React.FC = () => {
         const listOfTenants: TenantInfo[] = [];
         snap.forEach(doc => {
           const data = doc.data();
+          
+          // Ignora o SuperAdmin (dono do SaaS) para não somar no faturamento e indicadores
+          if (data.email === 'ueddergomes@outlook.com' || data.role === 'SuperAdmin') {
+            return;
+          }
+
           // Pega apenas contas "Admin", ou seja, donos de oficina (ignora mecânicos/vendedores logados)
           if (data.role === 'Admin' || doc.id === data.tenantId) {
             listOfTenants.push({

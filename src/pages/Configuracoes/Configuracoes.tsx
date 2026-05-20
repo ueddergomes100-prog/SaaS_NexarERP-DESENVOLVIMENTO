@@ -763,6 +763,7 @@ const Configuracoes: React.FC = () => {
                       { id: 'financeiro.receber', label: 'Financeiro: Contas a Receber', color: '#10b981' },
                       { id: 'financeiro.faturamento', label: 'Financeiro: Faturamento', color: '#10b981' },
                       { id: 'financeiro.comissoes', label: 'Financeiro: Comissões', color: '#10b981' },
+                      { id: 'financeiro.estornar', label: 'Financeiro: Estornar Pagamento/Recebimento', color: '#10b981' },
                       { id: 'administrativo.config', label: 'Admin: Configurações', color: '#6b7280' },
                       { id: 'administrativo.equipe', label: 'Admin: Equipe e Acessos', color: '#6b7280' }
                     ].map(mod => {

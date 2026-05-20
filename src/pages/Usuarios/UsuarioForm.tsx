@@ -196,7 +196,7 @@ const UsuarioForm: React.FC = () => {
             </div>
           )}
 
-      <form onSubmit={handleSubmit} className="card form-grid" style={{ padding: '24px' }}>
+      <form onSubmit={handleSubmit} className="card" style={{ padding: '32px', display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '24px' }}>
         <div className="section-header" style={{ gridColumn: 'span 12', paddingBottom: '16px', borderBottom: '1px solid var(--border-color)', marginBottom: '8px' }}>
           <UserCog size={20} className="section-icon" />
           <h3>Dados de Acesso</h3>
@@ -210,6 +210,7 @@ const UsuarioForm: React.FC = () => {
             value={formData.nome}
             onChange={(e) => setFormData({...formData, nome: e.target.value})}
             required
+            style={{ width: '100%' }}
           />
         </div>
 
@@ -240,6 +241,7 @@ const UsuarioForm: React.FC = () => {
                 onChange={(e) => setFormData({...formData, senha: e.target.value})}
                 required
                 minLength={6}
+                style={{ width: '100%' }}
               />
             </div>
           </>

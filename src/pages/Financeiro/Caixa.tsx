@@ -129,7 +129,7 @@ const Caixa: React.FC = () => {
 
     setIsSaving(true);
     try {
-      await addDoc(collection(db, 'transacoes'), {
+      const docRef = await addDoc(collection(db, 'transacoes'), {
         descricao: formData.descricao,
         data: formData.data,
         valor: parseFloat(formData.valor.replace(',', '.')),
@@ -139,6 +139,19 @@ const Caixa: React.FC = () => {
         tenantId,
         createdAt: serverTimestamp()
       });
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser?.uid || '',
+          usuarioEmail: currentUser?.email || '',
+          modulo: 'financeiro',
+          acao: 'criacao',
+          descricao: `Transação de ${modalTipo === 'entrada' ? 'entrada' : 'saída'} lançada: ${formData.descricao}. Categoria: ${formData.categoria}. Valor: R$ ${parseFloat(formData.valor.replace(',', '.')).toFixed(2)}.`,
+          registroRelacionadoId: docRef.id,
+          status: 'sucesso'
+        });
+      } catch (logErr) {}
       
       showSuccess('Transação adicionada com sucesso!');
       setIsModalOpen(false);
@@ -169,9 +182,29 @@ const Caixa: React.FC = () => {
 
     if (result.isConfirmed) {
       try {
+        const transacao = transacoes.find(t => t.id === id);
+        const transDesc = transacao?.descricao || 'Sem descrição';
+        const transValor = transacao?.valor || 0;
+
         await updateDoc(doc(db, 'transacoes', id), {
           status: 'Pendente'
         });
+
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser?.uid || '',
+            usuarioEmail: currentUser?.email || '',
+            modulo: 'financeiro',
+            acao: 'edicao',
+            descricao: `Transação "${transDesc}" de R$ ${transValor.toFixed(2)} estornada para Pendente.`,
+            registroRelacionadoId: id,
+            status: 'sucesso',
+            critical: true
+          });
+        } catch (logErr) {}
+
         showSuccess('Lançamento estornado com sucesso!');
       } catch (error) {
         console.error("Erro ao estornar:", error);

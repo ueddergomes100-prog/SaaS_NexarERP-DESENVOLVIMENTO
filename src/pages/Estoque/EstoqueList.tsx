@@ -14,6 +14,8 @@ interface PecaData {
   categoria: string;
   quantidade: number;
   precoVenda: number;
+  unidadeMedidaSigla?: string;
+  unidadeMedidaCasasDecimais?: number;
 }
 
 const EstoqueList: React.FC = () => {
@@ -47,7 +49,22 @@ const EstoqueList: React.FC = () => {
     const isConfirmed = await confirmDelete('esta peça do estoque');
     if (isConfirmed) {
       try {
+        const nomePeca = pecasList.find(p => p.id === id)?.nome || 'Desconhecida';
         await deleteDoc(doc(db, 'estoque', id));
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser?.uid || '',
+            usuarioEmail: currentUser?.email || '',
+            modulo: 'estoque',
+            acao: 'exclusao',
+            descricao: `Peça ${nomePeca} excluída do estoque.`,
+            registroRelacionadoId: id,
+            status: 'sucesso',
+            critical: true
+          });
+        } catch (logErr) {}
         showSuccess('Peça excluída!');
       } catch (error) {
         console.error("Erro ao excluir peça:", error);
@@ -207,7 +224,9 @@ const EstoqueList: React.FC = () => {
                     <td className="font-medium" style={{ color: 'var(--text-muted)' }}>{peca.codigo}</td>
                     <td>{peca.nome}</td>
                     <td>{peca.categoria}</td>
-                    <td className="font-medium">{peca.quantidade}</td>
+                    <td className="font-medium">
+                      {Number(peca.quantidade).toFixed(peca.unidadeMedidaCasasDecimais ?? 0)} {peca.unidadeMedidaSigla || 'UN'}
+                    </td>
                     <td>
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(peca.precoVenda))}
                     </td>

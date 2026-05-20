@@ -409,7 +409,7 @@ const TopBar: React.FC = () => {
       
       <div className="topbar-actions">
         {/* Toggle Menu Compacto */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: expandAll ? 1 : 0.5, marginRight: '8px' }} title={!expandAll ? "Ative 'Expandir todos os blocos' no menu lateral primeiro" : "Recolher menu lateral"}>
+        <div className="menu-compacto-toggle" style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: expandAll ? 1 : 0.5, marginRight: '8px' }} title={!expandAll ? "Ative 'Expandir todos os blocos' no menu lateral primeiro" : "Recolher menu lateral"}>
           <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Menu Compacto</span>
           <div 
             onClick={handleMiniSidebarToggle}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Car, Printer, Search, ArrowRight, BarChart2, DollarSign, ArrowUpCircle, ArrowDownCircle, Calendar } from 'lucide-react';
+import { FileText, Car, Printer, Search, ArrowRight, BarChart2, DollarSign, ArrowUpCircle, ArrowDownCircle, Calendar, ShoppingCart, Users } from 'lucide-react';
 import '../OS/OS.css'; // Reusing OS styles for consistency
 
 const RelatoriosDiversos: React.FC = () => {
@@ -43,6 +43,31 @@ const RelatoriosDiversos: React.FC = () => {
     () => getInitialState('finStatus', 'Pendente')
   );
 
+  const getStartOfMonth = () => {
+    const d = new Date();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${d.getFullYear()}-${month}-01`;
+  };
+
+  const getEndOfMonth = () => {
+    const d = new Date();
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${d.getFullYear()}-${month}-${String(lastDay).padStart(2, '0')}`;
+  };
+
+  const [vendasPeriodo, setVendasPeriodo] = useState<string>(
+    () => getInitialState('vendasPeriodo', 'atual')
+  );
+
+  const [vendasDataInicio, setVendasDataInicio] = useState<string>(
+    () => getInitialState('vendasDataInicio', getStartOfMonth())
+  );
+
+  const [vendasDataFim, setVendasDataFim] = useState<string>(
+    () => getInitialState('vendasDataFim', getEndOfMonth())
+  );
+
   useEffect(() => {
     sessionStorage.setItem('relatorios_activeReport', JSON.stringify(activeReport));
   }, [activeReport]);
@@ -63,6 +88,18 @@ const RelatoriosDiversos: React.FC = () => {
     sessionStorage.setItem('relatorios_finStatus', JSON.stringify(finStatus));
   }, [finStatus]);
 
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_vendasPeriodo', JSON.stringify(vendasPeriodo));
+  }, [vendasPeriodo]);
+
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_vendasDataInicio', JSON.stringify(vendasDataInicio));
+  }, [vendasDataInicio]);
+
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_vendasDataFim', JSON.stringify(vendasDataFim));
+  }, [vendasDataFim]);
+
   const reports = [
     {
       id: 'veiculos',
@@ -70,6 +107,20 @@ const RelatoriosDiversos: React.FC = () => {
       description: 'Listagem completa ou filtrada dos veículos cadastrados no sistema, seus donos e detalhes. Ideal para impressão.',
       icon: <Car size={24} color="#3b82f6" />,
       color: '#3b82f6'
+    },
+    {
+      id: 'vendas-geral',
+      title: 'Relatório de Vendas (Geral)',
+      description: 'Gere PDFs com listagem detalhada de vendas e devoluções do período, com contagens de transações e faturamento líquido.',
+      icon: <ShoppingCart size={24} color="#8b5cf6" />,
+      color: '#8b5cf6'
+    },
+    {
+      id: 'vendas-vendedor',
+      title: 'Relatório de Vendas por Vendedor',
+      description: 'Gere PDFs com a análise de vendas e devoluções agrupadas por vendedor no período selecionado.',
+      icon: <Users size={24} color="#f59e0b" />,
+      color: '#f59e0b'
     },
     {
       id: 'contas-receber',
@@ -100,6 +151,36 @@ const RelatoriosDiversos: React.FC = () => {
 
   const handlePrintFinanceiro = (tipo: 'entrada' | 'saida') => {
     navigate(`/relatorios-diversos/print/financeiro?tipo=${tipo}&status=${finStatus}&inicio=${finDataInicio}&fim=${finDataFim}`);
+  };
+
+  const handlePrintVendas = (tipoReport: 'geral' | 'vendedor') => {
+    navigate(`/relatorios-diversos/print/vendas?tipo=${tipoReport}&inicio=${vendasDataInicio}&fim=${vendasDataFim}`);
+  };
+
+  const handleVendasPeriodoChange = (value: string) => {
+    setVendasPeriodo(value);
+    const year = new Date().getFullYear();
+    if (value === 'atual') {
+      setVendasDataInicio(getStartOfMonth());
+      setVendasDataFim(getEndOfMonth());
+    } else if (value !== 'custom') {
+      const monthIdx = parseInt(value);
+      const start = `${year}-${String(monthIdx + 1).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, monthIdx + 1, 0).getDate();
+      const end = `${year}-${String(monthIdx + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      setVendasDataInicio(start);
+      setVendasDataFim(end);
+    }
+  };
+
+  const handleVendasDataInicioChange = (val: string) => {
+    setVendasDataInicio(val);
+    setVendasPeriodo('custom');
+  };
+
+  const handleVendasDataFimChange = (val: string) => {
+    setVendasDataFim(val);
+    setVendasPeriodo('custom');
   };
 
   return (
@@ -265,6 +346,90 @@ const RelatoriosDiversos: React.FC = () => {
                     gap: '8px', 
                     fontWeight: 'bold',
                     boxShadow: `0 4px 12px ${activeReport === 'contas-receber' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`
+                  }}
+                >
+                  <Printer size={18} />
+                  GERAR PDF
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(activeReport === 'vendas-geral' || activeReport === 'vendas-vendedor') && (
+            <div className="card form-section animate-fade-in-up" style={{ padding: '24px', border: `1px solid ${activeReport === 'vendas-geral' ? '#8b5cf650' : '#f59e0b50'}`, backgroundColor: activeReport === 'vendas-geral' ? '#8b5cf60a' : '#f59e0b0a' }}>
+              <div className="section-header" style={{ marginBottom: '24px' }}>
+                {activeReport === 'vendas-geral' ? <ShoppingCart size={20} color="#8b5cf6" /> : <Users size={20} color="#f59e0b" />}
+                <h3 style={{ color: activeReport === 'vendas-geral' ? '#8b5cf6' : '#f59e0b' }}>
+                  Filtros: {activeReport === 'vendas-geral' ? 'Relatório de Vendas (Geral)' : 'Vendas por Vendedor'}
+                </h3>
+              </div>
+              
+              <div className="input-group" style={{ marginBottom: '24px' }}>
+                <label>Selecionar Período (Mês)</label>
+                <select 
+                  value={vendasPeriodo} 
+                  onChange={(e) => handleVendasPeriodoChange(e.target.value)}
+                  style={{ 
+                    width: '100%', 
+                    padding: '12px', 
+                    backgroundColor: 'var(--bg-tertiary)', 
+                    border: '1px solid var(--border-color)', 
+                    borderRadius: 'var(--radius-md)', 
+                    color: 'var(--text-primary)',
+                    marginTop: '8px'
+                  }}
+                >
+                  <option value="atual">Mês Atual (Pré-definido)</option>
+                  <option value="0">Janeiro</option>
+                  <option value="1">Fevereiro</option>
+                  <option value="2">Março</option>
+                  <option value="3">Abril</option>
+                  <option value="4">Maio</option>
+                  <option value="5">Junho</option>
+                  <option value="6">Julho</option>
+                  <option value="7">Agosto</option>
+                  <option value="8">Setembro</option>
+                  <option value="9">Outubro</option>
+                  <option value="10">Novembro</option>
+                  <option value="11">Dezembro</option>
+                  <option value="custom">Período Customizado (Data a Data)</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                <div className="input-group">
+                  <label>Data Inicial</label>
+                  <input 
+                    type="date" 
+                    value={vendasDataInicio} 
+                    onChange={(e) => handleVendasDataInicioChange(e.target.value)} 
+                    style={{ width: '100%', padding: '12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', marginTop: '8px' }} 
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Data Final</label>
+                  <input 
+                    type="date" 
+                    value={vendasDataFim} 
+                    onChange={(e) => handleVendasDataFimChange(e.target.value)} 
+                    style={{ width: '100%', padding: '12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', marginTop: '8px' }} 
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button 
+                  className="btn-primary" 
+                  onClick={() => handlePrintVendas(activeReport === 'vendas-geral' ? 'geral' : 'vendedor')}
+                  style={{ 
+                    backgroundColor: activeReport === 'vendas-geral' ? '#8b5cf6' : '#f59e0b', 
+                    borderColor: activeReport === 'vendas-geral' ? '#8b5cf6' : '#f59e0b', 
+                    padding: '12px 24px', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px', 
+                    fontWeight: 'bold',
+                    boxShadow: `0 4px 12px ${activeReport === 'vendas-geral' ? 'rgba(139, 92, 246, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`
                   }}
                 >
                   <Printer size={18} />

@@ -184,6 +184,21 @@ const DevolucoesVenda: React.FC = () => {
         }))
       });
 
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'vendas',
+          acao: 'devolucao',
+          descricao: `Devolução concluída para o pedido #${pedidoEncontrado.numeroPedido} no valor de R$ ${valorTotalCalculado.toFixed(2)}.`,
+          registroRelacionadoId: novaDevolucaoRef.id,
+          status: 'sucesso',
+          critical: true
+        });
+      } catch (logErr) {}
+
       // 2. Atualizar Estoque (Devolver Peças)
       const itensFiltrados = pedidoEncontrado.itens.filter((i: any) => i.selecionado && i.quantidadeSelecionada > 0);
       for (const item of itensFiltrados) {

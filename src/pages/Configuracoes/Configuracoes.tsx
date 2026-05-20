@@ -743,6 +743,7 @@ const Configuracoes: React.FC = () => {
                       { id: 'cadastros.estoque', label: 'Cadastros: Estoque / Peças', color: '#8b5cf6' },
                       { id: 'cadastros.servicos', label: 'Cadastros: Serviços', color: '#8b5cf6' },
                       { id: 'cadastros.categorias', label: 'Cadastros: Categorias', color: '#8b5cf6' },
+                      { id: 'cadastros.unidades_medida', label: 'Cadastros: Unidades de Medida', color: '#8b5cf6' },
                       { id: 'vendas.pedidos', label: 'Vendas: Pedido de Vendas', color: '#f59e0b' },
                       { id: 'vendas.alterar', label: 'Vendas: Alterar Pedidos', color: '#f59e0b' },
                       { id: 'vendas.excluir', label: 'Vendas: Excluir Pedidos', color: '#ef4444' },
@@ -765,7 +766,8 @@ const Configuracoes: React.FC = () => {
                       { id: 'financeiro.comissoes', label: 'Financeiro: Comissões', color: '#10b981' },
                       { id: 'financeiro.estornar', label: 'Financeiro: Estornar Pagamento/Recebimento', color: '#10b981' },
                       { id: 'administrativo.config', label: 'Admin: Configurações', color: '#6b7280' },
-                      { id: 'administrativo.equipe', label: 'Admin: Equipe e Acessos', color: '#6b7280' }
+                      { id: 'administrativo.equipe', label: 'Admin: Equipe e Acessos', color: '#6b7280' },
+                      { id: 'administrativo.logs', label: 'Admin: Logs do Sistema', color: '#6b7280' }
                     ].map(mod => {
                       const isChecked = selectedUserPermissions.includes(mod.id);
                       return (

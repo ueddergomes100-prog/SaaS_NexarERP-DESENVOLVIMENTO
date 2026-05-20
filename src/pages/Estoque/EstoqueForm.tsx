@@ -21,12 +21,23 @@ const EstoqueForm: React.FC = () => {
     precoCusto: '',
     precoVenda: '',
     fornecedor: '',
+    unidadeMedidaId: 'un'
   });
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
+  const [unidadesDB, setUnidadesDB] = useState<any[]>([]);
   const { currentUser, tenantId } = useAuth();
+
+  const fallbackUnidades = [
+    { id: 'un', sigla: 'UN', nome: 'UNIDADE', casasDecimais: 0, permiteFracionado: false },
+    { id: 'kg', sigla: 'KG', nome: 'QUILOGRAMA', casasDecimais: 3, permiteFracionado: true },
+    { id: 'lts', sigla: 'LTS', nome: 'LITRO', casasDecimais: 2, permiteFracionado: true },
+    { id: 'mt', sigla: 'MT', nome: 'METRO', casasDecimais: 2, permiteFracionado: true }
+  ];
+
+  const activeUnidades = unidadesDB.length > 0 ? unidadesDB : fallbackUnidades;
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -42,17 +53,47 @@ const EstoqueForm: React.FC = () => {
         });
         setCategoriasDB(cats);
 
+        // Fetch Unidades
+        const qUni = query(collection(db, 'unidades_medida'), where('tenantId', '==', tenantId));
+        const snapUni = await getDocs(qUni);
+        const unis: any[] = [];
+        snapUni.forEach(d => {
+          unis.push({ id: d.id, ...d.data() });
+        });
+        setUnidadesDB(unis);
+
         if (isEditing && id) {
           const docSnap = await getDoc(doc(db, 'estoque', id));
           if (docSnap.exists()) {
-            setFormData(docSnap.data() as any);
+            const data = docSnap.data();
+            setFormData({
+              codigo: data.codigo || '',
+              nome: data.nome || '',
+              categoria: data.categoria || '',
+              quantidade: String(data.quantidade || '0'),
+              estoqueMinimo: String(data.estoqueMinimo || '0'),
+              precoCusto: String(data.precoCusto || '0.00'),
+              precoVenda: String(data.precoVenda || '0.00'),
+              fornecedor: data.fornecedor || '',
+              unidadeMedidaId: data.unidadeMedidaId || 'un'
+            });
           }
         } else {
           // Gerar código sequencial para novo cadastro
           const q = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
           const snap = await getCountFromServer(q);
           const nextId = snap.data().count + 1;
-          setFormData(prev => ({ ...prev, codigo: String(nextId) }));
+          setFormData({
+            codigo: String(nextId),
+            nome: '',
+            categoria: '',
+            quantidade: '',
+            estoqueMinimo: '',
+            precoCusto: '',
+            precoVenda: '',
+            fornecedor: '',
+            unidadeMedidaId: 'un'
+          });
         }
       } catch (error) {
         console.error("Erro ao carregar dados:", error);
@@ -61,7 +102,7 @@ const EstoqueForm: React.FC = () => {
       }
     };
     fetchInitialData();
-  }, [id, isEditing]);
+  }, [id, isEditing, tenantId, currentUser]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -77,6 +118,8 @@ const EstoqueForm: React.FC = () => {
     setIsLoading(true);
 
     try {
+      const selectedUnit = activeUnidades.find(u => u.id === formData.unidadeMedidaId) || activeUnidades.find(u => u.sigla === 'UN') || activeUnidades[0];
+
       const pecaData = {
         ...formData,
         nome: formData.nome.toUpperCase().trim(),
@@ -84,18 +127,48 @@ const EstoqueForm: React.FC = () => {
         estoqueMinimo: Number(formData.estoqueMinimo) || 0,
         precoCusto: Number(formData.precoCusto) || 0,
         precoVenda: Number(formData.precoVenda) || 0,
+        unidadeMedidaId: selectedUnit?.id || 'un',
+        unidadeMedidaSigla: selectedUnit?.sigla || 'UN',
+        unidadeMedidaCasasDecimais: selectedUnit ? Number(selectedUnit.casasDecimais) : 0,
+        unidadeMedidaFracionado: selectedUnit ? Boolean(selectedUnit.permiteFracionado) : false
       };
 
       if (isEditing && id) {
         await updateDoc(doc(db, 'estoque', id), { ...pecaData, updatedAt: serverTimestamp() });
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'estoque',
+            acao: 'edicao',
+            descricao: `Peça ${pecaData.nome} editada. Quantidade: ${pecaData.quantidade} ${pecaData.unidadeMedidaSigla}. Preço de Venda: R$ ${pecaData.precoVenda.toFixed(2)}.`,
+            registroRelacionadoId: id,
+            status: 'sucesso'
+          });
+        } catch (logErr) {}
         showSuccess('Peça atualizada!');
       } else {
         if (!currentUser) return;
-        await addDoc(collection(db, 'estoque'), { 
+        const newDocRef = await addDoc(collection(db, 'estoque'), { 
           ...pecaData, 
           tenantId,
           createdAt: serverTimestamp() 
         });
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'estoque',
+            acao: 'criacao',
+            descricao: `Peça ${pecaData.nome} cadastrada. Estoque Inicial: ${pecaData.quantidade} ${pecaData.unidadeMedidaSigla}. Preço de Venda: R$ ${pecaData.precoVenda.toFixed(2)}.`,
+            registroRelacionadoId: newDocRef.id,
+            status: 'sucesso'
+          });
+        } catch (logErr) {}
         showSuccess('Peça cadastrada!');
       }
       
@@ -185,15 +258,30 @@ const EstoqueForm: React.FC = () => {
               </div>
             </div>
 
-            <div className="input-group">
-              <label>Fornecedor (Opcional)</label>
-              <input 
-                type="text" 
-                name="fornecedor"
-                placeholder="Ex: Distribuidora XYZ" 
-                value={formData.fornecedor}
-                onChange={handleChange}
-              />
+            <div className="grid-2-col" style={{ marginTop: '16px' }}>
+              <div className="input-group">
+                <label>Unidade de Medida</label>
+                <select 
+                  name="unidadeMedidaId" 
+                  value={formData.unidadeMedidaId}
+                  onChange={handleChange}
+                  className="form-select"
+                >
+                  {activeUnidades.map((uni) => (
+                    <option key={uni.id} value={uni.id}>{uni.sigla} - {uni.nome}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="input-group">
+                <label>Fornecedor (Opcional)</label>
+                <input 
+                  type="text" 
+                  name="fornecedor"
+                  placeholder="Ex: Distribuidora XYZ" 
+                  value={formData.fornecedor}
+                  onChange={handleChange}
+                />
+              </div>
             </div>
           </div>
         </div>

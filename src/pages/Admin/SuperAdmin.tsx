@@ -51,7 +51,8 @@ const SuperAdmin: React.FC = () => {
           const data = doc.data();
           
           // Ignora o SuperAdmin (dono do SaaS) para não somar no faturamento e indicadores
-          if (data.email === 'ueddergomes@outlook.com' || data.role === 'SuperAdmin') {
+          const dataEmailLower = data.email?.toLowerCase();
+          if (dataEmailLower === 'ueddergomes@outlook.com' || dataEmailLower === 'ueddergomes100@gmail.com' || data.role === 'SuperAdmin') {
             return;
           }
 

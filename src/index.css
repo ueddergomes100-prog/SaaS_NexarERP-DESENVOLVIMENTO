@@ -120,43 +120,68 @@ button {
   width: 100%;
 }
 @media (max-width: 768px) {
+  /* Consolidate table wrapper and scrolls */
+  table {
+    display: block !important;
+    width: 100% !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .table-container, .table-wrapper {
+    width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 16px;
+  }
+  
+  /* Consolidate overlays/modals at any z-index */
+  div[style*="position: fixed"] > div[style*="width"],
+  div[style*="position: fixed"] > div[style*="max-width"],
+  div[style*="position: fixed"] > div[style*="maxWidth"],
+  div[style*="position: fixed"] > div[style*="width: 440px"] {
+    width: 95% !important;
+    max-width: 95% !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+    padding: 16px !important;
+  }
+
+  /* Fold all inline grid template columns to 1fr on mobile, skipping calendar/small icons */
+  div[style*="grid-template-columns"]:not([style*="repeat(7"]):not([style*="repeat(auto-"]):not([style*="minmax(1"]),
+  div[style*="gridTemplateColumns"]:not([style*="repeat(7"]):not([style*="repeat(auto-"]):not([style*="minmax(1"]) {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  /* Fold specific inline style columns */
   [style*="grid-template-columns: repeat(4, 1fr)"],
   [style*="grid-template-columns: 1fr 1fr"],
   [style*="grid-template-columns: 1fr 300px"],
   [style*="grid-template-columns: 2fr 1fr"],
+  [style*="grid-template-columns: 1fr 350px"],
   [style*="grid-template-columns: repeat(3, 1fr)"] {
     grid-template-columns: 1fr !important;
   }
+  
   [style*="width: 400px"],
   [style*="width: 500px"],
   [style*="width: 600px"] {
     width: 100% !important;
   }
+
   .card {
     padding: 16px !important;
   }
-  .table-container {
-    overflow-x: auto;
+
+  /* Recharts min-width reset to enable scaling down */
+  .chart-wrapper {
+    min-width: 0 !important;
+    width: 100% !important;
   }
-  .table-container table {
-    min-width: 600px;
-  }
-}
-@media (max-width: 768px) {
-  table {
-    display: block;
-    overflow-x: auto;
-    white-space: nowrap;
-  }
-  div[style*="position: fixed"][style*="z-index: 1000"] > div,
-  div[style*="position: fixed"][style*="z-index: 999"] > div {
-    width: 95% !important;
-    max-width: 95% !important;
-    max-height: 90vh !important;
-    overflow-y: auto !important;
-  }
-}
-@media (max-width: 768px) {
+
+  /* OS Form & lists specific responsive layout fixes */
   .item-add-container {
     flex-direction: column !important;
     gap: 12px !important;

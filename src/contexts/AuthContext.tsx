@@ -58,7 +58,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
 
           // Hardcode para o dono do SaaS não precisar mexer no Firebase
-          if (user.email === 'ueddergomes@outlook.com') {
+          const emailLower = user.email?.toLowerCase();
+          if (emailLower === 'ueddergomes@outlook.com' || emailLower === 'ueddergomes100@gmail.com') {
             finalRole = 'SuperAdmin';
           }
 
@@ -84,7 +85,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return unsubscribe;
   }, []);
 
-  const logout = () => {
+  const logout = async () => {
+    if (currentUser && tenantId) {
+      try {
+        const { createAuditLog } = await import('../services/logService');
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'autenticacao',
+          acao: 'logout',
+          descricao: 'Usuário realizou logout.',
+          status: 'sucesso'
+        });
+      } catch (err) {
+        console.error('Erro ao registrar log de logout:', err);
+      }
+    }
     return signOut(auth);
   };
 

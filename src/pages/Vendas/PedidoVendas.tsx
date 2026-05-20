@@ -68,6 +68,22 @@ const PedidoVendas: React.FC = () => {
         }
         await deleteDoc(doc(db, 'pedidos_venda', pedido.id));
         try { await deleteDoc(doc(db, 'transacoes', pedido.id)); } catch(e) {}
+        
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser?.uid || '',
+            usuarioEmail: currentUser?.email || '',
+            modulo: 'vendas',
+            acao: 'exclusao',
+            descricao: `Pedido de Venda #${pedido.numeroPedido} excluído permanentemente. Cliente: ${pedido.clienteNome || 'Geral'}. Valor: R$ ${(pedido.valorTotal || 0).toFixed(2)}.`,
+            registroRelacionadoId: pedido.id,
+            status: 'sucesso',
+            critical: true
+          });
+        } catch (logErr) {}
+
         showSuccess('Pedido excluído!');
       } catch (err) {
         showError('Erro', 'Não foi possível excluir.');

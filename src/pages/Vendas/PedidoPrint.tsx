@@ -137,7 +137,9 @@ const PedidoPrint: React.FC = () => {
                 itens.map((item: any, i: number) => (
                   <tr key={i}>
                     <td>{item.nome}</td>
-                    <td style={{ textAlign: 'center' }}>{item.quantidade}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      {Number(item.quantidade).toFixed(item.unidadeMedidaCasasDecimais ?? 0)} {item.unidadeMedidaSigla || 'UN'}
+                    </td>
                     <td style={{ textAlign: 'right' }}>
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.precoUnitario)}
                     </td>
@@ -157,8 +159,38 @@ const PedidoPrint: React.FC = () => {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={4} style={{ textAlign: 'right', fontWeight: 'bold' }}>TOTAL GERAL:</td>
-                <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '18px' }}>
+                <td colSpan={4} style={{ textAlign: 'right', color: '#666', fontSize: '13px' }}>Subtotal Itens:</td>
+                <td style={{ textAlign: 'right', color: '#666', fontSize: '13px' }}>
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pedidoData.valorTotalItens || 0)}
+                </td>
+              </tr>
+              {pedidoData.valorTotalDescontos > 0 && (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'right', color: '#ef4444', fontSize: '13px' }}>Descontos:</td>
+                  <td style={{ textAlign: 'right', color: '#ef4444', fontSize: '13px' }}>
+                    -{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pedidoData.valorTotalDescontos)}
+                  </td>
+                </tr>
+              )}
+              {pedidoData.frete > 0 && (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'right', color: '#666', fontSize: '13px' }}>Frete (+):</td>
+                  <td style={{ textAlign: 'right', color: '#666', fontSize: '13px' }}>
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pedidoData.frete)}
+                  </td>
+                </tr>
+              )}
+              {pedidoData.encargos > 0 && (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'right', color: '#666', fontSize: '13px' }}>Encargos (+):</td>
+                  <td style={{ textAlign: 'right', color: '#666', fontSize: '13px' }}>
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pedidoData.encargos)}
+                  </td>
+                </tr>
+              )}
+              <tr style={{ borderTop: '2px solid #333' }}>
+                <td colSpan={4} style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '15px', paddingTop: '8px' }}>TOTAL GERAL:</td>
+                <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '18px', paddingTop: '8px' }}>
                   {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotal)}
                 </td>
               </tr>

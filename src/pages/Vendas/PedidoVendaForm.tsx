@@ -8,8 +8,27 @@ import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
-interface ProdutoEstoque { id: string; nome: string; precoVenda: number; quantidade: number; codigo: string; }
-interface ItemVenda { id: string; nome: string; precoUnitario: number; quantidade: number; desconto: number; subtotal: number; quantidadeJaDevolvida?: number; }
+interface ProdutoEstoque { 
+  id: string; 
+  nome: string; 
+  precoVenda: number; 
+  quantidade: number; 
+  codigo: string; 
+  unidadeMedidaSigla?: string; 
+  unidadeMedidaCasasDecimais?: number; 
+  unidadeMedidaFracionado?: boolean; 
+}
+interface ItemVenda { 
+  id: string; 
+  nome: string; 
+  precoUnitario: number; 
+  quantidade: number; 
+  desconto: number; 
+  subtotal: number; 
+  quantidadeJaDevolvida?: number; 
+  unidadeMedidaSigla?: string; 
+  unidadeMedidaCasasDecimais?: number; 
+}
 
 const PedidoVendaForm: React.FC = () => {
   const navigate = useNavigate();
@@ -27,9 +46,13 @@ const PedidoVendaForm: React.FC = () => {
   const [produtosCatalogo, setProdutosCatalogo] = useState<ProdutoEstoque[]>([]);
   
   const [produtoBusca, setProdutoBusca] = useState('');
-  const [produtoQtd, setProdutoQtd] = useState<number>(1);
+  const [produtoQtd, setProdutoQtd] = useState<number | string>(1);
   const [produtoDesconto, setProdutoDesconto] = useState<number>(0);
   const [produtoPreco, setProdutoPreco] = useState<number>(0);
+  const [produtoSelecionado, setProdutoSelecionado] = useState<ProdutoEstoque | null>(null);
+
+  const [frete, setFrete] = useState<number>(0);
+  const [encargos, setEncargos] = useState<number>(0);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingData, setIsFetchingData] = useState(true);
@@ -78,7 +101,16 @@ const PedidoVendaForm: React.FC = () => {
       const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
       const snapE = await getDocs(qE);
       const dataE: ProdutoEstoque[] = [];
-      snapE.forEach((doc) => dataE.push({ id: doc.id, nome: doc.data().nome, precoVenda: doc.data().precoVenda, quantidade: doc.data().quantidade || 0, codigo: doc.data().codigo || '' }));
+      snapE.forEach((doc) => dataE.push({ 
+        id: doc.id, 
+        nome: doc.data().nome, 
+        precoVenda: doc.data().precoVenda, 
+        quantidade: doc.data().quantidade || 0, 
+        codigo: doc.data().codigo || '',
+        unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
+        unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
+        unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado
+      }));
       setProdutosCatalogo(dataE);
 
       // Fetch Configurações
@@ -103,6 +135,8 @@ const PedidoVendaForm: React.FC = () => {
             setStatus(p.status || 'Finalizada');
             setItens(p.itens || []);
             setOrcamentoId(p.orcamentoId || '');
+            setFrete(p.frete || 0);
+            setEncargos(p.encargos || 0);
           } else {
             showError('Erro', 'Pedido não encontrado.');
             navigate('/pedidos-venda');
@@ -139,31 +173,40 @@ const PedidoVendaForm: React.FC = () => {
       showError('Atenção', 'Selecione ou digite o nome de um produto.');
       return;
     }
-    if (produtoQtd <= 0) {
+    const qtdNum = Number(produtoQtd) || 0;
+    if (qtdNum <= 0) {
       showError('Atenção', 'A quantidade deve ser maior que zero.');
       return;
     }
     
     // Tenta achar o produto no catálogo para pegar o ID real
-    const produtoEncontrado = produtosCatalogo.find(p => p.nome.toLowerCase() === produtoBusca.toLowerCase() || p.codigo === produtoBusca);
+    const produtoEncontrado = produtoSelecionado || produtosCatalogo.find(p => p.nome.toLowerCase() === produtoBusca.toLowerCase() || p.codigo === produtoBusca);
     
     if (produtoEncontrado) {
-      if (!permitirVendaSemEstoque && produtoQtd > (produtoEncontrado.quantidade || 0)) {
-        showError('Estoque Insuficiente', `Você tem apenas ${produtoEncontrado.quantidade || 0} un. de ${produtoEncontrado.nome} em estoque. Venda sem estoque desativada.`);
+      if (!permitirVendaSemEstoque && qtdNum > (produtoEncontrado.quantidade || 0)) {
+        showError('Estoque Insuficiente', `Você tem apenas ${produtoEncontrado.quantidade || 0} de ${produtoEncontrado.nome} em estoque. Venda sem estoque desativada.`);
+        return;
+      }
+
+      // Validação de Venda Fracionada
+      if (produtoEncontrado.unidadeMedidaFracionado === false && !Number.isInteger(qtdNum)) {
+        showError('Operação Bloqueada', `O produto ${produtoEncontrado.nome} está configurado na unidade ${produtoEncontrado.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
         return;
       }
     }
 
     const precoFinal = produtoPreco > 0 ? produtoPreco : (produtoEncontrado?.precoVenda || 0);
-    const subtotal = (precoFinal * produtoQtd) - produtoDesconto;
+    const subtotal = (precoFinal * qtdNum) - produtoDesconto;
 
     const novoItem: ItemVenda = {
       id: produtoEncontrado?.id || 'avulso',
       nome: produtoEncontrado?.nome || produtoBusca,
       precoUnitario: precoFinal,
-      quantidade: produtoQtd,
+      quantidade: qtdNum,
       desconto: produtoDesconto,
-      subtotal: Math.max(0, subtotal)
+      subtotal: Math.max(0, subtotal),
+      unidadeMedidaSigla: produtoEncontrado?.unidadeMedidaSigla || 'UN',
+      unidadeMedidaCasasDecimais: produtoEncontrado?.unidadeMedidaCasasDecimais ?? 0
     };
 
     setItens([...itens, novoItem]);
@@ -171,6 +214,7 @@ const PedidoVendaForm: React.FC = () => {
     setProdutoQtd(1);
     setProdutoDesconto(0);
     setProdutoPreco(0);
+    setProdutoSelecionado(null);
   };
 
   const handleRemoveItem = (index: number) => {
@@ -179,7 +223,7 @@ const PedidoVendaForm: React.FC = () => {
 
   const valorTotalItens = itens.reduce((acc, curr) => acc + (curr.precoUnitario * curr.quantidade), 0);
   const valorTotalDescontos = itens.reduce((acc, curr) => acc + curr.desconto, 0);
-  const valorTotalPedido = itens.reduce((acc, curr) => acc + curr.subtotal, 0);
+  const valorTotalPedido = Math.max(0, valorTotalItens - valorTotalDescontos + Number(frete || 0) + Number(encargos || 0));
 
   const handleFinalizarVenda = async () => {
     if (!currentUser) return;
@@ -234,6 +278,8 @@ const PedidoVendaForm: React.FC = () => {
         itens,
         valorTotalItens,
         valorTotalDescontos,
+        frete: Number(frete || 0),
+        encargos: Number(encargos || 0),
         valorTotal: valorTotalPedido,
         formaPagamento,
         status: 'Finalizada',
@@ -260,6 +306,22 @@ const PedidoVendaForm: React.FC = () => {
         tenantId,
         createdAt: serverTimestamp()
       });
+
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'vendas',
+          acao: 'criacao',
+          descricao: `Venda Direta #${numeroPedido} finalizada no valor de R$ ${valorTotalPedido.toFixed(2)}. Cliente: ${finalClienteNome || 'Geral'}`,
+          registroRelacionadoId: newPedidoRef.id,
+          status: 'sucesso'
+        });
+      } catch (err) {
+        console.error('Erro ao registrar log de criacao de venda:', err);
+      }
 
       setIsLoading(false);
 
@@ -329,6 +391,23 @@ const PedidoVendaForm: React.FC = () => {
 
       // 3. Atualizar Transação Financeira
       await setDoc(doc(db, 'transacoes', id), { status: 'Cancelada' }, { merge: true });
+
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'vendas',
+          acao: 'cancelamento',
+          descricao: `Venda Direta #${numeroPedido} CANCELADA e estoque estornado.`,
+          registroRelacionadoId: id,
+          status: 'sucesso',
+          critical: true
+        });
+      } catch (err) {
+        console.error('Erro ao registrar log de cancelamento de venda:', err);
+      }
 
       // 4. Reabrir Orçamento se houver orcamentoId
       if (orcamentoId) {
@@ -461,7 +540,12 @@ const PedidoVendaForm: React.FC = () => {
                       setProdutoBusca(e.target.value);
                       setIsProdutoDropdownOpen(true);
                       const exists = produtosCatalogo.find(p => p.nome.toLowerCase() === e.target.value.toLowerCase() || p.codigo === e.target.value);
-                      if (exists) setProdutoPreco(exists.precoVenda);
+                      if (exists) {
+                        setProdutoPreco(exists.precoVenda);
+                        setProdutoSelecionado(exists);
+                      } else {
+                        setProdutoSelecionado(null);
+                      }
                     }}
                     onFocus={() => setIsProdutoDropdownOpen(true)}
                     autoComplete="off"
@@ -472,14 +556,21 @@ const PedidoVendaForm: React.FC = () => {
                       {produtosCatalogo.filter(p => p.nome.toLowerCase().includes(produtoBusca.toLowerCase()) || p.codigo.includes(produtoBusca)).map(p => (
                         <div 
                           key={p.id}
-                          onClick={() => { setProdutoBusca(p.nome); setProdutoPreco(p.precoVenda); setIsProdutoDropdownOpen(false); }}
+                          onClick={() => { 
+                            setProdutoBusca(p.nome); 
+                            setProdutoPreco(p.precoVenda); 
+                            setProdutoSelecionado(p);
+                            setIsProdutoDropdownOpen(false); 
+                          }}
                           style={{ padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: '13px', alignItems: 'center', gap: '12px' }}
                           onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
                           onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                         >
                           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nome} {p.codigo && <span style={{color: 'var(--text-muted)'}}>[{p.codigo}]</span>}</span>
                           <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexShrink: 0 }}>
-                            <span style={{ color: p.quantidade > 0 ? '#10b981' : '#ef4444' }}>Est: {p.quantidade}</span>
+                            <span style={{ color: p.quantidade > 0 ? '#10b981' : '#ef4444' }}>
+                              Est: {p.quantidade.toFixed(p.unidadeMedidaCasasDecimais ?? 0)} {p.unidadeMedidaSigla || 'UN'}
+                            </span>
                             <span style={{ color: '#10b981', fontWeight: 600 }}>R$ {p.precoVenda.toFixed(2)}</span>
                           </div>
                         </div>
@@ -488,9 +579,18 @@ const PedidoVendaForm: React.FC = () => {
                   )}
                 </div>
 
-                <div style={{ flex: '0.5', minWidth: '80px' }}>
-                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Qtd</label>
-                  <input type="number" min="1" value={produtoQtd} onChange={(e) => setProdutoQtd(Number(e.target.value))} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                <div style={{ flex: '0.5', minWidth: '85px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    Qtd {produtoSelecionado?.unidadeMedidaSigla ? `(${produtoSelecionado.unidadeMedidaSigla})` : ''}
+                  </label>
+                  <input 
+                    type="number" 
+                    min="0.001" 
+                    step={produtoSelecionado?.unidadeMedidaFracionado ? "any" : "1"} 
+                    value={produtoQtd} 
+                    onChange={(e) => setProdutoQtd(e.target.value)} 
+                    style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
+                  />
                 </div>
                 
                 <div style={{ flex: '0.8', minWidth: '100px' }}>
@@ -537,7 +637,9 @@ const PedidoVendaForm: React.FC = () => {
                     itens.map((item, index) => (
                       <tr key={index} style={{ borderBottom: '1px solid var(--border-color)' }}>
                         <td style={{ padding: '12px 8px' }}>{item.nome}</td>
-                        <td style={{ padding: '12px 8px', textAlign: 'center' }}>{item.quantidade}</td>
+                        <td style={{ padding: '12px 8px', textAlign: 'center' }}>
+                          {item.quantidade.toFixed(item.unidadeMedidaCasasDecimais ?? 0)} {item.unidadeMedidaSigla || 'UN'}
+                        </td>
                         <td style={{ padding: '12px 8px', textAlign: 'right' }}>R$ {item.precoUnitario.toFixed(2)}</td>
                         <td style={{ padding: '12px 8px', textAlign: 'right', color: '#ef4444' }}>{item.desconto > 0 ? `-R$ ${item.desconto.toFixed(2)}` : '-'}</td>
                         <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>R$ {item.subtotal.toFixed(2)}</td>
@@ -563,13 +665,45 @@ const PedidoVendaForm: React.FC = () => {
           <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
             <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '24px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>Resumo da Venda</h3>
             
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: 'var(--text-secondary)' }}>
-              <span>Total Itens ({itens.reduce((a,c) => a + c.quantidade, 0)}):</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: 'var(--text-secondary)', alignItems: 'center' }}>
+              <span>Total Itens:</span>
               <span>R$ {valorTotalItens.toFixed(2)}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', color: '#ef4444' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: '#ef4444', alignItems: 'center' }}>
               <span>Descontos:</span>
               <span>- R$ {valorTotalDescontos.toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: 'var(--text-secondary)', alignItems: 'center' }}>
+              <span>Frete (+):</span>
+              {isViewing ? (
+                <span>R$ {frete.toFixed(2)}</span>
+              ) : (
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  min="0"
+                  placeholder="0.00"
+                  value={frete || ''} 
+                  onChange={(e) => setFrete(Math.max(0, Number(e.target.value)))}
+                  style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }} 
+                />
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: 'var(--text-secondary)', alignItems: 'center' }}>
+              <span>Encargos (+):</span>
+              {isViewing ? (
+                <span>R$ {encargos.toFixed(2)}</span>
+              ) : (
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  min="0"
+                  placeholder="0.00"
+                  value={encargos || ''} 
+                  onChange={(e) => setEncargos(Math.max(0, Number(e.target.value)))}
+                  style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }} 
+                />
+              )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px', paddingTop: '16px', borderTop: '1px dashed var(--border-color)', fontSize: '24px', fontWeight: 800, color: '#10b981' }}>
               <span>TOTAL:</span>

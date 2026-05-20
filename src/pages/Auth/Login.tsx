@@ -49,7 +49,30 @@ const Login: React.FC = () => {
         }
       }
 
-      await signInWithEmailAndPassword(auth, finalEmail, password);
+      const userCredential = await signInWithEmailAndPassword(auth, finalEmail, password);
+      const user = userCredential.user;
+      
+      // Buscar tenantId do usuario no Firestore para salvar o log na empresa correta
+      let userTenantId = 'geral';
+      try {
+        const userDoc = await getDoc(doc(db, 'usuarios', user.uid));
+        if (userDoc.exists()) {
+          userTenantId = userDoc.data().tenantId || 'geral';
+        }
+      } catch (e) {
+        console.error('Erro ao obter tenantId para log de login:', e);
+      }
+
+      const { createAuditLog } = await import('../../services/logService');
+      createAuditLog({
+        tenantId: userTenantId,
+        usuarioId: user.uid,
+        usuarioEmail: user.email || user.uid,
+        modulo: 'autenticacao',
+        acao: 'login',
+        descricao: 'Usuário realizou login com sucesso.',
+        status: 'sucesso'
+      });
       
       // Save CNPJ if employee login
       if (!loginStr.trim().includes('@')) {
@@ -63,6 +86,19 @@ const Login: React.FC = () => {
       
     } catch (err: any) {
       console.error(err);
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId: 'geral',
+          usuarioId: 'desconhecido',
+          usuarioEmail: finalEmail,
+          modulo: 'autenticacao',
+          acao: 'login',
+          descricao: `Tentativa de login malsucedida. Código: ${err.code || 'erro_desconhecido'}`,
+          status: 'erro'
+        });
+      } catch (logErr) {}
+
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
         setError('Login ou senha incorretos.');
       } else {

@@ -49,7 +49,7 @@ const LembretesList: React.FC = () => {
 
   const formatWhatsAppMessage = (lembrete: LembreteData) => {
     return encodeURIComponent(
-      `Olá, ${lembrete.clienteNome}! Tudo bem? Somos da Oficina Nexar.\n\nVimos no nosso sistema que está chegando a hora da manutenção preventiva (${lembrete.motivoLembrete}) do seu ${lembrete.modelo || 'veículo'} (Placa ${lembrete.placa}).\n\nPodemos agendar um horário para você nesta semana?`
+      `Olá, ${lembrete.clienteNome}! Tudo bem? Somos da Nexar ERP.\n\nVimos no nosso sistema que está chegando a hora do seu atendimento de retorno (${lembrete.motivoLembrete})${lembrete.modelo ? ` referente a ${lembrete.modelo}` : ''}.\n\nPodemos agendar um horário para você nesta semana?`
     );
   };
 

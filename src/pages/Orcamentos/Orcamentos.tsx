@@ -78,7 +78,7 @@ const Orcamentos: React.FC = () => {
   };
 
   const handleShareWhatsApp = (orcamento: Orcamento) => {
-    const texto = `Olá! Segue o seu orçamento *#${orcamento.numeroOrcamento}* da *Oficina Nexar*.\n\n` +
+    const texto = `Olá! Segue o seu orçamento *#${orcamento.numeroOrcamento}* da *Nexar ERP*.\n\n` +
       `*Cliente:* ${orcamento.clienteNome}\n` +
       `*Total:* R$ ${orcamento.valorTotal.toFixed(2)}\n\n` +
       `Aguardamos sua aprovação!`;

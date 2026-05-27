@@ -197,7 +197,7 @@ const Agenda: React.FC = () => {
             <CalendarIcon size={28} color="var(--accent-purple)" />
             Agenda de Serviços
           </h1>
-          <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Gerencie as reservas e o fluxo da oficina</p>
+          <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Gerencie reservas, agenda e fluxo de atendimento</p>
         </div>
         <button className="btn-primary" onClick={() => setIsModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Plus size={18} /> Novo Agendamento

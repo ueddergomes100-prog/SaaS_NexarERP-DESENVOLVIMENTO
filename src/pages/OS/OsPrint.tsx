@@ -95,10 +95,10 @@ const OsPrint: React.FC = () => {
             {configData?.logo && (
               <img src={configData.logo} alt="Logo" style={{ maxHeight: '80px', maxWidth: '250px', objectFit: 'contain', marginBottom: '8px' }} />
             )}
-            <h2 style={{ fontSize: configData?.logo ? '16px' : '24px', margin: 0 }}>{configData?.nomeOficina || 'NEXAR OFICINA'}</h2>
+            <h2 style={{ fontSize: configData?.logo ? '16px' : '24px', margin: 0 }}>{configData?.nomeOficina || 'NEXAR ERP'}</h2>
             <p>CNPJ: {configData?.cnpj || '00.000.000/0001-00'}</p>
             <p>{configData?.endereco || 'Av. das Indústrias, 1000 - São Paulo, SP'}</p>
-            <p>{configData?.telefone || '(11) 3333-4444'} | {configData?.email || 'contato@nexaroficina.com.br'}</p>
+            <p>{configData?.telefone || '(11) 3333-4444'} | {configData?.email || 'contato@nexarerp.com.br'}</p>
           </div>
           <div className="a4-os-info">
             <h1>ORDEM DE SERVIÇO</h1>
@@ -194,7 +194,7 @@ const OsPrint: React.FC = () => {
           </div>
           <div className="signature-box">
             <div className="signature-line"></div>
-            <p>Assinatura do Responsável (Oficina)</p>
+            <p>Assinatura do Responsável (Empresa)</p>
           </div>
         </div>
 

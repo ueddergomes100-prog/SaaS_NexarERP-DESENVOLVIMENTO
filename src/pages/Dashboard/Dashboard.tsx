@@ -418,7 +418,7 @@ const Dashboard: React.FC = () => {
                 transition: 'all 0.2s'
               }}
             >
-              Carros no Pátio (Em Andamento)
+              Atendimentos em Andamento
             </h3>
             <h3 
               onClick={() => setTableTab('Finalizadas')}
@@ -455,7 +455,7 @@ const Dashboard: React.FC = () => {
               ) : (tableTab === 'Ativas' ? osAtivas : osFinalizadas).length === 0 ? (
                 <tr>
                   <td colSpan={5} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
-                    {tableTab === 'Ativas' ? 'Não há carros no pátio no momento.' : 'Nenhuma OS finalizada recentemente.'}
+                    {tableTab === 'Ativas' ? 'Não há atendimentos em andamento no momento.' : 'Nenhuma OS finalizada recentemente.'}
                   </td>
                 </tr>
               ) : (

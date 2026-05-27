@@ -71,7 +71,7 @@ const OSList: React.FC = () => {
 
     const mensagem = encodeURIComponent(
       `Olá, ${os.clienteNome}! Tudo bem?\n\n` +
-      `Somos da Oficina Nexar. Gostaríamos de atualizar sobre o serviço do seu ${os.modelo || 'veículo'} (Placa: ${os.placa.toUpperCase()}).\n` +
+      `Somos da Nexar ERP. Gostaríamos de atualizar sobre o serviço do seu ${os.modelo || 'veículo'} (Placa: ${os.placa.toUpperCase()}).\n` +
       `O status atual da sua OS #${os.numeroOS || os.id.substring(0,8).toUpperCase()} é: *${os.status}*.\n\n` +
       `Acesse seu orçamento/OS neste link: (Link do PDF aqui)`
     );
@@ -125,7 +125,7 @@ const OSList: React.FC = () => {
       <div className="page-header">
         <div>
           <h1 className="page-title">Ordens de Serviço</h1>
-          <p className="page-subtitle">Gerencie as ordens de serviço da oficina</p>
+          <p className="page-subtitle">Gerencie ordens de serviço e atendimentos da empresa</p>
         </div>
         <button 
           className="btn-primary"

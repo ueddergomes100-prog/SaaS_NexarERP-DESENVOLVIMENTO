@@ -308,7 +308,7 @@ const EntradaNFE: React.FC = () => {
               Entrada de Nota Fiscal (XML)
             </h1>
             <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>
-              Importe notas fiscais (.xml) para dar entrada automática de peças no estoque e registrar a despesa no contas a pagar.
+              Importe notas fiscais (.xml) para dar entrada automática de produtos no estoque e registrar a despesa no contas a pagar.
             </p>
           </div>
         </div>

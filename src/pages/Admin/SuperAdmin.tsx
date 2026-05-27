@@ -42,7 +42,7 @@ const SuperAdmin: React.FC = () => {
   useEffect(() => {
     const fetchSaaSTenants = async () => {
       // Aqui num SaaS real teríamos uma integração com Asaas/Stripe para ler o status
-      // Vamos simular a busca das oficinas e mockar o status para o painel
+      // Vamos simular a busca das empresas e mockar o status para o painel
       
       try {
         const q = query(collection(db, 'usuarios'));
@@ -58,7 +58,7 @@ const SuperAdmin: React.FC = () => {
             return;
           }
 
-          // Pega apenas contas "Admin", ou seja, donos de oficina (ignora mecânicos/vendedores logados)
+          // Pega apenas contas "Admin", ou seja, donos de empresa (ignora funcionários/vendedores logados)
           if (data.role === 'Admin' || doc.id === data.tenantId) {
             listOfTenants.push({
               id: doc.id,
@@ -120,7 +120,7 @@ const SuperAdmin: React.FC = () => {
     const { value: novoNome } = await Swal.fire({
       title: 'Editar Nome da Empresa',
       input: 'text',
-      inputLabel: 'Novo nome da oficina/empresa',
+      inputLabel: 'Novo nome da empresa',
       inputValue: nomeAtual,
       showCancelButton: true,
       inputValidator: (value) => {
@@ -142,7 +142,7 @@ const SuperAdmin: React.FC = () => {
             nomeOficina: novoNome.trim()
           });
         } catch (err) {
-          console.warn("Erro ao atualizar configuracoes da oficina, tentando setDoc com merge...", err);
+          console.warn("Erro ao atualizar configuracoes da empresa, tentando setDoc com merge...", err);
           await setDoc(doc(db, 'configuracoes', tenantId), {
             nomeOficina: novoNome.trim()
           }, { merge: true });
@@ -227,7 +227,7 @@ const SuperAdmin: React.FC = () => {
           updatedAt: new Date().toISOString()
         });
         if (text.trim()) {
-          Swal.fire('Publicado!', 'O aviso aparecerá para todas as oficinas agora.', 'success');
+          Swal.fire('Publicado!', 'O aviso aparecerá para todas as empresas agora.', 'success');
         } else {
           Swal.fire('Removido!', 'O aviso global foi retirado.', 'success');
         }
@@ -288,7 +288,7 @@ const SuperAdmin: React.FC = () => {
         { id: 'cadastros.clientes', label: 'Clientes' },
         { id: 'cadastros.usuarios', label: 'Usuários' },
         { id: 'cadastros.veiculos', label: 'Veículos' },
-        { id: 'cadastros.estoque', label: 'Estoque / Peças' },
+        { id: 'cadastros.estoque', label: 'Estoque / Produtos' },
         { id: 'cadastros.servicos', label: 'Cadastro de Serviços' },
         { id: 'cadastros.categorias', label: 'Categorias' },
         { id: 'cadastros.unidades_medida', label: 'Unidades de Medida' }
@@ -299,7 +299,7 @@ const SuperAdmin: React.FC = () => {
         { id: 'comercial.devolucoes', label: 'Devolução de Venda' },
         { id: 'comercial.relatorios', label: 'Relatório de Vendas' }
       ]},
-      { group: 'Mecânica & Serviços', items: [
+      { group: 'Serviços & Operações', items: [
         { id: 'mecanica.os', label: 'Ordens de Serviço' },
         { id: 'mecanica.relatorios', label: 'Relatório de Serviços' }
       ]},
@@ -327,7 +327,7 @@ const SuperAdmin: React.FC = () => {
     const htmlContent = `
       <div style="text-align: left; padding: 5px; max-height: 400px; overflow-y: auto; background-color: var(--bg-secondary); border-radius: 8px;">
         <p style="margin-bottom: 16px; color: var(--text-secondary); font-size: 13px; font-weight: 500; line-height: 1.4;">
-          Marque quais recursos/telas estarão <strong>ativos</strong> para esta oficina:
+          Marque quais recursos/telas estarão <strong>ativos</strong> para esta empresa:
         </p>
         ${modules.map(group => `
           <div style="margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px;">
@@ -391,7 +391,7 @@ const SuperAdmin: React.FC = () => {
         }
 
         setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, modulosBloqueados: blockedResult } : t));
-        Swal.fire('Configuração Salva!', 'Os módulos e telas da oficina foram atualizados com sucesso.', 'success');
+        Swal.fire('Configuração Salva!', 'Os módulos e telas da empresa foram atualizados com sucesso.', 'success');
       } catch (err) {
         console.error("Erro ao gerenciar módulos", err);
         Swal.fire('Erro', 'Não foi possível atualizar a configuração de módulos.', 'error');
@@ -489,7 +489,7 @@ const SuperAdmin: React.FC = () => {
             </div>
           </div>
           <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
-            Oficinas usando a plataforma hoje
+            Empresas usando a plataforma hoje
           </p>
         </div>
 
@@ -566,13 +566,13 @@ const SuperAdmin: React.FC = () => {
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
           <h3 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700 }}>
-            <Users size={24} color="#8b5cf6" /> Carteira de Clientes (Oficinas)
+            <Users size={24} color="#8b5cf6" /> Carteira de Clientes (Empresas)
           </h3>
           <div className="search-bar" style={{ position: 'relative', width: '300px' }}>
             <Search size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input 
               type="text" 
-              placeholder="Pesquisar oficina..." 
+              placeholder="Pesquisar empresa..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '10px 16px 10px 44px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
@@ -581,7 +581,7 @@ const SuperAdmin: React.FC = () => {
         </div>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Carregando dados das oficinas...</div>
+          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Carregando dados das empresas...</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -699,7 +699,7 @@ const SuperAdmin: React.FC = () => {
                 {filteredTenants.length === 0 && (
                   <tr>
                     <td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      {tenants.length === 0 ? "Nenhuma oficina cadastrada ainda." : "Nenhuma oficina corresponde à pesquisa."}
+                      {tenants.length === 0 ? "Nenhuma empresa cadastrada ainda." : "Nenhuma empresa corresponde à pesquisa."}
                     </td>
                   </tr>
                 )}

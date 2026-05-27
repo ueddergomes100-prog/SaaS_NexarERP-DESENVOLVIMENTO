@@ -49,7 +49,7 @@ const RelatoriosMecanica: React.FC = () => {
 
       setData({ os, usuarios });
     } catch (err) {
-      console.error("Erro ao carregar dados da mecânica:", err);
+      console.error("Erro ao carregar dados de serviços:", err);
     } finally {
       setLoading(false);
     }
@@ -164,7 +164,7 @@ const RelatoriosMecanica: React.FC = () => {
         <div>
           <h1 style={{ fontSize: '26px', fontWeight: 800, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '12px' }}>
             <Wrench size={32} color="var(--accent-purple)" />
-            Relatórios de Mecânica e Produtividade
+            Relatórios de Serviços e Produtividade
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '15px' }}>Desempenho técnico, volume de ordens e faturamento de serviços</p>
         </div>

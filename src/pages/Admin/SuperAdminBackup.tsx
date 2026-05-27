@@ -390,7 +390,7 @@ const SuperAdminBackup: React.FC = () => {
       {isSuperAdmin && (
         <div className="card" style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
           <Building size={20} color="#8b5cf6" />
-          <span style={{ fontWeight: 600, color: 'var(--text-primary)', minWidth: '150px' }}>Selecione a Oficina/Cliente:</span>
+          <span style={{ fontWeight: 600, color: 'var(--text-primary)', minWidth: '150px' }}>Selecione a Empresa/Cliente:</span>
           <select 
             value={selectedTenant}
             onChange={(e) => setSelectedTenant(e.target.value)}

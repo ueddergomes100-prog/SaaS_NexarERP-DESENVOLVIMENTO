@@ -185,7 +185,7 @@ const Sidebar: React.FC = () => {
             ) : (
               <NavLink to="/dashboard" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                 <LayoutDashboard size={20} />
-                <span>Dashboard da Oficina</span>
+                <span>Dashboard da Empresa</span>
               </NavLink>
             )}
           </div>
@@ -261,7 +261,7 @@ const Sidebar: React.FC = () => {
                       {!isBlocked('cadastros.estoque') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('cadastros.estoque')) && (
                         <NavLink to="/estoque" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                           <Package size={20} />
-                          <span>Estoque / Peças</span>
+                          <span>Estoque / Produtos</span>
                         </NavLink>
                       )}
                       {!isBlocked('cadastros.servicos') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('cadastros.servicos')) && (
@@ -340,7 +340,7 @@ const Sidebar: React.FC = () => {
                     onClick={() => !expandAll && toggleGroup('mecanica')}
                     style={{ cursor: expandAll ? 'default' : 'pointer' }}
                   >
-                    <span>Mecânica / Serviços</span>
+                    <span>Serviços / Operações</span>
                     {!expandAll && (
                       <ChevronRight 
                         size={14} 

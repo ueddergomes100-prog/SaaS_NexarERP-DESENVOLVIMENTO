@@ -35,7 +35,7 @@ const DevolucoesVenda: React.FC = () => {
         </div>
         <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>Acesso Negado</h2>
         <p style={{ color: 'var(--text-muted)', maxWidth: '500px', margin: '0 auto 24px' }}>
-          Você não possui permissão para realizar devoluções de venda. Solicite ao administrador da oficina para liberar o módulo "Vendas: Devolução de Venda".
+          Você não possui permissão para realizar devoluções de venda. Solicite ao administrador da empresa para liberar o módulo "Vendas: Devolução de Venda".
         </p>
         <button className="btn-primary" onClick={() => navigate('/pedidos-venda')}>
           Voltar para Pedidos de Venda

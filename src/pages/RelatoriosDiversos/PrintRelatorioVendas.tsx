@@ -57,7 +57,7 @@ const PrintRelatorioVendas: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // 1. Buscar configurações da oficina
+        // 1. Buscar configurações da empresa
         const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
         if (configSnap.exists()) {
           setConfig(configSnap.data());
@@ -463,7 +463,7 @@ const PrintRelatorioVendas: React.FC = () => {
         )}
 
         <div className="a4-footer">
-          Documento gerencial auxiliar emitido pelo Sistema Nexus Company. A veracidade das informações apresentadas é de inteira responsabilidade da administração da oficina.
+          Documento gerencial auxiliar emitido pelo Sistema Nexus Company. A veracidade das informações apresentadas é de inteira responsabilidade da administração da empresa.
         </div>
       </div>
     </div>

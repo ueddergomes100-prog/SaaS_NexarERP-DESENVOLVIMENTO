@@ -44,7 +44,7 @@ const Register: React.FC = () => {
       const newSessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
       localStorage.setItem('nexus_session_id', newSessionId);
 
-      // 2. Salva os dados da oficina/tenant no Firestore associados ao UID
+      // 2. Salva os dados da empresa/tenant no Firestore associados ao UID
       await setDoc(doc(db, 'usuarios', user.uid), {
         uid: user.uid,
         nomeOficina,
@@ -53,8 +53,8 @@ const Register: React.FC = () => {
         username: nomeResponsavel.split(' ')[0].toLowerCase() + Math.floor(Math.random() * 1000),
         cnpj: cnpjLimpo,
         email,
-        role: 'Admin', // Garante que a pessoa nova seja dona da oficina
-        tenantId: user.uid, // O tenant da oficina é o próprio UID do criador
+        role: 'Admin', // Garante que a pessoa nova seja dona da empresa
+        tenantId: user.uid, // O tenant da empresa é o próprio UID do criador
         createdAt: serverTimestamp(),
         status: 'Ativo', // Status SaaS
         plano: 'Pro',
@@ -62,14 +62,14 @@ const Register: React.FC = () => {
         activeSessionId: newSessionId
       });
 
-      // 3. Pré-popula as configurações da oficina
+      // 3. Pré-popula as configurações da empresa
       await setDoc(doc(db, 'configuracoes', user.uid), {
         nomeOficina,
         nomeUsuario: nomeResponsavel,
         cnpj: cnpjLimpo,
         email,
-        planoContasReceitas: ['Serviços', 'Venda de Peças', 'Outras Receitas'],
-        planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Peças', 'Marketing', 'Manutenção', 'Outros'],
+        planoContasReceitas: ['Serviços', 'Venda de Produtos', 'Outras Receitas'],
+        planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Produtos', 'Marketing', 'Manutenção', 'Outros'],
         tenantId: user.uid,
         createdAt: serverTimestamp()
       });
@@ -94,20 +94,20 @@ const Register: React.FC = () => {
         <div className="auth-header">
           <div className="auth-logo">N</div>
           <h1>Crie sua conta</h1>
-          <p>Cadastre sua oficina e comece a usar o Nexar ERP.</p>
+          <p>Cadastre sua empresa e comece a usar o Nexar ERP.</p>
         </div>
 
         {error && <div className="auth-error">{error}</div>}
 
         <form className="auth-form" onSubmit={handleRegister}>
           <div className="auth-input-group">
-            <label>Nome da Oficina / Auto Center *</label>
+            <label>Nome da Empresa / Negócio *</label>
             <div className="auth-input-wrapper">
               <Store size={18} className="auth-input-icon" />
               <input 
                 type="text" 
                 className="auth-input" 
-                placeholder="Ex: Oficina do João" 
+                placeholder="Ex: Mercado Central, Loja Aurora"
                 value={nomeOficina}
                 onChange={(e) => setNomeOficina(e.target.value)}
               />
@@ -115,7 +115,7 @@ const Register: React.FC = () => {
           </div>
 
           <div className="auth-input-group">
-            <label>CNPJ da Oficina *</label>
+            <label>CNPJ da Empresa *</label>
             <div className="auth-input-wrapper">
               <span className="auth-input-icon" style={{ fontWeight: 'bold', fontFamily: 'monospace' }}>#</span>
               <input 

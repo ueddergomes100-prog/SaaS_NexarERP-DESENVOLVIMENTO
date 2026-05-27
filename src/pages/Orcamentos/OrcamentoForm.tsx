@@ -391,7 +391,7 @@ const OrcamentoForm: React.FC = () => {
   };
 
   const handleShareWhatsApp = () => {
-    const texto = `Olá! Segue o seu orçamento *#${formData.numeroOrcamento}* da *Oficina Nexar*.\n\n` +
+    const texto = `Olá! Segue o seu orçamento *#${formData.numeroOrcamento}* da *Nexar ERP*.\n\n` +
       `*Cliente:* ${formData.clienteNome}\n` +
       `*Total:* R$ ${totalGeral.toFixed(2)}\n\n` +
       `Aguardamos sua aprovação!`;

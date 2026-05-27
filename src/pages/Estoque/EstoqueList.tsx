@@ -131,8 +131,8 @@ const EstoqueList: React.FC = () => {
     <div className="estoque-page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Estoque e Peças</h1>
-          <p className="page-subtitle">Controle de inventário e cadastro de peças</p>
+          <h1 className="page-title">Estoque e Produtos</h1>
+          <p className="page-subtitle">Controle de inventário, produtos e insumos</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>

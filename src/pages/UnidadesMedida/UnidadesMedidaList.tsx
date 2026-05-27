@@ -187,7 +187,7 @@ const UnidadesMedidaList: React.FC = () => {
         </div>
         <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>Acesso Negado</h2>
         <p style={{ color: 'var(--text-muted)', maxWidth: '500px', margin: '0 auto 24px' }}>
-          Você não possui permissão para gerenciar as unidades de medida. Solicite ao administrador da oficina para liberar o módulo "Cadastros: Unidades de Medida".
+          Você não possui permissão para gerenciar as unidades de medida. Solicite ao administrador da empresa para liberar o módulo "Cadastros: Unidades de Medida".
         </p>
         <button className="btn-primary" onClick={() => navigate('/dashboard')}>
           Ir para o Dashboard

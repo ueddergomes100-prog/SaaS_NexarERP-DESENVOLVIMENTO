@@ -243,7 +243,7 @@ const Login: React.FC = () => {
         <div className="auth-header">
           <div className="auth-logo">N</div>
           <h1>Bem-vindo ao Nexar ERP</h1>
-          <p>Faça login para acessar o sistema da sua oficina.</p>
+          <p>Faça login para acessar o sistema da sua empresa.</p>
         </div>
 
         {error && <div className="auth-error">{error}</div>}

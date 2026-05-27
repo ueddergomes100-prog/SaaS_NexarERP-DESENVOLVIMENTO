@@ -99,7 +99,7 @@ const VeiculosList: React.FC = () => {
               <Car size={28} color="var(--accent-purple)" />
               Cadastro de Veículos
             </h1>
-            <p className="page-subtitle">Gerencie os veículos vinculados aos clientes da oficina</p>
+            <p className="page-subtitle">Gerencie veículos vinculados aos clientes quando aplicável ao seu negócio</p>
           </div>
         </div>
         <div className="header-actions">

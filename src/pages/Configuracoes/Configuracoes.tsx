@@ -41,8 +41,8 @@ const Configuracoes: React.FC = () => {
     diasNotificacaoLembrete: '15',
     venderSemEstoque: false,
     diasCrediario: '30',
-    planoContasReceitas: ['Serviços', 'Venda de Peças', 'Outras Receitas'],
-    planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Peças', 'Marketing', 'Manutenção', 'Outros'],
+    planoContasReceitas: ['Serviços', 'Venda de Produtos', 'Outras Receitas'],
+    planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Produtos', 'Marketing', 'Manutenção', 'Outros'],
     spedyEnabled: false,
     spedyApiKey: '',
     spedyEnvironment: 'sandbox'
@@ -92,7 +92,7 @@ const Configuracoes: React.FC = () => {
           setIsEditingMode(true);
         }
 
-        // Busca Usuários da Oficina para o Controle de Permissões
+        // Busca usuários da empresa para o controle de permissões
         const qUsers = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
         const qSnap = await getDocs(qUsers);
         const usersList: any[] = [];
@@ -236,7 +236,7 @@ const Configuracoes: React.FC = () => {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px 0' }}>Configurações</h1>
-          <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Dados da oficina e preferências do sistema</p>
+          <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Dados da empresa e preferências do sistema</p>
         </div>
         {isEditingMode ? (
           <button
@@ -274,7 +274,7 @@ const Configuracoes: React.FC = () => {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px', maxWidth: '800px', opacity: isEditingMode ? 1 : 0.4, filter: isEditingMode ? 'none' : 'grayscale(60%) blur(1px)', transition: 'all 0.4s ease', pointerEvents: isEditingMode ? 'auto' : 'none' }}>
-        {/* Dados da Oficina */}
+        {/* Dados da Empresa */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showDadosOficina ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
@@ -282,7 +282,7 @@ const Configuracoes: React.FC = () => {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <Store size={20} style={{ color: 'var(--accent-purple)' }} />
-              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Dados da Oficina (Cabeçalho OS)</h3>
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Dados da Empresa (Cabeçalhos e Impressões)</h3>
             </div>
             <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
               {showDadosOficina ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
@@ -292,7 +292,7 @@ const Configuracoes: React.FC = () => {
           {showDadosOficina && (
             <>
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
-                <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Logotipo da Oficina (Aparecerá na Impressão)</label>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Logotipo da Empresa (Aparecerá nas Impressões)</label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                   {formData.logo ? (
                     <div style={{ position: 'relative', width: '100px', height: '100px', borderRadius: '8px', border: '1px solid var(--border-color)', overflow: 'hidden', backgroundColor: 'white' }}>
@@ -341,11 +341,11 @@ const Configuracoes: React.FC = () => {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome da Oficina Fantasia</label>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome Fantasia da Empresa</label>
               <input
                 type="text"
                 name="nomeOficina"
-                placeholder="Ex: Auto Center Nexar"
+                placeholder="Ex: Mercado Central Nexar"
                 value={formData.nomeOficina}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -410,7 +410,7 @@ const Configuracoes: React.FC = () => {
               <input
                 type="email"
                 name="email"
-                placeholder="contato@oficina.com"
+                placeholder="contato@empresa.com"
                 value={formData.email}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -720,7 +720,7 @@ const Configuracoes: React.FC = () => {
           {showPermissoes && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
-                Selecione um usuário da sua oficina para liberar ou bloquear o acesso aos módulos do sistema.
+                Selecione um usuário da sua empresa para liberar ou bloquear o acesso aos módulos do sistema.
               </p>
 
               <div className="input-group">
@@ -782,7 +782,7 @@ const Configuracoes: React.FC = () => {
                             onChange={(e) => setRecebeComissaoPecas(e.target.checked)}
                             style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
                           />
-                          Comissão em Peças?
+                          Comissão em Produtos?
                         </label>
 
                         {recebeComissaoPecas && (
@@ -813,7 +813,7 @@ const Configuracoes: React.FC = () => {
                     {[
                       { id: 'dashboard.valores', label: 'Dashboard: Visão Financeira', color: '#10b981' },
                       { id: 'cadastros.clientes', label: 'Cadastros: Clientes', color: '#8b5cf6' },
-                      { id: 'cadastros.estoque', label: 'Cadastros: Estoque / Peças', color: '#8b5cf6' },
+                      { id: 'cadastros.estoque', label: 'Cadastros: Estoque / Produtos', color: '#8b5cf6' },
                       { id: 'cadastros.servicos', label: 'Cadastros: Serviços', color: '#8b5cf6' },
                       { id: 'cadastros.categorias', label: 'Cadastros: Categorias', color: '#8b5cf6' },
                       { id: 'cadastros.unidades_medida', label: 'Cadastros: Unidades de Medida', color: '#8b5cf6' },
@@ -825,10 +825,10 @@ const Configuracoes: React.FC = () => {
                       { id: 'vendas.orcamentos_alterar', label: 'Vendas: Alterar Orçamentos', color: '#f59e0b' },
                       { id: 'vendas.orcamentos_excluir', label: 'Vendas: Excluir Orçamentos', color: '#ef4444' },
                       { id: 'vendas.relatorios', label: 'Vendas: Relatórios', color: '#f59e0b' },
-                      { id: 'mecanica.os', label: 'Mecânica: Ordens de Serviço', color: '#3b82f6' },
-                      { id: 'mecanica.os_alterar', label: 'Mecânica: Alterar OS', color: '#3b82f6' },
-                      { id: 'mecanica.os_excluir', label: 'Mecânica: Excluir OS', color: '#ef4444' },
-                      { id: 'mecanica.relatorios', label: 'Mecânica: Relatórios', color: '#3b82f6' },
+                      { id: 'mecanica.os', label: 'Serviços: Ordens de Serviço', color: '#3b82f6' },
+                      { id: 'mecanica.os_alterar', label: 'Serviços: Alterar OS', color: '#3b82f6' },
+                      { id: 'mecanica.os_excluir', label: 'Serviços: Excluir OS', color: '#ef4444' },
+                      { id: 'mecanica.relatorios', label: 'Serviços: Relatórios', color: '#3b82f6' },
                       { id: 'crm.agenda', label: 'CRM: Agendamentos', color: '#ec4899' },
                       { id: 'crm.alertas', label: 'CRM: Alertas de Retorno', color: '#ec4899' },
                       { id: 'fiscal.emitir', label: 'Fiscal: Emitir Nota Fiscal', color: '#f59e0b' },

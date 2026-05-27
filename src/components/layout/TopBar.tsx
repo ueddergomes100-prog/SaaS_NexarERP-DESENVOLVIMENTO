@@ -346,7 +346,7 @@ const TopBar: React.FC = () => {
           <Search className="search-icon" size={18} />
         <input 
           type="text" 
-          placeholder="Buscar OS, cliente, placa ou peça..." 
+          placeholder="Buscar OS, cliente, venda ou produto..."
           className="search-input"
           value={searchTerm}
           onChange={handleSearch}
@@ -552,7 +552,7 @@ const TopBar: React.FC = () => {
             </div>
             <div className="profile-info">
               <span className="profile-name">{userData?.nome || configData?.nomeUsuario || 'Administrador'}</span>
-              <span className="profile-role">{configData?.nomeOficina || 'Oficina Logada'}</span>
+              <span className="profile-role">{configData?.nomeOficina || 'Empresa Logada'}</span>
             </div>
             <ChevronDown size={16} style={{ color: 'var(--text-muted)', marginLeft: '8px' }} />
           </div>

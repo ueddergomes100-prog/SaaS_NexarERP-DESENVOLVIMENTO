@@ -177,7 +177,7 @@ const SuperAdmin: React.FC = () => {
         // Coleções onde o campo tenantId é utilizado
         const collectionsToDelete = [
           'configuracoes', 'usuarios', 'usernames', 'clientes', 
-          'os', 'produtos', 'transacoes', 'categorias', 'servicos', 'lembretes'
+          'ordens_de_servico', 'produtos', 'transacoes', 'categorias', 'servicos', 'lembretes'
         ];
 
         for (const colName of collectionsToDelete) {

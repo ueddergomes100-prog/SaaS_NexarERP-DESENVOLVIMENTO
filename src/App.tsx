@@ -43,6 +43,7 @@ const Agenda = lazy(() => import('./pages/CRM/Agenda'));
 const NFE = lazy(() => import('./pages/Fiscal/NFE'));
 const EntradaNFE = lazy(() => import('./pages/Fiscal/EntradaNFE'));
 const SuperAdmin = lazy(() => import('./pages/Admin/SuperAdmin'));
+const SuperAdminBackup = lazy(() => import('./pages/Admin/SuperAdminBackup'));
 const UsuarioForm = lazy(() => import('./pages/Usuarios/UsuarioForm'));
 const VeiculosList = lazy(() => import('./pages/Veiculos/VeiculosList'));
 const VeiculoForm = lazy(() => import('./pages/Veiculos/VeiculoForm'));
@@ -138,6 +139,7 @@ function App() {
                     
                     {/* Painel SaaS */}
                     <Route path="superadmin" element={<SuperAdmin />} />
+                    <Route path="superadmin/backup" element={<SuperAdminBackup />} />
                   </Route>
                 </Route>
                 

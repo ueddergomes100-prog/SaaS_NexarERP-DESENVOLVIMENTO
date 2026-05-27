@@ -1,24 +1,88 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, Plus, Search, Filter, FileText, Printer, Trash2 } from 'lucide-react';
-import { collection, query, where, onSnapshot, deleteDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { ShoppingCart, Plus, Search, FileText, Printer, Trash2 } from 'lucide-react';
+import { collection, query, where, onSnapshot, deleteDoc, doc, getDoc, updateDoc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 
+interface ItemVenda {
+  id: string;
+  nome: string;
+  quantidade: number;
+  precoUnitario: number;
+}
+
+interface PedidoVendaData {
+  id: string;
+  numeroPedido: string;
+  createdAt?: { seconds: number; nanoseconds: number };
+  clienteNome?: string;
+  formaPagamento?: string;
+  status: string;
+  valorTotal: number;
+  itens?: ItemVenda[];
+  tenantId: string;
+}
+
 const PedidoVendas: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
-  
+
   const canDeleteVenda = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.excluir'));
-  
-  const [pedidos, setPedidos] = useState<any[]>([]);
+
+  const [pedidos, setPedidos] = useState<PedidoVendaData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('Ativos');
 
+  // Estado para armazenar IDs dos cupons autorizados
+  const [authorizedCupons, setAuthorizedCupons] = useState<Record<string, { spedyId: string; status: string }>>({});
+  const [spedyEnv, setSpedyEnv] = useState<'sandbox' | 'production'>('sandbox');
+
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !tenantId) return;
+
+    // Busca configuração do ambiente Spedy
+    const fetchEnv = async () => {
+      try {
+        const confRef = doc(db, 'configuracoes', tenantId);
+        const confSnap = await getDoc(confRef);
+        if (confSnap.exists()) {
+          setSpedyEnv(confSnap.data().spedyEnvironment || 'sandbox');
+        }
+      } catch (err) {
+        console.warn("Erro ao buscar configuracoes Spedy no listagem", err);
+      }
+    };
+    fetchEnv();
+
+    // Monitora notas fiscais do tipo NFC-e
+    const qNotas = query(
+      collection(db, 'notas_fiscais'),
+      where('tenantId', '==', tenantId),
+      where('tipo', '==', 'NFC-e')
+    );
+
+    const unsubscribeNotas = onSnapshot(qNotas, (snapshot) => {
+      const cupons: Record<string, { spedyId: string; status: string }> = {};
+      snapshot.forEach(d => {
+        const data = d.data();
+        if (data.pedidoId) {
+          cupons[data.pedidoId] = {
+            spedyId: data.spedyId || '',
+            status: data.status || ''
+          };
+        }
+      });
+      setAuthorizedCupons(cupons);
+    });
+
+    return () => unsubscribeNotas();
+  }, [currentUser, tenantId]);
+
+  useEffect(() => {
+    if (!currentUser || !tenantId) return;
 
     const q = query(
       collection(db, 'pedidos_venda'),
@@ -26,17 +90,41 @@ const PedidoVendas: React.FC = () => {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const p: any[] = [];
-      snapshot.forEach(doc => p.push({ id: doc.id, ...doc.data() }));
+      const p: PedidoVendaData[] = [];
+      snapshot.forEach(doc => p.push({ id: doc.id, ...doc.data() } as PedidoVendaData));
       p.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setPedidos(p);
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser, tenantId]);
 
-  const handleDelete = async (pedido: any) => {
+  const handleDelete = async (pedido: PedidoVendaData) => {
+    // Verifica se há nota fiscal ativa vinculada
+    try {
+      const qNotas = query(
+        collection(db, 'notas_fiscais'),
+        where('tenantId', '==', tenantId),
+        where('pedidoId', '==', pedido.id)
+      );
+      const notasSnap = await getDocs(qNotas);
+      const activeNotas = notasSnap.docs.filter(d => d.data().status !== 'canceled');
+
+      if (activeNotas.length > 0) {
+        const nota = activeNotas[0].data();
+        await NexusSwal.fire({
+          title: 'Não é possível excluir',
+          text: `Existe uma nota fiscal ativa (${nota.tipo} nº ${nota.number || 'Aguardando'}) associada a este pedido. Cancele ou exclua a nota fiscal primeiro no painel fiscal.`,
+          icon: 'error',
+          confirmButtonText: 'Entendido'
+        });
+        return;
+      }
+    } catch (err) {
+      console.error("Erro ao verificar notas vinculadas ao pedido:", err);
+    }
+
     const confirm = await NexusSwal.fire({
       title: 'Excluir Pedido?',
       text: 'Se excluir, os relatórios serão afetados permanentemente. Deseja retornar o estoque dos produtos desta venda?',
@@ -67,8 +155,12 @@ const PedidoVendas: React.FC = () => {
           }
         }
         await deleteDoc(doc(db, 'pedidos_venda', pedido.id));
-        try { await deleteDoc(doc(db, 'transacoes', pedido.id)); } catch(e) {}
-        
+        try {
+          await deleteDoc(doc(db, 'transacoes', pedido.id));
+        } catch {
+          // ignore error
+        }
+
         try {
           const { createAuditLog } = await import('../../services/logService');
           createAuditLog({
@@ -82,10 +174,12 @@ const PedidoVendas: React.FC = () => {
             status: 'sucesso',
             critical: true
           });
-        } catch (logErr) {}
+        } catch {
+          // ignore audit log error
+        }
 
         showSuccess('Pedido excluído!');
-      } catch (err) {
+      } catch {
         showError('Erro', 'Não foi possível excluir.');
       }
     }
@@ -114,26 +208,26 @@ const PedidoVendas: React.FC = () => {
       </div>
 
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        
+
         <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
           <div className="search-bar" style={{ flex: 1, position: 'relative' }}>
             <Search size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-            <input 
-              type="text" 
-              placeholder="Buscar por cliente ou número do pedido..." 
+            <input
+              type="text"
+              placeholder="Buscar por cliente ou número do pedido..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '12px 16px 12px 48px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
           <div style={{ display: 'flex', backgroundColor: 'var(--bg-tertiary)', padding: '4px', borderRadius: 'var(--radius-md)' }}>
-            <button 
+            <button
               onClick={() => setActiveTab('Ativos')}
               style={{ padding: '8px 16px', backgroundColor: activeTab === 'Ativos' ? 'var(--accent-purple)' : 'transparent', color: activeTab === 'Ativos' ? 'white' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
             >
               Ativos / Faturados
             </button>
-            <button 
+            <button
               onClick={() => setActiveTab('Cancelados')}
               style={{ padding: '8px 16px', backgroundColor: activeTab === 'Cancelados' ? 'rgba(239, 68, 68, 0.2)' : 'transparent', color: activeTab === 'Cancelados' ? '#ef4444' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
             >
@@ -179,10 +273,10 @@ const PedidoVendas: React.FC = () => {
                       </span>
                     </td>
                     <td style={{ padding: '16px' }}>
-                      <span style={{ 
+                      <span style={{
                         backgroundColor: p.status === 'Cancelada' ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)',
                         color: p.status === 'Cancelada' ? '#ef4444' : '#10b981',
-                        padding: '4px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600 
+                        padding: '4px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600
                       }}>
                         {p.status}
                       </span>
@@ -194,9 +288,24 @@ const PedidoVendas: React.FC = () => {
                       <button onClick={() => navigate(`/pedidos-venda/visualizar/${p.id}`)} className="icon-btn" title="Visualizar Pedido" style={{ color: '#3b82f6' }}>
                         <FileText size={18} />
                       </button>
-                      <button onClick={() => navigate(`/pedidos-venda/print/${p.id}`)} className="icon-btn" title="Imprimir Recibo" style={{ color: '#10b981' }}>
-                        <Printer size={18} />
-                      </button>
+                      {authorizedCupons[p.id] && authorizedCupons[p.id].status === 'authorized' ? (
+                        <button
+                          onClick={() => {
+                            const cupom = authorizedCupons[p.id];
+                            const pdfUrl = `https://${spedyEnv === 'production' ? 'api' : 'sandbox-api'}.spedy.com.br/v1/consumer-invoices/${cupom.spedyId}/pdf`;
+                            window.open(pdfUrl, '_blank');
+                          }}
+                          className="icon-btn"
+                          title="Imprimir Cupom Fiscal (NFC-e)"
+                          style={{ color: '#8b5cf6' }}
+                        >
+                          <Printer size={18} />
+                        </button>
+                      ) : (
+                        <button onClick={() => navigate(`/pedidos-venda/print/${p.id}`)} className="icon-btn" title="Imprimir Recibo" style={{ color: '#10b981' }}>
+                          <Printer size={18} />
+                        </button>
+                      )}
                       {canDeleteVenda && (
                         <button onClick={() => handleDelete(p)} className="icon-btn" title="Excluir" style={{ color: '#ef4444' }}>
                           <Trash2 size={18} />

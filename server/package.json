@@ -1,0 +1,23 @@
+{
+  "name": "nexus-erp-backup-server",
+  "version": "1.0.0",
+  "description": "Backend de Backup e Restauração para o SaaS Nexus ERP utilizando Google Cloud Storage",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "firebase-admin": "^12.0.0",
+    "helmet": "^7.1.0",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

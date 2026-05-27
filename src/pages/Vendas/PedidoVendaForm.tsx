@@ -1,33 +1,42 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, User, Package, Save, Trash2, XCircle, Printer } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, setDoc, orderBy, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import Swal from 'sweetalert2';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
-interface ProdutoEstoque { 
-  id: string; 
-  nome: string; 
-  precoVenda: number; 
-  quantidade: number; 
-  codigo: string; 
-  unidadeMedidaSigla?: string; 
-  unidadeMedidaCasasDecimais?: number; 
-  unidadeMedidaFracionado?: boolean; 
+interface ProdutoEstoque {
+  id: string;
+  nome: string;
+  precoVenda: number;
+  quantidade: number;
+  codigo: string;
+  unidadeMedidaSigla?: string;
+  unidadeMedidaCasasDecimais?: number;
+  unidadeMedidaFracionado?: boolean;
 }
-interface ItemVenda { 
-  id: string; 
-  nome: string; 
-  precoUnitario: number; 
-  quantidade: number; 
-  desconto: number; 
-  subtotal: number; 
-  quantidadeJaDevolvida?: number; 
-  unidadeMedidaSigla?: string; 
-  unidadeMedidaCasasDecimais?: number; 
+interface ItemVenda {
+  id: string;
+  nome: string;
+  precoUnitario: number;
+  quantidade: number;
+  desconto: number;
+  subtotal: number;
+  quantidadeJaDevolvida?: number;
+  unidadeMedidaSigla?: string;
+  unidadeMedidaCasasDecimais?: number;
+}
+
+interface LinkedNfe {
+  id: string;
+  spedyId: string;
+  status: string;
+  number: number | null;
+  accessKey?: string;
 }
 
 const PedidoVendaForm: React.FC = () => {
@@ -35,16 +44,19 @@ const PedidoVendaForm: React.FC = () => {
   const { id } = useParams(); // Para modo Visualização
   const isViewing = !!id;
 
+  const [nfeDoc, setNfeDoc] = useState<LinkedNfe | null>(null);
+  const [spedyEnv, setSpedyEnv] = useState<'sandbox' | 'production'>('sandbox');
+
   const [clienteNome, setClienteNome] = useState('');
   const [formaPagamento, setFormaPagamento] = useState('Dinheiro');
   const [numeroPedido, setNumeroPedido] = useState('');
   const [status, setStatus] = useState('Aberta');
   const [itens, setItens] = useState<ItemVenda[]>([]);
   const [orcamentoId, setOrcamentoId] = useState('');
-  
+
   const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
   const [produtosCatalogo, setProdutosCatalogo] = useState<ProdutoEstoque[]>([]);
-  
+
   const [produtoBusca, setProdutoBusca] = useState('');
   const [produtoQtd, setProdutoQtd] = useState<number | string>(1);
   const [produtoDesconto, setProdutoDesconto] = useState<number>(0);
@@ -60,7 +72,7 @@ const PedidoVendaForm: React.FC = () => {
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const canEditVenda = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.alterar'));
-  
+
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const [isProdutoDropdownOpen, setIsProdutoDropdownOpen] = useState(false);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
@@ -69,7 +81,10 @@ const PedidoVendaForm: React.FC = () => {
   useEffect(() => {
     const isConsumidorFinal = clienteNome.toLowerCase().includes('consumidor final');
     if (isConsumidorFinal && formaPagamento !== 'Dinheiro' && formaPagamento !== 'Pix') {
-      setFormaPagamento('Dinheiro');
+      const timer = setTimeout(() => {
+        setFormaPagamento('Dinheiro');
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [clienteNome, formaPagamento]);
 
@@ -101,11 +116,11 @@ const PedidoVendaForm: React.FC = () => {
       const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
       const snapE = await getDocs(qE);
       const dataE: ProdutoEstoque[] = [];
-      snapE.forEach((doc) => dataE.push({ 
-        id: doc.id, 
-        nome: doc.data().nome, 
-        precoVenda: doc.data().precoVenda, 
-        quantidade: doc.data().quantidade || 0, 
+      snapE.forEach((doc) => dataE.push({
+        id: doc.id,
+        nome: doc.data().nome,
+        precoVenda: doc.data().precoVenda,
+        quantidade: doc.data().quantidade || 0,
         codigo: doc.data().codigo || '',
         unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
         unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
@@ -119,6 +134,7 @@ const PedidoVendaForm: React.FC = () => {
         const configSnap = await getDoc(configRef);
         if (configSnap.exists()) {
           setPermitirVendaSemEstoque(configSnap.data().venderSemEstoque === true);
+          setSpedyEnv(configSnap.data().spedyEnvironment || 'sandbox');
         }
       } catch (err) { console.error(err); }
 
@@ -137,6 +153,28 @@ const PedidoVendaForm: React.FC = () => {
             setOrcamentoId(p.orcamentoId || '');
             setFrete(p.frete || 0);
             setEncargos(p.encargos || 0);
+
+            // Busca nota fiscal vinculada a esta venda
+            try {
+              const qNota = query(
+                collection(db, 'notas_fiscais'),
+                where('pedidoId', '==', id),
+                where('tipo', '==', 'NFC-e')
+              );
+              const snapNota = await getDocs(qNota);
+              if (!snapNota.empty) {
+                const docNota = snapNota.docs[0];
+                setNfeDoc({
+                  id: docNota.id,
+                  spedyId: docNota.data().spedyId,
+                  status: docNota.data().status,
+                  number: docNota.data().number,
+                  accessKey: docNota.data().accessKey
+                });
+              }
+            } catch (err) {
+              console.error("Erro ao buscar nota fiscal vinculada:", err);
+            }
           } else {
             showError('Erro', 'Pedido não encontrado.');
             navigate('/pedidos-venda');
@@ -178,10 +216,10 @@ const PedidoVendaForm: React.FC = () => {
       showError('Atenção', 'A quantidade deve ser maior que zero.');
       return;
     }
-    
+
     // Tenta achar o produto no catálogo para pegar o ID real
     const produtoEncontrado = produtoSelecionado || produtosCatalogo.find(p => p.nome.toLowerCase() === produtoBusca.toLowerCase() || p.codigo === produtoBusca);
-    
+
     if (produtoEncontrado) {
       if (!permitirVendaSemEstoque && qtdNum > (produtoEncontrado.quantidade || 0)) {
         showError('Estoque Insuficiente', `Você tem apenas ${produtoEncontrado.quantidade || 0} de ${produtoEncontrado.nome} em estoque. Venda sem estoque desativada.`);
@@ -325,17 +363,259 @@ const PedidoVendaForm: React.FC = () => {
 
       setIsLoading(false);
 
-      // 5. Perguntar se quer Imprimir
+      // 5. Perguntar o que fazer
       const result = await NexusSwal.fire({
-        title: 'Venda Finalizada!',
-        text: 'O pedido foi gravado, o estoque baixado e o financeiro atualizado. Deseja imprimir o recibo?',
+        title: 'Venda Finalizada com Sucesso!',
+        text: 'O estoque foi atualizado e o financeiro lançado. O que deseja fazer agora?',
         icon: 'success',
-        showCancelButton: true,
-        confirmButtonText: 'Sim, Imprimir',
-        cancelButtonText: 'Não, Sair'
+        showDenyButton: true,
+        confirmButtonText: 'Emitir Cupom Fiscal (NFC-e)',
+        denyButtonText: 'Imprimir Recibo',
+        cancelButtonText: 'Apenas Concluir',
+        confirmButtonColor: '#10b981',
+        denyButtonColor: '#3b82f6'
       });
 
       if (result.isConfirmed) {
+        NexusSwal.fire({
+          title: 'Emitindo Cupom Fiscal...',
+          text: 'Enviando dados para a Spedy API / SEFAZ...',
+          allowOutsideClick: false,
+          didOpen: () => Swal.showLoading()
+        });
+
+        try {
+          // Busca configuração fiscal
+          const confRef = doc(db, 'configuracoes', tenantId || '');
+          const confSnap = await getDoc(confRef);
+          const confData = confSnap.exists() ? confSnap.data() : null;
+
+          if (!confData || !confData.spedyEnabled || !confData.spedyApiKey) {
+            throw new Error('A integração com a Spedy não está ativa ou configurada. Acesse as Configurações do sistema.');
+          }
+
+          const apiKey = confData.spedyApiKey;
+          const env = confData.spedyEnvironment || 'sandbox';
+
+          // Prepara itens da NFC-e
+          const payloadItems = [];
+          for (const item of itens) {
+            let ncm = '87082999'; // Default fallback para autopeças
+            let cfop = 5102;      // Venda interna de mercadoria adquirida
+            let csosn = 400;      // Isento Simples Nacional
+            let origem = 0;       // Nacional
+
+            if (item.id !== 'avulso') {
+              const pRef = doc(db, 'estoque', item.id);
+              const pSnap = await getDoc(pRef);
+              if (pSnap.exists()) {
+                const pData = pSnap.data();
+                ncm = pData.ncm || ncm;
+                cfop = Number(pData.cfop) || cfop;
+                csosn = Number(pData.csosn) || csosn;
+                origem = Number(pData.origem) || origem;
+              }
+            }
+
+            payloadItems.push({
+              code: item.id === 'avulso' ? 'AVULSO' : item.id,
+              description: item.nome,
+              ncm,
+              cfop,
+              unit: item.unidadeMedidaSigla || 'UN',
+              quantity: item.quantidade,
+              unitAmount: item.precoUnitario,
+              totalAmount: item.precoUnitario * item.quantidade,
+              unitTax: item.unidadeMedidaSigla || 'UN',
+              quantityTax: item.quantidade,
+              unitTaxAmount: item.precoUnitario,
+              makeupTotal: true,
+              taxes: {
+                icms: {
+                  origin: origem,
+                  csosn
+                },
+                pis: { cst: 7 },
+                cofins: { cst: 7 }
+              }
+            });
+          }
+
+          // Prepara dados do destinatário (opcional para NFC-e se for Consumidor Final)
+          let receiver = undefined;
+          const isConsumidorFinal = finalClienteNome === 'CONSUMIDOR FINAL';
+
+          if (!isConsumidorFinal) {
+            const qClient = query(collection(db, 'clientes'), where('tenantId', '==', tenantId), where('nome', '==', finalClienteNome));
+            const snapClient = await getDocs(qClient);
+            if (!snapClient.empty) {
+              const cData = snapClient.docs[0].data();
+              const cDoc = (cData.documento || '').replace(/\D/g, '');
+              const cCep = (cData.cep || '01001-000').replace(/\D/g, '');
+              if (cDoc) {
+                receiver = {
+                  name: finalClienteNome,
+                  federalTaxNumber: cDoc,
+                  email: cData.email || undefined,
+                  address: {
+                    street: cData.endereco || 'Rua Principal',
+                    number: cData.numero || '123',
+                    district: cData.bairro || 'Centro',
+                    postalCode: cCep,
+                    city: {
+                      code: cData.codigoIbge || '3550308',
+                      name: cData.cidade || 'São Paulo',
+                      state: cData.estado || 'SP'
+                    }
+                  }
+                };
+              }
+            }
+          }
+
+          if (!receiver) {
+            receiver = {
+              name: 'Consumidor Final',
+              federalTaxNumber: '12345678901', // CPF dummy para emissão anônima/teste
+              address: {
+                street: 'Rua Principal',
+                number: '123',
+                district: 'Centro',
+                postalCode: '01001000',
+                city: {
+                  code: '3550308',
+                  name: 'São Paulo',
+                  state: 'SP'
+                }
+              }
+            };
+          }
+
+          let spedyPayment = 'cash';
+          if (formaPagamento === 'Pix') spedyPayment = 'pix';
+          else if (formaPagamento.includes('Crédito')) spedyPayment = 'creditCard';
+          else if (formaPagamento.includes('Débito')) spedyPayment = 'debitCard';
+          else if (formaPagamento.includes('Prazo')) spedyPayment = 'other';
+
+          const spedyPayload = {
+            isFinalCustomer: true,
+            operationType: 'outgoing',
+            destination: 'internal',
+            presenceType: 'presence',
+            operationNature: 'Venda de Mercadoria',
+            sendEmailToCustomer: false,
+            integrationId: newPedidoRef.id,
+            receiver,
+            items: payloadItems,
+            payments: [
+              {
+                method: spedyPayment,
+                amount: valorTotalPedido
+              }
+            ],
+            total: {
+              invoiceAmount: valorTotalPedido,
+              productAmount: valorTotalItens
+            }
+          };
+
+          const { spedyService } = await import('../../services/spedyService');
+          const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload);
+
+          // Polling para aguardar autorização (SEFAZ processa de forma assíncrona)
+          NexusSwal.fire({
+            title: 'Autorizando Cupom na SEFAZ...',
+            text: 'Aguardando aprovação da nota fiscal eletrônica...',
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading()
+          });
+
+          let currentStatus = spedyNote.status;
+          let finalNote = spedyNote;
+          let attempts = 0;
+
+          while (['enqueued', 'processing', 'created'].includes(currentStatus) && attempts < 10) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            try {
+              finalNote = await spedyService.getConsumerInvoice(apiKey, env, spedyNote.id);
+              currentStatus = finalNote.status;
+            } catch (pollErr) {
+              console.warn("Erro ao consultar status do cupom fiscal:", pollErr);
+            }
+            attempts++;
+          }
+
+          // Salva referência local no Firestore (com o status e número mais recente do polling)
+          await addDoc(collection(db, 'notas_fiscais'), {
+            spedyId: finalNote.id,
+            number: finalNote.number,
+            accessKey: finalNote.accessKey || null,
+            tipo: 'NFC-e',
+            clienteNome: finalClienteNome,
+            valor: valorTotalPedido,
+            status: finalNote.status,
+            processingMessage: finalNote.processingDetail?.message || null,
+            processingCode: finalNote.processingDetail?.code || null,
+            tenantId,
+            createdAt: serverTimestamp(),
+            data: new Date().toISOString(),
+            pedidoId: newPedidoRef.id
+          });
+
+          Swal.close();
+
+          if (finalNote.status === 'authorized') {
+            const printResult = await NexusSwal.fire({
+              title: 'Cupom Fiscal Autorizado!',
+              text: 'Deseja abrir o DANFE (Cupom) para impressão?',
+              icon: 'success',
+              showCancelButton: true,
+              confirmButtonText: 'Sim, Abrir PDF',
+              cancelButtonText: 'Fechar e Voltar'
+            });
+
+            if (printResult.isConfirmed) {
+              const pdfUrl = spedyService.getPdfUrl(finalNote.id, 'consumer', env);
+              window.open(pdfUrl, '_blank');
+            }
+          } else if (['enqueued', 'processing', 'created'].includes(finalNote.status)) {
+            await NexusSwal.fire({
+              title: 'Cupom em Processamento',
+              text: 'O cupom fiscal foi enviado com sucesso, mas o retorno da SEFAZ está demorando. Você poderá consultá-lo e imprimir o PDF mais tarde no menu Fiscal.',
+              icon: 'info',
+              confirmButtonText: 'Entendido'
+            });
+          } else {
+            // Rejeitada / negada
+            await NexusSwal.fire({
+              title: 'Cupom Fiscal Rejeitado',
+              text: `O cupom foi rejeitado pela SEFAZ: ${finalNote.processingDetail?.message || 'Motivo desconhecido.'} (Código: ${finalNote.processingDetail?.code || 'N/A'})`,
+              icon: 'error',
+              confirmButtonText: 'Entendido'
+            });
+          }
+
+          navigate('/pedidos-venda');
+
+        } catch (err) {
+          Swal.close();
+          showError('Falha ao emitir NFC-e', (err as Error).message || 'Não foi possível transmitir o cupom fiscal.');
+
+          const fallbackResult = await NexusSwal.fire({
+            title: 'NFC-e não emitida',
+            text: 'Ocorreu um erro ao emitir o cupom. Deseja imprimir o Recibo comum do pedido?',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Sim, Imprimir Recibo',
+            cancelButtonText: 'Não, Apenas Sair'
+          });
+          if (fallbackResult.isConfirmed) {
+            navigate(`/pedidos-venda/print/${newPedidoRef.id}`);
+          } else {
+            navigate('/pedidos-venda');
+          }
+        }
+      } else if (result.isDenied) {
         navigate(`/pedidos-venda/print/${newPedidoRef.id}`);
       } else {
         navigate('/pedidos-venda');
@@ -348,9 +628,303 @@ const PedidoVendaForm: React.FC = () => {
     }
   };
 
+  const handleEmitirCupomVendaExistente = async () => {
+    if (!currentUser || !tenantId || !id) return;
+
+    setIsLoading(true);
+
+    try {
+      // 1. Verificar Integração Spedy
+      let spedyConfigured = false;
+      let apiKey = '';
+      let env: 'sandbox' | 'production' = 'sandbox';
+
+      try {
+        const confRef = doc(db, 'configuracoes', tenantId);
+        const confSnap = await getDoc(confRef);
+        if (confSnap.exists() && confSnap.data().spedyEnabled && confSnap.data().spedyApiKey) {
+          spedyConfigured = true;
+          apiKey = confSnap.data().spedyApiKey;
+          env = confSnap.data().spedyEnvironment || 'sandbox';
+        }
+      } catch (err) {
+        console.warn("Erro ao buscar configs fiscais Spedy:", err);
+      }
+
+      if (!spedyConfigured) {
+        showError('Integração Inativa', 'O módulo da Spedy não está configurado ou ativado.');
+        setIsLoading(false);
+        return;
+      }
+
+      // 2. Montar os itens com a tributação do estoque
+      const payloadItems = [];
+      for (const item of itens) {
+        let ncm = '87082999';
+        let cfop = 5102;
+        let csosn = 400;
+        let origem = 0;
+
+        if (item.id && item.id !== 'avulso') {
+          try {
+            const docRef = doc(db, 'estoque', item.id);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+              const pData = docSnap.data();
+              ncm = pData.ncm || '87082999';
+              cfop = Number(pData.cfop) || cfop;
+              csosn = Number(pData.csosn) || csosn;
+              origem = Number(pData.origem) || origem;
+            }
+          } catch (err) {
+            console.error("Erro ao buscar dados fiscais do produto no estoque:", err);
+          }
+        }
+
+        payloadItems.push({
+          code: item.id === 'avulso' ? 'AVULSO' : item.id,
+          description: item.nome,
+          ncm,
+          cfop,
+          unit: item.unidadeMedidaSigla || 'UN',
+          quantity: item.quantidade,
+          unitAmount: item.precoUnitario,
+          totalAmount: item.precoUnitario * item.quantidade,
+          unitTax: item.unidadeMedidaSigla || 'UN',
+          quantityTax: item.quantidade,
+          unitTaxAmount: item.precoUnitario,
+          makeupTotal: true,
+          taxes: {
+            icms: {
+              origin: origem,
+              csosn
+            },
+            pis: { cst: 7 },
+            cofins: { cst: 7 }
+          }
+        });
+      }
+
+      // 3. Destinatário
+      let receiver = undefined;
+      const isConsumidorFinal = clienteNome.toUpperCase() === 'CONSUMIDOR FINAL';
+
+      if (!isConsumidorFinal) {
+        const qClient = query(collection(db, 'clientes'), where('tenantId', '==', tenantId), where('nome', '==', clienteNome));
+        const snapClient = await getDocs(qClient);
+        if (!snapClient.empty) {
+          const cData = snapClient.docs[0].data();
+          const cDoc = (cData.documento || '').replace(/\D/g, '');
+          const cCep = (cData.cep || '01001-000').replace(/\D/g, '');
+          if (cDoc) {
+            receiver = {
+              name: clienteNome,
+              federalTaxNumber: cDoc,
+              email: cData.email || undefined,
+              address: {
+                street: cData.endereco || 'Rua Principal',
+                number: cData.numero || '123',
+                district: cData.bairro || 'Centro',
+                postalCode: cCep,
+                city: {
+                  code: cData.codigoIbge || '3550308',
+                  name: cData.cidade || 'São Paulo',
+                  state: cData.estado || 'SP'
+                }
+              }
+            };
+          }
+        }
+      }
+
+      if (!receiver) {
+        receiver = {
+          name: 'Consumidor Final',
+          federalTaxNumber: '12345678901',
+          address: {
+            street: 'Rua Principal',
+            number: '123',
+            district: 'Centro',
+            postalCode: '01001000',
+            city: {
+              code: '3550308',
+              name: 'São Paulo',
+              state: 'SP'
+            }
+          }
+        };
+      }
+
+      let spedyPayment = 'cash';
+      if (formaPagamento === 'Pix') spedyPayment = 'pix';
+      else if (formaPagamento.includes('Crédito')) spedyPayment = 'creditCard';
+      else if (formaPagamento.includes('Débito')) spedyPayment = 'debitCard';
+      else if (formaPagamento.includes('Prazo')) spedyPayment = 'other';
+
+      const spedyPayload = {
+        isFinalCustomer: true,
+        operationType: 'outgoing',
+        destination: 'internal',
+        presenceType: 'presence',
+        operationNature: 'Venda de Mercadoria',
+        sendEmailToCustomer: false,
+        integrationId: id,
+        receiver,
+        items: payloadItems,
+        payments: [
+          {
+            method: spedyPayment,
+            amount: valorTotalPedido
+          }
+        ],
+        total: {
+          invoiceAmount: valorTotalPedido,
+          productAmount: valorTotalItens
+        }
+      };
+
+      const { spedyService } = await import('../../services/spedyService');
+      const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload);
+
+      // Polling para aguardar autorização
+      NexusSwal.fire({
+        title: 'Autorizando Cupom na SEFAZ...',
+        text: 'Aguardando aprovação da nota fiscal eletrônica...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      let currentStatus = spedyNote.status;
+      let finalNote = spedyNote;
+      let attempts = 0;
+
+      while (['enqueued', 'processing', 'created'].includes(currentStatus) && attempts < 10) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        try {
+          finalNote = await spedyService.getConsumerInvoice(apiKey, env, spedyNote.id);
+          currentStatus = finalNote.status;
+        } catch (pollErr) {
+          console.warn("Erro ao consultar status do cupom fiscal:", pollErr);
+        }
+        attempts++;
+      }
+
+      // Salva referência local no Firestore
+      const newDocRef = await addDoc(collection(db, 'notas_fiscais'), {
+        spedyId: finalNote.id,
+        number: finalNote.number,
+        accessKey: finalNote.accessKey || null,
+        tipo: 'NFC-e',
+        clienteNome: clienteNome,
+        valor: valorTotalPedido,
+        status: finalNote.status,
+        processingMessage: finalNote.processingDetail?.message || null,
+        processingCode: finalNote.processingDetail?.code || null,
+        tenantId,
+        createdAt: serverTimestamp(),
+        data: new Date().toISOString(),
+        pedidoId: id
+      });
+
+      // Atualiza o estado local
+      setNfeDoc({
+        id: newDocRef.id,
+        spedyId: finalNote.id,
+        status: finalNote.status,
+        number: finalNote.number,
+        accessKey: finalNote.accessKey
+      });
+
+      Swal.close();
+
+      if (finalNote.status === 'authorized') {
+        const printResult = await NexusSwal.fire({
+          title: 'Cupom Fiscal Autorizado!',
+          text: 'Deseja abrir o DANFE (Cupom) para impressão?',
+          icon: 'success',
+          showCancelButton: true,
+          confirmButtonText: 'Sim, Abrir PDF',
+          cancelButtonText: 'Fechar e Voltar'
+        });
+
+        if (printResult.isConfirmed) {
+          const pdfUrl = spedyService.getPdfUrl(finalNote.id, 'consumer', env);
+          window.open(pdfUrl, '_blank');
+        }
+      } else if (['enqueued', 'processing', 'created'].includes(finalNote.status)) {
+        await NexusSwal.fire({
+          title: 'Cupom em Processamento',
+          text: 'O cupom fiscal foi enviado com sucesso, mas o retorno da SEFAZ está demorando. Você poderá consultá-lo e imprimir o PDF mais tarde no menu Fiscal.',
+          icon: 'info',
+          confirmButtonText: 'Entendido'
+        });
+      } else {
+        await NexusSwal.fire({
+          title: 'Cupom Fiscal Rejeitado',
+          text: `O cupom foi rejeitado pela SEFAZ: ${finalNote.processingDetail?.message || 'Motivo desconhecido.'} (Código: ${finalNote.processingDetail?.code || 'N/A'})`,
+          icon: 'error',
+          confirmButtonText: 'Entendido'
+        });
+      }
+
+    } catch (err) {
+      console.error(err);
+      showError('Falha ao emitir NFC-e', (err as Error).message || 'Não foi possível transmitir o cupom fiscal.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleOpenPdfCupom = async () => {
+    if (!nfeDoc) return;
+    const { spedyService } = await import('../../services/spedyService');
+    const pdfUrl = spedyService.getPdfUrl(nfeDoc.spedyId, 'consumer', spedyEnv);
+    window.open(pdfUrl, '_blank');
+  };
+
+  const handleConsultarCupomExistente = async () => {
+    if (!currentUser || !tenantId || !nfeDoc) return;
+    setIsLoading(true);
+    try {
+      const confRef = doc(db, 'configuracoes', tenantId);
+      const confSnap = await getDoc(confRef);
+      if (!confSnap.exists() || !confSnap.data().spedyApiKey) {
+        showError('Integração Inativa', 'O módulo da Spedy não está configurado.');
+        setIsLoading(false);
+        return;
+      }
+      const apiKey = confSnap.data().spedyApiKey;
+      const env = confSnap.data().spedyEnvironment || 'sandbox';
+
+      const { spedyService } = await import('../../services/spedyService');
+      const spedyNote = await spedyService.getConsumerInvoice(apiKey, env, nfeDoc.spedyId);
+
+      await updateDoc(doc(db, 'notas_fiscais', nfeDoc.id), {
+        status: spedyNote.status,
+        number: spedyNote.number,
+        accessKey: spedyNote.accessKey || null,
+        processingMessage: spedyNote.processingDetail?.message || null,
+        processingCode: spedyNote.processingDetail?.code || null
+      });
+
+      setNfeDoc({
+        ...nfeDoc,
+        status: spedyNote.status,
+        number: spedyNote.number,
+        accessKey: spedyNote.accessKey
+      });
+
+      showSuccess(`Status atualizado: ${spedyNote.status}`);
+    } catch (err) {
+      showError('Erro ao consultar', (err as Error).message || 'Erro ao atualizar nota.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleCancelarVenda = async () => {
     if (!currentUser || !id) return;
-    
+
     const temDevolucao = itens.some(item => (item.quantidadeJaDevolvida || 0) > 0);
     if (temDevolucao) {
       showError('Operação Bloqueada', 'Não é possível cancelar uma venda que já possui itens devolvidos. O cancelamento só é permitido caso nenhuma devolução tenha sido feita.');
@@ -368,7 +942,7 @@ const PedidoVendaForm: React.FC = () => {
     });
 
     if (!confirm.isConfirmed) return;
-    
+
     setIsLoading(true);
     try {
       // 1. Devolver Estoque
@@ -440,8 +1014,8 @@ const PedidoVendaForm: React.FC = () => {
           <div>
             <h1 className="page-title">{isViewing ? `Pedido de Venda #${numeroPedido}` : 'Frente de Caixa (PDV)'}</h1>
             <p className="page-subtitle">
-              {isViewing 
-                ? (status === 'Cancelada' ? 'Esta venda foi CANCELADA' : 'Detalhes do Pedido e Impressão') 
+              {isViewing
+                ? (status === 'Cancelada' ? 'Esta venda foi CANCELADA' : 'Detalhes do Pedido e Impressão')
                 : 'Ponto de venda rápido para itens e produtos'}
             </p>
           </div>
@@ -449,17 +1023,46 @@ const PedidoVendaForm: React.FC = () => {
         <div style={{ display: 'flex', gap: '12px' }}>
           {isViewing && status === 'Finalizada' && (
             <>
+              {/* Botão de NFC-e (Cupom Fiscal) */}
+              {!nfeDoc ? (
+                <button
+                  className="btn-primary"
+                  onClick={handleEmitirCupomVendaExistente}
+                  disabled={isLoading}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }}
+                >
+                  <Receipt size={18} /> Emitir Cupom Fiscal (NFC-e)
+                </button>
+              ) : nfeDoc.status === 'authorized' ? (
+                <button
+                  className="btn-primary"
+                  onClick={handleOpenPdfCupom}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981', borderColor: '#10b981' }}
+                >
+                  <Eye size={18} /> Imprimir Cupom (NFC-e)
+                </button>
+              ) : (
+                <button
+                  className="btn-primary"
+                  onClick={handleConsultarCupomExistente}
+                  disabled={isLoading}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}
+                >
+                  <RefreshCw size={18} /> Consultar Cupom (NFC-e)
+                </button>
+              )}
+
               <button className="btn-secondary" onClick={() => navigate(`/pedidos-venda/print/${id}`)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Printer size={18} /> Imprimir Recibo
               </button>
               {canEditVenda && (
-                <button 
-                  className="btn-secondary" 
-                  onClick={handleCancelarVenda} 
-                  disabled={isLoading || itens.some(item => (item.quantidadeJaDevolvida || 0) > 0)} 
-                  style={{ 
-                    display: 'flex', alignItems: 'center', gap: '8px', 
-                    color: itens.some(item => (item.quantidadeJaDevolvida || 0) > 0) ? 'var(--text-muted)' : '#ef4444', 
+                <button
+                  className="btn-secondary"
+                  onClick={handleCancelarVenda}
+                  disabled={isLoading || itens.some(item => (item.quantidadeJaDevolvida || 0) > 0)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    color: itens.some(item => (item.quantidadeJaDevolvida || 0) > 0) ? 'var(--text-muted)' : '#ef4444',
                     borderColor: itens.some(item => (item.quantidadeJaDevolvida || 0) > 0) ? 'var(--border-color)' : 'rgba(239,68,68,0.3)',
                     cursor: itens.some(item => (item.quantidadeJaDevolvida || 0) > 0) ? 'not-allowed' : 'pointer'
                   }}
@@ -480,10 +1083,10 @@ const PedidoVendaForm: React.FC = () => {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '24px', alignItems: 'start' }}>
-        
+
         {/* Lado Esquerdo: Carrinho e Busca */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          
+
           {/* Seção Cliente */}
           <div className="card form-section" style={{ padding: '24px' }}>
             <div className="section-header" style={{ marginBottom: '16px' }}>
@@ -492,20 +1095,20 @@ const PedidoVendaForm: React.FC = () => {
             </div>
             <div className="input-group" style={{ position: 'relative' }} ref={clientDropdownRef}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome do Cliente ou Consumidor Final *</label>
-              <input 
-                type="text" 
-                placeholder="Busque ou digite o nome do cliente..." 
-                value={clienteNome} 
-                onChange={(e) => { setClienteNome(e.target.value); setIsClientDropdownOpen(true); }} 
+              <input
+                type="text"
+                placeholder="Busque ou digite o nome do cliente..."
+                value={clienteNome}
+                onChange={(e) => { setClienteNome(e.target.value); setIsClientDropdownOpen(true); }}
                 onFocus={() => setIsClientDropdownOpen(true)}
                 disabled={isViewing}
-                autoComplete="off" 
+                autoComplete="off"
                 style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
               />
               {!isViewing && isClientDropdownOpen && clientesDisponiveis.filter(c => c.nome.toLowerCase().includes(clienteNome.toLowerCase())).length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', maxHeight: '200px', overflowY: 'auto', zIndex: 50, boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
                   {clientesDisponiveis.filter(c => c.nome.toLowerCase().includes(clienteNome.toLowerCase())).map(c => (
-                    <div 
+                    <div
                       key={c.id}
                       onClick={() => { setClienteNome(c.nome); setIsClientDropdownOpen(false); }}
                       style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}
@@ -528,12 +1131,12 @@ const PedidoVendaForm: React.FC = () => {
                 <Package size={20} className="section-icon" />
                 <h3>Adicionar Produto</h3>
               </div>
-              
+
               <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                 <div style={{ flex: '2', position: 'relative', minWidth: '200px' }} ref={produtoDropdownRef}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Buscar Produto</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     placeholder="Nome ou Código..."
                     value={produtoBusca}
                     onChange={(e) => {
@@ -554,13 +1157,13 @@ const PedidoVendaForm: React.FC = () => {
                   {isProdutoDropdownOpen && produtosCatalogo.filter(p => p.nome.toLowerCase().includes(produtoBusca.toLowerCase()) || p.codigo.includes(produtoBusca)).length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', maxHeight: '250px', overflowY: 'auto', zIndex: 50, boxShadow: '0 4px 15px rgba(0,0,0,0.5)' }}>
                       {produtosCatalogo.filter(p => p.nome.toLowerCase().includes(produtoBusca.toLowerCase()) || p.codigo.includes(produtoBusca)).map(p => (
-                        <div 
+                        <div
                           key={p.id}
-                          onClick={() => { 
-                            setProdutoBusca(p.nome); 
-                            setProdutoPreco(p.precoVenda); 
+                          onClick={() => {
+                            setProdutoBusca(p.nome);
+                            setProdutoPreco(p.precoVenda);
                             setProdutoSelecionado(p);
-                            setIsProdutoDropdownOpen(false); 
+                            setIsProdutoDropdownOpen(false);
                           }}
                           style={{ padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: '13px', alignItems: 'center', gap: '12px' }}
                           onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
@@ -583,16 +1186,16 @@ const PedidoVendaForm: React.FC = () => {
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
                     Qtd {produtoSelecionado?.unidadeMedidaSigla ? `(${produtoSelecionado.unidadeMedidaSigla})` : ''}
                   </label>
-                  <input 
-                    type="number" 
-                    min="0.001" 
-                    step={produtoSelecionado?.unidadeMedidaFracionado ? "any" : "1"} 
-                    value={produtoQtd} 
-                    onChange={(e) => setProdutoQtd(e.target.value)} 
-                    style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
+                  <input
+                    type="number"
+                    min="0.001"
+                    step={produtoSelecionado?.unidadeMedidaFracionado ? "any" : "1"}
+                    value={produtoQtd}
+                    onChange={(e) => setProdutoQtd(e.target.value)}
+                    style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
                   />
                 </div>
-                
+
                 <div style={{ flex: '0.8', minWidth: '100px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Preço Unt.</label>
                   <input type="number" step="0.01" value={produtoPreco} onChange={(e) => setProdutoPreco(Number(e.target.value))} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
@@ -613,7 +1216,7 @@ const PedidoVendaForm: React.FC = () => {
           {/* Carrinho de Compras */}
           <div className="card form-section" style={{ padding: '24px' }}>
             <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: 600 }}>Itens da Venda</h3>
-            
+
             <div className="table-wrapper">
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
                 <thead>
@@ -661,10 +1264,10 @@ const PedidoVendaForm: React.FC = () => {
 
         {/* Lado Direito: Resumo e Pagamento */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          
+
           <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
             <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '24px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>Resumo da Venda</h3>
-            
+
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: 'var(--text-secondary)', alignItems: 'center' }}>
               <span>Total Itens:</span>
               <span>R$ {valorTotalItens.toFixed(2)}</span>
@@ -678,14 +1281,14 @@ const PedidoVendaForm: React.FC = () => {
               {isViewing ? (
                 <span>R$ {frete.toFixed(2)}</span>
               ) : (
-                <input 
-                  type="number" 
-                  step="0.01" 
+                <input
+                  type="number"
+                  step="0.01"
                   min="0"
                   placeholder="0.00"
-                  value={frete || ''} 
+                  value={frete || ''}
                   onChange={(e) => setFrete(Math.max(0, Number(e.target.value)))}
-                  style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }} 
+                  style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }}
                 />
               )}
             </div>
@@ -694,14 +1297,14 @@ const PedidoVendaForm: React.FC = () => {
               {isViewing ? (
                 <span>R$ {encargos.toFixed(2)}</span>
               ) : (
-                <input 
-                  type="number" 
-                  step="0.01" 
+                <input
+                  type="number"
+                  step="0.01"
                   min="0"
                   placeholder="0.00"
-                  value={encargos || ''} 
+                  value={encargos || ''}
                   onChange={(e) => setEncargos(Math.max(0, Number(e.target.value)))}
-                  style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }} 
+                  style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }}
                 />
               )}
             </div>
@@ -713,7 +1316,7 @@ const PedidoVendaForm: React.FC = () => {
 
           <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
             <h3 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '16px', textTransform: 'uppercase', color: 'var(--accent-purple)' }}>Forma de Pagamento</h3>
-            
+
             {isViewing ? (
                <div style={{ padding: '16px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '8px', fontSize: '16px', fontWeight: 600, textAlign: 'center' }}>
                  {formaPagamento}
@@ -733,7 +1336,7 @@ const PedidoVendaForm: React.FC = () => {
                   }
                   return true;
                 }).map(metodo => (
-                  <div 
+                  <div
                     key={metodo.value}
                     onClick={() => setFormaPagamento(metodo.value)}
                     style={{
@@ -754,9 +1357,9 @@ const PedidoVendaForm: React.FC = () => {
                 ))}
               </div>
             )}
-            
+
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '16px', textAlign: 'center' }}>
-              {(formaPagamento === 'Dinheiro' || formaPagamento === 'Pix') 
+              {(formaPagamento === 'Dinheiro' || formaPagamento === 'Pix')
                 ? <span style={{ color: '#10b981' }}>✓ Irá somar no Caixa Principal.</span>
                 : <span style={{ color: '#f59e0b' }}>ℹ️ Irá para o Contas a Receber.</span>}
             </div>

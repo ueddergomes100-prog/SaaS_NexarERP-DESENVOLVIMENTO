@@ -27,7 +27,8 @@ import {
   Printer,
   RotateCcw,
   Scale,
-  ShieldAlert
+  ShieldAlert,
+  Database
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import './Layout.css';
@@ -175,6 +176,10 @@ const Sidebar: React.FC = () => {
                 <NavLink to="/superadmin" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                   <Users size={20} />
                   <span>Carteira de Clientes</span>
+                </NavLink>
+                <NavLink to="/superadmin/backup" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                  <Database size={20} />
+                  <span>Backup e Restauração</span>
                 </NavLink>
               </>
             ) : (
@@ -537,10 +542,16 @@ const Sidebar: React.FC = () => {
                   <div className={`nav-group-items ${isExpanded('configuracoes') ? 'open' : ''}`}>
                     <div className="nav-group-items-inner">
                       {((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('administrativo.config')) && (
-                        <NavLink to="/configuracoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Settings size={20} />
-                          <span>Configurações Gerais</span>
-                        </NavLink>
+                        <>
+                          <NavLink to="/configuracoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                            <Settings size={20} />
+                            <span>Configurações Gerais</span>
+                          </NavLink>
+                          <NavLink to="/superadmin/backup" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                            <Database size={20} />
+                            <span>Backup e Restauração</span>
+                          </NavLink>
+                        </>
                       )}
                     </div>
                   </div>

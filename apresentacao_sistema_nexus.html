@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apresentação das Funcionalidades — Sistema Nexus</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        :root {
+            --primary-color: #8b5cf6; /* Roxo */
+            --secondary-color: #3b82f6; /* Azul */
+            --text-dark: #1e1b4b; /* Azul escuro quase preto */
+            --text-muted: #64748b;
+            --bg-light: #f8fafc;
+            --border-color: #e2e8f0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            color: var(--text-dark);
+            background-color: #f1f5f9;
+            line-height: 1.6;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        /* Container da folha A4 */
+        .pdf-container {
+            max-width: 800px;
+            margin: 40px auto;
+            background: #ffffff;
+            padding: 60px 50px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            border-radius: 16px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Elemento decorativo superior */
+        .top-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 6px;
+            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+        }
+
+        /* Cabeçalho */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 30px;
+            margin-bottom: 40px;
+        }
+
+        .logo-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 45px;
+            height: 45px;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            font-weight: 800;
+            font-size: 24px;
+            box-shadow: 0 4px 10px rgba(139, 92, 246, 0.3);
+        }
+
+        .logo-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logo-title {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .logo-subtitle {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .document-title {
+            text-align: right;
+        }
+
+        .document-title h1 {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-dark);
+        }
+
+        .document-title p {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* Intro */
+        .intro-section {
+            margin-bottom: 35px;
+        }
+
+        .intro-section h2 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--text-dark);
+        }
+
+        .intro-section p {
+            font-size: 14.5px;
+            color: #475569;
+        }
+
+        /* Grid de Módulos */
+        .modules-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        .module-card {
+            background-color: var(--bg-light);
+            border-left: 4px solid var(--primary-color);
+            border-radius: 0 12px 12px 0;
+            padding: 18px 24px;
+            border: 1px solid var(--border-color);
+            border-left-width: 4px;
+            transition: all 0.2s ease;
+        }
+
+        /* Alternar a borda entre Roxo e Azul para um design mais dinâmico */
+        .module-card:nth-child(even) {
+            border-left-color: var(--secondary-color);
+        }
+
+        .module-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+
+        .module-number {
+            font-size: 12px;
+            font-weight: 700;
+            color: #ffffff;
+            background: var(--text-dark);
+            padding: 2px 8px;
+            border-radius: 20px;
+        }
+
+        .module-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        .module-description {
+            font-size: 13.5px;
+            color: #475569;
+            margin-bottom: 8px;
+        }
+
+        .module-benefit {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--primary-color);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .module-card:nth-child(even) .module-benefit {
+            color: var(--secondary-color);
+        }
+
+        /* Rodapé */
+        .footer {
+            margin-top: 50px;
+            border-top: 1px solid var(--border-color);
+            padding-top: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .footer-brand {
+            font-weight: 600;
+        }
+
+        /* Botão Flutuante de Ação (Apenas Visualização Web) */
+        .print-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 30px;
+            font-weight: 600;
+            font-size: 15px;
+            cursor: pointer;
+            box-shadow: 0 10px 20px rgba(139, 92, 246, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+            z-index: 100;
+        }
+
+        .print-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(139, 92, 246, 0.4);
+        }
+
+        /* Ajustes de Impressão */
+        @media print {
+            body {
+                background: #ffffff;
+            }
+            .pdf-container {
+                margin: 0;
+                padding: 0;
+                box-shadow: none;
+                max-width: 100%;
+            }
+            .print-btn {
+                display: none;
+            }
+            /* Evita quebras de páginas no meio de um card */
+            .module-card {
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Botão de ação (oculto na impressão) -->
+    <button class="print-btn" onclick="window.print()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
+        </svg>
+        Salvar / Imprimir PDF
+    </button>
+
+    <div class="pdf-container">
+        <div class="top-bar"></div>
+
+        <!-- Cabeçalho -->
+        <div class="header">
+            <div class="logo-area">
+                <div class="logo-icon">N</div>
+                <div class="logo-text">
+                    <span class="logo-title">Nexus Company</span>
+                    <span class="logo-subtitle">Sistemas de Gestão</span>
+                </div>
+            </div>
+            <div class="document-title">
+                <h1>Portfólio de Soluções</h1>
+                <p>Apresentação das Funcionalidades</p>
+            </div>
+        </div>
+
+        <!-- Introdução -->
+        <div class="intro-section">
+            <h2>Gestão empresarial simples, inteligente e integrada.</h2>
+            <p>O <strong>Sistema Nexus</strong> centraliza todas as áreas vitais da sua empresa em uma única plataforma na nuvem. Automatize processos operacionais, tenha controle absoluto sobre suas finanças e aumente a produtividade da sua equipe com um sistema projetado para impulsionar seus resultados.</p>
+        </div>
+
+        <!-- Módulos -->
+        <div class="modules-grid">
+            
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-title">📊 Painel de Controle (Dashboard)</span>
+                </div>
+                <p class="module-description">Centralização de métricas de vendas, faturamento, despesas e status de ordens de serviço em gráficos de fácil leitura e atualizados em tempo real.</p>
+                <div class="module-benefit">✓ Decisões ágeis baseadas em dados reais do seu negócio.</div>
+            </div>
+
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-title">💼 Gestão de Vendas & Pedidos</span>
+                </div>
+                <p class="module-description">Controle do ciclo de vendas completo, permitindo o registro de pedidos de mercadorias, geração de comprovantes e acompanhamento de devoluções.</p>
+                <div class="module-benefit">✓ Processo de vendas rápido, seguro e sem gargalos operacionais.</div>
+            </div>
+
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-title">📝 Propostas & Orçamentos</span>
+                </div>
+                <p class="module-description">Criação rápida de propostas de produtos ou serviços que podem ser impressas ou enviadas via WhatsApp, com conversão imediata para pedido assim que aprovadas.</p>
+                <div class="module-benefit">✓ Agilidade no envio de preços e maior taxa de fechamento com clientes.</div>
+            </div>
+
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-title">🔧 Ordens de Serviço (OS)</span>
+                </div>
+                <p class="module-description">Sistema robusto para gerenciar a execução de serviços, permitindo o acompanhamento de status, vinculação de técnicos, peças aplicadas e datas de entrega.</p>
+                <div class="module-benefit">✓ Total transparência no acompanhamento técnico e organização de prazos.</div>
+            </div>
+
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-title">🚗 Módulo de Veículos (Oficinas e Mecânicas)</span>
+                </div>
+                <p class="module-description">Histórico individualizado por veículo vinculado ao cliente. Rastreie as revisões, peças substituídas e manutenções efetuadas anteriormente.</p>
+                <div class="module-benefit">✓ Diagnósticos mais precisos e fidelização por meio do histórico de manutenção.</div>
+            </div>
+
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-title">📦 Gestão de Estoque</span>
+                </div>
+                <p class="module-description">Controle rígido de entrada e saída de produtos, inventário, definição de estoque mínimo para reposição e organização por categorias e unidades.</p>
+                <div class="module-benefit">✓ Evite capital parado no estoque ou a perda de vendas por falta de mercadoria.</div>
+            </div>
+
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-title">💰 Módulo Financeiro Integrado</span>
+                </div>
+                <p class="module-description">Controle de caixa diário, contas a pagar a fornecedores, contas a receber de clientes e ferramentas completas para análise de faturamento.</p>
+                <div class="module-benefit">✓ Saúde financeira sob controle e segurança no fluxo de caixa futuro.</div>
+            </div>
+
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-title">👥 Cadastro de Clientes e CRM</span>
+                </div>
+                <p class="module-description">Perfil detalhado de cada cliente com dados de contato, históricos de compras e agendamentos de forma centralizada.</p>
+                <div class="module-benefit">✓ Atendimento de excelência através do histórico detalhado de cada consumidor.</div>
+            </div>
+
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-title">📅 Agenda Inteligente & Lembretes</span>
+                </div>
+                <p class="module-description">Calendário integrado para agendamento de atendimentos e compromissos com alertas automáticos para que sua equipe nunca perca uma entrega ou prazo.</p>
+                <div class="module-benefit">✓ Organização profissional da equipe e cumprimento rigoroso de prazos.</div>
+            </div>
+
+            <div class="module-card">
+                <div class="module-header">
+                    <span class="module-title">🧾 Emissão Fiscal (NF-e)</span>
+                </div>
+                <p class="module-description">Emissão e envio simplificado de Notas Fiscais Eletrônicas diretamente através do sistema, reduzindo burocracia e erros manuais.</p>
+                <div class="module-benefit">✓ Total conformidade legal com rapidez e economia de tempo.</div>
+            </div>
+
+        </div>
+
+        <!-- Rodapé -->
+        <div class="footer">
+            <p>Gerado automaticamente pelo sistema de portfólio Nexus Company.</p>
+            <p class="footer-brand">Sistema Nexus — Prontos para o futuro.</p>
+        </div>
+    </div>
+
+</body>
+</html>

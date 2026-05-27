@@ -15,9 +15,10 @@ const Configuracoes: React.FC = () => {
   const [showPermissoes, setShowPermissoes] = useState(false);
   const [showPlanoContas, setShowPlanoContas] = useState(false);
   const [showConfigAvancadas, setShowConfigAvancadas] = useState(false);
+  const [showSpedy, setShowSpedy] = useState(false);
   const [novaReceitaInput, setNovaReceitaInput] = useState('');
   const [novaDespesaInput, setNovaDespesaInput] = useState('');
-  
+
   // Controle de permissões
   const [tenantUsers, setTenantUsers] = useState<any[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
@@ -42,6 +43,9 @@ const Configuracoes: React.FC = () => {
     diasCrediario: '30',
     planoContasReceitas: ['Serviços', 'Venda de Peças', 'Outras Receitas'],
     planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Peças', 'Marketing', 'Manutenção', 'Outros'],
+    spedyEnabled: false,
+    spedyApiKey: '',
+    spedyEnvironment: 'sandbox'
   });
 
   useEffect(() => {
@@ -63,7 +67,10 @@ const Configuracoes: React.FC = () => {
             venderSemEstoque: data.venderSemEstoque ?? false,
             diasCrediario: data.diasCrediario ?? '30',
             planoContasReceitas: receitas,
-            planoContasDespesas: despesas
+            planoContasDespesas: despesas,
+            spedyEnabled: data.spedyEnabled ?? false,
+            spedyApiKey: data.spedyApiKey ?? '',
+            spedyEnvironment: data.spedyEnvironment ?? 'sandbox'
           } as any);
           setIsEditingMode(false);
         } else {
@@ -132,7 +139,7 @@ const Configuracoes: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
-    
+
     if (formData.cnpj) {
       const cnpjLimpo = formData.cnpj.replace(/\D/g, '');
       if (cnpjLimpo.length !== 14) {
@@ -140,7 +147,7 @@ const Configuracoes: React.FC = () => {
         return;
       }
     }
-    
+
     setIsLoading(true);
     try {
       const docRef = doc(db, 'configuracoes', tenantId || '');
@@ -149,7 +156,7 @@ const Configuracoes: React.FC = () => {
         tenantId,
         updatedAt: serverTimestamp(),
       }, { merge: true });
-      
+
       setIsEditingMode(false);
       setShowSuccessAnim(true);
       setTimeout(() => setShowSuccessAnim(false), 2000);
@@ -182,7 +189,7 @@ const Configuracoes: React.FC = () => {
   };
 
   const togglePermission = (perm: string) => {
-    setSelectedUserPermissions(prev => 
+    setSelectedUserPermissions(prev =>
       prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]
     );
   };
@@ -199,15 +206,15 @@ const Configuracoes: React.FC = () => {
         comissaoPercentualPecas: comissaoPercentualPecas
       });
       // Atualiza o estado local para não perder
-      setTenantUsers(prev => prev.map(u => u.id === selectedUserId ? { 
-        ...u, 
+      setTenantUsers(prev => prev.map(u => u.id === selectedUserId ? {
+        ...u,
         permissoes: selectedUserPermissions,
         recebeComissaoServicos: recebeComissaoServicos,
         comissaoPercentualServicos: comissaoPercentualServicos,
         recebeComissaoPecas: recebeComissaoPecas,
-        comissaoPercentualPecas: comissaoPercentualPecas 
+        comissaoPercentualPecas: comissaoPercentualPecas
       } : u));
-      
+
       setShowSuccessAnim(true);
       showSuccess('Permissões e regras salvas com sucesso!');
       setTimeout(() => setShowSuccessAnim(false), 2000);
@@ -232,19 +239,19 @@ const Configuracoes: React.FC = () => {
           <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Dados da oficina e preferências do sistema</p>
         </div>
         {isEditingMode ? (
-          <button 
-            className="btn-primary" 
-            onClick={handleSave} 
-            disabled={isLoading} 
+          <button
+            className="btn-primary"
+            onClick={handleSave}
+            disabled={isLoading}
             style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center' }}
           >
             {isLoading ? <Loader2 size={18} className="spin-icon" style={{ marginRight: 8 }} /> : <Save size={18} style={{ marginRight: 8 }} />}
             {isLoading ? 'Salvando...' : 'Salvar Alterações'}
           </button>
         ) : (
-          <button 
-            className="btn-secondary" 
-            onClick={() => setIsEditingMode(true)} 
+          <button
+            className="btn-secondary"
+            onClick={() => setIsEditingMode(true)}
             style={{ display: 'flex', alignItems: 'center', borderColor: 'var(--accent-purple)', color: 'var(--accent-purple)' }}
           >
             <Edit2 size={18} style={{ marginRight: 8 }} />
@@ -269,7 +276,7 @@ const Configuracoes: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px', maxWidth: '800px', opacity: isEditingMode ? 1 : 0.4, filter: isEditingMode ? 'none' : 'grayscale(60%) blur(1px)', transition: 'all 0.4s ease', pointerEvents: isEditingMode ? 'auto' : 'none' }}>
         {/* Dados da Oficina */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div 
+          <div
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showDadosOficina ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
             onClick={() => setShowDadosOficina(!showDadosOficina)}
           >
@@ -281,7 +288,7 @@ const Configuracoes: React.FC = () => {
               {showDadosOficina ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
             </button>
           </div>
-          
+
           {showDadosOficina && (
             <>
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
@@ -306,15 +313,15 @@ const Configuracoes: React.FC = () => {
                       <label htmlFor="logo-upload" className="btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '8px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
                         <Plus size={16} /> Carregar Logo
                       </label>
-                      <input 
-                        id="logo-upload" 
-                        type="file" 
-                        accept="image/png, image/jpeg, image/jpg" 
+                      <input
+                        id="logo-upload"
+                        type="file"
+                        accept="image/png, image/jpeg, image/jpg"
                         style={{ display: 'none' }}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           if (file) {
-                            if (file.size > 1024 * 1024 * 2) { 
+                            if (file.size > 1024 * 1024 * 2) {
                               showError('Erro', 'A imagem deve ter no máximo 2MB.');
                               return;
                             }
@@ -335,26 +342,26 @@ const Configuracoes: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome da Oficina Fantasia</label>
-              <input 
-                type="text" 
-                name="nomeOficina" 
-                placeholder="Ex: Auto Center Nexar" 
-                value={formData.nomeOficina} 
-                onChange={handleChange} 
+              <input
+                type="text"
+                name="nomeOficina"
+                placeholder="Ex: Auto Center Nexar"
+                value={formData.nomeOficina}
+                onChange={handleChange}
                 disabled={!isEditingMode}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome de Usuário (Aparecerá no Topo)</label>
-              <input 
-                type="text" 
-                name="nomeUsuario" 
-                placeholder="Ex: Carlos (Admin)" 
-                value={formData.nomeUsuario} 
-                onChange={handleChange} 
+              <input
+                type="text"
+                name="nomeUsuario"
+                placeholder="Ex: Carlos (Admin)"
+                value={formData.nomeUsuario}
+                onChange={handleChange}
                 disabled={!isEditingMode}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
             </div>
           </div>
@@ -362,11 +369,11 @@ const Configuracoes: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>CNPJ da Empresa</label>
-              <input 
-                type="text" 
-                name="cnpj" 
-                placeholder="00.000.000/0000-00" 
-                value={formData.cnpj} 
+              <input
+                type="text"
+                name="cnpj"
+                placeholder="00.000.000/0000-00"
+                value={formData.cnpj}
                 onChange={(e) => {
                   const val = e.target.value.replace(/\D/g, '');
                   let formatted = val;
@@ -380,7 +387,7 @@ const Configuracoes: React.FC = () => {
                 }}
                 maxLength={18}
                 disabled={!isEditingMode}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
             </div>
           </div>
@@ -388,40 +395,40 @@ const Configuracoes: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Telefone / WhatsApp</label>
-              <input 
-                type="text" 
-                name="telefone" 
-                placeholder="(00) 00000-0000" 
-                value={formData.telefone} 
-                onChange={handleChange} 
+              <input
+                type="text"
+                name="telefone"
+                placeholder="(00) 00000-0000"
+                value={formData.telefone}
+                onChange={handleChange}
                 disabled={!isEditingMode}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>E-mail</label>
-              <input 
-                type="email" 
-                name="email" 
-                placeholder="contato@oficina.com" 
-                value={formData.email} 
-                onChange={handleChange} 
+              <input
+                type="email"
+                name="email"
+                placeholder="contato@oficina.com"
+                value={formData.email}
+                onChange={handleChange}
                 disabled={!isEditingMode}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
             </div>
           </div>
 
           <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Endereço Completo</label>
-            <input 
-              type="text" 
-              name="endereco" 
-              placeholder="Rua Exemplo, 123 - Bairro, Cidade - UF" 
-              value={formData.endereco} 
-              onChange={handleChange} 
+            <input
+              type="text"
+              name="endereco"
+              placeholder="Rua Exemplo, 123 - Bairro, Cidade - UF"
+              value={formData.endereco}
+              onChange={handleChange}
               disabled={!isEditingMode}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
             />
           </div>
             </>
@@ -434,17 +441,17 @@ const Configuracoes: React.FC = () => {
             <FileText size={20} style={{ color: 'var(--accent-purple)' }} />
             <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Textos Padrões (OS)</h3>
           </div>
-          
+
           <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Termo de Garantia Padrão (Aparecerá na impressão da OS)</label>
-            <textarea 
-              name="garantiaPadrao" 
+            <textarea
+              name="garantiaPadrao"
               rows={4}
-              placeholder="Ex: Garantia de 90 dias sobre a mão de obra. As peças possuem garantia do fabricante..." 
-              value={formData.garantiaPadrao} 
-              onChange={handleChange} 
+              placeholder="Ex: Garantia de 90 dias sobre a mão de obra. As peças possuem garantia do fabricante..."
+              value={formData.garantiaPadrao}
+              onChange={handleChange}
               disabled={!isEditingMode}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', resize: 'vertical' }} 
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', resize: 'vertical' }}
             />
           </div>
         </div>
@@ -455,15 +462,15 @@ const Configuracoes: React.FC = () => {
             <Bell size={20} style={{ color: 'var(--accent-purple)' }} />
             <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Notificações CRM</h3>
           </div>
-          
+
           <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Avisar Lembretes Preventivos com antecedência de:</label>
-            <select 
-              name="diasNotificacaoLembrete" 
-              value={formData.diasNotificacaoLembrete} 
-              onChange={handleChange} 
+            <select
+              name="diasNotificacaoLembrete"
+              value={formData.diasNotificacaoLembrete}
+              onChange={handleChange}
               disabled={!isEditingMode}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', maxWidth: '300px' }} 
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', maxWidth: '300px' }}
             >
               <option value="15">15 Dias antes</option>
               <option value="30">30 Dias antes</option>
@@ -475,7 +482,7 @@ const Configuracoes: React.FC = () => {
 
         {/* Plano de Contas */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div 
+          <div
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showPlanoContas ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
             onClick={() => setShowPlanoContas(!showPlanoContas)}
           >
@@ -487,23 +494,23 @@ const Configuracoes: React.FC = () => {
               {showPlanoContas ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
             </button>
           </div>
-          
+
           {showPlanoContas && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-              
+
               {/* Receitas */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#10b981', margin: 0, paddingBottom: '8px', borderBottom: '1px solid rgba(16, 185, 129, 0.2)' }}>Categorias de Receita</h4>
-                
+
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <input 
-                    type="text" 
-                    placeholder="Nova categoria de receita..." 
-                    value={novaReceitaInput} 
-                    onChange={(e) => setNovaReceitaInput(e.target.value)} 
+                  <input
+                    type="text"
+                    placeholder="Nova categoria de receita..."
+                    value={novaReceitaInput}
+                    onChange={(e) => setNovaReceitaInput(e.target.value)}
                     disabled={!isEditingMode}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddReceita())}
-                    style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)', fontSize: '13px' }} 
+                    style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)', fontSize: '13px' }}
                   />
                   <button type="button" onClick={handleAddReceita} disabled={!isEditingMode || !novaReceitaInput.trim()} style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: 'var(--radius-md)', padding: '0 12px', cursor: (!isEditingMode || !novaReceitaInput.trim()) ? 'not-allowed' : 'pointer', opacity: (!isEditingMode || !novaReceitaInput.trim()) ? 0.5 : 1 }}>
                     <Plus size={18} />
@@ -528,16 +535,16 @@ const Configuracoes: React.FC = () => {
               {/* Despesas */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#ef4444', margin: 0, paddingBottom: '8px', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>Categorias de Despesa</h4>
-                
+
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <input 
-                    type="text" 
-                    placeholder="Nova categoria de despesa..." 
-                    value={novaDespesaInput} 
-                    onChange={(e) => setNovaDespesaInput(e.target.value)} 
+                  <input
+                    type="text"
+                    placeholder="Nova categoria de despesa..."
+                    value={novaDespesaInput}
+                    onChange={(e) => setNovaDespesaInput(e.target.value)}
                     disabled={!isEditingMode}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddDespesa())}
-                    style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)', fontSize: '13px' }} 
+                    style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)', fontSize: '13px' }}
                   />
                   <button type="button" onClick={handleAddDespesa} disabled={!isEditingMode || !novaDespesaInput.trim()} style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 'var(--radius-md)', padding: '0 12px', cursor: (!isEditingMode || !novaDespesaInput.trim()) ? 'not-allowed' : 'pointer', opacity: (!isEditingMode || !novaDespesaInput.trim()) ? 0.5 : 1 }}>
                     <Plus size={18} />
@@ -568,7 +575,7 @@ const Configuracoes: React.FC = () => {
 
         {/* Configurações Avançadas */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div 
+          <div
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showConfigAvancadas ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
             onClick={() => setShowConfigAvancadas(!showConfigAvancadas)}
           >
@@ -580,16 +587,16 @@ const Configuracoes: React.FC = () => {
               {showConfigAvancadas ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
             </button>
           </div>
-          
+
           {showConfigAvancadas && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Permitir Venda Sem Estoque</label>
                 <div style={{ display: 'flex', gap: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
-                    <input 
-                      type="radio" 
-                      name="venderSemEstoque" 
+                    <input
+                      type="radio"
+                      name="venderSemEstoque"
                       checked={formData.venderSemEstoque === true}
                       onChange={() => setFormData({ ...formData, venderSemEstoque: true })}
                       disabled={!isEditingMode}
@@ -598,9 +605,9 @@ const Configuracoes: React.FC = () => {
                     Sim
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
-                    <input 
-                      type="radio" 
-                      name="venderSemEstoque" 
+                    <input
+                      type="radio"
+                      name="venderSemEstoque"
                       checked={formData.venderSemEstoque === false}
                       onChange={() => setFormData({ ...formData, venderSemEstoque: false })}
                       disabled={!isEditingMode}
@@ -614,14 +621,14 @@ const Configuracoes: React.FC = () => {
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Dias de Crediário Padrão</label>
-                <input 
-                  type="text" 
-                  name="diasCrediario" 
+                <input
+                  type="text"
+                  name="diasCrediario"
                   placeholder="Ex: 15, 30, 45"
-                  value={formData.diasCrediario} 
-                  onChange={handleChange} 
+                  value={formData.diasCrediario}
+                  onChange={handleChange}
                   disabled={!isEditingMode}
-                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
+                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
                 />
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Intervalo de dias (ex: "30" ou "15, 30, 45") usado para preencher os vencimentos ao finalizar vendas a prazo.</p>
               </div>
@@ -629,9 +636,75 @@ const Configuracoes: React.FC = () => {
           )}
         </div>
 
+        {/* Configuração de Nota Fiscal (Spedy) */}
+        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showSpedy ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+            onClick={() => setShowSpedy(!showSpedy)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <FileText size={20} style={{ color: 'var(--accent-purple)' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Configuração de Nota Fiscal (Spedy)</h3>
+            </div>
+            <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {showSpedy ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
+          </div>
+
+          {showSpedy && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
+              <div className="input-group" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <input
+                  type="checkbox"
+                  name="spedyEnabled"
+                  id="spedyEnabled"
+                  checked={formData.spedyEnabled || false}
+                  onChange={(e) => setFormData({ ...formData, spedyEnabled: e.target.checked })}
+                  disabled={!isEditingMode}
+                  style={{ width: '18px', height: '18px', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
+                />
+                <label htmlFor="spedyEnabled" style={{ fontSize: '14px', color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 600 }}>Habilitar Emissão de Notas Fiscais (Spedy)</label>
+              </div>
+
+              {formData.spedyEnabled && (
+                <>
+                  <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Ambiente</label>
+                    <select
+                      name="spedyEnvironment"
+                      value={formData.spedyEnvironment || 'sandbox'}
+                      onChange={handleChange}
+                      disabled={!isEditingMode}
+                      style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', maxWidth: '300px' }}
+                    >
+                      <option value="sandbox">Sandbox (Homologação / Testes)</option>
+                      <option value="production">Produção (Valor Fiscal Real)</option>
+                    </select>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>O ambiente de Sandbox permite simular emissões sem valor fiscal real.</p>
+                  </div>
+
+                  <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Spedy API Key (Chave da Empresa)</label>
+                    <input
+                      type="password"
+                      name="spedyApiKey"
+                      placeholder="Insira a chave obtida no painel Spedy"
+                      value={formData.spedyApiKey || ''}
+                      onChange={handleChange}
+                      disabled={!isEditingMode}
+                      style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+                    />
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Esta chave é única por empresa (CNPJ) e pode ser encontrada no painel da Spedy.</p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Permissão de Usuários */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div 
+          <div
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showPermissoes ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
             onClick={() => setShowPermissoes(!showPermissoes)}
           >
@@ -643,19 +716,19 @@ const Configuracoes: React.FC = () => {
               {showPermissoes ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
             </button>
           </div>
-          
+
           {showPermissoes && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
                 Selecione um usuário da sua oficina para liberar ou bloquear o acesso aos módulos do sistema.
               </p>
-              
+
               <div className="input-group">
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Selecionar Usuário</label>
-                <select 
-                  value={selectedUserId} 
+                <select
+                  value={selectedUserId}
                   onChange={handleUserSelect}
-                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
+                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
                 >
                   <option value="">-- Escolha um usuário --</option>
                   {tenantUsers.map(u => (
@@ -666,19 +739,19 @@ const Configuracoes: React.FC = () => {
 
               {selectedUserId && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                  
+
                   {/* Bloco de Comissões */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>
                     <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }}></span>
                       Regras de Comissão
                     </h4>
-                    
+
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)' }}>
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             checked={recebeComissaoServicos}
                             onChange={(e) => setRecebeComissaoServicos(e.target.checked)}
                             style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
@@ -689,8 +762,8 @@ const Configuracoes: React.FC = () => {
                         {recebeComissaoServicos && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Porcentagem (%):</label>
-                            <input 
-                              type="number" 
+                            <input
+                              type="number"
                               min="0"
                               max="100"
                               value={comissaoPercentualServicos}
@@ -703,8 +776,8 @@ const Configuracoes: React.FC = () => {
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)' }}>
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             checked={recebeComissaoPecas}
                             onChange={(e) => setRecebeComissaoPecas(e.target.checked)}
                             style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
@@ -715,8 +788,8 @@ const Configuracoes: React.FC = () => {
                         {recebeComissaoPecas && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Porcentagem (%):</label>
-                            <input 
-                              type="number" 
+                            <input
+                              type="number"
                               min="0"
                               max="100"
                               value={comissaoPercentualPecas}
@@ -735,7 +808,7 @@ const Configuracoes: React.FC = () => {
                       <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-purple)' }}></span>
                       Módulos Permitidos
                     </h4>
-                  
+
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px', marginTop: '16px' }}>
                     {[
                       { id: 'dashboard.valores', label: 'Dashboard: Visão Financeira', color: '#10b981' },
@@ -771,21 +844,21 @@ const Configuracoes: React.FC = () => {
                     ].map(mod => {
                       const isChecked = selectedUserPermissions.includes(mod.id);
                       return (
-                        <label key={mod.id} style={{ 
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', 
-                          fontSize: '13px', color: isChecked ? 'white' : 'var(--text-secondary)', 
-                          backgroundColor: isChecked ? 'rgba(255,255,255,0.03)' : 'var(--bg-primary)', 
-                          padding: '14px 16px', borderRadius: 'var(--radius-md)', 
-                          border: `1px solid ${isChecked ? mod.color : 'var(--border-color)'}`, 
-                          borderLeft: `4px solid ${isChecked ? mod.color : 'transparent'}`, 
+                        <label key={mod.id} style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer',
+                          fontSize: '13px', color: isChecked ? 'white' : 'var(--text-secondary)',
+                          backgroundColor: isChecked ? 'rgba(255,255,255,0.03)' : 'var(--bg-primary)',
+                          padding: '14px 16px', borderRadius: 'var(--radius-md)',
+                          border: `1px solid ${isChecked ? mod.color : 'var(--border-color)'}`,
+                          borderLeft: `4px solid ${isChecked ? mod.color : 'transparent'}`,
                           transition: 'all 0.2s', boxShadow: isChecked ? `0 0 10px ${mod.color}20` : 'none'
                         }}>
                           <span style={{ fontWeight: isChecked ? 600 : 400 }}>{mod.label}</span>
                           <div style={{ position: 'relative', width: '40px', height: '22px', backgroundColor: isChecked ? mod.color : 'var(--bg-tertiary)', borderRadius: '20px', transition: 'all 0.3s', border: `1px solid ${isChecked ? mod.color : 'var(--border-color)'}` }}>
                             <div style={{ position: 'absolute', top: '2px', left: isChecked ? '20px' : '2px', width: '16px', height: '16px', backgroundColor: isChecked ? '#fff' : 'var(--text-muted)', borderRadius: '50%', transition: 'all 0.3s', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />
                           </div>
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             checked={isChecked}
                             onChange={() => togglePermission(mod.id)}
                             style={{ display: 'none' }}
@@ -797,12 +870,12 @@ const Configuracoes: React.FC = () => {
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-                    <button 
+                    <button
                       onClick={handleSavePermissions}
                       disabled={isSavingPermissions}
-                      style={{ 
-                        backgroundColor: 'var(--accent-purple)', color: 'var(--text-primary)', border: 'none', 
-                        padding: '10px 20px', borderRadius: 'var(--radius-md)', fontWeight: 600, 
+                      style={{
+                        backgroundColor: 'var(--accent-purple)', color: 'var(--text-primary)', border: 'none',
+                        padding: '10px 20px', borderRadius: 'var(--radius-md)', fontWeight: 600,
                         cursor: isSavingPermissions ? 'not-allowed' : 'pointer', opacity: isSavingPermissions ? 0.7 : 1,
                         display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s'
                       }}

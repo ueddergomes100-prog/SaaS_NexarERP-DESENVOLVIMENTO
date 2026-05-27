@@ -35,16 +35,16 @@
 }
 
 body.light-theme {
-  --bg-primary: #f3f4f6;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #f8fafc;
+  --bg-primary: #edf2f7;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #e7eef6;
   
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
+  --text-primary: #111827;
+  --text-secondary: #334155;
   --text-muted: #64748b;
   
-  --border-color: #e2e8f0;
-  --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --border-color: #d5dde8;
+  --shadow-card: 0 8px 24px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.05);
   --shadow-neon: 0 0 15px rgba(139, 92, 246, 0.2);
 }
 
@@ -58,8 +58,13 @@ body {
   font-family: var(--font-sans);
   background-color: var(--bg-primary);
   color: var(--text-primary);
+  color-scheme: dark;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+body.light-theme {
+  color-scheme: light;
 }
 
 a {
@@ -144,6 +149,35 @@ button {
   font-size: 14px;
   transition: all 0.2s;
   width: 100%;
+}
+
+input,
+select,
+textarea {
+  color: var(--text-primary);
+  caret-color: var(--accent-purple);
+}
+
+select option {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text-primary);
+  box-shadow: 0 0 0 1000px var(--bg-tertiary) inset;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+body.light-theme input:disabled,
+body.light-theme select:disabled,
+body.light-theme textarea:disabled {
+  color: #475569 !important;
+  -webkit-text-fill-color: #475569;
+  background-color: #e2e8f0 !important;
+  opacity: 1 !important;
 }
 
 .input-group input:focus,
@@ -376,6 +410,27 @@ button {
 
 .data-table tbody tr:hover {
   background-color: var(--bg-tertiary);
+}
+
+body.light-theme .card,
+body.light-theme .auth-card,
+body.light-theme .sidebar,
+body.light-theme .search-dropdown,
+body.light-theme .notifications-dropdown,
+body.light-theme .swal2-popup {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+body.light-theme .data-table tbody tr:hover,
+body.light-theme .nav-item:hover,
+body.light-theme .nav-label:hover,
+body.light-theme .icon-btn:hover,
+body.light-theme .action-btn:hover,
+body.light-theme .btn-secondary:hover,
+body.light-theme .profile-menu:hover {
+  background-color: #e2eaf3 !important;
+  color: var(--text-primary) !important;
 }
 
 .font-medium {

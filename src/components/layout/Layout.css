@@ -355,6 +355,14 @@
   animation: fadeInOverlay 0.3s ease-out forwards;
 }
 
+body.light-theme .logout-overlay {
+  background-color: rgba(237, 242, 247, 0.96) !important;
+}
+
+body.light-theme .animate-fade-in-up {
+  color: var(--text-primary);
+}
+
 .logout-logo-container {
   display: flex;
   flex-direction: column;

@@ -151,10 +151,10 @@ const Login: React.FC = () => {
       {showSplash && (
         <div style={{
           height: '100vh', width: '100vw',
-          backgroundColor: '#09090b',
+          backgroundColor: 'var(--bg-primary)',
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           position: 'fixed', top: 0, left: 0, zIndex: 9999,
-          backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.1) 0%, transparent 50%)',
+          backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.14) 0%, transparent 52%)',
           animation: 'fadeIn 0.3s ease-out'
         }}>
           <div style={{
@@ -164,8 +164,8 @@ const Login: React.FC = () => {
           }}>
             <div style={{
               position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-              backgroundColor: 'var(--bg-tertiary)', borderRadius: '24px',
-              border: '1px solid rgba(255, 255, 255, 0.05)',
+              backgroundColor: 'var(--bg-secondary)', borderRadius: '24px',
+              border: '1px solid var(--border-color)',
               transform: 'rotate(45deg)',
               animation: 'spinPulse 2s cubic-bezier(0.4, 0, 0.2, 1) infinite'
             }}></div>
@@ -175,7 +175,7 @@ const Login: React.FC = () => {
               fontSize: '44px', fontWeight: 'bold', color: 'var(--text-primary)',
               background: 'linear-gradient(135deg, #a78bfa, #3b82f6)',
               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-              filter: 'drop-shadow(0 0 10px rgba(139, 92, 246, 0.4))'
+              filter: 'drop-shadow(0 0 10px rgba(139, 92, 246, 0.35))'
             }}>
               N
             </div>
@@ -189,7 +189,7 @@ const Login: React.FC = () => {
               Iniciando Ambiente
             </h2>
             
-            <div style={{ width: '240px', height: '4px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+            <div style={{ width: '240px', height: '4px', backgroundColor: 'var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
               <div style={{ 
                 height: '100%', 
                 background: 'linear-gradient(90deg, #3b82f6, #8b5cf6, #3b82f6)',
@@ -199,7 +199,7 @@ const Login: React.FC = () => {
               }}></div>
             </div>
 
-            <p style={{ color: '#a1a1aa', fontSize: '13px', fontFamily: 'monospace', letterSpacing: '2px', animation: 'blinkText 1.5s infinite' }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', fontFamily: 'monospace', letterSpacing: '2px', animation: 'blinkText 1.5s infinite' }}>
               CARREGANDO MÓDULOS...
             </p>
           </div>

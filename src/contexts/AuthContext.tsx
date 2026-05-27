@@ -109,12 +109,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setIsOwner(user.uid === finalTenant);
             } else {
               // Salva base silenciosamente
-              await setDoc(doc(db, 'usuarios', user.uid), {
+              const baseProfile = {
                 role: 'Admin',
                 tenantId: user.uid,
                 email: user.email,
                 createdAt: new Date()
-              }, { merge: true });
+              };
+              await setDoc(doc(db, 'usuarios', user.uid), baseProfile, { merge: true });
+
+              setUserRole('Admin');
+              setUserPermissions([]);
+              setTenantId(user.uid);
+              setBlockedModules([]);
+              setIsOwner(true);
             }
             setLoading(false);
           }, (err) => {

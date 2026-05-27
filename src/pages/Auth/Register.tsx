@@ -41,6 +41,8 @@ const Register: React.FC = () => {
       // 1. Cria o usuário no Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
+      const newSessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+      localStorage.setItem('nexus_session_id', newSessionId);
 
       // 2. Salva os dados da oficina/tenant no Firestore associados ao UID
       await setDoc(doc(db, 'usuarios', user.uid), {
@@ -56,7 +58,8 @@ const Register: React.FC = () => {
         createdAt: serverTimestamp(),
         status: 'Ativo', // Status SaaS
         plano: 'Pro',
-        valorMensalidade: 149.90
+        valorMensalidade: 149.90,
+        activeSessionId: newSessionId
       });
 
       // 3. Pré-popula as configurações da oficina
@@ -72,7 +75,7 @@ const Register: React.FC = () => {
       });
 
       // 4. Redireciona para o painel
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     } catch (err: any) {
       console.error(err);
       if (err.code === 'auth/email-already-in-use') {

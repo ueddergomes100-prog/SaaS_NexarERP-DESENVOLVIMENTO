@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -28,10 +28,22 @@ import {
   RotateCcw,
   Scale,
   ShieldAlert,
-  Database
+  Database,
+  Truck,
+  Store,
+  Link2,
+  Factory,
+  ClipboardList
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import './Layout.css';
+
+const DevelopmentItem = ({ icon: Icon, label }: { icon: React.ElementType; label: string }) => (
+  <div className="nav-item nav-item-disabled" title={`${label} - em desenvolvimento`}>
+    <Icon size={20} />
+    <span>{label}</span>
+  </div>
+);
 
 const Sidebar: React.FC = () => {
   const { logout, userRole, userPermissions, blockedModules, isOwner } = useAuth();
@@ -63,9 +75,20 @@ const Sidebar: React.FC = () => {
       financeiro: true,
       fiscal: true,
       administrativo: true,
+      seguranca: true,
+      comprasDev: false,
+      ecommerceDev: false,
+      operacoesDev: false,
       configuracoes: true
     };
   });
+
+  const handleLogout = useCallback(() => {
+    setIsLoggingOut(true);
+    setTimeout(() => {
+      logout();
+    }, 1500);
+  }, [logout]);
 
   useEffect(() => {
     const onTriggerLogout = () => {
@@ -73,7 +96,7 @@ const Sidebar: React.FC = () => {
     };
     window.addEventListener('trigger-logout', onTriggerLogout);
     return () => window.removeEventListener('trigger-logout', onTriggerLogout);
-  }, []);
+  }, [handleLogout]);
 
   const groupRoutes = {
     visaoGeral: ['/dashboard'],
@@ -84,6 +107,10 @@ const Sidebar: React.FC = () => {
     financeiro: ['/financeiro/caixa', '/financeiro/contas-receber', '/financeiro/contas-pagar', '/financeiro/faturamento', '/financeiro/comissoes'],
     fiscal: ['/fiscal/nfe', '/fiscal/entrada-nfe'],
     administrativo: ['/relatorios-diversos', '/logs-sistema'],
+    seguranca: ['/superadmin/backup'],
+    comprasDev: [],
+    ecommerceDev: [],
+    operacoesDev: [],
     configuracoes: ['/configuracoes']
   };
 
@@ -102,13 +129,6 @@ const Sidebar: React.FC = () => {
     const newExpanded = { ...expandedGroups, [group]: !expandedGroups[group] };
     setExpandedGroups(newExpanded);
     localStorage.setItem('nexus_sidebar_groups', JSON.stringify(newExpanded));
-  };
-
-  const handleLogout = () => {
-    setIsLoggingOut(true);
-    setTimeout(() => {
-      logout();
-    }, 1500); 
   };
 
   const handleGoHome = () => {
@@ -142,6 +162,9 @@ const Sidebar: React.FC = () => {
 
   const hasAdministrativoPermission = (isOwner || userRole === 'SuperAdmin' || userPermissions?.includes('administrativo.logs')) &&
     !['logs.relatorios_diversos', 'logs.sistema'].every(item => isBlocked(item));
+
+  const hasSegurancaPermission = (isOwner || userRole === 'SuperAdmin' || userPermissions?.includes('administrativo.config')) &&
+    !isBlocked('admin.backup');
 
   const hasConfiguracoesPermission = isOwner || userRole === 'SuperAdmin' || userPermissions?.includes('administrativo.config');
 
@@ -230,7 +253,7 @@ const Sidebar: React.FC = () => {
                     onClick={() => !expandAll && toggleGroup('cadastros')}
                     style={{ cursor: expandAll ? 'default' : 'pointer' }}
                   >
-                    <span>Cadastros</span>
+                    <span>Cadastros Base</span>
                     {!expandAll && (
                       <ChevronRight 
                         size={14} 
@@ -294,7 +317,7 @@ const Sidebar: React.FC = () => {
                     onClick={() => !expandAll && toggleGroup('comercial')}
                     style={{ cursor: expandAll ? 'default' : 'pointer' }}
                   >
-                    <span>Comercial</span>
+                    <span>Vendas</span>
                     {!expandAll && (
                       <ChevronRight 
                         size={14} 
@@ -340,7 +363,7 @@ const Sidebar: React.FC = () => {
                     onClick={() => !expandAll && toggleGroup('mecanica')}
                     style={{ cursor: expandAll ? 'default' : 'pointer' }}
                   >
-                    <span>Serviços / Operações</span>
+                    <span>Serviços & Atendimento</span>
                     {!expandAll && (
                       <ChevronRight 
                         size={14} 
@@ -374,7 +397,7 @@ const Sidebar: React.FC = () => {
                     onClick={() => !expandAll && toggleGroup('crm')}
                     style={{ cursor: expandAll ? 'default' : 'pointer' }}
                   >
-                    <span>CRM & Agenda</span>
+                    <span>Relacionamento</span>
                     {!expandAll && (
                       <ChevronRight 
                         size={14} 
@@ -497,7 +520,7 @@ const Sidebar: React.FC = () => {
                     onClick={() => !expandAll && toggleGroup('administrativo')}
                     style={{ cursor: expandAll ? 'default' : 'pointer' }}
                   >
-                    <span>Administrativo</span>
+                    <span>Relatórios & Auditoria</span>
                     {!expandAll && (
                       <ChevronRight 
                         size={14} 
@@ -524,6 +547,112 @@ const Sidebar: React.FC = () => {
                 </div>
               )}
 
+              {hasSegurancaPermission && (
+                <div className="nav-group">
+                  <div
+                    className={`nav-label ${isGroupActive('seguranca') ? 'active-group' : ''}`}
+                    onClick={() => !expandAll && toggleGroup('seguranca')}
+                    style={{ cursor: expandAll ? 'default' : 'pointer' }}
+                  >
+                    <span>Segurança & Dados</span>
+                    {!expandAll && (
+                      <ChevronRight
+                        size={14}
+                        className={`group-arrow-indicator ${isExpanded('seguranca') ? 'open' : ''}`}
+                      />
+                    )}
+                  </div>
+                  <div className={`nav-group-items ${isExpanded('seguranca') ? 'open' : ''}`}>
+                    <div className="nav-group-items-inner">
+                      <NavLink to="/superadmin/backup" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
+                        <Database size={20} />
+                        <span>Backup e Restauração</span>
+                      </NavLink>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="nav-roadmap-divider">
+                <span>Próximas atualizações</span>
+                <span className="dev-badge">Em desenvolvimento</span>
+              </div>
+
+              <div className="nav-group nav-group-dev">
+                <div
+                  className={`nav-label ${isGroupActive('comprasDev') ? 'active-group' : ''}`}
+                  onClick={() => !expandAll && toggleGroup('comprasDev')}
+                  style={{ cursor: expandAll ? 'default' : 'pointer' }}
+                >
+                  <div className="nav-label-with-badge">
+                    <span>Compras & Fornecedores</span>
+                  </div>
+                  {!expandAll && (
+                    <ChevronRight
+                      size={14}
+                      className={`group-arrow-indicator ${isExpanded('comprasDev') ? 'open' : ''}`}
+                    />
+                  )}
+                </div>
+                <div className={`nav-group-items ${isExpanded('comprasDev') ? 'open' : ''}`}>
+                  <div className="nav-group-items-inner">
+                    <DevelopmentItem icon={ClipboardList} label="Pedidos de Compra" />
+                    <DevelopmentItem icon={Users} label="Fornecedores" />
+                    <DevelopmentItem icon={Inbox} label="Cotação de Compra" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="nav-group nav-group-dev">
+                <div
+                  className={`nav-label ${isGroupActive('ecommerceDev') ? 'active-group' : ''}`}
+                  onClick={() => !expandAll && toggleGroup('ecommerceDev')}
+                  style={{ cursor: expandAll ? 'default' : 'pointer' }}
+                >
+                  <div className="nav-label-with-badge">
+                    <span>E-commerce & Integrações</span>
+                  </div>
+                  {!expandAll && (
+                    <ChevronRight
+                      size={14}
+                      className={`group-arrow-indicator ${isExpanded('ecommerceDev') ? 'open' : ''}`}
+                    />
+                  )}
+                </div>
+                <div className={`nav-group-items ${isExpanded('ecommerceDev') ? 'open' : ''}`}>
+                  <div className="nav-group-items-inner">
+                    <DevelopmentItem icon={Store} label="Nuvemshop" />
+                    <DevelopmentItem icon={ShoppingCart} label="Marketplaces" />
+                    <DevelopmentItem icon={Link2} label="Sincronizações" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="nav-group nav-group-dev">
+                <div
+                  className={`nav-label ${isGroupActive('operacoesDev') ? 'active-group' : ''}`}
+                  onClick={() => !expandAll && toggleGroup('operacoesDev')}
+                  style={{ cursor: expandAll ? 'default' : 'pointer' }}
+                >
+                  <div className="nav-label-with-badge">
+                    <span>Produção & Logística</span>
+                  </div>
+                  {!expandAll && (
+                    <ChevronRight
+                      size={14}
+                      className={`group-arrow-indicator ${isExpanded('operacoesDev') ? 'open' : ''}`}
+                    />
+                  )}
+                </div>
+                <div className={`nav-group-items ${isExpanded('operacoesDev') ? 'open' : ''}`}>
+                  <div className="nav-group-items-inner">
+                    <DevelopmentItem icon={Factory} label="Produção Interna" />
+                    <DevelopmentItem icon={Truck} label="Expedição e Entregas" />
+                    <DevelopmentItem icon={Package} label="Lotes e Validades" />
+                  </div>
+                </div>
+              </div>
+
               {hasConfiguracoesPermission && (
                 <div className="nav-group">
                   <div 
@@ -546,10 +675,6 @@ const Sidebar: React.FC = () => {
                           <NavLink to="/configuracoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                             <Settings size={20} />
                             <span>Configurações Gerais</span>
-                          </NavLink>
-                          <NavLink to="/superadmin/backup" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                            <Database size={20} />
-                            <span>Backup e Restauração</span>
                           </NavLink>
                         </>
                       )}

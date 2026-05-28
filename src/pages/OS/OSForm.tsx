@@ -477,7 +477,7 @@ const OSForm: React.FC = () => {
       if (osId) {
         const transacaoRef = doc(db, 'transacoes', osId);
         
-        let calcStatusPagamento = 'Pendente'; // Cartão, Boleto, Fiado vão pro Contas a Receber
+        let calcStatusPagamento = 'Pendente'; // Cartão, boleto e prazo vão para Contas a Receber.
         if (formData.formaPagamento === 'Dinheiro' || formData.formaPagamento === 'Pix') {
           calcStatusPagamento = 'Paga'; // Dinheiro e Pix vão direto pro Caixa Principal
         }
@@ -546,7 +546,7 @@ const OSForm: React.FC = () => {
         <div className="form-column">
           
           {/* Controle de Status */}
-          <div className="card form-section" style={{ border: `1px solid ${getStatusColor(formData.status)}50` }}>
+          <div className="card form-section os-status-card" style={{ borderColor: `${getStatusColor(formData.status)}50` }}>
              <div className="section-header">
               <Activity size={20} className="section-icon" style={{ color: getStatusColor(formData.status) }} />
               <h3>Status da Ordem de Serviço</h3>
@@ -577,7 +577,7 @@ const OSForm: React.FC = () => {
                       { value: 'Cartão de Crédito', icon: '💳' },
                       { value: 'Cartão de Débito', icon: '💳' },
                       { value: 'Boleto', icon: '📄' },
-                      { value: 'A Prazo / Fiado', icon: '🤝' }
+                      { value: 'Pagamento a Prazo', icon: '🤝' }
                     ].filter(metodo => {
                       const isConsumidorFinal = formData.clienteNome.toLowerCase().includes('consumidor final');
                       if (isConsumidorFinal) {

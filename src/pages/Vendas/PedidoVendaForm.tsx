@@ -1328,7 +1328,7 @@ const PedidoVendaForm: React.FC = () => {
                   { value: 'Pix', icon: '💠' },
                   { value: 'Cartão de Crédito', icon: '💳' },
                   { value: 'Cartão de Débito', icon: '💳' },
-                  { value: 'A Prazo / Fiado', icon: '🤝' }
+                  { value: 'Pagamento a Prazo', icon: '🤝' }
                 ].filter(metodo => {
                   const isConsumidorFinal = clienteNome.toLowerCase().includes('consumidor final');
                   if (isConsumidorFinal) {
@@ -1352,7 +1352,7 @@ const PedidoVendaForm: React.FC = () => {
                     }}
                   >
                     <span style={{ fontSize: '20px' }}>{metodo.icon}</span>
-                    <span style={{ fontSize: '14px', fontWeight: formaPagamento === metodo.value ? 600 : 400, color: formaPagamento === metodo.value ? '#10b981' : 'white' }}>{metodo.value}</span>
+                    <span style={{ fontSize: '14px', fontWeight: formaPagamento === metodo.value ? 600 : 400, color: formaPagamento === metodo.value ? '#10b981' : 'var(--text-primary)' }}>{metodo.value}</span>
                   </div>
                 ))}
               </div>

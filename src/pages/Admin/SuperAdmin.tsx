@@ -319,6 +319,7 @@ const SuperAdmin: React.FC = () => {
         { id: 'fiscal.entrada_nfe', label: 'Entrada de XML' }
       ]},
       { group: 'Administrativo & Logs', items: [
+        { id: 'admin.backup', label: 'Backup e Restauração' },
         { id: 'logs.relatorios_diversos', label: 'Relatórios Diversos' },
         { id: 'logs.sistema', label: 'Logs do Sistema' }
       ]}

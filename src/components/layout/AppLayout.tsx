@@ -65,6 +65,7 @@ const AppLayout: React.FC = () => {
   else if (path.startsWith('/financeiro/comissoes') || path.startsWith('/financeiro')) routeModule = 'financeiro.comissoes';
   else if (path.startsWith('/fiscal/nfe')) routeModule = 'fiscal.nfe';
   else if (path.startsWith('/fiscal/entrada-nfe') || path.startsWith('/fiscal')) routeModule = 'fiscal.entrada_nfe';
+  else if (path.startsWith('/superadmin/backup')) routeModule = 'admin.backup';
   else if (path.startsWith('/relatorios-diversos')) routeModule = 'logs.relatorios_diversos';
   else if (path.startsWith('/logs-sistema')) routeModule = 'logs.sistema';
 

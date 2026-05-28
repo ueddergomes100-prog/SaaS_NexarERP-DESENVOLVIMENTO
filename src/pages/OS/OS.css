@@ -80,6 +80,18 @@
   gap: 20px;
 }
 
+.os-status-card {
+  padding: 20px;
+  border-width: 1px;
+  border-style: solid;
+  background-color: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.os-status-card .section-header {
+  margin-bottom: 0;
+}
+
 .fill-height {
   height: 100%;
 }

@@ -28,6 +28,7 @@ import {
   RotateCcw,
   Scale,
   ShieldAlert,
+  AlertTriangle,
   Database,
   Truck,
   Store,
@@ -38,11 +39,11 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import './Layout.css';
 
-const DevelopmentItem = ({ icon: Icon, label }: { icon: React.ElementType; label: string }) => (
-  <div className="nav-item nav-item-disabled" title={`${label} - em desenvolvimento`}>
+const RoadmapItem = ({ icon: Icon, label, to }: { icon: React.ElementType; label: string; to: string }) => (
+  <NavLink to={to} className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
     <Icon size={20} />
     <span>{label}</span>
-  </div>
+  </NavLink>
 );
 
 const Sidebar: React.FC = () => {
@@ -108,9 +109,9 @@ const Sidebar: React.FC = () => {
     fiscal: ['/fiscal/nfe', '/fiscal/entrada-nfe'],
     administrativo: ['/relatorios-diversos', '/logs-sistema'],
     seguranca: ['/superadmin/backup'],
-    comprasDev: [],
-    ecommerceDev: [],
-    operacoesDev: [],
+    comprasDev: ['/compras'],
+    ecommerceDev: ['/integracoes'],
+    operacoesDev: ['/operacoes'],
     configuracoes: ['/configuracoes']
   };
 
@@ -166,7 +167,12 @@ const Sidebar: React.FC = () => {
   const hasSegurancaPermission = (isOwner || userRole === 'SuperAdmin' || userPermissions?.includes('administrativo.config')) &&
     !isBlocked('admin.backup');
 
-  const hasConfiguracoesPermission = isOwner || userRole === 'SuperAdmin' || userPermissions?.includes('administrativo.config');
+  const hasConfiguracoesPermission = (isOwner || userRole === 'SuperAdmin' || userPermissions?.includes('administrativo.config')) &&
+    !isBlocked('admin.config');
+
+  const hasComprasDevPermission = !['compras.pedidos', 'compras.fornecedores', 'compras.cotacoes'].every(item => isBlocked(item));
+  const hasEcommerceDevPermission = !['integracoes.nuvemshop', 'integracoes.marketplaces', 'integracoes.sincronizacoes'].every(item => isBlocked(item));
+  const hasOperacoesDevPermission = !['operacoes.producao', 'operacoes.expedicao', 'operacoes.lotes'].every(item => isBlocked(item));
 
   return (
     <>
@@ -205,11 +211,13 @@ const Sidebar: React.FC = () => {
                   <span>Backup e Restauração</span>
                 </NavLink>
               </>
-            ) : (
+            ) : !isBlocked('dashboard.empresa') ? (
               <NavLink to="/dashboard" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                 <LayoutDashboard size={20} />
                 <span>Dashboard da Empresa</span>
               </NavLink>
+            ) : (
+              null
             )}
           </div>
 
@@ -574,10 +582,13 @@ const Sidebar: React.FC = () => {
               )}
 
               <div className="nav-roadmap-divider">
-                <span>Próximas atualizações</span>
-                <span className="dev-badge">Em desenvolvimento</span>
+                <span>
+                  <AlertTriangle size={12} />
+                  Próximas atualizações
+                </span>
               </div>
 
+              {hasComprasDevPermission && (
               <div className="nav-group nav-group-dev">
                 <div
                   className={`nav-label ${isGroupActive('comprasDev') ? 'active-group' : ''}`}
@@ -596,13 +607,15 @@ const Sidebar: React.FC = () => {
                 </div>
                 <div className={`nav-group-items ${isExpanded('comprasDev') ? 'open' : ''}`}>
                   <div className="nav-group-items-inner">
-                    <DevelopmentItem icon={ClipboardList} label="Pedidos de Compra" />
-                    <DevelopmentItem icon={Users} label="Fornecedores" />
-                    <DevelopmentItem icon={Inbox} label="Cotação de Compra" />
+                    {!isBlocked('compras.pedidos') && <RoadmapItem icon={ClipboardList} label="Pedidos de Compra" to="/compras/pedidos-compra" />}
+                    {!isBlocked('compras.fornecedores') && <RoadmapItem icon={Users} label="Fornecedores" to="/compras/fornecedores" />}
+                    {!isBlocked('compras.cotacoes') && <RoadmapItem icon={Inbox} label="Cotação de Compra" to="/compras/cotacoes" />}
                   </div>
                 </div>
               </div>
+              )}
 
+              {hasEcommerceDevPermission && (
               <div className="nav-group nav-group-dev">
                 <div
                   className={`nav-label ${isGroupActive('ecommerceDev') ? 'active-group' : ''}`}
@@ -621,13 +634,15 @@ const Sidebar: React.FC = () => {
                 </div>
                 <div className={`nav-group-items ${isExpanded('ecommerceDev') ? 'open' : ''}`}>
                   <div className="nav-group-items-inner">
-                    <DevelopmentItem icon={Store} label="Nuvemshop" />
-                    <DevelopmentItem icon={ShoppingCart} label="Marketplaces" />
-                    <DevelopmentItem icon={Link2} label="Sincronizações" />
+                    {!isBlocked('integracoes.nuvemshop') && <RoadmapItem icon={Store} label="Nuvemshop" to="/integracoes/nuvemshop" />}
+                    {!isBlocked('integracoes.marketplaces') && <RoadmapItem icon={ShoppingCart} label="Marketplaces" to="/integracoes/marketplaces" />}
+                    {!isBlocked('integracoes.sincronizacoes') && <RoadmapItem icon={Link2} label="Sincronizações" to="/integracoes/sincronizacoes" />}
                   </div>
                 </div>
               </div>
+              )}
 
+              {hasOperacoesDevPermission && (
               <div className="nav-group nav-group-dev">
                 <div
                   className={`nav-label ${isGroupActive('operacoesDev') ? 'active-group' : ''}`}
@@ -646,12 +661,13 @@ const Sidebar: React.FC = () => {
                 </div>
                 <div className={`nav-group-items ${isExpanded('operacoesDev') ? 'open' : ''}`}>
                   <div className="nav-group-items-inner">
-                    <DevelopmentItem icon={Factory} label="Produção Interna" />
-                    <DevelopmentItem icon={Truck} label="Expedição e Entregas" />
-                    <DevelopmentItem icon={Package} label="Lotes e Validades" />
+                    {!isBlocked('operacoes.producao') && <RoadmapItem icon={Factory} label="Produção Interna" to="/operacoes/producao" />}
+                    {!isBlocked('operacoes.expedicao') && <RoadmapItem icon={Truck} label="Expedição e Entregas" to="/operacoes/expedicao" />}
+                    {!isBlocked('operacoes.lotes') && <RoadmapItem icon={Package} label="Lotes e Validades" to="/operacoes/lotes-validades" />}
                   </div>
                 </div>
               </div>
+              )}
 
               {hasConfiguracoesPermission && (
                 <div className="nav-group">
@@ -670,7 +686,7 @@ const Sidebar: React.FC = () => {
                   </div>
                   <div className={`nav-group-items ${isExpanded('configuracoes') ? 'open' : ''}`}>
                     <div className="nav-group-items-inner">
-                      {((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('administrativo.config')) && (
+                      {!isBlocked('admin.config') && ((isOwner || userRole === 'SuperAdmin') || userPermissions?.includes('administrativo.config')) && (
                         <>
                           <NavLink to="/configuracoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
                             <Settings size={20} />

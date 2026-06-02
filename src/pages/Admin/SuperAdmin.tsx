@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Ban, Search, ExternalLink, Edit2, Trash2, Megaphone, Sliders } from 'lucide-react';
+import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Ban, Search, ExternalLink, Edit2, Trash2, Megaphone, Sliders, Blocks, Wallet } from 'lucide-react';
 import { collection, query, getDocs, updateDoc, doc, deleteDoc, where, setDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts';
 import Swal from 'sweetalert2';
 
 interface TenantInfo {
@@ -17,7 +17,82 @@ interface TenantInfo {
   nomeOficina: string;
   modulosBloqueados?: string[];
   limiteUsuarios?: number;
+  createdAt?: any;
 }
+
+const MODULE_GROUPS = [
+  { group: 'Visão Geral', items: [
+    { id: 'dashboard.empresa', label: 'Dashboard da Empresa' }
+  ]},
+  { group: 'Cadastros', items: [
+    { id: 'cadastros.clientes', label: 'Clientes' },
+    { id: 'cadastros.usuarios', label: 'Usuários' },
+    { id: 'cadastros.veiculos', label: 'Veículos' },
+    { id: 'cadastros.estoque', label: 'Estoque / Produtos' },
+    { id: 'cadastros.servicos', label: 'Cadastro de Serviços' },
+    { id: 'cadastros.categorias', label: 'Categorias' },
+    { id: 'cadastros.unidades_medida', label: 'Unidades de Medida' }
+  ]},
+  { group: 'Comercial & Vendas', items: [
+    { id: 'comercial.pedidos', label: 'Pedido de Vendas' },
+    { id: 'comercial.orcamentos', label: 'Orçamentos' },
+    { id: 'comercial.devolucoes', label: 'Devolução de Venda' },
+    { id: 'comercial.relatorios', label: 'Relatório de Vendas' }
+  ]},
+  { group: 'Serviços & Operações', items: [
+    { id: 'mecanica.os', label: 'Ordens de Serviço' },
+    { id: 'mecanica.relatorios', label: 'Relatório de Serviços' }
+  ]},
+  { group: 'CRM & Agenda', items: [
+    { id: 'crm.agenda', label: 'Agendamentos' },
+    { id: 'crm.lembretes', label: 'Alertas de Retorno' }
+  ]},
+  { group: 'Financeiro', items: [
+    { id: 'financeiro.caixa', label: 'Fluxo de Caixa' },
+    { id: 'financeiro.receber', label: 'Contas a Receber' },
+    { id: 'financeiro.pagar', label: 'Contas a Pagar' },
+    { id: 'financeiro.faturamento', label: 'Painel de Faturamento' },
+    { id: 'financeiro.comissoes', label: 'Controle de Comissões' }
+  ]},
+  { group: 'Fiscal', items: [
+    { id: 'fiscal.nfe', label: 'Emitir Nota Fiscal (NF-e)' },
+    { id: 'fiscal.entrada_nfe', label: 'Entrada de XML' }
+  ]},
+  { group: 'Compras & Fornecedores', items: [
+    { id: 'compras.pedidos', label: 'Pedidos de Compra' },
+    { id: 'compras.fornecedores', label: 'Fornecedores' },
+    { id: 'compras.cotacoes', label: 'Cotação de Compra' }
+  ]},
+  { group: 'E-commerce & Integrações', items: [
+    { id: 'integracoes.nuvemshop', label: 'Nuvemshop' },
+    { id: 'integracoes.marketplaces', label: 'Marketplaces' },
+    { id: 'integracoes.sincronizacoes', label: 'Sincronizações' }
+  ]},
+  { group: 'Produção & Logística', items: [
+    { id: 'operacoes.producao', label: 'Produção Interna' },
+    { id: 'operacoes.expedicao', label: 'Expedição e Entregas' },
+    { id: 'operacoes.lotes', label: 'Lotes e Validades' }
+  ]},
+  { group: 'Administrativo & Logs', items: [
+    { id: 'admin.config', label: 'Configurações Gerais' },
+    { id: 'admin.backup', label: 'Backup e Restauração' },
+    { id: 'logs.relatorios_diversos', label: 'Relatórios Diversos' },
+    { id: 'logs.sistema', label: 'Logs do Sistema' }
+  ]}
+];
+
+const moduleLabelMap = MODULE_GROUPS.flatMap(group => group.items).reduce<Record<string, string>>((acc, item) => {
+  acc[item.id] = item.label;
+  return acc;
+}, {});
+
+const toDate = (value?: any): Date | null => {
+  if (!value) return null;
+  if (value?.toDate) return value.toDate();
+  if (value?.seconds) return new Date(value.seconds * 1000);
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
 
 const SuperAdmin: React.FC = () => {
   const { userRole, currentUser } = useAuth();
@@ -69,7 +144,8 @@ const SuperAdmin: React.FC = () => {
               valor: data.valorMensalidade || 149.90,
               nomeOficina: data.nomeOficina || 'Sem Nome',
               modulosBloqueados: data.modulosBloqueados || [],
-              limiteUsuarios: data.limiteUsuarios !== undefined ? data.limiteUsuarios : 3
+              limiteUsuarios: data.limiteUsuarios !== undefined ? data.limiteUsuarios : 3,
+              createdAt: data.createdAt
             });
           }
         });
@@ -284,6 +360,9 @@ const SuperAdmin: React.FC = () => {
 
   const handleManageModules = async (tenantId: string, currentBlocked: string[] = []) => {
     const modules = [
+      { group: 'Visão Geral', items: [
+        { id: 'dashboard.empresa', label: 'Dashboard da Empresa' }
+      ]},
       { group: 'Cadastros', items: [
         { id: 'cadastros.clientes', label: 'Clientes' },
         { id: 'cadastros.usuarios', label: 'Usuários' },
@@ -318,7 +397,23 @@ const SuperAdmin: React.FC = () => {
         { id: 'fiscal.nfe', label: 'Emitir Nota Fiscal (NFe)' },
         { id: 'fiscal.entrada_nfe', label: 'Entrada de XML' }
       ]},
+      { group: 'Compras & Fornecedores', items: [
+        { id: 'compras.pedidos', label: 'Pedidos de Compra' },
+        { id: 'compras.fornecedores', label: 'Fornecedores' },
+        { id: 'compras.cotacoes', label: 'Cotação de Compra' }
+      ]},
+      { group: 'E-commerce & Integrações', items: [
+        { id: 'integracoes.nuvemshop', label: 'Nuvemshop' },
+        { id: 'integracoes.marketplaces', label: 'Marketplaces' },
+        { id: 'integracoes.sincronizacoes', label: 'Sincronizações' }
+      ]},
+      { group: 'Produção & Logística', items: [
+        { id: 'operacoes.producao', label: 'Produção Interna' },
+        { id: 'operacoes.expedicao', label: 'Expedição e Entregas' },
+        { id: 'operacoes.lotes', label: 'Lotes e Validades' }
+      ]},
       { group: 'Administrativo & Logs', items: [
+        { id: 'admin.config', label: 'Configurações Gerais' },
         { id: 'admin.backup', label: 'Backup e Restauração' },
         { id: 'logs.relatorios_diversos', label: 'Relatórios Diversos' },
         { id: 'logs.sistema', label: 'Logs do Sistema' }
@@ -407,39 +502,63 @@ const SuperAdmin: React.FC = () => {
   const mrr = tenants.filter(t => t.status === 'Ativo').reduce((acc, curr) => acc + curr.valor, 0);
   const ativos = tenants.filter(t => t.status === 'Ativo').length;
   const inadimplentes = tenants.filter(t => t.status === 'Inadimplente').length;
+  const ticketMedio = ativos > 0 ? mrr / ativos : 0;
+  const modulosBloqueadosTotal = tenants.reduce((acc, tenant) => acc + (tenant.modulosBloqueados?.length || 0), 0);
 
   const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
   const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-  
+
   const mrrData = Array.from({ length: 6 }).map((_, i) => {
     let mIndex = currentMonth - (5 - i);
-    if (mIndex < 0) mIndex += 12;
-    const baseRatios = [0.35, 0.45, 0.55, 0.70, 0.85, 1.0];
-    
-    // Variabilidade baseada no número de clientes para o gráfico não ficar sempre com a exata mesma inclinação
-    const variability = (ativos % 5) * 0.02; // Varia de 0 a 0.08
-    let finalRatio = baseRatios[i];
-    
-    if (i < 5) {
-      finalRatio = baseRatios[i] - variability;
-      if (finalRatio < 0.1) finalRatio = 0.1;
+    let year = currentYear;
+    if (mIndex < 0) {
+      mIndex += 12;
+      year -= 1;
     }
 
-    return {
-      name: monthNames[mIndex],
-      mrr: Math.round(mrr * finalRatio)
-    };
-  });
+    const monthEnd = new Date(year, mIndex + 1, 0, 23, 59, 59);
+    const isCurrentMonth = mIndex === currentMonth && year === currentYear;
+    const mrrMes = tenants
+      .filter(t => t.status === 'Ativo')
+      .filter(t => {
+        const date = toDate(t.createdAt);
+        if (!date) return isCurrentMonth;
+        return date <= monthEnd;
+      })
+      .reduce((acc, tenant) => acc + Number(tenant.valor || 0), 0);
 
-  const previousMrr = mrrData[4].mrr;
-  const currentMrr = mrrData[5].mrr;
-  const crescimentoMRR = previousMrr > 0 ? ((currentMrr - previousMrr) / previousMrr) * 100 : 0;
+    return { name: monthNames[mIndex], mrr: mrrMes };
+  });
 
   const planData = [
     { name: 'Plano Pro', value: tenants.filter(t => t.plano === 'Pro').length },
     { name: 'Plano Premium', value: tenants.filter(t => t.plano === 'Premium').length }
   ];
-  const COLORS = ['#8b5cf6', '#10b981'];
+
+  const planRevenueData = [
+    { name: 'Pro', receita: tenants.filter(t => t.status === 'Ativo' && t.plano === 'Pro').reduce((acc, t) => acc + Number(t.valor || 0), 0) },
+    { name: 'Premium', receita: tenants.filter(t => t.status === 'Ativo' && t.plano === 'Premium').reduce((acc, t) => acc + Number(t.valor || 0), 0) }
+  ];
+
+  const statusData = [
+    { name: 'Ativos', value: ativos, color: '#10b981' },
+    { name: 'Inadimplentes', value: inadimplentes, color: '#ef4444' }
+  ];
+
+  const blockedModuleMap = tenants.reduce<Record<string, number>>((acc, tenant) => {
+    (tenant.modulosBloqueados || []).forEach(moduleId => {
+      acc[moduleId] = (acc[moduleId] || 0) + 1;
+    });
+    return acc;
+  }, {});
+
+  const moduleBlockData = Object.entries(blockedModuleMap)
+    .map(([id, count]) => ({ name: moduleLabelMap[id] || id, bloqueios: count }))
+    .sort((a, b) => b.bloqueios - a.bloqueios)
+    .slice(0, 6);
+
+  const COLORS = ['#8b5cf6', '#10b981', '#3b82f6', '#f59e0b', '#ef4444'];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', backgroundColor: 'var(--bg-primary)', padding: '24px', borderRadius: '16px' }}>
@@ -461,7 +580,7 @@ const SuperAdmin: React.FC = () => {
       </div>
 
       {/* Cards de Métricas */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px' }}>
         <div className="card" style={{ padding: '28px', backgroundColor: 'var(--bg-secondary)', borderTop: '4px solid #10b981', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.3)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
             <div>
@@ -475,7 +594,7 @@ const SuperAdmin: React.FC = () => {
             </div>
           </div>
           <p style={{ fontSize: '14px', color: '#10b981', margin: 0, display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
-            <TrendingUp size={16} /> +{crescimentoMRR.toFixed(1)}% de crescimento mensal
+            <Wallet size={16} /> Ticket médio: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(ticketMedio)}
           </p>
         </div>
 
@@ -508,13 +627,28 @@ const SuperAdmin: React.FC = () => {
             Faturas em atraso
           </p>
         </div>
+
+        <div className="card" style={{ padding: '28px', backgroundColor: 'var(--bg-secondary)', borderTop: '4px solid #3b82f6', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.3)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+            <div>
+              <p style={{ color: 'var(--text-muted)', fontSize: '15px', marginBottom: '8px', fontWeight: 500 }}>Módulos Bloqueados</p>
+              <h3 style={{ fontSize: '36px', margin: 0, fontWeight: 800 }}>{modulosBloqueadosTotal}</h3>
+            </div>
+            <div style={{ padding: '14px', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderRadius: '14px', color: '#3b82f6' }}>
+              <Blocks size={28} />
+            </div>
+          </div>
+          <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
+            Restrições ativas na carteira
+          </p>
+        </div>
       </div>
 
       {/* Gráficos */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)' }}>
           <h3 style={{ fontSize: '18px', marginBottom: '24px', fontWeight: 600 }}>Crescimento do MRR (6 Meses)</h3>
-          <div style={{ height: '300px' }}>
+          <div style={{ height: '360px' }}>
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={mrrData}>
                 <defs>
@@ -529,8 +663,9 @@ const SuperAdmin: React.FC = () => {
                 <Tooltip 
                   contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: 'none', borderRadius: '8px', color: '#fff' }}
                   itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
+                  formatter={(value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value))}
                 />
-                <Area type="monotone" dataKey="mrr" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorMrr)" />
+                <Area type="monotone" dataKey="mrr" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorMrr)" name="MRR" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -553,6 +688,73 @@ const SuperAdmin: React.FC = () => {
                 >
                   {planData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: 'none', borderRadius: '8px', color: '#fff' }} />
+                <Legend verticalAlign="bottom" height={36} iconType="circle" />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
+        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)' }}>
+          <h3 style={{ fontSize: '18px', marginBottom: '24px', fontWeight: 600 }}>Receita por Plano</h3>
+          <div style={{ height: '280px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={planRevenueData} margin={{ top: 20, right: 24, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+                <XAxis dataKey="name" stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} />
+                <YAxis stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} tickFormatter={(val) => `R$ ${val}`} />
+                <Tooltip
+                  formatter={(value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value))}
+                  contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: 'none', borderRadius: '8px', color: '#fff' }}
+                />
+                <Bar dataKey="receita" fill="#10b981" radius={[6, 6, 0, 0]} name="Receita ativa" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)' }}>
+          <h3 style={{ fontSize: '18px', marginBottom: '24px', fontWeight: 600 }}>Módulos mais Bloqueados</h3>
+          <div style={{ height: '280px' }}>
+            {moduleBlockData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={moduleBlockData} layout="vertical" margin={{ top: 8, right: 24, left: 96, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" horizontal={false} />
+                  <XAxis type="number" stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <YAxis type="category" dataKey="name" width={92} stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)', fontSize: 11}} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: 'none', borderRadius: '8px', color: '#fff' }} />
+                  <Bar dataKey="bloqueios" fill="#f59e0b" radius={[0, 6, 6, 0]} name="Empresas com bloqueio" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', textAlign: 'center' }}>
+                Nenhum módulo bloqueado na carteira.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)' }}>
+          <h3 style={{ fontSize: '18px', marginBottom: '24px', fontWeight: 600 }}>Status da Carteira</h3>
+          <div style={{ height: '300px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={statusData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={80}
+                  outerRadius={110}
+                  paddingAngle={5}
+                  dataKey="value"
+                  stroke="none"
+                >
+                  {statusData.map((entry) => (
+                    <Cell key={`status-${entry.name}`} fill={entry.color} />
                   ))}
                 </Pie>
                 <Tooltip contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: 'none', borderRadius: '8px', color: '#fff' }} />

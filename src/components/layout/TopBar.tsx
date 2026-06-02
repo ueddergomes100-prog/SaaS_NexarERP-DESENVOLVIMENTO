@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, Receipt } from 'lucide-react';
+import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, Receipt, LifeBuoy } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -10,6 +10,7 @@ import './Layout.css';
 const TopBar: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions } = useAuth();
   const navigate = useNavigate();
+  const SUPPORT_DESK_URL = import.meta.env.VITE_SUPPORT_DESK_URL || '';
   const [notifications, setNotifications] = useState<any[]>([]);
   const [configData, setConfigData] = useState<any>(null);
   const [userData, setUserData] = useState<any>(null);
@@ -332,6 +333,16 @@ const TopBar: React.FC = () => {
     navigate('/lembretes');
   };
 
+  const handleSupportClick = () => {
+    setShowProfileDropdown(false);
+    if (!SUPPORT_DESK_URL) {
+      alert('Link da plataforma de suporte ainda não configurado.');
+      return;
+    }
+
+    window.open(SUPPORT_DESK_URL, '_blank', 'noopener,noreferrer');
+  };
+
   return (
     <header className="topbar">
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -590,6 +601,14 @@ const TopBar: React.FC = () => {
                     <Settings size={16} /> Configurações
                   </button>
                 )}
+                <button 
+                  onClick={handleSupportClick}
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 'var(--radius-md)', transition: 'background 0.2s', textAlign: 'left', fontSize: '13px' }}
+                  onMouseOver={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                  onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                >
+                  <LifeBuoy size={16} /> Suporte
+                </button>
               </div>
 
               <div style={{ padding: '8px', borderTop: '1px solid var(--border-color)' }}>

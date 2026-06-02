@@ -187,29 +187,6 @@
   box-shadow: 0 0 8px var(--accent-purple);
 }
 
-.nav-item-disabled {
-  opacity: 0.72;
-  cursor: not-allowed;
-  border: 1px dashed var(--border-color);
-  background: rgba(245, 158, 11, 0.04);
-}
-
-.nav-item-disabled:hover {
-  padding-left: 12px;
-  background: rgba(245, 158, 11, 0.07);
-  color: var(--text-secondary);
-}
-
-.nav-item-disabled:hover svg {
-  transform: none;
-  color: var(--text-muted);
-}
-
-.nav-item-disabled .dev-badge {
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
 .nav-label-with-badge {
   display: flex;
   align-items: center;
@@ -224,7 +201,7 @@
 }
 
 .nav-roadmap-divider {
-  color: var(--text-muted);
+  color: var(--status-yellow);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 1px;
@@ -236,6 +213,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.nav-roadmap-divider span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .nav-group-dev .nav-label {
@@ -511,7 +494,6 @@ body.mini-sidebar .nav-item span {
 }
 
 body.mini-sidebar .nav-roadmap-divider,
-body.mini-sidebar .nav-item-disabled,
 body.mini-sidebar .nav-label-with-badge .dev-badge {
   display: none;
 }

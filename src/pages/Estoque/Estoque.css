@@ -13,6 +13,27 @@
   font-weight: 600;
 }
 
+.estoque-page .list-container {
+  padding: 24px;
+}
+
+.estoque-page .list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.estoque-page .list-toolbar .search-box {
+  width: min(350px, 100%);
+}
+
+.estoque-page .filter-btn {
+  display: inline-flex;
+  align-items: center;
+}
+
 .product-form-header {
   gap: 18px;
 }
@@ -417,6 +438,15 @@
 }
 
 @media (max-width: 720px) {
+  .estoque-page .list-toolbar {
+    align-items: stretch;
+  }
+
+  .estoque-page .list-toolbar .search-box,
+  .estoque-page .filter-btn {
+    width: 100%;
+  }
+
   .product-form-header,
   .product-header-actions {
     align-items: stretch;

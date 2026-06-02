@@ -324,6 +324,7 @@ const EstoqueForm: React.FC = () => {
   const [isFetching, setIsFetching] = useState(isEditing);
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
   const [unidadesDB, setUnidadesDB] = useState<UnidadeMedida[]>([]);
+  const [validarCadastroProduto, setValidarCadastroProduto] = useState(false);
   const { currentUser, tenantId, userRole } = useAuth();
 
   const fallbackUnidades: UnidadeMedida[] = [
@@ -348,6 +349,9 @@ const EstoqueForm: React.FC = () => {
     const fetchInitialData = async () => {
       try {
         if (!currentUser) return;
+
+        const configSnap = await getDoc(doc(db, 'configuracoes', tenantId || ''));
+        setValidarCadastroProduto(configSnap.exists() && configSnap.data().validarCadastroProduto === true);
 
         const qCat = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
         const snapCat = await getDocs(qCat);
@@ -546,6 +550,34 @@ const EstoqueForm: React.FC = () => {
       return false;
     }
 
+    if (validarCadastroProduto) {
+      if (precoVenda <= 0) {
+        setActiveTab('precos');
+        showError('Preço obrigatório', 'Informe o preço de venda do produto.');
+        return false;
+      }
+
+      if (formData.quantidade.trim() === '' || toNumber(formData.quantidade) < 0) {
+        setActiveTab('estoque');
+        showError('Estoque inicial obrigatório', 'Informe a quantidade inicial de estoque do produto.');
+        return false;
+      }
+
+      if (formData.ncm && !/^\d{8}$/.test(formData.ncm.replace(/\D/g, ''))) {
+        setActiveTab('fiscal');
+        showError('NCM inválido', 'O NCM deve conter exatamente 8 dígitos.');
+        return false;
+      }
+
+      if (formData.impedirVendaAbaixoCusto && precoVenda > 0 && precoCusto > 0 && precoVenda < precoCusto) {
+        setActiveTab('precos');
+        showError('Preço abaixo do custo', 'A configuração atual impede salvar preço de venda abaixo do custo.');
+        return false;
+      }
+
+      return true;
+    }
+
     if (!formData.categoria.trim()) {
       setActiveTab('geral');
       showError('Categoria obrigatória', 'Selecione ou informe uma categoria para o produto.');
@@ -630,6 +662,7 @@ const EstoqueForm: React.FC = () => {
         categoria: formData.categoria.trim(),
         statusAtivo: formData.statusAtivo,
         ativo: formData.statusAtivo,
+        permitirEstoqueNegativo: false,
         quantidade: toNumber(formData.quantidade),
         estoqueMinimo: toNumber(formData.estoqueMinimo),
         estoqueMaximo: toNumber(formData.estoqueMaximo),
@@ -683,7 +716,7 @@ const EstoqueForm: React.FC = () => {
           minimo: toNumber(formData.estoqueMinimo),
           maximo: toNumber(formData.estoqueMaximo),
           localizacao: formData.localizacaoEstoque,
-          permitirNegativo: formData.permitirEstoqueNegativo,
+          permitirNegativo: false,
           reservarEmOrcamento: formData.reservarEstoqueOrcamento,
           fracionado: formData.produtoFracionado,
           peso: toNumber(formData.peso),
@@ -901,14 +934,14 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-3">
                 <div className="input-group">
                   <label>Categoria *</label>
-                  <input type="text" name="categoria" list="categorias-produto" value={formData.categoria} onChange={handleChange} required placeholder="Selecione ou digite uma categoria" />
+                  <input type="text" name="categoria" list="categorias-produto" value={formData.categoria} onChange={handleChange} required={!validarCadastroProduto} placeholder="Selecione ou digite uma categoria" />
                   <datalist id="categorias-produto">
                     {categoriasDB.map((cat, idx) => <option key={idx} value={cat} />)}
                   </datalist>
                 </div>
                 <div className="input-group">
                   <label>Unidade de medida *</label>
-                  <select name="unidadeMedidaId" value={formData.unidadeMedidaId} onChange={handleChange} className="form-select" required>
+                  <select name="unidadeMedidaId" value={formData.unidadeMedidaId} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
                     {activeUnidades.map((uni) => <option key={uni.id} value={uni.id}>{uni.sigla} - {uni.nome}</option>)}
                   </select>
                 </div>
@@ -1050,10 +1083,6 @@ const EstoqueForm: React.FC = () => {
                   <span>Controlar estoque</span>
                 </label>
                 <label className="switch-row">
-                  <input type="checkbox" checked={formData.permitirEstoqueNegativo} onChange={handleCheckbox('permitirEstoqueNegativo')} />
-                  <span>Permitir estoque negativo</span>
-                </label>
-                <label className="switch-row">
                   <input type="checkbox" checked={formData.reservarEstoqueOrcamento} onChange={handleCheckbox('reservarEstoqueOrcamento')} />
                   <span>Reservar estoque em orçamento</span>
                 </label>
@@ -1062,7 +1091,7 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <div className="input-group">
                   <label>Quantidade atual</label>
-                  <input type="number" name="quantidade" min="0" value={formData.quantidade} onChange={handleChange} disabled={isEditing} />
+                  <input type="number" name="quantidade" min="0" value={formData.quantidade} onChange={handleChange} disabled={isEditing} required={validarCadastroProduto && !isEditing} />
                   {isEditing && <span className="field-hint">Em produto já cadastrado, a quantidade muda por NFE, venda, cancelamento ou movimentação.</span>}
                 </div>
                 <div className="input-group">
@@ -1137,24 +1166,24 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <div className="input-group">
                   <label>NCM *</label>
-                  <input type="text" name="ncm" maxLength={8} placeholder="8 dígitos" value={formData.ncm} onChange={handleChange} required />
+                  <input type="text" name="ncm" maxLength={8} placeholder="8 dígitos" value={formData.ncm} onChange={handleChange} required={!validarCadastroProduto} />
                   <span className="field-hint">Obrigatório para emissão fiscal. Use apenas números.</span>
                 </div>
                 <div className="input-group">
                   <label>CFOP padrão saída *</label>
-                  <select name="cfop" value={formData.cfop} onChange={handleChange} className="form-select" required>
+                  <select name="cfop" value={formData.cfop} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
                     {cfopOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
                 <div className="input-group">
                   <label>Origem da mercadoria *</label>
-                  <select name="origem" value={formData.origem} onChange={handleChange} className="form-select" required>
+                  <select name="origem" value={formData.origem} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
                     {origemOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
                 <div className="input-group">
                   <label>CSOSN ou CST *</label>
-                  <select name="csosn" value={formData.csosn} onChange={handleChange} className="form-select" required>
+                  <select name="csosn" value={formData.csosn} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
                     {csosnOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>

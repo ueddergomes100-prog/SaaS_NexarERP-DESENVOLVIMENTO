@@ -40,6 +40,7 @@ const Configuracoes: React.FC = () => {
     garantiaPadrao: '',
     diasNotificacaoLembrete: '15',
     venderSemEstoque: false,
+    validarCadastroProduto: false,
     diasCrediario: '30',
     planoContasReceitas: ['Serviços', 'Venda de Produtos', 'Outras Receitas'],
     planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Produtos', 'Marketing', 'Manutenção', 'Outros'],
@@ -65,6 +66,7 @@ const Configuracoes: React.FC = () => {
           setFormData({
             ...data,
             venderSemEstoque: data.venderSemEstoque ?? false,
+            validarCadastroProduto: data.validarCadastroProduto ?? false,
             diasCrediario: data.diasCrediario ?? '30',
             planoContasReceitas: receitas,
             planoContasDespesas: despesas,
@@ -617,6 +619,22 @@ const Configuracoes: React.FC = () => {
                   </label>
                 </div>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Se "Sim", o sistema permitirá adicionar itens na OS e Vendas mesmo que o estoque seja insuficiente.</p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Validar Cadastro de Produto</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    name="validarCadastroProduto"
+                    checked={formData.validarCadastroProduto === true}
+                    onChange={(e) => setFormData({ ...formData, validarCadastroProduto: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Permitir cadastrar produto apenas com nome, preço e quantidade
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Quando marcado, o cadastro de produtos exige apenas nome, preço de venda e quantidade inicial de estoque.</p>
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

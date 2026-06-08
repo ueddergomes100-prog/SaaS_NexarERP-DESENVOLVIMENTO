@@ -325,6 +325,7 @@ const EstoqueForm: React.FC = () => {
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
   const [unidadesDB, setUnidadesDB] = useState<UnidadeMedida[]>([]);
   const [validarCadastroProduto, setValidarCadastroProduto] = useState(false);
+  const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
   const { currentUser, tenantId, userRole } = useAuth();
 
   const fallbackUnidades: UnidadeMedida[] = [
@@ -344,6 +345,7 @@ const EstoqueForm: React.FC = () => {
   const lucroEstimado = precoVenda - precoCusto;
   const sugestaoSlug = useMemo(() => slugify(formData.nome), [formData.nome]);
   const skuCalculado = useMemo(() => makeSku(tenantId, formData.codigo), [tenantId, formData.codigo]);
+  const quantidadeEstoqueEditavel = !isEditing || permitirVendaSemEstoque;
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -351,7 +353,14 @@ const EstoqueForm: React.FC = () => {
         if (!currentUser) return;
 
         const configSnap = await getDoc(doc(db, 'configuracoes', tenantId || ''));
-        setValidarCadastroProduto(configSnap.exists() && configSnap.data().validarCadastroProduto === true);
+        if (configSnap.exists()) {
+          const configData = configSnap.data();
+          setValidarCadastroProduto(configData.validarCadastroProduto === true);
+          setPermitirVendaSemEstoque(configData.venderSemEstoque === true);
+        } else {
+          setValidarCadastroProduto(false);
+          setPermitirVendaSemEstoque(false);
+        }
 
         const qCat = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
         const snapCat = await getDocs(qCat);
@@ -1091,8 +1100,14 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <div className="input-group">
                   <label>Quantidade atual</label>
-                  <input type="number" name="quantidade" min="0" value={formData.quantidade} onChange={handleChange} disabled={isEditing} required={validarCadastroProduto && !isEditing} />
-                  {isEditing && <span className="field-hint">Em produto já cadastrado, a quantidade muda por NFE, venda, cancelamento ou movimentação.</span>}
+                  <input type="number" name="quantidade" min="0" value={formData.quantidade} onChange={handleChange} disabled={!quantidadeEstoqueEditavel} required={validarCadastroProduto && !isEditing} />
+                  {isEditing && (
+                    <span className="field-hint">
+                      {permitirVendaSemEstoque
+                        ? 'Venda sem estoque está ativa; a quantidade pode ser ajustada manualmente.'
+                        : 'Em produto já cadastrado, a quantidade muda por NFE, venda, cancelamento ou movimentação.'}
+                    </span>
+                  )}
                 </div>
                 <div className="input-group">
                   <label>Estoque mínimo</label>

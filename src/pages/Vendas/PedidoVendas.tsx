@@ -16,7 +16,7 @@ interface ItemVenda {
 interface PedidoVendaData {
   id: string;
   numeroPedido: string;
-  createdAt?: { seconds: number; nanoseconds: number };
+  createdAt?: { seconds?: number; nanoseconds?: number };
   clienteNome?: string;
   formaPagamento?: string;
   status: string;
@@ -265,7 +265,7 @@ const PedidoVendas: React.FC = () => {
                 filteredPedidos.map(p => (
                   <tr key={p.id} style={{ borderBottom: '1px solid var(--border-color)', opacity: p.status === 'Cancelada' ? 0.6 : 1 }}>
                     <td style={{ padding: '16px', fontWeight: 600 }}>#{p.numeroPedido}</td>
-                    <td style={{ padding: '16px' }}>{new Date(p.createdAt?.seconds * 1000).toLocaleDateString('pt-BR')}</td>
+                    <td style={{ padding: '16px' }}>{p.createdAt?.seconds ? new Date(p.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : '-'}</td>
                     <td style={{ padding: '16px' }}>{p.clienteNome}</td>
                     <td style={{ padding: '16px' }}>
                       <span style={{ backgroundColor: 'var(--bg-tertiary)', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>

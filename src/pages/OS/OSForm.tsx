@@ -1,18 +1,35 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package } from 'lucide-react';
+import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, setDoc, orderBy, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError } from '../../utils/alerts';
+import { NexusSwal, showSuccess, showError } from '../../utils/alerts';
+import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import './OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
 interface ServicoData { id: string; nome: string; preco: number; }
-interface ServicoSelecionado { id: string; nome: string; preco: number; quantidade: number; }
+interface ServicoSelecionado { id: string; nome: string; preco: number; quantidade: number; detalhamento?: string; tempoHoras?: number; }
 interface PecaData { id: string; nome: string; precoVenda: number; quantidade?: number; }
 interface PecaSelecionada { id: string; nome: string; preco: number; quantidade: number; }
-interface VeiculoBasico { id: string; placa: string; modelo: string; ano: string; cor: string; clienteId: string; }
+interface VeiculoBasico {
+  id: string;
+  placa: string;
+  modelo: string;
+  marca: string;
+  ano: string;
+  cor: string;
+  kmAtual: number;
+  renavam: string;
+  combustivel: string;
+  clienteId: string;
+}
+
+const getLocalDateInputValue = (date = new Date()) => {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
+};
 
 const OSForm: React.FC = () => {
   const navigate = useNavigate();
@@ -21,8 +38,12 @@ const OSForm: React.FC = () => {
   
   const [formData, setFormData] = useState({
     clienteNome: '', clienteTelefone: '',
-    placa: '', modelo: '', ano: '', cor: '',
+    placa: '', modelo: '', marca: '', ano: '', cor: '',
+    renavam: '', quilometragem: '', combustivel: '',
+    dataEntrada: getLocalDateInputValue(), dataSaida: '',
+    horaEntrada: '', horaSaida: '',
     defeitoRelatado: '', relatorioTecnico: '',
+    materiaisCliente: '', condicoesPagamento: '', observacoes: '',
     status: 'Orçamento Pendente', // Status padrão na criação
     numeroOS: '',
     estoqueBaixado: false,
@@ -100,7 +121,18 @@ const OSForm: React.FC = () => {
       const qV = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId));
       const snapV = await getDocs(qV);
       const dataV: VeiculoBasico[] = [];
-      snapV.forEach((doc) => dataV.push({ id: doc.id, placa: doc.data().placa, modelo: doc.data().modelo, ano: doc.data().ano, cor: doc.data().cor, clienteId: doc.data().clienteId }));
+      snapV.forEach((doc) => dataV.push({
+        id: doc.id,
+        placa: doc.data().placa,
+        modelo: doc.data().modelo,
+        marca: doc.data().marca || '',
+        ano: doc.data().ano,
+        cor: doc.data().cor,
+        kmAtual: Number(doc.data().kmAtual || 0),
+        renavam: doc.data().renavam || '',
+        combustivel: doc.data().combustivel || '',
+        clienteId: doc.data().clienteId,
+      }));
       setVeiculosDisponiveis(dataV);
 
       // Fetch Serviços
@@ -145,10 +177,21 @@ const OSForm: React.FC = () => {
               clienteTelefone: os.clienteTelefone || '',
               placa: os.placa || '',
               modelo: os.modelo || '',
+              marca: os.marca || '',
               ano: os.ano || '',
               cor: os.cor || '',
+              renavam: os.renavam || '',
+              quilometragem: os.quilometragem ? String(os.quilometragem) : '',
+              combustivel: os.combustivel || '',
+              dataEntrada: os.dataEntrada || (os.createdAt?.toDate ? getLocalDateInputValue(os.createdAt.toDate()) : ''),
+              dataSaida: os.dataSaida || '',
+              horaEntrada: os.horaEntrada || '',
+              horaSaida: os.horaSaida || '',
               defeitoRelatado: os.defeitoRelatado || '',
               relatorioTecnico: os.relatorioTecnico || '',
+              materiaisCliente: os.materiaisCliente || '',
+              condicoesPagamento: os.condicoesPagamento || '',
+              observacoes: os.observacoes || '',
               status: os.status || 'Orçamento Pendente',
               numeroOS: os.numeroOS || '',
               estoqueBaixado: os.estoqueBaixado || false,
@@ -267,7 +310,10 @@ const OSForm: React.FC = () => {
     }
     
     if (servico) {
-      setServicosSelecionados([...servicosSelecionados, { ...servico, preco: precoNum, quantidade: 1 }]);
+      setServicosSelecionados([
+        ...servicosSelecionados,
+        { ...servico, preco: precoNum, quantidade: 1, detalhamento: '', tempoHoras: 1 }
+      ]);
       setServicoNomeInput('');
       setServicoPrecoInput('');
     }
@@ -282,6 +328,18 @@ const OSForm: React.FC = () => {
   const updatePrecoServico = (index: number, preco: number) => {
     const novos = [...servicosSelecionados];
     novos[index].preco = Math.max(0, preco);
+    setServicosSelecionados(novos);
+  };
+
+  const updateDetalhamentoServico = (index: number, detalhamento: string) => {
+    const novos = [...servicosSelecionados];
+    novos[index].detalhamento = detalhamento;
+    setServicosSelecionados(novos);
+  };
+
+  const updateTempoServico = (index: number, tempoHoras: number) => {
+    const novos = [...servicosSelecionados];
+    novos[index].tempoHoras = Math.max(0, tempoHoras);
     setServicosSelecionados(novos);
   };
 
@@ -356,7 +414,7 @@ const OSForm: React.FC = () => {
     setPecasSelecionadas(novas);
   };
 
-  const totalServicos = servicosSelecionados.reduce((acc, curr) => acc + (curr.preco * curr.quantidade), 0);
+  const totalServicos = servicosSelecionados.reduce((acc, curr) => acc + getServiceTotal(curr), 0);
   const totalPecas = pecasSelecionadas.reduce((acc, curr) => acc + (curr.preco * curr.quantidade), 0);
   const totalOS = totalServicos + totalPecas;
 
@@ -654,7 +712,19 @@ const OSForm: React.FC = () => {
                           const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === c.id);
                           if (vDoCliente.length === 1) {
                             const v = vDoCliente[0];
-                            setFormData({ ...formData, clienteNome: c.nome, clienteTelefone: c.telefone || '', placa: v.placa, modelo: v.modelo, ano: v.ano, cor: v.cor });
+                            setFormData({
+                              ...formData,
+                              clienteNome: c.nome,
+                              clienteTelefone: c.telefone || '',
+                              placa: v.placa,
+                              modelo: v.modelo,
+                              marca: v.marca,
+                              ano: v.ano,
+                              cor: v.cor,
+                              renavam: v.renavam,
+                              quilometragem: v.kmAtual ? String(v.kmAtual) : '',
+                              combustivel: v.combustivel,
+                            });
                             setVeiculosDoCliente([]);
                             setIsVeiculoDropdownOpen(false);
                           } else if (vDoCliente.length > 1) {
@@ -702,7 +772,17 @@ const OSForm: React.FC = () => {
                       key={v.id} 
                       type="button"
                       onClick={() => {
-                        setFormData(prev => ({...prev, placa: v.placa, modelo: v.modelo, ano: v.ano, cor: v.cor}));
+                        setFormData(prev => ({
+                          ...prev,
+                          placa: v.placa,
+                          modelo: v.modelo,
+                          marca: v.marca,
+                          ano: v.ano,
+                          cor: v.cor,
+                          renavam: v.renavam,
+                          quilometragem: v.kmAtual ? String(v.kmAtual) : '',
+                          combustivel: v.combustivel,
+                        }));
                         setIsVeiculoDropdownOpen(false);
                       }}
                       style={{ padding: '8px 16px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
@@ -724,8 +804,46 @@ const OSForm: React.FC = () => {
             <div className="grid-2-col">
               <div className="input-group"><label>Placa *</label><input type="text" name="placa" placeholder="ABC-1234" style={{ textTransform: 'uppercase' }} value={formData.placa} onChange={handleChange} /></div>
               <div className="input-group"><label>Modelo</label><input type="text" name="modelo" placeholder="Ex: Honda Civic" value={formData.modelo} onChange={handleChange} /></div>
+              <div className="input-group"><label>Marca</label><input type="text" name="marca" placeholder="Ex: Honda" value={formData.marca} onChange={handleChange} /></div>
               <div className="input-group"><label>Ano</label><input type="text" name="ano" placeholder="Ex: 2018" value={formData.ano} onChange={handleChange} /></div>
               <div className="input-group"><label>Cor</label><input type="text" name="cor" placeholder="Ex: Prata" value={formData.cor} onChange={handleChange} /></div>
+              <div className="input-group"><label>RENAVAM</label><input type="text" name="renavam" placeholder="Ex: 00123456789" value={formData.renavam} onChange={handleChange} /></div>
+              <div className="input-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Gauge size={14} /> Quilometragem</label>
+                <input type="number" name="quilometragem" placeholder="Ex: 41600" value={formData.quilometragem} onChange={handleChange} min="0" />
+              </div>
+              <div className="input-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Fuel size={14} /> Combustível</label>
+                <select name="combustivel" value={formData.combustivel} onChange={handleChange}>
+                  <option value="">Não informado</option>
+                  <option value="Gasolina">Gasolina</option>
+                  <option value="Etanol">Etanol</option>
+                  <option value="Flex">Flex</option>
+                  <option value="Diesel">Diesel</option>
+                  <option value="Elétrico">Elétrico</option>
+                  <option value="Híbrido">Híbrido</option>
+                  <option value="GNV">GNV</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid-2-col" style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px dashed var(--border-color)' }}>
+              <div className="input-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><CalendarDays size={14} /> Data de entrada</label>
+                <input type="date" name="dataEntrada" value={formData.dataEntrada} onChange={handleChange} />
+              </div>
+              <div className="input-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><CalendarDays size={14} /> Saída prevista</label>
+                <input type="date" name="dataSaida" value={formData.dataSaida} onChange={handleChange} />
+              </div>
+              <div className="input-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><CalendarDays size={14} /> Hora de entrada</label>
+                <input type="time" name="horaEntrada" value={formData.horaEntrada} onChange={handleChange} />
+              </div>
+              <div className="input-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><CalendarDays size={14} /> Hora de saída</label>
+                <input type="time" name="horaSaida" value={formData.horaSaida} onChange={handleChange} />
+              </div>
             </div>
           </div>
 
@@ -801,7 +919,7 @@ const OSForm: React.FC = () => {
                           }}
                         >
                           <span>{s.nome}</span>
-                          <span>R$ {s.preco.toFixed(2)}</span>
+                          <span>R$ {s.preco.toFixed(2)} / hora</span>
                         </div>
                       ))}
                   </div>
@@ -810,7 +928,7 @@ const OSForm: React.FC = () => {
 
               <input 
                 type="number" 
-                placeholder="R$ Valor"
+                placeholder="R$ por hora"
                 value={servicoPrecoInput}
                 onChange={(e) => setServicoPrecoInput(e.target.value)}
                 style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
@@ -825,8 +943,30 @@ const OSForm: React.FC = () => {
                   <tbody>
                     {servicosSelecionados.map((s, index) => (
                       <tr key={index} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                        <td style={{ padding: '8px 0' }}>{s.nome}</td>
+                        <td style={{ padding: '10px 10px 10px 0' }}>
+                          <strong style={{ display: 'block', marginBottom: '7px' }}>{s.nome}</strong>
+                          <input
+                            type="text"
+                            value={s.detalhamento || ''}
+                            onChange={e => updateDetalhamentoServico(index, e.target.value)}
+                            placeholder="Detalhamento do serviço executado"
+                            style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '7px 9px', borderRadius: '4px', fontSize: '12px' }}
+                          />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '7px' }}>
+                            <label style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Tempo (h)</label>
+                            <input
+                              type="number"
+                              value={getServiceHours(s)}
+                              onChange={e => updateTempoServico(index, Number(e.target.value))}
+                              placeholder="1,00"
+                              min="0"
+                              step="0.1"
+                              style={{ width: '90px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '4px', fontSize: '12px' }}
+                            />
+                          </div>
+                        </td>
                         <td style={{ padding: '8px 0', width: '120px' }}>
+                          <label style={{ display: 'block', marginBottom: '5px', color: 'var(--text-muted)', fontSize: '10px', textAlign: 'right' }}>Valor / hora</label>
                           <div style={{ display: 'flex', alignItems: 'center' }}>
                             <span style={{ color: 'var(--text-muted)', marginRight: '4px' }}>R$</span>
                             <input 
@@ -837,6 +977,9 @@ const OSForm: React.FC = () => {
                               min="0" 
                               step="0.01"
                             />
+                          </div>
+                          <div style={{ marginTop: '8px', color: '#10b981', fontSize: '12px', fontWeight: 700, textAlign: 'right' }}>
+                            Total: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(getServiceTotal(s))}
                           </div>
                         </td>
                         <td style={{ textAlign: 'right', width: '40px' }}>
@@ -990,6 +1133,18 @@ const OSForm: React.FC = () => {
             <div className="input-group" style={{ flex: 1 }}>
               <label>Relatório do Técnico (O que foi feito)</label>
               <textarea name="relatorioTecnico" placeholder="Descreva tecnicamente o que foi encontrado e reparado no veículo..." rows={10} value={formData.relatorioTecnico} onChange={handleChange}></textarea>
+            </div>
+            <div className="input-group">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Package size={14} /> Materiais fornecidos pelo cliente</label>
+              <textarea name="materiaisCliente" placeholder="Ex: óleo do motor, filtro de óleo e filtro de ar..." rows={3} value={formData.materiaisCliente} onChange={handleChange}></textarea>
+            </div>
+            <div className="input-group">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><ClipboardList size={14} /> Condições de pagamento</label>
+              <textarea name="condicoesPagamento" placeholder="Ex: pagamento referente à mão de obra, via Pix na entrega..." rows={3} value={formData.condicoesPagamento} onChange={handleChange}></textarea>
+            </div>
+            <div className="input-group">
+              <label>Observações do recibo</label>
+              <textarea name="observacoes" placeholder="Orientações, garantias específicas ou recomendações ao cliente..." rows={4} value={formData.observacoes} onChange={handleChange}></textarea>
             </div>
           </div>
         </div>

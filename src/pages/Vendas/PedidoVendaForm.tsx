@@ -288,7 +288,7 @@ const PedidoVendaForm: React.FC = () => {
           codigo: String(snapC.data().count + 1),
           nome: finalClienteNome,
           isPadrao: finalClienteNome === 'CONSUMIDOR FINAL',
-          tenantId,
+          tenantId: tenantId || '',
           createdAt: serverTimestamp()
         });
       }
@@ -321,7 +321,7 @@ const PedidoVendaForm: React.FC = () => {
         valorTotal: valorTotalPedido,
         formaPagamento,
         status: 'Finalizada',
-        tenantId,
+        tenantId: tenantId || '',
         usuarioResponsavelId: currentUser.uid,
         createdAt: serverTimestamp()
       };
@@ -348,7 +348,7 @@ const PedidoVendaForm: React.FC = () => {
       try {
         const { createAuditLog } = await import('../../services/logService');
         createAuditLog({
-          tenantId,
+          tenantId: tenantId || '',
           usuarioId: currentUser.uid,
           usuarioEmail: currentUser.email || currentUser.uid,
           modulo: 'vendas',
@@ -969,7 +969,7 @@ const PedidoVendaForm: React.FC = () => {
       try {
         const { createAuditLog } = await import('../../services/logService');
         createAuditLog({
-          tenantId,
+          tenantId: tenantId || '',
           usuarioId: currentUser.uid,
           usuarioEmail: currentUser.email || currentUser.uid,
           modulo: 'vendas',

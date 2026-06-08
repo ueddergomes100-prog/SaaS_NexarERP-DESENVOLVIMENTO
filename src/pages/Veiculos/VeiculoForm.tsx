@@ -221,7 +221,7 @@ const VeiculoForm: React.FC = () => {
                 value={formData.kmAtual} 
                 onChange={handleChange} 
                 placeholder="Ex: 45000" 
-                style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', fontSize: '18px', fontWeight: 600, color: '#f59e0b' }} 
+                style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', fontSize: '18px', fontWeight: 600, color: '#f59e0b' }}
               />
             </div>
           </div>

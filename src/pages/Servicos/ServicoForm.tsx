@@ -64,7 +64,7 @@ const ServicoForm: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.nome || !formData.preco) {
-      showError('Campos incompletos', 'Nome e Preço são obrigatórios.');
+      showError('Campos incompletos', 'Nome e valor por hora são obrigatórios.');
       return;
     }
     
@@ -149,7 +149,7 @@ const ServicoForm: React.FC = () => {
                 </select>
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Valor Padrão (R$) *</label>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Valor por Hora (R$) *</label>
               <input type="text" name="preco" placeholder="150.00" value={formData.preco} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>

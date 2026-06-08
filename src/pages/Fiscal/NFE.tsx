@@ -257,6 +257,7 @@ const NFE: React.FC = () => {
               quantidade: 1,
               precoUnitario: newPreco,
               valorTotal: newPreco,
+              desconto: 0,
               ncm: newNcm,
               cfop: newCfop,
               csosn: newCsosn,

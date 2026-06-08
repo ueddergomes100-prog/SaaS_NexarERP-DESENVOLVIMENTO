@@ -12,6 +12,10 @@ interface TransacaoData {
   valor: number;
   tipo: 'entrada' | 'saida';
   status: 'Paga' | 'Pendente';
+  formaPagamento?: string;
+  createdAt?: {
+    seconds?: number;
+  };
 }
 
 const Faturamento: React.FC = () => {

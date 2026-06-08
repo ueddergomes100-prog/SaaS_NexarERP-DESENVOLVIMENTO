@@ -1,4 +1,5 @@
 const { db } = require('../config/firebase');
+const fs = require('fs');
 const { generateCompanyBackup } = require('../services/backup');
 const { restoreCompanyBackup } = require('../services/restore');
 const { deleteBackup } = require('../services/cloudStorage');
@@ -19,13 +20,8 @@ async function getTenants(req, res) {
     
     snap.forEach(doc => {
       const data = doc.data();
-      // Filtra o próprio SuperAdmin para não poluir
-      const dataEmailLower = data.email?.toLowerCase();
-      if (
-        dataEmailLower === 'ueddergomes@outlook.com' || 
-        dataEmailLower === 'ueddergomes100@gmail.com' || 
-        data.role === 'SuperAdmin'
-      ) {
+      // Filtra contas SuperAdmin para não poluir a lista de empresas clientes
+      if (data.role === 'SuperAdmin') {
         return;
       }
 
@@ -320,7 +316,6 @@ async function downloadBackup(req, res) {
       if (!localPath || !fs.existsSync(localPath)) {
         return res.status(404).json({ error: 'Arquivo físico local não encontrado no servidor.' });
       }
-      const fs = require('fs');
       fileBuffer = fs.readFileSync(localPath);
     } else if (status === 'enviado') {
       const { downloadBackup: downloadFromStorage } = require('../services/cloudStorage');
@@ -330,7 +325,8 @@ async function downloadBackup(req, res) {
     }
 
     // Define cabeçalhos HTTP para download forçado
-    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+    const safeFilename = String(filename || 'backup.bin').replace(/["\r\n]/g, '_');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Length', fileBuffer.length);
 

@@ -208,7 +208,7 @@ const OrcamentoForm: React.FC = () => {
       }
     }
 
-    novas[index].quantidade = novaQtd;
+    novos[index].quantidade = novaQtd;
     setItens(novos);
   };
 
@@ -348,8 +348,8 @@ const OrcamentoForm: React.FC = () => {
           valorTotal: valorProdutos,
           formaPagamento: 'Dinheiro',
           status: 'Finalizada',
-          tenantId,
-          usuarioResponsavelId: currentUser.uid,
+          tenantId: tenantId || '',
+          usuarioResponsavelId: currentUser?.uid || '',
           createdAt: serverTimestamp(),
           orcamentoId: id
         };

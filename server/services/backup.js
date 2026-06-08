@@ -31,8 +31,17 @@ const COLLECTIONS_TO_BACKUP = [
  * para evitar erros de chave inválida no algoritmo AES-256-CBC.
  */
 function getEncryptionKey() {
-  const secret = process.env.BACKUP_ENCRYPTION_KEY || 'NexusERPSecretKeyDefault2026Secure!';
-  return crypto.createHash('sha256').update(secret).digest();
+  const secret = process.env.BACKUP_ENCRYPTION_KEY;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('BACKUP_ENCRYPTION_KEY é obrigatório em produção.');
+    }
+
+    console.warn('[Backup] BACKUP_ENCRYPTION_KEY ausente. Usando chave local apenas para desenvolvimento.');
+  }
+
+  const effectiveSecret = secret || 'NexusERPLocalDevelopmentKeyOnly2026!';
+  return crypto.createHash('sha256').update(effectiveSecret).digest();
 }
 
 /**

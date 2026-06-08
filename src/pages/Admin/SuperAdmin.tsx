@@ -127,9 +127,8 @@ const SuperAdmin: React.FC = () => {
         snap.forEach(doc => {
           const data = doc.data();
           
-          // Ignora o SuperAdmin (dono do SaaS) para não somar no faturamento e indicadores
-          const dataEmailLower = data.email?.toLowerCase();
-          if (dataEmailLower === 'ueddergomes@outlook.com' || dataEmailLower === 'ueddergomes100@gmail.com' || data.role === 'SuperAdmin') {
+          // Ignora contas SuperAdmin para não somar no faturamento e indicadores
+          if (data.role === 'SuperAdmin') {
             return;
           }
 
@@ -663,7 +662,7 @@ const SuperAdmin: React.FC = () => {
                 <Tooltip 
                   contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: 'none', borderRadius: '8px', color: '#fff' }}
                   itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
-                  formatter={(value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value))}
+                  formatter={(value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0))}
                 />
                 <Area type="monotone" dataKey="mrr" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorMrr)" name="MRR" />
               </AreaChart>
@@ -708,7 +707,7 @@ const SuperAdmin: React.FC = () => {
                 <XAxis dataKey="name" stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} />
                 <YAxis stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} tickFormatter={(val) => `R$ ${val}`} />
                 <Tooltip
-                  formatter={(value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value))}
+                  formatter={(value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0))}
                   contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: 'none', borderRadius: '8px', color: '#fff' }}
                 />
                 <Bar dataKey="receita" fill="#10b981" radius={[6, 6, 0, 0]} name="Receita ativa" />

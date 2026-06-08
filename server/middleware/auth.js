@@ -10,8 +10,6 @@ async function authenticate(req, res, next) {
     
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.split('Bearer ')[1];
-    } else if (req.query.token) {
-      token = req.query.token;
     }
 
     if (!token) {
@@ -21,32 +19,26 @@ async function authenticate(req, res, next) {
     // Verifica o token usando o Firebase Admin SDK
     const decodedToken = await auth.verifyIdToken(token);
     const { uid, email } = decodedToken;
+    const claimRole = decodedToken.superAdmin === true || decodedToken.role === 'SuperAdmin'
+      ? 'SuperAdmin'
+      : decodedToken.role;
 
     // Busca o perfil do usuário no Firestore para obter o role e o tenantId
     const userDoc = await db.collection('usuarios').doc(uid).get();
     
-    let role = 'Admin'; // Role padrão caso o doc não exista (primeiro login do dono)
+    let role = claimRole || 'Admin'; // Role padrão caso o doc não exista (primeiro login do dono)
     let tenantId = uid;   // Tenant padrão é o próprio UID do dono
     let permissoes = [];
 
     if (userDoc.exists) {
       const userData = userDoc.data();
-      role = userData.role || 'Admin';
+      role = userData.role || role;
       tenantId = userData.tenantId || uid;
       permissoes = userData.permissoes || [];
+    }
 
-      // Suporte para o hardcode de SuperAdmin idêntico ao frontend AuthContext
-      const emailLower = email?.toLowerCase();
-      if (emailLower === 'ueddergomes@outlook.com' || emailLower === 'ueddergomes100@gmail.com') {
-        role = 'SuperAdmin';
-      }
-    } else {
-      // Se não houver documento no Firestore (ex: superadmin recém-criado),
-      // verifica se o e-mail coincide com o hardcode de SuperAdmin
-      const emailLower = email?.toLowerCase();
-      if (emailLower === 'ueddergomes@outlook.com' || emailLower === 'ueddergomes100@gmail.com') {
-        role = 'SuperAdmin';
-      }
+    if (claimRole === 'SuperAdmin') {
+      role = 'SuperAdmin';
     }
 
     // Anexa as informações do usuário logado ao objeto de requisição

@@ -104,10 +104,11 @@ const OSList: React.FC = () => {
   };
 
   const filteredOsList = osList.filter(os => {
-    let matchesTab = false;
-    if (activeTab === 'Canceladas') matchesTab = os.status === 'Cancelada';
-    else if (activeTab === 'Finalizadas') matchesTab = os.status === 'Finalizada';
-    else matchesTab = os.status !== 'Cancelada' && os.status !== 'Finalizada';
+    const matchesTab = activeTab === 'Canceladas'
+      ? os.status === 'Cancelada'
+      : activeTab === 'Finalizadas'
+        ? os.status === 'Finalizada'
+        : os.status !== 'Cancelada' && os.status !== 'Finalizada';
 
     if (!matchesTab) return false;
     if (!searchTerm) return true;

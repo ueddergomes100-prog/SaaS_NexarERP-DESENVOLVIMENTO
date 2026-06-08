@@ -111,7 +111,7 @@ const ServicosList: React.FC = () => {
                 <th>Código</th>
                 <th>Nome do Serviço</th>
                 <th>Categoria</th>
-                <th style={{ textAlign: 'right' }}>Valor (R$)</th>
+                <th style={{ textAlign: 'right' }}>Valor / Hora</th>
                 <th>Ações</th>
               </tr>
             </thead>

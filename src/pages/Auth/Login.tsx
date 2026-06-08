@@ -25,10 +25,9 @@ const Login: React.FC = () => {
 
     setLoading(true);
     setError('');
+    let finalEmail = loginStr.trim().toLowerCase();
 
     try {
-      let finalEmail = loginStr.trim().toLowerCase();
-
       // Se não tem '@', assume que é Usuário funcionário
       if (!finalEmail.includes('@')) {
         if (!empresa) {

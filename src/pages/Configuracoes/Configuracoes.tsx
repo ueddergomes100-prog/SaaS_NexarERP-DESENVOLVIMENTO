@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders } from 'lucide-react';
+import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
+import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
 
 const Configuracoes: React.FC = () => {
   const { currentUser, tenantId } = useAuth();
@@ -44,6 +45,7 @@ const Configuracoes: React.FC = () => {
     diasCrediario: '30',
     planoContasReceitas: ['Serviços', 'Venda de Produtos', 'Outras Receitas'],
     planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Produtos', 'Marketing', 'Manutenção', 'Outros'],
+    modeloImpressaoOS: DEFAULT_OS_PRINT_MODEL,
     spedyEnabled: false,
     spedyApiKey: '',
     spedyEnvironment: 'sandbox'
@@ -70,6 +72,7 @@ const Configuracoes: React.FC = () => {
             diasCrediario: data.diasCrediario ?? '30',
             planoContasReceitas: receitas,
             planoContasDespesas: despesas,
+            modeloImpressaoOS: data.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL,
             spedyEnabled: data.spedyEnabled ?? false,
             spedyApiKey: data.spedyApiKey ?? '',
             spedyEnvironment: data.spedyEnvironment ?? 'sandbox'
@@ -455,6 +458,51 @@ const Configuracoes: React.FC = () => {
               disabled={!isEditingMode}
               style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', resize: 'vertical' }}
             />
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <LayoutTemplate size={18} style={{ color: 'var(--accent-purple)' }} />
+              <div>
+                <h4 style={{ margin: 0, fontSize: '14px', color: 'var(--text-primary)' }}>Modelo de impressão da Ordem de Serviço</h4>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>O modelo selecionado será usado automaticamente ao imprimir qualquer OS.</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '12px' }}>
+              {OS_PRINT_MODELS.map(modelo => {
+                const selected = formData.modeloImpressaoOS === modelo.id;
+                return (
+                  <label
+                    key={modelo.id}
+                    style={{
+                      display: 'flex',
+                      gap: '12px',
+                      alignItems: 'flex-start',
+                      padding: '14px',
+                      borderRadius: '8px',
+                      border: `1px solid ${selected ? 'var(--accent-purple)' : 'var(--border-color)'}`,
+                      backgroundColor: selected ? 'rgba(139, 92, 246, 0.1)' : 'var(--bg-tertiary)',
+                      cursor: isEditingMode ? 'pointer' : 'default',
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="modeloImpressaoOS"
+                      value={modelo.id}
+                      checked={selected}
+                      onChange={handleChange}
+                      disabled={!isEditingMode}
+                      style={{ marginTop: '3px', accentColor: 'var(--accent-purple)' }}
+                    />
+                    <span>
+                      <strong style={{ display: 'block', fontSize: '13px', color: 'var(--text-primary)', marginBottom: '4px' }}>{modelo.name}</strong>
+                      <span style={{ display: 'block', fontSize: '12px', lineHeight: 1.45, color: 'var(--text-muted)' }}>{modelo.description}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
         </div>
 

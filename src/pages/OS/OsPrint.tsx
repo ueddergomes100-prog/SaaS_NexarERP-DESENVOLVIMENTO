@@ -4,6 +4,9 @@ import { Printer, ArrowLeft } from 'lucide-react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { DEFAULT_OS_PRINT_MODEL } from '../../utils/osPrintModels';
+import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
+import OsPrintPersonalizado01 from './OsPrintPersonalizado01';
 import './OsPrint.css';
 
 const OsPrint: React.FC = () => {
@@ -12,6 +15,7 @@ const OsPrint: React.FC = () => {
   const { currentUser, tenantId } = useAuth();
   const [osData, setOsData] = useState<any>(null);
   const [clientData, setClientData] = useState<any>(null);
+  const [vehicleData, setVehicleData] = useState<any>(null);
   const [configData, setConfigData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -23,7 +27,7 @@ const OsPrint: React.FC = () => {
         const docSnap = await getDoc(docRef);
         
         if (docSnap.exists()) {
-          const data = { id: docSnap.id, ...docSnap.data() };
+          const data = { id: docSnap.id, ...docSnap.data() } as any;
           setOsData(data);
 
           // Buscar dados detalhados do cliente
@@ -35,6 +39,18 @@ const OsPrint: React.FC = () => {
           const snapC = await getDocs(qC);
           if (!snapC.empty) {
             setClientData(snapC.docs[0].data());
+          }
+
+          if (data.placa) {
+            const qV = query(
+              collection(db, 'veiculos'),
+              where('tenantId', '==', tenantId),
+              where('placa', '==', data.placa)
+            );
+            const snapV = await getDocs(qV);
+            if (!snapV.empty) {
+              setVehicleData(snapV.docs[0].data());
+            }
           }
         } else {
           alert('Ordem de serviço não encontrada!');
@@ -71,10 +87,10 @@ const OsPrint: React.FC = () => {
   const servicos = osData.servicos || [];
   const pecas = osData.pecas || [];
   const todosItens = [
-    ...servicos.map((s: any) => ({ ...s, tipo: 'Serviço' })),
-    ...pecas.map((p: any) => ({ ...p, tipo: 'Peça' }))
+    ...servicos.map((s: any) => ({ ...s, tipo: 'Serviço', totalCalculado: getServiceTotal(s) })),
+    ...pecas.map((p: any) => ({ ...p, tipo: 'Peça', totalCalculado: Number(p.preco || 0) * Number(p.quantidade || 1) }))
   ];
-  const valorTotal = osData.valorTotal || 0;
+  const valorTotal = todosItens.reduce((total: number, item: any) => total + item.totalCalculado, 0);
 
   return (
     <div className="print-layout-wrapper">
@@ -89,6 +105,14 @@ const OsPrint: React.FC = () => {
         </button>
       </div>
 
+      {(configData?.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL) === 'personalizado-01' ? (
+        <OsPrintPersonalizado01
+          osData={osData}
+          clientData={clientData}
+          vehicleData={vehicleData}
+          configData={configData}
+        />
+      ) : (
       <div className="a4-page">
         <div className="a4-header">
           <div className="a4-logo">
@@ -148,8 +172,8 @@ const OsPrint: React.FC = () => {
             <thead>
               <tr>
                 <th>Descrição do Item</th>
-                <th style={{ textAlign: 'center' }}>Qtd</th>
-                <th style={{ textAlign: 'right' }}>Valor Unitário</th>
+                <th style={{ textAlign: 'center' }}>Qtd. / Tempo</th>
+                <th style={{ textAlign: 'right' }}>Valor Unit. / Hora</th>
                 <th style={{ textAlign: 'right' }}>Total (R$)</th>
               </tr>
             </thead>
@@ -161,12 +185,14 @@ const OsPrint: React.FC = () => {
                       {item.nome}
                       <span style={{ fontSize: '10px', color: '#666', marginLeft: '6px' }}>({item.tipo})</span>
                     </td>
-                    <td style={{ textAlign: 'center' }}>{item.quantidade}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      {item.tipo === 'Serviço' ? `${getServiceHours(item).toFixed(2)} h` : item.quantidade}
+                    </td>
                     <td style={{ textAlign: 'right' }}>
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.preco)}
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.preco * item.quantidade)}
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.totalCalculado)}
                     </td>
                   </tr>
                 ))
@@ -203,6 +229,7 @@ const OsPrint: React.FC = () => {
           <p>Gerado pelo Sistema Nexar ERP.</p>
         </div>
       </div>
+      )}
     </div>
   );
 };

@@ -16,6 +16,7 @@ interface TransacaoData {
   status: 'Paga' | 'Pendente';
   formaPagamento?: string;
   osId?: string;
+  dataPagamento?: string;
   createdAt?: any;
   clienteNome?: string;
 }

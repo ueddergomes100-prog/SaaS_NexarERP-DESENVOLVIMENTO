@@ -607,7 +607,7 @@ const Dashboard: React.FC = () => {
                   <YAxis stroke="#a0a0ab" tick={{ fill: '#a0a0ab' }} axisLine={false} tickLine={false} tickFormatter={(value) => compactCurrency(Number(value))} width={72} />
                   <ReferenceLine y={0} stroke="#52525b" strokeDasharray="4 4" />
                   <Tooltip
-                    formatter={(value: number) => currencyFormatter.format(Number(value))}
+                    formatter={(value) => currencyFormatter.format(Number(value || 0))}
                     labelFormatter={(label) => `Mes: ${label}`}
                     contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
                     itemStyle={{ color: 'var(--text-primary)' }}
@@ -674,7 +674,7 @@ const Dashboard: React.FC = () => {
                           <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value: number) => currencyFormatter.format(Number(value))} contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }} />
+                      <Tooltip formatter={(value) => currencyFormatter.format(Number(value || 0))} contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="pie-legend">

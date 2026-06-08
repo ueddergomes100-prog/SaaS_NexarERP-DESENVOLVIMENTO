@@ -794,11 +794,11 @@ const EstoqueForm: React.FC = () => {
       };
 
       if (isEditing && id) {
-        await updateDoc(doc(db, 'estoque', id), { ...produtoData, tenantId, updatedAt: serverTimestamp() });
+        await updateDoc(doc(db, 'estoque', id), { ...produtoData, tenantId: tenantId || '', updatedAt: serverTimestamp() });
         try {
           const { createAuditLog } = await import('../../services/logService');
           createAuditLog({
-            tenantId,
+            tenantId: tenantId || '',
             usuarioId: currentUser?.uid || '',
             usuarioEmail: currentUser?.email || currentUser?.uid || '',
             modulo: 'estoque',
@@ -815,13 +815,13 @@ const EstoqueForm: React.FC = () => {
         if (!currentUser) return;
         const newDocRef = await addDoc(collection(db, 'estoque'), {
           ...produtoData,
-          tenantId,
+          tenantId: tenantId || '',
           createdAt: serverTimestamp()
         });
         try {
           const { createAuditLog } = await import('../../services/logService');
           createAuditLog({
-            tenantId,
+            tenantId: tenantId || '',
             usuarioId: currentUser.uid,
             usuarioEmail: currentUser.email || currentUser.uid,
             modulo: 'estoque',

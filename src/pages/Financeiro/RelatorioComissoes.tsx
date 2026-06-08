@@ -3,6 +3,7 @@ import { DollarSign, Download, Search, Filter, Loader2, User } from 'lucide-reac
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { getServiceTotal } from '../../utils/osServicePricing';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 const formatCurrency = (value: number) => {
@@ -94,9 +95,7 @@ const RelatorioComissoes: React.FC = () => {
 
             // Calculate total services value
             const totalServicos = (os.servicos || []).reduce((acc: number, s: any) => {
-              const preco = Number(s.preco) || 0;
-              const qtd = Number(s.quantidade) || 1;
-              return acc + (preco * qtd);
+              return acc + getServiceTotal(s);
             }, 0);
             
             const totalPecas = (os.pecas || []).reduce((acc: number, p: any) => {
@@ -216,7 +215,7 @@ const RelatorioComissoes: React.FC = () => {
               <Tooltip 
                 cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                 contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', color: 'var(--text-primary)', borderRadius: '8px' }}
-                formatter={(value: number) => [formatCurrency(value), 'Comissão']}
+                formatter={(value) => [formatCurrency(Number(value || 0)), 'Comissão']}
               />
               <Bar dataKey="valorComissao" radius={[4, 4, 0, 0]}>
                 {filtrados.map((entry, index) => (

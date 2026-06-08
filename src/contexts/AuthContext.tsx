@@ -1,20 +1,17 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
-import { 
-  onAuthStateChanged, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut 
-} from 'firebase/auth';
+import { getIdTokenResult, onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
 import { doc, getDoc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
+
+type UserRole = 'Admin' | 'Funcionario' | 'SuperAdmin';
 
 interface AuthContextType {
   currentUser: User | null;
   loading: boolean;
   logout: () => Promise<void>;
-  userRole: 'Admin' | 'Funcionario' | 'SuperAdmin' | null;
+  userRole: UserRole | null;
   userPermissions: string[];
   tenantId: string | null;
   blockedModules: string[];
@@ -25,9 +22,26 @@ const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
 export const useAuth = () => useContext(AuthContext);
 
+const normalizeRole = (role: unknown): UserRole => {
+  return role === 'SuperAdmin' || role === 'Funcionario' || role === 'Admin' ? role : 'Admin';
+};
+
+const getTokenRole = async (user: User): Promise<UserRole | null> => {
+  try {
+    const token = await getIdTokenResult(user);
+    if (token.claims.superAdmin === true || token.claims.role === 'SuperAdmin') {
+      return 'SuperAdmin';
+    }
+    return normalizeRole(token.claims.role);
+  } catch (error) {
+    console.error('Erro ao carregar claims do usuário:', error);
+    return null;
+  }
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [userRole, setUserRole] = useState<'Admin' | 'Funcionario' | 'SuperAdmin' | null>(null);
+  const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [blockedModules, setBlockedModules] = useState<string[]>([]);
@@ -47,6 +61,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (user) {
         try {
+          const tokenRole = await getTokenRole(user);
+
           // Inicia escuta em tempo real para obter perfil e sessões do usuário
           unsubscribeUserSnapshot = onSnapshot(doc(db, 'usuarios', user.uid), async (userSnap) => {
             if (userSnap.exists()) {
@@ -78,7 +94,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
               }
 
-              let finalRole = data.role || 'Admin';
+              let finalRole = tokenRole === 'SuperAdmin' ? 'SuperAdmin' : normalizeRole(data.role);
               const finalTenant = data.tenantId || user.uid;
               const finalPermissions = data.permissoes || [];
               let finalBlockedModules: string[] = [];
@@ -96,28 +112,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
               }
 
-              // Hardcode para o dono do SaaS não precisar mexer no Firebase
-              const emailLower = user.email?.toLowerCase();
-              if (emailLower === 'ueddergomes@outlook.com' || emailLower === 'ueddergomes100@gmail.com') {
-                finalRole = 'SuperAdmin';
-              }
-
-              setUserRole(finalRole as any);
+              setUserRole(finalRole);
               setUserPermissions(finalPermissions);
               setTenantId(finalTenant);
               setBlockedModules(finalBlockedModules);
               setIsOwner(user.uid === finalTenant);
             } else {
+              const initialRole = tokenRole === 'SuperAdmin' ? 'SuperAdmin' : 'Admin';
               // Salva base silenciosamente
               const baseProfile = {
-                role: 'Admin',
+                role: initialRole,
                 tenantId: user.uid,
                 email: user.email,
                 createdAt: new Date()
               };
               await setDoc(doc(db, 'usuarios', user.uid), baseProfile, { merge: true });
 
-              setUserRole('Admin');
+              setUserRole(initialRole);
               setUserPermissions([]);
               setTenantId(user.uid);
               setBlockedModules([]);

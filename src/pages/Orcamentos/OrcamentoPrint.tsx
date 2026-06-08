@@ -23,7 +23,7 @@ const OrcamentoPrint: React.FC = () => {
         const docSnap = await getDoc(docRef);
         
         if (docSnap.exists()) {
-          const orcData = { id: docSnap.id, ...docSnap.data() };
+          const orcData = { id: docSnap.id, ...docSnap.data() } as any;
           setData(orcData);
 
           // Buscar dados detalhados do cliente

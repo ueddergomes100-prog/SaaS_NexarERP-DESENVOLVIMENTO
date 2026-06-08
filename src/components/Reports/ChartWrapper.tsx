@@ -5,9 +5,10 @@ interface ChartWrapperProps {
   icon?: React.ElementType;
   children: React.ReactNode;
   height?: number | string;
+  flex?: number;
 }
 
-const ChartWrapper: React.FC<ChartWrapperProps> = ({ title, icon: Icon, children, height = 300 }) => {
+const ChartWrapper: React.FC<ChartWrapperProps> = ({ title, icon: Icon, children, height = 300, flex = 1 }) => {
   return (
     <div className="card" style={{ 
       padding: '24px', 
@@ -16,7 +17,7 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({ title, icon: Icon, children
       display: 'flex',
       flexDirection: 'column',
       gap: '20px',
-      flex: 1,
+      flex,
       minWidth: '300px'
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

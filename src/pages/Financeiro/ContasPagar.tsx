@@ -17,6 +17,7 @@ interface TransacaoData {
   formaPagamento?: string;
   osId?: string;
   vendaId?: string;
+  dataPagamento?: string;
   createdAt?: any;
 }
 

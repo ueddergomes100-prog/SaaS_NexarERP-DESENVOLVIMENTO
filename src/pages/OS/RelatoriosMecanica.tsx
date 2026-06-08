@@ -12,6 +12,7 @@ import StatCard from '../../components/Reports/StatCard';
 import ChartWrapper from '../../components/Reports/ChartWrapper';
 import ReportFilter from '../../components/Reports/ReportFilter';
 import { format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, isWithinInterval, parseISO } from 'date-fns';
+import { getServiceTotal } from '../../utils/osServicePricing';
 
 const COLORS = ['#8b5cf6', '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4'];
 
@@ -93,7 +94,15 @@ const RelatoriosMecanica: React.FC = () => {
     const timelineData: Record<string, { name: string, qtd: number, valor: number }> = {};
 
     filteredData.forEach(o => {
-      const valor = Number(o.valorTotal || o.total || 0);
+      const servicosValor = o.servicos?.reduce(
+        (acc: number, s: any) => acc + getServiceTotal(s),
+        0
+      ) || 0;
+      const pecasValor = o.pecas?.reduce(
+        (acc: number, p: any) => acc + (Number(p.preco || 0) * Number(p.quantidade || 1)),
+        0
+      ) || 0;
+      const valor = servicosValor + pecasValor;
       const status = o.status || 'Pendente';
       
       // Timeline
@@ -111,9 +120,6 @@ const RelatoriosMecanica: React.FC = () => {
         receitaTotal += valor;
         
         // Calcular serviços vs peças
-        const servicosValor = o.servicos?.reduce((acc: number, s: any) => acc + (Number(s.preco || 0) * Number(s.quantidade || 1)), 0) || 0;
-        const pecasValor = o.pecas?.reduce((acc: number, p: any) => acc + (Number(p.preco || 0) * Number(p.quantidade || 1)), 0) || 0;
-        
         receitaServicos += servicosValor;
         receitaPecas += pecasValor;
 

@@ -6,8 +6,6 @@ import {
   Download, 
   RefreshCw, 
   Trash2, 
-  AlertTriangle, 
-  CheckCircle, 
   Clock, 
   Cloud, 
   Server, 
@@ -24,7 +22,7 @@ interface BackupRecord {
   companyName: string;
   filename: string;
   sizeBytes: number;
-  status: 'enviado' | 'pendente' | 'erro' | 'restaurado' | 'gerando';
+  status: 'enviado' | 'pendente' | 'erro' | 'restaurado' | 'gerando' | 'local';
   createdAt: string;
   tableCounts: Record<string, number>;
   restauradoEm?: string;
@@ -54,7 +52,8 @@ const SuperAdminBackup: React.FC = () => {
   const [autoTime, setAutoTime] = useState<string>('02:00');
   const [autoKeepCount, setAutoKeepCount] = useState<number>(7);
 
-  const API_URL = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:3001';
+  const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
+  const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
 
   // Redireciona ou impede acesso se não for Admin ou SuperAdmin
   const isSuperAdmin = userRole === 'SuperAdmin';
@@ -74,8 +73,22 @@ const SuperAdminBackup: React.FC = () => {
     }
   }, [currentUser, selectedTenant]);
 
-  const getAuthHeaders = async () => {
-    if (!currentUser) return {};
+  const ensureApiUrl = () => {
+    if (API_URL) return true;
+
+    Swal.fire(
+      'Backend não configurado',
+      'Configure VITE_BACKEND_API_URL no ambiente de produção para usar backup e restauração.',
+      'error'
+    );
+    return false;
+  };
+
+  const getAuthHeaders = async (): Promise<Record<string, string>> => {
+    if (!currentUser) {
+      throw new Error('Usuário não autenticado.');
+    }
+
     const token = await currentUser.getIdToken();
     return {
       'Authorization': `Bearer ${token}`,
@@ -83,7 +96,18 @@ const SuperAdminBackup: React.FC = () => {
     };
   };
 
+  const getApiError = async (res: Response, fallback: string) => {
+    try {
+      const errData = await res.json();
+      return errData.error || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
   const fetchTenants = async () => {
+    if (!ensureApiUrl()) return;
+
     try {
       const headers = await getAuthHeaders();
       const res = await fetch(`${API_URL}/api/backups/tenants`, { headers });
@@ -101,19 +125,21 @@ const SuperAdminBackup: React.FC = () => {
 
   const fetchBackupsAndSettings = async () => {
     if (!selectedTenant) return;
+    if (!ensureApiUrl()) return;
+
     setLoading(true);
     try {
       const headers = await getAuthHeaders();
       
       // 1. Busca Histórico
-      const resHistory = await fetch(`${API_URL}/api/backups/history?tenantId=${selectedTenant}`, { headers });
+      const resHistory = await fetch(`${API_URL}/api/backups/history?tenantId=${encodeURIComponent(selectedTenant)}`, { headers });
       if (resHistory.ok) {
         const historyData = await resHistory.json();
         setBackups(historyData);
       }
 
       // 2. Busca Configuração do Backup Automático
-      const resSettings = await fetch(`${API_URL}/api/backups/settings?tenantId=${selectedTenant}`, { headers });
+      const resSettings = await fetch(`${API_URL}/api/backups/settings?tenantId=${encodeURIComponent(selectedTenant)}`, { headers });
       if (resSettings.ok) {
         const settingsData = await resSettings.json();
         setAutoEnabled(settingsData.enabled);
@@ -147,6 +173,8 @@ const SuperAdminBackup: React.FC = () => {
     });
 
     if (result.isConfirmed) {
+      if (!ensureApiUrl()) return;
+
       setActionLoading(true);
       try {
         const headers = await getAuthHeaders();
@@ -166,8 +194,7 @@ const SuperAdminBackup: React.FC = () => {
           // Recarrega a tabela após 3 segundos
           setTimeout(fetchBackupsAndSettings, 3000);
         } else {
-          const errData = await res.json();
-          Swal.fire('Erro', errData.error || 'Não foi possível disparar o backup.', 'error');
+          Swal.fire('Erro', await getApiError(res, 'Não foi possível disparar o backup.'), 'error');
         }
       } catch (err) {
         Swal.fire('Erro de Conexão', 'O servidor de backup está offline ou inacessível.', 'error');
@@ -183,6 +210,8 @@ const SuperAdminBackup: React.FC = () => {
 
     setActionLoading(true);
     try {
+      if (!ensureApiUrl()) return;
+
       const headers = await getAuthHeaders();
       const res = await fetch(`${API_URL}/api/backups/settings`, {
         method: 'POST',
@@ -205,8 +234,7 @@ const SuperAdminBackup: React.FC = () => {
         });
         fetchBackupsAndSettings();
       } else {
-        const errData = await res.json();
-        Swal.fire('Erro', errData.error || 'Erro ao salvar configurações.', 'error');
+        Swal.fire('Erro', await getApiError(res, 'Erro ao salvar configurações.'), 'error');
       }
     } catch (err) {
       Swal.fire('Erro', 'Não foi possível conectar ao servidor de backup.', 'error');
@@ -216,19 +244,29 @@ const SuperAdminBackup: React.FC = () => {
   };
 
   const handleDownload = async (backup: BackupRecord) => {
+    if (!ensureApiUrl()) return;
+
     setActionLoading(true);
     try {
-      const token = await currentUser?.getIdToken();
-      // Força o download nativo do navegador requisitando o endpoint do backend
-      const url = `${API_URL}/api/backups/download?backupId=${backup.id}&token=${token}`;
-      
-      // Cria um link flutuante para download
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${API_URL}/api/backups/download?backupId=${encodeURIComponent(backup.id)}`, {
+        headers
+      });
+
+      if (!res.ok) {
+        Swal.fire('Erro', await getApiError(res, 'Não foi possível baixar o backup.'), 'error');
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = backup.filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (err) {
       Swal.fire('Erro', 'Não foi possível baixar o backup do servidor.', 'error');
     } finally {
@@ -253,6 +291,8 @@ const SuperAdminBackup: React.FC = () => {
     });
 
     if (result.isConfirmed) {
+      if (!ensureApiUrl()) return;
+
       setActionLoading(true);
       // Exibe loading persistente durante a restauração já que pode demorar alguns segundos
       Swal.fire({
@@ -287,8 +327,7 @@ const SuperAdminBackup: React.FC = () => {
           });
           fetchBackupsAndSettings();
         } else {
-          const errData = await res.json();
-          Swal.fire('Erro na Restauração', errData.error || 'Erro crítico durante o processo.', 'error');
+          Swal.fire('Erro na Restauração', await getApiError(res, 'Erro crítico durante o processo.'), 'error');
         }
       } catch (err) {
         Swal.close();
@@ -312,6 +351,8 @@ const SuperAdminBackup: React.FC = () => {
     });
 
     if (result.isConfirmed) {
+      if (!ensureApiUrl()) return;
+
       setActionLoading(true);
       try {
         const headers = await getAuthHeaders();
@@ -325,8 +366,7 @@ const SuperAdminBackup: React.FC = () => {
           Swal.fire('Excluído!', 'O arquivo de backup foi removido da nuvem com sucesso.', 'success');
           fetchBackupsAndSettings();
         } else {
-          const errData = await res.json();
-          Swal.fire('Erro', errData.error || 'Erro ao remover backup.', 'error');
+          Swal.fire('Erro', await getApiError(res, 'Erro ao remover backup.'), 'error');
         }
       } catch (err) {
         Swal.fire('Erro', 'Não foi possível conectar ao servidor de backup.', 'error');

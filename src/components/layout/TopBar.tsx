@@ -441,7 +441,7 @@ const TopBar: React.FC = () => {
               left: miniSidebar && expandAll ? '14px' : '0px', 
               width: '16px', 
               height: '16px', 
-              backgroundcolor: 'var(--text-primary)', 
+              backgroundColor: 'var(--text-primary)',
               borderRadius: '50%', 
               transition: 'left 0.3s',
               boxShadow: '0 1px 3px rgba(0,0,0,0.3)'

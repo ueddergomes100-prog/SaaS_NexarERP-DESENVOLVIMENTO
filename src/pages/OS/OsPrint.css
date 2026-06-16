@@ -159,9 +159,12 @@
   }
 
   .print-layout-wrapper {
+    display: block !important;
+    min-height: auto !important;
     background-color: transparent !important;
     padding: 0 !important;
     margin: 0 !important;
+    overflow: visible !important;
   }
 
   .a4-page {

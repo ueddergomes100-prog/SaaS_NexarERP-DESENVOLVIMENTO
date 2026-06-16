@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, Receipt, LifeBuoy } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, onSnapshot, doc, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import PerfilModal from './PerfilModal';
@@ -212,7 +212,7 @@ const TopBar: React.FC = () => {
       contasPagarUnsub();
       userUnsub();
     };
-  }, [currentUser, tenantId, userRole]);
+  }, [currentUser, tenantId, userRole, userPermissions]);
 
   // Handle clicking outside to close dropdowns
   useEffect(() => {
@@ -268,8 +268,8 @@ const TopBar: React.FC = () => {
       try {
         if (!currentUser) return;
         const results: any[] = [];
-        const qOs = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId));
-        const qClientes = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
+        const qOs = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId), limit(80));
+        const qClientes = query(collection(db, 'clientes'), where('tenantId', '==', tenantId), limit(80));
         
         const [osSnap, clientesSnap] = await Promise.all([getDocs(qOs), getDocs(qClientes)]);
         
@@ -316,7 +316,7 @@ const TopBar: React.FC = () => {
     }, 500);
 
     return () => clearTimeout(debounceTimer);
-  }, [searchTerm, currentUser]);
+  }, [searchTerm, currentUser, tenantId]);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
@@ -330,7 +330,7 @@ const TopBar: React.FC = () => {
 
   const goToLembretes = () => {
     setShowDropdown(false);
-    navigate('/lembretes');
+    navigate('/crm/lembretes');
   };
 
   const handleSupportClick = () => {

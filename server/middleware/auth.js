@@ -5,6 +5,10 @@ const { auth, db } = require('../config/firebase');
  */
 async function authenticate(req, res, next) {
   try {
+    if (!auth || !db) {
+      return res.status(503).json({ error: 'Firebase Admin SDK nao configurado no backend.' });
+    }
+
     let token;
     const authHeader = req.headers.authorization;
     

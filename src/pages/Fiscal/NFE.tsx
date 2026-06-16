@@ -150,23 +150,13 @@ const NFE: React.FC = () => {
     const loadConfigAndClients = async () => {
       if (!tenantId) return;
       try {
-        // 1. Busca configs fiscais
-        const confRef = doc(db, 'configuracoes', tenantId);
-        const confSnap = await getDoc(confRef);
-        if (confSnap.exists()) {
-          const data = confSnap.data();
-          setConfig({
-            spedyEnabled: data.spedyEnabled ?? false,
-            spedyApiKey: data.spedyApiKey ?? '',
-            spedyEnvironment: data.spedyEnvironment ?? 'sandbox'
-          });
-        } else {
-          setConfig({
-            spedyEnabled: false,
-            spedyApiKey: '',
-            spedyEnvironment: 'sandbox'
-          });
-        }
+        // 1. Busca configs fiscais pelo backend para nao expor a chave Spedy no navegador.
+        const runtimeConfig = await spedyService.getRuntimeConfig();
+        setConfig({
+          spedyEnabled: runtimeConfig.spedyEnabled,
+          spedyApiKey: runtimeConfig.spedyApiKeyConfigured ? '__backend_proxy__' : '',
+          spedyEnvironment: runtimeConfig.spedyEnvironment
+        });
 
         // 2. Busca lista de clientes locais
         const clientsRef = collection(db, 'clientes');
@@ -1004,14 +994,14 @@ const NFE: React.FC = () => {
         <Receipt size={64} style={{ color: 'var(--text-muted)', opacity: 0.5 }} />
         <h1 style={{ fontSize: '28px', fontWeight: 700, margin: '16px 0 8px 0', color: 'var(--text-primary)' }}>Módulo Fiscal Desativado</h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '16px', lineHeight: '1.6', marginBottom: '24px' }}>
-          Para emitir notas fiscais eletrônicas de produto (NF-e) ou de serviço (NFS-e) diretamente pelo sistema, você precisa ativar a integração com a **Spedy API**.
+          Para emitir notas fiscais eletrônicas de produto (NF-e) ou de serviço (NFS-e) diretamente pelo sistema, você precisa ativar a integração com a <strong>Spedy API</strong>.
         </p>
         <div style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', width: '100%', display: 'flex', flexDirection: 'column', gap: '12px', textAlign: 'left', marginBottom: '32px' }}>
           <h4 style={{ margin: 0, color: 'var(--text-primary)', fontWeight: 600 }}>O que você precisa:</h4>
           <ol style={{ margin: 0, paddingLeft: '20px', color: 'var(--text-muted)', fontSize: '14px', lineHeight: '1.8' }}>
-            <li>Criar uma conta no painel da **Spedy** (Produção ou Sandbox).</li>
-            <li>Obter sua **Chave de API (X-Api-Key)** no backoffice.</li>
-            <li>Inserir a chave nas configurações do seu Nexar ERP.</li>
+            <li>Criar uma conta no painel da <strong>Spedy</strong> (Produção ou Sandbox).</li>
+            <li>Obter sua <strong>Chave de API (X-Api-Key)</strong> no backoffice.</li>
+            <li>Inserir a chave nas configurações do seu Sistema Nexus.</li>
           </ol>
         </div>
         <a href="/configuracoes" className="btn-primary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1036,7 +1026,7 @@ const NFE: React.FC = () => {
             Módulo Fiscal Real (Spedy API)
           </h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>
-            Gerenciamento de emissão fiscal ativa em modo: <strong style={{ color: config.spedyEnvironment === 'sandbox' ? '#f59e0b' : '#10b981', textTransform: 'uppercase' }}>{config.spedyEnvironment}</strong>
+            Gerenciamento de emissão fiscal ativa em modo: <strong style={{ color: config.spedyEnvironment === 'sandbox' ? '#f59e0b' : '#10b981' }}>{config.spedyEnvironment === 'sandbox' ? 'Homologação' : 'Produção'}</strong>
           </p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
@@ -1212,38 +1202,36 @@ const NFE: React.FC = () => {
 
                         {/* Visualizar DANFE (PDF) */}
                         {note.status === 'authorized' && (
-                          <a
-                            href={spedyService.getPdfUrl(
+                          <button
+                            type="button"
+                            onClick={() => spedyService.openFiscalFile(
                               note.spedyId,
                               note.tipo === 'NFS-e' ? 'service' : note.tipo === 'NFC-e' ? 'consumer' : 'product',
-                              config.spedyEnvironment
-                            )}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                              'pdf'
+                            ).catch(err => showError('Erro ao abrir PDF', (err as Error).message))}
                             className="icon-btn"
                             title="Visualizar PDF (DANFE)"
                             style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'inline-flex' }}
                           >
                             <Eye size={18} />
-                          </a>
+                          </button>
                         )}
 
                         {/* Baixar XML */}
                         {note.status === 'authorized' && (
-                          <a
-                            href={spedyService.getXmlUrl(
+                          <button
+                            type="button"
+                            onClick={() => spedyService.openFiscalFile(
                               note.spedyId,
                               note.tipo === 'NFS-e' ? 'service' : note.tipo === 'NFC-e' ? 'consumer' : 'product',
-                              config.spedyEnvironment
-                            )}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                              'xml'
+                            ).catch(err => showError('Erro ao baixar XML', (err as Error).message))}
                             className="icon-btn"
                             title="Baixar XML"
                             style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'inline-flex' }}
                           >
                             <Download size={18} />
-                          </a>
+                          </button>
                         )}
 
                         {/* Cancelar Nota */}

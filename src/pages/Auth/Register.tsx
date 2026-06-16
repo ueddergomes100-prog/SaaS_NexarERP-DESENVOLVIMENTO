@@ -4,6 +4,7 @@ import { Mail, Lock, User, Store, ArrowRight, Loader2 } from 'lucide-react';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../../services/firebase';
+import { createSessionId } from '../../utils/session';
 import './Auth.css';
 
 const Register: React.FC = () => {
@@ -41,7 +42,7 @@ const Register: React.FC = () => {
       // 1. Cria o usuário no Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-      const newSessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+      const newSessionId = createSessionId();
       localStorage.setItem('nexus_session_id', newSessionId);
 
       // 2. Salva os dados da empresa/tenant no Firestore associados ao UID

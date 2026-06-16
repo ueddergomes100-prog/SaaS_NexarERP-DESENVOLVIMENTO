@@ -5,12 +5,13 @@ import {
   Calendar, Package, Wrench, Printer, ShoppingCart, Share2 
 } from 'lucide-react';
 import { 
-  collection, addDoc, updateDoc, doc, getDoc, getDocs, 
-  getCountFromServer, serverTimestamp, query, where, orderBy, limit 
+  collection, updateDoc, doc, getDoc, getDocs,
+  getCountFromServer, serverTimestamp, query, where, runTransaction
 } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, reserveTenantSequence } from '../../utils/firestoreAtomic';
 import '../OS/OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
@@ -240,15 +241,25 @@ const OrcamentoForm: React.FC = () => {
       if (isEditing && id) {
         await updateDoc(doc(db, 'orcamentos', id), dataToSave);
       } else {
-        await addDoc(collection(db, 'orcamentos'), {
-          ...dataToSave,
-          createdAt: serverTimestamp(),
+        let finalNumeroOrcamento = formData.numeroOrcamento;
+        const currentMaxOrcamento = await getCurrentMaxSequence(db, 'orcamentos', tenantId, 'numeroOrcamento').catch(() => 0);
+
+        await runTransaction(db, async (transaction) => {
+          const nextOrcamento = await reserveTenantSequence(transaction, db, tenantId, 'orcamentos', currentMaxOrcamento);
+          finalNumeroOrcamento = formatSequenceValue(nextOrcamento, 4);
+          const newOrcamentoRef = doc(collection(db, 'orcamentos'));
+          transaction.set(newOrcamentoRef, {
+            ...dataToSave,
+            numeroOrcamento: finalNumeroOrcamento,
+            createdAt: serverTimestamp(),
+          });
         });
+        setFormData(prev => ({ ...prev, numeroOrcamento: finalNumeroOrcamento }));
       }
 
       showSuccess(`Orçamento ${isEditing ? 'atualizado' : 'criado'}!`);
       navigate('/orcamentos');
-    } catch (error) {
+    } catch {
       showError('Erro', 'Não foi possível salvar o orçamento.');
     } finally {
       setIsLoading(false);
@@ -268,31 +279,37 @@ const OrcamentoForm: React.FC = () => {
       if (confirm.isConfirmed) {
       setIsLoading(true);
       try {
-        // Buscar próximo número de OS
-        const snapOS = await getCountFromServer(query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId)));
-        const nextOsNum = String(snapOS.data().count + 1).padStart(2, '0');
+        if (!tenantId) throw new Error('Tenant nao carregado.');
+        const currentMaxOs = await getCurrentMaxSequence(db, 'ordens_de_servico', tenantId, 'numeroOS').catch(() => 0);
+        let newOsId = '';
 
-        const osData = {
-          numeroOS: nextOsNum,
-          clienteNome: formData.clienteNome.toUpperCase(),
-          clienteTelefone: formData.clienteTelefone,
-          placa: formData.placa,
-          modelo: formData.modelo,
-          ano: formData.ano,
-          cor: formData.cor,
-          status: 'Orçamento Aprovado',
-          servicos: itens.filter(i => i.tipo === 'servico'),
-          pecas: itens.filter(i => i.tipo === 'peca'),
-          valorTotal: totalGeral,
-          tenantId,
-          createdAt: serverTimestamp(),
-          orcamentoId: id
-        };
-        const newRef = await addDoc(collection(db, 'ordens_de_servico'), osData);
-        if (id) await updateDoc(doc(db, 'orcamentos', id), { status: 'Finalizado' });
+        await runTransaction(db, async (transaction) => {
+          const nextOs = await reserveTenantSequence(transaction, db, tenantId, 'ordens_de_servico', currentMaxOs);
+          const newRef = doc(collection(db, 'ordens_de_servico'));
+          newOsId = newRef.id;
+
+          transaction.set(newRef, {
+            numeroOS: formatSequenceValue(nextOs, 2),
+            clienteNome: formData.clienteNome.toUpperCase(),
+            clienteTelefone: formData.clienteTelefone,
+            placa: formData.placa,
+            modelo: formData.modelo,
+            ano: formData.ano,
+            cor: formData.cor,
+            status: 'Orçamento Aprovado',
+            servicos: itens.filter(i => i.tipo === 'servico'),
+            pecas: itens.filter(i => i.tipo === 'peca'),
+            valorTotal: totalGeral,
+            tenantId,
+            createdAt: serverTimestamp(),
+            orcamentoId: id
+          });
+
+          if (id) transaction.update(doc(db, 'orcamentos', id), { status: 'Finalizado' });
+        });
         showSuccess('Convertido em OS!');
-        navigate(`/os/editar/${newRef.id}`);
-      } catch (error) {
+        navigate(`/os/editar/${newOsId}`);
+      } catch {
         showError('Erro ao converter');
       } finally {
         setIsLoading(false);
@@ -313,15 +330,6 @@ const OrcamentoForm: React.FC = () => {
     if (confirm.isConfirmed) {
       setIsLoading(true);
       try {
-        // Buscar próximo número de pedido seguindo a sequência
-        const qLastP = query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), orderBy('numeroPedido', 'desc'), limit(1));
-        const snapP = await getDocs(qLastP);
-        let numPedido = '0001';
-        if (!snapP.empty) {
-          const lastNum = parseInt(snapP.docs[0].data().numeroPedido) || 0;
-          numPedido = String(lastNum + 1).padStart(4, '0');
-        }
-
         // Filtrar apenas PEÇAS para a Venda
         const soPecas = itens.filter(i => i.tipo === 'peca');
         const valorProdutos = soPecas.reduce((acc, i) => acc + (i.preco * i.quantidade), 0);
@@ -332,57 +340,61 @@ const OrcamentoForm: React.FC = () => {
           return;
         }
 
-        const vendaData = {
-          numeroPedido: numPedido,
-          clienteNome: formData.clienteNome.toUpperCase(),
-          itens: soPecas.map(i => ({
+        if (!tenantId) throw new Error('Tenant nao carregado.');
+        const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
+
+        await runTransaction(db, async (transaction) => {
+          const nextPedido = await reserveTenantSequence(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
+          const newVendaRef = doc(collection(db, 'pedidos_venda'));
+          const vendaItens = soPecas.map(i => ({
             id: i.id,
             nome: i.nome,
             precoUnitario: i.preco,
             quantidade: i.quantidade,
             desconto: 0,
             subtotal: i.preco * i.quantidade
-          })),
-          valorTotalItens: valorProdutos,
-          valorTotalDescontos: 0,
-          valorTotal: valorProdutos,
-          formaPagamento: 'Dinheiro',
-          status: 'Finalizada',
-          tenantId: tenantId || '',
-          usuarioResponsavelId: currentUser?.uid || '',
-          createdAt: serverTimestamp(),
-          orcamentoId: id
-        };
+          }));
 
-        const newVendaRef = await addDoc(collection(db, 'pedidos_venda'), vendaData);
-        
-        // Baixar Estoque apenas das peças
-        for (const item of soPecas) {
-          if (item.id !== 'avulso') {
-            const ref = doc(db, 'estoque', item.id);
-            const snap = await getDoc(ref);
-            if (snap.exists()) {
-              await updateDoc(ref, { quantidade: Math.max(0, (snap.data().quantidade || 0) - item.quantidade) });
-            }
-          }
-        }
+          await applyStockAdjustments(
+            transaction,
+            db,
+            vendaItens.map(item => ({ id: item.id, nome: item.nome, quantidade: item.quantidade })),
+            'decrement',
+            permitirVendaSemEstoque
+          );
 
-        await addDoc(collection(db, 'transacoes'), {
-          descricao: `Venda via Orçamento #${formData.numeroOrcamento}`,
-          categoria: 'Venda de Peças',
-          valor: valorProdutos,
-          tipo: 'entrada',
-          status: 'Paga',
-          formaPagamento: 'Dinheiro',
-          tenantId,
-          createdAt: serverTimestamp(),
-          pedidoId: newVendaRef.id
+          transaction.set(newVendaRef, {
+            numeroPedido: formatSequenceValue(nextPedido, 4),
+            clienteNome: formData.clienteNome.toUpperCase(),
+            itens: vendaItens,
+            valorTotalItens: valorProdutos,
+            valorTotalDescontos: 0,
+            valorTotal: valorProdutos,
+            formaPagamento: 'Dinheiro',
+            status: 'Finalizada',
+            tenantId,
+            usuarioResponsavelId: currentUser?.uid || '',
+            createdAt: serverTimestamp(),
+            orcamentoId: id
+          });
+
+          transaction.set(doc(collection(db, 'transacoes')), {
+            descricao: `Venda via Orçamento #${formData.numeroOrcamento}`,
+            categoria: 'Venda de Peças',
+            valor: valorProdutos,
+            tipo: 'entrada',
+            status: 'Paga',
+            formaPagamento: 'Dinheiro',
+            tenantId,
+            createdAt: serverTimestamp(),
+            pedidoId: newVendaRef.id
+          });
+
+          if (id) transaction.update(doc(db, 'orcamentos', id), { status: 'Finalizado' });
         });
-
-        if (id) await updateDoc(doc(db, 'orcamentos', id), { status: 'Finalizado' });
         showSuccess('Venda realizada com sucesso!');
         navigate('/pedidos-venda');
-      } catch (error) {
+      } catch {
         showError('Erro ao converter');
       } finally {
         setIsLoading(false);
@@ -391,7 +403,7 @@ const OrcamentoForm: React.FC = () => {
   };
 
   const handleShareWhatsApp = () => {
-    const texto = `Olá! Segue o seu orçamento *#${formData.numeroOrcamento}* da *Nexar ERP*.\n\n` +
+    const texto = `Olá! Segue o seu orçamento *#${formData.numeroOrcamento}* da *Sistema Nexus*.\n\n` +
       `*Cliente:* ${formData.clienteNome}\n` +
       `*Total:* R$ ${totalGeral.toFixed(2)}\n\n` +
       `Aguardamos sua aprovação!`;

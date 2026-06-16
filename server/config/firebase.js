@@ -5,6 +5,10 @@ dotenv.config();
 
 let app;
 try {
+  if (process.env.NODE_ENV === 'production' && !process.env.FIREBASE_PROJECT_ID) {
+    throw new Error('FIREBASE_PROJECT_ID deve ser configurado em producao.');
+  }
+
   const projectId = process.env.FIREBASE_PROJECT_ID || 'sistema-nexus-dev';
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   // Substitui os caracteres de quebra de linha escapados da chave privada
@@ -34,9 +38,10 @@ try {
   console.warn('Se você estiver rodando localmente, configure as chaves do Firebase em server/.env para poder acessar o Firestore e o Storage.');
 }
 
-const db = admin ? admin.firestore() : null;
-const storage = admin ? admin.storage() : null;
-const auth = admin ? admin.auth() : null;
+const isInitialized = admin.apps.length > 0;
+const db = isInitialized ? admin.firestore() : null;
+const storage = isInitialized ? admin.storage() : null;
+const auth = isInitialized ? admin.auth() : null;
 
 // Configuração opcional para silenciar alertas do Firestore em modo de testes
 if (db) {

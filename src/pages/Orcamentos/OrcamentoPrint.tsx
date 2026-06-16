@@ -4,6 +4,7 @@ import { Printer, ArrowLeft } from 'lucide-react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { getCompanyAddressRows } from '../../utils/companyAddress';
 import '../OS/OsPrint.css';
 
 const OrcamentoPrint: React.FC = () => {
@@ -68,6 +69,7 @@ const OrcamentoPrint: React.FC = () => {
   if (!data) return null;
 
   const dataCriacao = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString('pt-BR') : 'N/A';
+  const companyAddressRows = getCompanyAddressRows(configData, 'Endereço da Empresa');
   const servicos = data.servicos || [];
   const pecas = data.pecas || [];
   const todosItens = [
@@ -97,7 +99,9 @@ const OrcamentoPrint: React.FC = () => {
             )}
             <h2 style={{ fontSize: configData?.logo ? '16px' : '24px', margin: 0 }}>{configData?.nomeOficina || 'NEXAR ERP'}</h2>
             <p>CNPJ: {configData?.cnpj || '00.000.000/0001-00'}</p>
-            <p>{configData?.endereco || 'Endereço da Empresa'}</p>
+            {companyAddressRows.map((row) => (
+              <p key={row.label}><strong>{row.label}:</strong> {row.value}</p>
+            ))}
             <p>{configData?.telefone || '(00) 0000-0000'} | {configData?.email || 'contato@empresa.com.br'}</p>
           </div>
           <div className="a4-os-info">

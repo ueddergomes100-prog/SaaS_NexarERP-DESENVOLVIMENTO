@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate } from 'lucide-react';
-import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle } from 'lucide-react';
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
+import { formatCompanyAddress } from '../../utils/companyAddress';
 
 const Configuracoes: React.FC = () => {
   const { currentUser, tenantId } = useAuth();
@@ -13,6 +14,8 @@ const Configuracoes: React.FC = () => {
   const [isEditingMode, setIsEditingMode] = useState(true);
   const [showSuccessAnim, setShowSuccessAnim] = useState(false);
   const [showDadosOficina, setShowDadosOficina] = useState(false);
+  const [showTextosPadroes, setShowTextosPadroes] = useState(true);
+  const [showNotificacoesCrm, setShowNotificacoesCrm] = useState(true);
   const [showPermissoes, setShowPermissoes] = useState(false);
   const [showPlanoContas, setShowPlanoContas] = useState(false);
   const [showConfigAvancadas, setShowConfigAvancadas] = useState(false);
@@ -36,6 +39,11 @@ const Configuracoes: React.FC = () => {
     nomeUsuario: '',
     cnpj: '',
     telefone: '',
+    whatsapp: '',
+    instagram: '',
+    rua: '',
+    numero: '',
+    bairro: '',
     endereco: '',
     email: '',
     garantiaPadrao: '',
@@ -53,13 +61,22 @@ const Configuracoes: React.FC = () => {
 
   useEffect(() => {
     const fetchConfig = async () => {
-      if (!currentUser) return;
+      if (!currentUser || !tenantId) return;
       try {
         // Busca Configurações
-        const docRef = doc(db, 'configuracoes', tenantId || '');
+        const docRef = doc(db, 'configuracoes', tenantId);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const data = docSnap.data();
+          let privateSpedyApiKey = data.spedyApiKey ?? '';
+          try {
+            const privateSnap = await getDoc(doc(db, 'configuracoes_privadas', tenantId));
+            if (privateSnap.exists()) {
+              privateSpedyApiKey = privateSnap.data().spedyApiKey ?? privateSpedyApiKey;
+            }
+          } catch (privateError) {
+            console.warn('Nao foi possivel carregar configuracoes privadas:', privateError);
+          }
           let receitas = data.planoContasReceitas || [];
           if (typeof receitas === 'string') receitas = receitas.split('\n').filter((c: string) => c.trim() !== '');
           let despesas = data.planoContasDespesas || [];
@@ -69,12 +86,17 @@ const Configuracoes: React.FC = () => {
             ...data,
             venderSemEstoque: data.venderSemEstoque ?? false,
             validarCadastroProduto: data.validarCadastroProduto ?? false,
+            whatsapp: data.whatsapp ?? '',
+            instagram: data.instagram ?? '',
+            rua: data.rua ?? data.endereco ?? '',
+            numero: data.numero ?? '',
+            bairro: data.bairro ?? '',
             diasCrediario: data.diasCrediario ?? '30',
             planoContasReceitas: receitas,
             planoContasDespesas: despesas,
             modeloImpressaoOS: data.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL,
             spedyEnabled: data.spedyEnabled ?? false,
-            spedyApiKey: data.spedyApiKey ?? '',
+            spedyApiKey: privateSpedyApiKey,
             spedyEnvironment: data.spedyEnvironment ?? 'sandbox'
           } as any);
           setIsEditingMode(false);
@@ -115,7 +137,7 @@ const Configuracoes: React.FC = () => {
       }
     };
     fetchConfig();
-  }, [currentUser]);
+  }, [currentUser, tenantId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -143,7 +165,7 @@ const Configuracoes: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser) return;
+    if (!currentUser || !tenantId) return;
 
     if (formData.cnpj) {
       const cnpjLimpo = formData.cnpj.replace(/\D/g, '');
@@ -155,9 +177,23 @@ const Configuracoes: React.FC = () => {
 
     setIsLoading(true);
     try {
-      const docRef = doc(db, 'configuracoes', tenantId || '');
+      const docRef = doc(db, 'configuracoes', tenantId);
+      const privateDocRef = doc(db, 'configuracoes_privadas', tenantId);
+      const enderecoCompleto = formatCompanyAddress(formData);
+      const { spedyApiKey, ...publicFormData } = formData;
+      const trimmedSpedyApiKey = spedyApiKey.trim();
+
+      await setDoc(privateDocRef, {
+        tenantId,
+        spedyApiKey: trimmedSpedyApiKey,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+
       await setDoc(docRef, {
-        ...formData,
+        ...publicFormData,
+        endereco: enderecoCompleto,
+        spedyApiKey: deleteField(),
+        spedyApiKeyConfigured: Boolean(trimmedSpedyApiKey),
         tenantId,
         updatedAt: serverTimestamp(),
       }, { merge: true });
@@ -424,17 +460,74 @@ const Configuracoes: React.FC = () => {
             </div>
           </div>
 
-          <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Endereço Completo</label>
-            <input
-              type="text"
-              name="endereco"
-              placeholder="Rua Exemplo, 123 - Bairro, Cidade - UF"
-              value={formData.endereco}
-              onChange={handleChange}
-              disabled={!isEditingMode}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <MessageCircle size={14} /> WhatsApp para impressões
+              </label>
+              <input
+                type="text"
+                name="whatsapp"
+                placeholder="(00) 00000-0000"
+                value={formData.whatsapp}
+                onChange={handleChange}
+                disabled={!isEditingMode}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Camera size={14} /> Instagram para impressões
+              </label>
+              <input
+                type="text"
+                name="instagram"
+                placeholder="@suaempresa"
+                value={formData.instagram}
+                onChange={handleChange}
+                disabled={!isEditingMode}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.8fr 1.2fr', gap: '20px' }}>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Rua</label>
+              <input
+                type="text"
+                name="rua"
+                placeholder="Rua Joaquim Santana"
+                value={formData.rua}
+                onChange={handleChange}
+                disabled={!isEditingMode}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Número</label>
+              <input
+                type="text"
+                name="numero"
+                placeholder="111"
+                value={formData.numero}
+                onChange={handleChange}
+                disabled={!isEditingMode}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Bairro</label>
+              <input
+                type="text"
+                name="bairro"
+                placeholder="Sagrada Família"
+                value={formData.bairro}
+                onChange={handleChange}
+                disabled={!isEditingMode}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+              />
+            </div>
           </div>
             </>
           )}
@@ -442,92 +535,114 @@ const Configuracoes: React.FC = () => {
 
         {/* Preferências do Sistema */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)' }}>
-            <FileText size={20} style={{ color: 'var(--accent-purple)' }} />
-            <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Textos Padrões (OS)</h3>
+          <div
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showTextosPadroes ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+            onClick={() => setShowTextosPadroes(!showTextosPadroes)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <FileText size={20} style={{ color: 'var(--accent-purple)' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Textos Padrões (OS)</h3>
+            </div>
+            <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {showTextosPadroes ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
           </div>
 
-          <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Termo de Garantia Padrão (Aparecerá na impressão da OS)</label>
-            <textarea
-              name="garantiaPadrao"
-              rows={4}
-              placeholder="Ex: Garantia de 90 dias sobre a mão de obra. As peças possuem garantia do fabricante..."
-              value={formData.garantiaPadrao}
-              onChange={handleChange}
-              disabled={!isEditingMode}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', resize: 'vertical' }}
-            />
-          </div>
-
-          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-              <LayoutTemplate size={18} style={{ color: 'var(--accent-purple)' }} />
-              <div>
-                <h4 style={{ margin: 0, fontSize: '14px', color: 'var(--text-primary)' }}>Modelo de impressão da Ordem de Serviço</h4>
-                <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>O modelo selecionado será usado automaticamente ao imprimir qualquer OS.</p>
+          {showTextosPadroes && (
+            <>
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Termo de Garantia Padrão (Aparecerá na impressão da OS)</label>
+                <textarea
+                  name="garantiaPadrao"
+                  rows={4}
+                  placeholder="Ex: Garantia de 90 dias sobre a mão de obra. As peças possuem garantia do fabricante..."
+                  value={formData.garantiaPadrao}
+                  onChange={handleChange}
+                  disabled={!isEditingMode}
+                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', resize: 'vertical' }}
+                />
               </div>
-            </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '12px' }}>
-              {OS_PRINT_MODELS.map(modelo => {
-                const selected = formData.modeloImpressaoOS === modelo.id;
-                return (
-                  <label
-                    key={modelo.id}
-                    style={{
-                      display: 'flex',
-                      gap: '12px',
-                      alignItems: 'flex-start',
-                      padding: '14px',
-                      borderRadius: '8px',
-                      border: `1px solid ${selected ? 'var(--accent-purple)' : 'var(--border-color)'}`,
-                      backgroundColor: selected ? 'rgba(139, 92, 246, 0.1)' : 'var(--bg-tertiary)',
-                      cursor: isEditingMode ? 'pointer' : 'default',
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name="modeloImpressaoOS"
-                      value={modelo.id}
-                      checked={selected}
-                      onChange={handleChange}
-                      disabled={!isEditingMode}
-                      style={{ marginTop: '3px', accentColor: 'var(--accent-purple)' }}
-                    />
-                    <span>
-                      <strong style={{ display: 'block', fontSize: '13px', color: 'var(--text-primary)', marginBottom: '4px' }}>{modelo.name}</strong>
-                      <span style={{ display: 'block', fontSize: '12px', lineHeight: 1.45, color: 'var(--text-muted)' }}>{modelo.description}</span>
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                  <LayoutTemplate size={18} style={{ color: 'var(--accent-purple)' }} />
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '14px', color: 'var(--text-primary)' }}>Modelo de impressão da Ordem de Serviço</h4>
+                    <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>O modelo selecionado será usado automaticamente ao imprimir qualquer OS.</p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '12px' }}>
+                  {OS_PRINT_MODELS.map(modelo => {
+                    const selected = formData.modeloImpressaoOS === modelo.id;
+                    return (
+                      <label
+                        key={modelo.id}
+                        style={{
+                          display: 'flex',
+                          gap: '12px',
+                          alignItems: 'flex-start',
+                          padding: '14px',
+                          borderRadius: '8px',
+                          border: `1px solid ${selected ? 'var(--accent-purple)' : 'var(--border-color)'}`,
+                          backgroundColor: selected ? 'rgba(139, 92, 246, 0.1)' : 'var(--bg-tertiary)',
+                          cursor: isEditingMode ? 'pointer' : 'default',
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="modeloImpressaoOS"
+                          value={modelo.id}
+                          checked={selected}
+                          onChange={handleChange}
+                          disabled={!isEditingMode}
+                          style={{ marginTop: '3px', accentColor: 'var(--accent-purple)' }}
+                        />
+                        <span>
+                          <strong style={{ display: 'block', fontSize: '13px', color: 'var(--text-primary)', marginBottom: '4px' }}>{modelo.name}</strong>
+                          <span style={{ display: 'block', fontSize: '12px', lineHeight: 1.45, color: 'var(--text-muted)' }}>{modelo.description}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Notificações do Sistema */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)' }}>
-            <Bell size={20} style={{ color: 'var(--accent-purple)' }} />
-            <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Notificações CRM</h3>
+          <div
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showNotificacoesCrm ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+            onClick={() => setShowNotificacoesCrm(!showNotificacoesCrm)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Bell size={20} style={{ color: 'var(--accent-purple)' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Notificações CRM</h3>
+            </div>
+            <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {showNotificacoesCrm ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
           </div>
 
-          <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Avisar Lembretes Preventivos com antecedência de:</label>
-            <select
-              name="diasNotificacaoLembrete"
-              value={formData.diasNotificacaoLembrete}
-              onChange={handleChange}
-              disabled={!isEditingMode}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', maxWidth: '300px' }}
-            >
-              <option value="15">15 Dias antes</option>
-              <option value="30">30 Dias antes</option>
-              <option value="45">45 Dias antes</option>
-            </select>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Isso define quando o sininho vermelho de notificações no topo da tela será acionado.</p>
-          </div>
+          {showNotificacoesCrm && (
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Avisar Lembretes Preventivos com antecedência de:</label>
+              <select
+                name="diasNotificacaoLembrete"
+                value={formData.diasNotificacaoLembrete}
+                onChange={handleChange}
+                disabled={!isEditingMode}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', maxWidth: '300px' }}
+              >
+                <option value="15">15 Dias antes</option>
+                <option value="30">30 Dias antes</option>
+                <option value="45">45 Dias antes</option>
+              </select>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Isso define quando o sininho vermelho de notificações no topo da tela será acionado.</p>
+            </div>
+          )}
         </div>
 
         {/* Plano de Contas */}
@@ -883,7 +998,7 @@ const Configuracoes: React.FC = () => {
                       { id: 'cadastros.servicos', label: 'Cadastros: Serviços', color: '#8b5cf6' },
                       { id: 'cadastros.categorias', label: 'Cadastros: Categorias', color: '#8b5cf6' },
                       { id: 'cadastros.unidades_medida', label: 'Cadastros: Unidades de Medida', color: '#8b5cf6' },
-                      { id: 'vendas.pedidos', label: 'Vendas: Pedido de Vendas', color: '#f59e0b' },
+                      { id: 'vendas.pedidos', label: 'Vendas: Pedidos de Venda', color: '#f59e0b' },
                       { id: 'vendas.alterar', label: 'Vendas: Alterar Pedidos', color: '#f59e0b' },
                       { id: 'vendas.excluir', label: 'Vendas: Excluir Pedidos', color: '#ef4444' },
                       { id: 'vendas.devolucao', label: 'Vendas: Devolução de Venda', color: '#ef4444' },
@@ -899,8 +1014,10 @@ const Configuracoes: React.FC = () => {
                       { id: 'crm.alertas', label: 'CRM: Alertas de Retorno', color: '#ec4899' },
                       { id: 'fiscal.emitir', label: 'Fiscal: Emitir Nota Fiscal', color: '#f59e0b' },
                       { id: 'fiscal.entrada', label: 'Fiscal: Entrada de XML', color: '#f59e0b' },
+                      { id: 'fiscal.excluir', label: 'Fiscal: Excluir/Cancelar Nota Fiscal', color: '#ef4444' },
                       { id: 'financeiro.caixa', label: 'Financeiro: Fluxo de Caixa', color: '#10b981' },
                       { id: 'financeiro.receber', label: 'Financeiro: Contas a Receber', color: '#10b981' },
+                      { id: 'financeiro.pagar', label: 'Financeiro: Contas a Pagar', color: '#10b981' },
                       { id: 'financeiro.faturamento', label: 'Financeiro: Faturamento', color: '#10b981' },
                       { id: 'financeiro.comissoes', label: 'Financeiro: Comissões', color: '#10b981' },
                       { id: 'financeiro.estornar', label: 'Financeiro: Estornar Pagamento/Recebimento', color: '#10b981' },

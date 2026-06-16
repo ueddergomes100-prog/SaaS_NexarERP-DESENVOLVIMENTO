@@ -9,6 +9,7 @@ dotenv.config();
 const { initScheduler } = require('./services/scheduler');
 const { initQueueService } = require('./services/queue');
 const backupRoutes = require('./routes/backup.routes');
+const spedyRoutes = require('./routes/spedy.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -32,6 +33,10 @@ const buildAllowedOrigins = () => {
     ...firebaseOrigins,
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    'http://localhost:5174',
+    'http://127.0.0.1:5174',
+    'http://localhost:5175',
+    'http://127.0.0.1:5175',
     'http://localhost:4173',
     'http://127.0.0.1:4173'
   ]);
@@ -67,6 +72,7 @@ app.get('/health', (req, res) => {
 
 // Vincular as rotas do módulo de backup
 app.use('/api/backups', backupRoutes);
+app.use('/api/spedy', spedyRoutes);
 
 // Middleware para tratamento global de erros HTTP
 app.use((err, req, res, next) => {

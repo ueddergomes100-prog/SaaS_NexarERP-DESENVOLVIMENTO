@@ -46,6 +46,54 @@ service cloud.firestore {
         currentProfile().permissoes.hasAny([permission]);
     }
 
+    function hasAnyPermission(permissions) {
+      return hasProfile() &&
+        currentProfile().permissoes is list &&
+        currentProfile().permissoes.hasAny(permissions);
+    }
+
+    function canManageTenantData() {
+      return isSuperAdmin() || isTenantAdmin();
+    }
+
+    function canWriteTenantCollection(collectionName) {
+      return canManageTenantData() ||
+        (collectionName in ['clientes', 'veiculos'] && hasAnyPermission(['cadastros.clientes', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'crm.agenda', 'crm.alertas'])) ||
+        (collectionName in ['produtos', 'estoque', 'fornecedores', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'ordens_producao', 'expedicoes', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        (collectionName == 'categorias' && hasPermission('cadastros.categorias')) ||
+        (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
+        (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
+        (collectionName == 'ordens_de_servico' && hasAnyPermission(['mecanica.os', 'mecanica.os_alterar'])) ||
+        (collectionName == 'pedidos_venda' && hasAnyPermission(['vendas.pedidos', 'vendas.alterar'])) ||
+        (collectionName == 'orcamentos' && hasAnyPermission(['vendas.orcamentos', 'vendas.orcamentos_alterar'])) ||
+        (collectionName == 'devolucoes_venda' && hasPermission('vendas.devolucao')) ||
+        (collectionName == 'lembretes' && hasPermission('crm.alertas')) ||
+        (collectionName == 'agendamentos' && hasPermission('crm.agenda')) ||
+        (collectionName == 'notas_fiscais' && hasAnyPermission(['fiscal.emitir', 'fiscal.excluir'])) ||
+        (collectionName == 'creditos_cliente' && hasAnyPermission(['vendas.pedidos', 'financeiro.receber'])) ||
+        (collectionName == 'transacoes' && hasAnyPermission(['financeiro.caixa', 'financeiro.receber', 'financeiro.pagar', 'financeiro.estornar', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os'])) ||
+        (collectionName in ['integracoes_canais', 'integracoes_produtos', 'integracoes_fila', 'pedidos_externos', 'integracoes_logs'] && hasPermission('cadastros.estoque'));
+    }
+
+    function canDeleteTenantCollection(collectionName) {
+      return canManageTenantData() ||
+        (collectionName in ['clientes', 'veiculos'] && hasPermission('cadastros.clientes')) ||
+        (collectionName in ['produtos', 'estoque', 'fornecedores', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'ordens_producao', 'expedicoes', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        (collectionName == 'categorias' && hasPermission('cadastros.categorias')) ||
+        (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
+        (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
+        (collectionName == 'ordens_de_servico' && hasPermission('mecanica.os_excluir')) ||
+        (collectionName == 'pedidos_venda' && hasPermission('vendas.excluir')) ||
+        (collectionName == 'orcamentos' && hasPermission('vendas.orcamentos_excluir')) ||
+        (collectionName == 'devolucoes_venda' && hasPermission('vendas.devolucao')) ||
+        (collectionName == 'lembretes' && hasPermission('crm.alertas')) ||
+        (collectionName == 'agendamentos' && hasPermission('crm.agenda')) ||
+        (collectionName == 'notas_fiscais' && hasPermission('fiscal.excluir')) ||
+        (collectionName == 'creditos_cliente' && hasAnyPermission(['vendas.pedidos', 'financeiro.receber'])) ||
+        (collectionName == 'transacoes' && hasPermission('financeiro.estornar')) ||
+        (collectionName in ['integracoes_canais', 'integracoes_produtos', 'integracoes_fila', 'pedidos_externos', 'integracoes_logs'] && hasPermission('cadastros.estoque'));
+    }
+
     function canAccessTenant(tenantId) {
       return isSuperAdmin() || (signedIn() && currentTenantId() == tenantId);
     }
@@ -154,6 +202,32 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
+    match /configuracoes_privadas/{tenantId} {
+      allow read: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          currentTenantId() == tenantId
+        );
+      allow create, update: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          currentTenantId() == tenantId &&
+          request.resource.data.tenantId == tenantId
+        );
+      allow delete: if isSuperAdmin();
+    }
+
+    match /contadores/{tenantId} {
+      allow read: if canAccessTenant(tenantId);
+      allow create, update: if canAccessTenant(tenantId) &&
+        request.resource.data.tenantId == tenantId &&
+        (
+          canManageTenantData() ||
+          hasAnyPermission(['mecanica.os', 'vendas.pedidos', 'vendas.orcamentos'])
+        );
+      allow delete: if isSuperAdmin();
+    }
+
     match /system_alerts/{alertId} {
       allow read: if signedIn();
       allow write: if isSuperAdmin();
@@ -236,7 +310,7 @@ service cloud.firestore {
         'estoque_lotes',
         'expedicoes',
         'entregas'
-      ] && canCreateTenantDocument();
+      ] && canCreateTenantDocument() && canWriteTenantCollection(collectionName);
 
       allow update: if collectionName in [
         'clientes',
@@ -270,7 +344,7 @@ service cloud.firestore {
         'estoque_lotes',
         'expedicoes',
         'entregas'
-      ] && canUpdateTenantDocument();
+      ] && canUpdateTenantDocument() && canWriteTenantCollection(collectionName);
 
       allow delete: if collectionName in [
         'clientes',
@@ -304,7 +378,7 @@ service cloud.firestore {
         'estoque_lotes',
         'expedicoes',
         'entregas'
-      ] && canDeleteTenantDocument();
+      ] && canDeleteTenantDocument() && canDeleteTenantCollection(collectionName);
     }
 
     match /backups_historico/{documentId} {

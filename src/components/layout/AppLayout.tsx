@@ -12,7 +12,7 @@ const AppLayout: React.FC = () => {
   const [globalAlert, setGlobalAlert] = useState<{message: string} | null>(null);
   const [hideAlert, setHideAlert] = useState(false);
   const location = useLocation();
-  const { blockedModules, userRole } = useAuth();
+  const { blockedModules, userRole, userPermissions, isOwner } = useAuth();
 
   useEffect(() => {
     // Retrigger animation without destroying the DOM node (fixes Google Translate crash)
@@ -68,8 +68,36 @@ const AppLayout: React.FC = () => {
   else if (path.startsWith('/superadmin/backup')) routeModule = 'admin.backup';
   else if (path.startsWith('/relatorios-diversos')) routeModule = 'logs.relatorios_diversos';
   else if (path.startsWith('/logs-sistema')) routeModule = 'logs.sistema';
+  else if (path.startsWith('/configuracoes')) routeModule = 'admin.config';
+
+  let routePermission = '';
+  if (path.startsWith('/clientes') || path.startsWith('/veiculos')) routePermission = 'cadastros.clientes';
+  else if (path.startsWith('/usuarios')) routePermission = 'administrativo.equipe';
+  else if (path.startsWith('/estoque')) routePermission = 'cadastros.estoque';
+  else if (path.startsWith('/servicos')) routePermission = 'cadastros.servicos';
+  else if (path.startsWith('/categorias')) routePermission = 'cadastros.categorias';
+  else if (path.startsWith('/unidades-medida')) routePermission = 'cadastros.unidades_medida';
+  else if (path.startsWith('/pedidos-venda')) routePermission = 'vendas.pedidos';
+  else if (path.startsWith('/orcamentos')) routePermission = 'vendas.orcamentos';
+  else if (path.startsWith('/vendas/devolucoes') || path.startsWith('/vendas')) routePermission = 'vendas.devolucao';
+  else if (path.startsWith('/relatorios-vendas')) routePermission = 'vendas.relatorios';
+  else if (path.startsWith('/os')) routePermission = 'mecanica.os';
+  else if (path.startsWith('/relatorios-mecanica')) routePermission = 'mecanica.relatorios';
+  else if (path.startsWith('/crm/agenda')) routePermission = 'crm.agenda';
+  else if (path.startsWith('/crm/lembretes') || path.startsWith('/crm')) routePermission = 'crm.alertas';
+  else if (path.startsWith('/financeiro/caixa')) routePermission = 'financeiro.caixa';
+  else if (path.startsWith('/financeiro/contas-receber')) routePermission = 'financeiro.receber';
+  else if (path.startsWith('/financeiro/contas-pagar')) routePermission = 'financeiro.pagar';
+  else if (path.startsWith('/financeiro/faturamento')) routePermission = 'financeiro.faturamento';
+  else if (path.startsWith('/financeiro/comissoes') || path.startsWith('/financeiro')) routePermission = 'financeiro.comissoes';
+  else if (path.startsWith('/fiscal/nfe')) routePermission = 'fiscal.emitir';
+  else if (path.startsWith('/fiscal/entrada-nfe') || path.startsWith('/fiscal')) routePermission = 'fiscal.entrada';
+  else if (path.startsWith('/logs-sistema')) routePermission = 'administrativo.logs';
+  else if (path.startsWith('/configuracoes')) routePermission = 'administrativo.config';
 
   const isModuleBlocked = routeModule && userRole !== 'SuperAdmin' && blockedModules?.includes(routeModule);
+  const hasFullAccess = isOwner || userRole === 'Admin' || userRole === 'SuperAdmin';
+  const isRouteAllowed = !routePermission || hasFullAccess || userPermissions?.includes(routePermission);
 
   return (
     <div className="app-layout-wrapper" style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
@@ -106,14 +134,18 @@ const AppLayout: React.FC = () => {
           <TopBar />
           <main className="page-content">
             <div className="page-transition">
-              {isModuleBlocked ? (
+              {isModuleBlocked || !isRouteAllowed ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px', color: 'var(--text-primary)', textAlign: 'center', padding: '24px' }}>
                   <div style={{ padding: '16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: '50%', color: '#ef4444' }}>
                     <ShieldAlert size={48} />
                   </div>
-                  <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '8px 0 4px 0' }}>Módulo Não Disponível</h2>
+                  <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '8px 0 4px 0' }}>
+                    {isModuleBlocked ? 'Módulo Não Disponível' : 'Acesso não permitido'}
+                  </h2>
                   <p style={{ color: 'var(--text-secondary)', maxWidth: '460px', fontSize: '15px', lineHeight: '1.6', margin: 0 }}>
-                    Este módulo está desativado para a sua conta. Caso precise utilizá-lo, entre em contato com o suporte ou o administrador do sistema para atualizar o seu plano.
+                    {isModuleBlocked
+                      ? 'Este módulo está desativado para a sua conta. Caso precise utilizá-lo, entre em contato com o suporte ou o administrador do sistema para atualizar o seu plano.'
+                      : 'Seu usuário não possui permissão para acessar esta área. Peça ao administrador para revisar seus acessos.'}
                   </p>
                 </div>
               ) : (

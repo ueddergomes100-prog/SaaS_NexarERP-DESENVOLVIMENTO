@@ -6,6 +6,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { DEFAULT_OS_PRINT_MODEL } from '../../utils/osPrintModels';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
+import { getCompanyAddressRows } from '../../utils/companyAddress';
 import OsPrintPersonalizado01 from './OsPrintPersonalizado01';
 import './OsPrint.css';
 
@@ -84,6 +85,7 @@ const OsPrint: React.FC = () => {
   if (!osData) return null;
 
   const dataCriacao = osData.createdAt?.toDate ? osData.createdAt.toDate().toLocaleDateString('pt-BR') : 'N/A';
+  const companyAddressRows = getCompanyAddressRows(configData, 'Av. das Indústrias, 1000 - São Paulo, SP');
   const servicos = osData.servicos || [];
   const pecas = osData.pecas || [];
   const todosItens = [
@@ -121,7 +123,9 @@ const OsPrint: React.FC = () => {
             )}
             <h2 style={{ fontSize: configData?.logo ? '16px' : '24px', margin: 0 }}>{configData?.nomeOficina || 'NEXAR ERP'}</h2>
             <p>CNPJ: {configData?.cnpj || '00.000.000/0001-00'}</p>
-            <p>{configData?.endereco || 'Av. das Indústrias, 1000 - São Paulo, SP'}</p>
+            {companyAddressRows.map((row) => (
+              <p key={row.label}><strong>{row.label}:</strong> {row.value}</p>
+            ))}
             <p>{configData?.telefone || '(11) 3333-4444'} | {configData?.email || 'contato@nexarerp.com.br'}</p>
           </div>
           <div className="a4-os-info">

@@ -11,6 +11,8 @@
   --os-accent-dark: #3b176f;
   --os-soft: #f4f1fa;
   --os-line: #d9dce3;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
 }
 
 .os-custom-page * {
@@ -30,18 +32,33 @@
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 14px;
-  padding: 7px 14px;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 14px 0 10px;
 }
 
-.os-custom-brand img {
-  width: 72mm;
-  max-width: 62%;
-  height: 27mm;
+.os-custom-logo-stage {
+  display: flex;
+  width: 68mm;
+  height: 30mm;
+  flex: 0 0 68mm;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0;
+  background: #17151d;
+}
+
+.os-custom-logo-stage img {
+  width: 100%;
+  max-width: none;
+  height: 100%;
   object-fit: contain;
-  object-position: left center;
-  padding: 1px;
-  background: #fff;
+  object-position: center;
+  background: transparent;
+  mix-blend-mode: screen;
+  transform: scale(1.68);
+  transform-origin: center;
 }
 
 .os-custom-brand-mark {
@@ -55,16 +72,28 @@
   font-weight: 800;
 }
 
-.os-custom-brand h1 {
-  margin: 0 0 5px;
-  font-size: 19px;
-  line-height: 1.1;
+.os-custom-brand-info {
+  width: 42mm;
+  min-width: 0;
+  margin-left: auto;
+  margin-right: 7mm;
 }
 
 .os-custom-brand p {
+  display: flex;
+  align-items: center;
+  gap: 3px;
   margin: 2px 0;
   color: #d8d5df;
-  font-size: 9px;
+  font-size: 9.5px;
+}
+
+.os-custom-contact-icon {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  object-fit: contain;
+  vertical-align: middle;
 }
 
 .os-custom-document-id {
@@ -94,11 +123,19 @@
 }
 
 .os-custom-company-address {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  justify-content: center;
   padding: 4px 10px;
   background: var(--os-soft);
   color: #55515e;
   font-size: 8px;
   text-align: center;
+}
+
+.os-custom-company-address strong {
+  color: #2a2730;
 }
 
 .os-custom-two-columns {
@@ -401,14 +438,31 @@
 @media print {
   @page {
     size: A4;
-    margin: 6mm;
+    margin: 5mm;
+  }
+
+  html,
+  body {
+    width: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
   }
 
   .os-custom-page {
     width: 100% !important;
     min-height: auto !important;
+    height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
     box-shadow: none !important;
+    break-after: auto !important;
+    page-break-after: auto !important;
+    overflow: visible !important;
+  }
+
+  .os-custom-signatures {
+    margin-top: 8mm;
   }
 }

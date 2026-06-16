@@ -49,10 +49,45 @@ export class ErrorBoundary extends React.Component<{children: React.ReactNode}, 
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{padding: '20px', color: 'var(--text-primary)', background: 'red', height: '100vh', overflow: 'auto'}}>
-          <h2>Algo deu errado (Crash Detectado)</h2>
-          <pre>{String(this.state.error || '')}</pre>
-          <button onClick={() => window.location.reload()} style={{padding: '10px', marginTop: '20px'}}>Recarregar</button>
+        <div style={{
+          minHeight: '100vh',
+          padding: '32px',
+          color: 'var(--text-primary)',
+          background: 'var(--bg-primary)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          textAlign: 'center'
+        }}>
+          <div style={{
+            width: '100%',
+            maxWidth: '440px',
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-lg)',
+            padding: '28px',
+            boxShadow: 'var(--shadow-lg)'
+          }}>
+            <h2 style={{ margin: '0 0 10px 0', fontSize: '22px' }}>Não foi possível carregar esta tela</h2>
+            <p style={{ margin: 0, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              Recarregue a página. Se o problema continuar, acione o suporte com o horário em que ocorreu.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                marginTop: '22px',
+                padding: '10px 18px',
+                borderRadius: 'var(--radius-md)',
+                border: 'none',
+                background: 'var(--accent-purple)',
+                color: '#fff',
+                cursor: 'pointer',
+                fontWeight: 700
+              }}
+            >
+              Recarregar página
+            </button>
+          </div>
         </div>
       );
     }

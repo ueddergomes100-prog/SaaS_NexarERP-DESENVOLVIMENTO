@@ -1,24 +1,67 @@
-// Servico de integracao com a Spedy API para emissao de Notas Fiscais (NF-e e NFS-e)
+import { auth } from './firebase';
 
-const SANDBOX_URL = 'https://sandbox-api.spedy.com.br/v1';
-const PRODUCTION_URL = 'https://api.spedy.com.br/v1';
+const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
+const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
 
-const getBaseUrl = (env: 'sandbox' | 'production'): string => {
-  return env === 'sandbox' ? SANDBOX_URL : PRODUCTION_URL;
+type SpedyEnv = 'sandbox' | 'production';
+type SpedyType = 'service' | 'product' | 'consumer';
+
+const ensureApiUrl = () => {
+  if (!API_URL) {
+    throw new Error('Backend nao configurado. Configure VITE_BACKEND_API_URL para usar o modulo fiscal.');
+  }
+  return API_URL;
 };
 
-const getHeaders = (apiKey: string) => {
+const getAuthHeaders = async (json = true) => {
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) {
+    throw new Error('Usuario nao autenticado.');
+  }
+
   return {
-    'Content-Type': 'application/json',
-    'X-Api-Key': apiKey,
+    Authorization: `Bearer ${token}`,
+    ...(json ? { 'Content-Type': 'application/json' } : {})
   };
+};
+
+const getApiError = async (response: Response, fallback: string) => {
+  try {
+    const data = await response.json();
+    return data.error || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const requestJson = async <T>(path: string, options: RequestInit = {}, fallbackError = 'Erro ao comunicar com o backend fiscal.'): Promise<T> => {
+  const baseUrl = ensureApiUrl();
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...options,
+    headers: {
+      ...(await getAuthHeaders(options.method !== 'GET')),
+      ...(options.headers || {})
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiError(response, fallbackError));
+  }
+
+  return response.json();
+};
+
+const legacyArgsNotice = (apiKey: string, env: SpedyEnv) => {
+  void apiKey;
+  void env;
+  // Assinatura mantida para compatibilidade com as telas antigas.
 };
 
 export interface SpedyInvoice {
   id: string;
   number: number | null;
   series?: string;
-  status: 'enqueued' | 'authorized' | 'rejected' | 'canceled' | 'denied' | 'created';
+  status: 'enqueued' | 'authorized' | 'rejected' | 'canceled' | 'denied' | 'created' | 'processing';
   model: 'serviceInvoice' | 'productInvoice';
   environmentType: 'development' | 'production';
   amount: number;
@@ -45,268 +88,115 @@ export interface SpedyInvoiceListResponse {
   hasNext: boolean;
 }
 
+export interface SpedyRuntimeConfig {
+  spedyEnabled: boolean;
+  spedyApiKeyConfigured: boolean;
+  spedyEnvironment: SpedyEnv;
+}
+
 export const spedyService = {
-  /**
-   * Busca a lista de NFS-e (Serviço) emitidas
-   */
-  async fetchServiceInvoices(
-    apiKey: string,
-    env: 'sandbox' | 'production',
-    page = 1,
-    pageSize = 20
-  ): Promise<SpedyInvoiceListResponse> {
-    const baseUrl = getBaseUrl(env);
-    const response = await fetch(`${baseUrl}/service-invoices?page=${page}&pageSize=${pageSize}`, {
-      method: 'GET',
-      headers: getHeaders(apiKey),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.errors?.[0]?.message || 'Erro ao buscar notas de serviço no Spedy.');
-    }
-
-    return response.json();
+  async getRuntimeConfig(): Promise<SpedyRuntimeConfig> {
+    return requestJson<SpedyRuntimeConfig>('/api/spedy/config', { method: 'GET' }, 'Erro ao carregar configuracao fiscal.');
   },
 
-  /**
-   * Busca uma NFS-e (Serviço) individual pelo ID
-   */
-  async getServiceInvoice(
-    apiKey: string,
-    env: 'sandbox' | 'production',
-    id: string
-  ): Promise<SpedyInvoice> {
-    const baseUrl = getBaseUrl(env);
-    const response = await fetch(`${baseUrl}/service-invoices/${id}`, {
-      method: 'GET',
-      headers: getHeaders(apiKey),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.errors?.[0]?.message || 'Erro ao consultar nota de serviço no Spedy.');
-    }
-
-    return response.json();
+  async fetchServiceInvoices(apiKey: string, env: SpedyEnv, page = 1, pageSize = 20): Promise<SpedyInvoiceListResponse> {
+    legacyArgsNotice(apiKey, env);
+    return requestJson<SpedyInvoiceListResponse>(`/api/spedy/service?page=${page}&pageSize=${pageSize}`, { method: 'GET' }, 'Erro ao buscar notas de servico.');
   },
 
-  /**
-   * Busca a lista de NF-e (Produto) emitidas
-   */
-  async fetchProductInvoices(
-    apiKey: string,
-    env: 'sandbox' | 'production',
-    page = 1,
-    pageSize = 20
-  ): Promise<SpedyInvoiceListResponse> {
-    const baseUrl = getBaseUrl(env);
-    const response = await fetch(`${baseUrl}/product-invoices?page=${page}&pageSize=${pageSize}`, {
-      method: 'GET',
-      headers: getHeaders(apiKey),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.errors?.[0]?.message || 'Erro ao buscar notas de produto no Spedy.');
-    }
-
-    return response.json();
+  async getServiceInvoice(apiKey: string, env: SpedyEnv, id: string): Promise<SpedyInvoice> {
+    legacyArgsNotice(apiKey, env);
+    return requestJson<SpedyInvoice>(`/api/spedy/service/${id}`, { method: 'GET' }, 'Erro ao consultar nota de servico.');
   },
 
-  /**
-   * Busca uma NF-e (Produto) individual pelo ID
-   */
-  async getProductInvoice(
-    apiKey: string,
-    env: 'sandbox' | 'production',
-    id: string
-  ): Promise<SpedyInvoice> {
-    const baseUrl = getBaseUrl(env);
-    const response = await fetch(`${baseUrl}/product-invoices/${id}`, {
-      method: 'GET',
-      headers: getHeaders(apiKey),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.errors?.[0]?.message || 'Erro ao consultar nota de produto no Spedy.');
-    }
-
-    return response.json();
+  async fetchProductInvoices(apiKey: string, env: SpedyEnv, page = 1, pageSize = 20): Promise<SpedyInvoiceListResponse> {
+    legacyArgsNotice(apiKey, env);
+    return requestJson<SpedyInvoiceListResponse>(`/api/spedy/product?page=${page}&pageSize=${pageSize}`, { method: 'GET' }, 'Erro ao buscar notas de produto.');
   },
 
-  /**
-   * Emite uma nota fiscal de serviço (NFS-e)
-   */
-  async emitServiceInvoice(
-    apiKey: string,
-    env: 'sandbox' | 'production',
-    invoiceData: Record<string, unknown>
-  ): Promise<SpedyInvoice> {
-    const baseUrl = getBaseUrl(env);
-    const response = await fetch(`${baseUrl}/service-invoices`, {
+  async getProductInvoice(apiKey: string, env: SpedyEnv, id: string): Promise<SpedyInvoice> {
+    legacyArgsNotice(apiKey, env);
+    return requestJson<SpedyInvoice>(`/api/spedy/product/${id}`, { method: 'GET' }, 'Erro ao consultar nota de produto.');
+  },
+
+  async emitServiceInvoice(apiKey: string, env: SpedyEnv, invoiceData: Record<string, unknown>): Promise<SpedyInvoice> {
+    legacyArgsNotice(apiKey, env);
+    return requestJson<SpedyInvoice>('/api/spedy/service', {
       method: 'POST',
-      headers: getHeaders(apiKey),
-      body: JSON.stringify(invoiceData),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.errors?.[0]?.message || 'Erro ao emitir NFS-e.');
-    }
-
-    return response.json();
+      body: JSON.stringify({ invoiceData })
+    }, 'Erro ao emitir NFS-e.');
   },
 
-  /**
-   * Emite uma nota fiscal de produto (NF-e)
-   */
-  async emitProductInvoice(
-    apiKey: string,
-    env: 'sandbox' | 'production',
-    invoiceData: Record<string, unknown>
-  ): Promise<SpedyInvoice> {
-    const baseUrl = getBaseUrl(env);
-    const response = await fetch(`${baseUrl}/product-invoices`, {
+  async emitProductInvoice(apiKey: string, env: SpedyEnv, invoiceData: Record<string, unknown>): Promise<SpedyInvoice> {
+    legacyArgsNotice(apiKey, env);
+    return requestJson<SpedyInvoice>('/api/spedy/product', {
       method: 'POST',
-      headers: getHeaders(apiKey),
-      body: JSON.stringify(invoiceData),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.errors?.[0]?.message || 'Erro ao emitir NF-e.');
-    }
-
-    return response.json();
+      body: JSON.stringify({ invoiceData })
+    }, 'Erro ao emitir NF-e.');
   },
 
-  /**
-   * Busca a lista de NFC-e (Cupom Fiscal) emitidas
-   */
-  async fetchConsumerInvoices(
-    apiKey: string,
-    env: 'sandbox' | 'production',
-    page = 1,
-    pageSize = 20
-  ): Promise<SpedyInvoiceListResponse> {
-    const baseUrl = getBaseUrl(env);
-    const response = await fetch(`${baseUrl}/consumer-invoices?page=${page}&pageSize=${pageSize}`, {
-      method: 'GET',
-      headers: getHeaders(apiKey),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.errors?.[0]?.message || 'Erro ao buscar cupons fiscais no Spedy.');
-    }
-
-    return response.json();
+  async fetchConsumerInvoices(apiKey: string, env: SpedyEnv, page = 1, pageSize = 20): Promise<SpedyInvoiceListResponse> {
+    legacyArgsNotice(apiKey, env);
+    return requestJson<SpedyInvoiceListResponse>(`/api/spedy/consumer?page=${page}&pageSize=${pageSize}`, { method: 'GET' }, 'Erro ao buscar cupons fiscais.');
   },
 
-  /**
-   * Busca uma NFC-e (Cupom Fiscal) individual pelo ID
-   */
-  async getConsumerInvoice(
-    apiKey: string,
-    env: 'sandbox' | 'production',
-    id: string
-  ): Promise<SpedyInvoice> {
-    const baseUrl = getBaseUrl(env);
-    const response = await fetch(`${baseUrl}/consumer-invoices/${id}`, {
-      method: 'GET',
-      headers: getHeaders(apiKey),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.errors?.[0]?.message || 'Erro ao consultar cupom fiscal no Spedy.');
-    }
-
-    return response.json();
+  async getConsumerInvoice(apiKey: string, env: SpedyEnv, id: string): Promise<SpedyInvoice> {
+    legacyArgsNotice(apiKey, env);
+    return requestJson<SpedyInvoice>(`/api/spedy/consumer/${id}`, { method: 'GET' }, 'Erro ao consultar cupom fiscal.');
   },
 
-  /**
-   * Emite uma nota fiscal de consumidor (NFC-e / Cupom Fiscal)
-   */
-  async emitConsumerInvoice(
-    apiKey: string,
-    env: 'sandbox' | 'production',
-    invoiceData: Record<string, unknown>
-  ): Promise<SpedyInvoice> {
-    const baseUrl = getBaseUrl(env);
-    const response = await fetch(`${baseUrl}/consumer-invoices`, {
+  async emitConsumerInvoice(apiKey: string, env: SpedyEnv, invoiceData: Record<string, unknown>): Promise<SpedyInvoice> {
+    legacyArgsNotice(apiKey, env);
+    return requestJson<SpedyInvoice>('/api/spedy/consumer', {
       method: 'POST',
-      headers: getHeaders(apiKey),
-      body: JSON.stringify(invoiceData),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.errors?.[0]?.message || 'Erro ao emitir NFC-e.');
-    }
-
-    return response.json();
+      body: JSON.stringify({ invoiceData })
+    }, 'Erro ao emitir NFC-e.');
   },
 
-  /**
-   * Cancela uma nota fiscal (NF-e, NFS-e ou NFC-e)
-   */
-  async cancelInvoice(
-    apiKey: string,
-    env: 'sandbox' | 'production',
-    type: 'service' | 'product' | 'consumer',
-    id: string,
-    justification: string
-  ): Promise<{ success: boolean }> {
-    const baseUrl = getBaseUrl(env);
-    const pathSegment =
-      type === 'service'
-        ? 'service-invoices'
-        : type === 'product'
-        ? 'product-invoices'
-        : 'consumer-invoices';
-
-    const response = await fetch(`${baseUrl}/${pathSegment}/${id}`, {
+  async cancelInvoice(apiKey: string, env: SpedyEnv, type: SpedyType, id: string, justification: string): Promise<{ success: boolean }> {
+    legacyArgsNotice(apiKey, env);
+    return requestJson<{ success: boolean }>(`/api/spedy/${type}/${id}`, {
       method: 'DELETE',
-      headers: getHeaders(apiKey),
-      body: JSON.stringify({ justification }),
+      body: JSON.stringify({ justification })
+    }, 'Erro ao solicitar cancelamento da nota fiscal.');
+  },
+
+  getPdfUrl(id: string, type: SpedyType): string {
+    const baseUrl = ensureApiUrl();
+    return `${baseUrl}/api/spedy/${type}/${id}/pdf`;
+  },
+
+  getXmlUrl(id: string, type: SpedyType): string {
+    const baseUrl = ensureApiUrl();
+    return `${baseUrl}/api/spedy/${type}/${id}/xml`;
+  },
+
+  async openFiscalFile(id: string, type: SpedyType, fileType: 'pdf' | 'xml') {
+    const baseUrl = ensureApiUrl();
+    const response = await fetch(`${baseUrl}/api/spedy/${type}/${id}/${fileType}`, {
+      method: 'GET',
+      headers: await getAuthHeaders(false)
     });
 
     if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.errors?.[0]?.message || 'Erro ao solicitar cancelamento da nota fiscal.');
+      throw new Error(await getApiError(response, 'Erro ao baixar arquivo fiscal.'));
     }
 
-    return response.json();
-  },
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
 
-  /**
-   * Retorna a URL direta de download do PDF (DANFE/Extrato) sem exigir headers
-   */
-  getPdfUrl(id: string, type: 'service' | 'product' | 'consumer', env: 'sandbox' | 'production'): string {
-    const baseUrl = getBaseUrl(env);
-    const pathSegment =
-      type === 'service'
-        ? 'service-invoices'
-        : type === 'product'
-        ? 'product-invoices'
-        : 'consumer-invoices';
-    return `${baseUrl}/${pathSegment}/${id}/pdf`;
-  },
+    if (fileType === 'pdf') {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      return;
+    }
 
-  /**
-   * Retorna a URL direta de download do XML sem exigir headers
-   */
-  getXmlUrl(id: string, type: 'service' | 'product' | 'consumer', env: 'sandbox' | 'production'): string {
-    const baseUrl = getBaseUrl(env);
-    const pathSegment =
-      type === 'service'
-        ? 'service-invoices'
-        : type === 'product'
-        ? 'product-invoices'
-        : 'consumer-invoices';
-    return `${baseUrl}/${pathSegment}/${id}/xml`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${id}.xml`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 };

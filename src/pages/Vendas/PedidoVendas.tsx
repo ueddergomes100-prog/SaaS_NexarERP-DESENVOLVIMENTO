@@ -5,6 +5,7 @@ import { collection, query, where, onSnapshot, deleteDoc, doc, getDoc, updateDoc
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { spedyService } from '../../services/spedyService';
 
 interface ItemVenda {
   id: string;
@@ -38,24 +39,9 @@ const PedidoVendas: React.FC = () => {
 
   // Estado para armazenar IDs dos cupons autorizados
   const [authorizedCupons, setAuthorizedCupons] = useState<Record<string, { spedyId: string; status: string }>>({});
-  const [spedyEnv, setSpedyEnv] = useState<'sandbox' | 'production'>('sandbox');
 
   useEffect(() => {
     if (!currentUser || !tenantId) return;
-
-    // Busca configuração do ambiente Spedy
-    const fetchEnv = async () => {
-      try {
-        const confRef = doc(db, 'configuracoes', tenantId);
-        const confSnap = await getDoc(confRef);
-        if (confSnap.exists()) {
-          setSpedyEnv(confSnap.data().spedyEnvironment || 'sandbox');
-        }
-      } catch (err) {
-        console.warn("Erro ao buscar configuracoes Spedy no listagem", err);
-      }
-    };
-    fetchEnv();
 
     // Monitora notas fiscais do tipo NFC-e
     const qNotas = query(
@@ -292,8 +278,8 @@ const PedidoVendas: React.FC = () => {
                         <button
                           onClick={() => {
                             const cupom = authorizedCupons[p.id];
-                            const pdfUrl = `https://${spedyEnv === 'production' ? 'api' : 'sandbox-api'}.spedy.com.br/v1/consumer-invoices/${cupom.spedyId}/pdf`;
-                            window.open(pdfUrl, '_blank');
+                            spedyService.openFiscalFile(cupom.spedyId, 'consumer', 'pdf')
+                              .catch(err => showError('Erro ao abrir cupom fiscal', (err as Error).message));
                           }}
                           className="icon-btn"
                           title="Imprimir Cupom Fiscal (NFC-e)"

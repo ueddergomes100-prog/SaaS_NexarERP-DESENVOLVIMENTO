@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw } from 'lucide-react';
-import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, setDoc, orderBy, limit } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { spedyService } from '../../services/spedyService';
+import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, reserveTenantSequence } from '../../utils/firestoreAtomic';
 import Swal from 'sweetalert2';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
@@ -45,8 +47,6 @@ const PedidoVendaForm: React.FC = () => {
   const isViewing = !!id;
 
   const [nfeDoc, setNfeDoc] = useState<LinkedNfe | null>(null);
-  const [spedyEnv, setSpedyEnv] = useState<'sandbox' | 'production'>('sandbox');
-
   const [clienteNome, setClienteNome] = useState('');
   const [formaPagamento, setFormaPagamento] = useState('Dinheiro');
   const [numeroPedido, setNumeroPedido] = useState('');
@@ -134,7 +134,6 @@ const PedidoVendaForm: React.FC = () => {
         const configSnap = await getDoc(configRef);
         if (configSnap.exists()) {
           setPermitirVendaSemEstoque(configSnap.data().venderSemEstoque === true);
-          setSpedyEnv(configSnap.data().spedyEnvironment || 'sandbox');
         }
       } catch (err) { console.error(err); }
 
@@ -264,7 +263,7 @@ const PedidoVendaForm: React.FC = () => {
   const valorTotalPedido = Math.max(0, valorTotalItens - valorTotalDescontos + Number(frete || 0) + Number(encargos || 0));
 
   const handleFinalizarVenda = async () => {
-    if (!currentUser) return;
+    if (!currentUser || !tenantId) return;
     if (itens.length === 0) {
       showError('Atenção', 'Adicione pelo menos um item à venda.');
       return;
@@ -293,57 +292,60 @@ const PedidoVendaForm: React.FC = () => {
         });
       }
 
-      // 2. Baixar Estoque
-      for (const item of itens) {
-        if (item.id !== 'avulso') {
-          try {
-            const pecaRef = doc(db, 'estoque', item.id);
-            const pecaSnap = await getDoc(pecaRef);
-            if (pecaSnap.exists()) {
-              const atual = pecaSnap.data().quantidade || 0;
-              await updateDoc(pecaRef, { quantidade: Math.max(0, atual - item.quantidade) });
-            }
-          } catch (err) {
-            console.error(`Erro baixar estoque do item ${item.nome}`, err);
-          }
-        }
-      }
+      const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
+      let newPedidoId = '';
+      let finalNumeroPedido = numeroPedido;
 
-      // 3. Gravar Pedido de Venda
-      const pedidoData = {
-        numeroPedido,
-        clienteNome: finalClienteNome,
-        itens,
-        valorTotalItens,
-        valorTotalDescontos,
-        frete: Number(frete || 0),
-        encargos: Number(encargos || 0),
-        valorTotal: valorTotalPedido,
-        formaPagamento,
-        status: 'Finalizada',
-        tenantId: tenantId || '',
-        usuarioResponsavelId: currentUser.uid,
-        createdAt: serverTimestamp()
-      };
+      await runTransaction(db, async (transaction) => {
+        const nextPedido = await reserveTenantSequence(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
+        finalNumeroPedido = formatSequenceValue(nextPedido, 4);
+        const newPedidoRef = doc(collection(db, 'pedidos_venda'));
+        newPedidoId = newPedidoRef.id;
 
-      const newPedidoRef = await addDoc(collection(db, 'pedidos_venda'), pedidoData);
+        await applyStockAdjustments(
+          transaction,
+          db,
+          itens.map(item => ({ id: item.id, nome: item.nome, quantidade: item.quantidade })),
+          'decrement',
+          permitirVendaSemEstoque
+        );
 
-      // 4. Gravar Transação Financeira
-      let statusTransacao = 'Pendente';
-      if (formaPagamento === 'Dinheiro' || formaPagamento === 'Pix') statusTransacao = 'Paga';
+        const pedidoData = {
+          numeroPedido: finalNumeroPedido,
+          clienteNome: finalClienteNome,
+          itens,
+          valorTotalItens,
+          valorTotalDescontos,
+          frete: Number(frete || 0),
+          encargos: Number(encargos || 0),
+          valorTotal: valorTotalPedido,
+          formaPagamento,
+          status: 'Finalizada',
+          tenantId,
+          usuarioResponsavelId: currentUser.uid,
+          createdAt: serverTimestamp()
+        };
 
-      await setDoc(doc(db, 'transacoes', newPedidoRef.id), {
-        descricao: `Venda Direta #${numeroPedido}`,
-        categoria: 'Venda de Peças',
-        valor: valorTotalPedido,
-        tipo: 'entrada',
-        formaPagamento,
-        status: statusTransacao,
-        pedidoId: newPedidoRef.id,
-        clienteNome: finalClienteNome,
-        tenantId,
-        createdAt: serverTimestamp()
+        transaction.set(newPedidoRef, pedidoData);
+
+        let statusTransacao = 'Pendente';
+        if (formaPagamento === 'Dinheiro' || formaPagamento === 'Pix') statusTransacao = 'Paga';
+
+        transaction.set(doc(db, 'transacoes', newPedidoRef.id), {
+          descricao: `Venda Direta #${finalNumeroPedido}`,
+          categoria: 'Venda de Peças',
+          valor: valorTotalPedido,
+          tipo: 'entrada',
+          formaPagamento,
+          status: statusTransacao,
+          pedidoId: newPedidoRef.id,
+          clienteNome: finalClienteNome,
+          tenantId,
+          createdAt: serverTimestamp()
+        });
       });
+
+      setNumeroPedido(finalNumeroPedido);
 
       try {
         const { createAuditLog } = await import('../../services/logService');
@@ -353,8 +355,8 @@ const PedidoVendaForm: React.FC = () => {
           usuarioEmail: currentUser.email || currentUser.uid,
           modulo: 'vendas',
           acao: 'criacao',
-          descricao: `Venda Direta #${numeroPedido} finalizada no valor de R$ ${valorTotalPedido.toFixed(2)}. Cliente: ${finalClienteNome || 'Geral'}`,
-          registroRelacionadoId: newPedidoRef.id,
+          descricao: `Venda Direta #${finalNumeroPedido} finalizada no valor de R$ ${valorTotalPedido.toFixed(2)}. Cliente: ${finalClienteNome || 'Geral'}`,
+          registroRelacionadoId: newPedidoId,
           status: 'sucesso'
         });
       } catch (err) {
@@ -385,17 +387,13 @@ const PedidoVendaForm: React.FC = () => {
         });
 
         try {
-          // Busca configuração fiscal
-          const confRef = doc(db, 'configuracoes', tenantId || '');
-          const confSnap = await getDoc(confRef);
-          const confData = confSnap.exists() ? confSnap.data() : null;
-
-          if (!confData || !confData.spedyEnabled || !confData.spedyApiKey) {
+          const runtimeConfig = await spedyService.getRuntimeConfig();
+          if (!runtimeConfig.spedyEnabled || !runtimeConfig.spedyApiKeyConfigured) {
             throw new Error('A integração com a Spedy não está ativa ou configurada. Acesse as Configurações do sistema.');
           }
 
-          const apiKey = confData.spedyApiKey;
-          const env = confData.spedyEnvironment || 'sandbox';
+          const apiKey = '__backend_proxy__';
+          const env = runtimeConfig.spedyEnvironment;
 
           // Prepara itens da NFC-e
           const payloadItems = [];
@@ -504,7 +502,7 @@ const PedidoVendaForm: React.FC = () => {
             presenceType: 'presence',
             operationNature: 'Venda de Mercadoria',
             sendEmailToCustomer: false,
-            integrationId: newPedidoRef.id,
+            integrationId: newPedidoId,
             receiver,
             items: payloadItems,
             payments: [
@@ -519,7 +517,6 @@ const PedidoVendaForm: React.FC = () => {
             }
           };
 
-          const { spedyService } = await import('../../services/spedyService');
           const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload);
 
           // Polling para aguardar autorização (SEFAZ processa de forma assíncrona)
@@ -559,7 +556,7 @@ const PedidoVendaForm: React.FC = () => {
             tenantId,
             createdAt: serverTimestamp(),
             data: new Date().toISOString(),
-            pedidoId: newPedidoRef.id
+            pedidoId: newPedidoId
           });
 
           Swal.close();
@@ -575,8 +572,7 @@ const PedidoVendaForm: React.FC = () => {
             });
 
             if (printResult.isConfirmed) {
-              const pdfUrl = spedyService.getPdfUrl(finalNote.id, 'consumer', env);
-              window.open(pdfUrl, '_blank');
+              await spedyService.openFiscalFile(finalNote.id, 'consumer', 'pdf');
             }
           } else if (['enqueued', 'processing', 'created'].includes(finalNote.status)) {
             await NexusSwal.fire({
@@ -610,13 +606,13 @@ const PedidoVendaForm: React.FC = () => {
             cancelButtonText: 'Não, Apenas Sair'
           });
           if (fallbackResult.isConfirmed) {
-            navigate(`/pedidos-venda/print/${newPedidoRef.id}`);
+            navigate(`/pedidos-venda/print/${newPedidoId}`);
           } else {
             navigate('/pedidos-venda');
           }
         }
       } else if (result.isDenied) {
-        navigate(`/pedidos-venda/print/${newPedidoRef.id}`);
+        navigate(`/pedidos-venda/print/${newPedidoId}`);
       } else {
         navigate('/pedidos-venda');
       }
@@ -635,21 +631,10 @@ const PedidoVendaForm: React.FC = () => {
 
     try {
       // 1. Verificar Integração Spedy
-      let spedyConfigured = false;
-      let apiKey = '';
-      let env: 'sandbox' | 'production' = 'sandbox';
-
-      try {
-        const confRef = doc(db, 'configuracoes', tenantId);
-        const confSnap = await getDoc(confRef);
-        if (confSnap.exists() && confSnap.data().spedyEnabled && confSnap.data().spedyApiKey) {
-          spedyConfigured = true;
-          apiKey = confSnap.data().spedyApiKey;
-          env = confSnap.data().spedyEnvironment || 'sandbox';
-        }
-      } catch (err) {
-        console.warn("Erro ao buscar configs fiscais Spedy:", err);
-      }
+      const runtimeConfig = await spedyService.getRuntimeConfig();
+      const spedyConfigured = runtimeConfig.spedyEnabled && runtimeConfig.spedyApiKeyConfigured;
+      const apiKey = '__backend_proxy__';
+      const env = runtimeConfig.spedyEnvironment;
 
       if (!spedyConfigured) {
         showError('Integração Inativa', 'O módulo da Spedy não está configurado ou ativado.');
@@ -783,7 +768,6 @@ const PedidoVendaForm: React.FC = () => {
         }
       };
 
-      const { spedyService } = await import('../../services/spedyService');
       const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload);
 
       // Polling para aguardar autorização
@@ -848,8 +832,7 @@ const PedidoVendaForm: React.FC = () => {
         });
 
         if (printResult.isConfirmed) {
-          const pdfUrl = spedyService.getPdfUrl(finalNote.id, 'consumer', env);
-          window.open(pdfUrl, '_blank');
+          await spedyService.openFiscalFile(finalNote.id, 'consumer', 'pdf');
         }
       } else if (['enqueued', 'processing', 'created'].includes(finalNote.status)) {
         await NexusSwal.fire({
@@ -877,26 +860,26 @@ const PedidoVendaForm: React.FC = () => {
 
   const handleOpenPdfCupom = async () => {
     if (!nfeDoc) return;
-    const { spedyService } = await import('../../services/spedyService');
-    const pdfUrl = spedyService.getPdfUrl(nfeDoc.spedyId, 'consumer', spedyEnv);
-    window.open(pdfUrl, '_blank');
+    try {
+      await spedyService.openFiscalFile(nfeDoc.spedyId, 'consumer', 'pdf');
+    } catch (err) {
+      showError('Erro ao abrir PDF', (err as Error).message);
+    }
   };
 
   const handleConsultarCupomExistente = async () => {
     if (!currentUser || !tenantId || !nfeDoc) return;
     setIsLoading(true);
     try {
-      const confRef = doc(db, 'configuracoes', tenantId);
-      const confSnap = await getDoc(confRef);
-      if (!confSnap.exists() || !confSnap.data().spedyApiKey) {
+      const runtimeConfig = await spedyService.getRuntimeConfig();
+      if (!runtimeConfig.spedyEnabled || !runtimeConfig.spedyApiKeyConfigured) {
         showError('Integração Inativa', 'O módulo da Spedy não está configurado.');
         setIsLoading(false);
         return;
       }
-      const apiKey = confSnap.data().spedyApiKey;
-      const env = confSnap.data().spedyEnvironment || 'sandbox';
+      const apiKey = '__backend_proxy__';
+      const env = runtimeConfig.spedyEnvironment;
 
-      const { spedyService } = await import('../../services/spedyService');
       const spedyNote = await spedyService.getConsumerInvoice(apiKey, env, nfeDoc.spedyId);
 
       await updateDoc(doc(db, 'notas_fiscais', nfeDoc.id), {
@@ -923,7 +906,7 @@ const PedidoVendaForm: React.FC = () => {
   };
 
   const handleCancelarVenda = async () => {
-    if (!currentUser || !id) return;
+    if (!currentUser || !tenantId || !id) return;
 
     const temDevolucao = itens.some(item => (item.quantidadeJaDevolvida || 0) > 0);
     if (temDevolucao) {
@@ -945,26 +928,22 @@ const PedidoVendaForm: React.FC = () => {
 
     setIsLoading(true);
     try {
-      // 1. Devolver Estoque
-      for (const item of itens) {
-        if (item.id !== 'avulso') {
-          const pecaRef = doc(db, 'estoque', item.id);
-          const pecaSnap = await getDoc(pecaRef);
-          if (pecaSnap.exists()) {
-            const atual = pecaSnap.data().quantidade || 0;
-            await updateDoc(pecaRef, { quantidade: atual + item.quantidade });
-          }
-        }
-      }
+      await runTransaction(db, async (transaction) => {
+        await applyStockAdjustments(
+          transaction,
+          db,
+          itens.map(item => ({ id: item.id, nome: item.nome, quantidade: item.quantidade })),
+          'increment',
+          true
+        );
 
-      // 2. Atualizar Pedido
-      await updateDoc(doc(db, 'pedidos_venda', id), {
-        status: 'Cancelada',
-        updatedAt: serverTimestamp()
+        transaction.update(doc(db, 'pedidos_venda', id), {
+          status: 'Cancelada',
+          updatedAt: serverTimestamp()
+        });
+
+        transaction.set(doc(db, 'transacoes', id), { status: 'Cancelada' }, { merge: true });
       });
-
-      // 3. Atualizar Transação Financeira
-      await setDoc(doc(db, 'transacoes', id), { status: 'Cancelada' }, { merge: true });
 
       try {
         const { createAuditLog } = await import('../../services/logService');

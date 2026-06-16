@@ -5,6 +5,7 @@ import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { auth, db } from '../../services/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
+import { createSessionId } from '../../utils/session';
 import './Auth.css';
 
 const Login: React.FC = () => {
@@ -87,7 +88,7 @@ const Login: React.FC = () => {
       }
 
       // Cria um ID de sessão local único
-      const newSessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+      const newSessionId = createSessionId();
       localStorage.setItem('nexus_session_id', newSessionId);
 
       // Atualiza no Firestore
@@ -97,6 +98,11 @@ const Login: React.FC = () => {
         });
       } catch (e) {
         console.error('Erro ao registrar nova sessao no firestore:', e);
+        localStorage.removeItem('nexus_session_id');
+        await signOut(auth);
+        setError('Nao foi possivel registrar a sessao. Tente novamente.');
+        setLoading(false);
+        return;
       }
 
       const { createAuditLog } = await import('../../services/logService');

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, setDoc, orderBy, limit } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showSuccess, showError } from '../../utils/alerts';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
+import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, reserveTenantSequence } from '../../utils/firestoreAtomic';
 import './OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
@@ -302,7 +303,7 @@ const OSForm: React.FC = () => {
         servico = { id: newRef.id, nome: servicoNomeInput, preco: precoNum };
         setServicosCatalogo([...servicosCatalogo, servico]);
         showSuccess('Serviço cadastrado no catálogo!');
-      } catch (err) {
+      } catch {
         showError('Erro', 'Não foi possível cadastrar o serviço.');
       } finally {
         setIsLoading(false);
@@ -368,7 +369,7 @@ const OSForm: React.FC = () => {
         peca = { id: newRef.id, nome: pecaNomeInput, precoVenda: precoNum };
         setPecasEstoque([...pecasEstoque, peca]);
         showSuccess('Peça adicionada ao estoque!');
-      } catch (err) {
+      } catch {
         showError('Erro', 'Não foi possível cadastrar a peça no estoque.');
       } finally {
         setIsLoading(false);
@@ -440,7 +441,7 @@ const OSForm: React.FC = () => {
 
     try {
       // 1. Check and Create Client if new
-      if (!currentUser) return;
+      if (!currentUser || !tenantId) return;
       const clienteExiste = clientesDisponiveis.some(c => c.nome.toUpperCase() === formData.clienteNome.toUpperCase().trim());
       if (!clienteExiste && formData.clienteNome.trim()) {
         const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
@@ -456,26 +457,10 @@ const OSForm: React.FC = () => {
         });
       }
 
-      // 2. Lógica de Baixa/Retorno de Estoque
       let estoqueFoiBaixado = formData.estoqueBaixado || false;
+      let deveRetornarEstoque = false;
 
-      if (formData.status === 'Finalizada' && !estoqueFoiBaixado) {
-        for (const peca of pecasSelecionadas) {
-          if (peca.id) {
-            try {
-              const pecaRef = doc(db, 'estoque', peca.id);
-              const pecaSnap = await getDoc(pecaRef);
-              if (pecaSnap.exists()) {
-                const atual = pecaSnap.data().quantidade || 0;
-                await updateDoc(pecaRef, { quantidade: Math.max(0, atual - peca.quantidade) });
-              }
-            } catch (err) {
-              console.error(`Erro ao dar baixa na peça ${peca.nome}:`, err);
-            }
-          }
-        }
-        estoqueFoiBaixado = true;
-      } else if (formData.status === 'Cancelada' && estoqueFoiBaixado) {
+      if (formData.status === 'Cancelada' && estoqueFoiBaixado) {
         const confirmRetorno = await NexusSwal.fire({
           title: 'Retornar Estoque?',
           text: 'Esta OS foi cancelada. Deseja retornar as peças utilizadas para o estoque?',
@@ -486,53 +471,66 @@ const OSForm: React.FC = () => {
         });
 
         if (confirmRetorno.isConfirmed) {
-          for (const peca of pecasSelecionadas) {
-            if (peca.id) {
-              try {
-                const pecaRef = doc(db, 'estoque', peca.id);
-                const pecaSnap = await getDoc(pecaRef);
-                if (pecaSnap.exists()) {
-                  const atual = pecaSnap.data().quantidade || 0;
-                  await updateDoc(pecaRef, { quantidade: atual + peca.quantidade });
-                }
-              } catch (err) {
-                console.error(`Erro ao retornar peça ${peca.nome}:`, err);
-              }
-            }
-          }
+          deveRetornarEstoque = true;
           estoqueFoiBaixado = false;
-        } else {
-          // Mantém como baixado para não perguntar de novo
         }
       }
 
-      // 3. Prepare OS Data
-      const osData = {
-        ...formData,
-        clienteNome: formData.clienteNome.toUpperCase().trim(),
-        servicos: servicosSelecionados,
-        pecas: pecasSelecionadas,
-        valorTotal: totalOS,
-        statusColor: getStatusColor(formData.status),
-        estoqueBaixado: estoqueFoiBaixado
-      };
-
       let osId = id;
+      let finalNumeroOS = formData.numeroOS;
+      const currentMaxOs = !isEditing
+        ? await getCurrentMaxSequence(db, 'ordens_de_servico', tenantId, 'numeroOS').catch(() => 0)
+        : 0;
 
-      if (isEditing && id) {
-        const docRef = doc(db, 'ordens_de_servico', id);
-        await updateDoc(docRef, { ...osData, updatedAt: serverTimestamp() });
-      } else {
-        const newOsRef = await addDoc(collection(db, 'ordens_de_servico'), { 
-          ...osData, 
-          tenantId,
-          createdAt: serverTimestamp() 
-        });
-        osId = newOsRef.id;
-      }
+      await runTransaction(db, async (transaction) => {
+        if (!isEditing) {
+          const nextOs = await reserveTenantSequence(transaction, db, tenantId, 'ordens_de_servico', currentMaxOs);
+          finalNumeroOS = formatSequenceValue(nextOs, 2);
+        }
 
-      // 4. Integração BLINDADA com o Financeiro (Evita duplicação)
-      if (osId) {
+        if (formData.status === 'Finalizada' && !formData.estoqueBaixado) {
+          await applyStockAdjustments(
+            transaction,
+            db,
+            pecasSelecionadas.map(peca => ({ id: peca.id, nome: peca.nome, quantidade: peca.quantidade })),
+            'decrement',
+            permitirVendaSemEstoque
+          );
+          estoqueFoiBaixado = true;
+        } else if (deveRetornarEstoque) {
+          await applyStockAdjustments(
+            transaction,
+            db,
+            pecasSelecionadas.map(peca => ({ id: peca.id, nome: peca.nome, quantidade: peca.quantidade })),
+            'increment',
+            true
+          );
+        }
+
+        const osData = {
+          ...formData,
+          numeroOS: finalNumeroOS,
+          clienteNome: formData.clienteNome.toUpperCase().trim(),
+          servicos: servicosSelecionados,
+          pecas: pecasSelecionadas,
+          valorTotal: totalOS,
+          statusColor: getStatusColor(formData.status),
+          estoqueBaixado: estoqueFoiBaixado
+        };
+
+        const osRef = isEditing && id ? doc(db, 'ordens_de_servico', id) : doc(collection(db, 'ordens_de_servico'));
+        osId = osRef.id;
+
+        if (isEditing && id) {
+          transaction.update(osRef, { ...osData, updatedAt: serverTimestamp() });
+        } else {
+          transaction.set(osRef, {
+            ...osData,
+            tenantId,
+            createdAt: serverTimestamp()
+          });
+        }
+
         const transacaoRef = doc(db, 'transacoes', osId);
         
         let calcStatusPagamento = 'Pendente'; // Cartão, boleto e prazo vão para Contas a Receber.
@@ -541,7 +539,7 @@ const OSForm: React.FC = () => {
         }
 
         const transacaoData = {
-          descricao: `Recebimento OS #${formData.numeroOS || osId.substring(0,6).toUpperCase()}`,
+          descricao: `Recebimento OS #${finalNumeroOS || osId.substring(0,6).toUpperCase()}`,
           categoria: 'Serviços',
           valor: totalOS,
           tipo: 'entrada',
@@ -553,22 +551,19 @@ const OSForm: React.FC = () => {
         };
 
         if (formData.status === 'Finalizada') {
-          await setDoc(transacaoRef, { ...transacaoData, createdAt: serverTimestamp() }, { merge: true });
+          transaction.set(transacaoRef, { ...transacaoData, createdAt: serverTimestamp() }, { merge: true });
         } else if (isEditing) {
           // Se reabriu a OS (não está mais finalizada) ou Cancelou, atualiza a transação para não somar no caixa
-          await setDoc(transacaoRef, { ...transacaoData }, { merge: true });
+          transaction.set(transacaoRef, { ...transacaoData }, { merge: true });
         }
-      }
 
-      // 5. Atualizar Orçamento vinculado
-      if (formData.orcamentoId) {
-        try {
+        if (formData.orcamentoId) {
           const novoStatusOrcamento = formData.status === 'Cancelada' ? 'Pendente' : 'Finalizado';
-          await updateDoc(doc(db, 'orcamentos', formData.orcamentoId), { status: novoStatusOrcamento });
-        } catch (err) {
-          console.error("Erro ao atualizar orçamento vinculado:", err);
+          transaction.update(doc(db, 'orcamentos', formData.orcamentoId), { status: novoStatusOrcamento });
         }
-      }
+      });
+
+      setFormData(prev => ({ ...prev, numeroOS: finalNumeroOS, estoqueBaixado: estoqueFoiBaixado }));
       
       showSuccess(`OS ${isEditing ? 'atualizada' : 'criada'}!`);
       navigate('/os');

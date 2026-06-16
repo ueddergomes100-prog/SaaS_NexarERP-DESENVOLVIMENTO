@@ -4,6 +4,7 @@ import { collection, query, where, getDocs, doc, getDoc, Timestamp } from 'fireb
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, Printer } from 'lucide-react';
+import { formatCompanyAddress, getCompanyAddressParts } from '../../utils/companyAddress';
 import '../OS/OsPrint.css'; // Reusing print layout styles
 
 interface PedidoVenda {
@@ -216,6 +217,11 @@ const PrintRelatorioVendas: React.FC = () => {
     return <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'sans-serif' }}>Gerando relatório...</div>;
   }
 
+  const companyAddressParts = getCompanyAddressParts(config);
+  const legacyCompanyAddress = !companyAddressParts.rua && !companyAddressParts.numero && !companyAddressParts.bairro
+    ? formatCompanyAddress(config)
+    : '';
+
   return (
     <div className="print-layout-wrapper">
       <div className="print-actions no-print">
@@ -235,7 +241,10 @@ const PrintRelatorioVendas: React.FC = () => {
             {config?.cnpj && <p><strong>CNPJ:</strong> {config.cnpj}</p>}
             {config?.telefone && <p><strong>Telefone:</strong> {config.telefone}</p>}
             {config?.email && <p><strong>E-mail:</strong> {config.email}</p>}
-            {config?.endereco && <p><strong>Endereço:</strong> {config.endereco}</p>}
+            {companyAddressParts.rua && <p><strong>Rua:</strong> {companyAddressParts.rua}</p>}
+            {companyAddressParts.numero && <p><strong>Número:</strong> {companyAddressParts.numero}</p>}
+            {companyAddressParts.bairro && <p><strong>Bairro:</strong> {companyAddressParts.bairro}</p>}
+            {legacyCompanyAddress && <p><strong>Endereço:</strong> {legacyCompanyAddress}</p>}
           </div>
           <div className="a4-os-info">
             <h1>{tipo === 'geral' ? 'RELATÓRIO DE VENDAS' : 'VENDAS POR VENDEDOR'}</h1>

@@ -7,7 +7,10 @@ import {
   PackageCheck,
   UserRound,
 } from 'lucide-react';
+import { getCompanyAddressRows } from '../../utils/companyAddress';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
+import instagramIcon from '../../assets/instagram-icon.png';
+import whatsappIcon from '../../assets/whatsapp-icon.png';
 import './OsPrintPersonalizado01.css';
 
 interface OsPrintPersonalizado01Props {
@@ -33,6 +36,12 @@ const formatDate = (value: any) => {
 const displayValue = (value: any) => {
   if (value === null || value === undefined || value === '') return '---';
   return String(value);
+};
+
+const formatInstagram = (value: any) => {
+  const instagram = String(value || '').trim();
+  if (!instagram) return '';
+  return instagram.startsWith('@') ? instagram : `@${instagram}`;
 };
 
 const formatDateTime = (dateValue: any, timeValue: any) => {
@@ -67,6 +76,16 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
   );
   const totalGeral = totalServicos + totalPecas;
   const numeroOS = osData.numeroOS || osData.id?.substring(0, 6).toUpperCase();
+  const companyDetails: Array<{ type: 'text' | 'instagram' | 'whatsapp'; value: string }> = [
+    configData?.cnpj ? `CNPJ ${configData.cnpj}` : null,
+    configData?.telefone || null,
+    configData?.email || null,
+  ].filter(Boolean).map((value) => ({ type: 'text', value: String(value) }));
+  const instagram = formatInstagram(configData?.instagram);
+  const whatsapp = configData?.whatsapp || '';
+  const companyAddressRows = getCompanyAddressRows(configData);
+  if (instagram) companyDetails.push({ type: 'instagram', value: instagram });
+  if (whatsapp) companyDetails.push({ type: 'whatsapp', value: String(whatsapp) });
   const enderecoCliente = [
     clientData?.endereco,
     clientData?.numero,
@@ -79,15 +98,21 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
     <article className="os-custom-page">
       <header className="os-custom-header">
         <div className="os-custom-brand">
-          {configData?.logo ? (
-            <img src={configData.logo} alt="Logotipo da empresa" />
-          ) : (
-            <div className="os-custom-brand-mark">N</div>
-          )}
-          <div>
-            <h1>{configData?.nomeOficina || 'NEXAR ERP'}</h1>
-            <p>{configData?.cnpj ? `CNPJ ${configData.cnpj}` : 'Gestão de serviços automotivos'}</p>
-            <p>{[configData?.telefone, configData?.email].filter(Boolean).join('  |  ')}</p>
+          <div className="os-custom-logo-stage">
+            {configData?.logo ? (
+              <img src={configData.logo} alt="Logotipo da empresa" />
+            ) : (
+              <div className="os-custom-brand-mark">N</div>
+            )}
+          </div>
+          <div className="os-custom-brand-info">
+            {companyDetails.map((detail) => (
+              <p key={`${detail.type}-${detail.value}`}>
+                {detail.type === 'instagram' && <img className="os-custom-contact-icon" src={instagramIcon} alt="" />}
+                {detail.type === 'whatsapp' && <img className="os-custom-contact-icon" src={whatsappIcon} alt="" />}
+                <span>{detail.value}</span>
+              </p>
+            ))}
           </div>
         </div>
 
@@ -98,7 +123,11 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
         </div>
       </header>
 
-      <div className="os-custom-company-address">{configData?.endereco || ''}</div>
+      <div className="os-custom-company-address">
+        {companyAddressRows.map((row) => (
+          <span key={row.label}><strong>{row.label}:</strong> {row.value}</span>
+        ))}
+      </div>
 
       <section className="os-custom-two-columns">
         <div className="os-custom-section">

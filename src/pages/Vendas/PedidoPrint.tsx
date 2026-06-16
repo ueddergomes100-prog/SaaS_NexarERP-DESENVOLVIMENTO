@@ -4,6 +4,7 @@ import { Printer, ArrowLeft } from 'lucide-react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { getCompanyAddressRows } from '../../utils/companyAddress';
 import '../OS/OsPrint.css'; // Reusing OS print styles
 
 const PedidoPrint: React.FC = () => {
@@ -68,6 +69,7 @@ const PedidoPrint: React.FC = () => {
   if (!pedidoData) return null;
 
   const dataCriacao = pedidoData.createdAt?.toDate ? pedidoData.createdAt.toDate().toLocaleDateString('pt-BR') : 'N/A';
+  const companyAddressRows = getCompanyAddressRows(configData);
   const itens = pedidoData.itens || [];
   const valorTotal = pedidoData.valorTotal || 0;
 
@@ -92,7 +94,9 @@ const PedidoPrint: React.FC = () => {
             )}
             <h2 style={{ fontSize: configData?.logo ? '16px' : '24px', margin: 0 }}>{configData?.nomeOficina || 'NEXAR ERP'}</h2>
             <p>CNPJ: {configData?.cnpj || '00.000.000/0001-00'}</p>
-            <p>{configData?.endereco || ''}</p>
+            {companyAddressRows.map((row) => (
+              <p key={row.label}><strong>{row.label}:</strong> {row.value}</p>
+            ))}
             <p>{configData?.telefone || ''} | {configData?.email || ''}</p>
           </div>
           <div className="a4-os-info">

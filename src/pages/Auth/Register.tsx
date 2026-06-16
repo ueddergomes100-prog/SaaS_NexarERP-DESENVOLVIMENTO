@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, User, Store, ArrowRight, Loader2 } from 'lucide-react';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '../../services/firebase';
-import { createSessionId } from '../../utils/session';
+import { auth, authPersistenceReady, db } from '../../services/firebase';
+import { createSessionId, setStoredSessionId } from '../../utils/session';
+import { buildSessionMetadata } from '../../utils/sessionInfo';
 import './Auth.css';
 
 const Register: React.FC = () => {
@@ -40,10 +41,12 @@ const Register: React.FC = () => {
 
     try {
       // 1. Cria o usuário no Firebase Auth
+      await authPersistenceReady;
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       const newSessionId = createSessionId();
-      localStorage.setItem('nexus_session_id', newSessionId);
+      setStoredSessionId(newSessionId);
+      const sessionMetadata = await buildSessionMetadata(user);
 
       // 2. Salva os dados da empresa/tenant no Firestore associados ao UID
       await setDoc(doc(db, 'usuarios', user.uid), {
@@ -60,7 +63,14 @@ const Register: React.FC = () => {
         status: 'Ativo', // Status SaaS
         plano: 'Pro',
         valorMensalidade: 149.90,
-        activeSessionId: newSessionId
+        activeSessionId: newSessionId,
+        activeSession: {
+          ...sessionMetadata,
+          sessionId: newSessionId,
+          startedAt: serverTimestamp(),
+          lastSeenAt: serverTimestamp(),
+          lastSeenClientAt: new Date().toISOString()
+        }
       });
 
       // 3. Pré-popula as configurações da empresa

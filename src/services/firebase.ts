@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { browserSessionPersistence, getAuth, setPersistence } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
 export const firebaseConfig = {
@@ -18,4 +18,7 @@ const app = initializeApp(firebaseConfig);
 // Initialize Services
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const authPersistenceReady = setPersistence(auth, browserSessionPersistence).catch((error) => {
+  console.error('Erro ao configurar persistencia de sessao:', error);
+});
 export const storage = getStorage(app);

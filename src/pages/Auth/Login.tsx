@@ -1,12 +1,24 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Lock, LogIn, Loader2 } from 'lucide-react';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { auth, db } from '../../services/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { auth, authPersistenceReady, db } from '../../services/firebase';
+import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
-import { createSessionId } from '../../utils/session';
+import { clearStoredSessionId, createSessionId, setStoredSessionId } from '../../utils/session';
+import {
+  buildActiveSessionWarningHtml,
+  buildSessionMetadata,
+  isSessionRecentlyActive,
+  type ActiveSessionInfo
+} from '../../utils/sessionInfo';
 import './Auth.css';
+
+const LOGIN_LOADING_STEPS = [
+  'Validando acesso',
+  'Preparando sua sessão',
+  'Carregando ambiente'
+];
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -14,8 +26,24 @@ const Login: React.FC = () => {
   const [loginStr, setLoginStr] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState('');
   const [showSplash, setShowSplash] = useState(false);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingStep(0);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setLoadingStep(currentStep => (currentStep + 1) % LOGIN_LOADING_STEPS.length);
+    }, 1200);
+
+    return () => window.clearInterval(intervalId);
+  }, [loading]);
+
+  const loadingMessage = LOGIN_LOADING_STEPS[loadingStep];
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,37 +78,41 @@ const Login: React.FC = () => {
         }
       }
 
+      await authPersistenceReady;
       const userCredential = await signInWithEmailAndPassword(auth, finalEmail, password);
       const user = userCredential.user;
       
       // Buscar tenantId do usuario no Firestore para salvar o log na empresa correta
       let userTenantId = 'geral';
       let activeSessionId = '';
+      let activeSession: ActiveSessionInfo | null = null;
       try {
         const userDoc = await getDoc(doc(db, 'usuarios', user.uid));
         if (userDoc.exists()) {
           const userData = userDoc.data();
           userTenantId = userData.tenantId || 'geral';
           activeSessionId = userData.activeSessionId || '';
+          activeSession = (userData.activeSession as ActiveSessionInfo | undefined) || null;
         }
       } catch (e) {
         console.error('Erro ao obter tenantId para log de login:', e);
       }
 
-      if (activeSessionId) {
+      if (isSessionRecentlyActive(activeSessionId, activeSession)) {
         const result = await Swal.fire({
-          title: 'Sessão Ativa Detectada',
-          text: 'Esta conta já possui uma sessão ativa em outro dispositivo ou navegador. Deseja encerrar a outra sessão e entrar aqui?',
+          title: 'Sessão ativa detectada',
+          html: buildActiveSessionWarningHtml(activeSession),
           icon: 'warning',
           showCancelButton: true,
           confirmButtonColor: '#8b5cf6',
           cancelButtonColor: '#d33',
-          confirmButtonText: 'Sim, derrubar a outra e entrar',
-          cancelButtonText: 'Não, manter a outra ativa'
+          confirmButtonText: 'Encerrar outra e entrar',
+          cancelButtonText: 'Manter a outra ativa'
         });
 
         if (!result.isConfirmed) {
           // Desloga o usuário e aborta o login
+          clearStoredSessionId();
           await signOut(auth);
           setLoading(false);
           return;
@@ -89,16 +121,24 @@ const Login: React.FC = () => {
 
       // Cria um ID de sessão local único
       const newSessionId = createSessionId();
-      localStorage.setItem('nexus_session_id', newSessionId);
+      setStoredSessionId(newSessionId);
+      const sessionMetadata = await buildSessionMetadata(user);
 
       // Atualiza no Firestore
       try {
         await updateDoc(doc(db, 'usuarios', user.uid), {
-          activeSessionId: newSessionId
+          activeSessionId: newSessionId,
+          activeSession: {
+            ...sessionMetadata,
+            sessionId: newSessionId,
+            startedAt: serverTimestamp(),
+            lastSeenAt: serverTimestamp(),
+            lastSeenClientAt: new Date().toISOString()
+          }
         });
       } catch (e) {
         console.error('Erro ao registrar nova sessao no firestore:', e);
-        localStorage.removeItem('nexus_session_id');
+        clearStoredSessionId();
         await signOut(auth);
         setError('Nao foi possivel registrar a sessao. Tente novamente.');
         setLoading(false);
@@ -139,7 +179,7 @@ const Login: React.FC = () => {
           descricao: `Tentativa de login malsucedida. Código: ${err.code || 'erro_desconhecido'}`,
           status: 'erro'
         });
-      } catch (logErr) {}
+      } catch {}
 
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
         setError('Login ou senha incorretos.');
@@ -244,7 +284,7 @@ const Login: React.FC = () => {
       )}
 
       <div className="auth-container" style={{ display: showSplash ? 'none' : 'flex' }}>
-      <div className="auth-card">
+      <div className={`auth-card ${loading ? 'auth-card-loading' : ''}`}>
         <div className="auth-header">
           <div className="auth-logo">N</div>
           <h1>Bem-vindo ao Nexar ERP</h1>
@@ -252,6 +292,21 @@ const Login: React.FC = () => {
         </div>
 
         {error && <div className="auth-error">{error}</div>}
+
+        {loading && (
+          <div className="auth-loading-panel" aria-live="polite">
+            <div className="auth-loading-orbit">
+              <Loader2 size={20} className="spin-icon" />
+            </div>
+            <div className="auth-loading-copy">
+              <strong>{loadingMessage}</strong>
+              <span>Estamos conectando sua conta com segurança.</span>
+            </div>
+            <div className="auth-loading-track">
+              <span />
+            </div>
+          </div>
+        )}
 
         <form className="auth-form" onSubmit={handleLogin}>
           <div className="auth-input-group">
@@ -263,6 +318,7 @@ const Login: React.FC = () => {
                 className="auth-input" 
                 placeholder="00.000.000/0000-00" 
                 value={empresa}
+                disabled={loading}
                 onChange={(e) => {
                   const val = e.target.value.replace(/\D/g, '');
                   let formatted = val;
@@ -288,6 +344,7 @@ const Login: React.FC = () => {
                 className="auth-input" 
                 placeholder="Dono: seu@email.com / Funcionário: joao" 
                 value={loginStr}
+                disabled={loading}
                 onChange={(e) => setLoginStr(e.target.value)}
               />
             </div>
@@ -302,20 +359,21 @@ const Login: React.FC = () => {
                 className="auth-input" 
                 placeholder="••••••••" 
                 value={password}
+                disabled={loading}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
           </div>
 
-          <button type="submit" className="auth-button" disabled={loading}>
+          <button type="submit" className={`auth-button ${loading ? 'auth-button-loading' : ''}`} disabled={loading}>
             {loading ? <Loader2 size={18} className="spin-icon" /> : <LogIn size={18} />}
-            {loading ? 'Entrando...' : 'Entrar no Sistema'}
+            {loading ? loadingMessage : 'Entrar no Sistema'}
           </button>
         </form>
 
         <div className="auth-footer">
           Não tem uma conta? 
-          <button className="auth-link" onClick={() => navigate('/cadastro')}>
+          <button className="auth-link" onClick={() => navigate('/cadastro')} disabled={loading}>
             Cadastre-se grátis
           </button>
         </div>

@@ -154,7 +154,7 @@ service cloud.firestore {
           request.auth.uid == userId &&
           request.resource.data.tenantId == resource.data.tenantId &&
           request.resource.data.role == resource.data.role &&
-          request.resource.data.diff(resource.data).changedKeys().hasOnly(['activeSessionId', 'nome'])
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['activeSessionId', 'activeSession', 'lastSessionEndedAt', 'nome'])
         );
 
       allow delete: if isSuperAdmin() ||

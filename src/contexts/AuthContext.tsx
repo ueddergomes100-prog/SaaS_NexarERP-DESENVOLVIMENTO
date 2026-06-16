@@ -1,9 +1,16 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { getIdTokenResult, onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
-import { doc, getDoc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
 import Swal from 'sweetalert2';
+import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from '../utils/session';
+import {
+  buildActiveSessionWarningHtml,
+  endSessionOnBackend,
+  getCurrentSessionPath,
+  type ActiveSessionInfo
+} from '../utils/sessionInfo';
 
 type UserRole = 'Admin' | 'Funcionario' | 'SuperAdmin';
 
@@ -47,6 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [blockedModules, setBlockedModules] = useState<string[]>([]);
   const [isOwner, setIsOwner] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
+  const sessionCloseTokenRef = useRef('');
 
   useEffect(() => {
     let unsubscribeUserSnapshot: (() => void) | null = null;
@@ -69,24 +77,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const data = userSnap.data();
               
               // Validação de Sessão Única
-              const currentLocalSession = localStorage.getItem('nexus_session_id');
+              const currentLocalSession = getStoredSessionId();
               const serverSession = data.activeSessionId;
+              const activeSession = (data.activeSession as ActiveSessionInfo | undefined) || null;
               
               if (serverSession) {
                 if (!currentLocalSession) {
                   // Sincroniza sessão se local estiver vazia (ex: recarregou ou limpou cache)
-                  localStorage.setItem('nexus_session_id', serverSession);
+                  setStoredSessionId(serverSession);
                 } else if (serverSession !== currentLocalSession) {
                   // Sessão foi derrubada por outra conexão
-                  localStorage.removeItem('nexus_session_id');
+                  clearStoredSessionId();
                   if (unsubscribeUserSnapshot) {
                     unsubscribeUserSnapshot();
                     unsubscribeUserSnapshot = null;
                   }
                   await signOut(auth);
                   Swal.fire({
-                    title: 'Sessão Encerrada',
-                    text: 'Esta conta foi conectada em outro dispositivo. Esta sessão foi finalizada.',
+                    title: 'Sessão encerrada',
+                    html: buildActiveSessionWarningHtml(activeSession),
                     icon: 'warning',
                     confirmButtonColor: '#8b5cf6'
                   });
@@ -94,7 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
               }
 
-              let finalRole = tokenRole === 'SuperAdmin' ? 'SuperAdmin' : normalizeRole(data.role);
+              const finalRole = tokenRole === 'SuperAdmin' ? 'SuperAdmin' : normalizeRole(data.role);
               const finalTenant = data.tenantId || user.uid;
               const finalPermissions = data.permissoes || [];
               let finalBlockedModules: string[] = [];
@@ -167,15 +176,100 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  useEffect(() => {
+    if (!currentUser) {
+      sessionCloseTokenRef.current = '';
+      return;
+    }
+
+    let cancelled = false;
+    const userRef = doc(db, 'usuarios', currentUser.uid);
+
+    const sendHeartbeat = async () => {
+      const sessionId = getStoredSessionId();
+      if (!sessionId) {
+        return;
+      }
+
+      try {
+        const token = await currentUser.getIdToken();
+        if (!cancelled) {
+          sessionCloseTokenRef.current = token;
+        }
+
+        await runTransaction(db, async (transaction) => {
+          const userSnap = await transaction.get(userRef);
+          if (!userSnap.exists() || userSnap.data().activeSessionId !== sessionId) {
+            return;
+          }
+
+          transaction.update(userRef, {
+            'activeSession.lastSeenAt': serverTimestamp(),
+            'activeSession.lastSeenClientAt': new Date().toISOString(),
+            'activeSession.lastPath': getCurrentSessionPath()
+          });
+        });
+      } catch (error) {
+        console.warn('Nao foi possivel atualizar a atividade da sessao:', error);
+      }
+    };
+
+    const closeSession = () => {
+      const sessionId = getStoredSessionId();
+      const token = sessionCloseTokenRef.current;
+      if (sessionId && token) {
+        endSessionOnBackend(sessionId, token);
+      }
+    };
+
+    void sendHeartbeat();
+    const heartbeatInterval = window.setInterval(() => {
+      void sendHeartbeat();
+    }, 30000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void sendHeartbeat();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', closeSession);
+    window.addEventListener('beforeunload', closeSession);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(heartbeatInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', closeSession);
+      window.removeEventListener('beforeunload', closeSession);
+    };
+  }, [currentUser]);
+
   const logout = async () => {
     if (currentUser && tenantId) {
       try {
         // Limpa o activeSessionId no Firestore ao deslogar
-        await updateDoc(doc(db, 'usuarios', currentUser.uid), {
-          activeSessionId: null
+        const localSessionId = getStoredSessionId();
+        const userRef = doc(db, 'usuarios', currentUser.uid);
+        await runTransaction(db, async (transaction) => {
+          const userSnap = await transaction.get(userRef);
+          if (!userSnap.exists()) {
+            return;
+          }
+
+          const activeSessionId = userSnap.data().activeSessionId;
+          if (localSessionId && activeSessionId && activeSessionId !== localSessionId) {
+            return;
+          }
+
+          transaction.update(userRef, {
+            activeSessionId: null,
+            'activeSession.endedAt': serverTimestamp(),
+            'activeSession.closedBy': 'logout',
+            lastSessionEndedAt: serverTimestamp()
+          });
         });
-        
-        localStorage.removeItem('nexus_session_id');
 
         const { createAuditLog } = await import('../services/logService');
         createAuditLog({
@@ -191,6 +285,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Erro ao registrar log de logout:', err);
       }
     }
+    clearStoredSessionId();
+    sessionCloseTokenRef.current = '';
     return signOut(auth);
   };
 

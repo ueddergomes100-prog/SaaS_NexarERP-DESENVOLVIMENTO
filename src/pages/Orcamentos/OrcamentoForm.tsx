@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { 
   ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, 
-  Calendar, Package, Wrench, Printer, ShoppingCart, Share2 
+  Calendar, Package, Wrench, Printer, ShoppingCart, Share2, X
 } from 'lucide-react';
 import { 
   collection, updateDoc, doc, getDoc, getDocs,
@@ -11,7 +11,7 @@ import {
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
-import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, reserveTenantSequence } from '../../utils/firestoreAtomic';
+import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, reserveTenantSequence, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import '../OS/OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
@@ -153,6 +153,18 @@ const OrcamentoForm: React.FC = () => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
+  };
+
+  const handleClearServicoInput = () => {
+    setServicoNomeInput('');
+    setServicoPrecoInput('');
+    setIsServicoDropdownOpen(false);
+  };
+
+  const handleClearPecaInput = () => {
+    setPecaNomeInput('');
+    setPecaPrecoInput('');
+    setIsPecaDropdownOpen(false);
   };
 
   const handleAddItem = (tipo: 'servico' | 'peca') => {
@@ -344,7 +356,7 @@ const OrcamentoForm: React.FC = () => {
         const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
 
         await runTransaction(db, async (transaction) => {
-          const nextPedido = await reserveTenantSequence(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
+          const nextPedido = await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
           const newVendaRef = doc(collection(db, 'pedidos_venda'));
           const vendaItens = soPecas.map(i => ({
             id: i.id,
@@ -362,6 +374,8 @@ const OrcamentoForm: React.FC = () => {
             'decrement',
             permitirVendaSemEstoque
           );
+
+          writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
 
           transaction.set(newVendaRef, {
             numeroPedido: formatSequenceValue(nextPedido, 4),
@@ -598,7 +612,19 @@ const OrcamentoForm: React.FC = () => {
                     value={servicoNomeInput}
                     onChange={(e) => { setServicoNomeInput(e.target.value); setIsServicoDropdownOpen(true); }}
                     onFocus={() => setIsServicoDropdownOpen(true)}
+                    style={{ paddingRight: '42px' }}
                   />
+                  {servicoNomeInput && (
+                    <button
+                      type="button"
+                      onClick={handleClearServicoInput}
+                      className="clear-selection-btn"
+                      title="Limpar seleção"
+                      style={{ top: 'calc(50% + 10px)' }}
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
                   {isServicoDropdownOpen && servicosCatalogo.filter(s => s.nome.toLowerCase().includes(servicoNomeInput.toLowerCase())).length > 0 && (
                     <div className="select-dropdown">
                       {servicosCatalogo.filter(s => s.nome.toLowerCase().includes(servicoNomeInput.toLowerCase())).map(s => (
@@ -634,7 +660,19 @@ const OrcamentoForm: React.FC = () => {
                     value={pecaNomeInput}
                     onChange={(e) => { setPecaNomeInput(e.target.value); setIsPecaDropdownOpen(true); }}
                     onFocus={() => setIsPecaDropdownOpen(true)}
+                    style={{ paddingRight: '42px' }}
                   />
+                  {pecaNomeInput && (
+                    <button
+                      type="button"
+                      onClick={handleClearPecaInput}
+                      className="clear-selection-btn"
+                      title="Limpar seleção"
+                      style={{ top: 'calc(50% + 10px)' }}
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
                   {isPecaDropdownOpen && pecasEstoque.filter(p => p.nome.toLowerCase().includes(pecaNomeInput.toLowerCase())).length > 0 && (
                     <div className="select-dropdown">
                       {pecasEstoque.filter(p => p.nome.toLowerCase().includes(pecaNomeInput.toLowerCase())).map(p => (

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { spedyService } from '../../services/spedyService';
-import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, reserveTenantSequence } from '../../utils/firestoreAtomic';
+import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import Swal from 'sweetalert2';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
@@ -254,6 +254,13 @@ const PedidoVendaForm: React.FC = () => {
     setProdutoSelecionado(null);
   };
 
+  const handleClearProdutoSelecionado = () => {
+    setProdutoBusca('');
+    setProdutoPreco(0);
+    setProdutoSelecionado(null);
+    setIsProdutoDropdownOpen(false);
+  };
+
   const handleRemoveItem = (index: number) => {
     setItens(itens.filter((_, i) => i !== index));
   };
@@ -297,7 +304,7 @@ const PedidoVendaForm: React.FC = () => {
       let finalNumeroPedido = numeroPedido;
 
       await runTransaction(db, async (transaction) => {
-        const nextPedido = await reserveTenantSequence(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
+        const nextPedido = await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
         finalNumeroPedido = formatSequenceValue(nextPedido, 4);
         const newPedidoRef = doc(collection(db, 'pedidos_venda'));
         newPedidoId = newPedidoRef.id;
@@ -309,6 +316,8 @@ const PedidoVendaForm: React.FC = () => {
           'decrement',
           permitirVendaSemEstoque
         );
+
+        writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
 
         const pedidoData = {
           numeroPedido: finalNumeroPedido,
@@ -619,7 +628,8 @@ const PedidoVendaForm: React.FC = () => {
 
     } catch (error) {
       console.error('Erro ao finalizar venda:', error);
-      showError('Erro', 'Não foi possível finalizar a venda.');
+      const errorMessage = error instanceof Error ? error.message : '';
+      showError('Erro', errorMessage ? `Não foi possível finalizar a venda. ${errorMessage}` : 'Não foi possível finalizar a venda.');
       setIsLoading(false);
     }
   };
@@ -1114,25 +1124,37 @@ const PedidoVendaForm: React.FC = () => {
               <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                 <div style={{ flex: '2', position: 'relative', minWidth: '200px' }} ref={produtoDropdownRef}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Buscar Produto</label>
-                  <input
-                    type="text"
-                    placeholder="Nome ou Código..."
-                    value={produtoBusca}
-                    onChange={(e) => {
-                      setProdutoBusca(e.target.value);
-                      setIsProdutoDropdownOpen(true);
-                      const exists = produtosCatalogo.find(p => p.nome.toLowerCase() === e.target.value.toLowerCase() || p.codigo === e.target.value);
-                      if (exists) {
-                        setProdutoPreco(exists.precoVenda);
-                        setProdutoSelecionado(exists);
-                      } else {
-                        setProdutoSelecionado(null);
-                      }
-                    }}
-                    onFocus={() => setIsProdutoDropdownOpen(true)}
-                    autoComplete="off"
-                    style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
-                  />
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="text"
+                      placeholder="Nome ou Código..."
+                      value={produtoBusca}
+                      onChange={(e) => {
+                        setProdutoBusca(e.target.value);
+                        setIsProdutoDropdownOpen(true);
+                        const exists = produtosCatalogo.find(p => p.nome.toLowerCase() === e.target.value.toLowerCase() || p.codigo === e.target.value);
+                        if (exists) {
+                          setProdutoPreco(exists.precoVenda);
+                          setProdutoSelecionado(exists);
+                        } else {
+                          setProdutoSelecionado(null);
+                        }
+                      }}
+                      onFocus={() => setIsProdutoDropdownOpen(true)}
+                      autoComplete="off"
+                      style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 42px 12px 16px', color: 'var(--text-primary)' }}
+                    />
+                    {produtoBusca && (
+                      <button
+                        type="button"
+                        onClick={handleClearProdutoSelecionado}
+                        className="clear-selection-btn"
+                        title="Limpar seleção"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
                   {isProdutoDropdownOpen && produtosCatalogo.filter(p => p.nome.toLowerCase().includes(produtoBusca.toLowerCase()) || p.codigo.includes(produtoBusca)).length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', maxHeight: '250px', overflowY: 'auto', zIndex: 50, boxShadow: '0 4px 15px rgba(0,0,0,0.5)' }}>
                       {produtosCatalogo.filter(p => p.nome.toLowerCase().includes(produtoBusca.toLowerCase()) || p.codigo.includes(produtoBusca)).map(p => (

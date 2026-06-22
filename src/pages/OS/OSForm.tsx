@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList } from 'lucide-react';
+import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showSuccess, showError } from '../../utils/alerts';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
-import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, reserveTenantSequence } from '../../utils/firestoreAtomic';
+import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import './OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
@@ -279,6 +279,18 @@ const OSForm: React.FC = () => {
     setFormData({ ...formData, [name]: value });
   };
 
+  const handleClearServicoInput = () => {
+    setServicoNomeInput('');
+    setServicoPrecoInput('');
+    setIsServicoDropdownOpen(false);
+  };
+
+  const handleClearPecaInput = () => {
+    setPecaNomeInput('');
+    setPecaPrecoInput('');
+    setIsPecaDropdownOpen(false);
+  };
+
   const handleAddServico = async () => {
     if (!servicoNomeInput || !servicoPrecoInput) return;
     const precoNum = parseFloat(servicoPrecoInput.replace(',', '.'));
@@ -483,8 +495,9 @@ const OSForm: React.FC = () => {
         : 0;
 
       await runTransaction(db, async (transaction) => {
+        let nextOs: number | null = null;
         if (!isEditing) {
-          const nextOs = await reserveTenantSequence(transaction, db, tenantId, 'ordens_de_servico', currentMaxOs);
+          nextOs = await getNextTenantSequenceValue(transaction, db, tenantId, 'ordens_de_servico', currentMaxOs);
           finalNumeroOS = formatSequenceValue(nextOs, 2);
         }
 
@@ -505,6 +518,10 @@ const OSForm: React.FC = () => {
             'increment',
             true
           );
+        }
+
+        if (nextOs !== null) {
+          writeTenantSequenceValue(transaction, db, tenantId, 'ordens_de_servico', nextOs);
         }
 
         const osData = {
@@ -897,8 +914,18 @@ const OSForm: React.FC = () => {
                   }}
                   onFocus={() => setIsServicoDropdownOpen(true)}
                   autoComplete="off"
-                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 42px 12px 16px', color: 'var(--text-primary)' }}
                 />
+                {servicoNomeInput && (
+                  <button
+                    type="button"
+                    onClick={handleClearServicoInput}
+                    className="clear-selection-btn"
+                    title="Limpar seleção"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
                 {isServicoDropdownOpen && servicosCatalogo.filter(s => s.nome.toLowerCase().includes(servicoNomeInput.toLowerCase())).length > 0 && (
                   <div className="select-dropdown">
                     {servicosCatalogo
@@ -1022,8 +1049,18 @@ const OSForm: React.FC = () => {
                   }}
                   onFocus={() => setIsPecaDropdownOpen(true)}
                   autoComplete="off"
-                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 42px 12px 16px', color: 'var(--text-primary)' }}
                 />
+                {pecaNomeInput && (
+                  <button
+                    type="button"
+                    onClick={handleClearPecaInput}
+                    className="clear-selection-btn"
+                    title="Limpar seleção"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
                 {isPecaDropdownOpen && pecasEstoque.filter(p => p.nome.toLowerCase().includes(pecaNomeInput.toLowerCase())).length > 0 && (
                   <div className="select-dropdown">
                     {pecasEstoque

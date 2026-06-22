@@ -116,6 +116,14 @@ service cloud.firestore {
         );
     }
 
+    function canAdjustStockQuantity() {
+      return hasProfile() &&
+        resource.data.tenantId == currentTenantId() &&
+        request.resource.data.tenantId == resource.data.tenantId &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'updatedAt']) &&
+        hasAnyPermission(['vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar']);
+    }
+
     function canDeleteTenantDocument() {
       return isSuperAdmin() ||
         (hasProfile() && resource.data.tenantId == currentTenantId());
@@ -344,7 +352,10 @@ service cloud.firestore {
         'estoque_lotes',
         'expedicoes',
         'entregas'
-      ] && canUpdateTenantDocument() && canWriteTenantCollection(collectionName);
+      ] && canUpdateTenantDocument() && (
+        canWriteTenantCollection(collectionName) ||
+        (collectionName == 'estoque' && canAdjustStockQuantity())
+      );
 
       allow delete: if collectionName in [
         'clientes',

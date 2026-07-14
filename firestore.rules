@@ -1,0 +1,445 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/usuarios/$(uid);
+    }
+
+    function hasProfile() {
+      return signedIn() && exists(userPath(request.auth.uid));
+    }
+
+    function currentProfile() {
+      return get(userPath(request.auth.uid)).data;
+    }
+
+    function currentTenantId() {
+      return hasProfile() ? currentProfile().tenantId : null;
+    }
+
+    function currentRole() {
+      return hasProfile() ? currentProfile().role : null;
+    }
+
+    function tokenIsSuperAdmin() {
+      return signedIn() && (
+        request.auth.token.role == 'NexarAdmin' ||
+        request.auth.token.nexarAdmin == true ||
+        request.auth.token.role == 'SuperAdmin' ||
+        request.auth.token.superAdmin == true
+      );
+    }
+
+    function isSuperAdmin() {
+      return tokenIsSuperAdmin() || (hasProfile() && currentRole() in ['NexarAdmin', 'SuperAdmin']);
+    }
+
+    function isTenantAdmin() {
+      return hasProfile() && currentRole() in ['Master', 'Admin'];
+    }
+
+    function hasPermission(permission) {
+      return hasProfile() &&
+        currentProfile().permissoes is list &&
+        currentProfile().permissoes.hasAny([permission]);
+    }
+
+    function hasAnyPermission(permissions) {
+      return hasProfile() &&
+        currentProfile().permissoes is list &&
+        currentProfile().permissoes.hasAny(permissions);
+    }
+
+    function platformManagedFields() {
+      return [
+        'modulosBloqueados',
+        'modulosContratados',
+        'plano',
+        'valorMensalidade',
+        'limiteUsuarios',
+        'limites',
+        'statusSaas',
+        'billingStatus',
+        'trialEndsAt'
+      ];
+    }
+
+    function doesNotChangePlatformManagedFields() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(platformManagedFields());
+    }
+
+    function tenantUserEditableFields() {
+      return [
+        'nome',
+        'updatedAt',
+        'permissoes',
+        'recebeComissaoServicos',
+        'comissaoPercentualServicos',
+        'recebeComissaoPecas',
+        'comissaoPercentualPecas',
+        'status'
+      ];
+    }
+
+    function canManageTenantData() {
+      return isSuperAdmin() || isTenantAdmin();
+    }
+
+    function canWriteTenantCollection(collectionName) {
+      return canManageTenantData() ||
+        (collectionName in ['clientes', 'veiculos'] && hasAnyPermission(['cadastros.clientes', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'crm.agenda', 'crm.alertas'])) ||
+        (collectionName in ['produtos', 'estoque', 'fornecedores', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'ordens_producao', 'expedicoes', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        (collectionName == 'categorias' && hasPermission('cadastros.categorias')) ||
+        (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
+        (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
+        (collectionName == 'ordens_de_servico' && hasAnyPermission(['mecanica.os', 'mecanica.os_alterar'])) ||
+        (collectionName == 'pedidos_venda' && hasAnyPermission(['vendas.pedidos', 'vendas.alterar'])) ||
+        (collectionName == 'orcamentos' && hasAnyPermission(['vendas.orcamentos', 'vendas.orcamentos_alterar'])) ||
+        (collectionName == 'devolucoes_venda' && hasPermission('vendas.devolucao')) ||
+        (collectionName == 'lembretes' && hasPermission('crm.alertas')) ||
+        (collectionName == 'agendamentos' && hasPermission('crm.agenda')) ||
+        (collectionName == 'notas_fiscais' && hasAnyPermission(['fiscal.emitir', 'fiscal.excluir'])) ||
+        (collectionName == 'creditos_cliente' && hasAnyPermission(['vendas.pedidos', 'financeiro.receber'])) ||
+        (collectionName == 'transacoes' && hasAnyPermission(['financeiro.caixa', 'financeiro.receber', 'financeiro.pagar', 'financeiro.estornar', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os'])) ||
+        (collectionName in ['integracoes_canais', 'integracoes_produtos', 'integracoes_fila', 'pedidos_externos', 'integracoes_logs'] && hasPermission('cadastros.estoque'));
+    }
+
+    function canDeleteTenantCollection(collectionName) {
+      return canManageTenantData() ||
+        (collectionName in ['clientes', 'veiculos'] && hasPermission('cadastros.clientes')) ||
+        (collectionName in ['produtos', 'estoque', 'fornecedores', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'ordens_producao', 'expedicoes', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        (collectionName == 'categorias' && hasPermission('cadastros.categorias')) ||
+        (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
+        (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
+        (collectionName == 'ordens_de_servico' && hasPermission('mecanica.os_excluir')) ||
+        (collectionName == 'pedidos_venda' && hasPermission('vendas.excluir')) ||
+        (collectionName == 'orcamentos' && hasPermission('vendas.orcamentos_excluir')) ||
+        (collectionName == 'devolucoes_venda' && hasPermission('vendas.devolucao')) ||
+        (collectionName == 'lembretes' && hasPermission('crm.alertas')) ||
+        (collectionName == 'agendamentos' && hasPermission('crm.agenda')) ||
+        (collectionName == 'notas_fiscais' && hasPermission('fiscal.excluir')) ||
+        (collectionName == 'creditos_cliente' && hasAnyPermission(['vendas.pedidos', 'financeiro.receber'])) ||
+        (collectionName == 'transacoes' && hasPermission('financeiro.estornar')) ||
+        (collectionName in ['integracoes_canais', 'integracoes_produtos', 'integracoes_fila', 'pedidos_externos', 'integracoes_logs'] && hasPermission('cadastros.estoque'));
+    }
+
+    function canAccessTenant(tenantId) {
+      return isSuperAdmin() || (hasProfile() && currentTenantId() == tenantId);
+    }
+
+    function canReadTenantDocument() {
+      return isSuperAdmin() || (hasProfile() && resource.data.tenantId == currentTenantId());
+    }
+
+    function canCreateTenantDocument() {
+      return isSuperAdmin() ||
+        (hasProfile() && request.resource.data.tenantId == currentTenantId());
+    }
+
+    function canUpdateTenantDocument() {
+      return isSuperAdmin() ||
+        (
+          hasProfile() &&
+          resource.data.tenantId == currentTenantId() &&
+          request.resource.data.tenantId == resource.data.tenantId
+        );
+    }
+
+    function canAdjustStockQuantity() {
+      return hasProfile() &&
+        resource.data.tenantId == currentTenantId() &&
+        request.resource.data.tenantId == resource.data.tenantId &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'updatedAt']) &&
+        hasAnyPermission(['vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar']);
+    }
+
+    function canDeleteTenantDocument() {
+      return isSuperAdmin() ||
+        (hasProfile() && resource.data.tenantId == currentTenantId());
+    }
+
+    match /usuarios/{userId} {
+      allow get: if isSuperAdmin() ||
+        (signedIn() && request.auth.uid == userId) ||
+        (hasProfile() && resource.data.tenantId == currentTenantId());
+      allow list: if isSuperAdmin() ||
+        (hasProfile() && resource.data.tenantId == currentTenantId());
+
+      allow create: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          request.resource.data.tenantId == currentTenantId() &&
+          request.resource.data.role == 'Funcionario' &&
+          !request.resource.data.keys().hasAny(platformManagedFields())
+        );
+
+      allow update: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          resource.data.tenantId == currentTenantId() &&
+          request.resource.data.tenantId == resource.data.tenantId &&
+          request.resource.data.role == resource.data.role &&
+          resource.data.role == 'Funcionario' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(tenantUserEditableFields())
+        ) ||
+        (
+          signedIn() &&
+          request.auth.uid == userId &&
+          request.resource.data.tenantId == resource.data.tenantId &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['activeSessionId', 'activeSession', 'lastSessionEndedAt', 'nome'])
+        );
+
+      allow delete: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          resource.data.tenantId == currentTenantId() &&
+          resource.data.role == 'Funcionario'
+        );
+    }
+
+    match /usernames/{username} {
+      allow get: if true;
+      allow list: if isSuperAdmin();
+      allow create, update: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          request.resource.data.tenantId == currentTenantId()
+        );
+      allow delete: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          resource.data.tenantId == currentTenantId()
+        );
+    }
+
+    match /configuracoes/{tenantId} {
+      allow read: if canAccessTenant(tenantId);
+      allow create: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          currentTenantId() == tenantId &&
+          request.resource.data.tenantId == tenantId &&
+          !request.resource.data.keys().hasAny(platformManagedFields())
+        );
+      allow update: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          currentTenantId() == tenantId &&
+          request.resource.data.tenantId == tenantId &&
+          doesNotChangePlatformManagedFields()
+        );
+      allow delete: if isSuperAdmin();
+    }
+
+    match /configuracoes_privadas/{tenantId} {
+      allow read: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          currentTenantId() == tenantId
+        );
+      allow create, update: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          currentTenantId() == tenantId &&
+          request.resource.data.tenantId == tenantId
+        );
+      allow delete: if isSuperAdmin();
+    }
+
+    match /contadores/{tenantId} {
+      allow read: if canAccessTenant(tenantId);
+      allow create, update: if canAccessTenant(tenantId) &&
+        request.resource.data.tenantId == tenantId &&
+        (
+          canManageTenantData() ||
+          hasAnyPermission(['mecanica.os', 'vendas.pedidos', 'vendas.orcamentos'])
+        );
+      allow delete: if isSuperAdmin();
+    }
+
+    match /system_alerts/{alertId} {
+      allow read: if signedIn();
+      allow write: if isSuperAdmin();
+    }
+
+    match /onboarding_pendentes/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /cnpjs_cadastrados/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /empresas/{tenantId}/logs/{logId} {
+      allow create: if canAccessTenant(tenantId);
+      allow read, delete: if isSuperAdmin() ||
+        (
+          canAccessTenant(tenantId) &&
+          (isTenantAdmin() || hasPermission('administrativo.logs'))
+        );
+      allow update: if false;
+    }
+
+    match /{collectionName}/{documentId} {
+      allow read: if collectionName in [
+        'clientes',
+        'veiculos',
+        'produtos',
+        'estoque',
+        'categorias',
+        'servicos',
+        'transacoes',
+        'ordens_de_servico',
+        'lembretes',
+        'agendamentos',
+        'pedidos_venda',
+        'orcamentos',
+        'devolucoes_venda',
+        'unidades_medida',
+        'notas_fiscais',
+        'creditos_cliente',
+        'fornecedores',
+        'cotacoes_compra',
+        'pedidos_compra',
+        'recebimentos_compra',
+        'historico_custos',
+        'integracoes_canais',
+        'integracoes_produtos',
+        'integracoes_fila',
+        'pedidos_externos',
+        'integracoes_logs',
+        'ordens_producao',
+        'produtos_composicao',
+        'estoque_lotes',
+        'expedicoes',
+        'entregas'
+      ] && canReadTenantDocument();
+
+      allow create: if collectionName in [
+        'clientes',
+        'veiculos',
+        'produtos',
+        'estoque',
+        'categorias',
+        'servicos',
+        'transacoes',
+        'ordens_de_servico',
+        'lembretes',
+        'agendamentos',
+        'pedidos_venda',
+        'orcamentos',
+        'devolucoes_venda',
+        'unidades_medida',
+        'notas_fiscais',
+        'creditos_cliente',
+        'fornecedores',
+        'cotacoes_compra',
+        'pedidos_compra',
+        'recebimentos_compra',
+        'historico_custos',
+        'integracoes_canais',
+        'integracoes_produtos',
+        'integracoes_fila',
+        'pedidos_externos',
+        'integracoes_logs',
+        'ordens_producao',
+        'produtos_composicao',
+        'estoque_lotes',
+        'expedicoes',
+        'entregas'
+      ] && canCreateTenantDocument() && canWriteTenantCollection(collectionName);
+
+      allow update: if collectionName in [
+        'clientes',
+        'veiculos',
+        'produtos',
+        'estoque',
+        'categorias',
+        'servicos',
+        'transacoes',
+        'ordens_de_servico',
+        'lembretes',
+        'agendamentos',
+        'pedidos_venda',
+        'orcamentos',
+        'devolucoes_venda',
+        'unidades_medida',
+        'notas_fiscais',
+        'creditos_cliente',
+        'fornecedores',
+        'cotacoes_compra',
+        'pedidos_compra',
+        'recebimentos_compra',
+        'historico_custos',
+        'integracoes_canais',
+        'integracoes_produtos',
+        'integracoes_fila',
+        'pedidos_externos',
+        'integracoes_logs',
+        'ordens_producao',
+        'produtos_composicao',
+        'estoque_lotes',
+        'expedicoes',
+        'entregas'
+      ] && canUpdateTenantDocument() && (
+        canWriteTenantCollection(collectionName) ||
+        (collectionName == 'estoque' && canAdjustStockQuantity())
+      );
+
+      allow delete: if collectionName in [
+        'clientes',
+        'veiculos',
+        'produtos',
+        'estoque',
+        'categorias',
+        'servicos',
+        'transacoes',
+        'ordens_de_servico',
+        'lembretes',
+        'agendamentos',
+        'pedidos_venda',
+        'orcamentos',
+        'devolucoes_venda',
+        'unidades_medida',
+        'notas_fiscais',
+        'creditos_cliente',
+        'fornecedores',
+        'cotacoes_compra',
+        'pedidos_compra',
+        'recebimentos_compra',
+        'historico_custos',
+        'integracoes_canais',
+        'integracoes_produtos',
+        'integracoes_fila',
+        'pedidos_externos',
+        'integracoes_logs',
+        'ordens_producao',
+        'produtos_composicao',
+        'estoque_lotes',
+        'expedicoes',
+        'entregas'
+      ] && canDeleteTenantDocument() && canDeleteTenantCollection(collectionName);
+    }
+
+    match /backups_historico/{documentId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /backups_configuracoes/{tenantId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /restauracoes_historico/{documentId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

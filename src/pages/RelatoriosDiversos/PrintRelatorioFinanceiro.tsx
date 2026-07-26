@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { FileText, Printer, ArrowLeft } from 'lucide-react';
+import { Printer, ArrowLeft } from 'lucide-react';
+import { transactionNetAmount } from '../../utils/financeDomain';
 import '../OS/OsPrint.css'; // Usando os estilos de impressão
 
 const PrintRelatorioFinanceiro: React.FC = () => {
@@ -85,7 +86,7 @@ const PrintRelatorioFinanceiro: React.FC = () => {
     window.print();
   };
 
-  const totalRelatorio = transacoes.reduce((acc, curr) => acc + Number(curr.valor || 0), 0);
+  const totalRelatorio = transacoes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
 
   const tituloRelatorio = tipo === 'entrada' 
     ? (status === 'Pendente' ? 'Relatório de Débitos de Clientes (A Receber)' : 'Relatório de Recebimentos (Pagos)')
@@ -133,7 +134,7 @@ const PrintRelatorioFinanceiro: React.FC = () => {
                 <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 'bold', color: '#333' }}>Categoria</th>
                 {tipo === 'entrada' && <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 'bold', color: '#333' }}>Cliente</th>}
                 {status === 'Paga' && <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 'bold', color: '#333' }}>Forma Pgto</th>}
-                <th style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>Valor</th>
+                <th style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>{tipo === 'entrada' ? 'Valor Líquido' : 'Valor'}</th>
               </tr>
             </thead>
             <tbody>
@@ -149,7 +150,7 @@ const PrintRelatorioFinanceiro: React.FC = () => {
                     {tipo === 'entrada' && <td style={{ padding: '10px 8px' }}>{t.clienteNome || '-'}</td>}
                     {status === 'Paga' && <td style={{ padding: '10px 8px' }}>{t.formaPagamento || '-'}</td>}
                     <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 'bold', color: tipo === 'entrada' ? '#10b981' : '#ef4444' }}>
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(t.valor)}
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t))}
                     </td>
                   </tr>
                 );

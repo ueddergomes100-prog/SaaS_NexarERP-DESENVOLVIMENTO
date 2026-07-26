@@ -7,10 +7,29 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { spedyService } from '../../services/spedyService';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
+import { isPlatformAdminRole } from '../../utils/roles';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
+import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
+import {
+  buildCommissionSnapshot,
+  cancelCommissionSnapshot,
+  createEmptyPaymentDraft,
+  fromCents,
+  normalizeCreditCardFeeSchedule,
+  normalizePayments,
+  parseCreditTerms,
+  summarizePayments,
+  toCents,
+  transactionMovesPhysicalCash,
+  type PaymentDraft,
+  type PaymentMethod,
+  type PaymentRecord,
+} from '../../utils/financeDomain';
 import Swal from 'sweetalert2';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
+interface VendedorBasico { id: string; nome: string; email?: string; }
 interface ProdutoEstoque {
   id: string;
   nome: string;
@@ -41,6 +60,14 @@ interface LinkedNfe {
   accessKey?: string;
 }
 
+const toSpedyPaymentMethod = (method: string) => {
+  if (method === 'Pix') return 'pix';
+  if (method.includes('Crédito')) return 'creditCard';
+  if (method.includes('Débito')) return 'debitCard';
+  if (method === 'Dinheiro') return 'cash';
+  return 'other';
+};
+
 const PedidoVendaForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams(); // Para modo Visualização
@@ -49,12 +76,28 @@ const PedidoVendaForm: React.FC = () => {
   const [nfeDoc, setNfeDoc] = useState<LinkedNfe | null>(null);
   const [clienteNome, setClienteNome] = useState('');
   const [formaPagamento, setFormaPagamento] = useState('Dinheiro');
+  const [dataVenda, setDataVenda] = useState(() => getDateInputInTimeZone());
+  const paymentDraftCounter = useRef(1);
+  const submitLockRef = useRef(false);
+  const [paymentDrafts, setPaymentDrafts] = useState<PaymentDraft[]>([
+    createEmptyPaymentDraft('pagamento-1', 0),
+  ]);
+  const [financeConfig, setFinanceConfig] = useState<PaymentFinanceConfig>({
+    defaultTermDays: 30,
+    maxCreditInstallments: 12,
+    creditFeePercentByInstallment: normalizeCreditCardFeeSchedule(null),
+    debitFeePercent: 0,
+    creditSettlementDays: 30,
+    debitSettlementDays: 1,
+  });
   const [numeroPedido, setNumeroPedido] = useState('');
   const [status, setStatus] = useState('Aberta');
   const [itens, setItens] = useState<ItemVenda[]>([]);
   const [orcamentoId, setOrcamentoId] = useState('');
 
   const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
+  const [vendedoresDisponiveis, setVendedoresDisponiveis] = useState<VendedorBasico[]>([]);
+  const [vendedorId, setVendedorId] = useState('');
   const [produtosCatalogo, setProdutosCatalogo] = useState<ProdutoEstoque[]>([]);
 
   const [produtoBusca, setProdutoBusca] = useState('');
@@ -71,7 +114,7 @@ const PedidoVendaForm: React.FC = () => {
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
-  const canEditVenda = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.alterar'));
+  const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
 
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const [isProdutoDropdownOpen, setIsProdutoDropdownOpen] = useState(false);
@@ -79,14 +122,19 @@ const PedidoVendaForm: React.FC = () => {
   const produtoDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (currentUser && !vendedorId) setVendedorId(currentUser.uid);
+  }, [currentUser, vendedorId]);
+
+  useEffect(() => {
     const isConsumidorFinal = clienteNome.toLowerCase().includes('consumidor final');
-    if (isConsumidorFinal && formaPagamento !== 'Dinheiro' && formaPagamento !== 'Pix') {
-      const timer = setTimeout(() => {
-        setFormaPagamento('Dinheiro');
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-  }, [clienteNome, formaPagamento]);
+    if (!isConsumidorFinal) return;
+
+    setPaymentDrafts((current) => current.map((payment) => (
+      payment.forma === 'Dinheiro' || payment.forma === 'Pix'
+        ? payment
+        : { ...payment, forma: 'Dinheiro', parcelas: '1', dataVencimento: '' }
+    )));
+  }, [clienteNome]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -112,6 +160,20 @@ const PedidoVendaForm: React.FC = () => {
       snapC.forEach((doc) => dataC.push({ id: doc.id, nome: doc.data().nome, telefone: doc.data().telefone }));
       setClientesDisponiveis(dataC);
 
+      const qU = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
+      const snapU = await getDocs(qU);
+      const dataU: VendedorBasico[] = [];
+      snapU.forEach((document) => {
+        const user = document.data();
+        dataU.push({
+          id: document.id,
+          nome: user.nome || user.nomeResponsavel || user.email || 'Usuário sem nome',
+          email: user.email,
+        });
+      });
+      dataU.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+      setVendedoresDisponiveis(dataU);
+
       // Fetch Estoque
       const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
       const snapE = await getDocs(qE);
@@ -133,7 +195,31 @@ const PedidoVendaForm: React.FC = () => {
         const configRef = doc(db, 'configuracoes', tenantId);
         const configSnap = await getDoc(configRef);
         if (configSnap.exists()) {
-          setPermitirVendaSemEstoque(configSnap.data().venderSemEstoque === true);
+          const config = configSnap.data();
+          setPermitirVendaSemEstoque(config.venderSemEstoque === true);
+          const configuredTerms = parseCreditTerms(config.diasCrediario);
+          const defaultTermDays = configuredTerms[0] || 30;
+          const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
+          const debitSettlementDays = config.prazoRecebimentoCartaoDebitoDias ?? 1;
+          setFinanceConfig({
+            defaultTermDays,
+            maxCreditInstallments: Math.min(12, Math.max(1, Number(config.maxParcelasCartao ?? 12) || 12)),
+            creditFeePercentByInstallment: normalizeCreditCardFeeSchedule(
+              config.taxasCartaoCreditoPorParcela,
+              config.taxaCartaoCreditoPercentual || 0,
+            ),
+            debitFeePercent: Math.max(0, Number(config.taxaCartaoDebitoPercentual || 0)),
+            creditSettlementDays: creditSettlementDays === ''
+              ? 30
+              : Math.max(0, Number(creditSettlementDays)),
+            debitSettlementDays: debitSettlementDays === ''
+              ? 1
+              : Math.max(0, Number(debitSettlementDays)),
+          });
+          setPaymentDrafts((current) => current.map((payment) => ({
+            ...payment,
+            prazoDias: payment.prazoDias === '30' ? String(defaultTermDays) : payment.prazoDias,
+          })));
         }
       } catch (err) { console.error(err); }
 
@@ -145,13 +231,35 @@ const PedidoVendaForm: React.FC = () => {
           if (docSnap.exists()) {
             const p = docSnap.data();
             setClienteNome(p.clienteNome || '');
+            setVendedorId(p.vendedorId || p.usuarioResponsavelId || currentUser.uid);
             setFormaPagamento(p.formaPagamento || 'Dinheiro');
+            setDataVenda(p.dataVenda || getDateInputInTimeZone(p.createdAt?.toDate?.() || new Date()));
             setNumeroPedido(p.numeroPedido || '');
             setStatus(p.status || 'Finalizada');
             setItens(p.itens || []);
             setOrcamentoId(p.orcamentoId || '');
             setFrete(p.frete || 0);
             setEncargos(p.encargos || 0);
+            if (Array.isArray(p.pagamentos) && p.pagamentos.length > 0) {
+              setPaymentDrafts(p.pagamentos.map((payment: PaymentRecord, index: number) => ({
+                id: payment.id || `pagamento-${index + 1}`,
+                forma: payment.formaPagamento || 'Outros',
+                valor: fromCents(Number(payment.valorCentavos ?? toCents(payment.valor))).toFixed(2),
+                prazoDias: String(payment.prazoDias || ''),
+                dataVencimento: payment.dataVencimento || '',
+                bandeira: payment.cartao?.bandeira || '',
+                operadora: payment.cartao?.operadora || '',
+                autorizacao: payment.cartao?.autorizacao || '',
+                parcelas: String(payment.cartao?.parcelas || 1),
+                dataPrevistaRecebimento: payment.dataPrevistaRecebimento || payment.cartao?.dataPrevistaRecebimento || '',
+              })));
+              paymentDraftCounter.current = p.pagamentos.length;
+            } else {
+              setPaymentDrafts([{
+                ...createEmptyPaymentDraft('pagamento-1', toCents(p.valorTotal || 0)),
+                forma: (p.formaPagamento || 'Outros') as PaymentMethod,
+              }]);
+            }
 
             // Busca nota fiscal vinculada a esta venda
             try {
@@ -268,13 +376,67 @@ const PedidoVendaForm: React.FC = () => {
   const valorTotalItens = itens.reduce((acc, curr) => acc + (curr.precoUnitario * curr.quantidade), 0);
   const valorTotalDescontos = itens.reduce((acc, curr) => acc + curr.desconto, 0);
   const valorTotalPedido = Math.max(0, valorTotalItens - valorTotalDescontos + Number(frete || 0) + Number(encargos || 0));
+  const valorTotalPedidoCentavos = toCents(valorTotalPedido);
+
+  useEffect(() => {
+    if (isViewing || paymentDrafts.length !== 1) return;
+    const expectedValue = fromCents(valorTotalPedidoCentavos).toFixed(2);
+    setPaymentDrafts((current) => (
+      current.length === 1 && current[0].valor !== expectedValue
+        ? [{ ...current[0], valor: expectedValue }]
+        : current
+    ));
+  }, [isViewing, paymentDrafts.length, valorTotalPedidoCentavos]);
+
+  const updatePaymentDraft = (id: string, updates: Partial<PaymentDraft>) => {
+    setPaymentDrafts((current) => current.map((payment) => (
+      payment.id === id ? { ...payment, ...updates } : payment
+    )));
+  };
+
+  const addPaymentDraft = () => {
+    const usedCents = paymentDrafts.reduce((sum, payment) => sum + toCents(payment.valor), 0);
+    const remainingCents = Math.max(0, valorTotalPedidoCentavos - usedCents);
+    paymentDraftCounter.current += 1;
+    setPaymentDrafts((current) => [
+      ...current,
+      createEmptyPaymentDraft(
+        `pagamento-${paymentDraftCounter.current}`,
+        remainingCents,
+        financeConfig.defaultTermDays,
+      ),
+    ]);
+  };
+
+  const removePaymentDraft = (id: string) => {
+    setPaymentDrafts((current) => current.length > 1
+      ? current.filter((payment) => payment.id !== id)
+      : current);
+  };
 
   const handleFinalizarVenda = async () => {
+    if (submitLockRef.current) return;
     if (!currentUser || !tenantId) return;
     if (itens.length === 0) {
       showError('Atenção', 'Adicione pelo menos um item à venda.');
       return;
     }
+
+    let paymentRecords: PaymentRecord[];
+    try {
+      paymentRecords = normalizePayments(valorTotalPedidoCentavos, paymentDrafts, {
+        saleDate: dataVenda,
+        maxCreditInstallments: financeConfig.maxCreditInstallments || undefined,
+        creditFeePercentByInstallment: financeConfig.creditFeePercentByInstallment,
+        debitFeePercent: financeConfig.debitFeePercent,
+        creditSettlementDays: financeConfig.creditSettlementDays,
+        debitSettlementDays: financeConfig.debitSettlementDays,
+      });
+    } catch (error) {
+      showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os dados do pagamento.');
+      return;
+    }
+    const paymentSummary = summarizePayments(paymentRecords);
 
     let finalClienteNome = clienteNome.trim().toUpperCase();
     if (!finalClienteNome) {
@@ -282,6 +444,7 @@ const PedidoVendaForm: React.FC = () => {
       setClienteNome('CONSUMIDOR FINAL');
     }
 
+    submitLockRef.current = true;
     setIsLoading(true);
 
     try {
@@ -305,6 +468,13 @@ const PedidoVendaForm: React.FC = () => {
 
       await runTransaction(db, async (transaction) => {
         const nextPedido = await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
+        const selectedSellerId = vendedorId || currentUser.uid;
+        const sellerSnap = await transaction.get(doc(db, 'usuarios', selectedSellerId));
+        const sellerProfile = sellerSnap.exists() ? sellerSnap.data() : {};
+        if (!sellerSnap.exists() || sellerProfile.tenantId !== tenantId) {
+          throw new Error('O vendedor selecionado não pertence à empresa ativa.');
+        }
+        const sellerName = sellerProfile.nome || sellerProfile.nomeResponsavel || currentUser.displayName || currentUser.email || 'Vendedor';
         finalNumeroPedido = formatSequenceValue(nextPedido, 4);
         const newPedidoRef = doc(collection(db, 'pedidos_venda'));
         newPedidoId = newPedidoRef.id;
@@ -319,42 +489,92 @@ const PedidoVendaForm: React.FC = () => {
 
         writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
 
+        const persistedPayments = paymentRecords.map((payment, index) => ({
+          ...payment,
+          transactionId: index === 0 ? newPedidoRef.id : `${newPedidoRef.id}_pag_${index + 1}`,
+        }));
+        const commissionBaseCents = itens.reduce((sum, item) => sum + toCents(item.subtotal), 0);
+        const commissionSnapshot = buildCommissionSnapshot({
+          sellerId: selectedSellerId,
+          sellerName,
+          baseCents: commissionBaseCents,
+          profile: sellerProfile,
+        });
+
         const pedidoData = {
           numeroPedido: finalNumeroPedido,
           clienteNome: finalClienteNome,
           itens,
           valorTotalItens,
+          valorTotalItensCentavos: toCents(valorTotalItens),
           valorTotalDescontos,
+          valorTotalDescontosCentavos: toCents(valorTotalDescontos),
           frete: Number(frete || 0),
           encargos: Number(encargos || 0),
           valorTotal: valorTotalPedido,
-          formaPagamento,
+          valorTotalCentavos: valorTotalPedidoCentavos,
+          formaPagamento: paymentSummary.paymentMethodLabel,
+          condicaoPagamento: paymentSummary.paymentCondition,
+          pagamentos: persistedPayments,
+          totalRecebido: paymentSummary.received,
+          totalRecebidoCentavos: paymentSummary.receivedCents,
+          totalPendente: paymentSummary.pending,
+          totalPendenteCentavos: paymentSummary.pendingCents,
+          totalTaxasPagamento: paymentSummary.cardFee,
+          totalTaxasPagamentoCentavos: paymentSummary.cardFeeCents,
+          totalLiquidoFinanceiro: paymentSummary.financialNet,
+          totalLiquidoFinanceiroCentavos: paymentSummary.financialNetCents,
+          dataVenda,
           status: 'Finalizada',
           tenantId,
           usuarioResponsavelId: currentUser.uid,
+          vendedorId: selectedSellerId,
+          vendedorNome: sellerName,
+          comissao: commissionSnapshot,
           createdAt: serverTimestamp()
         };
 
         transaction.set(newPedidoRef, pedidoData);
 
-        let statusTransacao = 'Pendente';
-        if (formaPagamento === 'Dinheiro' || formaPagamento === 'Pix') statusTransacao = 'Paga';
-
-        transaction.set(doc(db, 'transacoes', newPedidoRef.id), {
-          descricao: `Venda Direta #${finalNumeroPedido}`,
-          categoria: 'Venda de Peças',
-          valor: valorTotalPedido,
-          tipo: 'entrada',
-          formaPagamento,
-          status: statusTransacao,
-          pedidoId: newPedidoRef.id,
-          clienteNome: finalClienteNome,
-          tenantId,
-          createdAt: serverTimestamp()
+        persistedPayments.forEach((payment) => {
+          transaction.set(doc(db, 'transacoes', payment.transactionId), {
+            descricao: `Venda Direta #${finalNumeroPedido} - ${payment.formaPagamento}`,
+            categoria: 'Venda de Peças',
+            valor: payment.valor,
+            valorCentavos: payment.valorCentavos,
+            valorBruto: payment.valor,
+            valorBrutoCentavos: payment.valorCentavos,
+            valorTaxa: payment.cartao?.valorTaxa || 0,
+            valorTaxaCentavos: payment.cartao?.valorTaxaCentavos || 0,
+            valorLiquido: payment.cartao?.valorLiquido ?? payment.valor,
+            valorLiquidoCentavos: payment.cartao?.valorLiquidoCentavos ?? payment.valorCentavos,
+            tipo: 'entrada',
+            formaPagamento: payment.formaPagamento,
+            condicaoPagamento: payment.condicaoPagamento,
+            status: payment.status === 'confirmado' ? 'Paga' : 'Pendente',
+            naturezaFinanceira: payment.naturezaFinanceira,
+            movimentaCaixaFisico: payment.movimentaCaixaFisico,
+            prazoDias: payment.prazoDias || null,
+            data: payment.dataVencimento || dataVenda,
+            dataVencimento: payment.dataVencimento || null,
+            dataPrevistaRecebimento: payment.dataPrevistaRecebimento || null,
+            cartao: payment.cartao || null,
+            pedidoId: newPedidoRef.id,
+            sourceType: 'pedido_venda',
+            sourceId: newPedidoRef.id,
+            paymentIndex: payment.indice,
+            idempotencyKey: `pedido:${newPedidoRef.id}:pagamento:${payment.indice}`,
+            clienteNome: finalClienteNome,
+            usuarioResponsavelId: currentUser.uid,
+            vendedorId: selectedSellerId,
+            tenantId,
+            createdAt: serverTimestamp()
+          });
         });
       });
 
       setNumeroPedido(finalNumeroPedido);
+      setFormaPagamento(paymentSummary.paymentMethodLabel);
 
       try {
         const { createAuditLog } = await import('../../services/logService');
@@ -498,12 +718,6 @@ const PedidoVendaForm: React.FC = () => {
             };
           }
 
-          let spedyPayment = 'cash';
-          if (formaPagamento === 'Pix') spedyPayment = 'pix';
-          else if (formaPagamento.includes('Crédito')) spedyPayment = 'creditCard';
-          else if (formaPagamento.includes('Débito')) spedyPayment = 'debitCard';
-          else if (formaPagamento.includes('Prazo')) spedyPayment = 'other';
-
           const spedyPayload = {
             isFinalCustomer: true,
             operationType: 'outgoing',
@@ -514,12 +728,10 @@ const PedidoVendaForm: React.FC = () => {
             integrationId: newPedidoId,
             receiver,
             items: payloadItems,
-            payments: [
-              {
-                method: spedyPayment,
-                amount: valorTotalPedido
-              }
-            ],
+            payments: paymentRecords.map((payment) => ({
+              method: toSpedyPaymentMethod(payment.formaPagamento),
+              amount: payment.valor,
+            })),
             total: {
               invoiceAmount: valorTotalPedido,
               productAmount: valorTotalItens
@@ -631,6 +843,8 @@ const PedidoVendaForm: React.FC = () => {
       const errorMessage = error instanceof Error ? error.message : '';
       showError('Erro', errorMessage ? `Não foi possível finalizar a venda. ${errorMessage}` : 'Não foi possível finalizar a venda.');
       setIsLoading(false);
+    } finally {
+      submitLockRef.current = false;
     }
   };
 
@@ -750,12 +964,6 @@ const PedidoVendaForm: React.FC = () => {
         };
       }
 
-      let spedyPayment = 'cash';
-      if (formaPagamento === 'Pix') spedyPayment = 'pix';
-      else if (formaPagamento.includes('Crédito')) spedyPayment = 'creditCard';
-      else if (formaPagamento.includes('Débito')) spedyPayment = 'debitCard';
-      else if (formaPagamento.includes('Prazo')) spedyPayment = 'other';
-
       const spedyPayload = {
         isFinalCustomer: true,
         operationType: 'outgoing',
@@ -766,12 +974,10 @@ const PedidoVendaForm: React.FC = () => {
         integrationId: id,
         receiver,
         items: payloadItems,
-        payments: [
-          {
-            method: spedyPayment,
-            amount: valorTotalPedido
-          }
-        ],
+        payments: paymentDrafts.map((payment) => ({
+          method: toSpedyPaymentMethod(payment.forma),
+          amount: fromCents(toCents(payment.valor)),
+        })),
         total: {
           invoiceAmount: valorTotalPedido,
           productAmount: valorTotalItens
@@ -916,6 +1122,7 @@ const PedidoVendaForm: React.FC = () => {
   };
 
   const handleCancelarVenda = async () => {
+    if (submitLockRef.current) return;
     if (!currentUser || !tenantId || !id) return;
 
     const temDevolucao = itens.some(item => (item.quantidadeJaDevolvida || 0) > 0);
@@ -936,9 +1143,27 @@ const PedidoVendaForm: React.FC = () => {
 
     if (!confirm.isConfirmed) return;
 
+    submitLockRef.current = true;
     setIsLoading(true);
     try {
+      const saleRef = doc(db, 'pedidos_venda', id);
+      const paymentTransactionsSnap = await getDocs(query(
+        collection(db, 'transacoes'),
+        where('tenantId', '==', tenantId),
+        where('pedidoId', '==', id),
+      ));
+      const paymentRefs = paymentTransactionsSnap.empty
+        ? [doc(db, 'transacoes', id)]
+        : paymentTransactionsSnap.docs.map((paymentDocument) => paymentDocument.ref);
+
       await runTransaction(db, async (transaction) => {
+        const saleSnap = await transaction.get(saleRef);
+        if (!saleSnap.exists()) throw new Error('A venda não existe mais.');
+        if (saleSnap.data().status === 'Cancelada') {
+          throw new Error('Esta venda já foi cancelada.');
+        }
+        const paymentSnapshots = await Promise.all(paymentRefs.map((paymentRef) => transaction.get(paymentRef)));
+
         await applyStockAdjustments(
           transaction,
           db,
@@ -947,12 +1172,63 @@ const PedidoVendaForm: React.FC = () => {
           true
         );
 
-        transaction.update(doc(db, 'pedidos_venda', id), {
+        transaction.update(saleRef, {
           status: 'Cancelada',
+          ...(saleSnap.data().comissao ? { comissao: cancelCommissionSnapshot(saleSnap.data().comissao) } : {}),
+          canceladaEm: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
 
-        transaction.set(doc(db, 'transacoes', id), { status: 'Cancelada' }, { merge: true });
+        paymentSnapshots.forEach((paymentSnapshot) => {
+          if (!paymentSnapshot.exists()) return;
+          const paymentData = paymentSnapshot.data();
+          if (paymentData.status === 'Paga') {
+            const movesPhysicalCash = transactionMovesPhysicalCash(paymentData);
+            transaction.update(paymentSnapshot.ref, {
+              estornada: true,
+              statusOperacional: 'Cancelada',
+              estornadaEm: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+            transaction.set(doc(db, 'transacoes', `estorno_cancelamento_${paymentSnapshot.id}`), {
+              descricao: `Estorno do cancelamento da venda #${numeroPedido}`,
+              categoria: 'Cancelamento de Venda',
+              valor: Number(paymentData.valor || 0),
+              valorCentavos: Number(paymentData.valorCentavos ?? toCents(paymentData.valor)),
+              valorBruto: Number(paymentData.valorBruto ?? paymentData.valor ?? 0),
+              valorBrutoCentavos: Number(paymentData.valorBrutoCentavos ?? paymentData.valorCentavos ?? toCents(paymentData.valor)),
+              valorTaxa: Number(paymentData.valorTaxa ?? paymentData.cartao?.valorTaxa ?? 0),
+              valorTaxaCentavos: Number(paymentData.valorTaxaCentavos ?? paymentData.cartao?.valorTaxaCentavos ?? 0),
+              valorLiquido: Number(paymentData.valorLiquido ?? paymentData.cartao?.valorLiquido ?? paymentData.valor ?? 0),
+              valorLiquidoCentavos: Number(paymentData.valorLiquidoCentavos ?? paymentData.cartao?.valorLiquidoCentavos ?? paymentData.valorCentavos ?? toCents(paymentData.valor)),
+              cartao: paymentData.cartao || null,
+              tipo: 'saida',
+              formaPagamento: paymentData.formaPagamento || 'Outros',
+              naturezaFinanceira: movesPhysicalCash
+                ? 'caixa_fisico'
+                : (paymentData.naturezaFinanceira || 'bancario_digital'),
+              movimentaCaixaFisico: movesPhysicalCash,
+              status: 'Paga',
+              data: getDateInputInTimeZone(),
+              pedidoId: id,
+              sourceType: 'cancelamento_pedido_venda',
+              sourceId: id,
+              sourcePaymentTransactionId: paymentSnapshot.id,
+              idempotencyKey: `cancelamento:${id}:transacao:${paymentSnapshot.id}`,
+              clienteNome: saleSnap.data().clienteNome || clienteNome,
+              usuarioResponsavelId: currentUser.uid,
+              tenantId,
+              createdAt: serverTimestamp(),
+            }, { merge: true });
+          } else {
+            transaction.update(paymentSnapshot.ref, {
+              status: 'Cancelada',
+              movimentaCaixaFisico: false,
+              estornadaEm: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          }
+        });
       });
 
       try {
@@ -985,8 +1261,9 @@ const PedidoVendaForm: React.FC = () => {
       setStatus('Cancelada');
     } catch (err) {
       console.error('Erro ao cancelar:', err);
-      showError('Erro', 'Não foi possível cancelar a venda.');
+      showError('Erro', err instanceof Error ? err.message : 'Não foi possível cancelar a venda.');
     } finally {
+      submitLockRef.current = false;
       setIsLoading(false);
     }
   };
@@ -1110,6 +1387,22 @@ const PedidoVendaForm: React.FC = () => {
                   ))}
                 </div>
               )}
+            </div>
+            <div className="input-group" style={{ marginTop: '16px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Vendedor responsável *</label>
+              <select
+                value={vendedorId}
+                onChange={(event) => setVendedorId(event.target.value)}
+                disabled={isViewing}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
+              >
+                {vendedoresDisponiveis.map((seller) => (
+                  <option key={seller.id} value={seller.id}>{seller.nome}</option>
+                ))}
+              </select>
+              <span style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '6px' }}>
+                O usuário logado continuará registrado como responsável pela operação.
+              </span>
             </div>
           </div>
 
@@ -1315,7 +1608,7 @@ const PedidoVendaForm: React.FC = () => {
             </div>
           </div>
 
-          <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
+          <div className="card" style={{ display: 'none', padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
             <h3 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '16px', textTransform: 'uppercase', color: 'var(--accent-purple)' }}>Forma de Pagamento</h3>
 
             {isViewing ? (
@@ -1365,6 +1658,22 @@ const PedidoVendaForm: React.FC = () => {
                 : <span style={{ color: '#f59e0b' }}>ℹ️ Irá para o Contas a Receber.</span>}
             </div>
           </div>
+
+          <PaymentsEditor
+            customerName={clienteNome}
+            disabled={isViewing}
+            drafts={paymentDrafts}
+            financeConfig={financeConfig}
+            idPrefix="sale-payment"
+            onAddPayment={addPaymentDraft}
+            onRemovePayment={removePaymentDraft}
+            onTransactionDateChange={setDataVenda}
+            onUpdatePayment={updatePaymentDraft}
+            sourceLabel="venda"
+            totalCents={valorTotalPedidoCentavos}
+            transactionDate={dataVenda}
+            transactionDateLabel="Data da venda"
+          />
 
           {!isViewing && (
             <button className="btn-primary" onClick={handleFinalizarVenda} disabled={isLoading} style={{ width: '100%', padding: '16px', fontSize: '16px', fontWeight: 700, backgroundColor: '#10b981', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}>

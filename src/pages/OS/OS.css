@@ -85,7 +85,7 @@
   border-width: 1px;
   border-style: solid;
   background-color: var(--bg-secondary);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .os-status-card .section-header {

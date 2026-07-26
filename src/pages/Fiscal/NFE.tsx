@@ -9,6 +9,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { spedyService } from '../../services/spedyService';
 import type { SpedyInvoice } from '../../services/spedyService';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { isPlatformAdminRole } from '../../utils/roles';
 import Swal from 'sweetalert2';
 
 interface FiscalConfig {
@@ -72,7 +73,7 @@ interface PedidoVenda {
 const NFE: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
 
-  const canDeleteInvoice = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('fiscal.excluir'));
+  const canDeleteInvoice = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.excluir'));
 
   // Configurações
   const [config, setConfig] = useState<FiscalConfig | null>(null);

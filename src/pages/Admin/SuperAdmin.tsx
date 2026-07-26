@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Ban, Search, ExternalLink, Edit2, Trash2, Megaphone, Sliders, Blocks, Wallet } from 'lucide-react';
+import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Ban, Search, ExternalLink, Edit2, Trash2, Megaphone, Blocks, Wallet } from 'lucide-react';
 import { collection, query, getDocs, updateDoc, doc, deleteDoc, where, setDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts';
 import Swal from 'sweetalert2';
+import { isPlatformAdminRole } from '../../utils/roles';
+import { moduleLabelMap } from '../../utils/moduleCatalog';
 
 interface TenantInfo {
   id: string;
@@ -20,72 +22,6 @@ interface TenantInfo {
   createdAt?: any;
 }
 
-const MODULE_GROUPS = [
-  { group: 'Visão Geral', items: [
-    { id: 'dashboard.empresa', label: 'Dashboard da Empresa' }
-  ]},
-  { group: 'Cadastros', items: [
-    { id: 'cadastros.clientes', label: 'Clientes' },
-    { id: 'cadastros.usuarios', label: 'Usuários' },
-    { id: 'cadastros.veiculos', label: 'Veículos' },
-    { id: 'cadastros.estoque', label: 'Estoque / Produtos' },
-    { id: 'cadastros.servicos', label: 'Cadastro de Serviços' },
-    { id: 'cadastros.categorias', label: 'Categorias' },
-    { id: 'cadastros.unidades_medida', label: 'Unidades de Medida' }
-  ]},
-  { group: 'Comercial & Vendas', items: [
-    { id: 'comercial.pedidos', label: 'Pedido de Vendas' },
-    { id: 'comercial.orcamentos', label: 'Orçamentos' },
-    { id: 'comercial.devolucoes', label: 'Devolução de Venda' },
-    { id: 'comercial.relatorios', label: 'Relatório de Vendas' }
-  ]},
-  { group: 'Serviços & Operações', items: [
-    { id: 'mecanica.os', label: 'Ordens de Serviço' },
-    { id: 'mecanica.relatorios', label: 'Relatório de Serviços' }
-  ]},
-  { group: 'CRM & Agenda', items: [
-    { id: 'crm.agenda', label: 'Agendamentos' },
-    { id: 'crm.lembretes', label: 'Alertas de Retorno' }
-  ]},
-  { group: 'Financeiro', items: [
-    { id: 'financeiro.caixa', label: 'Fluxo de Caixa' },
-    { id: 'financeiro.receber', label: 'Contas a Receber' },
-    { id: 'financeiro.pagar', label: 'Contas a Pagar' },
-    { id: 'financeiro.faturamento', label: 'Painel de Faturamento' },
-    { id: 'financeiro.comissoes', label: 'Controle de Comissões' }
-  ]},
-  { group: 'Fiscal', items: [
-    { id: 'fiscal.nfe', label: 'Emitir Nota Fiscal (NF-e)' },
-    { id: 'fiscal.entrada_nfe', label: 'Entrada de XML' }
-  ]},
-  { group: 'Compras & Fornecedores', items: [
-    { id: 'compras.pedidos', label: 'Pedidos de Compra' },
-    { id: 'compras.fornecedores', label: 'Fornecedores' },
-    { id: 'compras.cotacoes', label: 'Cotação de Compra' }
-  ]},
-  { group: 'E-commerce & Integrações', items: [
-    { id: 'integracoes.nuvemshop', label: 'Nuvemshop' },
-    { id: 'integracoes.marketplaces', label: 'Marketplaces' },
-    { id: 'integracoes.sincronizacoes', label: 'Sincronizações' }
-  ]},
-  { group: 'Produção & Logística', items: [
-    { id: 'operacoes.producao', label: 'Produção Interna' },
-    { id: 'operacoes.expedicao', label: 'Expedição e Entregas' },
-    { id: 'operacoes.lotes', label: 'Lotes e Validades' }
-  ]},
-  { group: 'Administrativo & Logs', items: [
-    { id: 'admin.config', label: 'Configurações Gerais' },
-    { id: 'admin.backup', label: 'Backup e Restauração' },
-    { id: 'logs.relatorios_diversos', label: 'Relatórios Diversos' },
-    { id: 'logs.sistema', label: 'Logs do Sistema' }
-  ]}
-];
-
-const moduleLabelMap = MODULE_GROUPS.flatMap(group => group.items).reduce<Record<string, string>>((acc, item) => {
-  acc[item.id] = item.label;
-  return acc;
-}, {});
-
 const toDate = (value?: any): Date | null => {
   if (!value) return null;
   if (value?.toDate) return value.toDate();
@@ -94,8 +30,10 @@ const toDate = (value?: any): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const normalizeDeleteConfirmation = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
 const SuperAdmin: React.FC = () => {
-  const { userRole, currentUser } = useAuth();
+  const { userRole } = useAuth();
   const navigate = useNavigate();
   const [tenants, setTenants] = useState<TenantInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,7 +47,7 @@ const SuperAdmin: React.FC = () => {
 
   // Redireciona se não for o SuperAdmin
   useEffect(() => {
-    if (userRole && userRole !== 'SuperAdmin') {
+    if (userRole && !isPlatformAdminRole(userRole)) {
       navigate('/dashboard');
     }
   }, [userRole, navigate]);
@@ -128,12 +66,12 @@ const SuperAdmin: React.FC = () => {
           const data = doc.data();
           
           // Ignora contas SuperAdmin para não somar no faturamento e indicadores
-          if (data.role === 'SuperAdmin') {
+          if (data.role === 'NexarAdmin' || data.role === 'SuperAdmin') {
             return;
           }
 
           // Pega apenas contas "Admin", ou seja, donos de empresa (ignora funcionários/vendedores logados)
-          if (data.role === 'Admin' || doc.id === data.tenantId) {
+          if (data.role === 'Master' || data.role === 'Admin' || doc.id === data.tenantId) {
             listOfTenants.push({
               id: doc.id,
               email: data.email || 'N/A',
@@ -157,7 +95,7 @@ const SuperAdmin: React.FC = () => {
       }
     };
 
-    if (userRole === 'SuperAdmin') {
+    if (isPlatformAdminRole(userRole)) {
       fetchSaaSTenants();
     }
   }, [userRole]);
@@ -234,10 +172,11 @@ const SuperAdmin: React.FC = () => {
     }
   };
 
-  const handleDeleteTenant = async (tenantId: string, email: string) => {
+  const handleDeleteTenant = async (tenant: TenantInfo) => {
+    const tenantName = tenant.nomeOficina || 'Sem Nome';
     const result = await Swal.fire({
       title: 'Atenção, Exclusão Definitiva!',
-      text: `Você está prestes a EXCLUIR DEFINITIVAMENTE a empresa (${email}). Isso apagará TODOS os clientes, ordens de serviço, finanças, configurações e usuários desta empresa. Essa ação é completamente irreversível!`,
+      text: `Você está prestes a EXCLUIR DEFINITIVAMENTE a empresa "${tenantName}" (${tenant.email}). Isso apagará TODOS os clientes, ordens de serviço, finanças, configurações e usuários desta empresa. Essa ação é completamente irreversível!`,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
@@ -247,6 +186,38 @@ const SuperAdmin: React.FC = () => {
     });
 
     if (result.isConfirmed) {
+      const expectedName = normalizeDeleteConfirmation(tenantName);
+      const confirmation = await Swal.fire({
+        title: 'Confirme o nome da empresa',
+        input: 'text',
+        inputLabel: `Digite o nome da empresa para confirmar: ${tenantName}`,
+        inputPlaceholder: tenantName,
+        icon: 'error',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        cancelButtonColor: '#3b82f6',
+        confirmButtonText: 'Excluir definitivamente',
+        cancelButtonText: 'Cancelar',
+        inputAttributes: {
+          autocomplete: 'off',
+          autocapitalize: 'off',
+          spellcheck: 'false'
+        },
+        inputValidator: (value) => {
+          if (!value || !value.trim()) {
+            return 'Digite o nome da empresa para continuar.';
+          }
+
+          if (normalizeDeleteConfirmation(value) !== expectedName) {
+            return 'O nome digitado não confere com a empresa selecionada.';
+          }
+        }
+      });
+
+      if (!confirmation.isConfirmed) {
+        return;
+      }
+
       setLoading(true);
       try {
         // Coleções onde o campo tenantId é utilizado
@@ -258,16 +229,16 @@ const SuperAdmin: React.FC = () => {
         for (const colName of collectionsToDelete) {
           if (colName === 'configuracoes') {
              // Em configuracoes o ID do documento é o próprio tenantId
-             await deleteDoc(doc(db, colName, tenantId));
+             await deleteDoc(doc(db, colName, tenant.id));
           } else {
-             const q = query(collection(db, colName), where('tenantId', '==', tenantId));
+             const q = query(collection(db, colName), where('tenantId', '==', tenant.id));
              const snap = await getDocs(q);
              const deletePromises = snap.docs.map(d => deleteDoc(doc(db, colName, d.id)));
              await Promise.all(deletePromises);
           }
         }
 
-        setTenants(tenants.filter(t => t.id !== tenantId));
+        setTenants(prev => prev.filter(t => t.id !== tenant.id));
         
         Swal.fire(
           'Excluído!',
@@ -340,7 +311,7 @@ const SuperAdmin: React.FC = () => {
           await updateDoc(doc(db, 'configuracoes', tenantId), {
             limiteUsuarios: val
           });
-        } catch (e) {
+        } catch {
           await setDoc(doc(db, 'configuracoes', tenantId), {
             limiteUsuarios: val
           }, { merge: true });
@@ -357,146 +328,7 @@ const SuperAdmin: React.FC = () => {
     }
   };
 
-  const handleManageModules = async (tenantId: string, currentBlocked: string[] = []) => {
-    const modules = [
-      { group: 'Visão Geral', items: [
-        { id: 'dashboard.empresa', label: 'Dashboard da Empresa' }
-      ]},
-      { group: 'Cadastros', items: [
-        { id: 'cadastros.clientes', label: 'Clientes' },
-        { id: 'cadastros.usuarios', label: 'Usuários' },
-        { id: 'cadastros.veiculos', label: 'Veículos' },
-        { id: 'cadastros.estoque', label: 'Estoque / Produtos' },
-        { id: 'cadastros.servicos', label: 'Cadastro de Serviços' },
-        { id: 'cadastros.categorias', label: 'Categorias' },
-        { id: 'cadastros.unidades_medida', label: 'Unidades de Medida' }
-      ]},
-      { group: 'Comercial & Vendas', items: [
-        { id: 'comercial.pedidos', label: 'Pedido de Vendas' },
-        { id: 'comercial.orcamentos', label: 'Orçamentos' },
-        { id: 'comercial.devolucoes', label: 'Devolução de Venda' },
-        { id: 'comercial.relatorios', label: 'Relatório de Vendas' }
-      ]},
-      { group: 'Serviços & Operações', items: [
-        { id: 'mecanica.os', label: 'Ordens de Serviço' },
-        { id: 'mecanica.relatorios', label: 'Relatório de Serviços' }
-      ]},
-      { group: 'CRM & Agenda', items: [
-        { id: 'crm.agenda', label: 'Agendamentos' },
-        { id: 'crm.lembretes', label: 'Alertas de Retorno' }
-      ]},
-      { group: 'Financeiro', items: [
-        { id: 'financeiro.caixa', label: 'Fluxo de Caixa' },
-        { id: 'financeiro.receber', label: 'Contas a Receber' },
-        { id: 'financeiro.pagar', label: 'Contas a Pagar' },
-        { id: 'financeiro.faturamento', label: 'Painel de Faturamento' },
-        { id: 'financeiro.comissoes', label: 'Controle de Comissões' }
-      ]},
-      { group: 'Fiscal', items: [
-        { id: 'fiscal.nfe', label: 'Emitir Nota Fiscal (NFe)' },
-        { id: 'fiscal.entrada_nfe', label: 'Entrada de XML' }
-      ]},
-      { group: 'Compras & Fornecedores', items: [
-        { id: 'compras.pedidos', label: 'Pedidos de Compra' },
-        { id: 'compras.fornecedores', label: 'Fornecedores' },
-        { id: 'compras.cotacoes', label: 'Cotação de Compra' }
-      ]},
-      { group: 'E-commerce & Integrações', items: [
-        { id: 'integracoes.nuvemshop', label: 'Nuvemshop' },
-        { id: 'integracoes.marketplaces', label: 'Marketplaces' },
-        { id: 'integracoes.sincronizacoes', label: 'Sincronizações' }
-      ]},
-      { group: 'Produção & Logística', items: [
-        { id: 'operacoes.producao', label: 'Produção Interna' },
-        { id: 'operacoes.expedicao', label: 'Expedição e Entregas' },
-        { id: 'operacoes.lotes', label: 'Lotes e Validades' }
-      ]},
-      { group: 'Administrativo & Logs', items: [
-        { id: 'admin.config', label: 'Configurações Gerais' },
-        { id: 'admin.backup', label: 'Backup e Restauração' },
-        { id: 'logs.relatorios_diversos', label: 'Relatórios Diversos' },
-        { id: 'logs.sistema', label: 'Logs do Sistema' }
-      ]}
-    ];
-
-    const htmlContent = `
-      <div style="text-align: left; padding: 5px; max-height: 400px; overflow-y: auto; background-color: var(--bg-secondary); border-radius: 8px;">
-        <p style="margin-bottom: 16px; color: var(--text-secondary); font-size: 13px; font-weight: 500; line-height: 1.4;">
-          Marque quais recursos/telas estarão <strong>ativos</strong> para esta empresa:
-        </p>
-        ${modules.map(group => `
-          <div style="margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px;">
-            <h4 style="color: #8b5cf6; font-size: 12px; font-weight: 700; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px;">${group.group}</h4>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px;">
-              ${group.items.map(m => {
-                const isEnabled = !currentBlocked.includes(m.id);
-                return `
-                  <div style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="checkbox" id="mod-${m.id}" ${isEnabled ? 'checked' : ''} style="width: 15px; height: 15px; accent-color: #8b5cf6; cursor: pointer;" />
-                    <label for="mod-${m.id}" style="color: var(--text-primary); font-size: 13px; cursor: pointer; font-weight: 500; margin: 0; line-height: 1.2;">${m.label}</label>
-                  </div>
-                `;
-              }).join('')}
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    `;
-
-    const { isConfirmed, value: blockedResult } = await Swal.fire({
-      title: 'Configurar Módulos & Telas',
-      html: htmlContent,
-      showCancelButton: true,
-      confirmButtonColor: '#8b5cf6',
-      confirmButtonText: 'Salvar Permissões',
-      cancelButtonText: 'Cancelar',
-      width: '650px',
-      preConfirm: () => {
-        const blocked: string[] = [];
-        modules.forEach(group => {
-          group.items.forEach(m => {
-            const checkbox = document.getElementById(`mod-${m.id}`) as HTMLInputElement;
-            if (checkbox && !checkbox.checked) {
-              blocked.push(m.id);
-            }
-          });
-        });
-        return blocked;
-      }
-    });
-
-    if (isConfirmed && blockedResult !== undefined) {
-      setLoading(true);
-      try {
-        // Salva na coleção usuarios (documento do dono/tenant)
-        await updateDoc(doc(db, 'usuarios', tenantId), {
-          modulosBloqueados: blockedResult
-        });
-        
-        // E também no de configuracoes por consistência
-        try {
-          await updateDoc(doc(db, 'configuracoes', tenantId), {
-            modulosBloqueados: blockedResult
-          });
-        } catch (e) {
-          console.warn("Erro ao salvar modulosBloqueados em configuracoes, fazendo merge...", e);
-          await setDoc(doc(db, 'configuracoes', tenantId), {
-            modulosBloqueados: blockedResult
-          }, { merge: true });
-        }
-
-        setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, modulosBloqueados: blockedResult } : t));
-        Swal.fire('Configuração Salva!', 'Os módulos e telas da empresa foram atualizados com sucesso.', 'success');
-      } catch (err) {
-        console.error("Erro ao gerenciar módulos", err);
-        Swal.fire('Erro', 'Não foi possível atualizar a configuração de módulos.', 'error');
-      } finally {
-        setLoading(false);
-      }
-    }
-  };
-
-  if (userRole !== 'SuperAdmin') return null;
+  if (!isPlatformAdminRole(userRole)) return null;
 
   const mrr = tenants.filter(t => t.status === 'Ativo').reduce((acc, curr) => acc + curr.valor, 0);
   const ativos = tenants.filter(t => t.status === 'Ativo').length;
@@ -574,7 +406,7 @@ const SuperAdmin: React.FC = () => {
             <Megaphone size={16} /> Aviso Global
           </button>
           <button className="btn-secondary">Exportar Dados</button>
-          <button className="btn-primary">Configurações do SaaS</button>
+          <button className="btn-primary" onClick={() => navigate('/configuracoes')}>Configurações do SaaS</button>
         </div>
       </div>
 
@@ -862,14 +694,6 @@ const SuperAdmin: React.FC = () => {
                     </td>
                     <td style={{ padding: '20px 0', textAlign: 'right' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
-                        <button 
-                          className="btn-secondary" 
-                          onClick={() => handleManageModules(tenant.id, tenant.modulosBloqueados || [])}
-                          style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', border: '1px solid rgba(139, 92, 246, 0.2)', padding: '6px 12px', borderRadius: 'var(--radius-md)' }}
-                          title="Gerenciar Módulos"
-                        >
-                          <Sliders size={14} /> Módulos
-                        </button>
                         {tenant.status === 'Inadimplente' ? (
                           <button 
                             className="btn-secondary" 
@@ -887,7 +711,7 @@ const SuperAdmin: React.FC = () => {
                         )}
                         <button 
                           className="icon-btn" 
-                          onClick={() => handleDeleteTenant(tenant.id, tenant.email)}
+                          onClick={() => handleDeleteTenant(tenant)}
                           style={{ padding: '8px', color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--radius-md)', border: 'none', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                           title="Excluir Empresa"
                         >

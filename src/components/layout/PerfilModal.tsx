@@ -3,6 +3,7 @@ import { X, User, Lock } from 'lucide-react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { isTenantManagerRole } from '../../utils/roles';
 
 interface PerfilModalProps {
   onClose: () => void;
@@ -17,7 +18,7 @@ const PerfilModal: React.FC<PerfilModalProps> = ({ onClose, userData, configData
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    if (userRole === 'Admin') {
+    if (isTenantManagerRole(userRole)) {
       setNome(configData?.nomeUsuario || '');
     } else {
       setNome(userData?.nome || '');
@@ -31,7 +32,7 @@ const PerfilModal: React.FC<PerfilModalProps> = ({ onClose, userData, configData
     setIsLoading(true);
     setSuccess(false);
     try {
-      if (userRole === 'Admin' && tenantId) {
+      if (isTenantManagerRole(userRole) && tenantId) {
         await updateDoc(doc(db, 'configuracoes', tenantId), {
           nomeUsuario: nome.trim()
         });

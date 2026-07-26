@@ -11,6 +11,7 @@ const { initQueueService } = require('./services/queue');
 const backupRoutes = require('./routes/backup.routes');
 const spedyRoutes = require('./routes/spedy.routes');
 const sessionRoutes = require('./routes/session.routes');
+const onboardingRoutes = require('./routes/onboarding.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -75,6 +76,7 @@ app.get('/health', (req, res) => {
 app.use('/api/backups', backupRoutes);
 app.use('/api/spedy', spedyRoutes);
 app.use('/api/sessions', sessionRoutes);
+app.use('/api/onboarding', onboardingRoutes);
 
 // Middleware para tratamento global de erros HTTP
 app.use((err, req, res, next) => {

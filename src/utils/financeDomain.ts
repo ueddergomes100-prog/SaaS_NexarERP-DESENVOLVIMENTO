@@ -1,0 +1,713 @@
+import {
+  addDaysToDateInput,
+  addMonthsToDateInput,
+  differenceInCalendarDays,
+  getDateInputInTimeZone,
+  parseDateInput,
+} from './dateTime';
+
+export type PaymentMethod =
+  | 'Dinheiro'
+  | 'Pix'
+  | 'Cartão de Crédito'
+  | 'Cartão de Débito'
+  | 'Transferência'
+  | 'Boleto'
+  | 'Pagamento a Prazo'
+  | 'Crédito de Devolução'
+  | 'Outros';
+
+export type FinancialNature = 'caixa_fisico' | 'bancario_digital' | 'contas_receber' | 'credito_cliente';
+
+export interface PaymentDraft {
+  id: string;
+  forma: PaymentMethod;
+  valor: string;
+  prazoDias: string;
+  dataVencimento: string;
+  bandeira: string;
+  operadora: string;
+  autorizacao: string;
+  parcelas: string;
+  dataPrevistaRecebimento: string;
+}
+
+export interface CardInstallment {
+  numero: number;
+  valorCentavos: number;
+  valor: number;
+  valorLiquidoCentavos: number;
+  valorLiquido: number;
+  dataPrevistaRecebimento?: string;
+}
+
+export interface CardPaymentDetails {
+  tipo: 'credito' | 'debito';
+  bandeira?: string;
+  operadora?: string;
+  autorizacao?: string;
+  parcelas: number;
+  taxaPercentual: number;
+  valorBrutoCentavos: number;
+  valorBruto: number;
+  valorTaxaCentavos: number;
+  valorTaxa: number;
+  valorLiquidoCentavos: number;
+  valorLiquido: number;
+  dataPrevistaRecebimento?: string;
+  detalhamentoParcelas: CardInstallment[];
+}
+
+export interface PaymentRecord {
+  id: string;
+  indice: number;
+  formaPagamento: PaymentMethod;
+  condicaoPagamento: 'avista' | 'aprazo';
+  valorCentavos: number;
+  valor: number;
+  status: 'confirmado' | 'pendente';
+  naturezaFinanceira: FinancialNature;
+  movimentaCaixaFisico: boolean;
+  prazoDias?: number;
+  dataVencimento?: string;
+  dataPrevistaRecebimento?: string;
+  cartao?: CardPaymentDetails;
+  transactionId?: string;
+  formaRecebimento?: PaymentMethod;
+  naturezaRecebimento?: FinancialNature;
+  recebidoEm?: string;
+  sourcePaymentTransactionId?: string;
+}
+
+export interface PaymentValidationOptions {
+  saleDate?: string;
+  operationLabel?: string;
+  maxCreditInstallments?: number;
+  creditFeePercent?: number;
+  creditFeePercentByInstallment?: CreditCardFeeSchedule;
+  debitFeePercent?: number;
+  creditSettlementDays?: number;
+  debitSettlementDays?: number;
+}
+
+export type CreditCardFeeSchedule = Record<string, number>;
+
+export interface CommissionProfile {
+  recebeComissaoPecas?: boolean;
+  comissaoPercentualPecas?: number;
+}
+
+export interface CommissionSnapshot {
+  tipo: 'percentual_produtos';
+  vendedorId: string;
+  vendedorNome: string;
+  baseOriginalCentavos: number;
+  baseOriginal: number;
+  baseAtualCentavos: number;
+  baseAtual: number;
+  percentual: number;
+  valorOriginalCentavos: number;
+  valorOriginal: number;
+  valorAtualCentavos: number;
+  valorAtual: number;
+  status: 'gerada' | 'nao_aplicavel' | 'cancelada';
+  regraVersion: 1;
+  geradaEm: string;
+  canceladaEm?: string;
+  pagaEm?: string;
+}
+
+export const toCents = (value: number | string | null | undefined) => {
+  if (typeof value === 'string') {
+    const normalized = value.trim().replace(/\s/g, '').replace(',', '.');
+    if (!normalized) return 0;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+  }
+
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+};
+
+export const fromCents = (value: number) => Number((value / 100).toFixed(2));
+
+export const splitCents = (totalCents: number, installments: number) => {
+  if (!Number.isInteger(installments) || installments < 1) {
+    throw new Error('A quantidade de parcelas deve ser maior que zero.');
+  }
+
+  const base = Math.floor(totalCents / installments);
+  const remainder = totalCents - (base * installments);
+  return Array.from({ length: installments }, (_, index) => base + (index < remainder ? 1 : 0));
+};
+
+export const parseCreditTerms = (value: unknown) => {
+  const terms = String(value ?? '')
+    .split(/[;,\s]+/)
+    .map((item) => Number.parseInt(item, 10))
+    .filter((item) => Number.isInteger(item) && item > 0);
+  return Array.from(new Set(terms)).sort((a, b) => a - b);
+};
+
+export const normalizeCreditCardFeeSchedule = (
+  value: unknown,
+  fallbackFeePercent = 0,
+): CreditCardFeeSchedule => {
+  const source = value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : {};
+  const fallback = Number.isFinite(Number(fallbackFeePercent))
+    ? Math.max(0, Math.min(100, Number(fallbackFeePercent)))
+    : 0;
+
+  return Object.fromEntries(
+    Array.from({ length: 12 }, (_, index) => {
+      const installments = index + 1;
+      const rawValue = source[String(installments)] ?? source[`${installments}x`] ?? fallback;
+      const parsed = Number(String(rawValue ?? '').replace(',', '.'));
+      const normalized = Number.isFinite(parsed)
+        ? Math.max(0, Math.min(100, parsed))
+        : fallback;
+      return [String(installments), normalized];
+    }),
+  );
+};
+
+export const creditCardFeeForInstallments = (
+  schedule: CreditCardFeeSchedule | undefined,
+  installments: number,
+  fallbackFeePercent = 0,
+) => {
+  const normalizedInstallments = Math.max(1, Math.min(12, Number.parseInt(String(installments), 10) || 1));
+  return normalizeCreditCardFeeSchedule(schedule, fallbackFeePercent)[String(normalizedInstallments)];
+};
+
+export const isCardPayment = (method: string) => (
+  method === 'Cartão de Crédito' || method === 'Cartão de Débito'
+);
+
+export const isPhysicalCashPayment = (method?: string) => method === 'Dinheiro';
+
+export const financialNatureForPayment = (method: PaymentMethod): FinancialNature => {
+  if (method === 'Dinheiro') return 'caixa_fisico';
+  if (method === 'Pix' || method === 'Transferência') return 'bancario_digital';
+  if (method === 'Crédito de Devolução') return 'credito_cliente';
+  return 'contas_receber';
+};
+
+export const settledFinancialNatureForPayment = (method: PaymentMethod): FinancialNature => {
+  if (method === 'Dinheiro') return 'caixa_fisico';
+  if (method === 'Crédito de Devolução') return 'credito_cliente';
+  return 'bancario_digital';
+};
+
+export const paymentIsImmediatelyConfirmed = (method: PaymentMethod) => (
+  method === 'Dinheiro' || method === 'Pix' || method === 'Transferência'
+);
+
+export const buildCardDetails = (args: {
+  method: 'Cartão de Crédito' | 'Cartão de Débito';
+  grossCents: number;
+  installments: number;
+  feePercent?: number;
+  firstSettlementDate?: string;
+  bandeira?: string;
+  operadora?: string;
+  autorizacao?: string;
+}) => {
+  const installments = args.method === 'Cartão de Débito' ? 1 : args.installments;
+  if (args.method === 'Cartão de Débito' && args.installments !== 1) {
+    throw new Error('Cartão de débito não permite parcelamento.');
+  }
+  if (!Number.isInteger(installments) || installments < 1) {
+    throw new Error('Informe uma quantidade válida de parcelas.');
+  }
+
+  if (!Number.isInteger(args.grossCents) || args.grossCents <= 0) {
+    throw new Error('O valor bruto do cartão deve ser maior que zero.');
+  }
+
+  const feePercent = Number.isFinite(Number(args.feePercent))
+    ? Math.max(0, Math.min(100, Number(args.feePercent)))
+    : 0;
+  const feeCents = Math.round(args.grossCents * (feePercent / 100));
+  const netCents = Math.max(0, args.grossCents - feeCents);
+  const grossInstallments = splitCents(args.grossCents, installments);
+  const netInstallments = splitCents(netCents, installments);
+  const firstDate = args.firstSettlementDate && parseDateInput(args.firstSettlementDate)
+    ? args.firstSettlementDate
+    : '';
+
+  const bandeira = args.bandeira?.trim();
+  const operadora = args.operadora?.trim();
+  const autorizacao = args.autorizacao?.trim();
+  const details: CardPaymentDetails = {
+    tipo: args.method === 'Cartão de Crédito' ? 'credito' : 'debito',
+    ...(bandeira ? { bandeira } : {}),
+    ...(operadora ? { operadora } : {}),
+    ...(autorizacao ? { autorizacao } : {}),
+    parcelas: installments,
+    taxaPercentual: feePercent,
+    valorBrutoCentavos: args.grossCents,
+    valorBruto: fromCents(args.grossCents),
+    valorTaxaCentavos: feeCents,
+    valorTaxa: fromCents(feeCents),
+    valorLiquidoCentavos: netCents,
+    valorLiquido: fromCents(netCents),
+    ...(firstDate ? { dataPrevistaRecebimento: firstDate } : {}),
+    detalhamentoParcelas: grossInstallments.map((amountCents, index) => ({
+      numero: index + 1,
+      valorCentavos: amountCents,
+      valor: fromCents(amountCents),
+      valorLiquidoCentavos: netInstallments[index],
+      valorLiquido: fromCents(netInstallments[index]),
+      ...(firstDate ? {
+        dataPrevistaRecebimento: addMonthsToDateInput(
+          firstDate,
+          args.method === 'Cartão de Crédito' ? index : 0,
+        ),
+      } : {}),
+    })),
+  };
+
+  return details;
+};
+
+export const createEmptyPaymentDraft = (
+  id: string,
+  amountCents: number,
+  defaultTermDays = 30,
+): PaymentDraft => ({
+  id,
+  forma: 'Dinheiro',
+  valor: fromCents(amountCents).toFixed(2),
+  prazoDias: String(defaultTermDays),
+  dataVencimento: '',
+  bandeira: '',
+  operadora: '',
+  autorizacao: '',
+  parcelas: '1',
+  dataPrevistaRecebimento: '',
+});
+
+export const normalizePayments = (
+  totalCents: number,
+  drafts: PaymentDraft[],
+  options: PaymentValidationOptions = {},
+) => {
+  const operationLabel = options.operationLabel?.trim() || 'venda';
+  if (totalCents <= 0) throw new Error(`O total da ${operationLabel} deve ser maior que zero.`);
+  if (drafts.length === 0) throw new Error('Informe pelo menos uma forma de pagamento.');
+
+  const saleDate = options.saleDate || getDateInputInTimeZone();
+  if (!parseDateInput(saleDate)) throw new Error('A data da venda é inválida.');
+
+  const records = drafts.map((draft, index): PaymentRecord => {
+    const valueCents = toCents(draft.valor);
+    if (valueCents <= 0) throw new Error(`O valor do pagamento ${index + 1} deve ser maior que zero.`);
+
+    const isTerm = draft.forma === 'Pagamento a Prazo';
+    const nature = financialNatureForPayment(draft.forma);
+    const record: PaymentRecord = {
+      id: draft.id,
+      indice: index + 1,
+      formaPagamento: draft.forma,
+      condicaoPagamento: isTerm ? 'aprazo' : 'avista',
+      valorCentavos: valueCents,
+      valor: fromCents(valueCents),
+      status: paymentIsImmediatelyConfirmed(draft.forma) ? 'confirmado' : 'pendente',
+      naturezaFinanceira: nature,
+      movimentaCaixaFisico: draft.forma === 'Dinheiro',
+    };
+
+    if (isTerm) {
+      const informedDays = Number.parseInt(draft.prazoDias, 10);
+      const calculatedDueDate = Number.isInteger(informedDays) && informedDays > 0
+        ? addDaysToDateInput(saleDate, informedDays)
+        : '';
+      const dueDate = draft.dataVencimento || calculatedDueDate;
+      const dueDays = differenceInCalendarDays(saleDate, dueDate);
+      if (!parseDateInput(dueDate) || dueDays === null || dueDays < 1) {
+        throw new Error('Pagamento a prazo exige uma data de vencimento válida.');
+      }
+      record.prazoDias = dueDays;
+      record.dataVencimento = dueDate;
+    }
+
+    if (isCardPayment(draft.forma)) {
+      const installments = Number.parseInt(draft.parcelas, 10);
+      if (
+        draft.forma === 'Cartão de Crédito' &&
+        options.maxCreditInstallments &&
+        installments > options.maxCreditInstallments
+      ) {
+        throw new Error(`O cartão de crédito permite no máximo ${options.maxCreditInstallments} parcelas.`);
+      }
+
+      let firstSettlementDate = draft.dataPrevistaRecebimento;
+      if (!firstSettlementDate) {
+        const configuredDays = draft.forma === 'Cartão de Crédito'
+          ? options.creditSettlementDays
+          : options.debitSettlementDays;
+        if (Number.isInteger(configuredDays) && Number(configuredDays) >= 0) {
+          firstSettlementDate = addDaysToDateInput(saleDate, Number(configuredDays));
+        }
+      }
+      if (
+        firstSettlementDate &&
+        (
+          !parseDateInput(firstSettlementDate) ||
+          Number(differenceInCalendarDays(saleDate, firstSettlementDate)) < 0
+        )
+      ) {
+        throw new Error('A data prevista de recebimento do cartão é inválida.');
+      }
+
+      if (firstSettlementDate) record.dataPrevistaRecebimento = firstSettlementDate;
+      const creditFeePercent = creditCardFeeForInstallments(
+        options.creditFeePercentByInstallment,
+        installments,
+        options.creditFeePercent,
+      );
+      record.cartao = buildCardDetails({
+        method: draft.forma,
+        grossCents: valueCents,
+        installments,
+        feePercent: draft.forma === 'Cartão de Crédito'
+          ? creditFeePercent
+          : options.debitFeePercent,
+        firstSettlementDate,
+        bandeira: draft.bandeira,
+        operadora: draft.operadora,
+        autorizacao: draft.autorizacao,
+      });
+    }
+
+    return record;
+  });
+
+  const paymentTotal = records.reduce((sum, payment) => sum + payment.valorCentavos, 0);
+  if (paymentTotal !== totalCents) {
+    throw new Error(`A soma dos pagamentos deve corresponder ao total da ${operationLabel} (${fromCents(totalCents).toFixed(2)}).`);
+  }
+
+  return records;
+};
+
+export const summarizePayments = (payments: PaymentRecord[]) => {
+  const receivedCents = payments
+    .filter((payment) => payment.status === 'confirmado')
+    .reduce((sum, payment) => sum + payment.valorCentavos, 0);
+  const pendingCents = payments
+    .filter((payment) => payment.status === 'pendente')
+    .reduce((sum, payment) => sum + payment.valorCentavos, 0);
+  const forms = Array.from(new Set(payments.map((payment) => payment.formaPagamento)));
+  const cardFeeCents = payments.reduce(
+    (sum, payment) => sum + Number(payment.cartao?.valorTaxaCentavos || 0),
+    0,
+  );
+  const financialNetCents = payments.reduce(
+    (sum, payment) => sum + Number(payment.cartao?.valorLiquidoCentavos ?? payment.valorCentavos),
+    0,
+  );
+
+  return {
+    receivedCents,
+    received: fromCents(receivedCents),
+    pendingCents,
+    pending: fromCents(pendingCents),
+    cardFeeCents,
+    cardFee: fromCents(cardFeeCents),
+    financialNetCents,
+    financialNet: fromCents(financialNetCents),
+    paymentMethodLabel: forms.length === 1 ? forms[0] : 'Múltiplas',
+    paymentCondition: payments.some((payment) => payment.condicaoPagamento === 'aprazo')
+      ? 'aprazo' as const
+      : 'avista' as const,
+  };
+};
+
+export const applyPaymentReceipt = (
+  payments: PaymentRecord[],
+  args: {
+    transactionId: string;
+    paymentIndex?: number;
+    amountCents: number;
+    method: PaymentMethod;
+    receiptId: string;
+    receivedAt: string;
+  },
+) => {
+  if (!Number.isInteger(args.amountCents) || args.amountCents <= 0) {
+    throw new Error('O valor recebido deve ser maior que zero.');
+  }
+
+  const targetIndex = payments.findIndex((payment) => (
+    payment.transactionId === args.transactionId ||
+    (
+      args.paymentIndex !== undefined &&
+      payment.indice === args.paymentIndex &&
+      payment.status !== 'confirmado'
+    )
+  ));
+  if (targetIndex < 0) {
+    throw new Error('O pagamento vinculado à conta a receber não foi encontrado na venda.');
+  }
+
+  const target = payments[targetIndex];
+  if (args.amountCents > target.valorCentavos) {
+    throw new Error('O valor recebido é maior que o saldo do pagamento.');
+  }
+
+  const settlementNature = settledFinancialNatureForPayment(args.method);
+  if (args.amountCents === target.valorCentavos) {
+    return payments.map((payment, index) => index === targetIndex ? {
+      ...payment,
+      status: 'confirmado' as const,
+      formaRecebimento: args.method,
+      naturezaRecebimento: settlementNature,
+      movimentaCaixaFisico: args.method === 'Dinheiro',
+      recebidoEm: args.receivedAt,
+    } : payment);
+  }
+
+  const remainingCents = target.valorCentavos - args.amountCents;
+  const resizedCard = target.cartao
+    ? buildCardDetails({
+        method: target.formaPagamento as 'Cartão de Crédito' | 'Cartão de Débito',
+        grossCents: remainingCents,
+        installments: target.cartao.parcelas,
+        feePercent: target.cartao.taxaPercentual,
+        firstSettlementDate: target.cartao.dataPrevistaRecebimento,
+        bandeira: target.cartao.bandeira,
+        operadora: target.cartao.operadora,
+        autorizacao: target.cartao.autorizacao,
+      })
+    : undefined;
+  const remainingPayment: PaymentRecord = {
+    ...target,
+    valorCentavos: remainingCents,
+    valor: fromCents(remainingCents),
+    ...(resizedCard ? { cartao: resizedCard } : {}),
+  };
+  const receiptPayment: PaymentRecord = {
+    id: args.receiptId,
+    indice: Math.max(0, ...payments.map((payment) => Number(payment.indice || 0))) + 1,
+    formaPagamento: args.method,
+    condicaoPagamento: 'avista',
+    valorCentavos: args.amountCents,
+    valor: fromCents(args.amountCents),
+    status: 'confirmado',
+    naturezaFinanceira: settlementNature,
+    movimentaCaixaFisico: args.method === 'Dinheiro',
+    transactionId: args.receiptId,
+    formaRecebimento: args.method,
+    naturezaRecebimento: settlementNature,
+    recebidoEm: args.receivedAt,
+    sourcePaymentTransactionId: args.transactionId,
+  };
+
+  return [
+    ...payments.slice(0, targetIndex),
+    remainingPayment,
+    ...payments.slice(targetIndex + 1),
+    receiptPayment,
+  ];
+};
+
+export const buildCommissionSnapshot = (args: {
+  sellerId: string;
+  sellerName: string;
+  baseCents: number;
+  profile?: CommissionProfile | null;
+  generatedAt?: string;
+}): CommissionSnapshot => {
+  const enabled = args.profile?.recebeComissaoPecas === true;
+  const percentage = enabled
+    ? Math.max(0, Math.min(100, Number(args.profile?.comissaoPercentualPecas || 0)))
+    : 0;
+  const commissionCents = Math.round(args.baseCents * (percentage / 100));
+
+  return {
+    tipo: 'percentual_produtos',
+    vendedorId: args.sellerId,
+    vendedorNome: args.sellerName,
+    baseOriginalCentavos: args.baseCents,
+    baseOriginal: fromCents(args.baseCents),
+    baseAtualCentavos: args.baseCents,
+    baseAtual: fromCents(args.baseCents),
+    percentual: percentage,
+    valorOriginalCentavos: commissionCents,
+    valorOriginal: fromCents(commissionCents),
+    valorAtualCentavos: commissionCents,
+    valorAtual: fromCents(commissionCents),
+    status: percentage > 0 ? 'gerada' : 'nao_aplicavel',
+    regraVersion: 1,
+    geradaEm: args.generatedAt || new Date().toISOString(),
+  };
+};
+
+export const buildServiceOrderCommissionSnapshot = (args: {
+  sellerId: string;
+  sellerName: string;
+  servicesBaseCents: number;
+  partsBaseCents: number;
+  profile?: {
+    recebeComissaoServicos?: boolean;
+    comissaoPercentualServicos?: number;
+    recebeComissaoPecas?: boolean;
+    comissaoPercentualPecas?: number;
+  } | null;
+  generatedAt?: string;
+}) => {
+  const servicesPercentage = args.profile?.recebeComissaoServicos === true
+    ? Math.max(0, Math.min(100, Number(args.profile.comissaoPercentualServicos || 0)))
+    : 0;
+  const partsPercentage = args.profile?.recebeComissaoPecas === true
+    ? Math.max(0, Math.min(100, Number(args.profile.comissaoPercentualPecas || 0)))
+    : 0;
+  const servicesCommissionCents = Math.round(args.servicesBaseCents * (servicesPercentage / 100));
+  const partsCommissionCents = Math.round(args.partsBaseCents * (partsPercentage / 100));
+  const baseCents = args.servicesBaseCents + args.partsBaseCents;
+  const commissionCents = servicesCommissionCents + partsCommissionCents;
+
+  return {
+    tipo: 'percentual_servicos_produtos',
+    vendedorId: args.sellerId,
+    vendedorNome: args.sellerName,
+    baseOriginalCentavos: baseCents,
+    baseOriginal: fromCents(baseCents),
+    baseAtualCentavos: baseCents,
+    baseAtual: fromCents(baseCents),
+    percentual: baseCents > 0 ? Number(((commissionCents / baseCents) * 100).toFixed(4)) : 0,
+    percentualServicos: servicesPercentage,
+    percentualPecas: partsPercentage,
+    baseServicosCentavos: args.servicesBaseCents,
+    baseServicos: fromCents(args.servicesBaseCents),
+    basePecasCentavos: args.partsBaseCents,
+    basePecas: fromCents(args.partsBaseCents),
+    valorComissaoServicosCentavos: servicesCommissionCents,
+    valorComissaoServicos: fromCents(servicesCommissionCents),
+    valorComissaoPecasCentavos: partsCommissionCents,
+    valorComissaoPecas: fromCents(partsCommissionCents),
+    valorOriginalCentavos: commissionCents,
+    valorOriginal: fromCents(commissionCents),
+    valorAtualCentavos: commissionCents,
+    valorAtual: fromCents(commissionCents),
+    status: commissionCents > 0 ? 'gerada' as const : 'nao_aplicavel' as const,
+    regraVersion: 1,
+    geradaEm: args.generatedAt || new Date().toISOString(),
+  };
+};
+
+export const recalculateCommissionAfterReturn = (
+  snapshot: CommissionSnapshot,
+  returnedBaseCents: number,
+) => {
+  const baseCents = Math.max(0, snapshot.baseAtualCentavos - returnedBaseCents);
+  const commissionCents = Math.round(baseCents * (snapshot.percentual / 100));
+  return {
+    ...snapshot,
+    baseAtualCentavos: baseCents,
+    baseAtual: fromCents(baseCents),
+    valorAtualCentavos: commissionCents,
+    valorAtual: fromCents(commissionCents),
+    status: snapshot.percentual > 0 ? 'gerada' as const : 'nao_aplicavel' as const,
+  };
+};
+
+export const cancelCommissionSnapshot = (
+  snapshot: CommissionSnapshot,
+  cancelledAt = new Date().toISOString(),
+) => ({
+  ...snapshot,
+  valorAtualCentavos: 0,
+  valorAtual: 0,
+  status: 'cancelada' as const,
+  canceladaEm: cancelledAt,
+});
+
+export const transactionMovesPhysicalCash = (transaction: {
+  movimentaCaixaFisico?: boolean;
+  formaPagamento?: string;
+  naturezaFinanceira?: string;
+}) => {
+  if (typeof transaction.movimentaCaixaFisico === 'boolean') {
+    return transaction.movimentaCaixaFisico;
+  }
+  return transaction.formaPagamento === 'Dinheiro' || transaction.naturezaFinanceira === 'caixa_fisico';
+};
+
+interface FinancialTransactionValue {
+  valor?: number;
+  valorCentavos?: number;
+  valorBruto?: number;
+  valorBrutoCentavos?: number;
+  valorTaxa?: number;
+  valorTaxaCentavos?: number;
+  valorLiquido?: number;
+  valorLiquidoCentavos?: number;
+  cartao?: Partial<CardPaymentDetails> | null;
+}
+
+const transactionOriginalGrossCents = (transaction: FinancialTransactionValue) => (
+  Number(
+    transaction.valorBrutoCentavos
+      ?? transaction.cartao?.valorBrutoCentavos
+      ?? transaction.valorCentavos
+      ?? toCents(transaction.valorBruto ?? transaction.valor),
+  )
+);
+
+export const transactionGrossCents = (transaction: FinancialTransactionValue) => (
+  Number(
+    transaction.valorCentavos
+      ?? (
+        transaction.valor !== undefined
+          ? toCents(transaction.valor)
+          : transactionOriginalGrossCents(transaction)
+      ),
+  )
+);
+
+export const transactionFeeCents = (transaction: FinancialTransactionValue) => {
+  const currentGrossCents = transactionGrossCents(transaction);
+  const originalGrossCents = transactionOriginalGrossCents(transaction);
+  const originalFeeCents = Number(
+    transaction.valorTaxaCentavos
+      ?? transaction.cartao?.valorTaxaCentavos
+      ?? toCents(transaction.valorTaxa),
+  );
+
+  if (originalGrossCents <= 0 || currentGrossCents === originalGrossCents) {
+    return Math.max(0, originalFeeCents);
+  }
+
+  return Math.max(0, Math.round(currentGrossCents * (originalFeeCents / originalGrossCents)));
+};
+
+export const transactionNetCents = (transaction: FinancialTransactionValue) => {
+  const currentGrossCents = transactionGrossCents(transaction);
+  const originalGrossCents = transactionOriginalGrossCents(transaction);
+  const hasExplicitNet = transaction.valorLiquidoCentavos !== undefined
+    || transaction.cartao?.valorLiquidoCentavos !== undefined
+    || transaction.valorLiquido !== undefined;
+  if (!hasExplicitNet) {
+    return Math.max(0, currentGrossCents - transactionFeeCents(transaction));
+  }
+  const originalNetCents = Number(
+    transaction.valorLiquidoCentavos
+      ?? transaction.cartao?.valorLiquidoCentavos
+      ?? toCents(transaction.valorLiquido),
+  );
+
+  if (originalGrossCents <= 0 || currentGrossCents === originalGrossCents) {
+    return Math.max(0, originalNetCents);
+  }
+
+  return Math.max(0, Math.round(currentGrossCents * (originalNetCents / originalGrossCents)));
+};
+
+export const transactionGrossAmount = (transaction: FinancialTransactionValue) => fromCents(transactionGrossCents(transaction));
+export const transactionFeeAmount = (transaction: FinancialTransactionValue) => fromCents(transactionFeeCents(transaction));
+export const transactionNetAmount = (transaction: FinancialTransactionValue) => fromCents(transactionNetCents(transaction));

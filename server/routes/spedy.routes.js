@@ -16,7 +16,7 @@ const TYPE_PATHS = {
 
 const canUseFiscal = (user, action = 'emit') => {
   if (!user) return false;
-  if (user.role === 'SuperAdmin' || user.role === 'Admin') return true;
+  if (user.isPlatformAdmin || user.isTenantManager) return true;
   const permissions = Array.isArray(user.permissoes) ? user.permissoes : [];
   return action === 'delete'
     ? permissions.includes('fiscal.excluir')
@@ -25,7 +25,7 @@ const canUseFiscal = (user, action = 'emit') => {
 
 const resolveTenantId = (req) => {
   const requestedTenantId = req.query.tenantId || req.body?.tenantId;
-  if (req.user.role === 'SuperAdmin') return requestedTenantId || req.user.tenantId;
+  if (req.user.isPlatformAdmin) return requestedTenantId || req.user.tenantId;
   return req.user.tenantId;
 };
 

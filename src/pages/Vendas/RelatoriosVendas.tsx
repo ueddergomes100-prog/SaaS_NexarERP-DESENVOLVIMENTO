@@ -1,533 +1,461 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  BarChart2, DollarSign, Package, XCircle, ShoppingCart, 
-  TrendingUp, Users, Target, Calendar, Download, 
-  ArrowUpRight, ArrowDownRight, Percent, Award, Briefcase, FileText
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  BarChart2,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Eye,
+  FilterX,
+  Loader2,
+  Search,
+  Users,
 } from 'lucide-react';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import StatCard from '../../components/Reports/StatCard';
-import ChartWrapper from '../../components/Reports/ChartWrapper';
-import ReportFilter from '../../components/Reports/ReportFilter';
-import { format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, isWithinInterval, parseISO, subMonths } from 'date-fns';
+import {
+  dateInputToUtcEnd,
+  dateInputToUtcStart,
+  formatDateInputPtBr,
+  getDateInputInTimeZone,
+} from '../../utils/dateTime';
+import { fromCents, toCents } from '../../utils/financeDomain';
 
-const COLORS = ['#8b5cf6', '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4'];
+const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const number = new Intl.NumberFormat('pt-BR');
+
+interface Filters {
+  startDate: string;
+  endDate: string;
+  sellerId: string;
+  customer: string;
+  paymentMethod: string;
+  paymentCondition: string;
+  status: string;
+  productId: string;
+  category: string;
+  minValue: string;
+  maxValue: string;
+}
+
+interface ReportData {
+  sales: any[];
+  transactions: any[];
+  users: Record<string, any>;
+  products: Record<string, any>;
+  returns: any[];
+}
+
+const initialFilters = (): Filters => {
+  const today = getDateInputInTimeZone();
+  return {
+    startDate: `${today.slice(0, 7)}-01`,
+    endDate: today,
+    sellerId: '',
+    customer: '',
+    paymentMethod: '',
+    paymentCondition: '',
+    status: '',
+    productId: '',
+    category: '',
+    minValue: '',
+    maxValue: '',
+  };
+};
+
+const toDate = (value: any): Date | null => {
+  if (!value) return null;
+  if (typeof value.toDate === 'function') return value.toDate();
+  if (value.seconds) return new Date(value.seconds * 1000);
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return dateInputToUtcStart(value);
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '10px 12px',
+  backgroundColor: 'var(--bg-tertiary)',
+  border: '1px solid var(--border-color)',
+  borderRadius: 'var(--radius-md)',
+  color: 'var(--text-primary)',
+};
 
 const RelatoriosVendas: React.FC = () => {
-  console.log('RelatoriosVendas mounting...');
-  const { tenantId } = useAuth();
+  const navigate = useNavigate();
+  const { tenantId, currentUser } = useAuth();
+  const [data, setData] = useState<ReportData>({ sales: [], transactions: [], users: {}, products: {}, returns: [] });
+  const [filters, setFilters] = useState<Filters>(initialFilters);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState('mes');
-  const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
-  const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
-  
-  const [data, setData] = useState<{
-    pedidos: any[];
-    orcamentos: any[];
-    estoque: Record<string, any>;
-    usuarios: Record<string, any>;
-  }>({
-    pedidos: [],
-    orcamentos: [],
-    estoque: {},
-    usuarios: {}
-  });
-
-  const carregarDados = async () => {
-    if (!tenantId) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      // Pedidos
-      const qVendas = query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId));
-      const snapVendas = await getDocs(qVendas);
-      const pedidos = snapVendas.docs.map(d => ({ id: d.id, ...d.data() }));
-
-      // Orçamentos (para conversão)
-      const qOrc = query(collection(db, 'orcamentos'), where('tenantId', '==', tenantId));
-      const snapOrc = await getDocs(qOrc);
-      const orcamentos = snapOrc.docs.map(d => ({ id: d.id, ...d.data() }));
-
-      // Estoque (para custo/lucro)
-      const qEst = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
-      const snapEst = await getDocs(qEst);
-      const estoque: Record<string, any> = {};
-      snapEst.forEach(d => { estoque[d.id] = d.data(); });
-
-      // Usuários
-      const qUser = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
-      const snapUser = await getDocs(qUser);
-      const usuarios: Record<string, any> = {};
-      snapUser.forEach(d => { usuarios[d.id] = d.data(); });
-
-      setData({ pedidos, orcamentos, estoque, usuarios });
-    } catch (err) {
-      console.error("Erro ao carregar dados dos relatórios:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [error, setError] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [sortBy, setSortBy] = useState<'date' | 'number' | 'customer' | 'seller' | 'value' | 'status'>('date');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
-    carregarDados();
-  }, [tenantId]);
+    let cancelled = false;
 
-  // Filtro de Período
-  const filteredData = useMemo(() => {
-    let start = startOfDay(new Date());
-    let end = endOfDay(new Date());
-
-    switch (period) {
-      case 'hoje':
-        start = startOfDay(new Date());
-        end = endOfDay(new Date());
-        break;
-      case 'ontem':
-        start = startOfDay(subDays(new Date(), 1));
-        end = endOfDay(subDays(new Date(), 1));
-        break;
-      case 'semana':
-        start = startOfDay(subDays(new Date(), 7));
-        end = endOfDay(new Date());
-        break;
-      case 'mes':
-        start = startOfMonth(new Date());
-        end = endOfMonth(new Date());
-        break;
-      case 'ano':
-        start = startOfYear(new Date());
-        end = endOfMonth(new Date());
-        break;
-      case 'personalizado':
-        start = startOfDay(parseISO(startDate));
-        end = endOfDay(parseISO(endDate));
-        break;
-    }
-
-    const pedidosFiltrados = data.pedidos.filter(p => {
-      const date = p.createdAt?.toDate ? p.createdAt.toDate() : null;
-      return date && isWithinInterval(date, { start, end });
-    });
-
-    const orcamentosFiltrados = data.orcamentos.filter(o => {
-      const date = o.createdAt?.toDate ? o.createdAt.toDate() : null;
-      return date && isWithinInterval(date, { start, end });
-    });
-
-    return { pedidosFiltrados, orcamentosFiltrados };
-  }, [data, period, startDate, endDate]);
-
-  // Processamento de Métricas
-  const stats = useMemo(() => {
-    const { pedidosFiltrados, orcamentosFiltrados } = filteredData;
-    
-    let faturamentoBruto = 0;
-    let totalDescontos = 0;
-    let custoTotal = 0;
-    let qtdVendas = 0;
-    let qtdCanceladas = 0;
-    const porFormaPgto: Record<string, { valor: number, qtd: number }> = {};
-    const porVendedor: Record<string, { nome: string, total: number, qtd: number, lucro: number }> = {};
-    const porProduto: Record<string, { nome: string, qtd: number, total: number, lucro: number, estoque: number }> = {};
-    const timelineData: Record<string, { name: string, vendas: number, faturamento: number }> = {};
-
-    pedidosFiltrados.forEach(p => {
-      if (p.status === 'Cancelada') {
-        qtdCanceladas++;
+    const load = async () => {
+      if (!tenantId || !currentUser) {
+        setLoading(false);
         return;
       }
+      setLoading(true);
+      setError('');
+      try {
+        const tenantQuery = (name: string) => query(collection(db, name), where('tenantId', '==', tenantId));
+        const [salesSnap, transactionsSnap, usersSnap, productsSnap, returnsSnap] = await Promise.all([
+          getDocs(tenantQuery('pedidos_venda')),
+          getDocs(tenantQuery('transacoes')),
+          getDocs(tenantQuery('usuarios')),
+          getDocs(tenantQuery('estoque')),
+          getDocs(tenantQuery('devolucoes_venda')),
+        ]);
 
-      qtdVendas++;
-      const valor = Number(p.valorTotal) || 0;
-      const descontos = Number(p.valorTotalDescontos) || 0;
-      faturamentoBruto += valor;
-      totalDescontos += descontos;
+        if (cancelled) return;
+        const users: Record<string, any> = {};
+        usersSnap.forEach((document) => { users[document.id] = { id: document.id, ...document.data() }; });
+        const products: Record<string, any> = {};
+        productsSnap.forEach((document) => { products[document.id] = { id: document.id, ...document.data() }; });
 
-      // Timeline (agrupar por dia)
-      const dateKey = p.createdAt?.toDate ? format(p.createdAt.toDate(), 'dd/MM') : '---';
-      if (!timelineData[dateKey]) timelineData[dateKey] = { name: dateKey, vendas: 0, faturamento: 0 };
-      timelineData[dateKey].vendas += 1;
-      timelineData[dateKey].faturamento += valor;
-
-      // Forma de Pagamento
-      const pgto = p.formaPagamento || 'Não Informado';
-      if (!porFormaPgto[pgto]) porFormaPgto[pgto] = { valor: 0, qtd: 0 };
-      porFormaPgto[pgto].valor += valor;
-      porFormaPgto[pgto].qtd += 1;
-
-      // Vendedor (Baseado no usuarioResponsavelId ou similar)
-      const vendId = p.usuarioResponsavelId || 'admin';
-      const vendNome = data.usuarios[vendId]?.nome || data.usuarios[vendId]?.email || 'ADMINISTRADOR';
-      if (!porVendedor[vendId]) porVendedor[vendId] = { nome: vendNome, total: 0, qtd: 0, lucro: 0 };
-      porVendedor[vendId].total += valor;
-      porVendedor[vendId].qtd += 1;
-
-      // Itens (Produtos e Lucro)
-      if (p.itens && Array.isArray(p.itens)) {
-        p.itens.forEach((item: any) => {
-          const qtd = Number(item.quantidade) || 0;
-          const subtotal = Number(item.subtotal) || 0;
-          const custo = Number(data.estoque[item.id]?.precoCusto) || 0;
-          
-          const itemCusto = custo * qtd;
-          custoTotal += itemCusto;
-          
-          const itemLucro = subtotal - itemCusto;
-          if (porVendedor[vendId]) porVendedor[vendId].lucro += itemLucro;
-
-          const productId = item.id === 'avulso' ? `avulso_${item.nome}` : item.id;
-          if (!porProduto[productId]) {
-            porProduto[productId] = { 
-              nome: item.nome, 
-              qtd: 0, 
-              total: 0, 
-              lucro: 0, 
-              estoque: data.estoque[item.id]?.quantidade || 0 
-            };
-          }
-          porProduto[productId].qtd += qtd;
-          porProduto[productId].total += subtotal;
-          porProduto[productId].lucro += itemLucro;
+        setData({
+          sales: salesSnap.docs.map((document) => ({ id: document.id, ...document.data() })),
+          transactions: transactionsSnap.docs.map((document) => ({ id: document.id, ...document.data() })),
+          users,
+          products,
+          returns: returnsSnap.docs.map((document) => ({ id: document.id, ...document.data() })),
         });
+      } catch (loadError) {
+        console.error('Erro ao carregar relatório de vendas:', loadError);
+        if (!cancelled) setError('Não foi possível carregar o relatório. Verifique sua conexão e permissões.');
+      } finally {
+        if (!cancelled) setLoading(false);
       }
+    };
+
+    void load();
+    return () => { cancelled = true; };
+  }, [currentUser, tenantId]);
+
+  const options = useMemo(() => {
+    const customers = Array.from(new Set(data.sales.map((sale) => String(sale.clienteNome || '')).filter(Boolean))).sort();
+    const paymentMethods = Array.from(new Set(data.sales.flatMap((sale) => (
+      Array.isArray(sale.pagamentos) && sale.pagamentos.length > 0
+        ? sale.pagamentos.map((payment: any) => payment.formaPagamento)
+        : [sale.formaPagamento]
+    )).filter(Boolean))).sort();
+    const statuses = Array.from(new Set(data.sales.map((sale) => String(sale.status || '')).filter(Boolean))).sort();
+    const categories = Array.from(new Set(Object.values(data.products).map((product) => String(product.categoria || product.categoriaNome || '')).filter(Boolean))).sort();
+    return { customers, paymentMethods, statuses, categories };
+  }, [data]);
+
+  const enrichedSales = useMemo(() => {
+    const transactionsBySale = new Map<string, any[]>();
+    data.transactions.forEach((transaction) => {
+      const saleId = transaction.pedidoId || (transaction.sourceType === 'pedido_venda' ? transaction.sourceId : '');
+      if (!saleId) return;
+      const current = transactionsBySale.get(saleId) || [];
+      current.push(transaction);
+      transactionsBySale.set(saleId, current);
     });
 
-    // Conversão de Orçamentos
-    const totalOrc = orcamentosFiltrados.length;
-    const convertidos = orcamentosFiltrados.filter(o => o.status === 'Finalizado' || o.status === 'Convertido').length;
-    const recusados = orcamentosFiltrados.filter(o => o.status === 'Recusado').length;
-    const pendentesOrc = orcamentosFiltrados.filter(o => o.status === 'Pendente' || o.status === 'Aprovado').length;
-    const taxaConversao = totalOrc > 0 ? (convertidos / totalOrc) * 100 : 0;
+    const returnsBySale = new Map<string, number>();
+    data.returns
+      .filter((item) => item.status === 'concluida')
+      .forEach((item) => {
+        const saleId = item.pedidoVendaId || item.pedidoOrigemId;
+        if (saleId) {
+          returnsBySale.set(
+            saleId,
+            (returnsBySale.get(saleId) || 0) +
+              Number(item.valorTotalDevolvidoCentavos ?? toCents(item.valorTotalDevolvido)),
+          );
+        }
+      });
 
+    return data.sales.map((sale) => {
+      const saleTransactions = transactionsBySale.get(sale.id) || [];
+      const sellerId = sale.vendedorId || sale.usuarioResponsavelId || '';
+      const seller = data.users[sellerId];
+      const sellerName = sale.vendedorNome || seller?.nome || seller?.nomeResponsavel || seller?.email || 'Não identificado';
+      const grossCents = Number(sale.valorTotalItensCentavos ?? toCents(Number(sale.valorTotal || 0) + Number(sale.valorTotalDescontos || 0)));
+      const discountCents = Number(sale.valorTotalDescontosCentavos ?? toCents(sale.valorTotalDescontos));
+      const saleTotalCents = Number(sale.valorTotalCentavos ?? toCents(sale.valorTotal));
+      const returnedCents = returnsBySale.get(sale.id) || 0;
+      const cancelled = sale.status === 'Cancelada';
+      const netCents = cancelled ? 0 : Math.max(0, saleTotalCents - returnedCents);
+      const rawReceivedCents = cancelled ? 0 : saleTransactions
+        .filter((transaction) => transaction.tipo === 'entrada' && transaction.status === 'Paga')
+        .reduce((sum, transaction) => sum + Number(transaction.valorCentavos ?? toCents(transaction.valor)), 0);
+      const rawPendingCents = cancelled ? 0 : saleTransactions
+        .filter((transaction) => transaction.tipo === 'entrada' && transaction.status === 'Pendente')
+        .reduce((sum, transaction) => sum + Number(transaction.valorCentavos ?? toCents(transaction.valor)), 0);
+      const fallbackReceivedCents = Number(sale.totalRecebidoCentavos ?? toCents(sale.totalRecebido));
+      const fallbackPendingCents = Number(sale.totalPendenteCentavos ?? toCents(sale.totalPendente));
+      const receivedCents = cancelled
+        ? 0
+        : Math.min(netCents, rawReceivedCents || fallbackReceivedCents);
+      const pendingCents = cancelled
+        ? 0
+        : Math.min(Math.max(0, netCents - receivedCents), rawPendingCents || fallbackPendingCents);
+      const payments = Array.isArray(sale.pagamentos) && sale.pagamentos.length > 0
+        ? sale.pagamentos
+        : [{ formaPagamento: sale.formaPagamento || 'Não informado', condicaoPagamento: sale.condicaoPagamento || (String(sale.formaPagamento).includes('Prazo') ? 'aprazo' : 'avista'), valorCentavos: saleTotalCents }];
+      const paymentMethods = Array.from(new Set(payments.map((payment: any) => payment.formaPagamento).filter(Boolean)));
+      const paymentCondition = sale.condicaoPagamento || (payments.some((payment: any) => payment.condicaoPagamento === 'aprazo') ? 'aprazo' : 'avista');
+      const storedCardFeeCents = sale.totalTaxasPagamentoCentavos !== undefined
+        ? Number(sale.totalTaxasPagamentoCentavos)
+        : sale.totalTaxasPagamento !== undefined
+          ? toCents(sale.totalTaxasPagamento)
+          : payments.reduce((sum: number, payment: any) => (
+              sum + Number(payment.cartao?.valorTaxaCentavos ?? toCents(payment.cartao?.valorTaxa))
+            ), 0);
+      const cardFeeCents = cancelled ? 0 : Math.min(netCents, Math.max(0, storedCardFeeCents));
+      const financialNetCents = cancelled ? 0 : Math.max(0, netCents - cardFeeCents);
+      const commissionCents = cancelled ? 0 : Number(sale.comissao?.valorAtualCentavos ?? toCents(sale.comissao?.valorAtual));
+      const commissionStatus = sale.comissao?.status || 'legado_sem_snapshot';
+
+      return {
+        ...sale,
+        date: toDate(sale.dataVenda) || toDate(sale.createdAt),
+        sellerId,
+        sellerName,
+        grossCents,
+        discountCents,
+        saleTotalCents,
+        returnedCents,
+        netCents,
+        receivedCents,
+        pendingCents,
+        payments,
+        paymentMethods,
+        paymentCondition,
+        cardFeeCents,
+        financialNetCents,
+        commissionCents,
+        commissionStatus,
+        cancelled,
+      };
+    });
+  }, [data]);
+
+  const filteredSales = useMemo(() => {
+    const start = dateInputToUtcStart(filters.startDate);
+    const end = dateInputToUtcEnd(filters.endDate);
+    const minCents = filters.minValue ? toCents(filters.minValue) : null;
+    const maxCents = filters.maxValue ? toCents(filters.maxValue) : null;
+    const customerSearch = filters.customer.trim().toLowerCase();
+
+    const filtered = enrichedSales.filter((sale) => {
+      if (!sale.date || !start || !end || sale.date < start || sale.date > end) return false;
+      if (filters.sellerId && sale.sellerId !== filters.sellerId) return false;
+      if (customerSearch && !String(sale.clienteNome || '').toLowerCase().includes(customerSearch)) return false;
+      if (filters.paymentMethod && !sale.paymentMethods.includes(filters.paymentMethod)) return false;
+      if (filters.paymentCondition && sale.paymentCondition !== filters.paymentCondition) return false;
+      if (filters.status && sale.status !== filters.status) return false;
+      if (minCents !== null && sale.saleTotalCents < minCents) return false;
+      if (maxCents !== null && sale.saleTotalCents > maxCents) return false;
+      if (filters.productId && !(sale.itens || []).some((item: any) => item.id === filters.productId)) return false;
+      if (filters.category && !(sale.itens || []).some((item: any) => {
+        const product = data.products[item.id];
+        return String(product?.categoria || product?.categoriaNome || '') === filters.category;
+      })) return false;
+      return true;
+    });
+
+    const direction = sortDirection === 'asc' ? 1 : -1;
+    return filtered.sort((a, b) => {
+      let left: string | number = 0;
+      let right: string | number = 0;
+      if (sortBy === 'date') { left = a.date?.getTime() || 0; right = b.date?.getTime() || 0; }
+      if (sortBy === 'number') { left = String(a.numeroPedido || ''); right = String(b.numeroPedido || ''); }
+      if (sortBy === 'customer') { left = String(a.clienteNome || ''); right = String(b.clienteNome || ''); }
+      if (sortBy === 'seller') { left = a.sellerName; right = b.sellerName; }
+      if (sortBy === 'value') { left = a.saleTotalCents; right = b.saleTotalCents; }
+      if (sortBy === 'status') { left = String(a.status || ''); right = String(b.status || ''); }
+      return typeof left === 'number' && typeof right === 'number'
+        ? (left - right) * direction
+        : String(left).localeCompare(String(right), 'pt-BR') * direction;
+    });
+  }, [data.products, enrichedSales, filters, sortBy, sortDirection]);
+
+  const totals = useMemo(() => {
+    const valid = filteredSales.filter((sale) => !sale.cancelled);
+    const netCents = valid.reduce((sum, sale) => sum + sale.netCents, 0);
     return {
-      faturamentoBruto,
-      totalDescontos,
-      lucroLiquido: faturamentoBruto - custoTotal,
-      ticketMedio: qtdVendas > 0 ? faturamentoBruto / qtdVendas : 0,
-      qtdVendas,
-      qtdCanceladas,
-      taxaConversao,
-      totalOrc,
-      convertidos,
-      recusados,
-      pendentesOrc,
-      custoTotal,
-      porFormaPgto: Object.entries(porFormaPgto).map(([name, data]) => ({ name, value: data.valor, qtd: data.qtd })),
-      rankingVendedores: Object.values(porVendedor).sort((a, b) => b.total - a.total),
-      rankingProdutos: Object.values(porProduto).sort((a, b) => b.qtd - a.qtd).slice(0, 10),
-      timeline: Object.values(timelineData),
-      abcCurva: Object.values(porProduto).sort((a, b) => b.total - a.total)
+      count: valid.length,
+      cancelledCount: filteredSales.length - valid.length,
+      grossCents: valid.reduce((sum, sale) => sum + sale.grossCents, 0),
+      discountCents: valid.reduce((sum, sale) => sum + sale.discountCents, 0),
+      netCents,
+      receivedCents: valid.reduce((sum, sale) => sum + sale.receivedCents, 0),
+      pendingCents: valid.reduce((sum, sale) => sum + sale.pendingCents, 0),
+      cardFeeCents: valid.reduce((sum, sale) => sum + sale.cardFeeCents, 0),
+      financialNetCents: valid.reduce((sum, sale) => sum + sale.financialNetCents, 0),
+      commissionCents: valid.reduce((sum, sale) => sum + sale.commissionCents, 0),
+      averageCents: valid.length ? Math.round(netCents / valid.length) : 0,
     };
-  }, [filteredData, data]);
+  }, [filteredSales]);
 
-  const handleExportCSV = () => {
-    const headers = ['Data', 'Vendedor', 'Cliente', 'Valor', 'Status'];
-    const rows = filteredData.pedidosFiltrados.map(p => [
-      p.createdAt?.toDate ? format(p.createdAt.toDate(), 'dd/MM/yyyy HH:mm') : '',
-      data.usuarios[p.usuarioResponsavelId]?.nome || 'Admin',
-      p.clienteNome,
-      p.valorTotal,
-      p.status
-    ]);
-    
-    let csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + rows.map(e => e.join(",")).join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `relatorio_vendas_${period}.csv`);
-    document.body.appendChild(link);
-    link.click();
+  const sellerSummary = useMemo(() => {
+    const map = new Map<string, any>();
+    filteredSales.forEach((sale) => {
+      const id = sale.sellerId || 'nao_identificado';
+      const current = map.get(id) || {
+        id,
+        name: sale.sellerName,
+        sales: 0,
+        cancellations: 0,
+        grossCents: 0,
+        discountCents: 0,
+        netCents: 0,
+        receivedCents: 0,
+        pendingCents: 0,
+        cardFeeCents: 0,
+        financialNetCents: 0,
+        commissionCents: 0,
+        payments: {} as Record<string, number>,
+      };
+      if (sale.cancelled) {
+        current.cancellations += 1;
+      } else {
+        current.sales += 1;
+        current.grossCents += sale.grossCents;
+        current.discountCents += sale.discountCents;
+        current.netCents += sale.netCents;
+        current.receivedCents += sale.receivedCents;
+        current.pendingCents += sale.pendingCents;
+        current.cardFeeCents += sale.cardFeeCents;
+        current.financialNetCents += sale.financialNetCents;
+        current.commissionCents += sale.commissionCents;
+        sale.payments.forEach((payment: any) => {
+          const method = payment.formaPagamento || 'Não informado';
+          current.payments[method] = (current.payments[method] || 0) + Number(payment.valorCentavos ?? toCents(payment.valor));
+        });
+      }
+      map.set(id, current);
+    });
+    return Array.from(map.values()).sort((a, b) => b.financialNetCents - a.financialNetCents);
+  }, [filteredSales]);
+
+  useEffect(() => { setPage(1); }, [filters, pageSize, sortBy, sortDirection]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSales.length / pageSize));
+  const pagedSales = filteredSales.slice((page - 1) * pageSize, page * pageSize);
+
+  const setFilter = (key: keyof Filters, value: string) => setFilters((current) => ({ ...current, [key]: value }));
+
+  const clearFilters = () => {
+    setFilters(initialFilters());
+    setSortBy('date');
+    setSortDirection('desc');
   };
 
-  if (loading) return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px' }}>
-      <div className="spin-icon" style={{ width: '40px', height: '40px', border: '4px solid var(--accent-purple)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-      <p style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Processando inteligência de vendas...</p>
-    </div>
-  );
+  const exportCsv = () => {
+    const headers = ['Pedido', 'Data', 'Cliente', 'Vendedor', 'Bruto', 'Desconto', 'Venda líquida', 'Taxas de cartão', 'Receita líquida', 'Pagamento', 'Condição', 'Status', 'Recebido', 'Pendente', 'Comissão'];
+    const rows = filteredSales.map((sale) => [
+      sale.numeroPedido,
+      sale.date ? sale.date.toLocaleString('pt-BR') : '',
+      sale.clienteNome,
+      sale.sellerName,
+      fromCents(sale.grossCents).toFixed(2),
+      fromCents(sale.discountCents).toFixed(2),
+      fromCents(sale.netCents).toFixed(2),
+      fromCents(sale.cardFeeCents).toFixed(2),
+      fromCents(sale.financialNetCents).toFixed(2),
+      sale.paymentMethods.join(' + '),
+      sale.paymentCondition === 'aprazo' ? 'A prazo' : 'À vista',
+      sale.status,
+      fromCents(sale.receivedCents).toFixed(2),
+      fromCents(sale.pendingCents).toFixed(2),
+      fromCents(sale.commissionCents).toFixed(2),
+    ]);
+    const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(';')).join('\n')}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `relatorio-vendas-${filters.startDate}-${filters.endDate}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  if (loading) {
+    return <div style={{ minHeight: '60vh', display: 'grid', placeItems: 'center', color: 'var(--text-muted)' }}><Loader2 className="spin-icon" size={38} /></div>;
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', paddingBottom: '40px' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: '26px', fontWeight: 800, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <BarChart2 size={32} color="var(--accent-purple)" />
-            Relatórios Estratégicos de Vendas
-          </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '15px' }}>Análise detalhada de performance, faturamento e conversão</p>
+          <h1 style={{ fontSize: '26px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}><BarChart2 color="var(--accent-purple)" /> Relatório de Vendas</h1>
+          <p style={{ color: 'var(--text-muted)' }}>Empresa ativa: dados isolados por tenant • Período {formatDateInputPtBr(filters.startDate)} a {formatDateInputPtBr(filters.endDate)}</p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FileText size={18} /> PDF
-          </button>
-          <button className="btn-secondary" onClick={handleExportCSV} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Download size={18} /> Excel (CSV)
-          </button>
-        </div>
+        <button className="btn-secondary" onClick={exportCsv} disabled={filteredSales.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Download size={18} /> Exportar CSV filtrado</button>
       </div>
 
-      {/* Filters */}
-      <ReportFilter 
-        period={period} 
-        setPeriod={setPeriod} 
-        startDate={startDate} 
-        setStartDate={setStartDate} 
-        endDate={endDate} 
-        setEndDate={setEndDate}
-        onSearch={carregarDados}
-      />
+      {error && <div role="alert" style={{ padding: '14px 16px', backgroundColor: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.3)', color: '#fecaca', borderRadius: '8px' }}>{error}</div>}
 
-      {/* Primary Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
-        <StatCard 
-          title="Faturamento Bruto" 
-          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.faturamentoBruto)} 
-          icon={DollarSign} 
-          color="#10b981" 
-          subtitle={`${stats.qtdVendas} vendas realizadas`}
-        />
-        <StatCard 
-          title="Lucro Líquido Estimado" 
-          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.lucroLiquido)} 
-          icon={TrendingUp} 
-          color="#8b5cf6" 
-          subtitle={`Margem de ${stats.faturamentoBruto > 0 ? ((stats.lucroLiquido / stats.faturamentoBruto) * 100).toFixed(1) : 0}%`}
-        />
-        <StatCard 
-          title="Ticket Médio" 
-          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.ticketMedio)} 
-          icon={Target} 
-          color="#3b82f6" 
-        />
-        <StatCard 
-          title="Taxa de Conversão" 
-          value={`${stats.taxaConversao.toFixed(1)}%`} 
-          icon={Percent} 
-          color="#f59e0b" 
-          subtitle={`${stats.convertidos} de ${stats.totalOrc} orçamentos`}
-        />
-      </div>
+      <section className="card" style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px' }}>
+          <label className="input-group"><span>Data inicial</span><input style={inputStyle} type="date" value={filters.startDate} onChange={(event) => setFilter('startDate', event.target.value)} /></label>
+          <label className="input-group"><span>Data final</span><input style={inputStyle} type="date" value={filters.endDate} onChange={(event) => setFilter('endDate', event.target.value)} /></label>
+          <label className="input-group"><span>Vendedor</span><select style={inputStyle} value={filters.sellerId} onChange={(event) => setFilter('sellerId', event.target.value)}><option value="">Todos</option>{Object.values(data.users).sort((a: any, b: any) => String(a.nome || '').localeCompare(String(b.nome || ''))).map((user: any) => <option key={user.id} value={user.id}>{user.nome || user.nomeResponsavel || user.email}</option>)}</select></label>
+          <label className="input-group"><span>Cliente</span><input style={inputStyle} list="sales-customers" value={filters.customer} placeholder="Nome do cliente" onChange={(event) => setFilter('customer', event.target.value)} /><datalist id="sales-customers">{options.customers.map((customer) => <option key={customer} value={customer} />)}</datalist></label>
+          <label className="input-group"><span>Forma de pagamento</span><select style={inputStyle} value={filters.paymentMethod} onChange={(event) => setFilter('paymentMethod', event.target.value)}><option value="">Todas</option>{options.paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label>
+          <label className="input-group"><span>Condição</span><select style={inputStyle} value={filters.paymentCondition} onChange={(event) => setFilter('paymentCondition', event.target.value)}><option value="">Todas</option><option value="avista">À vista</option><option value="aprazo">A prazo</option></select></label>
+          <label className="input-group"><span>Status</span><select style={inputStyle} value={filters.status} onChange={(event) => setFilter('status', event.target.value)}><option value="">Todos</option>{options.statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
+          <label className="input-group"><span>Produto</span><select style={inputStyle} value={filters.productId} onChange={(event) => setFilter('productId', event.target.value)}><option value="">Todos</option>{Object.values(data.products).sort((a: any, b: any) => String(a.nome || '').localeCompare(String(b.nome || ''))).map((product: any) => <option key={product.id} value={product.id}>{product.nome}</option>)}</select></label>
+          <label className="input-group"><span>Categoria</span><select style={inputStyle} value={filters.category} onChange={(event) => setFilter('category', event.target.value)}><option value="">Todas</option>{options.categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+          <label className="input-group"><span>Valor mínimo</span><input style={inputStyle} type="number" min="0" step="0.01" value={filters.minValue} onChange={(event) => setFilter('minValue', event.target.value)} /></label>
+          <label className="input-group"><span>Valor máximo</span><input style={inputStyle} type="number" min="0" step="0.01" value={filters.maxValue} onChange={(event) => setFilter('maxValue', event.target.value)} /></label>
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}><button type="button" className="btn-secondary" onClick={clearFilters} style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}><FilterX size={17} /> Limpar filtros</button></div>
+        </div>
+      </section>
 
-      {/* Charts Section 1 */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px' }}>
-        <ChartWrapper title="Evolução de Vendas (Faturamento por Dia)" icon={TrendingUp}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={stats.timeline}>
-                <defs>
-                  <linearGradient id="colorFat" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
-                <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value: number) => `R$${value}`} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px' }}
-                  itemStyle={{ color: 'var(--text-primary)' }}
-                />
-                <Area type="monotone" dataKey="faturamento" stroke="#8b5cf6" fillOpacity={1} fill="url(#colorFat)" strokeWidth={3} />
-              </AreaChart>
-            </ResponsiveContainer>
-        </ChartWrapper>
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px' }}>
+        {[
+          ['Vendas válidas', number.format(totals.count)],
+          ['Venda líquida', currency.format(fromCents(totals.netCents))],
+          ['Taxas de cartão', currency.format(fromCents(totals.cardFeeCents))],
+          ['Receita líquida', currency.format(fromCents(totals.financialNetCents))],
+          ['Ticket médio', currency.format(fromCents(totals.averageCents))],
+          ['Descontos', currency.format(fromCents(totals.discountCents))],
+          ['Recebido', currency.format(fromCents(totals.receivedCents))],
+          ['Pendente', currency.format(fromCents(totals.pendingCents))],
+          ['Canceladas', number.format(totals.cancelledCount)],
+          ['Comissões registradas', currency.format(fromCents(totals.commissionCents))],
+        ].map(([label, value]) => <div key={label} className="card" style={{ padding: '18px', backgroundColor: 'var(--bg-secondary)' }}><span style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{label}</span><strong style={{ display: 'block', marginTop: '7px', fontSize: '21px' }}>{value}</strong></div>)}
+      </section>
 
-        <ChartWrapper title="Faturamento por Pagamento" icon={DollarSign} height={300}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={stats.porFormaPgto}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {stats.porFormaPgto.map((entry: any, index: number) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend verticalAlign="bottom" height={36}/>
-              </PieChart>
-            </ResponsiveContainer>
-        </ChartWrapper>
-      </div>
+      <section className="card" style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
+        <h2 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}><Users size={20} color="var(--accent-purple)" /> Vendas por vendedor</h2>
+        <div className="table-wrapper"><table className="data-table"><thead><tr><th>Vendedor</th><th>Vendas</th><th>Bruto</th><th>Descontos</th><th>Cancel.</th><th>Venda líquida</th><th>Taxas cartão</th><th>Receita líquida</th><th>Ticket médio</th><th>Recebido</th><th>A receber</th><th>Pagamentos</th><th>Comissão</th></tr></thead><tbody>
+          {sellerSummary.length === 0 ? <tr><td colSpan={13} style={{ textAlign: 'center', padding: '32px' }}>Nenhuma venda encontrada para os filtros.</td></tr> : sellerSummary.map((seller) => <tr key={seller.id} onClick={() => seller.id !== 'nao_identificado' && setFilter('sellerId', seller.id)} style={{ cursor: seller.id !== 'nao_identificado' ? 'pointer' : 'default' }}><td><strong>{seller.name}</strong></td><td>{seller.sales}</td><td>{currency.format(fromCents(seller.grossCents))}</td><td>{currency.format(fromCents(seller.discountCents))}</td><td>{seller.cancellations}</td><td>{currency.format(fromCents(seller.netCents))}</td><td>{currency.format(fromCents(seller.cardFeeCents))}</td><td>{currency.format(fromCents(seller.financialNetCents))}</td><td>{currency.format(fromCents(seller.sales ? Math.round(seller.netCents / seller.sales) : 0))}</td><td>{currency.format(fromCents(seller.receivedCents))}</td><td>{currency.format(fromCents(seller.pendingCents))}</td><td style={{ maxWidth: '220px', fontSize: '12px' }}>{Object.entries(seller.payments).map(([method, value]) => `${method}: ${currency.format(fromCents(Number(value)))}`).join(' • ') || '-'}</td><td>{currency.format(fromCents(seller.commissionCents))}</td></tr>)}
+        </tbody></table></div>
+      </section>
 
-      {/* Ranking Section */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
-        {/* Ranking Vendedores */}
-        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Award size={22} color="#f59e0b" /> Ranking de Vendedores
-            </h3>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {stats.rankingVendedores.map((vend, idx) => (
-              <div key={idx} style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '16px', 
-                padding: '16px', 
-                backgroundColor: 'var(--bg-tertiary)', 
-                borderRadius: '12px',
-                border: idx === 0 ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid transparent'
-              }}>
-                <div style={{ 
-                  width: '32px', height: '32px', borderRadius: '50%', backgroundColor: idx === 0 ? '#f59e0b' : 'var(--border-color)', 
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '14px',
-                  color: idx === 0 ? 'white' : 'var(--text-primary)' 
-                }}>
-                  {idx + 1}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: '15px' }}>{vend.nome}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{vend.qtd} pedidos realizados</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontWeight: 800, color: '#10b981' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(vend.total)}</div>
-                  <div style={{ fontSize: '11px', color: '#8b5cf6', fontWeight: 600 }}>LUCRO: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(vend.lucro)}</div>
-                </div>
-              </div>
-            ))}
-            {stats.rankingVendedores.length === 0 && <p style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>Nenhum vendedor com dados.</p>}
+      <section className="card" style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '12px', flexWrap: 'wrap', marginBottom: '16px' }}>
+          <div><h2 style={{ fontSize: '18px', marginBottom: '4px' }}>Detalhamento das vendas</h2><span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{filteredSales.length} registros filtrados; totais consideram todas as páginas.</span></div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <select style={inputStyle} value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}><option value="date">Ordenar: Data</option><option value="number">Número</option><option value="customer">Cliente</option><option value="seller">Vendedor</option><option value="value">Valor</option><option value="status">Status</option></select>
+            <select style={inputStyle} value={sortDirection} onChange={(event) => setSortDirection(event.target.value as 'asc' | 'desc')}><option value="desc">Decrescente</option><option value="asc">Crescente</option></select>
           </div>
         </div>
-
-        {/* Top Produtos */}
-        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Package size={22} color="#3b82f6" /> Top 10 Produtos Mais Vendidos
-            </h3>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
-                  <th style={{ padding: '12px 8px' }}>Produto</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'center' }}>Vendas</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'right' }}>Receita</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'right' }}>Lucro</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.rankingProdutos.map((p, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    <td style={{ padding: '12px 8px', fontWeight: 500 }}>{p.nome}</td>
-                    <td style={{ padding: '12px 8px', textAlign: 'center' }}>
-                      <span style={{ backgroundColor: 'var(--bg-tertiary)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>{p.qtd}</span>
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.total)}</td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', color: '#8b5cf6', fontWeight: 600 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.lucro)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="table-wrapper"><table className="data-table"><thead><tr><th>Pedido</th><th>Data e hora</th><th>Cliente</th><th>Vendedor</th><th>Bruto</th><th>Desconto</th><th>Venda líquida</th><th>Taxas cartão</th><th>Receita líquida</th><th>Pagamento</th><th>Condição</th><th>Status</th><th>Recebido</th><th>Pendente</th><th>Comissão</th><th></th></tr></thead><tbody>
+          {pagedSales.length === 0 ? <tr><td colSpan={16} style={{ textAlign: 'center', padding: '40px' }}><Search size={34} style={{ opacity: .3, marginBottom: '8px' }} /><div>Nenhuma venda encontrada.</div></td></tr> : pagedSales.map((sale) => <tr key={sale.id} style={{ opacity: sale.cancelled ? .65 : 1 }}><td>#{sale.numeroPedido || sale.id.slice(0, 6)}</td><td>{sale.date?.toLocaleString('pt-BR') || '-'}</td><td>{sale.clienteNome || '-'}</td><td>{sale.sellerName}</td><td>{currency.format(fromCents(sale.grossCents))}</td><td>{currency.format(fromCents(sale.discountCents))}</td><td>{currency.format(fromCents(sale.netCents))}</td><td>{currency.format(fromCents(sale.cardFeeCents))}</td><td>{currency.format(fromCents(sale.financialNetCents))}</td><td>{sale.paymentMethods.join(' + ')}</td><td>{sale.paymentCondition === 'aprazo' ? 'A prazo' : 'À vista'}</td><td>{sale.status}</td><td>{currency.format(fromCents(sale.receivedCents))}</td><td>{currency.format(fromCents(sale.pendingCents))}</td><td title={sale.commissionStatus === 'legado_sem_snapshot' ? 'Venda antiga sem snapshot histórico' : sale.commissionStatus}>{currency.format(fromCents(sale.commissionCents))}</td><td><button className="icon-btn" title="Abrir venda original" onClick={() => navigate(`/pedidos-venda/visualizar/${sale.id}`)}><Eye size={17} /></button></td></tr>)}
+        </tbody></table></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
+          <label style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Linhas por página <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} style={{ ...inputStyle, width: 'auto', marginLeft: '8px' }}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option></select></label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><button className="icon-btn" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft size={18} /></button><span style={{ fontSize: '13px' }}>Página {Math.min(page, totalPages)} de {totalPages}</span><button className="icon-btn" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}><ChevronRight size={18} /></button></div>
         </div>
-      </div>
-
-      {/* Operational Analysis */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
-        {/* Cancelamentos */}
-        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', borderTop: '4px solid #ef4444' }}>
-          <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '16px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <XCircle size={18} /> Cancelamentos e Perdas
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '12px' }}>
-              <div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>PEDIDOS CANCELADOS</div>
-                <div style={{ fontSize: '24px', fontWeight: 800 }}>{stats.qtdCanceladas}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>VALOR PERDIDO ESTIMADO</div>
-                <div style={{ fontSize: '24px', fontWeight: 800, color: '#ef4444' }}>
-                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(data.pedidos.filter(p => p.status === 'Cancelada').reduce((acc, p) => acc + (Number(p.valorTotal) || 0), 0))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Orçamentos em Aberto */}
-        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', borderTop: '4px solid #f59e0b' }}>
-          <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '16px', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Target size={18} /> Pipeline de Orçamentos
-          </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <div style={{ padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '8px', textAlign: 'center' }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>PENDENTES</div>
-              <div style={{ fontSize: '18px', fontWeight: 800 }}>{stats.pendentesOrc}</div>
-            </div>
-            <div style={{ padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '8px', textAlign: 'center' }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>RECUSADOS</div>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: '#ef4444' }}>{stats.recusados}</div>
-            </div>
-            <div style={{ padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '8px', textAlign: 'center', gridColumn: 'span 2' }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>VALOR EM POTENCIAL (ORÇAMENTOS EM ABERTO)</div>
-              <div style={{ fontSize: '20px', fontWeight: 800, color: '#f59e0b' }}>
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(filteredData.orcamentosFiltrados.filter(o => o.status === 'Pendente' || o.status === 'Aprovado').reduce((acc, o) => acc + (Number(o.valorTotal) || 0), 0))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Analytics Section - ABC and Dead Stock */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
-        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Package size={22} color="#ec4899" /> Produtos sem Movimentação (Estoque Parado)
-          </h3>
-          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '20px' }}>
-            Estes produtos estão cadastrados no estoque mas não tiveram nenhuma venda no período selecionado.
-          </p>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
-                  <th style={{ padding: '12px 8px' }}>Produto</th>
-                  <th style={{ padding: '12px 8px' }}>Categoria</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'center' }}>Qtd. Atual</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'right' }}>Valor em Estoque (Custo)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(data.estoque)
-                  .filter(([id]) => !stats.rankingProdutos.some(rp => rp.nome === data.estoque[id].nome))
-                  .slice(0, 10)
-                  .map(([id, p], i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      <td style={{ padding: '12px 8px', fontWeight: 500 }}>{p.nome}</td>
-                      <td style={{ padding: '12px 8px' }}>{p.categoria || 'Diversos'}</td>
-                      <td style={{ padding: '12px 8px', textAlign: 'center' }}>
-                        <span style={{ color: p.quantidade <= (p.estoqueMinimo || 0) ? '#ef4444' : 'inherit', fontWeight: 600 }}>
-                          {p.quantidade}
-                        </span>
-                      </td>
-                      <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((p.precoCusto || 0) * p.quantidade)}
-                      </td>
-                    </tr>
-                  ))}
-                {Object.keys(data.estoque).length === 0 && (
-                   <tr>
-                    <td colSpan={4} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>Sem dados de estoque.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      </section>
     </div>
   );
 };

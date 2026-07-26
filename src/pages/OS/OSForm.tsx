@@ -7,6 +7,24 @@ import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showSuccess, showError } from '../../utils/alerts';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
+import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
+import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
+import {
+  buildServiceOrderCommissionSnapshot,
+  cancelCommissionSnapshot,
+  createEmptyPaymentDraft,
+  fromCents,
+  normalizeCreditCardFeeSchedule,
+  normalizePayments,
+  parseCreditTerms,
+  summarizePayments,
+  toCents,
+  transactionMovesPhysicalCash,
+  type PaymentDraft,
+  type PaymentMethod,
+  type PaymentRecord,
+} from '../../utils/financeDomain';
 import './OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
@@ -54,6 +72,19 @@ const OSForm: React.FC = () => {
     mecanicoNome: '',
     orcamentoId: '',
   });
+  const paymentDraftCounter = useRef(1);
+  const submitLockRef = useRef(false);
+  const [paymentDrafts, setPaymentDrafts] = useState<PaymentDraft[]>([
+    createEmptyPaymentDraft('pagamento-1', 0),
+  ]);
+  const [financeConfig, setFinanceConfig] = useState<PaymentFinanceConfig>({
+    defaultTermDays: 30,
+    maxCreditInstallments: 12,
+    creditFeePercentByInstallment: normalizeCreditCardFeeSchedule(null),
+    debitFeePercent: 0,
+    creditSettlementDays: 30,
+    debitSettlementDays: 1,
+  });
 
   const [mecanicosDisponiveis, setMecanicosDisponiveis] = useState<{id: string, nome: string}[]>([]);
 
@@ -86,10 +117,14 @@ const OSForm: React.FC = () => {
 
   useEffect(() => {
     const isConsumidorFinal = formData.clienteNome.toLowerCase().includes('consumidor final');
-    if (isConsumidorFinal && formData.formaPagamento !== 'Dinheiro' && formData.formaPagamento !== 'Pix') {
-      setFormData(prev => ({ ...prev, formaPagamento: 'Dinheiro' }));
-    }
-  }, [formData.clienteNome, formData.formaPagamento]);
+    if (!isConsumidorFinal) return;
+
+    setPaymentDrafts((current) => current.map((payment) => (
+      payment.forma === 'Dinheiro' || payment.forma === 'Pix'
+        ? payment
+        : { ...payment, forma: 'Dinheiro', parcelas: '1', dataVencimento: '' }
+    )));
+  }, [formData.clienteNome]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -155,7 +190,31 @@ const OSForm: React.FC = () => {
         const configRef = doc(db, 'configuracoes', tenantId);
         const configSnap = await getDoc(configRef);
         if (configSnap.exists()) {
-          setPermitirVendaSemEstoque(configSnap.data().venderSemEstoque === true);
+          const config = configSnap.data();
+          setPermitirVendaSemEstoque(config.venderSemEstoque === true);
+          const configuredTerms = parseCreditTerms(config.diasCrediario);
+          const defaultTermDays = configuredTerms[0] || 30;
+          const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
+          const debitSettlementDays = config.prazoRecebimentoCartaoDebitoDias ?? 1;
+          setFinanceConfig({
+            defaultTermDays,
+            maxCreditInstallments: Math.min(12, Math.max(1, Number(config.maxParcelasCartao ?? 12) || 12)),
+            creditFeePercentByInstallment: normalizeCreditCardFeeSchedule(
+              config.taxasCartaoCreditoPorParcela,
+              config.taxaCartaoCreditoPercentual || 0,
+            ),
+            debitFeePercent: Math.max(0, Number(config.taxaCartaoDebitoPercentual || 0)),
+            creditSettlementDays: creditSettlementDays === ''
+              ? 30
+              : Math.max(0, Number(creditSettlementDays)),
+            debitSettlementDays: debitSettlementDays === ''
+              ? 1
+              : Math.max(0, Number(debitSettlementDays)),
+          });
+          setPaymentDrafts((current) => current.map((payment) => ({
+            ...payment,
+            prazoDias: payment.prazoDias === '30' ? String(defaultTermDays) : payment.prazoDias,
+          })));
         }
       } catch (err) { console.error(err); }
 
@@ -204,6 +263,26 @@ const OSForm: React.FC = () => {
             });
             setServicosSelecionados(os.servicos || []);
             setPecasSelecionadas(os.pecas || []);
+            if (Array.isArray(os.pagamentos) && os.pagamentos.length > 0) {
+              setPaymentDrafts(os.pagamentos.map((payment: PaymentRecord, index: number) => ({
+                id: payment.id || `pagamento-${index + 1}`,
+                forma: payment.formaPagamento || 'Outros',
+                valor: fromCents(Number(payment.valorCentavos ?? toCents(payment.valor))).toFixed(2),
+                prazoDias: String(payment.prazoDias || ''),
+                dataVencimento: payment.dataVencimento || '',
+                bandeira: payment.cartao?.bandeira || '',
+                operadora: payment.cartao?.operadora || '',
+                autorizacao: payment.cartao?.autorizacao || '',
+                parcelas: String(payment.cartao?.parcelas || 1),
+                dataPrevistaRecebimento: payment.dataPrevistaRecebimento || payment.cartao?.dataPrevistaRecebimento || '',
+              })));
+              paymentDraftCounter.current = os.pagamentos.length;
+            } else {
+              setPaymentDrafts([{
+                ...createEmptyPaymentDraft('pagamento-1', toCents(os.valorTotal || 0)),
+                forma: (os.formaPagamento || 'Outros') as PaymentMethod,
+              }]);
+            }
           } else {
             showError('Erro', 'OS não encontrada.');
             navigate('/os');
@@ -274,6 +353,16 @@ const OSForm: React.FC = () => {
     if (name === 'mecanicoId') {
       const mecEncontrado = mecanicosDisponiveis.find(m => m.id === value);
       setFormData({ ...formData, mecanicoId: value, mecanicoNome: mecEncontrado ? mecEncontrado.nome : '' });
+      return;
+    }
+    if (name === 'status') {
+      setFormData({
+        ...formData,
+        status: value,
+        dataSaida: value === 'Finalizada' && !formData.dataSaida
+          ? getDateInputInTimeZone()
+          : formData.dataSaida,
+      });
       return;
     }
     setFormData({ ...formData, [name]: value });
@@ -430,6 +519,44 @@ const OSForm: React.FC = () => {
   const totalServicos = servicosSelecionados.reduce((acc, curr) => acc + getServiceTotal(curr), 0);
   const totalPecas = pecasSelecionadas.reduce((acc, curr) => acc + (curr.preco * curr.quantidade), 0);
   const totalOS = totalServicos + totalPecas;
+  const totalOSCentavos = toCents(totalOS);
+  const paymentDate = formData.dataSaida || getDateInputInTimeZone();
+
+  useEffect(() => {
+    if (paymentDrafts.length !== 1) return;
+    const expectedValue = fromCents(totalOSCentavos).toFixed(2);
+    setPaymentDrafts((current) => (
+      current.length === 1 && current[0].valor !== expectedValue
+        ? [{ ...current[0], valor: expectedValue }]
+        : current
+    ));
+  }, [paymentDrafts.length, totalOSCentavos]);
+
+  const updatePaymentDraft = (paymentId: string, updates: Partial<PaymentDraft>) => {
+    setPaymentDrafts((current) => current.map((payment) => (
+      payment.id === paymentId ? { ...payment, ...updates } : payment
+    )));
+  };
+
+  const addPaymentDraft = () => {
+    const usedCents = paymentDrafts.reduce((sum, payment) => sum + toCents(payment.valor), 0);
+    const remainingCents = Math.max(0, totalOSCentavos - usedCents);
+    paymentDraftCounter.current += 1;
+    setPaymentDrafts((current) => [
+      ...current,
+      createEmptyPaymentDraft(
+        `pagamento-${paymentDraftCounter.current}`,
+        remainingCents,
+        financeConfig.defaultTermDays,
+      ),
+    ]);
+  };
+
+  const removePaymentDraft = (paymentId: string) => {
+    setPaymentDrafts((current) => current.length > 1
+      ? current.filter((payment) => payment.id !== paymentId)
+      : current);
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -444,16 +571,38 @@ const OSForm: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitLockRef.current) return;
+    if (!currentUser || !tenantId) return;
     if (!formData.clienteNome || !formData.placa) {
       showError('Campos incompletos', 'Por favor, preencha o Nome do Cliente e a Placa.');
       return;
     }
 
+    let paymentRecords: PaymentRecord[] = [];
+    let paymentSummary: ReturnType<typeof summarizePayments> | null = null;
+    if (formData.status === 'Finalizada') {
+      try {
+        paymentRecords = normalizePayments(totalOSCentavos, paymentDrafts, {
+          saleDate: paymentDate,
+          operationLabel: 'OS',
+          maxCreditInstallments: financeConfig.maxCreditInstallments || undefined,
+          creditFeePercentByInstallment: financeConfig.creditFeePercentByInstallment,
+          debitFeePercent: financeConfig.debitFeePercent,
+          creditSettlementDays: financeConfig.creditSettlementDays,
+          debitSettlementDays: financeConfig.debitSettlementDays,
+        });
+        paymentSummary = summarizePayments(paymentRecords);
+      } catch (error) {
+        showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os dados do pagamento.');
+        return;
+      }
+    }
+
+    submitLockRef.current = true;
     setIsLoading(true);
 
     try {
       // 1. Check and Create Client if new
-      if (!currentUser || !tenantId) return;
       const clienteExiste = clientesDisponiveis.some(c => c.nome.toUpperCase() === formData.clienteNome.toUpperCase().trim());
       if (!clienteExiste && formData.clienteNome.trim()) {
         const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
@@ -488,7 +637,6 @@ const OSForm: React.FC = () => {
         }
       }
 
-      let osId = id;
       let finalNumeroOS = formData.numeroOS;
       const currentMaxOs = !isEditing
         ? await getCurrentMaxSequence(db, 'ordens_de_servico', tenantId, 'numeroOS').catch(() => 0)
@@ -500,6 +648,32 @@ const OSForm: React.FC = () => {
           nextOs = await getNextTenantSequenceValue(transaction, db, tenantId, 'ordens_de_servico', currentMaxOs);
           finalNumeroOS = formatSequenceValue(nextOs, 2);
         }
+
+        const osRef = isEditing && id ? doc(db, 'ordens_de_servico', id) : doc(collection(db, 'ordens_de_servico'));
+        const existingOsSnap = isEditing ? await transaction.get(osRef) : null;
+        const existingOsData = existingOsSnap?.exists() ? existingOsSnap.data() : null;
+        const mechanicSnap = formData.mecanicoId
+          ? await transaction.get(doc(db, 'usuarios', formData.mecanicoId))
+          : null;
+        const persistedPayments = paymentRecords.map((payment, index) => ({
+          ...payment,
+          transactionId: index === 0 ? osRef.id : `${osRef.id}_pag_${index + 1}`,
+        }));
+        const existingPaymentIds = Array.isArray(existingOsData?.pagamentos) && existingOsData.pagamentos.length > 0
+          ? existingOsData.pagamentos.map((payment: PaymentRecord, index: number) => (
+              payment.transactionId || (index === 0 ? osRef.id : `${osRef.id}_pag_${index + 1}`)
+            ))
+          : [osRef.id];
+        const currentPaymentIds = persistedPayments.map((payment) => payment.transactionId);
+        const paymentTransactionIds = isEditing
+          ? Array.from(new Set([...existingPaymentIds, ...currentPaymentIds]))
+          : [];
+        const paymentTransactionSnapshots = await Promise.all(
+          paymentTransactionIds.map((transactionId) => transaction.get(doc(db, 'transacoes', transactionId))),
+        );
+        const paymentTransactionById = new Map(
+          paymentTransactionSnapshots.map((snapshot) => [snapshot.id, snapshot]),
+        );
 
         if (formData.status === 'Finalizada' && !formData.estoqueBaixado) {
           await applyStockAdjustments(
@@ -524,6 +698,32 @@ const OSForm: React.FC = () => {
           writeTenantSequenceValue(transaction, db, tenantId, 'ordens_de_servico', nextOs);
         }
 
+        const existingCommission = existingOsData?.comissao || null;
+        let commission = existingCommission;
+        const wasAlreadyFinalized = existingOsData?.status === 'Finalizada';
+        const wasAlreadyCancelled = existingOsData?.status === 'Cancelada';
+        if (formData.status === 'Finalizada' && !existingCommission && !wasAlreadyFinalized) {
+          const mechanicProfile = mechanicSnap?.exists() ? mechanicSnap.data() : {};
+          commission = buildServiceOrderCommissionSnapshot({
+            sellerId: formData.mecanicoId,
+            sellerName: formData.mecanicoNome || mechanicProfile.nome || 'Não identificado',
+            servicesBaseCents: toCents(totalServicos),
+            partsBaseCents: toCents(totalPecas),
+            profile: mechanicProfile,
+          });
+        } else if (formData.status === 'Cancelada' && existingCommission?.regraVersion) {
+          commission = cancelCommissionSnapshot(existingCommission);
+        }
+
+        const finalizedPaymentStatus = paymentSummary
+          ? (
+              paymentSummary.pendingCents === 0
+                ? 'Paga'
+                : paymentSummary.receivedCents > 0
+                  ? 'Parcial'
+                  : 'Pendente'
+            )
+          : formData.statusPagamento;
         const osData = {
           ...formData,
           numeroOS: finalNumeroOS,
@@ -531,12 +731,31 @@ const OSForm: React.FC = () => {
           servicos: servicosSelecionados,
           pecas: pecasSelecionadas,
           valorTotal: totalOS,
+          valorTotalCentavos: totalOSCentavos,
           statusColor: getStatusColor(formData.status),
-          estoqueBaixado: estoqueFoiBaixado
+          estoqueBaixado: estoqueFoiBaixado,
+          formaPagamento: paymentSummary?.paymentMethodLabel || formData.formaPagamento,
+          statusPagamento: formData.status === 'Cancelada'
+            ? 'Cancelada'
+            : formData.status === 'Finalizada'
+              ? finalizedPaymentStatus
+              : formData.statusPagamento,
+          ...(formData.status === 'Finalizada' && paymentSummary ? {
+            dataSaida: paymentDate,
+            dataPagamento: paymentDate,
+            condicaoPagamento: paymentSummary.paymentCondition,
+            pagamentos: persistedPayments,
+            totalRecebido: paymentSummary.received,
+            totalRecebidoCentavos: paymentSummary.receivedCents,
+            totalPendente: paymentSummary.pending,
+            totalPendenteCentavos: paymentSummary.pendingCents,
+            totalTaxasPagamento: paymentSummary.cardFee,
+            totalTaxasPagamentoCentavos: paymentSummary.cardFeeCents,
+            totalLiquidoFinanceiro: paymentSummary.financialNet,
+            totalLiquidoFinanceiroCentavos: paymentSummary.financialNetCents,
+          } : {}),
+          ...(commission ? { comissao: commission } : {})
         };
-
-        const osRef = isEditing && id ? doc(db, 'ordens_de_servico', id) : doc(collection(db, 'ordens_de_servico'));
-        osId = osRef.id;
 
         if (isEditing && id) {
           transaction.update(osRef, { ...osData, updatedAt: serverTimestamp() });
@@ -548,30 +767,119 @@ const OSForm: React.FC = () => {
           });
         }
 
-        const transacaoRef = doc(db, 'transacoes', osId);
-        
-        let calcStatusPagamento = 'Pendente'; // Cartão, boleto e prazo vão para Contas a Receber.
-        if (formData.formaPagamento === 'Dinheiro' || formData.formaPagamento === 'Pix') {
-          calcStatusPagamento = 'Paga'; // Dinheiro e Pix vão direto pro Caixa Principal
-        }
-
-        const transacaoData = {
-          descricao: `Recebimento OS #${finalNumeroOS || osId.substring(0,6).toUpperCase()}`,
-          categoria: 'Serviços',
-          valor: totalOS,
-          tipo: 'entrada',
-          formaPagamento: formData.formaPagamento,
-          status: formData.status === 'Finalizada' ? calcStatusPagamento : (formData.status === 'Cancelada' ? 'Cancelada' : 'Pendente'),
-          osId: osId,
-          clienteNome: formData.clienteNome.toUpperCase().trim(),
-          tenantId
-        };
-
         if (formData.status === 'Finalizada') {
-          transaction.set(transacaoRef, { ...transacaoData, createdAt: serverTimestamp() }, { merge: true });
+          persistedPayments.forEach((payment) => {
+            const paymentRef = doc(db, 'transacoes', payment.transactionId);
+            const existingPaymentSnapshot = paymentTransactionById.get(payment.transactionId);
+            transaction.set(paymentRef, {
+              descricao: `Recebimento OS #${finalNumeroOS || osRef.id.substring(0,6).toUpperCase()} - ${payment.formaPagamento}`,
+              categoria: 'Serviços',
+              valor: payment.valor,
+              valorCentavos: payment.valorCentavos,
+              valorBruto: payment.valor,
+              valorBrutoCentavos: payment.valorCentavos,
+              valorTaxa: payment.cartao?.valorTaxa || 0,
+              valorTaxaCentavos: payment.cartao?.valorTaxaCentavos || 0,
+              valorLiquido: payment.cartao?.valorLiquido ?? payment.valor,
+              valorLiquidoCentavos: payment.cartao?.valorLiquidoCentavos ?? payment.valorCentavos,
+              tipo: 'entrada',
+              formaPagamento: payment.formaPagamento,
+              condicaoPagamento: payment.condicaoPagamento,
+              status: payment.status === 'confirmado' ? 'Paga' : 'Pendente',
+              naturezaFinanceira: payment.naturezaFinanceira,
+              movimentaCaixaFisico: payment.movimentaCaixaFisico,
+              prazoDias: payment.prazoDias || null,
+              data: payment.dataVencimento || paymentDate,
+              dataVencimento: payment.dataVencimento || null,
+              dataPrevistaRecebimento: payment.dataPrevistaRecebimento || null,
+              cartao: payment.cartao || null,
+              osId: osRef.id,
+              sourceType: 'ordem_servico',
+              sourceId: osRef.id,
+              paymentIndex: payment.indice,
+              idempotencyKey: `os:${osRef.id}:pagamento:${payment.indice}`,
+              clienteNome: formData.clienteNome.toUpperCase().trim(),
+              usuarioResponsavelId: currentUser.uid,
+              mecanicoId: formData.mecanicoId,
+              tenantId,
+              ...(existingPaymentSnapshot?.exists()
+                ? { updatedAt: serverTimestamp() }
+                : { createdAt: serverTimestamp() }),
+            }, { merge: true });
+          });
+
+          paymentTransactionSnapshots.forEach((paymentSnapshot) => {
+            if (!paymentSnapshot.exists() || currentPaymentIds.includes(paymentSnapshot.id)) return;
+            transaction.update(paymentSnapshot.ref, {
+              status: 'Cancelada',
+              movimentaCaixaFisico: false,
+              substituidaEm: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          });
         } else if (isEditing) {
-          // Se reabriu a OS (não está mais finalizada) ou Cancelou, atualiza a transação para não somar no caixa
-          transaction.set(transacaoRef, { ...transacaoData }, { merge: true });
+          if (formData.status === 'Cancelada' && !wasAlreadyCancelled) {
+            paymentTransactionSnapshots.forEach((paymentSnapshot) => {
+              if (!paymentSnapshot.exists()) return;
+              const existingTransaction = paymentSnapshot.data();
+
+              if (existingTransaction.status === 'Paga' && existingTransaction.estornada !== true) {
+                const movesPhysicalCash = transactionMovesPhysicalCash(existingTransaction);
+                transaction.update(paymentSnapshot.ref, {
+                  estornada: true,
+                  statusOperacional: 'Cancelada',
+                  estornadaEm: serverTimestamp(),
+                  updatedAt: serverTimestamp(),
+                });
+                transaction.set(doc(db, 'transacoes', `estorno_cancelamento_${paymentSnapshot.id}`), {
+                  descricao: `Estorno do cancelamento da OS #${finalNumeroOS}`,
+                  categoria: 'Cancelamento de OS',
+                  valor: Number(existingTransaction.valor || 0),
+                  valorCentavos: Number(existingTransaction.valorCentavos ?? toCents(existingTransaction.valor)),
+                  valorBruto: Number(existingTransaction.valorBruto ?? existingTransaction.valor ?? 0),
+                  valorBrutoCentavos: Number(existingTransaction.valorBrutoCentavos ?? existingTransaction.valorCentavos ?? toCents(existingTransaction.valor)),
+                  valorTaxa: Number(existingTransaction.valorTaxa ?? existingTransaction.cartao?.valorTaxa ?? 0),
+                  valorTaxaCentavos: Number(existingTransaction.valorTaxaCentavos ?? existingTransaction.cartao?.valorTaxaCentavos ?? 0),
+                  valorLiquido: Number(existingTransaction.valorLiquido ?? existingTransaction.cartao?.valorLiquido ?? existingTransaction.valor ?? 0),
+                  valorLiquidoCentavos: Number(existingTransaction.valorLiquidoCentavos ?? existingTransaction.cartao?.valorLiquidoCentavos ?? existingTransaction.valorCentavos ?? toCents(existingTransaction.valor)),
+                  cartao: existingTransaction.cartao || null,
+                  tipo: 'saida',
+                  formaPagamento: existingTransaction.formaPagamento || 'Outros',
+                  naturezaFinanceira: movesPhysicalCash
+                    ? 'caixa_fisico'
+                    : (existingTransaction.naturezaFinanceira || 'bancario_digital'),
+                  movimentaCaixaFisico: movesPhysicalCash,
+                  status: 'Paga',
+                  data: getDateInputInTimeZone(),
+                  osId: osRef.id,
+                  sourceType: 'cancelamento_ordem_servico',
+                  sourceId: osRef.id,
+                  sourcePaymentTransactionId: paymentSnapshot.id,
+                  idempotencyKey: `cancelamento:${osRef.id}:transacao:${paymentSnapshot.id}`,
+                  clienteNome: formData.clienteNome.toUpperCase().trim(),
+                  usuarioResponsavelId: currentUser.uid,
+                  tenantId,
+                  createdAt: serverTimestamp(),
+                }, { merge: true });
+              } else {
+                transaction.update(paymentSnapshot.ref, {
+                  status: 'Cancelada',
+                  movimentaCaixaFisico: false,
+                  estornadaEm: serverTimestamp(),
+                  updatedAt: serverTimestamp(),
+                });
+              }
+            });
+          } else if (formData.status !== 'Cancelada') {
+            paymentTransactionSnapshots.forEach((paymentSnapshot) => {
+              if (!paymentSnapshot.exists()) return;
+              transaction.update(paymentSnapshot.ref, {
+                status: 'Pendente',
+                movimentaCaixaFisico: false,
+                updatedAt: serverTimestamp(),
+              });
+            });
+          }
         }
 
         if (formData.orcamentoId) {
@@ -580,14 +888,28 @@ const OSForm: React.FC = () => {
         }
       });
 
-      setFormData(prev => ({ ...prev, numeroOS: finalNumeroOS, estoqueBaixado: estoqueFoiBaixado }));
+      setFormData(prev => ({
+        ...prev,
+        numeroOS: finalNumeroOS,
+        estoqueBaixado: estoqueFoiBaixado,
+        ...(formData.status === 'Finalizada' && paymentSummary ? {
+          dataSaida: paymentDate,
+          formaPagamento: paymentSummary.paymentMethodLabel,
+          statusPagamento: paymentSummary.pendingCents === 0
+            ? 'Paga'
+            : paymentSummary.receivedCents > 0
+              ? 'Parcial'
+              : 'Pendente',
+        } : {}),
+      }));
       
       showSuccess(`OS ${isEditing ? 'atualizada' : 'criada'}!`);
       navigate('/os');
     } catch (error) {
       console.error('Erro ao salvar OS:', error);
-      showError('Erro ao salvar', 'Verifique a conexão e tente novamente.');
+      showError('Erro ao salvar', error instanceof Error ? error.message : 'Verifique a conexão e tente novamente.');
     } finally {
+      submitLockRef.current = false;
       setIsLoading(false);
     }
   };
@@ -637,54 +959,22 @@ const OSForm: React.FC = () => {
             </div>
             
             {formData.status === 'Finalizada' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px', padding: '16px', backgroundColor: 'rgba(16, 185, 129, 0.05)', borderRadius: 'var(--radius-md)', border: '1px dashed rgba(16, 185, 129, 0.3)' }}>
-                <div className="input-group">
-                  <label style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#10b981', fontWeight: 700 }}>Selecione a Forma de Pagamento</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px', marginTop: '8px' }}>
-                    {[
-                      { value: 'Dinheiro', icon: '💵' },
-                      { value: 'Pix', icon: '💠' },
-                      { value: 'Cartão de Crédito', icon: '💳' },
-                      { value: 'Cartão de Débito', icon: '💳' },
-                      { value: 'Boleto', icon: '📄' },
-                      { value: 'Pagamento a Prazo', icon: '🤝' }
-                    ].filter(metodo => {
-                      const isConsumidorFinal = formData.clienteNome.toLowerCase().includes('consumidor final');
-                      if (isConsumidorFinal) {
-                        return metodo.value === 'Dinheiro' || metodo.value === 'Pix';
-                      }
-                      return true;
-                    }).map(metodo => (
-                      <div 
-                        key={metodo.value}
-                        onClick={() => setFormData({...formData, formaPagamento: metodo.value})}
-                        style={{
-                          backgroundColor: formData.formaPagamento === metodo.value ? 'rgba(16, 185, 129, 0.2)' : 'var(--bg-secondary)',
-                          border: `1px solid ${formData.formaPagamento === metodo.value ? '#10b981' : 'var(--border-color)'}`,
-                          padding: '12px 8px',
-                          borderRadius: '8px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '8px',
-                          transition: 'all 0.2s',
-                          transform: formData.formaPagamento === metodo.value ? 'scale(1.02)' : 'scale(1)',
-                          boxShadow: formData.formaPagamento === metodo.value ? '0 4px 12px rgba(16, 185, 129, 0.2)' : 'none'
-                        }}
-                      >
-                        <span style={{ fontSize: '20px' }}>{metodo.icon}</span>
-                        <span style={{ fontSize: '12px', fontWeight: formData.formaPagamento === metodo.value ? 600 : 400, color: formData.formaPagamento === metodo.value ? '#10b981' : 'var(--text-primary)', textAlign: 'center' }}>{metodo.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  {(formData.formaPagamento === 'Dinheiro' || formData.formaPagamento === 'Pix') 
-                    ? <span style={{ color: '#10b981' }}>✓ Irá somar automaticamente no saldo do <strong>Caixa</strong>.</span>
-                    : <span style={{ color: '#f59e0b' }}>ℹ️ Será enviado para a tela de <strong>Contas a Receber</strong> (Aguardando Conciliação).</span>}
-                </div>
+              <div style={{ marginTop: '16px', padding: '16px', backgroundColor: 'rgba(16, 185, 129, 0.05)', borderRadius: 'var(--radius-md)', border: '1px dashed rgba(16, 185, 129, 0.3)' }}>
+                <PaymentsEditor
+                  customerName={formData.clienteNome}
+                  drafts={paymentDrafts}
+                  embedded
+                  financeConfig={financeConfig}
+                  idPrefix="service-order-payment"
+                  onAddPayment={addPaymentDraft}
+                  onRemovePayment={removePaymentDraft}
+                  onTransactionDateChange={(date) => setFormData((current) => ({ ...current, dataSaida: date }))}
+                  onUpdatePayment={updatePaymentDraft}
+                  sourceLabel="OS"
+                  totalCents={totalOSCentavos}
+                  transactionDate={paymentDate}
+                  transactionDateLabel="Data da finalização"
+                />
               </div>
             )}
           </div>
@@ -881,7 +1171,7 @@ const OSForm: React.FC = () => {
                     mecanicoNome: selectedUser?.nome || ''
                   });
                 }} 
-                disabled={userRole !== 'Admin' && userRole !== 'SuperAdmin'}
+                disabled={!isTenantManagerRole(userRole) && !isPlatformAdminRole(userRole)}
                 style={{ 
                   backgroundColor: 'var(--bg-tertiary)', 
                   border: '1px solid var(--border-color)', 
@@ -889,8 +1179,8 @@ const OSForm: React.FC = () => {
                   padding: '12px 16px', 
                   color: 'var(--text-primary)', 
                   width: '100%',
-                  opacity: (userRole !== 'Admin' && userRole !== 'SuperAdmin') ? 0.7 : 1,
-                  cursor: (userRole !== 'Admin' && userRole !== 'SuperAdmin') ? 'not-allowed' : 'pointer'
+                  opacity: (!isTenantManagerRole(userRole) && !isPlatformAdminRole(userRole)) ? 0.7 : 1,
+                  cursor: (!isTenantManagerRole(userRole) && !isPlatformAdminRole(userRole)) ? 'not-allowed' : 'pointer'
                 }}
               >
                 <option value="">-- Selecione o Funcionário (Nenhum) --</option>

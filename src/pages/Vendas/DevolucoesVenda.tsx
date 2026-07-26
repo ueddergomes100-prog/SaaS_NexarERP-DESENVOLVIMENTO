@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, ArrowLeft, RotateCcw, AlertTriangle, Package, CheckCircle, X, Receipt } from 'lucide-react';
-import { collection, query, where, getDocs, addDoc, doc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { Search, ArrowLeft, RotateCcw, AlertTriangle, X, Receipt } from 'lucide-react';
+import { collection, query, where, getDocs, doc, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
+import { isPlatformAdminRole } from '../../utils/roles';
+import { applyStockAdjustments } from '../../utils/firestoreAtomic';
+import { recalculateCommissionAfterReturn, toCents } from '../../utils/financeDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 
 const DevolucoesVenda: React.FC = () => {
   const navigate = useNavigate();
@@ -13,19 +17,17 @@ const DevolucoesVenda: React.FC = () => {
   const [numeroPedidoBusca, setNumeroPedidoBusca] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [pedidoEncontrado, setPedidoEncontrado] = useState<any>(null);
+  const returnLockRef = useRef(false);
 
   // Controle de Modal
   const [showModal, setShowModal] = useState(false);
   
-  // State para os itens selecionados para devolução
-  const [itensSelecionados, setItensSelecionados] = useState<any[]>([]);
-
   // Campos finais da devolução
   const [destinoValor, setDestinoValor] = useState<'credito' | 'caixa'>('credito');
   const [motivo, setMotivo] = useState('');
   const [observacao, setObservacao] = useState('');
 
-  const canReturn = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.devolucao'));
+  const canReturn = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao'));
 
   if (!canReturn) {
     return (
@@ -85,7 +87,6 @@ const DevolucoesVenda: React.FC = () => {
         });
         
         // Resetar estados do form
-        setItensSelecionados([]);
         setDestinoValor('credito');
         setMotivo('');
         setObservacao('');
@@ -137,7 +138,6 @@ const DevolucoesVenda: React.FC = () => {
     pedidoEncontrado.itens.forEach((i: any) => {
       if (i.selecionado && i.quantidadeSelecionada > 0) {
         // Desconto proporcional
-        const valorOriginal = i.quantidade * i.precoUnitario;
         const proporcao = i.quantidadeSelecionada / i.quantidade;
         const subtotalBase = i.quantidadeSelecionada * i.precoUnitario;
         const descontoProporcional = i.desconto * proporcao;
@@ -151,6 +151,7 @@ const DevolucoesVenda: React.FC = () => {
   const valorTotalCalculado = calcularValorDevolucao();
 
   const handleConfirmarDevolucao = async () => {
+    if (returnLockRef.current) return;
     if (!currentUser || !tenantId || !pedidoEncontrado) return;
     
     if (valorTotalCalculado <= 0) {
@@ -158,30 +159,108 @@ const DevolucoesVenda: React.FC = () => {
       return;
     }
 
+    returnLockRef.current = true;
     setIsSearching(true);
 
     try {
-      // 1. Criar Registro de Devolução
-      const novaDevolucaoRef = await addDoc(collection(db, 'devolucoes_venda'), {
-        pedidoVendaId: pedidoEncontrado.id,
-        numeroPedidoOriginal: pedidoEncontrado.numeroPedido,
-        clienteNome: pedidoEncontrado.clienteNome,
-        valorTotalDevolvido: valorTotalCalculado,
-        destinoValor: destinoValor,
-        motivo: motivo,
-        observacao: observacao,
-        tenantId,
-        usuarioResponsavelId: currentUser.uid,
-        status: 'concluida',
-        createdAt: serverTimestamp(),
-        itensDevolvidos: pedidoEncontrado.itens.filter((i: any) => i.selecionado && i.quantidadeSelecionada > 0).map((i: any) => ({
-          id: i.id,
-          nome: i.nome,
-          precoUnitario: i.precoUnitario,
-          quantidadeDevolvida: i.quantidadeSelecionada,
-          descontoProporcional: (i.desconto * (i.quantidadeSelecionada / i.quantidade)),
-          subtotal: (i.quantidadeSelecionada * i.precoUnitario) - (i.desconto * (i.quantidadeSelecionada / i.quantidade))
-        }))
+      const novaDevolucaoRef = doc(collection(db, 'devolucoes_venda'));
+      const saleRef = doc(db, 'pedidos_venda', pedidoEncontrado.id);
+      const itensFiltrados = pedidoEncontrado.itens.filter((item: any) => item.selecionado && item.quantidadeSelecionada > 0);
+      const itensDevolvidos = itensFiltrados.map((item: any) => ({
+        id: item.id,
+        nome: item.nome,
+        precoUnitario: item.precoUnitario,
+        quantidadeDevolvida: item.quantidadeSelecionada,
+        descontoProporcional: item.desconto * (item.quantidadeSelecionada / item.quantidade),
+        subtotal: (item.quantidadeSelecionada * item.precoUnitario) - (item.desconto * (item.quantidadeSelecionada / item.quantidade)),
+      }));
+
+      await runTransaction(db, async (transaction) => {
+        const saleSnap = await transaction.get(saleRef);
+        if (!saleSnap.exists()) throw new Error('A venda original não existe mais.');
+        const saleData = saleSnap.data();
+        if (saleData.status === 'Cancelada') throw new Error('Venda cancelada não pode receber nova devolução.');
+
+        const storedItems = Array.isArray(saleData.itens) ? saleData.itens : [];
+        const updatedItems = storedItems.map((storedItem: any) => {
+          const returnedItem = itensFiltrados.find((item: any) => item.id === storedItem.id && item.nome === storedItem.nome);
+          if (!returnedItem) return storedItem;
+          const alreadyReturned = Number(storedItem.quantidadeJaDevolvida || 0);
+          const available = Number(storedItem.quantidade || 0) - alreadyReturned;
+          if (returnedItem.quantidadeSelecionada > available) {
+            throw new Error(`A quantidade disponível para devolução de ${storedItem.nome} foi alterada.`);
+          }
+          return { ...storedItem, quantidadeJaDevolvida: alreadyReturned + returnedItem.quantidadeSelecionada };
+        });
+
+        await applyStockAdjustments(
+          transaction,
+          db,
+          itensFiltrados.map((item: any) => ({ id: item.id, nome: item.nome, quantidade: item.quantidadeSelecionada })),
+          'increment',
+          true,
+        );
+
+        transaction.set(novaDevolucaoRef, {
+          pedidoVendaId: pedidoEncontrado.id,
+          numeroPedidoOriginal: pedidoEncontrado.numeroPedido,
+          clienteNome: pedidoEncontrado.clienteNome,
+          valorTotalDevolvido: valorTotalCalculado,
+          valorTotalDevolvidoCentavos: toCents(valorTotalCalculado),
+          destinoValor,
+          motivo,
+          observacao,
+          tenantId,
+          usuarioResponsavelId: currentUser.uid,
+          status: 'concluida',
+          idempotencyKey: `devolucao:${novaDevolucaoRef.id}`,
+          createdAt: serverTimestamp(),
+          itensDevolvidos,
+        });
+
+        const savedCommission = saleData.comissao?.regraVersion
+          ? recalculateCommissionAfterReturn(saleData.comissao, toCents(valorTotalCalculado))
+          : null;
+        transaction.update(saleRef, {
+          itens: updatedItems,
+          ...(savedCommission ? { comissao: savedCommission } : {}),
+          updatedAt: serverTimestamp(),
+        });
+
+        if (destinoValor === 'caixa') {
+          transaction.set(doc(db, 'transacoes', `devolucao_${novaDevolucaoRef.id}`), {
+            descricao: `Devolução Pedido #${pedidoEncontrado.numeroPedido} - Caixa`,
+            categoria: 'Devolução de Venda',
+            valor: valorTotalCalculado,
+            valorCentavos: toCents(valorTotalCalculado),
+            tipo: 'saida',
+            formaPagamento: 'Dinheiro',
+            naturezaFinanceira: 'caixa_fisico',
+            movimentaCaixaFisico: true,
+            status: 'Paga',
+            data: getDateInputInTimeZone(),
+            clienteNome: pedidoEncontrado.clienteNome,
+            pedidoOrigemId: pedidoEncontrado.id,
+            devolucaoId: novaDevolucaoRef.id,
+            idempotencyKey: `devolucao:${novaDevolucaoRef.id}:caixa`,
+            tenantId,
+            createdAt: serverTimestamp(),
+          });
+        } else {
+          transaction.set(doc(db, 'creditos_cliente', `devolucao_${novaDevolucaoRef.id}`), {
+            clienteNome: pedidoEncontrado.clienteNome,
+            pedidoOrigemId: pedidoEncontrado.id,
+            devolucaoId: novaDevolucaoRef.id,
+            numeroPedidoOriginal: pedidoEncontrado.numeroPedido,
+            valorOriginal: valorTotalCalculado,
+            saldoDisponivel: valorTotalCalculado,
+            status: 'disponivel',
+            motivo,
+            tenantId,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
       });
 
       try {
@@ -197,71 +276,8 @@ const DevolucoesVenda: React.FC = () => {
           status: 'sucesso',
           critical: true
         });
-      } catch (logErr) {}
-
-      // 2. Atualizar Estoque (Devolver Peças)
-      const itensFiltrados = pedidoEncontrado.itens.filter((i: any) => i.selecionado && i.quantidadeSelecionada > 0);
-      for (const item of itensFiltrados) {
-        if (item.id && item.id !== 'avulso') {
-          const pecaRef = doc(db, 'estoque', item.id);
-          const pecaSnap = await getDoc(pecaRef);
-          if (pecaSnap.exists()) {
-            const atual = pecaSnap.data().quantidade || 0;
-            await updateDoc(pecaRef, { quantidade: atual + item.quantidadeSelecionada });
-          }
-        }
-      }
-
-      // 3. Atualizar o Pedido Original
-      const itensAtualizadosPedido = pedidoEncontrado.itens.map((item: any) => {
-        if (item.selecionado && item.quantidadeSelecionada > 0) {
-          return {
-            ...item,
-            quantidadeJaDevolvida: (item.quantidadeJaDevolvida || 0) + item.quantidadeSelecionada
-          };
-        }
-        return item;
-      });
-      
-      const itensLimpos = itensAtualizadosPedido.map((i: any) => {
-        const { selecionado, quantidadeSelecionada, ...rest } = i;
-        return rest;
-      });
-
-      await updateDoc(doc(db, 'pedidos_venda', pedidoEncontrado.id), {
-        itens: itensLimpos,
-        updatedAt: serverTimestamp()
-      });
-
-      // 4. Lidar com o Financeiro (Caixa vs Crédito)
-      if (destinoValor === 'caixa') {
-        await addDoc(collection(db, 'transacoes'), {
-          descricao: `Devolução Pedido #${pedidoEncontrado.numeroPedido} - Caixa`,
-          categoria: 'Devolução de Venda',
-          valor: valorTotalCalculado,
-          tipo: 'saida',
-          formaPagamento: 'Dinheiro', 
-          status: 'Paga',
-          clienteNome: pedidoEncontrado.clienteNome,
-          pedidoOrigemId: pedidoEncontrado.id,
-          devolucaoId: novaDevolucaoRef.id,
-          tenantId,
-          createdAt: serverTimestamp()
-        });
-      } else if (destinoValor === 'credito') {
-        await addDoc(collection(db, 'creditos_cliente'), {
-          clienteNome: pedidoEncontrado.clienteNome,
-          pedidoOrigemId: pedidoEncontrado.id,
-          devolucaoId: novaDevolucaoRef.id,
-          numeroPedidoOriginal: pedidoEncontrado.numeroPedido,
-          valorOriginal: valorTotalCalculado,
-          saldoDisponivel: valorTotalCalculado,
-          status: 'disponivel', 
-          motivo,
-          tenantId,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
+      } catch (logError) {
+        console.error('Erro ao registrar auditoria da devolução:', logError);
       }
 
       showSuccess('Devolução processada com sucesso!');
@@ -271,8 +287,9 @@ const DevolucoesVenda: React.FC = () => {
       
     } catch (err) {
       console.error(err);
-      showError('Erro', 'Ocorreu um problema ao processar a devolução.');
+      showError('Erro', err instanceof Error ? err.message : 'Ocorreu um problema ao processar a devolução.');
     } finally {
+      returnLockRef.current = false;
       setIsSearching(false);
     }
   };

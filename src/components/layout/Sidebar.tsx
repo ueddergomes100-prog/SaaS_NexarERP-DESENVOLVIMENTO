@@ -1,136 +1,302 @@
-import React, { useCallback, useState, useEffect } from 'react';
-import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Wrench, 
-  Car, 
-  Wallet, 
-  TrendingUp, 
-  Users, 
-  Settings,
-  Bell,
-  Tags,
-  Briefcase,
-  LogOut,
-  UserCog,
-  FileText,
-  ShoppingCart,
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import {
+  AlertTriangle,
   BarChart2,
-  PieChart,
-  ChevronRight,
-  Receipt,
+  Bell,
+  Briefcase,
+  Building2,
   Calendar,
-  Inbox,
-  Clock,
+  Car,
+  ChevronDown,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  ClipboardList,
   DollarSign,
+  Factory,
+  FileText,
+  Inbox,
+  LayoutDashboard,
+  Link2,
+  LogOut,
   Package,
-  Printer,
+  PieChart,
+  Plus,
+  Receipt,
   RotateCcw,
   Scale,
+  Search,
+  Settings,
   ShieldAlert,
-  AlertTriangle,
-  Database,
-  Truck,
+  ShoppingCart,
   Store,
-  Link2,
-  Factory,
-  ClipboardList
+  Tags,
+  Truck,
+  UserCog,
+  Users,
+  Wallet,
+  Wrench,
+  Clock
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { isTenantManagerRole } from '../../utils/roles';
 import './Layout.css';
 
-const RoadmapItem = ({ icon: Icon, label, to }: { icon: React.ElementType; label: string; to: string }) => (
-  <NavLink to={to} className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-    <Icon size={20} />
-    <span>{label}</span>
-  </NavLink>
-);
+type NavItem = {
+  label: string;
+  to: string;
+  icon: React.ElementType;
+  badge?: string;
+  module?: string;
+  permission?: string;
+  managerOnly?: boolean;
+};
+
+type NavGroup = {
+  id: string;
+  label: string;
+  icon: React.ElementType;
+  tone: string;
+  items: NavItem[];
+  roadmap?: boolean;
+};
 
 const Sidebar: React.FC = () => {
-  const { logout, userRole, userPermissions, blockedModules, isOwner } = useAuth();
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [isNavigatingHome, setIsNavigatingHome] = useState(false);
+  const {
+    logout,
+    userRole,
+    userPermissions,
+    blockedModules,
+    isOwner,
+    isPlatformAdmin,
+    currentUser,
+    selectedTenant
+  } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [expandAll, setExpandAll] = useState(() => {
-    const saved = localStorage.getItem('nexus_sidebar_expand_all');
-    return saved === 'true';
-  });
-
-  const handleExpandAllToggle = () => {
-    const newVal = !expandAll;
-    setExpandAll(newVal);
-    localStorage.setItem('nexus_sidebar_expand_all', String(newVal));
-    window.dispatchEvent(new Event('sidebar-state-change'));
-  };
-
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isNavigatingHome, setIsNavigatingHome] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const [miniSidebar, setMiniSidebar] = useState(() => localStorage.getItem('nexus_mini_sidebar') === 'true');
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
     const saved = localStorage.getItem('nexus_sidebar_groups');
     return saved ? JSON.parse(saved) : {
-      visaoGeral: true,
-      cadastros: true,
+      principal: true,
       comercial: true,
       mecanica: true,
-      crm: true,
-      financeiro: true,
-      fiscal: true,
-      administrativo: true,
-      seguranca: true,
+      cadastros: false,
+      financeiro: false,
+      fiscal: false,
+      relacionamento: false,
+      administrativo: false,
+      configuracoes: false,
       comprasDev: false,
       ecommerceDev: false,
-      operacoesDev: false,
-      configuracoes: true
+      operacoesDev: false
     };
   });
 
+  const hasFullAccess = isOwner || isTenantManagerRole(userRole) || isPlatformAdmin;
+  const isBlocked = useCallback((module?: string) => Boolean(module && blockedModules?.includes(module)), [blockedModules]);
+  const canAccess = useCallback((item: NavItem) => {
+    if (isBlocked(item.module)) return false;
+    if (item.managerOnly && !hasFullAccess) return false;
+    return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
+  }, [hasFullAccess, isBlocked, userPermissions]);
+
+  const groups = useMemo<NavGroup[]>(() => [
+    {
+      id: 'principal',
+      label: 'Principal',
+      icon: LayoutDashboard,
+      tone: '#2d8cff',
+      items: [
+        { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, module: 'dashboard.empresa' }
+      ]
+    },
+    {
+      id: 'comercial',
+      label: 'Comercial',
+      icon: ShoppingCart,
+      tone: '#8b5cf6',
+      items: [
+        { label: 'Frente de Caixa', to: '/pdv', icon: Store, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
+        { label: 'Pedidos de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
+        { label: 'Orçamentos', to: '/orcamentos', icon: FileText, module: 'comercial.orcamentos', permission: 'vendas.orcamentos' },
+        { label: 'Devolução de Venda', to: '/vendas/devolucoes', icon: RotateCcw, module: 'comercial.devolucoes', permission: 'vendas.devolucao' },
+        { label: 'Relatório de Vendas', to: '/relatorios-vendas', icon: BarChart2, module: 'comercial.relatorios', permission: 'vendas.relatorios' }
+      ]
+    },
+    {
+      id: 'mecanica',
+      label: 'Gestão de Serviços',
+      icon: Briefcase,
+      tone: '#3b82f6',
+      items: [
+        { label: 'Ordens de Serviço', to: '/os', icon: ClipboardList, module: 'mecanica.os', permission: 'mecanica.os' },
+        { label: 'Agendamentos', to: '/crm/agenda', icon: Calendar, module: 'crm.agenda', permission: 'crm.agenda', badge: 'Agenda' },
+        { label: 'Relatório de Serviços', to: '/relatorios-mecanica', icon: PieChart, module: 'mecanica.relatorios', permission: 'mecanica.relatorios' }
+      ]
+    },
+    {
+      id: 'cadastros',
+      label: 'Cadastros',
+      icon: Users,
+      tone: '#22c55e',
+      items: [
+        { label: 'Clientes', to: '/clientes', icon: Users, module: 'cadastros.clientes', permission: 'cadastros.clientes' },
+        { label: 'Veículos', to: '/veiculos', icon: Car, module: 'cadastros.veiculos', permission: 'cadastros.clientes' },
+        { label: 'Estoque / Produtos', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
+        { label: 'Serviços', to: '/servicos', icon: Briefcase, module: 'cadastros.servicos', permission: 'cadastros.servicos' },
+        { label: 'Categorias', to: '/categorias', icon: Tags, module: 'cadastros.categorias', permission: 'cadastros.categorias' },
+        { label: 'Unidades de Medida', to: '/unidades-medida', icon: Scale, module: 'cadastros.unidades_medida', permission: 'cadastros.unidades_medida' },
+        { label: 'Usuários', to: '/usuarios', icon: UserCog, module: 'cadastros.usuarios', permission: 'administrativo.equipe' }
+      ]
+    },
+    {
+      id: 'financeiro',
+      label: 'Financeiro',
+      icon: Wallet,
+      tone: '#facc15',
+      items: [
+        { label: 'Fluxo de Caixa', to: '/financeiro/caixa', icon: Wallet, module: 'financeiro.caixa', permission: 'financeiro.caixa' },
+        { label: 'Contas a Receber', to: '/financeiro/contas-receber', icon: Clock, module: 'financeiro.receber', permission: 'financeiro.receber' },
+        { label: 'Contas a Pagar', to: '/financeiro/contas-pagar', icon: Receipt, module: 'financeiro.pagar', permission: 'financeiro.pagar' },
+        { label: 'Faturamento', to: '/financeiro/faturamento', icon: BarChart2, module: 'financeiro.faturamento', permission: 'financeiro.faturamento' },
+        { label: 'Comissões a Pagar', to: '/financeiro/comissoes', icon: DollarSign, module: 'financeiro.comissoes', permission: 'financeiro.comissoes' }
+      ]
+    },
+    {
+      id: 'fiscal',
+      label: 'Fiscal',
+      icon: Receipt,
+      tone: '#22d3ee',
+      items: [
+        { label: 'Emitir Nota Fiscal', to: '/fiscal/nfe', icon: Receipt, module: 'fiscal.nfe', permission: 'fiscal.emitir' },
+        { label: 'Entrada de XML', to: '/fiscal/entrada-nfe', icon: Inbox, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' }
+      ]
+    },
+    {
+      id: 'relacionamento',
+      label: 'Relacionamento',
+      icon: Bell,
+      tone: '#fb7185',
+      items: [
+        { label: 'Alertas de Retorno', to: '/crm/lembretes', icon: Bell, module: 'crm.lembretes', permission: 'crm.alertas' },
+        { label: 'Agenda', to: '/crm/agenda', icon: Calendar, module: 'crm.agenda', permission: 'crm.agenda' }
+      ]
+    },
+    {
+      id: 'administrativo',
+      label: 'Administração',
+      icon: ShieldAlert,
+      tone: '#94a3b8',
+      items: [
+        { label: 'Relatórios Diversos', to: '/relatorios-diversos', icon: FileText, module: 'logs.relatorios_diversos', managerOnly: true },
+        { label: 'Logs do Sistema', to: '/logs-sistema', icon: ShieldAlert, module: 'logs.sistema', permission: 'administrativo.logs' }
+      ]
+    },
+    {
+      id: 'configuracoes',
+      label: 'Configurações',
+      icon: Settings,
+      tone: '#a78bfa',
+      items: [
+        { label: 'Configurações Gerais', to: '/configuracoes', icon: Settings, module: 'admin.config', permission: 'administrativo.config' }
+      ]
+    },
+    {
+      id: 'comprasDev',
+      label: 'Compras',
+      icon: ClipboardList,
+      tone: '#fb923c',
+      roadmap: true,
+      items: [
+        { label: 'Pedidos de Compra', to: '/compras/pedidos-compra', icon: ClipboardList, module: 'compras.pedidos' },
+        { label: 'Fornecedores', to: '/compras/fornecedores', icon: Users, module: 'compras.fornecedores' },
+        { label: 'Cotação de Compra', to: '/compras/cotacoes', icon: Inbox, module: 'compras.cotacoes' }
+      ]
+    },
+    {
+      id: 'ecommerceDev',
+      label: 'E-commerce',
+      icon: Store,
+      tone: '#38bdf8',
+      roadmap: true,
+      items: [
+        { label: 'Nuvemshop', to: '/integracoes/nuvemshop', icon: Store, module: 'integracoes.nuvemshop' },
+        { label: 'Marketplaces', to: '/integracoes/marketplaces', icon: ShoppingCart, module: 'integracoes.marketplaces' },
+        { label: 'Sincronizações', to: '/integracoes/sincronizacoes', icon: Link2, module: 'integracoes.sincronizacoes' }
+      ]
+    },
+    {
+      id: 'operacoesDev',
+      label: 'Operações',
+      icon: Factory,
+      tone: '#14b8a6',
+      roadmap: true,
+      items: [
+        { label: 'Produção Interna', to: '/operacoes/producao', icon: Factory, module: 'operacoes.producao' },
+        { label: 'Expedição e Entregas', to: '/operacoes/expedicao', icon: Truck, module: 'operacoes.expedicao' },
+        { label: 'Lotes e Validades', to: '/operacoes/lotes-validades', icon: Package, module: 'operacoes.lotes' }
+      ]
+    }
+  ], []);
+
+  const visibleGroups = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+
+    return groups
+      .map((group) => {
+        const visibleItems = group.items.filter(canAccess);
+        if (visibleItems.length === 0) return null;
+        if (!term) return { ...group, items: visibleItems };
+
+        const groupMatches = group.label.toLowerCase().includes(term);
+        const filteredItems = groupMatches
+          ? visibleItems
+          : visibleItems.filter((item) => item.label.toLowerCase().includes(term));
+
+        return filteredItems.length > 0 ? { ...group, items: filteredItems } : null;
+      })
+      .filter(Boolean) as NavGroup[];
+  }, [canAccess, groups, searchTerm]);
+
+  const quickActions = [
+    { label: 'PDV', to: '/pdv', icon: Store, permission: 'vendas.pedidos', module: 'comercial.pedidos' },
+    { label: 'Venda', to: '/pedidos-venda/novo', icon: ShoppingCart, permission: 'vendas.pedidos', module: 'comercial.pedidos' },
+    { label: 'Cliente', to: '/clientes/novo', icon: Users, permission: 'cadastros.clientes', module: 'cadastros.clientes' },
+    { label: 'OS', to: '/os/nova', icon: ClipboardList, permission: 'mecanica.os', module: 'mecanica.os' },
+    { label: 'Orçamento', to: '/orcamentos/novo', icon: FileText, permission: 'vendas.orcamentos', module: 'comercial.orcamentos' }
+  ].filter(canAccess);
+
+  const isGroupActive = (group: NavGroup) => group.items.some((item) => location.pathname.startsWith(item.to));
+  const isExpanded = (group: NavGroup) => {
+    if (searchTerm.trim()) return true;
+    return expandedGroups[group.id] ?? isGroupActive(group);
+  };
+  const isRailActive = (group: NavGroup) => expandedGroups[group.id] ?? isGroupActive(group);
+
+  const toggleGroup = (group: NavGroup) => {
+    const currentlyExpanded = expandedGroups[group.id] ?? isGroupActive(group);
+    const nextState = { ...expandedGroups, [group.id]: !currentlyExpanded };
+    setExpandedGroups(nextState);
+    localStorage.setItem('nexus_sidebar_groups', JSON.stringify(nextState));
+  };
+
+  const navigateTo = (to: string) => {
+    setActionMenuOpen(false);
+    document.body.classList.remove('mobile-sidebar-open');
+    navigate(to);
+  };
+
   const handleLogout = useCallback(() => {
     setIsLoggingOut(true);
-    setTimeout(() => {
-      logout();
-    }, 1500);
+    setTimeout(() => logout(), 1500);
   }, [logout]);
-
-  useEffect(() => {
-    const onTriggerLogout = () => {
-      handleLogout();
-    };
-    window.addEventListener('trigger-logout', onTriggerLogout);
-    return () => window.removeEventListener('trigger-logout', onTriggerLogout);
-  }, [handleLogout]);
-
-  const groupRoutes = {
-    visaoGeral: ['/dashboard'],
-    cadastros: ['/clientes', '/usuarios', '/veiculos', '/estoque', '/servicos', '/categorias', '/unidades-medida'],
-    comercial: ['/pedidos-venda', '/orcamentos', '/vendas/devolucoes', '/relatorios-vendas'],
-    mecanica: ['/os', '/relatorios-mecanica'],
-    crm: ['/crm/agenda', '/crm/lembretes'],
-    financeiro: ['/financeiro/caixa', '/financeiro/contas-receber', '/financeiro/contas-pagar', '/financeiro/faturamento', '/financeiro/comissoes'],
-    fiscal: ['/fiscal/nfe', '/fiscal/entrada-nfe'],
-    administrativo: ['/relatorios-diversos', '/logs-sistema'],
-    seguranca: ['/superadmin/backup'],
-    comprasDev: ['/compras'],
-    ecommerceDev: ['/integracoes'],
-    operacoesDev: ['/operacoes'],
-    configuracoes: ['/configuracoes']
-  };
-
-  const isGroupActive = (group: keyof typeof groupRoutes) => {
-    if (!groupRoutes[group]) return false;
-    return groupRoutes[group].some(route => location.pathname.startsWith(route));
-  };
-
-  const isExpanded = (group: string) => {
-    if (expandAll) return true;
-    return expandedGroups[group] || isGroupActive(group as keyof typeof groupRoutes);
-  };
-
-  const toggleGroup = (group: string) => {
-    if (isGroupActive(group as keyof typeof groupRoutes)) return; 
-    const newExpanded = { ...expandedGroups, [group]: !expandedGroups[group] };
-    setExpandedGroups(newExpanded);
-    localStorage.setItem('nexus_sidebar_groups', JSON.stringify(newExpanded));
-  };
 
   const handleGoHome = () => {
     if (window.location.pathname === '/dashboard') return;
@@ -138,595 +304,212 @@ const Sidebar: React.FC = () => {
     setTimeout(() => {
       navigate('/dashboard');
       setIsNavigatingHome(false);
-    }, 800);
+    }, 700);
   };
 
-  const isBlocked = (mod: string) => blockedModules?.includes(mod);
-  const hasFullAccess = isOwner || userRole === 'SuperAdmin';
+  const toggleMiniSidebar = () => {
+    const nextValue = !miniSidebar;
+    setMiniSidebar(nextValue);
+    localStorage.setItem('nexus_mini_sidebar', String(nextValue));
+    localStorage.setItem('nexus_sidebar_expand_all', 'true');
+    document.body.classList.toggle('mini-sidebar', nextValue);
+    window.dispatchEvent(new Event('sidebar-state-change'));
+  };
 
-  const hasCadastrosPermission = (hasFullAccess || ['cadastros.clientes', 'cadastros.estoque', 'cadastros.servicos', 'cadastros.categorias', 'cadastros.unidades_medida', 'administrativo.equipe'].some(p => userPermissions?.includes(p))) &&
-    !['cadastros.clientes', 'cadastros.usuarios', 'cadastros.veiculos', 'cadastros.estoque', 'cadastros.servicos', 'cadastros.categorias', 'cadastros.unidades_medida'].every(item => isBlocked(item));
+  useEffect(() => {
+    const onTriggerLogout = () => handleLogout();
+    window.addEventListener('trigger-logout', onTriggerLogout);
+    return () => window.removeEventListener('trigger-logout', onTriggerLogout);
+  }, [handleLogout]);
 
-  const hasComercialPermission = (hasFullAccess || ['vendas.pedidos', 'vendas.orcamentos', 'vendas.devolucao', 'vendas.relatorios'].some(p => userPermissions?.includes(p))) &&
-    !['comercial.pedidos', 'comercial.orcamentos', 'comercial.devolucoes', 'comercial.relatorios'].every(item => isBlocked(item));
+  useEffect(() => {
+    document.body.classList.toggle('mini-sidebar', miniSidebar);
+  }, [miniSidebar]);
 
-  const hasMecanicaPermission = (hasFullAccess || ['mecanica.os', 'mecanica.relatorios'].some(p => userPermissions?.includes(p))) &&
-    !['mecanica.os', 'mecanica.relatorios'].every(item => isBlocked(item));
-
-  const hasCrmPermission = (hasFullAccess || ['crm.agenda', 'crm.alertas'].some(p => userPermissions?.includes(p))) &&
-    !['crm.agenda', 'crm.lembretes'].every(item => isBlocked(item));
-
-  const hasFinanceiroPermission = (hasFullAccess || ['financeiro.caixa', 'financeiro.receber', 'financeiro.pagar', 'financeiro.faturamento', 'financeiro.comissoes'].some(p => userPermissions?.includes(p))) &&
-    !['financeiro.caixa', 'financeiro.receber', 'financeiro.pagar', 'financeiro.faturamento', 'financeiro.comissoes'].every(item => isBlocked(item));
-
-  const hasFiscalPermission = (hasFullAccess || ['fiscal.emitir', 'fiscal.entrada'].some(p => userPermissions?.includes(p))) &&
-    !['fiscal.nfe', 'fiscal.entrada_nfe'].every(item => isBlocked(item));
-
-  const hasAdministrativoPermission = (hasFullAccess || userPermissions?.includes('administrativo.logs')) &&
-    !['logs.relatorios_diversos', 'logs.sistema'].every(item => isBlocked(item));
-
-  const hasSegurancaPermission = (hasFullAccess || userPermissions?.includes('administrativo.config')) &&
-    !isBlocked('admin.backup');
-
-  const hasConfiguracoesPermission = (hasFullAccess || userPermissions?.includes('administrativo.config')) &&
-    !isBlocked('admin.config');
-
-  const hasComprasDevPermission = !['compras.pedidos', 'compras.fornecedores', 'compras.cotacoes'].every(item => isBlocked(item));
-  const hasEcommerceDevPermission = !['integracoes.nuvemshop', 'integracoes.marketplaces', 'integracoes.sincronizacoes'].every(item => isBlocked(item));
-  const hasOperacoesDevPermission = !['operacoes.producao', 'operacoes.expedicao', 'operacoes.lotes'].every(item => isBlocked(item));
+  const tenantName = selectedTenant?.nomeOficina || 'Nexus Company';
+  const userName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Usuário';
+  const userInitial = userName.trim().charAt(0).toUpperCase() || 'N';
 
   return (
     <>
-      <div 
-        className="mobile-sidebar-overlay" 
+      <div
+        className="mobile-sidebar-overlay"
         onClick={() => document.body.classList.remove('mobile-sidebar-open')}
-      ></div>
-      <aside className="sidebar">
-        <div 
-          className="sidebar-logo" 
-          onClick={handleGoHome} 
-          style={{ cursor: 'pointer' }}
-          title={userRole === 'SuperAdmin' ? "Ir para Painel SaaS" : "Ir para Dashboard"}
-        >
-          <div className="logo-icon">N</div>
-          <h2>Nexar ERP</h2>
-        </div>
+      />
 
-        <nav className="sidebar-nav">
-          <div className="nav-group">
-            <div className="nav-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingRight: '8px', opacity: isGroupActive('visaoGeral') ? 1 : 0.7 }}>
-              <span>{userRole === 'SuperAdmin' ? 'SaaS Control' : 'Visão Geral'}</span>
-            </div>
-            {userRole === 'SuperAdmin' ? (
-              <>
-                <NavLink to="/superadmin" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                  <LayoutDashboard size={20} />
-                  <span>Painel de Vendas SaaS</span>
-                </NavLink>
-                <NavLink to="/superadmin" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                  <Users size={20} />
-                  <span>Carteira de Clientes</span>
-                </NavLink>
-                <NavLink to="/superadmin/backup" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                  <Database size={20} />
-                  <span>Backup e Restauração</span>
-                </NavLink>
-              </>
-            ) : !isBlocked('dashboard.empresa') ? (
-              <NavLink to="/dashboard" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                <LayoutDashboard size={20} />
-                <span>Dashboard da Empresa</span>
-              </NavLink>
-            ) : (
-              null
-            )}
+      <aside className="sidebar nexus-sidebar">
+        <div className="nexus-sidebar-rail">
+          <button className="nexus-rail-logo" onClick={handleGoHome} title="Ir para Dashboard">
+            N
+          </button>
+
+          <div className="nexus-rail-modules">
+            {visibleGroups.slice(0, 9).map((group) => {
+              const Icon = group.icon;
+              const expanded = isRailActive(group);
+              return (
+                <button
+                  key={group.id}
+                  className={expanded ? 'nexus-rail-item active' : 'nexus-rail-item'}
+                  onClick={() => {
+                    if (miniSidebar) {
+                      setMiniSidebar(false);
+                      localStorage.setItem('nexus_mini_sidebar', 'false');
+                      document.body.classList.remove('mini-sidebar');
+                    }
+                    toggleGroup(group);
+                  }}
+                  title={group.label}
+                  aria-pressed={expanded}
+                  style={{ '--module-color': group.tone } as React.CSSProperties}
+                >
+                  <Icon size={20} />
+                </button>
+              );
+            })}
           </div>
 
-          {userRole !== 'SuperAdmin' && (
-            <div className="expand-toggle-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px 16px 8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)' }}>
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Expandir todos os blocos</span>
-              <div 
-                onClick={handleExpandAllToggle}
-                style={{ 
-                  position: 'relative', 
-                  width: '32px', 
-                  height: '18px', 
-                  backgroundColor: expandAll ? 'var(--accent-purple)' : 'var(--bg-tertiary)', 
-                  borderRadius: '10px', 
-                  transition: 'background-color 0.3s',
-                  cursor: 'pointer',
-                  border: '1px solid var(--border-color)'
-                }}
+          <div className="nexus-rail-bottom">
+            <button className="nexus-rail-item" onClick={toggleMiniSidebar} title={miniSidebar ? 'Expandir menu' : 'Recolher menu'}>
+              {miniSidebar ? <ChevronsRight size={19} /> : <ChevronsLeft size={19} />}
+            </button>
+          </div>
+        </div>
+
+        <div className="nexus-sidebar-pane">
+          <div className="nexus-sidebar-header">
+            <button className="nexus-workspace" onClick={handleGoHome} title={tenantName}>
+              <span>{tenantName}</span>
+              <ChevronDown size={16} />
+            </button>
+
+            <div className="nexus-sidebar-search">
+              <Search size={16} />
+              <input
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Buscar no menu..."
+                aria-label="Buscar no menu"
+              />
+              <kbd>Ctrl K</kbd>
+            </div>
+
+            <div className="nexus-action-block">
+              <button
+                className="nexus-new-action"
+                type="button"
+                onClick={() => setActionMenuOpen((open) => !open)}
               >
-                <div style={{ 
-                  position: 'absolute', 
-                  top: '0px', 
-                  left: expandAll ? '14px' : '0px', 
-                  width: '16px', 
-                  height: '16px', 
-                  backgroundColor: 'var(--text-primary)', 
-                  borderRadius: '50%', 
-                  transition: 'left 0.3s',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
-                }} />
+                <Plus size={17} />
+                Nova Ação
+                <ChevronDown size={16} />
+              </button>
+
+              {actionMenuOpen && (
+                <div className="nexus-new-action-menu">
+                  {quickActions.map((action) => {
+                    const Icon = action.icon;
+                    return (
+                      <button key={action.to} type="button" onClick={() => navigateTo(action.to)}>
+                        <Icon size={17} />
+                        <span>{action.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <nav className="nexus-sidebar-nav" aria-label="Menu principal">
+            <div className="nexus-nav-caption">Navegação</div>
+
+            {visibleGroups.map((group) => {
+              const Icon = group.icon;
+              const expanded = isExpanded(group);
+              const active = isGroupActive(group);
+              return (
+                <div key={group.id} className={group.roadmap ? 'nexus-nav-group roadmap' : 'nexus-nav-group'}>
+                  <button
+                    type="button"
+                    className={active ? 'nexus-nav-group-trigger active' : 'nexus-nav-group-trigger'}
+                    onClick={() => toggleGroup(group)}
+                    style={{ '--module-color': group.tone } as React.CSSProperties}
+                  >
+                    <span className="nexus-module-dot" />
+                    <Icon size={17} />
+                    <span>{group.label}</span>
+                    {group.roadmap && <small>Em breve</small>}
+                    <ChevronRight className={expanded ? 'open' : ''} size={15} />
+                  </button>
+
+                  <div className={expanded ? 'nexus-nav-items open' : 'nexus-nav-items'}>
+                    {group.items.map((item) => {
+                      const ItemIcon = item.icon;
+                      return (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={({ isActive }) => isActive ? 'nexus-nav-link active' : 'nexus-nav-link'}
+                          onClick={() => document.body.classList.remove('mobile-sidebar-open')}
+                        >
+                          <ItemIcon size={16} />
+                          <span>{item.label}</span>
+                          {item.badge && <small>{item.badge}</small>}
+                        </NavLink>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+
+            {visibleGroups.length === 0 && (
+              <div className="nexus-nav-empty">
+                Nenhum item encontrado.
+              </div>
+            )}
+          </nav>
+
+          <div className="nexus-sidebar-footer">
+            <div className="nexus-day-summary">
+              <span>Resumo rápido</span>
+              <button type="button" onClick={() => navigateTo('/os')}>
+                <Wrench size={15} />
+                <strong>Atendimentos</strong>
+                <small>Abrir</small>
+              </button>
+              <button type="button" onClick={() => navigateTo('/pedidos-venda')}>
+                <ShoppingCart size={15} />
+                <strong>Vendas</strong>
+                <small>Abrir</small>
+              </button>
+              <button type="button" onClick={() => navigateTo('/crm/lembretes')}>
+                <AlertTriangle size={15} />
+                <strong>Pendências</strong>
+                <small>Abrir</small>
+              </button>
+            </div>
+
+            <div className="nexus-user-card">
+              <div className="nexus-user-avatar">{userInitial}</div>
+              <div>
+                <strong>{userName}</strong>
+                <span>{userRole || 'Operador'}</span>
+              </div>
+              <button type="button" onClick={handleLogout} title="Sair do Sistema">
+                <LogOut size={17} />
+              </button>
+            </div>
+
+            <div className="nexus-tenant-card">
+              <Building2 size={17} />
+              <div>
+                <strong>{tenantName}</strong>
+                <span>Ambiente ativo</span>
               </div>
             </div>
-          )}
-
-          {userRole !== 'SuperAdmin' && (
-            <>
-              {hasCadastrosPermission && (
-                <div className="nav-group">
-                  <div 
-                    className={`nav-label ${isGroupActive('cadastros') ? 'active-group' : ''}`}
-                    onClick={() => !expandAll && toggleGroup('cadastros')}
-                    style={{ cursor: expandAll ? 'default' : 'pointer' }}
-                  >
-                    <span>Cadastros Base</span>
-                    {!expandAll && (
-                      <ChevronRight 
-                        size={14} 
-                        className={`group-arrow-indicator ${isExpanded('cadastros') ? 'open' : ''}`} 
-                      />
-                    )}
-                  </div>
-                  <div className={`nav-group-items ${isExpanded('cadastros') ? 'open' : ''}`}>
-                    <div className="nav-group-items-inner">
-                      {!isBlocked('cadastros.clientes') && ((hasFullAccess) || userPermissions?.includes('cadastros.clientes')) && (
-                        <NavLink to="/clientes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Users size={20} />
-                          <span>Clientes</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('cadastros.usuarios') && ((hasFullAccess) || userPermissions?.includes('administrativo.equipe')) && (
-                        <NavLink to="/usuarios" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <UserCog size={20} />
-                          <span>Usuários</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('cadastros.veiculos') && ((hasFullAccess) || userPermissions?.includes('cadastros.clientes')) && (
-                        <NavLink to="/veiculos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Car size={20} />
-                          <span>Veículos</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('cadastros.estoque') && ((hasFullAccess) || userPermissions?.includes('cadastros.estoque')) && (
-                        <NavLink to="/estoque" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Package size={20} />
-                          <span>Estoque / Produtos</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('cadastros.servicos') && ((hasFullAccess) || userPermissions?.includes('cadastros.servicos')) && (
-                        <NavLink to="/servicos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Briefcase size={20} />
-                          <span>Cadastro de Serviços</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('cadastros.categorias') && ((hasFullAccess) || userPermissions?.includes('cadastros.categorias')) && (
-                        <NavLink to="/categorias" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Tags size={20} />
-                          <span>Categorias</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('cadastros.unidades_medida') && ((hasFullAccess) || userPermissions?.includes('cadastros.unidades_medida')) && (
-                        <NavLink to="/unidades-medida" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Scale size={20} />
-                          <span>Unidades de Medida</span>
-                        </NavLink>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {hasComercialPermission && (
-                <div className="nav-group">
-                  <div 
-                    className={`nav-label ${isGroupActive('comercial') ? 'active-group' : ''}`}
-                    onClick={() => !expandAll && toggleGroup('comercial')}
-                    style={{ cursor: expandAll ? 'default' : 'pointer' }}
-                  >
-                    <span>Vendas</span>
-                    {!expandAll && (
-                      <ChevronRight 
-                        size={14} 
-                        className={`group-arrow-indicator ${isExpanded('comercial') ? 'open' : ''}`} 
-                      />
-                    )}
-                  </div>
-                  <div className={`nav-group-items ${isExpanded('comercial') ? 'open' : ''}`}>
-                    <div className="nav-group-items-inner">
-                      {!isBlocked('comercial.pedidos') && ((hasFullAccess) || userPermissions?.includes('vendas.pedidos')) && (
-                        <NavLink to="/pedidos-venda" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <ShoppingCart size={20} />
-                          <span>Pedido de Vendas</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('comercial.orcamentos') && ((hasFullAccess) || userPermissions?.includes('vendas.orcamentos')) && (
-                        <NavLink to="/orcamentos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <FileText size={20} />
-                          <span>Orçamentos</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('comercial.devolucoes') && ((hasFullAccess) || userPermissions?.includes('vendas.devolucao')) && (
-                        <NavLink to="/vendas/devolucoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <RotateCcw size={20} />
-                          <span>Devolução de Venda</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('comercial.relatorios') && ((hasFullAccess) || userPermissions?.includes('vendas.relatorios')) && (
-                        <NavLink to="/relatorios-vendas" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <BarChart2 size={20} />
-                          <span>Relatório de Vendas</span>
-                        </NavLink>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {hasMecanicaPermission && (
-                <div className="nav-group">
-                  <div 
-                    className={`nav-label ${isGroupActive('mecanica') ? 'active-group' : ''}`}
-                    onClick={() => !expandAll && toggleGroup('mecanica')}
-                    style={{ cursor: expandAll ? 'default' : 'pointer' }}
-                  >
-                    <span>Serviços & Atendimento</span>
-                    {!expandAll && (
-                      <ChevronRight 
-                        size={14} 
-                        className={`group-arrow-indicator ${isExpanded('mecanica') ? 'open' : ''}`} 
-                      />
-                    )}
-                  </div>
-                  <div className={`nav-group-items ${isExpanded('mecanica') ? 'open' : ''}`}>
-                    <div className="nav-group-items-inner">
-                      {!isBlocked('mecanica.os') && ((hasFullAccess) || userPermissions?.includes('mecanica.os')) && (
-                        <NavLink to="/os" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Wrench size={20} />
-                          <span>Ordens de Serviço</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('mecanica.relatorios') && ((hasFullAccess) || userPermissions?.includes('mecanica.relatorios')) && (
-                        <NavLink to="/relatorios-mecanica" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <PieChart size={20} />
-                          <span>Relatório de Serviços</span>
-                        </NavLink>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {hasCrmPermission && (
-                <div className="nav-group">
-                  <div 
-                    className={`nav-label ${isGroupActive('crm') ? 'active-group' : ''}`}
-                    onClick={() => !expandAll && toggleGroup('crm')}
-                    style={{ cursor: expandAll ? 'default' : 'pointer' }}
-                  >
-                    <span>Relacionamento</span>
-                    {!expandAll && (
-                      <ChevronRight 
-                        size={14} 
-                        className={`group-arrow-indicator ${isExpanded('crm') ? 'open' : ''}`} 
-                      />
-                    )}
-                  </div>
-                  <div className={`nav-group-items ${isExpanded('crm') ? 'open' : ''}`}>
-                    <div className="nav-group-items-inner">
-                      {!isBlocked('crm.agenda') && ((hasFullAccess) || userPermissions?.includes('crm.agenda')) && (
-                        <NavLink to="/crm/agenda" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Calendar size={20} />
-                          <span>Agendamentos</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('crm.lembretes') && ((hasFullAccess) || userPermissions?.includes('crm.alertas')) && (
-                        <NavLink to="/crm/lembretes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Bell size={20} />
-                          <span>Alertas de Retorno</span>
-                        </NavLink>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {hasFinanceiroPermission && (
-                <div className="nav-group">
-                  <div 
-                    className={`nav-label ${isGroupActive('financeiro') ? 'active-group' : ''}`}
-                    onClick={() => !expandAll && toggleGroup('financeiro')}
-                    style={{ cursor: expandAll ? 'default' : 'pointer' }}
-                  >
-                    <span>Financeiro</span>
-                    {!expandAll && (
-                      <ChevronRight 
-                        size={14} 
-                        className={`group-arrow-indicator ${isExpanded('financeiro') ? 'open' : ''}`} 
-                      />
-                    )}
-                  </div>
-                  <div className={`nav-group-items ${isExpanded('financeiro') ? 'open' : ''}`}>
-                    <div className="nav-group-items-inner">
-                      {!isBlocked('financeiro.caixa') && ((hasFullAccess) || userPermissions?.includes('financeiro.caixa')) && (
-                        <NavLink to="/financeiro/caixa" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Wallet size={20} />
-                          <span>Fluxo de Caixa</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('financeiro.receber') && ((hasFullAccess) || userPermissions?.includes('financeiro.receber')) && (
-                        <NavLink to="/financeiro/contas-receber" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Clock size={20} />
-                          <span>Contas a Receber</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('financeiro.pagar') && ((hasFullAccess) || userPermissions?.includes('financeiro.pagar')) && (
-                        <NavLink to="/financeiro/contas-pagar" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Receipt size={20} />
-                          <span>Contas a Pagar</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('financeiro.faturamento') && ((hasFullAccess) || userPermissions?.includes('financeiro.faturamento')) && (
-                        <NavLink to="/financeiro/faturamento" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <TrendingUp size={20} />
-                          <span>Faturamento</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('financeiro.comissoes') && ((hasFullAccess) || userPermissions?.includes('financeiro.comissoes')) && (
-                        <NavLink to="/financeiro/comissoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <DollarSign size={20} />
-                          <span>Comissões a Pagar</span>
-                        </NavLink>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {hasFiscalPermission && (
-                <div className="nav-group">
-                  <div 
-                    className={`nav-label ${isGroupActive('fiscal') ? 'active-group' : ''}`}
-                    onClick={() => !expandAll && toggleGroup('fiscal')}
-                    style={{ cursor: expandAll ? 'default' : 'pointer' }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span>Fiscal</span>
-                      <span className="dev-badge pulse-badge">Em desenvolvimento</span>
-                    </div>
-                    {!expandAll && (
-                      <ChevronRight 
-                        size={14} 
-                        className={`group-arrow-indicator ${isExpanded('fiscal') ? 'open' : ''}`} 
-                      />
-                    )}
-                  </div>
-                  <div className={`nav-group-items ${isExpanded('fiscal') ? 'open' : ''}`}>
-                    <div className="nav-group-items-inner">
-                      {!isBlocked('fiscal.nfe') && ((hasFullAccess) || userPermissions?.includes('fiscal.emitir')) && (
-                        <NavLink to="/fiscal/nfe" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Receipt size={20} />
-                          <span>Emitir Nota Fiscal</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('fiscal.entrada_nfe') && ((hasFullAccess) || userPermissions?.includes('fiscal.entrada')) && (
-                        <NavLink to="/fiscal/entrada-nfe" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Inbox size={20} />
-                          <span>Entrada de XML</span>
-                        </NavLink>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {hasAdministrativoPermission && (
-                <div className="nav-group">
-                  <div 
-                    className={`nav-label ${isGroupActive('administrativo') ? 'active-group' : ''}`}
-                    onClick={() => !expandAll && toggleGroup('administrativo')}
-                    style={{ cursor: expandAll ? 'default' : 'pointer' }}
-                  >
-                    <span>Relatórios & Auditoria</span>
-                    {!expandAll && (
-                      <ChevronRight 
-                        size={14} 
-                        className={`group-arrow-indicator ${isExpanded('administrativo') ? 'open' : ''}`} 
-                      />
-                    )}
-                  </div>
-                  <div className={`nav-group-items ${isExpanded('administrativo') ? 'open' : ''}`}>
-                    <div className="nav-group-items-inner">
-                      {!isBlocked('logs.relatorios_diversos') && (hasFullAccess) && (
-                        <NavLink to="/relatorios-diversos" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <Printer size={20} />
-                          <span>Relatórios Diversos</span>
-                        </NavLink>
-                      )}
-                      {!isBlocked('logs.sistema') && ((hasFullAccess) || userPermissions?.includes('administrativo.logs')) && (
-                        <NavLink to="/logs-sistema" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                          <ShieldAlert size={20} />
-                          <span>Logs do Sistema</span>
-                        </NavLink>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {hasSegurancaPermission && (
-                <div className="nav-group">
-                  <div
-                    className={`nav-label ${isGroupActive('seguranca') ? 'active-group' : ''}`}
-                    onClick={() => !expandAll && toggleGroup('seguranca')}
-                    style={{ cursor: expandAll ? 'default' : 'pointer' }}
-                  >
-                    <span>Segurança & Dados</span>
-                    {!expandAll && (
-                      <ChevronRight
-                        size={14}
-                        className={`group-arrow-indicator ${isExpanded('seguranca') ? 'open' : ''}`}
-                      />
-                    )}
-                  </div>
-                  <div className={`nav-group-items ${isExpanded('seguranca') ? 'open' : ''}`}>
-                    <div className="nav-group-items-inner">
-                      <NavLink to="/superadmin/backup" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                        <Database size={20} />
-                        <span>Backup e Restauração</span>
-                      </NavLink>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="nav-roadmap-divider">
-                <span>
-                  <AlertTriangle size={12} />
-                  Próximas atualizações
-                </span>
-              </div>
-
-              {hasComprasDevPermission && (
-              <div className="nav-group nav-group-dev">
-                <div
-                  className={`nav-label ${isGroupActive('comprasDev') ? 'active-group' : ''}`}
-                  onClick={() => !expandAll && toggleGroup('comprasDev')}
-                  style={{ cursor: expandAll ? 'default' : 'pointer' }}
-                >
-                  <div className="nav-label-with-badge">
-                    <span>Compras & Fornecedores</span>
-                  </div>
-                  {!expandAll && (
-                    <ChevronRight
-                      size={14}
-                      className={`group-arrow-indicator ${isExpanded('comprasDev') ? 'open' : ''}`}
-                    />
-                  )}
-                </div>
-                <div className={`nav-group-items ${isExpanded('comprasDev') ? 'open' : ''}`}>
-                  <div className="nav-group-items-inner">
-                    {!isBlocked('compras.pedidos') && <RoadmapItem icon={ClipboardList} label="Pedidos de Compra" to="/compras/pedidos-compra" />}
-                    {!isBlocked('compras.fornecedores') && <RoadmapItem icon={Users} label="Fornecedores" to="/compras/fornecedores" />}
-                    {!isBlocked('compras.cotacoes') && <RoadmapItem icon={Inbox} label="Cotação de Compra" to="/compras/cotacoes" />}
-                  </div>
-                </div>
-              </div>
-              )}
-
-              {hasEcommerceDevPermission && (
-              <div className="nav-group nav-group-dev">
-                <div
-                  className={`nav-label ${isGroupActive('ecommerceDev') ? 'active-group' : ''}`}
-                  onClick={() => !expandAll && toggleGroup('ecommerceDev')}
-                  style={{ cursor: expandAll ? 'default' : 'pointer' }}
-                >
-                  <div className="nav-label-with-badge">
-                    <span>E-commerce & Integrações</span>
-                  </div>
-                  {!expandAll && (
-                    <ChevronRight
-                      size={14}
-                      className={`group-arrow-indicator ${isExpanded('ecommerceDev') ? 'open' : ''}`}
-                    />
-                  )}
-                </div>
-                <div className={`nav-group-items ${isExpanded('ecommerceDev') ? 'open' : ''}`}>
-                  <div className="nav-group-items-inner">
-                    {!isBlocked('integracoes.nuvemshop') && <RoadmapItem icon={Store} label="Nuvemshop" to="/integracoes/nuvemshop" />}
-                    {!isBlocked('integracoes.marketplaces') && <RoadmapItem icon={ShoppingCart} label="Marketplaces" to="/integracoes/marketplaces" />}
-                    {!isBlocked('integracoes.sincronizacoes') && <RoadmapItem icon={Link2} label="Sincronizações" to="/integracoes/sincronizacoes" />}
-                  </div>
-                </div>
-              </div>
-              )}
-
-              {hasOperacoesDevPermission && (
-              <div className="nav-group nav-group-dev">
-                <div
-                  className={`nav-label ${isGroupActive('operacoesDev') ? 'active-group' : ''}`}
-                  onClick={() => !expandAll && toggleGroup('operacoesDev')}
-                  style={{ cursor: expandAll ? 'default' : 'pointer' }}
-                >
-                  <div className="nav-label-with-badge">
-                    <span>Produção & Logística</span>
-                  </div>
-                  {!expandAll && (
-                    <ChevronRight
-                      size={14}
-                      className={`group-arrow-indicator ${isExpanded('operacoesDev') ? 'open' : ''}`}
-                    />
-                  )}
-                </div>
-                <div className={`nav-group-items ${isExpanded('operacoesDev') ? 'open' : ''}`}>
-                  <div className="nav-group-items-inner">
-                    {!isBlocked('operacoes.producao') && <RoadmapItem icon={Factory} label="Produção Interna" to="/operacoes/producao" />}
-                    {!isBlocked('operacoes.expedicao') && <RoadmapItem icon={Truck} label="Expedição e Entregas" to="/operacoes/expedicao" />}
-                    {!isBlocked('operacoes.lotes') && <RoadmapItem icon={Package} label="Lotes e Validades" to="/operacoes/lotes-validades" />}
-                  </div>
-                </div>
-              </div>
-              )}
-
-              {hasConfiguracoesPermission && (
-                <div className="nav-group">
-                  <div 
-                    className={`nav-label ${isGroupActive('configuracoes') ? 'active-group' : ''}`}
-                    onClick={() => !expandAll && toggleGroup('configuracoes')}
-                    style={{ cursor: expandAll ? 'default' : 'pointer' }}
-                  >
-                    <span>Configurações</span>
-                    {!expandAll && (
-                      <ChevronRight 
-                        size={14} 
-                        className={`group-arrow-indicator ${isExpanded('configuracoes') ? 'open' : ''}`} 
-                      />
-                    )}
-                  </div>
-                  <div className={`nav-group-items ${isExpanded('configuracoes') ? 'open' : ''}`}>
-                    <div className="nav-group-items-inner">
-                      {!isBlocked('admin.config') && ((hasFullAccess) || userPermissions?.includes('administrativo.config')) && (
-                        <>
-                          <NavLink to="/configuracoes" className={({isActive}) => isActive ? 'nav-item active' : 'nav-item'}>
-                            <Settings size={20} />
-                            <span>Configurações Gerais</span>
-                          </NavLink>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </nav>
-
-        <div style={{ padding: '20px', borderTop: '1px solid var(--border-color)', marginTop: 'auto' }}>
-          <button 
-            className="logout-btn"
-            onClick={handleLogout}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              width: '100%',
-              padding: '12px',
-              backgroundColor: 'transparent',
-              color: '#ef4444',
-              border: 'none',
-              borderRadius: 'var(--radius-md)',
-              cursor: 'pointer',
-              fontWeight: 500,
-              transition: 'background-color 0.2s'
-            }}
-            onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'}
-            onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-          >
-            <LogOut size={20} />
-            <span className="logout-text">Sair do Sistema</span>
-          </button>
+          </div>
         </div>
 
         {isLoggingOut && (

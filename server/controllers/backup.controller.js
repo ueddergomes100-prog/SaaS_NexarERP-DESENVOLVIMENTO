@@ -11,8 +11,8 @@ const { reloadCompanyJob } = require('../services/scheduler');
  */
 async function getTenants(req, res) {
   try {
-    if (req.user.role !== 'SuperAdmin') {
-      return res.status(403).json({ error: 'Acesso negado. Apenas o SuperAdmin do SaaS pode listar as empresas.' });
+    if (!req.user.isPlatformAdmin) {
+      return res.status(403).json({ error: 'Acesso negado. Apenas a equipe Nexar pode listar as empresas.' });
     }
 
     const snap = await db.collection('usuarios').get();
@@ -21,11 +21,11 @@ async function getTenants(req, res) {
     snap.forEach(doc => {
       const data = doc.data();
       // Filtra contas SuperAdmin para não poluir a lista de empresas clientes
-      if (data.role === 'SuperAdmin') {
+      if (data.role === 'NexarAdmin' || data.role === 'SuperAdmin') {
         return;
       }
 
-      if (data.role === 'Admin' || doc.id === data.tenantId) {
+      if (data.role === 'Master' || data.role === 'Admin' || doc.id === data.tenantId) {
         listOfTenants.push({
           id: doc.id,
           nomeOficina: data.nomeOficina || 'Sem Nome',
@@ -53,7 +53,7 @@ async function getBackupsHistory(req, res) {
     }
 
     // Se for admin comum, valida se ele está solicitando backups de outra empresa
-    if (req.user.role !== 'SuperAdmin' && req.user.tenantId !== tenantId) {
+    if (!req.user.isPlatformAdmin && req.user.tenantId !== tenantId) {
       return res.status(403).json({ error: 'Não autorizado. Você só pode ver os backups da sua empresa.' });
     }
 
@@ -87,7 +87,7 @@ async function generateBackup(req, res) {
       return res.status(400).json({ error: 'O campo tenantId é obrigatório no corpo da requisição.' });
     }
 
-    if (req.user.role !== 'SuperAdmin' && req.user.tenantId !== tenantId) {
+    if (!req.user.isPlatformAdmin && req.user.tenantId !== tenantId) {
       return res.status(403).json({ error: 'Não autorizado. Você só pode gerar backups da sua própria empresa.' });
     }
 
@@ -134,7 +134,7 @@ async function restoreBackup(req, res) {
     const { companyId, companyName, filename, status } = backupData;
 
     // Proteção de segurança contra cruzamento de tenants
-    if (req.user.role !== 'SuperAdmin' && req.user.tenantId !== companyId) {
+    if (!req.user.isPlatformAdmin && req.user.tenantId !== companyId) {
       return res.status(403).json({ error: 'Não autorizado. Você não pode restaurar backups de outras empresas.' });
     }
 
@@ -187,7 +187,7 @@ async function removeBackup(req, res) {
     const backupData = backupSnap.data();
     const { companyId, companyName, filename } = backupData;
 
-    if (req.user.role !== 'SuperAdmin' && req.user.tenantId !== companyId) {
+    if (!req.user.isPlatformAdmin && req.user.tenantId !== companyId) {
       return res.status(403).json({ error: 'Não autorizado. Você não pode excluir backups de outras empresas.' });
     }
 
@@ -221,7 +221,7 @@ async function getBackupSettings(req, res) {
       return res.status(400).json({ error: 'O parâmetro tenantId é obrigatório.' });
     }
 
-    if (req.user.role !== 'SuperAdmin' && req.user.tenantId !== tenantId) {
+    if (!req.user.isPlatformAdmin && req.user.tenantId !== tenantId) {
       return res.status(403).json({ error: 'Não autorizado. Acesso negado.' });
     }
 
@@ -255,7 +255,7 @@ async function saveBackupSettings(req, res) {
       return res.status(400).json({ error: 'O campo tenantId é obrigatório.' });
     }
 
-    if (req.user.role !== 'SuperAdmin' && req.user.tenantId !== tenantId) {
+    if (!req.user.isPlatformAdmin && req.user.tenantId !== tenantId) {
       return res.status(403).json({ error: 'Não autorizado. Acesso negado.' });
     }
 
@@ -306,7 +306,7 @@ async function downloadBackup(req, res) {
     const { companyId, companyName, filename, status, localPath } = backupData;
 
     // Proteção de segurança
-    if (req.user.role !== 'SuperAdmin' && req.user.tenantId !== companyId) {
+    if (!req.user.isPlatformAdmin && req.user.tenantId !== companyId) {
       return res.status(403).json({ error: 'Não autorizado. Você não pode baixar backups de outra empresa.' });
     }
 

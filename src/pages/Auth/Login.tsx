@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Lock, LogIn, Loader2 } from 'lucide-react';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { getIdTokenResult, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { auth, authPersistenceReady, db } from '../../services/firebase';
 import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
@@ -12,6 +12,8 @@ import {
   isSessionRecentlyActive,
   type ActiveSessionInfo
 } from '../../utils/sessionInfo';
+import { isPlatformAdminRole } from '../../utils/roles';
+import { activeTenantStorageKey, loadTenantOptions } from '../../utils/platformTenants';
 import './Auth.css';
 
 const LOGIN_LOADING_STEPS = [
@@ -19,6 +21,73 @@ const LOGIN_LOADING_STEPS = [
   'Preparando sua sessão',
   'Carregando ambiente'
 ];
+
+const hasIncompleteOnboarding = (data: Record<string, unknown>) => {
+  if (isPlatformAdminRole(data.role)) {
+    return false;
+  }
+
+  const hasOnboardingFlags =
+    'onboardingStatus' in data ||
+    'cnpjValidado' in data ||
+    'emailVerificado' in data ||
+    'telefoneVerificado' in data;
+
+  if (!hasOnboardingFlags) {
+    return false;
+  }
+
+  return data.onboardingStatus !== 'active' ||
+    data.cnpjValidado !== true ||
+    data.emailVerificado !== true ||
+    data.telefoneVerificado !== true;
+};
+
+const selectPlatformTenant = async (uid: string) => {
+  localStorage.removeItem(activeTenantStorageKey(uid));
+  const tenants = await loadTenantOptions();
+
+  if (tenants.length === 0) {
+    await Swal.fire({
+      title: 'Nenhuma empresa encontrada',
+      text: 'Nao encontramos empresas clientes para este ambiente.',
+      icon: 'warning',
+      confirmButtonColor: '#8b5cf6'
+    });
+    return null;
+  }
+
+  const inputOptions = tenants.reduce<Record<string, string>>((acc, tenant) => {
+    acc[tenant.id] = tenant.email ? `${tenant.nomeOficina} - ${tenant.email}` : tenant.nomeOficina;
+    return acc;
+  }, {});
+
+  const result = await Swal.fire({
+    title: 'Qual empresa deseja acessar?',
+    text: 'Escolha a base do cliente antes de abrir o sistema.',
+    input: 'select',
+    inputOptions,
+    inputPlaceholder: 'Selecione uma empresa',
+    showCancelButton: true,
+    confirmButtonColor: '#8b5cf6',
+    cancelButtonColor: '#6b7280',
+    confirmButtonText: 'Acessar empresa',
+    cancelButtonText: 'Cancelar',
+    allowOutsideClick: false,
+    allowEscapeKey: false,
+    inputValidator: (value) => {
+      return value ? null : 'Selecione uma empresa para continuar.';
+    }
+  });
+
+  if (!result.isConfirmed || typeof result.value !== 'string') {
+    return null;
+  }
+
+  localStorage.setItem(activeTenantStorageKey(uid), result.value);
+  window.dispatchEvent(new CustomEvent('nexus-active-tenant-selected', { detail: result.value }));
+  return tenants.find(tenant => tenant.id === result.value) || null;
+};
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -81,24 +150,65 @@ const Login: React.FC = () => {
       await authPersistenceReady;
       const userCredential = await signInWithEmailAndPassword(auth, finalEmail, password);
       const user = userCredential.user;
+      const token = await getIdTokenResult(user);
+      const hasPlatformClaim =
+        token.claims.nexarAdmin === true ||
+        token.claims.superAdmin === true ||
+        token.claims.role === 'NexarAdmin' ||
+        token.claims.role === 'SuperAdmin';
       
       // Buscar tenantId do usuario no Firestore para salvar o log na empresa correta
       let userTenantId = 'geral';
       let activeSessionId = '';
       let activeSession: ActiveSessionInfo | null = null;
+      let hasUserProfile = false;
+      let isPlatformLogin = hasPlatformClaim;
       try {
         const userDoc = await getDoc(doc(db, 'usuarios', user.uid));
         if (userDoc.exists()) {
-          const userData = userDoc.data();
-          userTenantId = userData.tenantId || 'geral';
-          activeSessionId = userData.activeSessionId || '';
+          hasUserProfile = true;
+          const userData = userDoc.data() as Record<string, unknown>;
+          isPlatformLogin = isPlatformLogin || isPlatformAdminRole(userData.role);
+
+          if (hasIncompleteOnboarding(userData)) {
+            clearStoredSessionId();
+            await signOut(auth);
+            setError('Cadastro ainda nao validado. Confirme CNPJ, e-mail e telefone antes de acessar.');
+            setLoading(false);
+            return;
+          }
+
+          userTenantId = typeof userData.tenantId === 'string' ? userData.tenantId : 'geral';
+          activeSessionId = typeof userData.activeSessionId === 'string' ? userData.activeSessionId : '';
           activeSession = (userData.activeSession as ActiveSessionInfo | undefined) || null;
+        } else if (!isPlatformLogin) {
+          clearStoredSessionId();
+          await signOut(auth);
+          setError('Usuario sem perfil ativo. Fale com o administrador.');
+          setLoading(false);
+          return;
         }
       } catch (e) {
         console.error('Erro ao obter tenantId para log de login:', e);
+        clearStoredSessionId();
+        await signOut(auth);
+        setError('Nao foi possivel validar seu perfil de acesso. Tente novamente.');
+        setLoading(false);
+        return;
       }
 
-      if (isSessionRecentlyActive(activeSessionId, activeSession)) {
+      if (isPlatformLogin) {
+        const selectedTenant = await selectPlatformTenant(user.uid);
+        if (!selectedTenant) {
+          clearStoredSessionId();
+          await signOut(auth);
+          setLoading(false);
+          return;
+        }
+        userTenantId = selectedTenant.id;
+      }
+
+      if (hasUserProfile && isSessionRecentlyActive(activeSessionId, activeSession)) {
         const result = await Swal.fire({
           title: 'Sessão ativa detectada',
           html: buildActiveSessionWarningHtml(activeSession),
@@ -126,6 +236,10 @@ const Login: React.FC = () => {
 
       // Atualiza no Firestore
       try {
+        if (!hasUserProfile) {
+          throw new Error('skip_platform_session_profile');
+        }
+
         await updateDoc(doc(db, 'usuarios', user.uid), {
           activeSessionId: newSessionId,
           activeSession: {
@@ -137,12 +251,16 @@ const Login: React.FC = () => {
           }
         });
       } catch (e) {
+        if (isPlatformLogin && e instanceof Error && e.message === 'skip_platform_session_profile') {
+          // Usuário máximo pode existir apenas via custom claim; a sessão fica controlada pelo Firebase Auth.
+        } else {
         console.error('Erro ao registrar nova sessao no firestore:', e);
         clearStoredSessionId();
         await signOut(auth);
         setError('Nao foi possivel registrar a sessao. Tente novamente.');
         setLoading(false);
         return;
+        }
       }
 
       const { createAuditLog } = await import('../../services/logService');

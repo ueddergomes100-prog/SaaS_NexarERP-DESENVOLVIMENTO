@@ -5,6 +5,7 @@ import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc, addDoc
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { isPlatformAdminRole } from '../../utils/roles';
 
 interface UnidadeData {
   id: string;
@@ -33,7 +34,7 @@ const UnidadesMedidaList: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const navigate = useNavigate();
 
-  const canAccess = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('cadastros.unidades_medida'));
+  const canAccess = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('cadastros.unidades_medida'));
 
   useEffect(() => {
     if (!currentUser || !tenantId || !canAccess) return;

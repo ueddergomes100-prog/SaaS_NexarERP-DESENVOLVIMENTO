@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowUpCircle, ArrowDownCircle, Search, Filter, DollarSign, Eye, EyeOff, Calendar, Plus, X, Loader2, CheckCircle, RotateCcw } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, Search, DollarSign, Eye, EyeOff, Calendar, X, Loader2, CheckCircle, RotateCcw } from 'lucide-react';
 import { collection, query, onSnapshot, where, addDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { isPlatformAdminRole } from '../../utils/roles';
+import { fromCents, toCents, transactionMovesPhysicalCash, transactionNetAmount } from '../../utils/financeDomain';
+import { dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import './Financeiro.css';
 
 interface TransacaoData {
@@ -12,21 +15,42 @@ interface TransacaoData {
   descricao: string;
   categoria: string;
   valor: number;
+  valorCentavos?: number;
   tipo: 'entrada' | 'saida';
-  status: 'Paga' | 'Pendente';
+  status: 'Paga' | 'Pendente' | 'Cancelada';
   formaPagamento?: string;
   osId?: string;
   createdAt?: any;
+  dataPagamento?: string;
+  movimentaCaixaFisico?: boolean;
+  naturezaFinanceira?: string;
 }
+
+const transactionDate = (transaction: TransacaoData) => {
+  if (transaction.dataPagamento) {
+    const date = dateInputToUtcStart(transaction.dataPagamento);
+    if (date) return date;
+  }
+  if (transaction.data) {
+    const date = dateInputToUtcStart(transaction.data);
+    if (date) return date;
+    const parsed = new Date(transaction.data);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  if (transaction.createdAt?.toDate) return transaction.createdAt.toDate() as Date;
+  if (transaction.createdAt?.seconds) return new Date(transaction.createdAt.seconds * 1000);
+  return null;
+};
 
 const Caixa: React.FC = () => {
   const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSaldo, setShowSaldo] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [diasFiltro, setDiasFiltro] = useState<number>(30); // Padrão 30 dias
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   
-  const podeEstornar = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('financeiro.estornar'));
+  const podeEstornar = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('financeiro.estornar'));
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -39,7 +63,7 @@ const Caixa: React.FC = () => {
 
   const [formData, setFormData] = useState({
     descricao: '',
-    data: new Date().toISOString().split('T')[0],
+    data: getDateInputInTimeZone(),
     valor: '',
     categoria: '',
     status: 'Paga' as 'Paga' | 'Pendente'
@@ -89,29 +113,45 @@ const Caixa: React.FC = () => {
     fetchConfig();
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser, tenantId]);
+
+  const isWithinSelectedDays = (transaction: TransacaoData) => {
+    if (diasFiltro === 0) return true;
+    const date = transactionDate(transaction);
+    if (!date) return true;
+    const limit = new Date();
+    limit.setDate(limit.getDate() - diasFiltro);
+    return date >= limit;
+  };
+
+  const matchesVisibleFilters = (transaction: TransacaoData) => {
+    if (searchTerm && !`${transaction.descricao} ${transaction.categoria}`.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    if (transaction.status !== 'Paga') return false;
+    return isWithinSelectedDays(transaction);
+  };
 
   const filteredTransacoes = transacoes.filter(t => {
-    if (t.status !== 'Paga') return false; // Caixa PRINCIPAL só exibe o que já foi recebido/pago!
-    if (diasFiltro === 0) return true; // 0 significa 'Tudo'
-    if (!t.createdAt) return true;
-    
-    const dataTransacao = new Date(t.createdAt.seconds * 1000);
-    const limite = new Date();
-    limite.setDate(limite.getDate() - diasFiltro);
-    
-    return dataTransacao >= limite;
+    if (!transactionMovesPhysicalCash(t)) return false;
+    return matchesVisibleFilters(t);
   });
 
-  const totalEntradas = filteredTransacoes.filter(t => t.tipo === 'entrada' && t.status === 'Paga' && t.formaPagamento !== 'Crédito de Devolução').reduce((acc, curr) => acc + curr.valor, 0);
+  const totalEntradas = filteredTransacoes.filter(t => t.tipo === 'entrada').reduce((acc, curr) => acc + Number(curr.valor || 0), 0);
   const totalSaidas = filteredTransacoes.filter(t => t.tipo === 'saida' && t.status === 'Paga').reduce((acc, curr) => acc + curr.valor, 0);
   const saldoAtual = totalEntradas - totalSaidas;
+  const digitalTransactions = transacoes.filter((transaction) => (
+    !transactionMovesPhysicalCash(transaction) &&
+    transaction.formaPagamento !== 'Crédito de Devolução' &&
+    matchesVisibleFilters(transaction)
+  ));
+  const totalRecebimentosDigitais = digitalTransactions.reduce((sum, transaction) => (
+    sum + (transaction.tipo === 'entrada' ? transactionNetAmount(transaction) : -transactionNetAmount(transaction))
+  ), 0);
 
   const handleOpenModal = (tipo: 'entrada' | 'saida') => {
     setModalTipo(tipo);
     setFormData({
       descricao: '',
-      data: new Date().toISOString().split('T')[0],
+      data: getDateInputInTimeZone(),
       valor: '',
       categoria: tipo === 'entrada' ? categoriasReceita[0] || '' : categoriasDespesa[0] || '',
       status: 'Paga'
@@ -129,13 +169,23 @@ const Caixa: React.FC = () => {
 
     setIsSaving(true);
     try {
+      const valueCents = toCents(formData.valor);
+      if (valueCents <= 0) {
+        showError('Atenção', 'Informe um valor maior que zero.');
+        return;
+      }
       const docRef = await addDoc(collection(db, 'transacoes'), {
         descricao: formData.descricao,
         data: formData.data,
-        valor: parseFloat(formData.valor.replace(',', '.')),
+        valor: fromCents(valueCents),
+        valorCentavos: valueCents,
         categoria: formData.categoria,
         status: formData.status,
         tipo: modalTipo,
+        formaPagamento: 'Dinheiro',
+        naturezaFinanceira: 'caixa_fisico',
+        movimentaCaixaFisico: true,
+        origem: 'manual',
         tenantId,
         createdAt: serverTimestamp()
       });
@@ -147,11 +197,13 @@ const Caixa: React.FC = () => {
           usuarioEmail: currentUser?.email || '',
           modulo: 'financeiro',
           acao: 'criacao',
-          descricao: `Transação de ${modalTipo === 'entrada' ? 'entrada' : 'saída'} lançada: ${formData.descricao}. Categoria: ${formData.categoria}. Valor: R$ ${parseFloat(formData.valor.replace(',', '.')).toFixed(2)}.`,
+          descricao: `Transação de ${modalTipo === 'entrada' ? 'entrada' : 'saída'} lançada: ${formData.descricao}. Categoria: ${formData.categoria}. Valor: R$ ${fromCents(valueCents).toFixed(2)}.`,
           registroRelacionadoId: docRef.id,
           status: 'sucesso'
         });
-      } catch (logErr) {}
+      } catch (logError) {
+        console.error('Erro ao registrar auditoria do caixa:', logError);
+      }
       
       showSuccess('Transação adicionada com sucesso!');
       setIsModalOpen(false);
@@ -187,7 +239,9 @@ const Caixa: React.FC = () => {
         const transValor = transacao?.valor || 0;
 
         await updateDoc(doc(db, 'transacoes', id), {
-          status: 'Pendente'
+          status: 'Pendente',
+          movimentaCaixaFisico: false,
+          estornadaEm: serverTimestamp()
         });
 
         try {
@@ -203,7 +257,9 @@ const Caixa: React.FC = () => {
             status: 'sucesso',
             critical: true
           });
-        } catch (logErr) {}
+        } catch (logError) {
+          console.error('Erro ao registrar auditoria do estorno:', logError);
+        }
 
         showSuccess('Lançamento estornado com sucesso!');
       } catch (error) {
@@ -217,8 +273,8 @@ const Caixa: React.FC = () => {
     <div className="financeiro-page" style={{ position: 'relative' }}>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Fluxo de Caixa</h1>
-          <p className="page-subtitle">Controle de entradas, saídas e faturamento</p>
+          <h1 className="page-title">Caixa Físico</h1>
+          <p className="page-subtitle">Somente dinheiro em espécie; PIX, cartão e transferências ficam no fluxo digital</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <button className="btn-secondary" style={{ color: '#ef4444', borderColor: '#ef444440' }} onClick={() => handleOpenModal('saida')}>
@@ -279,13 +335,25 @@ const Caixa: React.FC = () => {
             <p>Saldo do Período</p>
           </div>
         </div>
+
+        <div className="card stat-card">
+          <div className="stat-header">
+            <div className="stat-icon" style={{ backgroundColor: '#37d7ff15', color: '#37d7ff' }}>
+              <CheckCircle size={24} />
+            </div>
+          </div>
+          <div className="stat-info">
+            <h3>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalRecebimentosDigitais)}</h3>
+            <p>Saldo digital líquido do período</p>
+          </div>
+        </div>
       </div>
 
       <div className="card list-container">
         <div className="list-toolbar">
           <div className="search-box">
             <Search size={18} className="search-icon" />
-            <input type="text" placeholder="Buscar transação..." />
+            <input type="text" placeholder="Buscar movimentação em dinheiro..." value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} />
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <Calendar size={18} style={{ color: 'var(--text-muted)' }} />

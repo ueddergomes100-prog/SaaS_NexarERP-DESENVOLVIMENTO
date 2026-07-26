@@ -14,6 +14,7 @@ const Orcamentos = lazy(() => import('./pages/Orcamentos/Orcamentos'));
 const OrcamentoForm = lazy(() => import('./pages/Orcamentos/OrcamentoForm'));
 const OrcamentoPrint = lazy(() => import('./pages/Orcamentos/OrcamentoPrint'));
 const PedidoVendas = lazy(() => import('./pages/Vendas/PedidoVendas'));
+const PDV = lazy(() => import('./pages/PDV/PDV'));
 const RelatoriosVendas = lazy(() => import('./pages/Vendas/RelatoriosVendas'));
 const DevolucoesVenda = lazy(() => import('./pages/Vendas/DevolucoesVenda'));
 const OSList = lazy(() => import('./pages/OS/OSList'));
@@ -42,8 +43,6 @@ const CategoriaForm = lazy(() => import('./pages/Categorias/CategoriaForm'));
 const Agenda = lazy(() => import('./pages/CRM/Agenda'));
 const NFE = lazy(() => import('./pages/Fiscal/NFE'));
 const EntradaNFE = lazy(() => import('./pages/Fiscal/EntradaNFE'));
-const SuperAdmin = lazy(() => import('./pages/Admin/SuperAdmin'));
-const SuperAdminBackup = lazy(() => import('./pages/Admin/SuperAdminBackup'));
 const UsuarioForm = lazy(() => import('./pages/Usuarios/UsuarioForm'));
 const VeiculosList = lazy(() => import('./pages/Veiculos/VeiculosList'));
 const VeiculoForm = lazy(() => import('./pages/Veiculos/VeiculoForm'));
@@ -69,6 +68,7 @@ function App() {
 
                 {/* Rotas Protegidas (Exigem Login) */}
                 <Route element={<ProtectedRoute />}>
+                  <Route path="/pdv" element={<PDV />} />
                   <Route path="/" element={<AppLayout />}>
                     <Route index element={<Navigate to="/dashboard" replace />} />
                     <Route path="dashboard" element={<Dashboard />} />
@@ -141,10 +141,6 @@ function App() {
                     <Route path="relatorios-diversos/print/veiculos" element={<PrintRelatorioVeiculos />} />
                     <Route path="relatorios-diversos/print/financeiro" element={<PrintRelatorioFinanceiro />} />
                     <Route path="relatorios-diversos/print/vendas" element={<PrintRelatorioVendas />} />
-                    
-                    {/* Painel SaaS */}
-                    <Route path="superadmin" element={<SuperAdmin />} />
-                    <Route path="superadmin/backup" element={<SuperAdminBackup />} />
                   </Route>
                 </Route>
                 

@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Plus, Search, Edit, Trash2, Car, MapPin, Calendar, Hash } from 'lucide-react';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { isPlatformAdminRole } from '../../utils/roles';
 import '../OS/OS.css'; // Reusing OS styles
 
 interface Veiculo {
@@ -27,7 +28,7 @@ const VeiculosList: React.FC = () => {
   const navigate = useNavigate();
   const { tenantId, userPermissions, userRole, isOwner } = useAuth();
   
-  const canEdit = isOwner || userRole === 'SuperAdmin' || userPermissions?.includes('cadastros.clientes');
+  const canEdit = isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('cadastros.clientes');
 
   const fetchVeiculos = async () => {
     if (!tenantId) return;

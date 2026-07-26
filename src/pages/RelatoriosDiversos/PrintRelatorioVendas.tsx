@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, Printer } from 'lucide-react';
 import { formatCompanyAddress, getCompanyAddressParts } from '../../utils/companyAddress';
+import { fromCents, toCents } from '../../utils/financeDomain';
 import '../OS/OsPrint.css'; // Reusing print layout styles
 
 interface PedidoVenda {
@@ -16,7 +17,13 @@ interface PedidoVenda {
   vendedorNome?: string;
   itens: any[];
   valorTotal: number;
+  valorTotalCentavos?: number;
   valorTotalDescontos?: number;
+  totalTaxasPagamento?: number;
+  totalTaxasPagamentoCentavos?: number;
+  totalLiquidoFinanceiro?: number;
+  totalLiquidoFinanceiroCentavos?: number;
+  pagamentos?: any[];
   formaPagamento: string;
   status: string;
   createdAt: any;
@@ -35,6 +42,33 @@ interface DevolucaoVenda {
   status: string;
   createdAt: any;
 }
+
+const saleGrossCents = (sale: PedidoVenda) => (
+  Number(sale.valorTotalCentavos ?? toCents(sale.valorTotal))
+);
+
+const saleCardFeeCents = (sale: PedidoVenda) => {
+  if (sale.totalTaxasPagamentoCentavos !== undefined) {
+    return Number(sale.totalTaxasPagamentoCentavos);
+  }
+  if (sale.totalTaxasPagamento !== undefined) {
+    return toCents(sale.totalTaxasPagamento);
+  }
+  return (sale.pagamentos || []).reduce(
+    (sum, payment) => sum + Number(payment.cartao?.valorTaxaCentavos || 0),
+    0,
+  );
+};
+
+const saleFinancialNetCents = (sale: PedidoVenda) => {
+  if (sale.totalLiquidoFinanceiroCentavos !== undefined) {
+    return Number(sale.totalLiquidoFinanceiroCentavos);
+  }
+  if (sale.totalLiquidoFinanceiro !== undefined) {
+    return toCents(sale.totalLiquidoFinanceiro);
+  }
+  return Math.max(0, saleGrossCents(sale) - saleCardFeeCents(sale));
+};
 
 const PrintRelatorioVendas: React.FC = () => {
   const { search } = useLocation();
@@ -139,6 +173,8 @@ const PrintRelatorioVendas: React.FC = () => {
       nome: string;
       vendasQtd: number;
       vendasTotal: number;
+      taxasCartao: number;
+      receitaLiquidaFinanceira: number;
       devolucoesQtd: number;
       devolucoesTotal: number;
       saldoLiquido: number;
@@ -154,13 +190,17 @@ const PrintRelatorioVendas: React.FC = () => {
           nome: vNome,
           vendasQtd: 0,
           vendasTotal: 0,
+          taxasCartao: 0,
+          receitaLiquidaFinanceira: 0,
           devolucoesQtd: 0,
           devolucoesTotal: 0,
           saldoLiquido: 0
         };
       }
       map[vId].vendasQtd += 1;
-      map[vId].vendasTotal += Number(p.valorTotal || 0);
+      map[vId].vendasTotal += fromCents(saleGrossCents(p));
+      map[vId].taxasCartao += fromCents(saleCardFeeCents(p));
+      map[vId].receitaLiquidaFinanceira += fromCents(saleFinancialNetCents(p));
     });
 
     devolucoes.forEach(d => {
@@ -173,6 +213,8 @@ const PrintRelatorioVendas: React.FC = () => {
           nome: vNome,
           vendasQtd: 0,
           vendasTotal: 0,
+          taxasCartao: 0,
+          receitaLiquidaFinanceira: 0,
           devolucoesQtd: 0,
           devolucoesTotal: 0,
           saldoLiquido: 0
@@ -183,7 +225,7 @@ const PrintRelatorioVendas: React.FC = () => {
     });
 
     return Object.values(map).map(item => {
-      const saldo = item.vendasTotal - item.devolucoesTotal;
+      const saldo = item.receitaLiquidaFinanceira - item.devolucoesTotal;
       return {
         ...item,
         saldoLiquido: saldo
@@ -191,13 +233,18 @@ const PrintRelatorioVendas: React.FC = () => {
     }).sort((a, b) => b.saldoLiquido - a.saldoLiquido);
   }, [pedidos, devolucoes, usuarios]);
 
-  const totalVendasValor = pedidos.reduce((acc, curr) => acc + Number(curr.valorTotal || 0), 0);
+  const totalVendasValor = pedidos.reduce((acc, curr) => acc + fromCents(saleGrossCents(curr)), 0);
   const totalVendasQtd = pedidos.length;
+  const totalTaxasCartao = pedidos.reduce((acc, curr) => acc + fromCents(saleCardFeeCents(curr)), 0);
+  const totalReceitaLiquidaFinanceira = pedidos.reduce(
+    (acc, curr) => acc + fromCents(saleFinancialNetCents(curr)),
+    0,
+  );
 
   const totalDevolucoesValor = devolucoes.reduce((acc, curr) => acc + Number(curr.valorTotalDevolvido || 0), 0);
   const totalDevolucoesQtd = devolucoes.length;
 
-  const saldoLiquido = totalVendasValor - totalDevolucoesValor;
+  const saldoLiquido = totalReceitaLiquidaFinanceira - totalDevolucoesValor;
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -255,11 +302,17 @@ const PrintRelatorioVendas: React.FC = () => {
 
         {/* Resumo de Indicadores */}
         <div className="section-title">Resumo Financeiro do Período</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '32px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '32px' }}>
           <div style={{ border: '1px solid #e5e7eb', padding: '16px', borderRadius: '6px', backgroundColor: '#f9fafb' }}>
             <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase' }}>Faturamento Bruto</span>
             <div style={{ fontSize: '20px', fontWeight: 800, color: '#111827', marginTop: '4px' }}>{formatCurrency(totalVendasValor)}</div>
             <span style={{ fontSize: '12px', color: '#4b5563', marginTop: '2px', display: 'block' }}>{totalVendasQtd} vendas realizadas</span>
+          </div>
+
+          <div style={{ border: '1px solid #e5e7eb', padding: '16px', borderRadius: '6px', backgroundColor: '#f9fafb' }}>
+            <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase' }}>Taxas de Cartão</span>
+            <div style={{ fontSize: '20px', fontWeight: 800, color: '#f59e0b', marginTop: '4px' }}>{formatCurrency(totalTaxasCartao)}</div>
+            <span style={{ fontSize: '12px', color: '#4b5563', marginTop: '2px', display: 'block' }}>Desconto financeiro</span>
           </div>
 
           <div style={{ border: '1px solid #e5e7eb', padding: '16px', borderRadius: '6px', backgroundColor: '#f9fafb' }}>
@@ -269,9 +322,9 @@ const PrintRelatorioVendas: React.FC = () => {
           </div>
 
           <div style={{ border: '1px solid #e5e7eb', padding: '16px', borderRadius: '6px', backgroundColor: '#f9fafb' }}>
-            <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase' }}>Faturamento Líquido</span>
+            <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase' }}>Receita Líquida</span>
             <div style={{ fontSize: '20px', fontWeight: 800, color: saldoLiquido >= 0 ? '#10b981' : '#ef4444', marginTop: '4px' }}>{formatCurrency(saldoLiquido)}</div>
-            <span style={{ fontSize: '12px', color: '#4b5563', marginTop: '2px', display: 'block' }}>Saldo líquido de vendas</span>
+            <span style={{ fontSize: '12px', color: '#4b5563', marginTop: '2px', display: 'block' }}>Após taxas e devoluções</span>
           </div>
         </div>
 
@@ -291,7 +344,9 @@ const PrintRelatorioVendas: React.FC = () => {
                     <th>Vendedor</th>
                     <th>Forma Pgto</th>
                     <th style={{ textAlign: 'right' }}>Desconto</th>
-                    <th style={{ textAlign: 'right' }}>Total</th>
+                    <th style={{ textAlign: 'right' }}>Venda Bruta</th>
+                    <th style={{ textAlign: 'right' }}>Taxas</th>
+                    <th style={{ textAlign: 'right' }}>Receita Líquida</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -303,14 +358,18 @@ const PrintRelatorioVendas: React.FC = () => {
                       <td>{usuarios[p.usuarioResponsavelId] || p.vendedorNome || 'Administrador'}</td>
                       <td>{p.formaPagamento}</td>
                       <td style={{ textAlign: 'right' }}>{formatCurrency(p.valorTotalDescontos || 0)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(p.valorTotal)}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(fromCents(saleGrossCents(p)))}</td>
+                      <td style={{ textAlign: 'right', color: '#f59e0b' }}>{formatCurrency(fromCents(saleCardFeeCents(p)))}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#10b981' }}>{formatCurrency(fromCents(saleFinancialNetCents(p)))}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colSpan={6} style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '14px', padding: '12px' }}>Total de Vendas:</td>
+                    <td colSpan={6} style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '14px', padding: '12px' }}>Totais:</td>
                     <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '14px', padding: '12px' }}>{formatCurrency(totalVendasValor)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '14px', padding: '12px', color: '#f59e0b' }}>{formatCurrency(totalTaxasCartao)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '14px', padding: '12px', color: '#10b981' }}>{formatCurrency(totalReceitaLiquidaFinanceira)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -362,9 +421,10 @@ const PrintRelatorioVendas: React.FC = () => {
                   <th>Vendedor</th>
                   <th style={{ textAlign: 'center' }}>Qtd. Vendas</th>
                   <th style={{ textAlign: 'right' }}>Total Vendas</th>
+                  <th style={{ textAlign: 'right' }}>Taxas Cartão</th>
                   <th style={{ textAlign: 'center' }}>Qtd. Devoluções</th>
                   <th style={{ textAlign: 'right' }}>Total Devolvido</th>
-                  <th style={{ textAlign: 'right' }}>Saldo Líquido</th>
+                  <th style={{ textAlign: 'right' }}>Receita Líquida</th>
                 </tr>
               </thead>
               <tbody>
@@ -373,6 +433,7 @@ const PrintRelatorioVendas: React.FC = () => {
                     <td style={{ fontWeight: 'bold' }}>{s.nome}</td>
                     <td style={{ textAlign: 'center' }}>{s.vendasQtd}</td>
                     <td style={{ textAlign: 'right' }}>{formatCurrency(s.vendasTotal)}</td>
+                    <td style={{ textAlign: 'right', color: '#f59e0b' }}>{formatCurrency(s.taxasCartao)}</td>
                     <td style={{ textAlign: 'center' }}>{s.devolucoesQtd}</td>
                     <td style={{ textAlign: 'right', color: s.devolucoesTotal > 0 ? '#ef4444' : 'inherit' }}>{formatCurrency(s.devolucoesTotal)}</td>
                     <td style={{ textAlign: 'right', fontWeight: 'bold', color: s.saldoLiquido >= 0 ? '#10b981' : '#ef4444' }}>{formatCurrency(s.saldoLiquido)}</td>
@@ -380,7 +441,7 @@ const PrintRelatorioVendas: React.FC = () => {
                 ))}
                 {sellerStats.length === 0 && (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: '#6b7280' }}>Nenhuma venda ou devolução registrada no período.</td>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '24px', color: '#6b7280' }}>Nenhuma venda ou devolução registrada no período.</td>
                   </tr>
                 )}
               </tbody>
@@ -389,6 +450,7 @@ const PrintRelatorioVendas: React.FC = () => {
                   <td>TOTAL GERAL:</td>
                   <td style={{ textAlign: 'center' }}>{totalVendasQtd}</td>
                   <td style={{ textAlign: 'right' }}>{formatCurrency(totalVendasValor)}</td>
+                  <td style={{ textAlign: 'right', color: '#f59e0b' }}>{formatCurrency(totalTaxasCartao)}</td>
                   <td style={{ textAlign: 'center' }}>{totalDevolucoesQtd}</td>
                   <td style={{ textAlign: 'right', color: '#ef4444' }}>{formatCurrency(totalDevolucoesValor)}</td>
                   <td style={{ textAlign: 'right', color: saldoLiquido >= 0 ? '#10b981' : '#ef4444' }}>{formatCurrency(saldoLiquido)}</td>
@@ -421,7 +483,9 @@ const PrintRelatorioVendas: React.FC = () => {
                               <th>Pedido</th>
                               <th>Cliente</th>
                               <th>Forma Pgto</th>
-                              <th style={{ textAlign: 'right' }}>Valor</th>
+                              <th style={{ textAlign: 'right' }}>Venda Bruta</th>
+                              <th style={{ textAlign: 'right' }}>Taxas</th>
+                              <th style={{ textAlign: 'right' }}>Receita Líquida</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -431,7 +495,9 @@ const PrintRelatorioVendas: React.FC = () => {
                                 <td style={{ fontWeight: 'bold' }}>#{p.numeroPedido}</td>
                                 <td>{p.clienteNome || 'Consumidor'}</td>
                                 <td>{p.formaPagamento}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(p.valorTotal)}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(fromCents(saleGrossCents(p)))}</td>
+                                <td style={{ textAlign: 'right', color: '#f59e0b' }}>{formatCurrency(fromCents(saleCardFeeCents(p)))}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#10b981' }}>{formatCurrency(fromCents(saleFinancialNetCents(p)))}</td>
                               </tr>
                             ))}
                           </tbody>

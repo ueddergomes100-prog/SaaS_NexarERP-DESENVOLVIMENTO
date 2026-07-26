@@ -4,11 +4,12 @@ import { useNavigate } from 'react-router-dom';
 import { collection, query, where, onSnapshot, doc, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { isTenantManagerRole } from '../../utils/roles';
 import PerfilModal from './PerfilModal';
 import './Layout.css';
 
 const TopBar: React.FC = () => {
-  const { currentUser, tenantId, userRole, userPermissions } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId } = useAuth();
   const navigate = useNavigate();
   const SUPPORT_DESK_URL = import.meta.env.VITE_SUPPORT_DESK_URL || '';
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -92,7 +93,7 @@ const TopBar: React.FC = () => {
     };
 
     let userUnsub = () => {};
-    if (userRole !== 'Admin' && userRole !== 'SuperAdmin') {
+    if (!isTenantManagerRole(userRole) && !isPlatformAdmin) {
       userUnsub = onSnapshot(doc(db, 'usuarios', currentUser.uid), (docSnap) => {
         if (docSnap.exists()) {
           setUserData(docSnap.data());
@@ -175,7 +176,7 @@ const TopBar: React.FC = () => {
     });
 
     let contasPagarUnsub = () => {};
-    const hasContasPagarAccess = userRole === 'Admin' || userRole === 'SuperAdmin' || userPermissions?.includes('financeiro.pagar');
+    const hasContasPagarAccess = isPlatformAdmin || isTenantManagerRole(userRole) || userPermissions?.includes('financeiro.pagar');
     
     if (hasContasPagarAccess) {
       const qContasPagar = query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('tipo', '==', 'saida'), where('status', '==', 'Pendente'));
@@ -212,7 +213,7 @@ const TopBar: React.FC = () => {
       contasPagarUnsub();
       userUnsub();
     };
-  }, [currentUser, tenantId, userRole, userPermissions]);
+  }, [currentUser, tenantId, userRole, userPermissions, isPlatformAdmin]);
 
   // Handle clicking outside to close dropdowns
   useEffect(() => {
@@ -345,11 +346,11 @@ const TopBar: React.FC = () => {
 
   return (
     <header className="topbar">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+      <div className="topbar-left">
         <button 
           className="mobile-menu-btn" 
           onClick={() => document.body.classList.toggle('mobile-sidebar-open')}
-          style={{ display: 'none', background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '8px', marginLeft: '-8px' }}
+          style={{ display: 'none' }}
         >
           <Menu size={24} />
         </button>
@@ -419,6 +420,21 @@ const TopBar: React.FC = () => {
       </div>
       
       <div className="topbar-actions">
+        {isPlatformAdmin && (
+          <div className="tenant-switcher">
+            <span>Empresa ativa</span>
+            <select
+              value={selectedTenant?.id || ''}
+              onChange={(event) => setActiveTenantId(event.target.value)}
+            >
+              <option value="" disabled>Selecionar</option>
+              {tenantOptions.map(tenant => (
+                <option key={tenant.id} value={tenant.id}>{tenant.nomeOficina}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* Toggle Menu Compacto */}
         <div className="menu-compacto-toggle" style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: expandAll ? 1 : 0.5, marginRight: '8px' }} title={!expandAll ? "Ative 'Expandir todos os blocos' no menu lateral primeiro" : "Recolher menu lateral"}>
           <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Menu Compacto</span>
@@ -452,20 +468,6 @@ const TopBar: React.FC = () => {
         <button 
           className="action-btn theme-toggle-btn" 
           onClick={toggleTheme}
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            width: '40px',
-            height: '40px',
-            borderRadius: '50%',
-            backgroundColor: 'var(--bg-tertiary)',
-            color: 'var(--text-primary)',
-            border: '1px solid var(--border-color)',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-            marginRight: '8px'
-          }}
           title={theme === 'dark' ? "Mudar para tema claro" : "Mudar para tema escuro"}
         >
           {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
@@ -591,7 +593,7 @@ const TopBar: React.FC = () => {
                   <User size={16} /> Meu Perfil
                 </button>
 
-                {(userRole === 'Admin' || userPermissions?.includes('administrativo.config')) && (
+                {(isPlatformAdmin || isTenantManagerRole(userRole) || userPermissions?.includes('administrativo.config')) && (
                   <button 
                     onClick={() => { setShowProfileDropdown(false); navigate('/configuracoes'); }}
                     style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 'var(--radius-md)', transition: 'background 0.2s', textAlign: 'left', fontSize: '13px' }}

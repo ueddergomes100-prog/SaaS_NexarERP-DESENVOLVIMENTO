@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { getIdTokenResult, onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth, db } from '../services/firebase';
-import { doc, getDoc, setDoc, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
 import Swal from 'sweetalert2';
+import { auth, db } from '../services/firebase';
 import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from '../utils/session';
 import {
   buildActiveSessionWarningHtml,
@@ -11,8 +11,8 @@ import {
   getCurrentSessionPath,
   type ActiveSessionInfo
 } from '../utils/sessionInfo';
-
-type UserRole = 'Admin' | 'Funcionario' | 'SuperAdmin';
+import { isPlatformAdminRole, normalizeUserRole, type UserRole } from '../utils/roles';
+import { activeTenantStorageKey, loadTenantOptions, type TenantOption } from '../utils/platformTenants';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -23,27 +23,56 @@ interface AuthContextType {
   tenantId: string | null;
   blockedModules: string[];
   isOwner: boolean;
+  isPlatformAdmin: boolean;
+  tenantOptions: TenantOption[];
+  selectedTenant: TenantOption | null;
+  setActiveTenantId: (tenantId: string) => void;
+  needsTenantSelection: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
 export const useAuth = () => useContext(AuthContext);
 
-const normalizeRole = (role: unknown): UserRole => {
-  return role === 'SuperAdmin' || role === 'Funcionario' || role === 'Admin' ? role : 'Admin';
-};
-
 const getTokenRole = async (user: User): Promise<UserRole | null> => {
   try {
     const token = await getIdTokenResult(user);
+    if (token.claims.nexarAdmin === true || token.claims.role === 'NexarAdmin') {
+      return 'NexarAdmin';
+    }
     if (token.claims.superAdmin === true || token.claims.role === 'SuperAdmin') {
       return 'SuperAdmin';
     }
-    return normalizeRole(token.claims.role);
+    return normalizeUserRole(token.claims.role, 'Funcionario');
   } catch (error) {
-    console.error('Erro ao carregar claims do usuário:', error);
+    console.error('Erro ao carregar claims do usuario:', error);
     return null;
   }
+};
+
+const toStringArray = (value: unknown): string[] => {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+};
+
+const isOnboardingIncomplete = (data: Record<string, unknown>, role: UserRole) => {
+  if (isPlatformAdminRole(role)) {
+    return false;
+  }
+
+  const hasOnboardingFlags =
+    'onboardingStatus' in data ||
+    'cnpjValidado' in data ||
+    'emailVerificado' in data ||
+    'telefoneVerificado' in data;
+
+  if (!hasOnboardingFlags) {
+    return false;
+  }
+
+  return data.onboardingStatus !== 'active' ||
+    data.cnpjValidado !== true ||
+    data.emailVerificado !== true ||
+    data.telefoneVerificado !== true;
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -53,11 +82,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [blockedModules, setBlockedModules] = useState<string[]>([]);
   const [isOwner, setIsOwner] = useState<boolean>(false);
+  const [tenantOptions, setTenantOptions] = useState<TenantOption[]>([]);
+  const [selectedTenant, setSelectedTenant] = useState<TenantOption | null>(null);
   const [loading, setLoading] = useState(true);
   const sessionCloseTokenRef = useRef('');
 
+  const setActiveTenantId = useCallback((nextTenantId: string) => {
+    const nextTenant = tenantOptions.find(option => option.id === nextTenantId) || null;
+    if (!currentUser || !nextTenant) {
+      return;
+    }
+
+    localStorage.setItem(activeTenantStorageKey(currentUser.uid), nextTenant.id);
+    setSelectedTenant(nextTenant);
+    setTenantId(nextTenant.id);
+    setBlockedModules([]);
+    setIsOwner(false);
+  }, [currentUser, tenantOptions]);
+
+  useEffect(() => {
+    const handleActiveTenantSelected = (event: Event) => {
+      const nextTenantId = (event as CustomEvent<string>).detail;
+      if (typeof nextTenantId === 'string' && nextTenantId) {
+        setActiveTenantId(nextTenantId);
+      }
+    };
+
+    window.addEventListener('nexus-active-tenant-selected', handleActiveTenantSelected);
+    return () => window.removeEventListener('nexus-active-tenant-selected', handleActiveTenantSelected);
+  }, [setActiveTenantId]);
+
   useEffect(() => {
     let unsubscribeUserSnapshot: (() => void) | null = null;
+
+      const clearUserState = () => {
+        setCurrentUser(null);
+        setUserRole(null);
+        setUserPermissions([]);
+        setTenantId(null);
+        setBlockedModules([]);
+        setIsOwner(false);
+        setTenantOptions([]);
+        setSelectedTenant(null);
+        clearStoredSessionId();
+      };
+
+      const applyPlatformAdminState = async (user: User, role: UserRole) => {
+        const options = await loadTenantOptions();
+        const storedTenantId = localStorage.getItem(activeTenantStorageKey(user.uid));
+        const activeTenant = options.find(option => option.id === storedTenantId) || null;
+
+        setUserRole(role);
+        setUserPermissions([]);
+        setTenantOptions(options);
+        setSelectedTenant(activeTenant);
+        setTenantId(activeTenant?.id || null);
+        setBlockedModules([]);
+        setIsOwner(false);
+        setLoading(false);
+      };
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (unsubscribeUserSnapshot) {
@@ -66,96 +149,121 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       setCurrentUser(user);
-      
+
       if (user) {
         try {
           const tokenRole = await getTokenRole(user);
 
-          // Inicia escuta em tempo real para obter perfil e sessões do usuário
           unsubscribeUserSnapshot = onSnapshot(doc(db, 'usuarios', user.uid), async (userSnap) => {
-            if (userSnap.exists()) {
-              const data = userSnap.data();
-              
-              // Validação de Sessão Única
-              const currentLocalSession = getStoredSessionId();
-              const serverSession = data.activeSessionId;
-              const activeSession = (data.activeSession as ActiveSessionInfo | undefined) || null;
-              
-              if (serverSession) {
-                if (!currentLocalSession) {
-                  // Sincroniza sessão se local estiver vazia (ex: recarregou ou limpou cache)
-                  setStoredSessionId(serverSession);
-                } else if (serverSession !== currentLocalSession) {
-                  // Sessão foi derrubada por outra conexão
-                  clearStoredSessionId();
-                  if (unsubscribeUserSnapshot) {
-                    unsubscribeUserSnapshot();
-                    unsubscribeUserSnapshot = null;
-                  }
-                  await signOut(auth);
-                  Swal.fire({
-                    title: 'Sessão encerrada',
-                    html: buildActiveSessionWarningHtml(activeSession),
-                    icon: 'warning',
-                    confirmButtonColor: '#8b5cf6'
-                  });
-                  return;
-                }
+            if (!userSnap.exists()) {
+              if (isPlatformAdminRole(tokenRole)) {
+                await applyPlatformAdminState(user, tokenRole as UserRole);
+                return;
               }
 
-              const finalRole = tokenRole === 'SuperAdmin' ? 'SuperAdmin' : normalizeRole(data.role);
-              const finalTenant = data.tenantId || user.uid;
-              const finalPermissions = data.permissoes || [];
-              let finalBlockedModules: string[] = [];
-
-              if (user.uid === finalTenant) {
-                finalBlockedModules = data.modulosBloqueados || [];
-              } else {
-                try {
-                  const ownerDoc = await getDoc(doc(db, 'usuarios', finalTenant));
-                  if (ownerDoc.exists()) {
-                    finalBlockedModules = ownerDoc.data().modulosBloqueados || [];
-                  }
-                } catch (e) {
-                  console.error("Erro ao buscar modulos bloqueados do dono", e);
-                }
+              clearUserState();
+              if (unsubscribeUserSnapshot) {
+                unsubscribeUserSnapshot();
+                unsubscribeUserSnapshot = null;
               }
-
-              setUserRole(finalRole);
-              setUserPermissions(finalPermissions);
-              setTenantId(finalTenant);
-              setBlockedModules(finalBlockedModules);
-              setIsOwner(user.uid === finalTenant);
-            } else {
-              const initialRole = tokenRole === 'SuperAdmin' ? 'SuperAdmin' : 'Admin';
-              // Salva base silenciosamente
-              const baseProfile = {
-                role: initialRole,
-                tenantId: user.uid,
-                email: user.email,
-                createdAt: new Date()
-              };
-              await setDoc(doc(db, 'usuarios', user.uid), baseProfile, { merge: true });
-
-              setUserRole(initialRole);
-              setUserPermissions([]);
-              setTenantId(user.uid);
-              setBlockedModules([]);
-              setIsOwner(true);
+              await signOut(auth);
+              Swal.fire({
+                title: 'Acesso nao autorizado',
+                text: 'Nao encontramos um perfil ativo para este usuario. Fale com o administrador.',
+                icon: 'error',
+                confirmButtonColor: '#8b5cf6'
+              });
+              setLoading(false);
+              return;
             }
+
+            const data = userSnap.data() as Record<string, unknown>;
+            const currentLocalSession = getStoredSessionId();
+            const serverSession = typeof data.activeSessionId === 'string' ? data.activeSessionId : '';
+            const activeSession = (data.activeSession as ActiveSessionInfo | undefined) || null;
+
+            if (serverSession) {
+              if (!currentLocalSession) {
+                setStoredSessionId(serverSession);
+              } else if (serverSession !== currentLocalSession) {
+                clearStoredSessionId();
+                if (unsubscribeUserSnapshot) {
+                  unsubscribeUserSnapshot();
+                  unsubscribeUserSnapshot = null;
+                }
+                await signOut(auth);
+                Swal.fire({
+                  title: 'Sessao encerrada',
+                  html: buildActiveSessionWarningHtml(activeSession),
+                  icon: 'warning',
+                  confirmButtonColor: '#8b5cf6'
+                });
+                return;
+              }
+            }
+
+            const profileFallback = user.uid === data.tenantId ? 'Master' : 'Funcionario';
+            const finalRole = isPlatformAdminRole(tokenRole)
+              ? tokenRole as UserRole
+              : normalizeUserRole(data.role, profileFallback);
+
+            if (isPlatformAdminRole(finalRole)) {
+              await applyPlatformAdminState(user, finalRole);
+              return;
+            }
+
+            if (isOnboardingIncomplete(data, finalRole)) {
+              clearUserState();
+              if (unsubscribeUserSnapshot) {
+                unsubscribeUserSnapshot();
+                unsubscribeUserSnapshot = null;
+              }
+              await signOut(auth);
+              Swal.fire({
+                title: 'Cadastro em validacao',
+                text: 'Este cadastro ainda nao concluiu a validacao obrigatoria de CNPJ, e-mail e telefone.',
+                icon: 'warning',
+                confirmButtonColor: '#8b5cf6'
+              });
+              setLoading(false);
+              return;
+            }
+
+            const finalTenant = typeof data.tenantId === 'string' && data.tenantId ? data.tenantId : user.uid;
+            const finalPermissions = toStringArray(data.permissoes);
+            let finalBlockedModules: string[] = [];
+
+            if (user.uid === finalTenant) {
+              finalBlockedModules = toStringArray(data.modulosBloqueados);
+            } else {
+              try {
+                const ownerDoc = await getDoc(doc(db, 'usuarios', finalTenant));
+                if (ownerDoc.exists()) {
+                  finalBlockedModules = toStringArray(ownerDoc.data().modulosBloqueados);
+                }
+              } catch (error) {
+                console.error('Erro ao buscar modulos bloqueados do dono:', error);
+              }
+            }
+
+            setUserRole(finalRole);
+            setUserPermissions(finalPermissions);
+            setTenantOptions([]);
+            setSelectedTenant(null);
+            setTenantId(finalTenant);
+            setBlockedModules(finalBlockedModules);
+            setIsOwner(user.uid === finalTenant);
             setLoading(false);
-          }, (err) => {
-            console.error("Erro no listener de usuário:", err);
+          }, (error) => {
+            console.error('Erro no listener de usuario:', error);
+            clearUserState();
+            signOut(auth).catch(() => {});
             setLoading(false);
           });
-
         } catch (error) {
-          console.error("Erro ao buscar perfil do usuário", error);
-          setUserRole('Admin');
-          setUserPermissions([]);
-          setTenantId(user.uid);
-          setBlockedModules([]);
-          setIsOwner(true);
+          console.error('Erro ao buscar perfil do usuario:', error);
+          clearUserState();
+          await signOut(auth).catch(() => {});
           setLoading(false);
         }
       } else {
@@ -164,6 +272,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTenantId(null);
         setBlockedModules([]);
         setIsOwner(false);
+        setTenantOptions([]);
+        setSelectedTenant(null);
         setLoading(false);
       }
     });
@@ -249,7 +359,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     if (currentUser && tenantId) {
       try {
-        // Limpa o activeSessionId no Firestore ao deslogar
         const localSessionId = getStoredSessionId();
         const userRef = doc(db, 'usuarios', currentUser.uid);
         await runTransaction(db, async (transaction) => {
@@ -278,11 +387,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           usuarioEmail: currentUser.email || currentUser.uid,
           modulo: 'autenticacao',
           acao: 'logout',
-          descricao: 'Usuário realizou logout.',
+          descricao: 'Usuario realizou logout.',
           status: 'sucesso'
         });
-      } catch (err) {
-        console.error('Erro ao registrar log de logout:', err);
+      } catch (error) {
+        console.error('Erro ao registrar log de logout:', error);
       }
     }
     clearStoredSessionId();
@@ -290,8 +399,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return signOut(auth);
   };
 
+  const isPlatformAdmin = isPlatformAdminRole(userRole);
+  const needsTenantSelection = isPlatformAdmin && !tenantId;
+
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection }}>
       {children}
     </AuthContext.Provider>
   );

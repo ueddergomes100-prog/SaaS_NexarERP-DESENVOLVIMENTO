@@ -2,17 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
-import { Megaphone, X, ShieldAlert } from 'lucide-react';
+import { Building2, Megaphone, X, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import './Layout.css';
+import { hasTenantFullAccess } from '../../utils/roles';
 
 const AppLayout: React.FC = () => {
   const [globalAlert, setGlobalAlert] = useState<{message: string} | null>(null);
   const [hideAlert, setHideAlert] = useState(false);
   const location = useLocation();
-  const { blockedModules, userRole, userPermissions, isOwner } = useAuth();
+  const { blockedModules, userRole, userPermissions, isOwner, isPlatformAdmin, tenantOptions, setActiveTenantId, needsTenantSelection } = useAuth();
 
   useEffect(() => {
     // Retrigger animation without destroying the DOM node (fixes Google Translate crash)
@@ -65,7 +66,6 @@ const AppLayout: React.FC = () => {
   else if (path.startsWith('/financeiro/comissoes') || path.startsWith('/financeiro')) routeModule = 'financeiro.comissoes';
   else if (path.startsWith('/fiscal/nfe')) routeModule = 'fiscal.nfe';
   else if (path.startsWith('/fiscal/entrada-nfe') || path.startsWith('/fiscal')) routeModule = 'fiscal.entrada_nfe';
-  else if (path.startsWith('/superadmin/backup')) routeModule = 'admin.backup';
   else if (path.startsWith('/relatorios-diversos')) routeModule = 'logs.relatorios_diversos';
   else if (path.startsWith('/logs-sistema')) routeModule = 'logs.sistema';
   else if (path.startsWith('/configuracoes')) routeModule = 'admin.config';
@@ -95,12 +95,12 @@ const AppLayout: React.FC = () => {
   else if (path.startsWith('/logs-sistema')) routePermission = 'administrativo.logs';
   else if (path.startsWith('/configuracoes')) routePermission = 'administrativo.config';
 
-  const isModuleBlocked = routeModule && userRole !== 'SuperAdmin' && blockedModules?.includes(routeModule);
-  const hasFullAccess = isOwner || userRole === 'Admin' || userRole === 'SuperAdmin';
+  const isModuleBlocked = routeModule && !isPlatformAdmin && blockedModules?.includes(routeModule);
+  const hasFullAccess = hasTenantFullAccess(userRole, isOwner);
   const isRouteAllowed = !routePermission || hasFullAccess || userPermissions?.includes(routePermission);
 
   return (
-    <div className="app-layout-wrapper" style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+    <div className="app-layout-wrapper">
       {globalAlert && !hideAlert && (
         <div style={{ 
           backgroundColor: '#f59e0b', 
@@ -128,13 +128,44 @@ const AppLayout: React.FC = () => {
           </button>
         </div>
       )}
-      <div className="app-container" style={{ flex: 1, height: 'auto', width: '100%' }}>
+      <div className="app-container">
         <Sidebar />
         <div className="main-content">
           <TopBar />
           <main className="page-content">
             <div className="page-transition">
-              {isModuleBlocked || !isRouteAllowed ? (
+              {needsTenantSelection ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '65vh', padding: '24px' }}>
+                  <div className="card" style={{ width: '100%', maxWidth: '560px', padding: '28px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '18px' }}>
+                      <div style={{ width: '44px', height: '44px', borderRadius: '12px', backgroundColor: 'rgba(139, 92, 246, 0.12)', color: 'var(--accent-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Building2 size={24} />
+                      </div>
+                      <div>
+                        <h2 style={{ margin: 0, fontSize: '20px', color: 'var(--text-primary)' }}>Selecionar empresa ativa</h2>
+                        <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '13px' }}>Escolha a base do cliente que deseja acessar agora.</p>
+                      </div>
+                    </div>
+
+                    {tenantOptions.length > 0 ? (
+                      <select
+                        defaultValue=""
+                        onChange={(event) => setActiveTenantId(event.target.value)}
+                        style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '13px 16px', color: 'var(--text-primary)' }}
+                      >
+                        <option value="" disabled>Selecione uma empresa</option>
+                        {tenantOptions.map(tenant => (
+                          <option key={tenant.id} value={tenant.id}>{tenant.nomeOficina} {tenant.email ? `- ${tenant.email}` : ''}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div style={{ padding: '16px', borderRadius: '8px', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-muted)', textAlign: 'center', fontSize: '14px' }}>
+                        Nenhuma empresa cliente foi encontrada para este ambiente.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : isModuleBlocked || !isRouteAllowed ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px', color: 'var(--text-primary)', textAlign: 'center', padding: '24px' }}>
                   <div style={{ padding: '16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: '50%', color: '#ef4444' }}>
                     <ShieldAlert size={48} />

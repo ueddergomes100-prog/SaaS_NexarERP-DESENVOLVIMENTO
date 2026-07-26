@@ -14,6 +14,7 @@ import {
   HardDrive
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { isPlatformAdminRole } from '../../utils/roles';
 import Swal from 'sweetalert2';
 
 interface BackupRecord {
@@ -56,7 +57,7 @@ const SuperAdminBackup: React.FC = () => {
   const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
 
   // Redireciona ou impede acesso se não for Admin ou SuperAdmin
-  const isSuperAdmin = userRole === 'SuperAdmin';
+  const isSuperAdmin = isPlatformAdminRole(userRole);
   
   useEffect(() => {
     if (tenantId) {

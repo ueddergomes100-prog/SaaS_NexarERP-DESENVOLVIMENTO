@@ -8,6 +8,7 @@ import { collection, query, where, getDocs, deleteDoc, doc, updateDoc, addDoc, s
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { isPlatformAdminRole } from '../../utils/roles';
 
 interface Orcamento {
   id: string;
@@ -28,8 +29,8 @@ const Orcamentos: React.FC = () => {
   const { tenantId, userRole, userPermissions, isOwner } = useAuth();
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
 
-  const canEditOrcamento = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.orcamentos_alterar'));
-  const canDeleteOrcamento = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.orcamentos_excluir'));
+  const canEditOrcamento = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.orcamentos_alterar'));
+  const canDeleteOrcamento = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.orcamentos_excluir'));
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 

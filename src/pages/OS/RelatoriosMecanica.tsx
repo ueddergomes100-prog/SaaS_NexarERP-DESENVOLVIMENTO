@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
-  Wrench, DollarSign, Clock, CheckCircle, XCircle, 
-  TrendingUp, Users, Calendar, Download, 
-  User, ClipboardList, Package, Activity, FileText
+  Wrench, DollarSign, Clock, CheckCircle,
+  TrendingUp, Users,
+  ClipboardList, Package, Activity, FileText
 } from 'lucide-react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -32,7 +32,7 @@ const RelatoriosMecanica: React.FC = () => {
     usuarios: {}
   });
 
-  const carregarDados = async () => {
+  const carregarDados = useCallback(async () => {
     if (!tenantId) {
       setLoading(false);
       return;
@@ -54,11 +54,11 @@ const RelatoriosMecanica: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenantId]);
 
   useEffect(() => {
     carregarDados();
-  }, [tenantId]);
+  }, [carregarDados]);
 
   const filteredData = useMemo(() => {
     let start = startOfDay(new Date());
@@ -83,6 +83,8 @@ const RelatoriosMecanica: React.FC = () => {
 
   const stats = useMemo(() => {
     let receitaTotal = 0;
+    let taxasCartao = 0;
+    let receitaLiquida = 0;
     let receitaServicos = 0;
     let receitaPecas = 0;
     let qtdConcluidas = 0;
@@ -103,6 +105,12 @@ const RelatoriosMecanica: React.FC = () => {
         0
       ) || 0;
       const valor = servicosValor + pecasValor;
+      const taxaPagamento = Number(
+        o.totalTaxasPagamentoCentavos !== undefined
+          ? o.totalTaxasPagamentoCentavos / 100
+          : o.totalTaxasPagamento || 0,
+      );
+      const valorLiquido = Math.max(0, valor - taxaPagamento);
       const status = o.status || 'Pendente';
       
       // Timeline
@@ -118,6 +126,8 @@ const RelatoriosMecanica: React.FC = () => {
       if (status === 'Finalizada') {
         qtdConcluidas++;
         receitaTotal += valor;
+        taxasCartao += taxaPagamento;
+        receitaLiquida += valorLiquido;
         
         // Calcular serviços vs peças
         receitaServicos += servicosValor;
@@ -127,7 +137,7 @@ const RelatoriosMecanica: React.FC = () => {
         const mecId = o.mecanicoId || 'admin';
         const mecNome = o.mecanicoNome || data.usuarios[mecId]?.nome || 'ADMINISTRADOR';
         if (!porMecanico[mecId]) porMecanico[mecId] = { nome: mecNome, total: 0, qtd: 0, servicos: 0, pecas: 0 };
-        porMecanico[mecId].total += valor;
+        porMecanico[mecId].total += valorLiquido;
         porMecanico[mecId].qtd += 1;
         porMecanico[mecId].servicos += servicosValor;
         porMecanico[mecId].pecas += pecasValor;
@@ -140,6 +150,8 @@ const RelatoriosMecanica: React.FC = () => {
 
     return {
       receitaTotal,
+      taxasCartao,
+      receitaLiquida,
       receitaServicos,
       receitaPecas,
       qtdTotal: filteredData.length,
@@ -195,11 +207,25 @@ const RelatoriosMecanica: React.FC = () => {
       {/* Stats Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
         <StatCard 
-          title="Faturamento (Serviços + Peças)" 
+          title="Faturamento Bruto"
           value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.receitaTotal)} 
           icon={DollarSign} 
           color="#10b981" 
           subtitle={`${stats.qtdConcluidas} OS finalizadas`}
+        />
+        <StatCard
+          title="Taxas de Cartão"
+          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.taxasCartao)}
+          icon={DollarSign}
+          color="#f59e0b"
+          subtitle="Dedução financeira"
+        />
+        <StatCard
+          title="Receita Líquida"
+          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.receitaLiquida)}
+          icon={TrendingUp}
+          color="#10b981"
+          subtitle="Após taxas de cartão"
         />
         <StatCard 
           title="Faturamento só Serviços" 

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { UserCog, Plus, Search, Filter, Edit2, Trash2 } from 'lucide-react';
+import { UserCog, Plus, Search, Edit2, Trash2 } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, deleteDoc, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
+import { isTenantManagerRole } from '../../utils/roles';
 
 interface UsuarioData {
   id: string;
@@ -17,10 +18,11 @@ interface UsuarioData {
 }
 
 const UsuariosList: React.FC = () => {
-  const { tenantId, userRole, isOwner } = useAuth();
+  const { tenantId, userRole } = useAuth();
   const navigate = useNavigate();
   const [usuarios, setUsuarios] = useState<UsuarioData[]>([]);
   const [loading, setLoading] = useState(true);
+  const canManageUsers = isTenantManagerRole(userRole);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -39,7 +41,7 @@ const UsuariosList: React.FC = () => {
   }, [tenantId]);
 
   const handleDelete = async (id: string, username: string) => {
-    if (userRole !== 'Admin') {
+    if (!isTenantManagerRole(userRole)) {
       showError('Negado', 'Apenas o administrador pode excluir usuários.');
       return;
     }
@@ -67,7 +69,7 @@ const UsuariosList: React.FC = () => {
           await deleteDoc(doc(db, 'usernames', username));
         }
         showSuccess('Usuário excluído com sucesso!');
-      } catch (err) {
+      } catch {
         showError('Erro', 'Não foi possível excluir o usuário.');
       }
     }
@@ -75,7 +77,8 @@ const UsuariosList: React.FC = () => {
 
   const getRoleBadge = (role: string) => {
     switch (role) {
-      case 'Admin': return <span style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>Dono / Admin</span>;
+      case 'Master': return <span style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>Dono / Master</span>;
+      case 'Admin': return <span style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>Administrador</span>;
       case 'Funcionario': return <span style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>Funcionário (Permissões Customizadas)</span>;
       case 'Mecanico': return <span style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>Mecânico (Legado)</span>;
       case 'Vendedor': return <span style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>Vendedor / Recepção (Legado)</span>;
@@ -93,7 +96,7 @@ const UsuariosList: React.FC = () => {
           </h1>
           <p style={{ color: 'var(--text-muted)' }}>Crie logins para seus funcionários e defina o que eles podem ver no sistema.</p>
         </div>
-        {isOwner && (
+        {canManageUsers && (
           <button className="btn-primary" onClick={() => navigate('/usuarios/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={20} /> Adicionar Funcionário
           </button>
@@ -120,7 +123,7 @@ const UsuariosList: React.FC = () => {
                 <th style={{ padding: '16px' }}>Login (Usuário)</th>
                 <th style={{ padding: '16px' }}>Nível de Acesso</th>
                 <th style={{ padding: '16px' }}>Status</th>
-                {isOwner && <th style={{ padding: '16px', textAlign: 'right' }}>Ações</th>}
+                {canManageUsers && <th style={{ padding: '16px', textAlign: 'right' }}>Ações</th>}
               </tr>
             </thead>
             <tbody>
@@ -146,9 +149,9 @@ const UsuariosList: React.FC = () => {
                         Ativo
                       </span>
                     </td>
-                    {isOwner && (
+                    {canManageUsers && (
                       <td style={{ padding: '16px', textAlign: 'right' }}>
-                        {user.role !== 'Admin' && (
+                        {!isTenantManagerRole(user.role) && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                             <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => navigate(`/usuarios/editar/${user.id}`)} title="Editar Usuário">
                               <Edit2 size={18} />

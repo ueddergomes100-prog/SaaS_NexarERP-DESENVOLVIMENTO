@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { TrendingUp, Download, PieChart, BarChart2, DollarSign, Calendar, Loader2 } from 'lucide-react';
+import { TrendingUp, Download, PieChart, Calendar, Loader2 } from 'lucide-react';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { transactionFeeAmount, transactionGrossAmount, transactionNetAmount } from '../../utils/financeDomain';
 
 interface TransacaoData {
   id: string;
@@ -41,7 +42,7 @@ const Faturamento: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser, tenantId]);
 
   // Filtra transações apenas do ano selecionado e Pagas
   const transacoesAno = transacoes.filter(t => {
@@ -60,20 +61,22 @@ const Faturamento: React.FC = () => {
   // --- CÁLCULOS DO DRE SIMPLIFICADO ---
   const receitasFiltradas = transacoesAno.filter(t => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução');
   
-  const receitaServicos = receitasFiltradas.filter(t => t.categoria === 'Serviços' || t.categoria === 'Serviços Automotivos').reduce((acc, curr) => acc + curr.valor, 0);
-  const receitaPecas = receitasFiltradas.filter(t => t.categoria === 'Venda de Peças').reduce((acc, curr) => acc + curr.valor, 0);
-  const receitaOutros = receitasFiltradas.filter(t => t.categoria !== 'Serviços' && t.categoria !== 'Serviços Automotivos' && t.categoria !== 'Venda de Peças').reduce((acc, curr) => acc + curr.valor, 0);
+  const receitaServicos = receitasFiltradas.filter(t => t.categoria === 'Serviços' || t.categoria === 'Serviços Automotivos').reduce((acc, curr) => acc + transactionGrossAmount(curr), 0);
+  const receitaPecas = receitasFiltradas.filter(t => t.categoria === 'Venda de Peças').reduce((acc, curr) => acc + transactionGrossAmount(curr), 0);
+  const receitaOutros = receitasFiltradas.filter(t => t.categoria !== 'Serviços' && t.categoria !== 'Serviços Automotivos' && t.categoria !== 'Venda de Peças').reduce((acc, curr) => acc + transactionGrossAmount(curr), 0);
 
   const receitaBruta = receitaServicos + receitaPecas + receitaOutros;
-  const totalDespesas = transacoesAno.filter(t => t.tipo === 'saida').reduce((acc, curr) => acc + curr.valor, 0);
-  const lucroLiquido = receitaBruta - totalDespesas;
+  const taxasCartao = receitasFiltradas.reduce((acc, curr) => acc + transactionFeeAmount(curr), 0);
+  const receitaLiquida = receitaBruta - taxasCartao;
+  const totalDespesas = transacoesAno.filter(t => t.tipo === 'saida').reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+  const lucroLiquido = receitaLiquida - totalDespesas;
   const margemLucro = receitaBruta > 0 ? (lucroLiquido / receitaBruta) * 100 : 0;
 
   // --- FORMAS DE PAGAMENTO ---
   const formasPagamento: Record<string, number> = {};
   receitasFiltradas.forEach(t => {
     const f = t.formaPagamento || 'Não informada';
-    formasPagamento[f] = (formasPagamento[f] || 0) + t.valor;
+    formasPagamento[f] = (formasPagamento[f] || 0) + transactionNetAmount(t);
   });
 
   // --- CÁLCULOS DO BALANCETE MENSAL ---
@@ -91,11 +94,14 @@ const Faturamento: React.FC = () => {
       return month === mesStr;
     });
     
-    const receitas = transacoesMes.filter(t => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução').reduce((acc, curr) => acc + curr.valor, 0);
-    const despesas = transacoesMes.filter(t => t.tipo === 'saida').reduce((acc, curr) => acc + curr.valor, 0);
+    const monthRevenueTransactions = transacoesMes.filter(t => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução');
+    const receitasBrutas = monthRevenueTransactions.reduce((acc, curr) => acc + transactionGrossAmount(curr), 0);
+    const taxas = monthRevenueTransactions.reduce((acc, curr) => acc + transactionFeeAmount(curr), 0);
+    const receitas = monthRevenueTransactions.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+    const despesas = transacoesMes.filter(t => t.tipo === 'saida').reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
     const saldo = receitas - despesas;
     
-    return { nomeMes, receitas, despesas, saldo };
+    return { nomeMes, receitasBrutas, taxas, receitas, despesas, saldo };
   });
 
   const formatCurrency = (value: number) => {
@@ -163,14 +169,24 @@ const Faturamento: React.FC = () => {
             </div>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>2. (-) Despesas / Custos Totais</span>
+              <span style={{ color: 'var(--text-secondary)' }}>2. (-) Taxas de Cartão</span>
+              <span style={{ fontWeight: 600, color: '#f59e0b' }}>{formatCurrency(taxasCartao)}</span>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'rgba(16, 185, 129, 0.08)', borderRadius: 'var(--radius-md)' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>3. (=) Receita Líquida Financeira</span>
+              <span style={{ fontWeight: 600, color: '#10b981' }}>{formatCurrency(receitaLiquida)}</span>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>4. (-) Despesas / Custos Totais</span>
               <span style={{ fontWeight: 600, color: '#ef4444' }}>{formatCurrency(totalDespesas)}</span>
             </div>
 
             <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '8px 0' }}></div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>Receitas por Forma de Pagamento</span>
+              <span style={{ color: 'var(--text-secondary)' }}>Receitas líquidas por Forma de Pagamento</span>
             </div>
             <div style={{ paddingLeft: '24px', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
               {Object.entries(formasPagamento).sort((a,b) => b[1] - a[1]).map(([forma, valor]) => (
@@ -204,7 +220,7 @@ const Faturamento: React.FC = () => {
           <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', flex: 1 }}>
             <h2 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '24px', color: 'var(--text-secondary)' }}>Média Mensal de Receita</h2>
             <div style={{ fontSize: '32px', fontWeight: 700 }}>
-              {formatCurrency(receitaBruta / (new Date().getFullYear() === anoFiltro ? new Date().getMonth() + 1 : 12))}
+              {formatCurrency(receitaLiquida / (new Date().getFullYear() === anoFiltro ? new Date().getMonth() + 1 : 12))}
             </div>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '8px' }}>Com base nos meses transcorridos em {anoFiltro}.</p>
           </div>
@@ -231,7 +247,9 @@ const Faturamento: React.FC = () => {
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '13px', textTransform: 'uppercase' }}>
                 <th style={{ padding: '16px' }}>Mês</th>
-                <th style={{ padding: '16px' }}>Receitas</th>
+                <th style={{ padding: '16px' }}>Receita Bruta</th>
+                <th style={{ padding: '16px' }}>Taxas Cartão</th>
+                <th style={{ padding: '16px' }}>Receita Líquida</th>
                 <th style={{ padding: '16px' }}>Despesas</th>
                 <th style={{ padding: '16px' }}>Resultado (Saldo)</th>
               </tr>
@@ -246,6 +264,8 @@ const Faturamento: React.FC = () => {
                 return (
                   <tr key={mes.nomeMes} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '16px', fontWeight: 500 }}>{mes.nomeMes}</td>
+                    <td style={{ padding: '16px' }}>{formatCurrency(mes.receitasBrutas)}</td>
+                    <td style={{ padding: '16px', color: '#f59e0b' }}>{formatCurrency(mes.taxas)}</td>
                     <td style={{ padding: '16px', color: '#10b981' }}>{formatCurrency(mes.receitas)}</td>
                     <td style={{ padding: '16px', color: '#ef4444' }}>{formatCurrency(mes.despesas)}</td>
                     <td style={{ padding: '16px', fontWeight: 600, color: mes.saldo >= 0 ? '#10b981' : '#ef4444' }}>

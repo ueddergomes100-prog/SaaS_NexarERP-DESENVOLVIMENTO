@@ -5,6 +5,7 @@ import { collection, query, onSnapshot, where, doc, deleteDoc } from 'firebase/f
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { isPlatformAdminRole } from '../../utils/roles';
 import './OS.css';
 
 interface OSData {
@@ -28,8 +29,8 @@ const OSList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
 
-  const canEditOS = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('mecanica.os_alterar'));
-  const canDeleteOS = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('mecanica.os_excluir'));
+  const canEditOS = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('mecanica.os_alterar'));
+  const canDeleteOS = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('mecanica.os_excluir'));
 
   useEffect(() => {
     if (!currentUser) return;

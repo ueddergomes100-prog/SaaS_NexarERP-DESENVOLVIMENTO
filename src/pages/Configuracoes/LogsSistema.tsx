@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { createAuditLog, runLogsCleanup } from '../../services/logService';
 import { ShieldAlert, Search, Calendar, Filter, Loader2, Info, Lock, KeyRound } from 'lucide-react';
 import { showError, showSuccess } from '../../utils/alerts';
+import { isPlatformAdminRole } from '../../utils/roles';
 
 interface LogDocument {
   id: string;
@@ -52,7 +53,7 @@ const LogsSistema: React.FC = () => {
   useEffect(() => {
     if (userRole === null) return; // Aguarda o carregamento da role
 
-    const allowed = isOwner || userRole === 'SuperAdmin' || userPermissions?.includes('administrativo.logs');
+    const allowed = isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('administrativo.logs');
     if (!allowed) {
       setHasPermission(false);
       if (currentUser && tenantId) {

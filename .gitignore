@@ -12,7 +12,23 @@ dist
 dist-ssr
 *.local
 .env
+.env.*
+!.env.example
 server/.env
+server/.env.*
+!server/.env.example
+
+# Deploy artifacts / backups
+nexar_deploy-backup-*.zip
+
+# AI coding session logs
+.codex-logs/
+
+# Generated output
+output/
+
+# Local tool ignore file
+.megaignore
 
 # Editor directories and files
 .vscode/*

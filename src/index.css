@@ -1,19 +1,22 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
-  /* Premium Dark Theme Colors */
-  --bg-primary: #121214; /* Deep matte black / graphite */
-  --bg-secondary: #1a1a1e; /* Lighter graphite for panels/cards */
-  --bg-tertiary: #232328; /* Even lighter for hover states */
+  /* Modern SaaS surface system */
+  --bg-primary: #0f1117;
+  --bg-secondary: #171a22;
+  --bg-tertiary: #202430;
+  --bg-elevated: #1b1f2a;
+  --bg-soft: #121620;
   
-  --text-primary: #f8f8f8;
-  --text-secondary: #a0a0ab;
-  --text-muted: #6b6b75;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #7b8496;
   
   /* Accents */
-  --accent-purple: #8b5cf6; /* Vibrant purple */
-  --accent-purple-glow: rgba(139, 92, 246, 0.4);
-  --accent-blue: #3b82f6; /* Blue accent */
+  --accent-purple: #7c3aed;
+  --accent-purple-glow: rgba(124, 58, 237, 0.18);
+  --accent-blue: #2563eb;
+  --accent-cyan: #06b6d4;
   
   /* Status Colors */
   --status-green: #10b981; /* Paga / Finalizada */
@@ -23,29 +26,38 @@
   --status-red: #ef4444; /* Cancelada / Erro */
   
   /* Borders & Shadows */
-  --border-color: #27272a;
-  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.4);
-  --shadow-neon: 0 0 15px var(--accent-purple-glow);
+  --border-color: rgba(148, 163, 184, 0.16);
+  --border-strong: rgba(148, 163, 184, 0.28);
+  --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.24);
+  --shadow-subtle: 0 8px 22px rgba(0, 0, 0, 0.18);
+  --shadow-neon: 0 10px 24px rgba(37, 99, 235, 0.18);
   
   --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --topbar-height: 72px;
+  --sidebar-width: 280px;
+  --sidebar-width-mini: 82px;
   
   --font-sans: 'Inter', sans-serif;
 }
 
 body.light-theme {
-  --bg-primary: #edf2f7;
-  --bg-secondary: #f8fafc;
-  --bg-tertiary: #e7eef6;
+  --bg-primary: #f4f7fb;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #eef3f8;
+  --bg-elevated: #ffffff;
+  --bg-soft: #e8eef7;
   
   --text-primary: #111827;
-  --text-secondary: #334155;
-  --text-muted: #64748b;
+  --text-secondary: #344256;
+  --text-muted: #667085;
   
-  --border-color: #d5dde8;
-  --shadow-card: 0 8px 24px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.05);
-  --shadow-neon: 0 0 15px rgba(139, 92, 246, 0.2);
+  --border-color: rgba(100, 116, 139, 0.22);
+  --border-strong: rgba(71, 85, 105, 0.28);
+  --shadow-card: 0 12px 28px rgba(15, 23, 42, 0.08);
+  --shadow-subtle: 0 8px 18px rgba(15, 23, 42, 0.07);
+  --shadow-neon: 0 10px 22px rgba(37, 99, 235, 0.12);
 }
 
 * {
@@ -199,15 +211,15 @@ body.light-theme textarea:disabled {
 
 /* Global Premium Button Styles */
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+  background: var(--accent-blue);
   color: #fff !important;
-  padding: 10px 20px;
+  padding: 10px 18px;
   border-radius: var(--radius-md);
   font-weight: 600;
   font-size: 14px;
   border: none;
-  box-shadow: var(--shadow-neon);
-  transition: all 0.2s ease;
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.2);
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -217,8 +229,9 @@ body.light-theme textarea:disabled {
 }
 
 .btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0 20px var(--accent-purple-glow);
+  background: #1d4ed8;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.24);
 }
 
 .btn-primary:active {
@@ -226,14 +239,14 @@ body.light-theme textarea:disabled {
 }
 
 .btn-secondary {
-  background-color: var(--bg-secondary);
+  background-color: var(--bg-elevated);
   color: var(--text-primary) !important;
-  padding: 10px 20px;
+  padding: 10px 18px;
   border-radius: var(--radius-md);
   font-weight: 500;
   font-size: 14px;
   border: 1px solid var(--border-color);
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -244,7 +257,7 @@ body.light-theme textarea:disabled {
 
 .btn-secondary:hover {
   background-color: var(--bg-tertiary);
-  border-color: var(--text-muted);
+  border-color: var(--border-strong);
 }
 
 .btn-secondary:active {
@@ -259,14 +272,15 @@ body.light-theme textarea:disabled {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-md);
-  transition: all 0.2s;
-  background: none;
-  border: none;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+  background: transparent;
+  border: 1px solid transparent;
   cursor: pointer;
 }
 
 .icon-btn:hover {
   background-color: var(--bg-tertiary);
+  border-color: var(--border-color);
   color: var(--text-primary);
 }
 
@@ -370,6 +384,15 @@ body.light-theme textarea:disabled {
 }
 
 /* Global Table & Status Badge Styles */
+.card {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  color: var(--text-primary);
+  padding: 24px;
+}
+
 .table-wrapper {
   overflow-x: auto;
   width: 100%;
@@ -382,17 +405,18 @@ body.light-theme textarea:disabled {
 
 .data-table th,
 .data-table td {
-  padding: 16px;
+  padding: 14px 16px;
   text-align: left;
   border-bottom: 1px solid var(--border-color);
 }
 
 .data-table th {
   color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.08em;
+  background-color: color-mix(in srgb, var(--bg-tertiary) 42%, transparent);
 }
 
 .data-table td {
@@ -409,7 +433,7 @@ body.light-theme textarea:disabled {
 }
 
 .data-table tbody tr:hover {
-  background-color: var(--bg-tertiary);
+  background-color: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
 }
 
 body.light-theme .card,
@@ -441,10 +465,11 @@ body.light-theme .profile-menu:hover {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  border-radius: 16px;
+  padding: 5px 10px;
+  border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
+  border: 1px solid currentColor;
 }
 
 .status-dot {

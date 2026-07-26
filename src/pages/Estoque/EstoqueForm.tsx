@@ -5,6 +5,7 @@ import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
+import { isPlatformAdminRole } from '../../utils/roles';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -336,7 +337,7 @@ const EstoqueForm: React.FC = () => {
   ];
 
   const activeUnidades = unidadesDB.length > 0 ? unidadesDB : fallbackUnidades;
-  const isSuperAdmin = userRole === 'SuperAdmin';
+  const isSuperAdmin = isPlatformAdminRole(userRole);
 
   const precoCusto = toNumber(formData.precoCusto);
   const precoVenda = toNumber(formData.precoVenda);

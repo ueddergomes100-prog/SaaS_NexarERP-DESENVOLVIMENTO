@@ -1,18 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle } from 'lucide-react';
+import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
 import { formatCompanyAddress } from '../../utils/companyAddress';
+import { MODULE_GROUPS } from '../../utils/moduleCatalog';
+import { isPlatformAdminRole } from '../../utils/roles';
+import { normalizeCreditCardFeeSchedule, parseCreditTerms } from '../../utils/financeDomain';
+
+const toStringArray = (value: unknown): string[] => {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+};
+
+const toConfigurationNumber = (value: unknown) => {
+  const parsed = Number(String(value ?? '').trim().replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+};
+
+const toCreditCardRateInputs = (value: unknown, fallbackFeePercent = 0) => (
+  Object.fromEntries(
+    Object.entries(normalizeCreditCardFeeSchedule(value, fallbackFeePercent))
+      .map(([installments, fee]) => [installments, String(fee)]),
+  )
+);
 
 const Configuracoes: React.FC = () => {
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, userRole } = useAuth();
+  const isPlatformAdmin = isPlatformAdminRole(userRole);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
   const [isEditingMode, setIsEditingMode] = useState(true);
   const [showSuccessAnim, setShowSuccessAnim] = useState(false);
+  const [showModulosSistema, setShowModulosSistema] = useState(true);
   const [showDadosOficina, setShowDadosOficina] = useState(false);
   const [showTextosPadroes, setShowTextosPadroes] = useState(true);
   const [showNotificacoesCrm, setShowNotificacoesCrm] = useState(true);
@@ -32,6 +53,8 @@ const Configuracoes: React.FC = () => {
   const [recebeComissaoPecas, setRecebeComissaoPecas] = useState(false);
   const [comissaoPercentualPecas, setComissaoPercentualPecas] = useState(0);
   const [isSavingPermissions, setIsSavingPermissions] = useState(false);
+  const [moduleBlockedDraft, setModuleBlockedDraft] = useState<string[]>([]);
+  const [isSavingTenantModules, setIsSavingTenantModules] = useState(false);
 
   const [formData, setFormData] = useState({
     logo: '',
@@ -51,6 +74,11 @@ const Configuracoes: React.FC = () => {
     venderSemEstoque: false,
     validarCadastroProduto: false,
     diasCrediario: '30',
+    maxParcelasCartao: '12',
+    taxasCartaoCreditoPorParcela: toCreditCardRateInputs(null),
+    taxaCartaoDebitoPercentual: '0',
+    prazoRecebimentoCartaoCreditoDias: '30',
+    prazoRecebimentoCartaoDebitoDias: '1',
     planoContasReceitas: ['Serviços', 'Venda de Produtos', 'Outras Receitas'],
     planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Produtos', 'Marketing', 'Manutenção', 'Outros'],
     modeloImpressaoOS: DEFAULT_OS_PRINT_MODEL,
@@ -92,6 +120,14 @@ const Configuracoes: React.FC = () => {
             numero: data.numero ?? '',
             bairro: data.bairro ?? '',
             diasCrediario: data.diasCrediario ?? '30',
+            maxParcelasCartao: String(Math.min(12, Math.max(1, Number(data.maxParcelasCartao ?? 12) || 12))),
+            taxasCartaoCreditoPorParcela: toCreditCardRateInputs(
+              data.taxasCartaoCreditoPorParcela,
+              data.taxaCartaoCreditoPercentual ?? 0,
+            ),
+            taxaCartaoDebitoPercentual: String(data.taxaCartaoDebitoPercentual ?? 0),
+            prazoRecebimentoCartaoCreditoDias: String(data.prazoRecebimentoCartaoCreditoDias ?? 30),
+            prazoRecebimentoCartaoDebitoDias: String(data.prazoRecebimentoCartaoDebitoDias ?? 1),
             planoContasReceitas: receitas,
             planoContasDespesas: despesas,
             modeloImpressaoOS: data.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL,
@@ -130,6 +166,15 @@ const Configuracoes: React.FC = () => {
         });
         setTenantUsers(usersList);
 
+        if (isPlatformAdmin && tenantId) {
+          const ownerSnap = await getDoc(doc(db, 'usuarios', tenantId));
+          const ownerBlockedModules = ownerSnap.exists() ? toStringArray(ownerSnap.data().modulosBloqueados) : [];
+          const configBlockedModules = docSnap.exists() ? toStringArray(docSnap.data().modulosBloqueados) : [];
+          setModuleBlockedDraft(ownerBlockedModules.length > 0 ? ownerBlockedModules : configBlockedModules);
+        } else {
+          setModuleBlockedDraft([]);
+        }
+
       } catch (error) {
         console.error("Erro ao buscar configurações:", error);
       } finally {
@@ -137,7 +182,7 @@ const Configuracoes: React.FC = () => {
       }
     };
     fetchConfig();
-  }, [currentUser, tenantId]);
+  }, [currentUser, tenantId, isPlatformAdmin]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -175,6 +220,48 @@ const Configuracoes: React.FC = () => {
       }
     }
 
+    const creditTerms = parseCreditTerms(formData.diasCrediario);
+    if (creditTerms.length === 0) {
+      showError('Configuração financeira inválida', 'Informe pelo menos um prazo de crediário maior que zero.');
+      return;
+    }
+
+    const maxCardInstallments = toConfigurationNumber(formData.maxParcelasCartao);
+    const debitCardFee = toConfigurationNumber(formData.taxaCartaoDebitoPercentual);
+    const creditCardSettlementDays = toConfigurationNumber(formData.prazoRecebimentoCartaoCreditoDias);
+    const debitCardSettlementDays = toConfigurationNumber(formData.prazoRecebimentoCartaoDebitoDias);
+    const creditCardFees = Object.fromEntries(
+      Array.from({ length: 12 }, (_, index) => {
+        const installments = String(index + 1);
+        return [installments, toConfigurationNumber(formData.taxasCartaoCreditoPorParcela[installments])];
+      }),
+    );
+
+    if (!Number.isInteger(maxCardInstallments) || maxCardInstallments < 1 || maxCardInstallments > 12) {
+      showError('Configuração financeira inválida', 'O máximo de parcelas deve ser um número inteiro entre 1 e 12.');
+      return;
+    }
+    if (
+      !Number.isFinite(debitCardFee) ||
+      debitCardFee < 0 ||
+      debitCardFee > 100 ||
+      Object.values(creditCardFees).some((fee) => !Number.isFinite(fee) || fee < 0 || fee > 100)
+    ) {
+      showError('Configuração financeira inválida', 'Todas as taxas dos cartões devem estar entre 0% e 100%.');
+      return;
+    }
+    if (
+      !Number.isInteger(creditCardSettlementDays) ||
+      !Number.isInteger(debitCardSettlementDays) ||
+      creditCardSettlementDays < 0 ||
+      creditCardSettlementDays > 365 ||
+      debitCardSettlementDays < 0 ||
+      debitCardSettlementDays > 365
+    ) {
+      showError('Configuração financeira inválida', 'Os prazos de recebimento devem ser números inteiros entre 0 e 365 dias.');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const docRef = doc(db, 'configuracoes', tenantId);
@@ -191,6 +278,13 @@ const Configuracoes: React.FC = () => {
 
       await setDoc(docRef, {
         ...publicFormData,
+        diasCrediario: creditTerms.join(', '),
+        maxParcelasCartao: maxCardInstallments,
+        taxasCartaoCreditoPorParcela: creditCardFees,
+        taxaCartaoCreditoPercentual: creditCardFees['1'],
+        taxaCartaoDebitoPercentual: debitCardFee,
+        prazoRecebimentoCartaoCreditoDias: creditCardSettlementDays,
+        prazoRecebimentoCartaoDebitoDias: debitCardSettlementDays,
         endereco: enderecoCompleto,
         spedyApiKey: deleteField(),
         spedyApiKeyConfigured: Boolean(trimmedSpedyApiKey),
@@ -198,6 +292,17 @@ const Configuracoes: React.FC = () => {
         updatedAt: serverTimestamp(),
       }, { merge: true });
 
+      setFormData((current) => ({
+        ...current,
+        diasCrediario: creditTerms.join(', '),
+        maxParcelasCartao: String(maxCardInstallments),
+        taxasCartaoCreditoPorParcela: Object.fromEntries(
+          Object.entries(creditCardFees).map(([installments, fee]) => [installments, String(fee)]),
+        ),
+        taxaCartaoDebitoPercentual: String(debitCardFee),
+        prazoRecebimentoCartaoCreditoDias: String(creditCardSettlementDays),
+        prazoRecebimentoCartaoDebitoDias: String(debitCardSettlementDays),
+      }));
       setIsEditingMode(false);
       setShowSuccessAnim(true);
       setTimeout(() => setShowSuccessAnim(false), 2000);
@@ -268,9 +373,55 @@ const Configuracoes: React.FC = () => {
     }
   };
 
+  const toggleTenantModule = (moduleId: string) => {
+    setModuleBlockedDraft(prev =>
+      prev.includes(moduleId)
+        ? prev.filter(id => id !== moduleId)
+        : [...prev, moduleId]
+    );
+  };
+
+  const handleSaveTenantModules = async () => {
+    if (!tenantId) {
+      showError('Atenção', 'Selecione uma empresa ativa para configurar os módulos.');
+      return;
+    }
+
+    setIsSavingTenantModules(true);
+    try {
+      await updateDoc(doc(db, 'usuarios', tenantId), {
+        modulosBloqueados: moduleBlockedDraft,
+        updatedAt: serverTimestamp()
+      });
+
+      try {
+        await updateDoc(doc(db, 'configuracoes', tenantId), {
+          modulosBloqueados: moduleBlockedDraft,
+          updatedAt: serverTimestamp()
+        });
+      } catch {
+        await setDoc(doc(db, 'configuracoes', tenantId), {
+          tenantId,
+          modulosBloqueados: moduleBlockedDraft,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
+
+      showSuccess('Módulos e telas atualizados com sucesso!');
+    } catch (error) {
+      console.error('Erro ao salvar módulos da empresa:', error);
+      showError('Erro', 'Não foi possível atualizar os módulos desta empresa.');
+    } finally {
+      setIsSavingTenantModules(false);
+    }
+  };
+
   if (isFetching) {
     return <div style={{ padding: '40px', color: 'var(--text-primary)', textAlign: 'center' }}>Carregando configurações...</div>;
   }
+
+  const totalModuleCount = MODULE_GROUPS.reduce((acc, group) => acc + group.items.length, 0);
+  const activeModuleCount = totalModuleCount - moduleBlockedDraft.length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -311,6 +462,102 @@ const Configuracoes: React.FC = () => {
         }}>
           <CheckCircle size={48} />
           <h2 style={{ margin: 0, fontSize: '20px' }}>Configurações Salvas!</h2>
+        </div>
+      )}
+
+      {isPlatformAdmin && (
+        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '1100px' }}>
+          <div
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showModulosSistema ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+            onClick={() => setShowModulosSistema(!showModulosSistema)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Sliders size={20} style={{ color: 'var(--accent-purple)' }} />
+              <div>
+                <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Configurar Módulos & Telas</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>Área restrita para liberar ou bloquear recursos da empresa ativa.</p>
+              </div>
+            </div>
+            <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {showModulosSistema ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
+          </div>
+
+          {showModulosSistema && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) 160px 160px', gap: '16px', alignItems: 'stretch' }}>
+                <div style={{ padding: '12px 14px', borderRadius: '8px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+                  <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Empresa ativa</span>
+                  <strong style={{ display: 'block', fontSize: '16px', color: 'var(--text-primary)', marginTop: '6px' }}>{formData.nomeOficina || 'Empresa selecionada'}</strong>
+                  <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>{formData.email || tenantId}</span>
+                </div>
+
+                <div style={{ padding: '12px 14px', borderRadius: '8px', backgroundColor: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                  <span style={{ display: 'block', fontSize: '11px', color: '#10b981', fontWeight: 700, textTransform: 'uppercase' }}>Ativos</span>
+                  <strong style={{ display: 'block', fontSize: '22px', color: 'var(--text-primary)', marginTop: '4px' }}>{activeModuleCount}</strong>
+                </div>
+
+                <div style={{ padding: '12px 14px', borderRadius: '8px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                  <span style={{ display: 'block', fontSize: '11px', color: '#ef4444', fontWeight: 700, textTransform: 'uppercase' }}>Bloqueados</span>
+                  <strong style={{ display: 'block', fontSize: '22px', color: 'var(--text-primary)', marginTop: '4px' }}>{moduleBlockedDraft.length}</strong>
+                </div>
+              </div>
+
+              {tenantId ? (
+                <>
+                  <div style={{ padding: '12px 14px', borderRadius: '8px', backgroundColor: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.18)', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.5 }}>
+                    Marcado significa módulo ativo para <strong style={{ color: 'var(--text-primary)' }}>{formData.nomeOficina || 'a empresa ativa'}</strong>. Desmarcado bloqueia a tela para dono e funcionários da empresa.
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
+                    {MODULE_GROUPS.map(group => (
+                      <div key={group.group} style={{ padding: '16px', borderRadius: '8px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <h4 style={{ margin: '0 0 4px', fontSize: '12px', color: 'var(--accent-purple)', textTransform: 'uppercase', fontWeight: 700 }}>{group.group}</h4>
+                        {group.items.map(moduleItem => {
+                          const isActive = !moduleBlockedDraft.includes(moduleItem.id);
+                          return (
+                            <label
+                              key={moduleItem.id}
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 0', cursor: isSavingTenantModules ? 'not-allowed' : 'pointer', borderTop: '1px solid rgba(255,255,255,0.04)' }}
+                            >
+                              <span style={{ fontSize: '13px', color: isActive ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: isActive ? 600 : 400 }}>{moduleItem.label}</span>
+                              <span style={{ position: 'relative', width: '40px', height: '22px', borderRadius: '999px', backgroundColor: isActive ? 'var(--accent-purple)' : 'var(--bg-primary)', border: `1px solid ${isActive ? 'var(--accent-purple)' : 'var(--border-color)'}`, flexShrink: 0 }}>
+                                <span style={{ position: 'absolute', top: '2px', left: isActive ? '20px' : '2px', width: '16px', height: '16px', borderRadius: '50%', backgroundColor: isActive ? '#fff' : 'var(--text-muted)', transition: 'left 0.2s ease' }} />
+                              </span>
+                              <input
+                                type="checkbox"
+                                checked={isActive}
+                                disabled={isSavingTenantModules}
+                                onChange={() => toggleTenantModule(moduleItem.id)}
+                                style={{ display: 'none' }}
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={handleSaveTenantModules}
+                      disabled={isSavingTenantModules}
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: isSavingTenantModules ? 0.7 : 1 }}
+                    >
+                      {isSavingTenantModules ? <Loader2 size={16} className="spin-icon" /> : <Save size={16} />}
+                      {isSavingTenantModules ? 'Salvando...' : 'Salvar Módulos da Empresa'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: '20px', borderRadius: '8px', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-muted)', textAlign: 'center' }}>
+                  Nenhuma empresa encontrada para configurar.
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -800,18 +1047,198 @@ const Configuracoes: React.FC = () => {
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Quando marcado, o cadastro de produtos exige apenas nome, preço de venda e quantidade inicial de estoque.</p>
               </div>
 
-              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Dias de Crediário Padrão</label>
+              <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
+                <CalendarClock size={19} style={{ color: '#f59e0b' }} />
+                <div>
+                  <h4 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '14px' }}>Pagamento a Prazo</h4>
+                  <p style={{ margin: '3px 0 0', color: 'var(--text-muted)', fontSize: '12px' }}>Padrões usados em Vendas e Ordens de Serviço.</p>
+                </div>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px', gridColumn: '1 / -1' }}>
+                <label htmlFor="diasCrediario" style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Prazos padrão do crediário (dias)</label>
                 <input
+                  id="diasCrediario"
                   type="text"
                   name="diasCrediario"
-                  placeholder="Ex: 15, 30, 45"
+                  inputMode="numeric"
+                  placeholder="Ex.: 15, 30, 45"
                   value={formData.diasCrediario}
                   onChange={handleChange}
                   disabled={!isEditingMode}
                   style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
                 />
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Intervalo de dias (ex: "30" ou "15, 30, 45") usado para preencher os vencimentos ao finalizar vendas a prazo.</p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Separe as opções por vírgula. O primeiro prazo será preenchido inicialmente; a data ainda poderá ser alterada na operação.</p>
+              </div>
+
+              <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
+                <CreditCard size={19} style={{ color: '#8b5cf6' }} />
+                <div>
+                  <h4 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '14px' }}>Cartões e Recebimento</h4>
+                  <p style={{ margin: '3px 0 0', color: 'var(--text-muted)', fontSize: '12px' }}>Regras usadas no cálculo de taxas, líquido e previsão de recebimento.</p>
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label htmlFor="maxParcelasCartao">Máximo de parcelas no crédito</label>
+                <input
+                  id="maxParcelasCartao"
+                  type="number"
+                  name="maxParcelasCartao"
+                  min="1"
+                  max="12"
+                  step="1"
+                  value={formData.maxParcelasCartao}
+                  onChange={handleChange}
+                  disabled={!isEditingMode}
+                />
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Define até qual opção, entre 1x e 12x, poderá ser usada na operação.</p>
+              </div>
+
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ display: 'block', marginBottom: '10px', fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                  Taxas dos cartões
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(94px, 1fr))', gap: '10px', minWidth: 0 }}>
+                  <label
+                    htmlFor="taxaCartaoDebitoPercentual"
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      padding: '10px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-color)',
+                      backgroundColor: 'var(--bg-tertiary)',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700, textAlign: 'center' }}>
+                      À vista
+                    </span>
+                    <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
+                      <input
+                        id="taxaCartaoDebitoPercentual"
+                        type="number"
+                        name="taxaCartaoDebitoPercentual"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={formData.taxaCartaoDebitoPercentual}
+                        onChange={handleChange}
+                        disabled={!isEditingMode}
+                        aria-label="Taxa do cartão de débito à vista"
+                        style={{
+                          display: 'block',
+                          width: '100%',
+                          minWidth: 0,
+                          maxWidth: '100%',
+                          height: '36px',
+                          padding: '8px 24px 8px 8px',
+                          boxSizing: 'border-box',
+                          textAlign: 'center',
+                          fontWeight: 700,
+                        }}
+                      />
+                      <span style={{ position: 'absolute', right: '9px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '12px', pointerEvents: 'none' }}>%</span>
+                    </div>
+                  </label>
+                  {Array.from({ length: 12 }, (_, index) => {
+                    const installments = String(index + 1);
+                    return (
+                      <label
+                        key={installments}
+                        htmlFor={`creditCardFee-${installments}`}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px',
+                          padding: '10px',
+                          borderRadius: 'var(--radius-md)',
+                          border: '1px solid var(--border-color)',
+                          backgroundColor: 'var(--bg-tertiary)',
+                          minWidth: 0,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700, textAlign: 'center' }}>
+                          {installments}x
+                        </span>
+                        <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
+                          <input
+                            id={`creditCardFee-${installments}`}
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            value={formData.taxasCartaoCreditoPorParcela[installments]}
+                            onChange={(event) => setFormData((current) => ({
+                              ...current,
+                              taxasCartaoCreditoPorParcela: {
+                                ...current.taxasCartaoCreditoPorParcela,
+                                [installments]: event.target.value,
+                              },
+                            }))}
+                            disabled={!isEditingMode}
+                            aria-label={`Taxa do cartão de crédito em ${installments} parcelas`}
+                            style={{
+                              display: 'block',
+                              width: '100%',
+                              minWidth: 0,
+                              maxWidth: '100%',
+                              height: '36px',
+                              padding: '8px 24px 8px 8px',
+                              boxSizing: 'border-box',
+                              textAlign: 'center',
+                              fontWeight: 700,
+                            }}
+                          />
+                          <span style={{ position: 'absolute', right: '9px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '12px', pointerEvents: 'none' }}>%</span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '9px 0 0' }}>
+                  À vista representa o débito. No crédito, a taxa correspondente ao número de parcelas será aplicada internamente no fechamento financeiro.
+                </p>
+              </div>
+
+              <div className="input-group">
+                <label htmlFor="prazoRecebimentoCartaoCreditoDias">Primeiro recebimento do crédito (dias)</label>
+                <input
+                  id="prazoRecebimentoCartaoCreditoDias"
+                  type="number"
+                  name="prazoRecebimentoCartaoCreditoDias"
+                  min="0"
+                  max="365"
+                  step="1"
+                  value={formData.prazoRecebimentoCartaoCreditoDias}
+                  onChange={handleChange}
+                  disabled={!isEditingMode}
+                />
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>As parcelas seguintes são previstas mês a mês a partir desta data.</p>
+              </div>
+
+              <div className="input-group">
+                <label htmlFor="prazoRecebimentoCartaoDebitoDias">Recebimento do débito (dias)</label>
+                <input
+                  id="prazoRecebimentoCartaoDebitoDias"
+                  type="number"
+                  name="prazoRecebimentoCartaoDebitoDias"
+                  min="0"
+                  max="365"
+                  step="1"
+                  value={formData.prazoRecebimentoCartaoDebitoDias}
+                  onChange={handleChange}
+                  disabled={!isEditingMode}
+                />
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Use 0 quando a operadora creditar no mesmo dia.</p>
+              </div>
+
+              <div style={{ gridColumn: '1 / -1', padding: '12px 14px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.2)', color: 'var(--text-secondary)', fontSize: '12px', lineHeight: 1.5 }}>
+                Essas regras são aplicadas automaticamente ao selecionar cartão ou pagamento a prazo. Cada pagamento continua permitindo informar uma data prevista específica.
               </div>
             </div>
           )}

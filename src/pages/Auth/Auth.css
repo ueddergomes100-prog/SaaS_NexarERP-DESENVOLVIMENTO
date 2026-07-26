@@ -39,6 +39,10 @@
   transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
 }
 
+.auth-register-card {
+  max-width: 560px;
+}
+
 .auth-card-loading {
   border-color: rgba(139, 92, 246, 0.45);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28), 0 0 36px rgba(139, 92, 246, 0.18);
@@ -292,6 +296,189 @@
   text-align: center;
 }
 
+.auth-success {
+  background-color: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.32);
+  color: #34d399;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  text-align: center;
+}
+
+.auth-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.auth-step-pill {
+  min-height: 34px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: rgba(255, 255, 255, 0.02);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.auth-step-pill.active {
+  border-color: rgba(139, 92, 246, 0.58);
+  color: var(--text-primary);
+  background-color: rgba(139, 92, 246, 0.14);
+}
+
+.auth-step-pill.done {
+  border-color: rgba(16, 185, 129, 0.36);
+  color: #34d399;
+}
+
+.auth-info-panel,
+.auth-dev-codes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: rgba(255, 255, 255, 0.025);
+}
+
+.auth-info-panel strong,
+.auth-dev-codes strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.auth-info-panel span,
+.auth-dev-codes span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.auth-code-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.auth-code-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background-color: rgba(255, 255, 255, 0.02);
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.auth-code-card.verified {
+  border-color: rgba(16, 185, 129, 0.4);
+  background-color: rgba(16, 185, 129, 0.08);
+}
+
+.auth-code-title {
+  display: grid;
+  grid-template-columns: 20px 1fr 20px;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.auth-code-title div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.auth-code-title strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.auth-code-title span {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.auth-code-row {
+  display: grid;
+  grid-template-columns: 1fr 54px;
+  gap: 8px;
+}
+
+.auth-code-input {
+  padding-left: 14px;
+  text-align: center;
+  letter-spacing: 4px;
+  font-weight: 800;
+}
+
+.auth-mini-button,
+.auth-secondary-button {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.auth-mini-button {
+  min-height: 43px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-mini-button:hover:not(:disabled),
+.auth-secondary-button:hover:not(:disabled) {
+  border-color: rgba(139, 92, 246, 0.6);
+  color: white;
+}
+
+.auth-mini-button:disabled,
+.auth-secondary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auth-text-button {
+  align-self: flex-start;
+  border: 0;
+  background: none;
+  color: var(--accent-purple);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+}
+
+.auth-text-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.auth-actions-row {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.auth-secondary-button {
+  min-height: 45px;
+}
+
 @keyframes authSpin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -344,5 +531,11 @@
   .auth-loading-orbit {
     width: 34px;
     height: 34px;
+  }
+
+  .auth-steps,
+  .auth-code-grid,
+  .auth-actions-row {
+    grid-template-columns: 1fr;
   }
 }

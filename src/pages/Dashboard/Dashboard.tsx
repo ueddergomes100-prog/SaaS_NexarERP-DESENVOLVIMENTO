@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
-  CheckCircle,
+  ChevronDown,
   Clock,
   DollarSign,
   Eye,
@@ -11,21 +11,19 @@ import {
   FileText,
   MoreVertical,
   Package,
+  Plus,
   ShoppingCart,
-  TrendingUp,
-  Users,
-  Wallet
+  Users
 } from 'lucide-react';
 import {
+  Area,
   Bar,
   CartesianGrid,
   Cell,
   ComposedChart,
-  Legend,
   Line,
   Pie,
   PieChart,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -34,6 +32,17 @@ import {
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import {
+  dateInputToUtcStart,
+  DEFAULT_TIME_ZONE,
+  differenceInCalendarDays,
+  getDateInputInTimeZone,
+  getDashboardPeriodRange,
+  getZonedParts,
+  isWithinDateRange,
+  type DashboardPeriod,
+} from '../../utils/dateTime';
+import { transactionNetAmount } from '../../utils/financeDomain';
 import './Dashboard.css';
 
 interface OSData {
@@ -67,6 +76,15 @@ interface PedidoVendaData {
   status: string;
   valorTotal: number;
   formaPagamento?: string;
+  vendedorId?: string;
+  vendedorNome?: string;
+  usuarioResponsavelId?: string;
+  comissao?: {
+    status?: string;
+    valorAtual?: number;
+    valorAtualCentavos?: number;
+  };
+  dataVenda?: string;
   createdAt?: any;
 }
 
@@ -87,7 +105,6 @@ interface EstoqueData {
 
 const currencyFormatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const numberFormatter = new Intl.NumberFormat('pt-BR');
-const mesesAbreviados = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
 const compactCurrency = (value: number) => {
   const absValue = Math.abs(value);
@@ -103,6 +120,7 @@ const toDate = (value?: any): Date | null => {
   if (value?.toDate) return value.toDate();
   if (value?.seconds) return new Date(value.seconds * 1000);
   if (typeof value === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return dateInputToUtcStart(value);
     const parsed = new Date(value.includes('T') ? value : `${value}T00:00:00`);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
@@ -114,27 +132,46 @@ const transactionDate = (t: TransacaoData): Date | null => (
   toDate(t.dataPagamento) || toDate(t.data) || toDate(t.createdAt)
 );
 
-const sameMonth = (date: Date | null, month: number, year: number) => (
-  !!date && date.getMonth() === month && date.getFullYear() === year
-);
-
 const sameDay = (date: Date | null, base: Date) => (
   !!date &&
-  date.getDate() === base.getDate() &&
-  date.getMonth() === base.getMonth() &&
-  date.getFullYear() === base.getFullYear()
+  getDateInputInTimeZone(date, DEFAULT_TIME_ZONE) ===
+    getDateInputInTimeZone(base, DEFAULT_TIME_ZONE)
 );
 
 const isBeforeToday = (date: Date | null, today: Date) => {
   if (!date) return false;
-  const a = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const b = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-  return a < b;
+  return getDateInputInTimeZone(date, DEFAULT_TIME_ZONE) <
+    getDateInputInTimeZone(today, DEFAULT_TIME_ZONE);
 };
 
 const daysSince = (date: Date | null, today: Date) => {
   if (!date) return 0;
-  return Math.floor((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+  return differenceInCalendarDays(
+    getDateInputInTimeZone(date, DEFAULT_TIME_ZONE),
+    getDateInputInTimeZone(today, DEFAULT_TIME_ZONE),
+  ) || 0;
+};
+
+const clampPercentage = (value: number) => {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+};
+
+const periodBucket = (date: Date, period: DashboardPeriod) => {
+  const parts = getZonedParts(date, DEFAULT_TIME_ZONE);
+  if (period === 'hoje') {
+    return {
+      key: `h-${parts.hour}`,
+      name: `${String(parts.hour).padStart(2, '0')}h`,
+      order: parts.hour,
+    };
+  }
+
+  return {
+    key: `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`,
+    name: `${String(parts.day).padStart(2, '0')}/${String(parts.month).padStart(2, '0')}`,
+    order: Date.UTC(parts.year, parts.month - 1, parts.day),
+  };
 };
 
 const Dashboard: React.FC = () => {
@@ -145,12 +182,27 @@ const Dashboard: React.FC = () => {
   const [orcamentos, setOrcamentos] = useState<OrcamentoData[]>([]);
   const [estoque, setEstoque] = useState<EstoqueData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriod>(() => {
+    const saved = localStorage.getItem('nexus_dashboard_period');
+    return saved === 'hoje' || saved === 'semana' || saved === 'mes' ? saved : 'hoje';
+  });
   const [tableTab, setTableTab] = useState<'Ativas' | 'Finalizadas'>('Ativas');
   const [hideData, setHideData] = useState(() => localStorage.getItem('nexus_hide_dashboard') === 'true');
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [openActionMenu, setOpenActionMenu] = useState<'top' | 'quick' | null>(null);
+  const topActionMenuRef = useRef<HTMLDivElement>(null);
+  const quickActionMenuRef = useRef<HTMLDivElement>(null);
 
-  const { currentUser, userRole, userPermissions, tenantId, isOwner } = useAuth();
+  const { currentUser, userPermissions, tenantId, isOwner } = useAuth();
   const hasFinancialAccess = isOwner || userPermissions?.includes('dashboard.valores');
+
+  const newActionOptions = [
+    { label: 'Venda', detail: 'Novo pedido de venda', icon: ShoppingCart, route: '/pedidos-venda/novo' },
+    { label: 'Cad. Cliente', detail: 'Cadastrar cliente', icon: Users, route: '/clientes/novo' },
+    { label: 'OS', detail: 'Nova ordem de serviço', icon: Activity, route: '/os/nova' },
+    { label: 'Orçamento', detail: 'Novo orçamento', icon: FileText, route: '/orcamentos/novo' }
+  ];
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentDate(new Date()), 1000);
@@ -158,14 +210,26 @@ const Dashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (userRole === 'SuperAdmin') {
-      navigate('/superadmin');
-    }
-  }, [userRole, navigate]);
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        topActionMenuRef.current?.contains(target) ||
+        quickActionMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setOpenActionMenu(null);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (!currentUser || !tenantId) return;
 
+    setLoading(true);
+    setLoadError('');
     const unsubscribes: Array<() => void> = [];
     let loadedSources = 0;
     const markLoaded = () => {
@@ -182,7 +246,11 @@ const Dashboard: React.FC = () => {
         setOsList(data);
         markLoaded();
       },
-      () => markLoaded()
+      (error) => {
+        console.error('Erro ao carregar ordens da dashboard:', error);
+        setLoadError('Não foi possível carregar todos os indicadores da dashboard.');
+        markLoaded();
+      }
     ));
 
     unsubscribes.push(onSnapshot(
@@ -194,7 +262,11 @@ const Dashboard: React.FC = () => {
         setPedidos(data);
         markLoaded();
       },
-      () => markLoaded()
+      (error) => {
+        console.error('Erro ao carregar vendas da dashboard:', error);
+        setLoadError('Não foi possível carregar todos os indicadores da dashboard.');
+        markLoaded();
+      }
     ));
 
     unsubscribes.push(onSnapshot(
@@ -205,7 +277,11 @@ const Dashboard: React.FC = () => {
         setOrcamentos(data);
         markLoaded();
       },
-      () => markLoaded()
+      (error) => {
+        console.error('Erro ao carregar orçamentos da dashboard:', error);
+        setLoadError('Não foi possível carregar todos os indicadores da dashboard.');
+        markLoaded();
+      }
     ));
 
     unsubscribes.push(onSnapshot(
@@ -216,7 +292,11 @@ const Dashboard: React.FC = () => {
         setEstoque(data);
         markLoaded();
       },
-      () => markLoaded()
+      (error) => {
+        console.error('Erro ao carregar estoque da dashboard:', error);
+        setLoadError('Não foi possível carregar todos os indicadores da dashboard.');
+        markLoaded();
+      }
     ));
 
     if (hasFinancialAccess) {
@@ -228,7 +308,11 @@ const Dashboard: React.FC = () => {
           setTransacoes(data);
           markLoaded();
         },
-        () => markLoaded()
+        (error) => {
+          console.error('Erro ao carregar financeiro da dashboard:', error);
+          setLoadError('Não foi possível carregar os indicadores financeiros.');
+          markLoaded();
+        }
       ));
     }
 
@@ -241,14 +325,22 @@ const Dashboard: React.FC = () => {
     localStorage.setItem('nexus_hide_dashboard', String(newVal));
   };
 
+  const selectDashboardPeriod = (period: DashboardPeriod) => {
+    setDashboardPeriod(period);
+    localStorage.setItem('nexus_dashboard_period', period);
+  };
+
+  const selectedPeriodRange = useMemo(
+    () => getDashboardPeriodRange(dashboardPeriod, currentDate, DEFAULT_TIME_ZONE),
+    [currentDate, dashboardPeriod],
+  );
+
   const metrics = useMemo(() => {
     const hoje = currentDate;
-    const mesAtual = hoje.getMonth();
-    const anoAtual = hoje.getFullYear();
 
-    const osMesAtual = osList.filter((os) => sameMonth(toDate(os.createdAt), mesAtual, anoAtual));
-    const osAtivas = osList.filter((os) => os.status !== 'Finalizada' && os.status !== 'Cancelada');
-    const osFinalizadas = osList.filter((os) => os.status === 'Finalizada');
+    const osMesAtual = osList.filter((os) => isWithinDateRange(toDate(os.createdAt), selectedPeriodRange.start, selectedPeriodRange.end));
+    const osAtivas = osMesAtual.filter((os) => os.status !== 'Finalizada' && os.status !== 'Cancelada');
+    const osFinalizadas = osMesAtual.filter((os) => os.status === 'Finalizada');
     const osFinalizadasMes = osMesAtual.filter((os) => os.status === 'Finalizada');
     const osParadas = osAtivas.filter((os) => daysSince(toDate(os.createdAt), hoje) >= 3);
     const clientesUnicosMes = new Set(osMesAtual.map((os) => os.clienteNome).filter(Boolean)).size;
@@ -256,11 +348,11 @@ const Dashboard: React.FC = () => {
       ? osFinalizadasMes.reduce((acc, os) => acc + Number(os.valorTotal || os.total || 0), 0) / osFinalizadasMes.length
       : 0;
 
-    const vendasMes = pedidos.filter((p) => p.status !== 'Cancelada' && sameMonth(toDate(p.createdAt), mesAtual, anoAtual));
-    const vendasHoje = vendasMes.filter((p) => sameDay(toDate(p.createdAt), hoje));
+    const vendasMes = pedidos.filter((p) => p.status !== 'Cancelada' && isWithinDateRange(toDate(p.dataVenda) || toDate(p.createdAt), selectedPeriodRange.start, selectedPeriodRange.end));
+    const vendasHoje = vendasMes.filter((p) => sameDay(toDate(p.dataVenda) || toDate(p.createdAt), hoje));
     const valorVendasMes = vendasMes.reduce((acc, p) => acc + Number(p.valorTotal || 0), 0);
 
-    const orcamentosMes = orcamentos.filter((o) => sameMonth(toDate(o.createdAt), mesAtual, anoAtual));
+    const orcamentosMes = orcamentos.filter((o) => isWithinDateRange(toDate(o.createdAt), selectedPeriodRange.start, selectedPeriodRange.end));
     const orcamentosConvertidos = orcamentosMes.filter((o) => ['Finalizado', 'Convertido'].includes(o.status)).length;
     const taxaConversaoOrcamentos = orcamentosMes.length ? (orcamentosConvertidos / orcamentosMes.length) * 100 : 0;
     const valorOrcamentosPendentes = orcamentosMes
@@ -268,18 +360,46 @@ const Dashboard: React.FC = () => {
       .reduce((acc, o) => acc + Number(o.valorTotal || 0), 0);
 
     const transacoesPagasMes = transacoes.filter((t) => (
-      t.status === 'Paga' && sameMonth(transactionDate(t), mesAtual, anoAtual)
+      t.status === 'Paga' && isWithinDateRange(transactionDate(t), selectedPeriodRange.start, selectedPeriodRange.end)
     ));
     const faturamentoMes = transacoesPagasMes
       .filter((t) => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução')
-      .reduce((acc, curr) => acc + Number(curr.valor || 0), 0);
+      .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
     const faturamentoHoje = transacoesPagasMes
       .filter((t) => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução' && sameDay(transactionDate(t), hoje))
-      .reduce((acc, curr) => acc + Number(curr.valor || 0), 0);
+      .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
     const despesasMes = transacoesPagasMes
       .filter((t) => t.tipo === 'saida')
-      .reduce((acc, curr) => acc + Number(curr.valor || 0), 0);
+      .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
     const lucroLiquidoMes = faturamentoMes - despesasMes;
+    const contasReceberPeriodo = transacoes.filter((t) => (
+      t.tipo === 'entrada' &&
+      t.status === 'Pendente' &&
+      isWithinDateRange(transactionDate(t), selectedPeriodRange.start, selectedPeriodRange.end)
+    ));
+    const valorContasReceberPeriodo = contasReceberPeriodo
+      .reduce((sum, transaction) => sum + transactionNetAmount(transaction), 0);
+    const comissoesPeriodo = vendasMes
+      .filter((sale) => sale.comissao?.status === 'gerada')
+      .reduce((sum, sale) => (
+        sum + Number(
+          sale.comissao?.valorAtualCentavos !== undefined
+            ? sale.comissao.valorAtualCentavos / 100
+            : sale.comissao?.valorAtual || 0,
+        )
+      ), 0);
+    const sellerCounts = new Map<string, { name: string; count: number }>();
+    vendasMes.forEach((sale) => {
+      const sellerId = sale.vendedorId || sale.usuarioResponsavelId || 'nao_identificado';
+      const current = sellerCounts.get(sellerId) || {
+        name: sale.vendedorNome || 'Não identificado',
+        count: 0,
+      };
+      current.count += 1;
+      sellerCounts.set(sellerId, current);
+    });
+    const topSeller = Array.from(sellerCounts.values())
+      .sort((left, right) => right.count - left.count)[0] || null;
     const contasReceberVencidas = transacoes.filter((t) => (
       t.tipo === 'entrada' && t.status === 'Pendente' && isBeforeToday(toDate(t.data) || toDate(t.createdAt), hoje)
     ));
@@ -295,17 +415,17 @@ const Dashboard: React.FC = () => {
     const itensEsgotados = estoque.filter((item) => Number(item.quantidade || 0) <= 0);
 
     return {
-      anoAtual,
       clientesUnicosMes,
       contasPagarVencidas,
+      contasReceberPeriodo,
       contasReceberVencidas,
+      comissoesPeriodo,
       despesasMes,
       faturamentoHoje,
       faturamentoMes,
       itensEsgotados,
       itensEstoqueBaixo,
       lucroLiquidoMes,
-      mesAtual,
       orcamentosConvertidos,
       orcamentosMes,
       osAtivas,
@@ -314,36 +434,76 @@ const Dashboard: React.FC = () => {
       osParadas,
       taxaConversaoOrcamentos,
       ticketMedioOS,
+      topSeller,
+      valorContasReceberPeriodo,
       valorOrcamentosPendentes,
       valorVendasMes,
       vendasHoje,
       vendasMes
     };
-  }, [currentDate, estoque, orcamentos, osList, pedidos, transacoes]);
+  }, [currentDate, estoque, orcamentos, osList, pedidos, selectedPeriodRange, transacoes]);
 
   const cashFlowData = useMemo(() => {
-    const data = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(metrics.anoAtual, metrics.mesAtual - i, 1);
-      const m = d.getMonth();
-      const y = d.getFullYear();
-      const transM = transacoes.filter((t) => t.status === 'Paga' && sameMonth(transactionDate(t), m, y));
-      const entradas = transM
-        .filter((t) => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução')
-        .reduce((acc, curr) => acc + Number(curr.valor || 0), 0);
-      const saidas = transM
-        .filter((t) => t.tipo === 'saida')
-        .reduce((acc, curr) => acc + Number(curr.valor || 0), 0);
-      data.push({ name: mesesAbreviados[m], entradas, saidas, saldo: entradas - saidas });
-    }
-    return data;
-  }, [metrics.anoAtual, metrics.mesAtual, transacoes]);
+    const buckets = new Map<string, { name: string; order: number; entradas: number; saidas: number; saldo: number }>();
+    transacoes
+      .filter((transaction) => transaction.status === 'Paga' && isWithinDateRange(transactionDate(transaction), selectedPeriodRange.start, selectedPeriodRange.end))
+      .forEach((transaction) => {
+        const date = transactionDate(transaction);
+        if (!date) return;
+        const bucket = periodBucket(date, dashboardPeriod);
+        const current = buckets.get(bucket.key) || { name: bucket.name, order: bucket.order, entradas: 0, saidas: 0, saldo: 0 };
+        if (transaction.tipo === 'entrada' && transaction.formaPagamento !== 'Crédito de Devolução') {
+          current.entradas += transactionNetAmount(transaction);
+        } else if (transaction.tipo === 'saida') {
+          current.saidas += transactionNetAmount(transaction);
+        }
+        current.saldo = current.entradas - current.saidas;
+        buckets.set(bucket.key, current);
+      });
+    return Array.from(buckets.values()).sort((a, b) => a.order - b.order);
+  }, [dashboardPeriod, selectedPeriodRange, transacoes]);
+
+  const performanceData = useMemo(() => {
+    const buckets = new Map<string, { name: string; order: number; receita: number; os: number; finalizadas: number; pedidos: number }>();
+    const ensureBucket = (date: Date) => {
+      const bucket = periodBucket(date, dashboardPeriod);
+      const current = buckets.get(bucket.key) || { name: bucket.name, order: bucket.order, receita: 0, os: 0, finalizadas: 0, pedidos: 0 };
+      buckets.set(bucket.key, current);
+      return current;
+    };
+
+    osList.forEach((serviceOrder) => {
+      const date = toDate(serviceOrder.createdAt);
+      if (!isWithinDateRange(date, selectedPeriodRange.start, selectedPeriodRange.end) || !date) return;
+      const bucket = ensureBucket(date);
+      bucket.os += 1;
+      if (serviceOrder.status === 'Finalizada') bucket.finalizadas += 1;
+    });
+    pedidos.forEach((sale) => {
+      const date = toDate(sale.dataVenda) || toDate(sale.createdAt);
+      if (sale.status === 'Cancelada' || !isWithinDateRange(date, selectedPeriodRange.start, selectedPeriodRange.end) || !date) return;
+      ensureBucket(date).pedidos += 1;
+    });
+    transacoes.forEach((transaction) => {
+      const date = transactionDate(transaction);
+      if (
+        transaction.status !== 'Paga' ||
+        transaction.tipo !== 'entrada' ||
+        transaction.formaPagamento === 'Crédito de Devolução' ||
+        !isWithinDateRange(date, selectedPeriodRange.start, selectedPeriodRange.end) ||
+        !date
+      ) return;
+      ensureBucket(date).receita += transactionNetAmount(transaction);
+    });
+
+    return Array.from(buckets.values()).sort((a, b) => a.order - b.order);
+  }, [dashboardPeriod, osList, pedidos, selectedPeriodRange, transacoes]);
 
   const osStatusData = useMemo(() => {
     const contagemStatus: Record<string, { value: number; color: string }> = {};
     metrics.osAtivas.forEach((os) => {
       if (!contagemStatus[os.status]) {
-        contagemStatus[os.status] = { value: 0, color: os.statusColor || '#8b5cf6' };
+        contagemStatus[os.status] = { value: 0, color: os.statusColor || '#37d7ff' };
       }
       contagemStatus[os.status].value += 1;
     });
@@ -361,21 +521,21 @@ const Dashboard: React.FC = () => {
         t.status === 'Paga' &&
         t.tipo === 'entrada' &&
         t.formaPagamento !== 'Crédito de Devolução' &&
-        sameMonth(transactionDate(t), metrics.mesAtual, metrics.anoAtual)
+        isWithinDateRange(transactionDate(t), selectedPeriodRange.start, selectedPeriodRange.end)
       ))
       .forEach((t) => {
         const name = t.formaPagamento || 'Não informada';
-        map[name] = (map[name] || 0) + Number(t.valor || 0);
+        map[name] = (map[name] || 0) + transactionNetAmount(t);
       });
     return Object.entries(map).map(([name, value], index) => ({
       name,
       value,
-      color: ['#8b5cf6', '#10b981', '#3b82f6', '#f59e0b', '#ef4444'][index % 5]
+      color: ['#37d7ff', '#ff4fb3', '#9f7aea', '#2ee6a6', '#ffb84d'][index % 5]
     }));
-  }, [metrics.anoAtual, metrics.mesAtual, transacoes]);
+  }, [selectedPeriodRange, transacoes]);
 
-  const maskedMoney = hideData ? 'R$ •••••' : null;
-  const maskedNumber = hideData ? '•••' : null;
+  const maskedMoney = 'R$ •••••';
+  const maskedNumber = '•••';
 
   const formatMoney = (value: number) => hideData ? maskedMoney : currencyFormatter.format(value);
   const formatNumber = (value: number) => hideData ? maskedNumber : numberFormatter.format(value);
@@ -391,203 +551,495 @@ const Dashboard: React.FC = () => {
     minute: '2-digit'
   }).format(currentDate);
 
+  const mainMetricKey = hasFinancialAccess ? 'receita' : 'os';
+  const selectedPeriodLabel = dashboardPeriod === 'hoje' ? 'hoje' : dashboardPeriod === 'semana' ? 'nesta semana' : 'neste mês';
+  const mainMetricLabel = hasFinancialAccess ? 'Receita líquida' : 'OS abertas';
+  const mainMetricValue = hasFinancialAccess ? formatMoney(metrics.faturamentoMes) : formatNumber(metrics.osAtivas.length);
+  const mainMetricCaption = hasFinancialAccess ? `Receita paga após taxas ${selectedPeriodLabel}` : `Ordens no período (${selectedPeriodLabel})`;
+  const osCompletionRate = clampPercentage(
+    (metrics.osFinalizadasMes.length / Math.max(metrics.osFinalizadasMes.length + metrics.osAtivas.length, 1)) * 100
+  );
+  const approvalRate = clampPercentage(metrics.taxaConversaoOrcamentos);
+  const monthlyGoalRate = hasFinancialAccess
+    ? clampPercentage((metrics.faturamentoMes / Math.max(metrics.faturamentoMes + metrics.valorOrcamentosPendentes, 1)) * 100)
+    : osCompletionRate;
+
+  const kpiCards = [
+    {
+      title: 'OS ativas',
+      value: formatNumber(metrics.osAtivas.length),
+      meta: `${formatNumber(metrics.osParadas.length)} paradas há 3+ dias`,
+      icon: Activity,
+      tone: 'cyan',
+      chartType: 'line',
+      dataKey: 'os'
+    },
+    {
+      title: hasFinancialAccess ? 'Receita líquida do período' : 'Pedidos do período',
+      value: hasFinancialAccess ? formatMoney(metrics.faturamentoMes) : formatNumber(metrics.vendasMes.length),
+      meta: hasFinancialAccess ? `${formatMoney(metrics.faturamentoHoje)} hoje` : `${formatNumber(metrics.vendasHoje.length)} hoje`,
+      icon: hasFinancialAccess ? DollarSign : ShoppingCart,
+      tone: 'magenta',
+      chartType: 'bar',
+      dataKey: hasFinancialAccess ? 'receita' : 'pedidos'
+    },
+    {
+      title: 'Clientes atendidos',
+      value: formatNumber(metrics.clientesUnicosMes),
+      meta: `${approvalRate}% conversão`,
+      icon: Users,
+      tone: 'violet',
+      chartType: 'line',
+      dataKey: 'finalizadas'
+    }
+  ];
+
+  const quickMetrics = [
+    {
+      label: hasFinancialAccess ? 'Entradas líquidas no período' : 'Vendas no período',
+      value: hasFinancialAccess ? formatMoney(metrics.faturamentoMes) : formatNumber(metrics.vendasMes.length)
+    },
+    {
+      label: 'Entregas',
+      value: formatNumber(metrics.osFinalizadasMes.length)
+    },
+    {
+      label: 'Orçamentos',
+      value: formatNumber(metrics.orcamentosMes.length)
+    },
+    {
+      label: 'Atrasos',
+      value: formatNumber(metrics.osParadas.length)
+    },
+    ...(hasFinancialAccess ? [
+      {
+        label: 'A receber no período',
+        value: formatMoney(metrics.valorContasReceberPeriodo)
+      },
+      {
+        label: 'Comissões registradas',
+        value: formatMoney(metrics.comissoesPeriodo)
+      }
+    ] : []),
+    {
+      label: 'Vendedor destaque',
+      value: metrics.topSeller
+        ? `${metrics.topSeller.name} (${formatNumber(metrics.topSeller.count)})`
+        : '-'
+    }
+  ];
+
+  const healthItems = [
+    { label: 'Conclusão de OS', value: `${osCompletionRate}%`, progress: osCompletionRate, color: '#37d7ff' },
+    { label: 'Orçamentos aprovados', value: `${approvalRate}%`, progress: approvalRate, color: '#ff4fb3' },
+    { label: hasFinancialAccess ? 'Meta mensal' : 'Ritmo operacional', value: `${monthlyGoalRate}%`, progress: monthlyGoalRate, color: '#9f7aea' }
+  ];
+
+  const criticalTasks = [
+    {
+      title: 'Contas a receber vencidas',
+      detail: `${formatNumber(metrics.contasReceberVencidas.length)} pendências financeiras`,
+      icon: AlertTriangle,
+      route: '/financeiro/contas-receber',
+      tone: 'warning',
+      visible: hasFinancialAccess
+    },
+    {
+      title: 'Estoque em atenção',
+      detail: `${formatNumber(metrics.itensEstoqueBaixo.length)} itens abaixo do mínimo`,
+      icon: Package,
+      route: '/estoque',
+      tone: 'cyan',
+      visible: true
+    },
+    {
+      title: 'OS paradas',
+      detail: `${formatNumber(metrics.osParadas.length)} ordens ativas há 3 dias ou mais`,
+      icon: Clock,
+      route: '/os',
+      tone: 'magenta',
+      visible: true
+    },
+    {
+      title: 'Orçamentos para converter',
+      detail: `${formatNumber(Math.max(metrics.orcamentosMes.length - metrics.orcamentosConvertidos, 0))} oportunidades ${selectedPeriodLabel}`,
+      icon: FileText,
+      route: '/orcamentos',
+      tone: 'violet',
+      visible: true
+    }
+  ].filter((item) => item.visible);
+
+  const tableRows = (tableTab === 'Ativas' ? metrics.osAtivas : metrics.osFinalizadas).slice(0, 5);
+
+  const renderNewActionMenu = (menuId: 'top' | 'quick', className: string) => (
+    <div
+      className="dashboard-action-menu"
+      ref={menuId === 'top' ? topActionMenuRef : quickActionMenuRef}
+    >
+      <button
+        type="button"
+        className={className}
+        onClick={() => setOpenActionMenu(openActionMenu === menuId ? null : menuId)}
+        aria-haspopup="menu"
+        aria-expanded={openActionMenu === menuId}
+      >
+        <Plus size={18} />
+        Nova Ação
+        <ChevronDown size={16} />
+      </button>
+
+      {openActionMenu === menuId && (
+        <div className="dashboard-action-dropdown" role="menu">
+          {newActionOptions.map((action) => {
+            const Icon = action.icon;
+            return (
+              <button
+                key={action.route}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpenActionMenu(null);
+                  navigate(action.route);
+                }}
+              >
+                <span className="dashboard-action-option-icon">
+                  <Icon size={17} />
+                </span>
+                <span>
+                  <strong>{action.label}</strong>
+                  <small>{action.detail}</small>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <div className="dashboard">
-      <div className="dashboard-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
+    <div className="dashboard dashboard-model-two">
+      {loadError && (
+        <div role="alert" style={{ padding: '12px 16px', borderRadius: '8px', color: '#fecaca', backgroundColor: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+          {loadError}
+        </div>
+      )}
+      <header className="dashboard-topline">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <h1 className="page-title">Dashboard</h1>
-            <button
-              className="icon-btn"
-              onClick={toggleHideData}
-              title={hideData ? 'Mostrar valores' : 'Ocultar valores'}
-              style={{ backgroundColor: 'var(--bg-secondary)' }}
-            >
-              {hideData ? <EyeOff size={20} /> : <Eye size={20} />}
-            </button>
-          </div>
-          <p className="page-subtitle">Visão geral operacional, comercial e financeira em tempo real</p>
+          <span className="dashboard-eyebrow">Painel / Gestão em tempo real</span>
+          <h1 className="page-title">Dashboard Principal</h1>
+          <p className="page-subtitle">Receita, OS e agenda em uma visão executiva para operação diária.</p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
+        <div className="dashboard-actions">
           <div className="dashboard-clock">
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)', textTransform: 'capitalize' }}>{formattedDate}</span>
-              <span style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--text-primary)', letterSpacing: '1px' }}>{formattedTime}</span>
+            <div>
+              <span>{formattedDate}</span>
+              <strong>{formattedTime}</strong>
             </div>
-            <div className="dashboard-clock-icon">
-              <Clock size={20} />
-            </div>
+            <Clock size={18} />
           </div>
-
-          <button className="btn-primary" onClick={() => navigate('/os/nova')}>
-            Nova Ordem de Serviço
+          <button
+            className="icon-btn dashboard-icon-action"
+            onClick={toggleHideData}
+            title={hideData ? 'Mostrar valores' : 'Ocultar valores'}
+          >
+            {hideData ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
+          {renderNewActionMenu('top', 'btn-primary dashboard-primary-action')}
         </div>
-      </div>
+      </header>
 
-      <div className="dashboard-section-title">
-        <span>Financeiro</span>
-      </div>
-      <div className="summary-cards dashboard-cards-compact">
-        {hasFinancialAccess && (
-          <>
-            <div className="card stat-card" style={{ borderLeft: `4px solid ${metrics.lucroLiquidoMes >= 0 ? '#10b981' : '#ef4444'}` }}>
-              <div className="stat-header">
-                <div className="stat-icon green-bg">
-                  <TrendingUp size={24} />
-                </div>
-                <span className="stat-trend positive">Líquido</span>
-              </div>
-              <div className="stat-info">
-                <h3 style={{ color: metrics.lucroLiquidoMes >= 0 ? '#10b981' : '#ef4444' }}>{formatMoney(metrics.lucroLiquidoMes)}</h3>
-                <p>Lucro Líquido Mês</p>
-              </div>
+      <section className="dashboard-hero-grid">
+        <article className="card dashboard-performance-card">
+          <div className="dashboard-card-heading">
+            <div>
+              <span className="dashboard-eyebrow">Gestão em tempo real</span>
+              <h2>Receita, OS e agenda</h2>
             </div>
-
-            <div className="card stat-card">
-              <div className="stat-header">
-                <div className="stat-icon purple-bg">
-                  <DollarSign size={24} />
-                </div>
-                <span className="stat-trend positive">Bruto</span>
-              </div>
-              <div className="stat-info">
-                <h3>{formatMoney(metrics.faturamentoMes)}</h3>
-                <p>Receita Bruta Mês</p>
-              </div>
+            <div className="dashboard-segmented">
+              <button className={dashboardPeriod === 'hoje' ? 'active' : ''} onClick={() => selectDashboardPeriod('hoje')}>Hoje</button>
+              <button className={dashboardPeriod === 'semana' ? 'active' : ''} onClick={() => selectDashboardPeriod('semana')}>Semana</button>
+              <button className={dashboardPeriod === 'mes' ? 'active' : ''} onClick={() => selectDashboardPeriod('mes')}>Mês</button>
             </div>
+          </div>
 
-            <div className="card stat-card">
-              <div className="stat-header">
-                <div className="stat-icon yellow-bg">
-                  <Wallet size={24} />
-                </div>
-                <span className="stat-trend positive">Hoje</span>
-              </div>
-              <div className="stat-info">
-                <h3>{formatMoney(metrics.faturamentoHoje)}</h3>
-                <p>Faturamento Hoje</p>
-              </div>
+          <div className="dashboard-performance-summary">
+            <div>
+              <strong>{mainMetricValue}</strong>
+              <span>{mainMetricCaption}</span>
             </div>
-
-            <div className="card stat-card">
-              <div className="stat-header">
-                <div className="stat-icon blue-bg">
-                  <Activity size={24} />
-                </div>
-                <span className="stat-trend positive">Saídas</span>
-              </div>
-              <div className="stat-info">
-                <h3>{formatMoney(metrics.despesasMes)}</h3>
-                <p>Despesas Pagas Mês</p>
-              </div>
+            <div>
+              <strong>{formatNumber(metrics.osAtivas.length)}</strong>
+              <span>OS em andamento</span>
             </div>
-          </>
-        )}
-      </div>
-
-      <div className="dashboard-section-title">
-        <span>Operação e Comercial</span>
-      </div>
-      <div className="summary-cards dashboard-cards-compact">
-        <div className="card stat-card">
-          <div className="stat-header">
-            <div className="stat-icon green-bg">
-              <CheckCircle size={24} />
+            <div>
+              <strong>{formatNumber(metrics.vendasMes.length)}</strong>
+              <span>Pedidos {selectedPeriodLabel}</span>
             </div>
-            <span className="stat-trend positive">Mês</span>
           </div>
-          <div className="stat-info">
-            <h3>{formatNumber(metrics.osFinalizadasMes.length)}</h3>
-            <p>OS Finalizadas</p>
-          </div>
-        </div>
 
-        <div className="card stat-card">
-          <div className="stat-header">
-            <div className="stat-icon blue-bg">
-              <Users size={24} />
-            </div>
-            <span className="stat-trend positive">Mês</span>
+          <div
+            className="dashboard-performance-chart"
+            style={{
+              filter: hideData && hasFinancialAccess ? 'blur(7px)' : 'none',
+              pointerEvents: hideData && hasFinancialAccess ? 'none' : 'auto',
+              userSelect: hideData && hasFinancialAccess ? 'none' : 'auto'
+            }}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={performanceData} margin={{ top: 18, right: 18, left: 4, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="dashboardCyanArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#37d7ff" stopOpacity={0.28} />
+                    <stop offset="100%" stopColor="#37d7ff" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
+                <XAxis
+                  dataKey="name"
+                  stroke="#7f8aa4"
+                  tick={{ fill: '#7f8aa4', fontSize: 11, fontWeight: 700 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  yAxisId="value"
+                  stroke="#7f8aa4"
+                  tick={{ fill: '#7f8aa4', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={hasFinancialAccess ? 72 : 34}
+                  tickFormatter={(value) => hasFinancialAccess ? compactCurrency(Number(value)) : numberFormatter.format(Number(value))}
+                />
+                <YAxis yAxisId="volume" orientation="right" hide />
+                <Tooltip
+                  formatter={(value, name) => {
+                    const numericValue = Number(value || 0);
+                    if (hideData && name === 'Receita') return maskedMoney;
+                    return name === 'Receita' ? currencyFormatter.format(numericValue) : numberFormatter.format(numericValue);
+                  }}
+                  contentStyle={{
+                    backgroundColor: '#111722',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 8,
+                    color: '#f5f7fb'
+                  }}
+                  itemStyle={{ color: '#f5f7fb' }}
+                  labelStyle={{ color: '#98a2b7' }}
+                />
+                <Area
+                  yAxisId="value"
+                  type="monotone"
+                  dataKey={mainMetricKey}
+                  name={mainMetricLabel}
+                  stroke="#37d7ff"
+                  strokeWidth={4}
+                  fill="url(#dashboardCyanArea)"
+                  dot={false}
+                  activeDot={{ r: 6, strokeWidth: 2, fill: '#0c1018' }}
+                />
+                <Line
+                  yAxisId="volume"
+                  type="monotone"
+                  dataKey="finalizadas"
+                  name="OS finalizadas"
+                  stroke="#ff4fb3"
+                  strokeWidth={3}
+                  dot={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
           </div>
-          <div className="stat-info">
-            <h3>{formatNumber(metrics.clientesUnicosMes)}</h3>
-            <p>Clientes Atendidos</p>
-          </div>
-        </div>
+        </article>
 
-        <div className="card stat-card">
-          <div className="stat-header">
-            <div className="stat-icon purple-bg">
-              <ShoppingCart size={24} />
-            </div>
-            <span className="stat-trend positive">Vendas</span>
-          </div>
-          <div className="stat-info">
-            <h3>{formatNumber(metrics.vendasMes.length)}</h3>
-            <p>Pedidos no Mês</p>
-          </div>
-        </div>
-
-        <div className="card stat-card">
-          <div className="stat-header">
-            <div className="stat-icon yellow-bg">
-              <FileText size={24} />
-            </div>
-            <span className="stat-trend positive">Conversão</span>
-          </div>
-          <div className="stat-info">
-            <h3>{hideData ? maskedNumber : `${metrics.taxaConversaoOrcamentos.toFixed(0)}%`}</h3>
-            <p>Orçamentos Convertidos</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="dashboard-alert-grid">
-        <button className="dashboard-alert-card" onClick={() => navigate('/financeiro/contas-receber')}>
-          <AlertTriangle size={20} />
-          <div>
-            <strong>{formatNumber(metrics.contasReceberVencidas.length)}</strong>
-            <span>contas a receber vencidas</span>
-          </div>
-        </button>
-        <button className="dashboard-alert-card" onClick={() => navigate('/financeiro/contas-pagar')}>
-          <AlertTriangle size={20} />
-          <div>
-            <strong>{formatNumber(metrics.contasPagarVencidas.length)}</strong>
-            <span>contas a pagar vencidas</span>
-          </div>
-        </button>
-        <button className="dashboard-alert-card" onClick={() => navigate('/estoque')}>
-          <Package size={20} />
-          <div>
-            <strong>{formatNumber(metrics.itensEstoqueBaixo.length)}</strong>
-            <span>itens em estoque baixo</span>
-          </div>
-        </button>
-        <button className="dashboard-alert-card" onClick={() => navigate('/os')}>
-          <Clock size={20} />
-          <div>
-            <strong>{formatNumber(metrics.osParadas.length)}</strong>
-            <span>OS ativas há 3 dias ou mais</span>
-          </div>
-        </button>
-      </div>
-
-      <div className="dashboard-charts">
-        {hasFinancialAccess && (
-          <div className="card chart-container">
-            <div className="card-header">
+        <aside className="dashboard-side-stack">
+          <div className="card dashboard-quick-card">
+            <div className="dashboard-card-heading compact">
               <div>
-                <h3>Fluxo de Caixa Mensal</h3>
-                <span className="chart-subtitle">Receitas e despesas pagas nos ultimos 6 meses</span>
+                <span className="dashboard-eyebrow">Resumo rápido</span>
+                <h2>Hoje</h2>
               </div>
-              <button className="icon-btn" onClick={() => navigate('/financeiro/caixa')}><MoreVertical size={18} /></button>
+            </div>
+            <div className="dashboard-quick-grid">
+              {quickMetrics.map((item) => (
+                <div key={item.label}>
+                  <strong>{item.value}</strong>
+                  <span>{item.label}</span>
+                </div>
+              ))}
+            </div>
+            {renderNewActionMenu('quick', 'dashboard-cta')}
+          </div>
+
+          <div className="card dashboard-health-card">
+            <span className="dashboard-eyebrow">Saúde da operação</span>
+            <div className="dashboard-health-list">
+              {healthItems.map((item) => (
+                <div key={item.label} className="dashboard-health-item">
+                  <span
+                    className="dashboard-ring"
+                    style={{
+                      '--progress': `${item.progress}%`,
+                      '--ring-color': item.color
+                    } as React.CSSProperties}
+                  />
+                  <div>
+                    <strong>{item.value}</strong>
+                    <span>{item.label}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <section className="dashboard-kpi-grid">
+        {kpiCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <article key={card.title} className={`card dashboard-kpi-card ${card.tone}`}>
+              <div className="dashboard-kpi-top">
+                <div>
+                  <span>{card.title}</span>
+                  <strong>{card.value}</strong>
+                </div>
+                <div className="dashboard-kpi-icon">
+                  <Icon size={20} />
+                </div>
+              </div>
+              <p>{card.meta}</p>
+              <div className="dashboard-mini-chart">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={performanceData.slice(-8)} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
+                    {card.chartType === 'bar' ? (
+                      <Bar dataKey={card.dataKey} fill="currentColor" radius={[5, 5, 0, 0]} maxBarSize={10} />
+                    ) : (
+                      <Line type="monotone" dataKey={card.dataKey} stroke="currentColor" strokeWidth={4} dot={false} />
+                    )}
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+
+      <section className="dashboard-bottom-grid">
+        <article className="card dashboard-task-card">
+          <div className="dashboard-card-heading compact">
+            <div>
+              <span className="dashboard-eyebrow">Tarefas críticas</span>
+              <h2>Fila operacional</h2>
+            </div>
+          </div>
+          <div className="dashboard-task-list">
+            {criticalTasks.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button key={item.title} className={`dashboard-task-item ${item.tone}`} onClick={() => navigate(item.route)}>
+                  <span className="dashboard-task-check">
+                    <Icon size={16} />
+                  </span>
+                  <span>
+                    <strong>{item.title}</strong>
+                    <small>{item.detail}</small>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </article>
+
+        <article className="card dashboard-pipeline-card">
+          <div className="dashboard-card-heading compact">
+            <div>
+              <span className="dashboard-eyebrow">Ordens recentes</span>
+              <h2>Pipeline</h2>
+            </div>
+            <div className="dashboard-pipeline-tabs">
+              <button
+                className={tableTab === 'Ativas' ? 'active' : ''}
+                onClick={() => setTableTab('Ativas')}
+              >
+                Ativas
+              </button>
+              <button
+                className={tableTab === 'Finalizadas' ? 'active success' : ''}
+                onClick={() => setTableTab('Finalizadas')}
+              >
+                Finalizadas
+              </button>
+            </div>
+          </div>
+          <div className="table-wrapper">
+            <table className="data-table dashboard-pipeline-table">
+              <thead>
+                <tr>
+                  <th>Placa</th>
+                  <th>Cliente</th>
+                  <th>Status</th>
+                  <th>Valor</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={5}>Carregando dados...</td>
+                  </tr>
+                ) : tableRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={5}>
+                      {tableTab === 'Ativas' ? 'Não há atendimentos em andamento no momento.' : 'Nenhuma OS finalizada recentemente.'}
+                    </td>
+                  </tr>
+                ) : (
+                  tableRows.map((vehicle) => {
+                    const color = vehicle.statusColor || '#37d7ff';
+                    return (
+                      <tr key={vehicle.id}>
+                        <td className="font-medium">{vehicle.placa || '-'}</td>
+                        <td>{vehicle.clienteNome || '-'}</td>
+                        <td>
+                          <span className="status-badge" style={{ backgroundColor: `${color}20`, color }}>
+                            <span className="status-dot" style={{ backgroundColor: color }} />
+                            {vehicle.status}
+                          </span>
+                        </td>
+                        <td className="font-medium">{formatMoney(Number(vehicle.valorTotal || vehicle.total || 0))}</td>
+                        <td>
+                          <button className="icon-btn" onClick={() => navigate(`/os/editar/${vehicle.id}`)} title="Ver detalhes">
+                            <MoreVertical size={18} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section className="dashboard-detail-grid">
+        {hasFinancialAccess && (
+          <article className="card chart-container">
+            <div className="dashboard-card-heading compact">
+              <div>
+                <span className="dashboard-eyebrow">Fluxo financeiro</span>
+                <h2>Movimentação {selectedPeriodLabel}</h2>
+              </div>
+              <button className="icon-btn" onClick={() => navigate('/financeiro/caixa')} title="Abrir caixa">
+                <MoreVertical size={18} />
+              </button>
             </div>
             <div className="cash-flow-summary">
               <div>
-                <span>Receitas</span>
+                <span>Receitas líquidas</span>
                 <strong>{formatMoney(metrics.faturamentoMes)}</strong>
               </div>
               <div>
@@ -595,57 +1047,65 @@ const Dashboard: React.FC = () => {
                 <strong>{formatMoney(metrics.despesasMes)}</strong>
               </div>
               <div className={metrics.lucroLiquidoMes >= 0 ? 'positive' : 'negative'}>
-                <span>Saldo do mes</span>
+                <span>Saldo</span>
                 <strong>{formatMoney(metrics.lucroLiquidoMes)}</strong>
               </div>
             </div>
-            <div className="chart-wrapper" style={{ filter: hideData ? 'blur(6px)' : 'none', transition: 'filter 0.3s', userSelect: hideData ? 'none' : 'auto', pointerEvents: hideData ? 'none' : 'auto' }}>
+            <div
+              className="chart-wrapper"
+              style={{
+                filter: hideData ? 'blur(6px)' : 'none',
+                pointerEvents: hideData ? 'none' : 'auto',
+                userSelect: hideData ? 'none' : 'auto'
+              }}
+            >
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={cashFlowData} margin={{ top: 16, right: 16, left: 8, bottom: 0 }} barGap={8}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                  <XAxis dataKey="name" stroke="#a0a0ab" tick={{ fill: '#a0a0ab' }} axisLine={false} tickLine={false} />
-                  <YAxis stroke="#a0a0ab" tick={{ fill: '#a0a0ab' }} axisLine={false} tickLine={false} tickFormatter={(value) => compactCurrency(Number(value))} width={72} />
-                  <ReferenceLine y={0} stroke="#52525b" strokeDasharray="4 4" />
+                <ComposedChart data={cashFlowData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }} barGap={8}>
+                  <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
+                  <XAxis dataKey="name" stroke="#7f8aa4" tick={{ fill: '#7f8aa4', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis stroke="#7f8aa4" tick={{ fill: '#7f8aa4', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(value) => compactCurrency(Number(value))} width={68} />
                   <Tooltip
-                    formatter={(value) => currencyFormatter.format(Number(value || 0))}
-                    labelFormatter={(label) => `Mes: ${label}`}
-                    contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                    itemStyle={{ color: 'var(--text-primary)' }}
-                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                    formatter={(value) => hideData ? maskedMoney : currencyFormatter.format(Number(value || 0))}
+                    contentStyle={{ backgroundColor: '#111722', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
+                    itemStyle={{ color: '#f5f7fb' }}
                   />
-                  <Legend iconType="circle" wrapperStyle={{ color: 'var(--text-secondary)', fontSize: 12, paddingTop: 8 }} />
-                  <Bar dataKey="entradas" fill="#10b981" radius={[4, 4, 0, 0]} name="Receitas" maxBarSize={34} />
-                  <Bar dataKey="saidas" fill="#ef4444" radius={[4, 4, 0, 0]} name="Despesas" maxBarSize={34} />
-                  <Line type="monotone" dataKey="saldo" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: 'var(--bg-secondary)' }} activeDot={{ r: 6 }} name="Saldo" />
+                  <Bar dataKey="entradas" fill="#37d7ff" radius={[5, 5, 0, 0]} name="Receitas" maxBarSize={32} />
+                  <Bar dataKey="saidas" fill="#ff4fb3" radius={[5, 5, 0, 0]} name="Despesas" maxBarSize={32} />
+                  <Line type="monotone" dataKey="saldo" stroke="#9f7aea" strokeWidth={3} dot={false} name="Saldo" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-          </div>
+          </article>
         )}
 
-        <div className={`card chart-container small`} style={{ gridColumn: !hasFinancialAccess ? '1 / -1' : undefined }}>
-          <div className="card-header">
-            <h3>Status de OS Ativas</h3>
-            <button className="icon-btn" onClick={() => navigate('/os')}><MoreVertical size={18} /></button>
+        <article className="card chart-container">
+          <div className="dashboard-card-heading compact">
+            <div>
+              <span className="dashboard-eyebrow">Distribuição</span>
+              <h2>Status de OS</h2>
+            </div>
+            <button className="icon-btn" onClick={() => navigate('/os')} title="Abrir OS">
+              <MoreVertical size={18} />
+            </button>
           </div>
-          <div className="chart-wrapper pie-wrapper" style={{ filter: hideData ? 'blur(6px)' : 'none', transition: 'filter 0.3s', userSelect: hideData ? 'none' : 'auto', pointerEvents: hideData ? 'none' : 'auto' }}>
+          <div className="chart-wrapper pie-wrapper">
             {osStatusData.length > 0 ? (
               <>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={osStatusData} innerRadius={60} outerRadius={90} paddingAngle={5} dataKey="value" stroke="none">
+                    <Pie data={osStatusData} innerRadius={58} outerRadius={88} paddingAngle={5} dataKey="value" stroke="none">
                       {osStatusData.map((entry) => (
                         <Cell key={entry.name} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#111722', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pie-legend">
                   {osStatusData.map((item) => (
                     <div key={item.name} className="legend-item">
-                      <span className="legend-color" style={{ backgroundColor: item.color }}></span>
-                      <span className="legend-label">{item.name} ({item.value})</span>
+                      <span className="legend-color" style={{ backgroundColor: item.color }} />
+                      <span>{item.name} ({item.value})</span>
                     </div>
                   ))}
                 </div>
@@ -654,139 +1114,97 @@ const Dashboard: React.FC = () => {
               <div className="chart-empty">Nenhuma OS ativa no momento.</div>
             )}
           </div>
-        </div>
-      </div>
+        </article>
 
-      {hasFinancialAccess && (
-        <div className="dashboard-detail-grid">
-          <div className="card chart-container">
-            <div className="card-header">
-              <h3>Receita por Forma de Pagamento</h3>
-              <button className="icon-btn" onClick={() => navigate('/financeiro/faturamento')}><MoreVertical size={18} /></button>
+        {hasFinancialAccess && (
+          <article className="card dashboard-insights">
+            <div className="dashboard-card-heading compact">
+              <div>
+                <span className="dashboard-eyebrow">Recebimentos</span>
+                <h2>Formas de pagamento</h2>
+              </div>
+              <button className="icon-btn" onClick={() => navigate('/financeiro/faturamento')} title="Abrir faturamento">
+                <MoreVertical size={18} />
+              </button>
             </div>
-            <div className="chart-wrapper pie-wrapper" style={{ filter: hideData ? 'blur(6px)' : 'none', transition: 'filter 0.3s', userSelect: hideData ? 'none' : 'auto', pointerEvents: hideData ? 'none' : 'auto' }}>
+            <div className="chart-wrapper pie-wrapper">
               {paymentData.length > 0 ? (
                 <>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={paymentData} innerRadius={60} outerRadius={95} paddingAngle={4} dataKey="value" stroke="none">
+                      <Pie data={paymentData} innerRadius={58} outerRadius={88} paddingAngle={4} dataKey="value" stroke="none">
                         {paymentData.map((entry) => (
                           <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value) => currencyFormatter.format(Number(value || 0))} contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }} />
+                      <Tooltip
+                        formatter={(value) => hideData ? maskedMoney : currencyFormatter.format(Number(value || 0))}
+                        contentStyle={{ backgroundColor: '#111722', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
+                      />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="pie-legend">
                     {paymentData.map((item) => (
                       <div key={item.name} className="legend-item">
-                        <span className="legend-color" style={{ backgroundColor: item.color }}></span>
-                        <span className="legend-label">{item.name}</span>
+                        <span className="legend-color" style={{ backgroundColor: item.color }} />
+                        <span>{item.name}</span>
                       </div>
                     ))}
                   </div>
                 </>
               ) : (
-                <div className="chart-empty">Nenhuma receita paga no mês.</div>
+                <div className="chart-empty">Nenhuma receita paga no período.</div>
               )}
             </div>
-          </div>
+          </article>
+        )}
 
-          <div className="card dashboard-insights">
-            <div className="card-header">
-              <h3>Leituras rápidas</h3>
-            </div>
-            <div className="dashboard-insight-list">
-              <div>
-                <span>Ticket médio de OS finalizada</span>
-                <strong>{formatMoney(metrics.ticketMedioOS)}</strong>
-              </div>
-              <div>
-                <span>Valor em vendas do mês</span>
-                <strong>{formatMoney(metrics.valorVendasMes)}</strong>
-              </div>
-              <div>
-                <span>Orçamentos pendentes no mês</span>
-                <strong>{formatMoney(metrics.valorOrcamentosPendentes)}</strong>
-              </div>
-              <div>
-                <span>Itens esgotados</span>
-                <strong>{formatNumber(metrics.itensEsgotados.length)}</strong>
-              </div>
+        <article className="card dashboard-insights">
+          <div className="dashboard-card-heading compact">
+            <div>
+              <span className="dashboard-eyebrow">Leituras rápidas</span>
+              <h2>Indicadores</h2>
             </div>
           </div>
-        </div>
-      )}
-
-      <div className="card table-container">
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-            <h3
-              onClick={() => setTableTab('Ativas')}
-              className={tableTab === 'Ativas' ? 'dashboard-table-tab active' : 'dashboard-table-tab'}
-            >
-              Atendimentos em Andamento
-            </h3>
-            <h3
-              onClick={() => setTableTab('Finalizadas')}
-              className={tableTab === 'Finalizadas' ? 'dashboard-table-tab active success' : 'dashboard-table-tab'}
-            >
-              Últimas Finalizadas
-            </h3>
+          <div className="dashboard-insight-list">
+            {hasFinancialAccess ? (
+              <>
+                <div>
+                  <span>Ticket médio de OS finalizada</span>
+                  <strong>{formatMoney(metrics.ticketMedioOS)}</strong>
+                </div>
+                <div>
+                  <span>Valor em vendas do mês</span>
+                  <strong>{formatMoney(metrics.valorVendasMes)}</strong>
+                </div>
+                <div>
+                  <span>Orçamentos pendentes no período</span>
+                  <strong>{formatMoney(metrics.valorOrcamentosPendentes)}</strong>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <span>OS finalizadas no período</span>
+                  <strong>{formatNumber(metrics.osFinalizadasMes.length)}</strong>
+                </div>
+                <div>
+                  <span>Pedidos no período</span>
+                  <strong>{formatNumber(metrics.vendasMes.length)}</strong>
+                </div>
+                <div>
+                  <span>Clientes atendidos</span>
+                  <strong>{formatNumber(metrics.clientesUnicosMes)}</strong>
+                </div>
+              </>
+            )}
+            <div>
+              <span>Itens esgotados</span>
+              <strong>{formatNumber(metrics.itensEsgotados.length)}</strong>
+            </div>
           </div>
-          <button className="btn-secondary" onClick={() => navigate('/os')}>Ver Módulo OS</button>
-        </div>
-        <div className="table-wrapper">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Placa</th>
-                <th>Modelo</th>
-                <th>Cliente</th>
-                <th>Status OS</th>
-                <th>Valor</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando dados...</td>
-                </tr>
-              ) : (tableTab === 'Ativas' ? metrics.osAtivas : metrics.osFinalizadas).length === 0 ? (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
-                    {tableTab === 'Ativas' ? 'Não há atendimentos em andamento no momento.' : 'Nenhuma OS finalizada recentemente.'}
-                  </td>
-                </tr>
-              ) : (
-                (tableTab === 'Ativas' ? metrics.osAtivas : metrics.osFinalizadas).slice(0, 6).map((vehicle) => {
-                  const color = vehicle.statusColor || '#8b5cf6';
-                  return (
-                    <tr key={vehicle.id}>
-                      <td className="font-medium" style={{ textTransform: 'uppercase' }}>{vehicle.placa || '-'}</td>
-                      <td>{vehicle.modelo || '-'}</td>
-                      <td>{vehicle.clienteNome || '-'}</td>
-                      <td>
-                        <span className="status-badge" style={{ backgroundColor: `${color}20`, color }}>
-                          <span className="status-dot" style={{ backgroundColor: color }}></span>
-                          {vehicle.status}
-                        </span>
-                      </td>
-                      <td className="font-medium">{formatMoney(Number(vehicle.valorTotal || vehicle.total || 0))}</td>
-                      <td>
-                        <button className="icon-btn" onClick={() => navigate(`/os/editar/${vehicle.id}`)} title="Ver Detalhes">
-                          <MoreVertical size={18} />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        </article>
+      </section>
     </div>
   );
 };

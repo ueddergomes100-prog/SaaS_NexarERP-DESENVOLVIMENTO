@@ -18,7 +18,7 @@ service cloud.firestore {
     }
 
     function currentTenantId() {
-      return hasProfile() ? currentProfile().tenantId : request.auth.uid;
+      return hasProfile() ? currentProfile().tenantId : null;
     }
 
     function currentRole() {
@@ -27,17 +27,19 @@ service cloud.firestore {
 
     function tokenIsSuperAdmin() {
       return signedIn() && (
+        request.auth.token.role == 'NexarAdmin' ||
+        request.auth.token.nexarAdmin == true ||
         request.auth.token.role == 'SuperAdmin' ||
         request.auth.token.superAdmin == true
       );
     }
 
     function isSuperAdmin() {
-      return tokenIsSuperAdmin() || (hasProfile() && currentRole() == 'SuperAdmin');
+      return tokenIsSuperAdmin() || (hasProfile() && currentRole() in ['NexarAdmin', 'SuperAdmin']);
     }
 
     function isTenantAdmin() {
-      return hasProfile() && currentRole() == 'Admin';
+      return hasProfile() && currentRole() in ['Master', 'Admin'];
     }
 
     function hasPermission(permission) {
@@ -50,6 +52,37 @@ service cloud.firestore {
       return hasProfile() &&
         currentProfile().permissoes is list &&
         currentProfile().permissoes.hasAny(permissions);
+    }
+
+    function platformManagedFields() {
+      return [
+        'modulosBloqueados',
+        'modulosContratados',
+        'plano',
+        'valorMensalidade',
+        'limiteUsuarios',
+        'limites',
+        'statusSaas',
+        'billingStatus',
+        'trialEndsAt'
+      ];
+    }
+
+    function doesNotChangePlatformManagedFields() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(platformManagedFields());
+    }
+
+    function tenantUserEditableFields() {
+      return [
+        'nome',
+        'updatedAt',
+        'permissoes',
+        'recebeComissaoServicos',
+        'comissaoPercentualServicos',
+        'recebeComissaoPecas',
+        'comissaoPercentualPecas',
+        'status'
+      ];
     }
 
     function canManageTenantData() {
@@ -95,11 +128,11 @@ service cloud.firestore {
     }
 
     function canAccessTenant(tenantId) {
-      return isSuperAdmin() || (signedIn() && currentTenantId() == tenantId);
+      return isSuperAdmin() || (hasProfile() && currentTenantId() == tenantId);
     }
 
     function canReadTenantDocument() {
-      return isSuperAdmin() || (signedIn() && resource.data.tenantId == currentTenantId());
+      return isSuperAdmin() || (hasProfile() && resource.data.tenantId == currentTenantId());
     }
 
     function canCreateTenantDocument() {
@@ -138,15 +171,10 @@ service cloud.firestore {
 
       allow create: if isSuperAdmin() ||
         (
-          signedIn() &&
-          request.auth.uid == userId &&
-          request.resource.data.tenantId == userId &&
-          request.resource.data.role == 'Admin'
-        ) ||
-        (
           isTenantAdmin() &&
           request.resource.data.tenantId == currentTenantId() &&
-          request.resource.data.role == 'Funcionario'
+          request.resource.data.role == 'Funcionario' &&
+          !request.resource.data.keys().hasAny(platformManagedFields())
         );
 
       allow update: if isSuperAdmin() ||
@@ -154,8 +182,9 @@ service cloud.firestore {
           isTenantAdmin() &&
           resource.data.tenantId == currentTenantId() &&
           request.resource.data.tenantId == resource.data.tenantId &&
-          resource.data.role != 'SuperAdmin' &&
-          request.resource.data.role != 'SuperAdmin'
+          request.resource.data.role == resource.data.role &&
+          resource.data.role == 'Funcionario' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(tenantUserEditableFields())
         ) ||
         (
           signedIn() &&
@@ -192,20 +221,17 @@ service cloud.firestore {
       allow read: if canAccessTenant(tenantId);
       allow create: if isSuperAdmin() ||
         (
-          signedIn() &&
-          request.auth.uid == tenantId &&
-          request.resource.data.tenantId == tenantId
-        ) ||
-        (
           isTenantAdmin() &&
           currentTenantId() == tenantId &&
-          request.resource.data.tenantId == tenantId
+          request.resource.data.tenantId == tenantId &&
+          !request.resource.data.keys().hasAny(platformManagedFields())
         );
       allow update: if isSuperAdmin() ||
         (
           isTenantAdmin() &&
           currentTenantId() == tenantId &&
-          request.resource.data.tenantId == tenantId
+          request.resource.data.tenantId == tenantId &&
+          doesNotChangePlatformManagedFields()
         );
       allow delete: if isSuperAdmin();
     }
@@ -239,6 +265,14 @@ service cloud.firestore {
     match /system_alerts/{alertId} {
       allow read: if signedIn();
       allow write: if isSuperAdmin();
+    }
+
+    match /onboarding_pendentes/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /cnpjs_cadastrados/{documentId} {
+      allow read, write: if false;
     }
 
     match /empresas/{tenantId}/logs/{logId} {

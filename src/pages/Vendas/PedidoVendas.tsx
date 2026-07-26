@@ -6,6 +6,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { spedyService } from '../../services/spedyService';
+import { isPlatformAdminRole } from '../../utils/roles';
 
 interface ItemVenda {
   id: string;
@@ -30,7 +31,7 @@ const PedidoVendas: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
 
-  const canDeleteVenda = isOwner || userRole === 'SuperAdmin' || (userPermissions && userPermissions.includes('vendas.excluir'));
+  const canDeleteVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.excluir'));
 
   const [pedidos, setPedidos] = useState<PedidoVendaData[]>([]);
   const [loading, setLoading] = useState(true);

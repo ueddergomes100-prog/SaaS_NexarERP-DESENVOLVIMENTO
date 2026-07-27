@@ -45,8 +45,6 @@ import {
   defaultPdvFinanceConfig,
   makeCartItemFromProduct,
   makePdvSessionStorageKey,
-  productMatchesExactCode,
-  productMatchesSearch,
   toCurrencyInput,
 } from './pdvHelpers';
 import type { PdvCartItem, PdvClient, PdvProduct, PdvSession } from './types';
@@ -75,7 +73,6 @@ const PDV: React.FC = () => {
   const [financeConfig, setFinanceConfig] = useState(defaultPdvFinanceConfig);
   const [session, setSession] = useState<PdvSession | null>(null);
   const [search, setSearch] = useState('');
-  const [highlightedProductIndex, setHighlightedProductIndex] = useState(0);
   const [selectedProduct, setSelectedProduct] = useState<PdvProduct | null>(null);
   const [cartItems, setCartItems] = useState<PdvCartItem[]>([]);
   const [selectedItemId, setSelectedItemId] = useState('');
@@ -96,13 +93,6 @@ const PDV: React.FC = () => {
   );
 
   const operatorName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Operador';
-
-  const filteredProducts = useMemo(() => {
-    if (!search.trim()) return [];
-    const exact = products.filter((product) => productMatchesExactCode(product, search));
-    if (exact.length > 0) return exact;
-    return products.filter((product) => productMatchesSearch(product, search)).slice(0, 12);
-  }, [products, search]);
 
   const totals = useMemo(
     () => calculatePdvTotals(cartItems, saleDiscountCents),
@@ -292,7 +282,6 @@ const PDV: React.FC = () => {
 
     setSelectedProduct(product);
     setSearch('');
-    setHighlightedProductIndex(0);
   }, [openSession, session, validateQuantity]);
 
   const updateItemQuantity = useCallback((itemId: string, quantity: number) => {
@@ -347,20 +336,6 @@ const PDV: React.FC = () => {
       updateItemQuantity(selectedItem.id, Number(result.value || 0));
     }
   }, [selectedItem, updateItemQuantity]);
-
-  const handleProductKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setHighlightedProductIndex((index) => Math.min(index + 1, Math.max(0, filteredProducts.length - 1)));
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setHighlightedProductIndex((index) => Math.max(0, index - 1));
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      const product = filteredProducts[highlightedProductIndex] || filteredProducts[0];
-      if (product) addProductToCart(product, 1);
-    }
-  };
 
   const finalizeSale = async (drafts: PaymentDraft[], observation: string) => {
     if (!currentUser || !tenantId || !session) return;
@@ -640,15 +615,12 @@ const PDV: React.FC = () => {
           <div className="pdv-left">
             <ProductSearch
               value={search}
-              products={filteredProducts}
+              products={products}
               selectedProduct={selectedProduct}
-              highlightedIndex={highlightedProductIndex}
               inputRef={productInputRef}
               disabled={!session}
-              onChange={(value) => { setSearch(value); setHighlightedProductIndex(0); }}
-              onHighlight={setHighlightedProductIndex}
+              onChange={setSearch}
               onSelect={(product) => addProductToCart(product, 1)}
-              onKeyDown={handleProductKeyDown}
             />
 
             {!session && (

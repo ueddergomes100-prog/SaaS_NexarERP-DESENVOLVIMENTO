@@ -135,6 +135,18 @@ Regras:
 - "Ver Mais" abre modal de busca completa com os mesmos filtros.
 - Usado por PDV, Pedido de Venda, OS e qualquer módulo futuro.
 
+**Nota de validação (2026-07-27):** o componente foi criado em
+`src/components/common/ProductAutocomplete.tsx` com variante `overlay`
+(padrão, usada por Pedido/OS) e `inline` (reservada para telas que
+precisem, não usada ainda). Migrado no PDV. A navegação por seta/Enter/Esc
+foi validada por script isolado (o índice avança corretamente), mas a
+verificação end-to-end no navegador ficou incompleta nesta sessão: o
+modal "Abrir caixa" (SweetAlert2) não abriu via clique automatizado no
+ambiente de teste, então o fluxo completo teclar→buscar→setas→Enter→
+adicionar ao carrinho não foi confirmado com o caixa aberto de verdade.
+Recomenda-se um teste manual rápido no navegador antes de considerar o
+PDV 100% fechado.
+
 ### F3 — Primitivas de navegação por teclado
 
 **Criar** `src/hooks/useKeyboardFlow.ts` com:
@@ -389,7 +401,7 @@ Atualizar ao concluir cada item.
 | Item | Fase | Status | Concluído em |
 |---|---|---|---|
 | F1 Busca unificada | 0 | ✅ Concluido — PDV, Pedido de Venda e OS migrados; OS ganhou busca por codigo (nao tinha) | 2026-07-27 |
-| F2 Autocomplete compartilhado | 0 | ⬜ Pendente | |
+| F2 Autocomplete compartilhado | 0 | 🟨 Em andamento — componente criado + PDV migrado; faltam Pedido de Venda e OS | 2026-07-27 (parcial) |
 | F3 Primitivas de teclado | 0 | ⬜ Pendente | |
 | F4 Padrão de catálogo | 0 | ⬜ Pendente | |
 | F5 Sequências e metadados | 0 | ⬜ Pendente | |

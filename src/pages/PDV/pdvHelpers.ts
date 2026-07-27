@@ -5,6 +5,10 @@ import {
   toCents,
   type CreditCardFeeSchedule,
 } from '../../utils/financeDomain';
+import {
+  productMatchesExactCode as sharedProductMatchesExactCode,
+  productMatchesSearch as sharedProductMatchesSearch,
+} from '../../utils/productSearch';
 import type { PdvCartItem, PdvProduct, PdvTotals } from './types';
 
 export const currency = new Intl.NumberFormat('pt-BR', {
@@ -48,31 +52,16 @@ export const buildPdvFinanceConfig = (config: Record<string, unknown> | null | u
   };
 };
 
-export const productSearchText = (product: PdvProduct) => [
-  product.nome,
-  product.codigo,
-  product.codigoBarras,
-  product.referencia,
-  product.skuSistema,
-  product.categoria,
-].filter(Boolean).join(' ').toLowerCase();
+// Delega para o servico unificado de busca de produto (src/utils/productSearch.ts),
+// preservando a assinatura e o comportamento (modo completa, sem limite aqui —
+// o corte em 12 itens continua responsabilidade de PDV.tsx).
+export const productMatchesSearch = (product: PdvProduct, search: string) => (
+  sharedProductMatchesSearch(product, search, 'completa')
+);
 
-export const productMatchesSearch = (product: PdvProduct, search: string) => {
-  const term = search.trim().toLowerCase();
-  if (!term) return false;
-  return productSearchText(product).includes(term);
-};
-
-export const productMatchesExactCode = (product: PdvProduct, search: string) => {
-  const term = search.trim().toLowerCase();
-  if (!term) return false;
-  return [
-    product.codigo,
-    product.codigoBarras,
-    product.referencia,
-    product.skuSistema,
-  ].some((value) => String(value || '').trim().toLowerCase() === term);
-};
+export const productMatchesExactCode = (product: PdvProduct, search: string) => (
+  sharedProductMatchesExactCode(product, search)
+);
 
 export const cartLineGrossCents = (item: PdvCartItem) => (
   Math.max(0, Math.round(item.precoUnitarioCentavos * item.quantidade))

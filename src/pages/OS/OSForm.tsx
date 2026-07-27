@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
@@ -9,6 +9,7 @@ import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { productMatchesSearch } from '../../utils/productSearch';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildServiceOrderCommissionSnapshot,
@@ -30,7 +31,7 @@ import './OS.css';
 interface ClienteBasico { id: string; nome: string; telefone: string; }
 interface ServicoData { id: string; nome: string; preco: number; }
 interface ServicoSelecionado { id: string; nome: string; preco: number; quantidade: number; detalhamento?: string; tempoHoras?: number; }
-interface PecaData { id: string; nome: string; precoVenda: number; quantidade?: number; }
+interface PecaData { id: string; nome: string; precoVenda: number; quantidade?: number; codigo?: string; codigoBarras?: string; }
 interface PecaSelecionada { id: string; nome: string; preco: number; quantidade: number; }
 interface VeiculoBasico {
   id: string;
@@ -105,6 +106,11 @@ const OSForm: React.FC = () => {
   const [pecaPrecoInput, setPecaPrecoInput] = useState('');
   const [pecasSelecionadas, setPecasSelecionadas] = useState<PecaSelecionada[]>([]);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
+
+  const pecasFiltradas = useMemo(
+    () => pecasEstoque.filter((p) => productMatchesSearch(p, pecaNomeInput, 'completa')),
+    [pecasEstoque, pecaNomeInput],
+  );
 
   const { currentUser, tenantId, userRole } = useAuth();
   
@@ -182,7 +188,14 @@ const OSForm: React.FC = () => {
       const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
       const snapE = await getDocs(qE);
       const dataE: PecaData[] = [];
-      snapE.forEach((doc) => dataE.push({ id: doc.id, nome: doc.data().nome, precoVenda: doc.data().precoVenda, quantidade: doc.data().quantidade || 0 }));
+      snapE.forEach((doc) => dataE.push({
+        id: doc.id,
+        nome: doc.data().nome,
+        precoVenda: doc.data().precoVenda,
+        quantidade: doc.data().quantidade || 0,
+        codigo: doc.data().codigo || '',
+        codigoBarras: doc.data().codigoBarras || '',
+      }));
       setPecasEstoque(dataE);
 
       // Fetch Configurações
@@ -1351,10 +1364,9 @@ const OSForm: React.FC = () => {
                     <X size={16} />
                   </button>
                 )}
-                {isPecaDropdownOpen && pecasEstoque.filter(p => p.nome.toLowerCase().includes(pecaNomeInput.toLowerCase())).length > 0 && (
+                {isPecaDropdownOpen && pecasFiltradas.length > 0 && (
                   <div className="select-dropdown">
-                    {pecasEstoque
-                      .filter(p => p.nome.toLowerCase().includes(pecaNomeInput.toLowerCase()))
+                    {pecasFiltradas
                       .map(p => (
                         <div 
                           key={p.id}

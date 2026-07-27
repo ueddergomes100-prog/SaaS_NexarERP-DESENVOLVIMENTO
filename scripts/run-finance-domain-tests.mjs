@@ -7,6 +7,7 @@ const temporaryDirectory = mkdtempSync(join(tmpdir(), 'nexus-finance-tests-'));
 const testFiles = [
   join(temporaryDirectory, 'tests', 'financeDomain.test.js'),
   join(temporaryDirectory, 'tests', 'productSearch.test.js'),
+  join(temporaryDirectory, 'tests', 'keyboardFlow.test.js'),
 ];
 
 try {
@@ -14,9 +15,11 @@ try {
     resolve('node_modules/typescript/bin/tsc'),
     'tests/financeDomain.test.ts',
     'tests/productSearch.test.ts',
+    'tests/keyboardFlow.test.ts',
     'src/utils/financeDomain.ts',
     'src/utils/dateTime.ts',
     'src/utils/productSearch.ts',
+    'src/utils/keyboardFlow.ts',
     '--ignoreConfig',
     '--outDir', temporaryDirectory,
     '--rootDir', '.',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
@@ -9,7 +9,7 @@ import { spedyService } from '../../services/spedyService';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
-import { productMatchesSearch } from '../../utils/productSearch';
+import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildCommissionSnapshot,
@@ -107,10 +107,6 @@ const PedidoVendaForm: React.FC = () => {
   const [produtoPreco, setProdutoPreco] = useState<number>(0);
   const [produtoSelecionado, setProdutoSelecionado] = useState<ProdutoEstoque | null>(null);
 
-  const produtosFiltrados = useMemo(
-    () => produtosCatalogo.filter((p) => productMatchesSearch(p, produtoBusca, 'completa')),
-    [produtosCatalogo, produtoBusca],
-  );
 
   const [frete, setFrete] = useState<number>(0);
   const [encargos, setEncargos] = useState<number>(0);
@@ -123,9 +119,7 @@ const PedidoVendaForm: React.FC = () => {
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
 
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
-  const [isProdutoDropdownOpen, setIsProdutoDropdownOpen] = useState(false);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
-  const produtoDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (currentUser && !vendedorId) setVendedorId(currentUser.uid);
@@ -146,9 +140,6 @@ const PedidoVendaForm: React.FC = () => {
     const handleClickOutside = (event: MouseEvent) => {
       if (clientDropdownRef.current && !clientDropdownRef.current.contains(event.target as Node)) {
         setIsClientDropdownOpen(false);
-      }
-      if (produtoDropdownRef.current && !produtoDropdownRef.current.contains(event.target as Node)) {
-        setIsProdutoDropdownOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -372,7 +363,6 @@ const PedidoVendaForm: React.FC = () => {
     setProdutoBusca('');
     setProdutoPreco(0);
     setProdutoSelecionado(null);
-    setIsProdutoDropdownOpen(false);
   };
 
   const handleRemoveItem = (index: number) => {
@@ -1421,17 +1411,15 @@ const PedidoVendaForm: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <div style={{ flex: '2', position: 'relative', minWidth: '200px' }} ref={produtoDropdownRef}>
+                <div style={{ flex: '2', position: 'relative', minWidth: '200px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Buscar Produto</label>
                   <div style={{ position: 'relative' }}>
-                    <input
-                      type="text"
-                      placeholder="Nome ou Código..."
+                    <ProductAutocomplete
                       value={produtoBusca}
-                      onChange={(e) => {
-                        setProdutoBusca(e.target.value);
-                        setIsProdutoDropdownOpen(true);
-                        const exists = produtosCatalogo.find(p => p.nome.toLowerCase() === e.target.value.toLowerCase() || p.codigo === e.target.value);
+                      products={produtosCatalogo}
+                      onChange={(value) => {
+                        setProdutoBusca(value);
+                        const exists = produtosCatalogo.find(p => p.nome.toLowerCase() === value.toLowerCase() || p.codigo === value);
                         if (exists) {
                           setProdutoPreco(exists.precoVenda);
                           setProdutoSelecionado(exists);
@@ -1439,9 +1427,25 @@ const PedidoVendaForm: React.FC = () => {
                           setProdutoSelecionado(null);
                         }
                       }}
-                      onFocus={() => setIsProdutoDropdownOpen(true)}
-                      autoComplete="off"
-                      style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 42px 12px 16px', color: 'var(--text-primary)' }}
+                      onSelect={(p) => {
+                        setProdutoBusca(p.nome);
+                        setProdutoPreco(p.precoVenda);
+                        setProdutoSelecionado(p);
+                      }}
+                      placeholder="Nome ou Código..."
+                      ariaLabel="Buscar produto"
+                      className="has-clear-btn"
+                      renderItem={(p) => (
+                        <>
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nome} {p.codigo && <span style={{ color: 'var(--text-muted)' }}>[{p.codigo}]</span>}</span>
+                          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexShrink: 0 }}>
+                            <span style={{ color: p.quantidade > 0 ? '#10b981' : '#ef4444' }}>
+                              Est: {p.quantidade.toFixed(p.unidadeMedidaCasasDecimais ?? 0)} {p.unidadeMedidaSigla || 'UN'}
+                            </span>
+                            <span style={{ color: '#10b981', fontWeight: 600 }}>R$ {p.precoVenda.toFixed(2)}</span>
+                          </div>
+                        </>
+                      )}
                     />
                     {produtoBusca && (
                       <button
@@ -1454,32 +1458,6 @@ const PedidoVendaForm: React.FC = () => {
                       </button>
                     )}
                   </div>
-                  {isProdutoDropdownOpen && produtosFiltrados.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', maxHeight: '250px', overflowY: 'auto', zIndex: 50, boxShadow: '0 4px 15px rgba(0,0,0,0.5)' }}>
-                      {produtosFiltrados.map(p => (
-                        <div
-                          key={p.id}
-                          onClick={() => {
-                            setProdutoBusca(p.nome);
-                            setProdutoPreco(p.precoVenda);
-                            setProdutoSelecionado(p);
-                            setIsProdutoDropdownOpen(false);
-                          }}
-                          style={{ padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: '13px', alignItems: 'center', gap: '12px' }}
-                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
-                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                        >
-                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nome} {p.codigo && <span style={{color: 'var(--text-muted)'}}>[{p.codigo}]</span>}</span>
-                          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexShrink: 0 }}>
-                            <span style={{ color: p.quantidade > 0 ? '#10b981' : '#ef4444' }}>
-                              Est: {p.quantidade.toFixed(p.unidadeMedidaCasasDecimais ?? 0)} {p.unidadeMedidaSigla || 'UN'}
-                            </span>
-                            <span style={{ color: '#10b981', fontWeight: 600 }}>R$ {p.precoVenda.toFixed(2)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
 
                 <div style={{ flex: '0.5', minWidth: '85px' }}>

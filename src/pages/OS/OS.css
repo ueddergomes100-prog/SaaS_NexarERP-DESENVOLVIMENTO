@@ -221,6 +221,10 @@
   box-shadow: 0 0 0 2px var(--accent-purple-glow);
 }
 
+.has-clear-btn .product-autocomplete__input {
+  padding-right: 42px;
+}
+
 .clear-selection-btn {
   position: absolute;
   right: 10px;

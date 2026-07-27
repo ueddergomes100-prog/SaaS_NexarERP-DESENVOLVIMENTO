@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
@@ -9,7 +9,7 @@ import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
-import { productMatchesSearch } from '../../utils/productSearch';
+import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildServiceOrderCommissionSnapshot,
@@ -107,19 +107,12 @@ const OSForm: React.FC = () => {
   const [pecasSelecionadas, setPecasSelecionadas] = useState<PecaSelecionada[]>([]);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
 
-  const pecasFiltradas = useMemo(
-    () => pecasEstoque.filter((p) => productMatchesSearch(p, pecaNomeInput, 'completa')),
-    [pecasEstoque, pecaNomeInput],
-  );
-
   const { currentUser, tenantId, userRole } = useAuth();
-  
+
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const [isServicoDropdownOpen, setIsServicoDropdownOpen] = useState(false);
-  const [isPecaDropdownOpen, setIsPecaDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const servicoDropdownRef = useRef<HTMLDivElement>(null);
-  const pecaDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const isConsumidorFinal = formData.clienteNome.toLowerCase().includes('consumidor final');
@@ -139,9 +132,6 @@ const OSForm: React.FC = () => {
       }
       if (servicoDropdownRef.current && !servicoDropdownRef.current.contains(event.target as Node)) {
         setIsServicoDropdownOpen(false);
-      }
-      if (pecaDropdownRef.current && !pecaDropdownRef.current.contains(event.target as Node)) {
-        setIsPecaDropdownOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -390,7 +380,6 @@ const OSForm: React.FC = () => {
   const handleClearPecaInput = () => {
     setPecaNomeInput('');
     setPecaPrecoInput('');
-    setIsPecaDropdownOpen(false);
   };
 
   const handleAddServico = async () => {
@@ -1339,20 +1328,28 @@ const OSForm: React.FC = () => {
               )}
             </div>
             <div className="item-add-container" style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-              <div style={{ flex: 2, position: 'relative' }} ref={pecaDropdownRef}>
-                <input 
-                  type="text" 
-                  placeholder="Busque ou digite nova Peça"
+              <div style={{ flex: 2, position: 'relative' }}>
+                <ProductAutocomplete
                   value={pecaNomeInput}
-                  onChange={(e) => {
-                    setPecaNomeInput(e.target.value);
-                    setIsPecaDropdownOpen(true);
-                    const exists = pecasEstoque.find(p => p.nome.toLowerCase() === e.target.value.toLowerCase());
+                  products={pecasEstoque}
+                  onChange={(value) => {
+                    setPecaNomeInput(value);
+                    const exists = pecasEstoque.find(p => p.nome.toLowerCase() === value.toLowerCase());
                     if (exists) setPecaPrecoInput(String(exists.precoVenda));
                   }}
-                  onFocus={() => setIsPecaDropdownOpen(true)}
-                  autoComplete="off"
-                  style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 42px 12px 16px', color: 'var(--text-primary)' }}
+                  onSelect={(p) => {
+                    setPecaNomeInput(p.nome);
+                    setPecaPrecoInput(String(p.precoVenda));
+                  }}
+                  placeholder="Busque ou digite nova Peça"
+                  ariaLabel="Buscar peça"
+                  className="has-clear-btn"
+                  renderItem={(p) => (
+                    <>
+                      <span>{p.nome}</span>
+                      <span>R$ {p.precoVenda.toFixed(2)}</span>
+                    </>
+                  )}
                 />
                 {pecaNomeInput && (
                   <button
@@ -1363,25 +1360,6 @@ const OSForm: React.FC = () => {
                   >
                     <X size={16} />
                   </button>
-                )}
-                {isPecaDropdownOpen && pecasFiltradas.length > 0 && (
-                  <div className="select-dropdown">
-                    {pecasFiltradas
-                      .map(p => (
-                        <div 
-                          key={p.id}
-                          className="select-option"
-                          onClick={() => {
-                            setPecaNomeInput(p.nome);
-                            setPecaPrecoInput(String(p.precoVenda));
-                            setIsPecaDropdownOpen(false);
-                          }}
-                        >
-                          <span>{p.nome}</span>
-                          <span>R$ {p.precoVenda.toFixed(2)}</span>
-                        </div>
-                      ))}
-                  </div>
                 )}
               </div>
 

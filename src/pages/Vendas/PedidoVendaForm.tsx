@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
@@ -9,6 +9,7 @@ import { spedyService } from '../../services/spedyService';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { productMatchesSearch } from '../../utils/productSearch';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildCommissionSnapshot,
@@ -105,6 +106,11 @@ const PedidoVendaForm: React.FC = () => {
   const [produtoDesconto, setProdutoDesconto] = useState<number>(0);
   const [produtoPreco, setProdutoPreco] = useState<number>(0);
   const [produtoSelecionado, setProdutoSelecionado] = useState<ProdutoEstoque | null>(null);
+
+  const produtosFiltrados = useMemo(
+    () => produtosCatalogo.filter((p) => productMatchesSearch(p, produtoBusca, 'completa')),
+    [produtosCatalogo, produtoBusca],
+  );
 
   const [frete, setFrete] = useState<number>(0);
   const [encargos, setEncargos] = useState<number>(0);
@@ -1448,9 +1454,9 @@ const PedidoVendaForm: React.FC = () => {
                       </button>
                     )}
                   </div>
-                  {isProdutoDropdownOpen && produtosCatalogo.filter(p => p.nome.toLowerCase().includes(produtoBusca.toLowerCase()) || p.codigo.includes(produtoBusca)).length > 0 && (
+                  {isProdutoDropdownOpen && produtosFiltrados.length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', maxHeight: '250px', overflowY: 'auto', zIndex: 50, boxShadow: '0 4px 15px rgba(0,0,0,0.5)' }}>
-                      {produtosCatalogo.filter(p => p.nome.toLowerCase().includes(produtoBusca.toLowerCase()) || p.codigo.includes(produtoBusca)).map(p => (
+                      {produtosFiltrados.map(p => (
                         <div
                           key={p.id}
                           onClick={() => {

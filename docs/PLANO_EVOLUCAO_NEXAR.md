@@ -388,7 +388,7 @@ Atualizar ao concluir cada item.
 
 | Item | Fase | Status | Concluído em |
 |---|---|---|---|
-| F1 Busca unificada | 0 | 🟨 Em andamento — servico criado + PDV migrado; faltam Pedido de Venda e OS | 2026-07-27 (parcial) |
+| F1 Busca unificada | 0 | 🟨 Em andamento — servico criado + PDV e Pedido de Venda migrados; falta OS | 2026-07-27 (parcial) |
 | F2 Autocomplete compartilhado | 0 | ⬜ Pendente | |
 | F3 Primitivas de teclado | 0 | ⬜ Pendente | |
 | F4 Padrão de catálogo | 0 | ⬜ Pendente | |

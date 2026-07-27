@@ -629,46 +629,6 @@ body.light-theme .nexus-nav-group-trigger small {
   border-top: 1px solid var(--nexus-border);
 }
 
-.nexus-day-summary {
-  display: grid;
-  gap: 6px;
-  padding: 10px 0 12px;
-}
-
-.nexus-day-summary > span {
-  color: var(--nexus-text-muted);
-  font-size: 10px;
-  font-weight: 850;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 0 2px;
-}
-
-.nexus-day-summary button {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  min-height: 30px;
-  border: 0;
-  background: transparent;
-  color: var(--nexus-text-secondary);
-  cursor: pointer;
-  padding: 0 2px;
-  text-align: left;
-}
-
-.nexus-day-summary strong {
-  font-size: 12px;
-  font-weight: 740;
-}
-
-.nexus-day-summary small {
-  color: var(--nexus-text-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
 .nexus-user-card,
 .nexus-tenant-card {
   display: flex;

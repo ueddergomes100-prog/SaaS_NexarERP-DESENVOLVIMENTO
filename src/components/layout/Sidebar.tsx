@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  AlertTriangle,
   BarChart2,
   Bell,
   Briefcase,
@@ -36,7 +35,6 @@ import {
   UserCog,
   Users,
   Wallet,
-  Wrench,
   Clock
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -472,25 +470,6 @@ const Sidebar: React.FC = () => {
           </nav>
 
           <div className="nexus-sidebar-footer">
-            <div className="nexus-day-summary">
-              <span>Resumo rápido</span>
-              <button type="button" onClick={() => navigateTo('/os')}>
-                <Wrench size={15} />
-                <strong>Atendimentos</strong>
-                <small>Abrir</small>
-              </button>
-              <button type="button" onClick={() => navigateTo('/pedidos-venda')}>
-                <ShoppingCart size={15} />
-                <strong>Vendas</strong>
-                <small>Abrir</small>
-              </button>
-              <button type="button" onClick={() => navigateTo('/crm/lembretes')}>
-                <AlertTriangle size={15} />
-                <strong>Pendências</strong>
-                <small>Abrir</small>
-              </button>
-            </div>
-
             <div className="nexus-user-card">
               <div className="nexus-user-avatar">{userInitial}</div>
               <div>

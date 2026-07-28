@@ -258,11 +258,21 @@ firebase deploy --only firestore:rules
 
 **Aceite:** "ABA" em modo exata retorna só produtos que começam com ABA; em completa retorna qualquer ocorrência; código de barras funciona nos dois modos.
 
+**Concluído em 2026-07-28:**
+- Campo `buscaProdutoModo` ('exata' | 'completa', padrão 'completa') em [`Configuracoes.tsx`](../src/pages/Configuracoes/Configuracoes.tsx), seção Configurações Avançadas, persistido em `configuracoes/{tenantId}` no mesmo padrão do `venderSemEstoque` já existente.
+- PDV, Pedido de Venda e OS agora leem esse campo (mesmo `useEffect` que já buscava `venderSemEstoque`) e passam `mode` para `ProductAutocomplete`/`ProductSearchModal` — a prop já existia desde F1/F2, só faltava ser alimentada por configuração.
+- `DEFAULT_PRODUCT_SEARCH_MODE` exportado de [`productSearch.ts`](../src/utils/productSearch.ts) para as 4 telas (Configurações + as 3 de busca) compartilharem o mesmo default sem repetir a string.
+- Typecheck, lint (0 erros, 70 warnings pré-existentes), build e os 44 testes passando.
+
+**Pendente — validação manual roteirizada (item 6 do checklist de "pronto"):** ainda não confirmada por login real no navegador (dependia do usuário, que ia testar e retornar). Sem migração de dados: o padrão `completa` preserva o comportamento atual para quem nunca tocar no toggle.
+
 ### Módulo 11 — Consulta por CDP (código do produto)
 
 **Estado atual:** o campo `codigo` já existe no cadastro ([`EstoqueForm.tsx`](../src/pages/Estoque/EstoqueForm.tsx)); PDV já busca por ele; Pedido busca parcialmente; OS não busca.
 
 **O que falta:** nada além de F1 aplicado às três telas. **Este módulo é absorvido por F1** — não criar código específico. Validar e marcar como concluído.
+
+**Concluído em 2026-07-28:** confirmado por leitura de código — PDV, Pedido de Venda e OS usam todos `searchProducts`/`productMatchesExactCode` de F1, que trata `codigo` como `CODE_FIELD` (prefixo/exato, com prioridade sobre nome). Nada a implementar; módulo fecha só com esta validação.
 
 ### Módulo 14 — Buscas do sistema
 
@@ -271,6 +281,14 @@ firebase deploy --only firestore:rules
 **O que falta:** garantir que todos os campos entrem em F1 e que a busca global da TopBar (hoje só OS e clientes, em [`TopBar.tsx:272`](../src/components/layout/TopBar.tsx)) também cubra produtos.
 
 **Atenção de performance:** a busca da TopBar hoje puxa `limit(80)` e filtra no cliente. Com catálogo grande isso não escala. Avaliar índice ou campo de busca normalizado antes de ampliar.
+
+**Concluído em 2026-07-28:**
+- `fornecedor` confirmado no cadastro ([`EstoqueForm.tsx:58`](../src/pages/Estoque/EstoqueForm.tsx)) — já coberto por F1 (`TEXT_FIELDS`) desde a criação do serviço unificado.
+- TopBar ganhou uma terceira query (`estoque`, `limit(80)`, mesmo padrão de OS/clientes) e usa `productMatchesSearch` (F1, modo `completa`) para reaproveitar a mesma lógica de normalização/match das outras telas em vez de duplicar comparação de string. Resultado navega para `/estoque/editar/:id`.
+- **Risco de performance não resolvido, propositalmente:** manteve-se o mesmo padrão `limit(80)` + filtro no cliente já usado por OS/clientes — não é escalável para catálogo grande, mas resolver isso é um problema estrutural maior (índice dedicado ou campo de busca normalizado) que afeta as três buscas da TopBar igualmente, não só produtos. Ficou fora do escopo deste módulo; ver pendência na Seção 9.
+- Typecheck, lint (0 erros) e build passando (mesma rodada de validação do Módulo 9, nenhum teste novo necessário — a função reaproveitada já tem cobertura em `productSearch.test.ts`).
+
+**Pendente — validação manual:** mesma limitação do Módulo 9 (depende de login real no navegador).
 
 ### Módulo 3 — Impressão múltipla
 
@@ -444,9 +462,9 @@ Atualizar ao concluir cada item.
 | F6 Índices versionados | 0 | 🟨 Arquivo criado — falta `firebase deploy --only firestore:indexes` (CLI não instalado aqui) | 2026-07-27 |
 | M2 Bandeiras de cartão | 1 | 🟨 Código pronto — falta `firebase deploy --only firestore:rules` (CLI não instalado aqui) | 2026-07-28 |
 | M10 Limite de autocomplete | 1 | ✅ Concluído — modal "Ver Mais" criado; teste visual com >6 produtos pendente (catálogo dev pequeno) | 2026-07-28 |
-| M9 Busca exata/completa | 1 | ⬜ Pendente | |
-| M11 Consulta por CDP | 1 | ⬜ Absorvido por F1 | |
-| M14 Buscas do sistema | 1 | ⬜ Pendente | |
+| M9 Busca exata/completa | 1 | 🟨 Código pronto — falta validação manual roteirizada | 2026-07-28 |
+| M11 Consulta por CDP | 1 | ✅ Concluído — absorvido por F1, confirmado por leitura de código | 2026-07-28 |
+| M14 Buscas do sistema | 1 | 🟨 Código pronto — falta validação manual; risco de performance da TopBar segue aberto (Seção 9) | 2026-07-28 |
 | M3 Impressão múltipla | 1 | ⬜ Pendente | |
 | M5 Flags fiscais | 1 | ⬜ Pendente | |
 | M1 Navegação por teclado | 2 | ⬜ Pendente | |
@@ -472,3 +490,5 @@ Atualizar ao concluir cada item.
 4. **Módulo 7:** decisão de arquitetura + plano de migração.
 5. **Módulo 8:** validação contábil antes de qualquer implementação.
 6. **Filial:** o relatório financeiro de 19/07 já apontou que não existe entidade de filial, e isso bloqueia sessão de caixa por operador/filial. Definir se entra no escopo.
+7. **Módulo 14 / TopBar:** busca global (OS, clientes e agora produtos) usa `limit(80)` + filtro no cliente nas três coleções — não escala para catálogo grande. Resolver exige índice dedicado ou campo de busca normalizado, afetando as três buscas juntas; não implementado ainda, fora do escopo deste módulo.
+8. **Repositórios git:** confirmado em 2026-07-28 que este diretório local tinha só um remote (`origin`), que na verdade aponta para o repo de **produção** (`Sistema-Nexus-Company-Commit`). Renomeado para `production` e criado um novo remote `dev` → `SaaS_NexarERP-DESENVOLVIMENTO`. Os commits de M2/M10/M9 já foram parar em `production` (não revertido, a pedido do usuário) mas **ainda não foram enviados a `dev`** — `git push dev main` ficou pendente (bloqueado pelo classificador de permissão do Claude Code na tentativa automática; precisa ser rodado pelo usuário ou reautorizado explicitamente a cada sessão).

@@ -5,6 +5,7 @@ import { collection, query, where, onSnapshot, doc, getDocs, limit } from 'fireb
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
+import { productMatchesSearch, type SearchableProduct } from '../../utils/productSearch';
 import PerfilModal from './PerfilModal';
 import './Layout.css';
 
@@ -271,8 +272,9 @@ const TopBar: React.FC = () => {
         const results: any[] = [];
         const qOs = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId), limit(80));
         const qClientes = query(collection(db, 'clientes'), where('tenantId', '==', tenantId), limit(80));
-        
-        const [osSnap, clientesSnap] = await Promise.all([getDocs(qOs), getDocs(qClientes)]);
+        const qProdutos = query(collection(db, 'estoque'), where('tenantId', '==', tenantId), limit(80));
+
+        const [osSnap, clientesSnap, produtosSnap] = await Promise.all([getDocs(qOs), getDocs(qClientes), getDocs(qProdutos)]);
         
         osSnap.forEach(doc => {
           const data = doc.data();
@@ -304,6 +306,19 @@ const TopBar: React.FC = () => {
               title: data.nome,
               subtitle: data.telefone || data.documento || 'Sem detalhes',
               link: `/clientes/editar/${doc.id}`
+            });
+          }
+        });
+
+        produtosSnap.forEach(doc => {
+          const data = doc.data() as SearchableProduct;
+          if (productMatchesSearch(data, searchTerm, 'completa')) {
+            results.push({
+              type: 'Produto',
+              id: doc.id,
+              title: data.nome || 'Produto sem nome',
+              subtitle: `Código: ${data.codigo || data.codigoBarras || data.skuSistema || '-'}`,
+              link: `/estoque/editar/${doc.id}`
             });
           }
         });

@@ -32,6 +32,7 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import CartPanel from './components/CartPanel';
 import ClientModal from './components/ClientModal';
 import DiscountModal from './components/DiscountModal';
@@ -70,6 +71,7 @@ const PDV: React.FC = () => {
   const [products, setProducts] = useState<PdvProduct[]>([]);
   const [clients, setClients] = useState<PdvClient[]>([]);
   const [allowNegativeStock, setAllowNegativeStock] = useState(false);
+  const [productSearchMode, setProductSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
   const [financeConfig, setFinanceConfig] = useState(defaultPdvFinanceConfig);
   const [session, setSession] = useState<PdvSession | null>(null);
   const [search, setSearch] = useState('');
@@ -161,6 +163,7 @@ const PDV: React.FC = () => {
         setProducts(nextProducts);
         setClients(nextClients);
         setAllowNegativeStock(configData?.venderSemEstoque === true);
+        setProductSearchMode(configData?.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
         setFinanceConfig(buildPdvFinanceConfig(configData));
       } catch (error) {
         console.error('Erro ao carregar dados do PDV:', error);
@@ -618,6 +621,7 @@ const PDV: React.FC = () => {
               products={products}
               selectedProduct={selectedProduct}
               inputRef={productInputRef}
+              mode={productSearchMode}
               disabled={!session}
               onChange={setSearch}
               onSelect={(product) => addProductToCart(product, 1)}

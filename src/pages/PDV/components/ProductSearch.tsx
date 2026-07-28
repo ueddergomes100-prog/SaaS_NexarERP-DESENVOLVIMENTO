@@ -4,12 +4,14 @@ import type { PdvProduct } from '../types';
 import { currency } from '../pdvHelpers';
 import ProductAutocomplete from '../../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../../components/common/ProductSearchModal';
+import type { ProductSearchMode } from '../../../utils/productSearch';
 
 interface ProductSearchProps {
   value: string;
   products: PdvProduct[];
   selectedProduct: PdvProduct | null;
   inputRef: React.RefObject<HTMLInputElement | null>;
+  mode?: ProductSearchMode;
   disabled?: boolean;
   onChange: (value: string) => void;
   onSelect: (product: PdvProduct) => void;
@@ -30,6 +32,7 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
   products,
   selectedProduct,
   inputRef,
+  mode,
   disabled,
   onChange,
   onSelect,
@@ -51,6 +54,7 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
           products={products}
           onSelect={onSelect}
           inputRef={inputRef}
+          mode={mode}
           disabled={disabled}
           placeholder="Código, barras, SKU, referência ou nome"
           ariaLabel="Pesquisar produto no PDV"
@@ -64,6 +68,7 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
         onClose={() => setIsSearchModalOpen(false)}
         products={products}
         onSelect={onSelect}
+        mode={mode}
         renderItem={renderProductRow}
         initialQuery={value}
         title="Buscar produto"

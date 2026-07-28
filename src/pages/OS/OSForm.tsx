@@ -11,6 +11,7 @@ import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
+import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildServiceOrderCommissionSnapshot,
@@ -115,6 +116,7 @@ const OSForm: React.FC = () => {
   const [isPecaSearchModalOpen, setIsPecaSearchModalOpen] = useState(false);
   const [pecasSelecionadas, setPecasSelecionadas] = useState<PecaSelecionada[]>([]);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
+  const [pecaSearchMode, setPecaSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
 
   const { currentUser, tenantId, userRole } = useAuth();
 
@@ -204,6 +206,7 @@ const OSForm: React.FC = () => {
         if (configSnap.exists()) {
           const config = configSnap.data();
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
+          setPecaSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
           const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
@@ -1351,6 +1354,7 @@ const OSForm: React.FC = () => {
                     setPecaNomeInput(p.nome);
                     setPecaPrecoInput(String(p.precoVenda));
                   }}
+                  mode={pecaSearchMode}
                   placeholder="Busque ou digite nova Peça"
                   ariaLabel="Buscar peça"
                   className="has-clear-btn"
@@ -1375,6 +1379,7 @@ const OSForm: React.FC = () => {
                     setPecaNomeInput(p.nome);
                     setPecaPrecoInput(String(p.precoVenda));
                   }}
+                  mode={pecaSearchMode}
                   renderItem={renderPecaRow}
                   initialQuery={pecaNomeInput}
                   title="Buscar peça"

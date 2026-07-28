@@ -9,6 +9,7 @@ import { formatCompanyAddress } from '../../utils/companyAddress';
 import { MODULE_GROUPS } from '../../utils/moduleCatalog';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { normalizeCreditCardFeeSchedule, parseCreditTerms } from '../../utils/financeDomain';
+import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 
 const toStringArray = (value: unknown): string[] => {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -73,6 +74,7 @@ const Configuracoes: React.FC = () => {
     diasNotificacaoLembrete: '15',
     venderSemEstoque: false,
     validarCadastroProduto: false,
+    buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
     diasCrediario: '30',
     maxParcelasCartao: '12',
     taxasCartaoCreditoPorParcela: toCreditCardRateInputs(null),
@@ -114,6 +116,7 @@ const Configuracoes: React.FC = () => {
             ...data,
             venderSemEstoque: data.venderSemEstoque ?? false,
             validarCadastroProduto: data.validarCadastroProduto ?? false,
+            buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
             whatsapp: data.whatsapp ?? '',
             instagram: data.instagram ?? '',
             rua: data.rua ?? data.endereco ?? '',
@@ -1045,6 +1048,35 @@ const Configuracoes: React.FC = () => {
                   Permitir cadastrar produto apenas com nome, preço e quantidade
                 </label>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Quando marcado, o cadastro de produtos exige apenas nome, preço de venda e quantidade inicial de estoque.</p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Modo de Busca de Produto</label>
+                <div style={{ display: 'flex', gap: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="radio"
+                      name="buscaProdutoModo"
+                      checked={formData.buscaProdutoModo === 'completa'}
+                      onChange={() => setFormData({ ...formData, buscaProdutoModo: 'completa' })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Completa (padrão)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="radio"
+                      name="buscaProdutoModo"
+                      checked={formData.buscaProdutoModo === 'exata'}
+                      onChange={() => setFormData({ ...formData, buscaProdutoModo: 'exata' })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Exata
+                  </label>
+                </div>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Afeta a busca por nome no PDV, Pedido de Venda e OS. "Completa" encontra o termo em qualquer posição do nome; "Exata" só encontra nomes que começam com o termo digitado. Código, código de barras e referência sempre buscam por prefixo, nos dois modos.</p>
               </div>
 
               <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>

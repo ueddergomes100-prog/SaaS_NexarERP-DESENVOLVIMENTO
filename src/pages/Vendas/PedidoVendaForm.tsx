@@ -11,6 +11,7 @@ import { isPlatformAdminRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
+import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildCommissionSnapshot,
@@ -128,6 +129,7 @@ const PedidoVendaForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingData, setIsFetchingData] = useState(true);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
+  const [produtoSearchMode, setProdutoSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
@@ -208,6 +210,7 @@ const PedidoVendaForm: React.FC = () => {
         if (configSnap.exists()) {
           const config = configSnap.data();
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
+          setProdutoSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
           const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
@@ -1446,6 +1449,7 @@ const PedidoVendaForm: React.FC = () => {
                         setProdutoPreco(p.precoVenda);
                         setProdutoSelecionado(p);
                       }}
+                      mode={produtoSearchMode}
                       placeholder="Nome ou Código..."
                       ariaLabel="Buscar produto"
                       className="has-clear-btn"
@@ -1472,6 +1476,7 @@ const PedidoVendaForm: React.FC = () => {
                       setProdutoPreco(p.precoVenda);
                       setProdutoSelecionado(p);
                     }}
+                    mode={produtoSearchMode}
                     renderItem={renderProdutoRow}
                     initialQuery={produtoBusca}
                     title="Buscar produto"

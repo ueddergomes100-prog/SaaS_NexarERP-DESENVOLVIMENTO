@@ -22,7 +22,9 @@ export interface ProductSearchResult<T> {
   truncated: boolean;
 }
 
-const DEFAULT_MODE: ProductSearchMode = 'completa';
+export const DEFAULT_PRODUCT_SEARCH_MODE: ProductSearchMode = 'completa';
+
+const DEFAULT_MODE: ProductSearchMode = DEFAULT_PRODUCT_SEARCH_MODE;
 const DEFAULT_LIMIT = 6;
 
 const CODE_FIELDS: Array<keyof SearchableProduct> = ['codigo', 'codigoBarras', 'referencia', 'skuSistema'];

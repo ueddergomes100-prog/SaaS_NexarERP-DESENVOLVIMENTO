@@ -10,6 +10,7 @@ import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getN
 import { isPlatformAdminRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
+import ProductSearchModal from '../../components/common/ProductSearchModal';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildCommissionSnapshot,
@@ -61,6 +62,18 @@ interface LinkedNfe {
   accessKey?: string;
 }
 
+const renderProdutoRow = (p: ProdutoEstoque) => (
+  <>
+    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nome} {p.codigo && <span style={{ color: 'var(--text-muted)' }}>[{p.codigo}]</span>}</span>
+    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexShrink: 0 }}>
+      <span style={{ color: p.quantidade > 0 ? '#10b981' : '#ef4444' }}>
+        Est: {p.quantidade.toFixed(p.unidadeMedidaCasasDecimais ?? 0)} {p.unidadeMedidaSigla || 'UN'}
+      </span>
+      <span style={{ color: '#10b981', fontWeight: 600 }}>R$ {p.precoVenda.toFixed(2)}</span>
+    </div>
+  </>
+);
+
 const toSpedyPaymentMethod = (method: string) => {
   if (method === 'Pix') return 'pix';
   if (method.includes('Crédito')) return 'creditCard';
@@ -106,6 +119,7 @@ const PedidoVendaForm: React.FC = () => {
   const [produtoDesconto, setProdutoDesconto] = useState<number>(0);
   const [produtoPreco, setProdutoPreco] = useState<number>(0);
   const [produtoSelecionado, setProdutoSelecionado] = useState<ProdutoEstoque | null>(null);
+  const [isProdutoSearchModalOpen, setIsProdutoSearchModalOpen] = useState(false);
 
 
   const [frete, setFrete] = useState<number>(0);
@@ -1435,17 +1449,8 @@ const PedidoVendaForm: React.FC = () => {
                       placeholder="Nome ou Código..."
                       ariaLabel="Buscar produto"
                       className="has-clear-btn"
-                      renderItem={(p) => (
-                        <>
-                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nome} {p.codigo && <span style={{ color: 'var(--text-muted)' }}>[{p.codigo}]</span>}</span>
-                          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexShrink: 0 }}>
-                            <span style={{ color: p.quantidade > 0 ? '#10b981' : '#ef4444' }}>
-                              Est: {p.quantidade.toFixed(p.unidadeMedidaCasasDecimais ?? 0)} {p.unidadeMedidaSigla || 'UN'}
-                            </span>
-                            <span style={{ color: '#10b981', fontWeight: 600 }}>R$ {p.precoVenda.toFixed(2)}</span>
-                          </div>
-                        </>
-                      )}
+                      onViewMore={() => setIsProdutoSearchModalOpen(true)}
+                      renderItem={renderProdutoRow}
                     />
                     {produtoBusca && (
                       <button
@@ -1458,6 +1463,19 @@ const PedidoVendaForm: React.FC = () => {
                       </button>
                     )}
                   </div>
+                  <ProductSearchModal
+                    open={isProdutoSearchModalOpen}
+                    onClose={() => setIsProdutoSearchModalOpen(false)}
+                    products={produtosCatalogo}
+                    onSelect={(p) => {
+                      setProdutoBusca(p.nome);
+                      setProdutoPreco(p.precoVenda);
+                      setProdutoSelecionado(p);
+                    }}
+                    renderItem={renderProdutoRow}
+                    initialQuery={produtoBusca}
+                    title="Buscar produto"
+                  />
                 </div>
 
                 <div style={{ flex: '0.5', minWidth: '85px' }}>

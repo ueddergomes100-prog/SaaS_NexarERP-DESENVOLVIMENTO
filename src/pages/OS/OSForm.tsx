@@ -10,6 +10,7 @@ import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getN
 import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
+import ProductSearchModal from '../../components/common/ProductSearchModal';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildServiceOrderCommissionSnapshot,
@@ -33,6 +34,13 @@ interface ServicoData { id: string; nome: string; preco: number; }
 interface ServicoSelecionado { id: string; nome: string; preco: number; quantidade: number; detalhamento?: string; tempoHoras?: number; }
 interface PecaData { id: string; nome: string; precoVenda: number; quantidade?: number; codigo?: string; codigoBarras?: string; }
 interface PecaSelecionada { id: string; nome: string; preco: number; quantidade: number; }
+
+const renderPecaRow = (p: PecaData) => (
+  <>
+    <span>{p.nome}</span>
+    <span>R$ {p.precoVenda.toFixed(2)}</span>
+  </>
+);
 interface VeiculoBasico {
   id: string;
   placa: string;
@@ -104,6 +112,7 @@ const OSForm: React.FC = () => {
   const [pecasEstoque, setPecasEstoque] = useState<PecaData[]>([]);
   const [pecaNomeInput, setPecaNomeInput] = useState('');
   const [pecaPrecoInput, setPecaPrecoInput] = useState('');
+  const [isPecaSearchModalOpen, setIsPecaSearchModalOpen] = useState(false);
   const [pecasSelecionadas, setPecasSelecionadas] = useState<PecaSelecionada[]>([]);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
 
@@ -1345,12 +1354,8 @@ const OSForm: React.FC = () => {
                   placeholder="Busque ou digite nova Peça"
                   ariaLabel="Buscar peça"
                   className="has-clear-btn"
-                  renderItem={(p) => (
-                    <>
-                      <span>{p.nome}</span>
-                      <span>R$ {p.precoVenda.toFixed(2)}</span>
-                    </>
-                  )}
+                  onViewMore={() => setIsPecaSearchModalOpen(true)}
+                  renderItem={renderPecaRow}
                 />
                 {pecaNomeInput && (
                   <button
@@ -1362,6 +1367,18 @@ const OSForm: React.FC = () => {
                     <X size={16} />
                   </button>
                 )}
+                <ProductSearchModal
+                  open={isPecaSearchModalOpen}
+                  onClose={() => setIsPecaSearchModalOpen(false)}
+                  products={pecasEstoque}
+                  onSelect={(p) => {
+                    setPecaNomeInput(p.nome);
+                    setPecaPrecoInput(String(p.precoVenda));
+                  }}
+                  renderItem={renderPecaRow}
+                  initialQuery={pecaNomeInput}
+                  title="Buscar peça"
+                />
               </div>
 
               <input 

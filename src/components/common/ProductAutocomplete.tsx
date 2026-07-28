@@ -40,7 +40,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   onSelect,
   renderItem,
   mode = 'completa',
-  limit = 8,
+  limit = 6,
   placeholder,
   ariaLabel,
   disabled,

@@ -19,3 +19,17 @@ export const isTenantManagerRole = (role: unknown): boolean => {
 export const hasTenantFullAccess = (role: unknown, isOwner: boolean): boolean => {
   return isOwner || isTenantManagerRole(role) || isPlatformAdminRole(role);
 };
+
+/**
+ * Padrao de acesso a modulo/catalogo: dono, papel de plataforma/gestor da
+ * empresa, ou permissao especifica concedida ao funcionario.
+ */
+export const hasModuleAccess = (args: {
+  role: unknown;
+  isOwner: boolean;
+  permissions: string[] | null | undefined;
+  requiredPermission: string;
+}): boolean => {
+  return hasTenantFullAccess(args.role, args.isOwner) ||
+    !!args.permissions?.includes(args.requiredPermission);
+};

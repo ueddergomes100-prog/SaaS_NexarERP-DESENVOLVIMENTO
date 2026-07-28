@@ -8,6 +8,8 @@ const testFiles = [
   join(temporaryDirectory, 'tests', 'financeDomain.test.js'),
   join(temporaryDirectory, 'tests', 'productSearch.test.js'),
   join(temporaryDirectory, 'tests', 'keyboardFlow.test.js'),
+  join(temporaryDirectory, 'tests', 'catalogDefaults.test.js'),
+  join(temporaryDirectory, 'tests', 'roles.test.js'),
 ];
 
 try {
@@ -16,10 +18,14 @@ try {
     'tests/financeDomain.test.ts',
     'tests/productSearch.test.ts',
     'tests/keyboardFlow.test.ts',
+    'tests/catalogDefaults.test.ts',
+    'tests/roles.test.ts',
     'src/utils/financeDomain.ts',
     'src/utils/dateTime.ts',
     'src/utils/productSearch.ts',
     'src/utils/keyboardFlow.ts',
+    'src/utils/catalogDefaults.ts',
+    'src/utils/roles.ts',
     '--ignoreConfig',
     '--outDir', temporaryDirectory,
     '--rootDir', '.',

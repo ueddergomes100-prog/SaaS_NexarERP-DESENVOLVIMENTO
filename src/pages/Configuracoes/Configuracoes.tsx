@@ -75,6 +75,9 @@ const Configuracoes: React.FC = () => {
     venderSemEstoque: false,
     validarCadastroProduto: false,
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
+    emiteNFe: false,
+    emiteNFCe: false,
+    emiteNFSe: false,
     diasCrediario: '30',
     maxParcelasCartao: '12',
     taxasCartaoCreditoPorParcela: toCreditCardRateInputs(null),
@@ -117,6 +120,9 @@ const Configuracoes: React.FC = () => {
             venderSemEstoque: data.venderSemEstoque ?? false,
             validarCadastroProduto: data.validarCadastroProduto ?? false,
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
+            emiteNFe: data.emiteNFe ?? false,
+            emiteNFCe: data.emiteNFCe ?? false,
+            emiteNFSe: data.emiteNFSe ?? false,
             whatsapp: data.whatsapp ?? '',
             instagram: data.instagram ?? '',
             rua: data.rua ?? data.endereco ?? '',
@@ -1077,6 +1083,43 @@ const Configuracoes: React.FC = () => {
                   </label>
                 </div>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Afeta a busca por nome no PDV, Pedido de Venda e OS. "Completa" encontra o termo em qualquer posição do nome; "Exata" só encontra nomes que começam com o termo digitado. Código, código de barras e referência sempre buscam por prefixo, nos dois modos.</p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Emissão Fiscal Habilitada</label>
+                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.emiteNFe === true}
+                      onChange={(e) => setFormData({ ...formData, emiteNFe: e.target.checked })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Emite NF-e
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.emiteNFCe === true}
+                      onChange={(e) => setFormData({ ...formData, emiteNFCe: e.target.checked })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Emite NFC-e
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.emiteNFSe === true}
+                      onChange={(e) => setFormData({ ...formData, emiteNFSe: e.target.checked })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Emite NFS-e
+                  </label>
+                </div>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Identifica quais documentos fiscais esta empresa emite. Por enquanto é só um registro informativo — nenhuma tela do sistema é bloqueada por essas flags ainda.</p>
               </div>
 
               <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>

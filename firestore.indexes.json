@@ -1,0 +1,29 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "ordens_de_servico",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "numeroOS", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos_venda",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "numeroPedido", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "orcamentos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "numeroOrcamento", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

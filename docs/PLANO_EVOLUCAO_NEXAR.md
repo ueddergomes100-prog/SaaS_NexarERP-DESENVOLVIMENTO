@@ -184,6 +184,16 @@ Erro ao buscar sequencia de OS: The query requires an index (ordens_de_servico: 
 
 **Criar** `firestore.indexes.json`, registrar em `firebase.json`, e incluir o índice faltante de OS. Todo módulo novo que criar query composta **deve** adicionar o índice aqui, não só no console.
 
+**Concluído em 2026-07-27:** criado `firestore.indexes.json` com os 3 índices confirmados (mesmo formato `tenantId` + `numero*` desc, usados por `getCurrentMaxSequence`): `ordens_de_servico`, `pedidos_venda`, `orcamentos`. Registrado em `firebase.json`.
+
+**Pendente — passo manual:** o Firebase CLI não está instalado neste ambiente, então o arquivo foi criado mas **não foi implantado**. Para o erro de índice parar de aparecer de fato no console, rodar (com o projeto `sistema-nexus-dev` selecionado):
+```powershell
+firebase deploy --only firestore:indexes
+```
+Isso não apaga índices já existentes no console que não estejam neste arquivo — só cria os que faltam.
+
+Não investiguei os índices compostos dinâmicos de `LogsSistema.tsx` (filtros opcionais de módulo/status/ação combinados com `orderBy(dataHora)`) — ficam fora do escopo do F6 porque exigiriam testar cada combinação de filtro contra o que já está configurado no console, e não há erro observado ali nesta sessão.
+
 ---
 
 ## 3. Fase 1 — Ganhos operacionais (risco baixo)
@@ -412,7 +422,7 @@ Atualizar ao concluir cada item.
 | F3 Primitivas de teclado | 0 | ✅ Concluido — hook criado, aguarda consumo pelo Modulo 1 | 2026-07-27 |
 | F4 Padrão de catálogo | 0 | ✅ Concluido — hook de coleção + seed dedup + hasModuleAccess; forms continuam por tela | 2026-07-27 |
 | F5 Sequências e metadados | 0 | ✅ Concluido — SequenceKey alargada, buildDocumentMetadata criado; documentos existentes nao migrados | 2026-07-27 |
-| F6 Índices versionados | 0 | ⬜ Pendente | |
+| F6 Índices versionados | 0 | 🟨 Arquivo criado — falta `firebase deploy --only firestore:indexes` (CLI não instalado aqui) | 2026-07-27 |
 | M2 Bandeiras de cartão | 1 | ⬜ Pendente | |
 | M10 Limite de autocomplete | 1 | ⬜ Pendente | |
 | M9 Busca exata/completa | 1 | ⬜ Pendente | |

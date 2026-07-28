@@ -1,0 +1,1 @@
+export const PEDIDO_PRINT_LOTE_SAFETY_LIMIT = 50;

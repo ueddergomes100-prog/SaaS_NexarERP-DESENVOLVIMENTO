@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { spedyService } from '../../services/spedyService';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from './pedidoPrintLoteConstants';
 
 interface ItemVenda {
   id: string;
@@ -37,6 +38,7 @@ const PedidoVendas: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('Ativos');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Estado para armazenar IDs dos cupons autorizados
   const [authorizedCupons, setAuthorizedCupons] = useState<Record<string, { spedyId: string; status: string }>>({});
@@ -179,6 +181,46 @@ const PedidoVendas: React.FC = () => {
     return p.clienteNome?.toLowerCase().includes(searchTerm.toLowerCase()) || p.numeroPedido?.includes(searchTerm);
   });
 
+  const allVisibleSelected = filteredPedidos.length > 0 && filteredPedidos.every(p => selectedIds.has(p.id));
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(current => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+        return next;
+      }
+      if (next.size >= PEDIDO_PRINT_LOTE_SAFETY_LIMIT) {
+        showError('Limite de seleção atingido', `Selecione no máximo ${PEDIDO_PRINT_LOTE_SAFETY_LIMIT} pedidos por vez para impressão em lote.`);
+        return current;
+      }
+      next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedIds(current => {
+        const next = new Set(current);
+        filteredPedidos.forEach(p => next.delete(p.id));
+        return next;
+      });
+      return;
+    }
+
+    const idsToSelect = filteredPedidos.map(p => p.id).slice(0, PEDIDO_PRINT_LOTE_SAFETY_LIMIT);
+    if (filteredPedidos.length > PEDIDO_PRINT_LOTE_SAFETY_LIMIT) {
+      showError('Limite de seleção atingido', `Apenas os primeiros ${PEDIDO_PRINT_LOTE_SAFETY_LIMIT} pedidos foram selecionados. Imprima este lote e selecione o restante em seguida.`);
+    }
+    setSelectedIds(new Set(idsToSelect));
+  };
+
+  const handlePrintSelected = () => {
+    if (selectedIds.size === 0) return;
+    navigate(`/pedidos-venda/print-lote?ids=${Array.from(selectedIds).join(',')}`);
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -221,12 +263,32 @@ const PedidoVendas: React.FC = () => {
               Cancelados
             </button>
           </div>
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handlePrintSelected}
+              className="btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}
+            >
+              <Printer size={18} />
+              Imprimir Selecionados ({selectedIds.size})
+            </button>
+          )}
         </div>
 
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '13px', textTransform: 'uppercase' }}>
+                <th style={{ padding: '16px', width: '1%' }}>
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAll}
+                    disabled={filteredPedidos.length === 0}
+                    title="Selecionar todos"
+                    aria-label="Selecionar todos os pedidos visíveis"
+                  />
+                </th>
                 <th style={{ padding: '16px' }}>Nº Pedido</th>
                 <th style={{ padding: '16px' }}>Data</th>
                 <th style={{ padding: '16px' }}>Cliente</th>
@@ -239,11 +301,11 @@ const PedidoVendas: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '40px' }}>Carregando pedidos...</td>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '40px' }}>Carregando pedidos...</td>
                 </tr>
               ) : filteredPedidos.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={8} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <ShoppingCart size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>Nenhum pedido de venda encontrado.</p>
                   </td>
@@ -251,6 +313,14 @@ const PedidoVendas: React.FC = () => {
               ) : (
                 filteredPedidos.map(p => (
                   <tr key={p.id} style={{ borderBottom: '1px solid var(--border-color)', opacity: p.status === 'Cancelada' ? 0.6 : 1 }}>
+                    <td style={{ padding: '16px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(p.id)}
+                        onChange={() => toggleSelectOne(p.id)}
+                        aria-label={`Selecionar pedido ${p.numeroPedido}`}
+                      />
+                    </td>
                     <td style={{ padding: '16px', fontWeight: 600 }}>#{p.numeroPedido}</td>
                     <td style={{ padding: '16px' }}>{p.createdAt?.seconds ? new Date(p.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : '-'}</td>
                     <td style={{ padding: '16px' }}>{p.clienteNome}</td>

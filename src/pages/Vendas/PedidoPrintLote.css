@@ -1,0 +1,13 @@
+.print-batch-item + .print-batch-item {
+  margin-top: 24px;
+}
+
+@media print {
+  .print-batch-item {
+    page-break-after: always;
+  }
+
+  .print-batch-item:last-child {
+    page-break-after: auto;
+  }
+}

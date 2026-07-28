@@ -23,6 +23,7 @@ const OSForm = lazy(() => import('./pages/OS/OSForm'));
 const OsPrint = lazy(() => import('./pages/OS/OsPrint'));
 const PedidoVendaForm = lazy(() => import('./pages/Vendas/PedidoVendaForm'));
 const PedidoPrint = lazy(() => import('./pages/Vendas/PedidoPrint'));
+const PedidoPrintLote = lazy(() => import('./pages/Vendas/PedidoPrintLote'));
 const EstoqueList = lazy(() => import('./pages/Estoque/EstoqueList'));
 const EstoqueForm = lazy(() => import('./pages/Estoque/EstoqueForm'));
 const LembretesList = lazy(() => import('./pages/Lembretes/LembretesList'));
@@ -82,6 +83,7 @@ function App() {
                     <Route path="pedidos-venda/novo" element={<PedidoVendaForm />} />
                     <Route path="pedidos-venda/visualizar/:id" element={<PedidoVendaForm />} />
                     <Route path="pedidos-venda/print/:id" element={<PedidoPrint />} />
+                    <Route path="pedidos-venda/print-lote" element={<PedidoPrintLote />} />
                     <Route path="vendas/devolucoes" element={<DevolucoesVenda />} />
                     <Route path="relatorios-vendas" element={<RelatoriosVendas />} />
                   

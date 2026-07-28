@@ -11,7 +11,14 @@ import {
   where,
 } from 'firebase/firestore';
 
-export type SequenceKey = 'ordens_de_servico' | 'pedidos_venda' | 'orcamentos';
+/**
+ * Chave do contador por tenant (documento "contadores/{tenantId}").
+ * Qualquer string e aceita -- por convencao deve ser o nome da colecao
+ * correspondente quando ela existe, para getCurrentMaxSequence poder
+ * fazer bootstrap a partir de documentos legados sem contador ainda.
+ * Chaves em uso hoje: 'ordens_de_servico', 'pedidos_venda', 'orcamentos'.
+ */
+export type SequenceKey = string;
 
 export interface StockAdjustmentItem {
   id: string;

@@ -411,7 +411,7 @@ Atualizar ao concluir cada item.
 | F2 Autocomplete compartilhado | 0 | ✅ Concluido — PDV, Pedido de Venda e OS migrados | 2026-07-27 |
 | F3 Primitivas de teclado | 0 | ✅ Concluido — hook criado, aguarda consumo pelo Modulo 1 | 2026-07-27 |
 | F4 Padrão de catálogo | 0 | ✅ Concluido — hook de coleção + seed dedup + hasModuleAccess; forms continuam por tela | 2026-07-27 |
-| F5 Sequências e metadados | 0 | ⬜ Pendente | |
+| F5 Sequências e metadados | 0 | ✅ Concluido — SequenceKey alargada, buildDocumentMetadata criado; documentos existentes nao migrados | 2026-07-27 |
 | F6 Índices versionados | 0 | ⬜ Pendente | |
 | M2 Bandeiras de cartão | 1 | ⬜ Pendente | |
 | M10 Limite de autocomplete | 1 | ⬜ Pendente | |

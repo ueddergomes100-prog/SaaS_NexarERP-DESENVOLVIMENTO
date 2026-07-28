@@ -19,7 +19,8 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'cadastros.estoque', label: 'Estoque / Produtos' },
     { id: 'cadastros.servicos', label: 'Cadastro de Serviços' },
     { id: 'cadastros.categorias', label: 'Categorias' },
-    { id: 'cadastros.unidades_medida', label: 'Unidades de Medida' }
+    { id: 'cadastros.unidades_medida', label: 'Unidades de Medida' },
+    { id: 'cadastros.bandeiras_cartao', label: 'Bandeiras de Cartão' }
   ]},
   { group: 'Comercial & Vendas', items: [
     { id: 'comercial.pedidos', label: 'Pedido de Vendas' },

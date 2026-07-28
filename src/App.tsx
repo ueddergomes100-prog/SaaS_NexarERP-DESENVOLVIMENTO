@@ -51,6 +51,7 @@ const PrintRelatorioVeiculos = lazy(() => import('./pages/RelatoriosDiversos/Pri
 const PrintRelatorioFinanceiro = lazy(() => import('./pages/RelatoriosDiversos/PrintRelatorioFinanceiro'));
 const PrintRelatorioVendas = lazy(() => import('./pages/RelatoriosDiversos/PrintRelatorioVendas'));
 const UnidadesMedidaList = lazy(() => import('./pages/UnidadesMedida/UnidadesMedidaList'));
+const BandeirasCartaoList = lazy(() => import('./pages/BandeirasCartao/BandeirasCartaoList'));
 const LogsSistema = lazy(() => import('./pages/Configuracoes/LogsSistema'));
 const RoadmapModule = lazy(() => import('./pages/Roadmap/RoadmapModule'));
 
@@ -129,6 +130,7 @@ function App() {
                     <Route path="categorias/editar/:id" element={<CategoriaForm />} />
                     
                     <Route path="unidades-medida" element={<UnidadesMedidaList />} />
+                    <Route path="bandeiras-cartao" element={<BandeirasCartaoList />} />
                     
                     <Route path="configuracoes" element={<Configuracoes />} />
                     <Route path="logs-sistema" element={<LogsSistema />} />

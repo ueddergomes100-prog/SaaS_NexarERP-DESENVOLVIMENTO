@@ -973,6 +973,7 @@ const OSForm: React.FC = () => {
                   onTransactionDateChange={(date) => setFormData((current) => ({ ...current, dataSaida: date }))}
                   onUpdatePayment={updatePaymentDraft}
                   sourceLabel="OS"
+                  tenantId={tenantId}
                   totalCents={totalOSCentavos}
                   transactionDate={paymentDate}
                   transactionDateLabel="Data da finalização"

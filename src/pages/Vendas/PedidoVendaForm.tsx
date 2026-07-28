@@ -1654,6 +1654,7 @@ const PedidoVendaForm: React.FC = () => {
             onTransactionDateChange={setDataVenda}
             onUpdatePayment={updatePaymentDraft}
             sourceLabel="venda"
+            tenantId={tenantId}
             totalCents={valorTotalPedidoCentavos}
             transactionDate={dataVenda}
             transactionDateLabel="Data da venda"

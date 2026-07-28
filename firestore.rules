@@ -96,6 +96,7 @@ service cloud.firestore {
         (collectionName == 'categorias' && hasPermission('cadastros.categorias')) ||
         (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
         (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
+        (collectionName == 'bandeiras_cartao' && hasPermission('cadastros.bandeiras_cartao')) ||
         (collectionName == 'ordens_de_servico' && hasAnyPermission(['mecanica.os', 'mecanica.os_alterar'])) ||
         (collectionName == 'pedidos_venda' && hasAnyPermission(['vendas.pedidos', 'vendas.alterar'])) ||
         (collectionName == 'orcamentos' && hasAnyPermission(['vendas.orcamentos', 'vendas.orcamentos_alterar'])) ||
@@ -115,6 +116,7 @@ service cloud.firestore {
         (collectionName == 'categorias' && hasPermission('cadastros.categorias')) ||
         (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
         (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
+        (collectionName == 'bandeiras_cartao' && hasPermission('cadastros.bandeiras_cartao')) ||
         (collectionName == 'ordens_de_servico' && hasPermission('mecanica.os_excluir')) ||
         (collectionName == 'pedidos_venda' && hasPermission('vendas.excluir')) ||
         (collectionName == 'orcamentos' && hasPermission('vendas.orcamentos_excluir')) ||
@@ -301,6 +303,7 @@ service cloud.firestore {
         'orcamentos',
         'devolucoes_venda',
         'unidades_medida',
+        'bandeiras_cartao',
         'notas_fiscais',
         'creditos_cliente',
         'fornecedores',
@@ -335,6 +338,7 @@ service cloud.firestore {
         'orcamentos',
         'devolucoes_venda',
         'unidades_medida',
+        'bandeiras_cartao',
         'notas_fiscais',
         'creditos_cliente',
         'fornecedores',
@@ -369,6 +373,7 @@ service cloud.firestore {
         'orcamentos',
         'devolucoes_venda',
         'unidades_medida',
+        'bandeiras_cartao',
         'notas_fiscais',
         'creditos_cliente',
         'fornecedores',
@@ -406,6 +411,7 @@ service cloud.firestore {
         'orcamentos',
         'devolucoes_venda',
         'unidades_medida',
+        'bandeiras_cartao',
         'notas_fiscais',
         'creditos_cliente',
         'fornecedores',

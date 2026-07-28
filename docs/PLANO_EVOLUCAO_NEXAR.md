@@ -221,6 +221,18 @@ Ordem sugerida: **2 → 10 → 9 → 11 → 14 → 3 → 5**.
 
 **Não faça:** não migrar dados históricos; não travar venda antiga por bandeira inexistente.
 
+**Concluído em 2026-07-28** (decisão do usuário: só Bandeira vira catálogo; Operadora/adquirente continua texto livre):
+- Coleção `bandeiras_cartao` + página [`src/pages/BandeirasCartao/BandeirasCartaoList.tsx`](../src/pages/BandeirasCartao/BandeirasCartaoList.tsx), usando os hooks do F4 (`useTenantCollection`, `pickMissingDefaults`, `hasModuleAccess`).
+- Permissão `cadastros.bandeiras_cartao` em `moduleCatalog.ts`, rota `/bandeiras-cartao` em `App.tsx`, item no `Sidebar.tsx`.
+- `firestore.rules`: `bandeiras_cartao` liberado para leitura por qualquer membro do tenant (necessário para o select aparecer pra qualquer operador fechando venda), escrita/exclusão atrás da permissão especifica.
+- `PaymentsEditor.tsx` ganhou prop `tenantId` e busca as bandeiras via `useTenantCollection`; o campo Bandeira virou `<select>`. Compatibilidade testada: `buildBrandOptions()` inclui o valor gravado mesmo se ele não estiver mais (ou nunca esteve) no catálogo.
+- OS e Pedido de Venda passam `tenantId` para o `PaymentsEditor`. PDV e Contas a Receber **não foram alterados** — nenhum dos dois captura bandeira hoje (checado no código antes de implementar), então não havia nada para trocar por seleção ali.
+
+**Pendente — mesma limitação do F6:** Firebase CLI não instalado neste ambiente. As regras novas (`bandeiras_cartao` liberado no `firestore.rules`) **não foram implantadas** em `sistema-nexus-dev`. Confirmado em teste real: criar uma bandeira agora retorna `permission-denied` (testei também `unidades_medida`, já implantado, e funcionou normalmente — isola o problema à falta de deploy, não a um bug). Rodar antes de usar de verdade:
+```powershell
+firebase deploy --only firestore:rules
+```
+
 ### Módulo 10 — Limitar autocomplete a 6 + "Ver Mais"
 
 **Estado atual:** PDV corta em 12 ([`PDV.tsx:104`](../src/pages/PDV/PDV.tsx)); Pedido e OS **não cortam** — renderizam o catálogo inteiro.
@@ -423,7 +435,7 @@ Atualizar ao concluir cada item.
 | F4 Padrão de catálogo | 0 | ✅ Concluido — hook de coleção + seed dedup + hasModuleAccess; forms continuam por tela | 2026-07-27 |
 | F5 Sequências e metadados | 0 | ✅ Concluido — SequenceKey alargada, buildDocumentMetadata criado; documentos existentes nao migrados | 2026-07-27 |
 | F6 Índices versionados | 0 | 🟨 Arquivo criado — falta `firebase deploy --only firestore:indexes` (CLI não instalado aqui) | 2026-07-27 |
-| M2 Bandeiras de cartão | 1 | ⬜ Pendente | |
+| M2 Bandeiras de cartão | 1 | 🟨 Código pronto — falta `firebase deploy --only firestore:rules` (CLI não instalado aqui) | 2026-07-28 |
 | M10 Limite de autocomplete | 1 | ⬜ Pendente | |
 | M9 Busca exata/completa | 1 | ⬜ Pendente | |
 | M11 Consulta por CDP | 1 | ⬜ Absorvido por F1 | |
@@ -449,7 +461,7 @@ Atualizar ao concluir cada item.
 
 1. **Módulo 4:** trecho corrompido no PDF original — confirmar se falta requisito de Produção.
 2. **Módulo 15:** "Excel" exige `.xlsx` real ou CSV atende?
-3. **Módulo 2:** operadora/adquirente também vira catálogo agora ou fica texto livre?
+3. ~~**Módulo 2:** operadora/adquirente também vira catálogo agora ou fica texto livre?~~ Decidido em 2026-07-28: continua texto livre.
 4. **Módulo 7:** decisão de arquitetura + plano de migração.
 5. **Módulo 8:** validação contábil antes de qualquer implementação.
 6. **Filial:** o relatório financeiro de 19/07 já apontou que não existe entidade de filial, e isso bloqueia sessão de caixa por operador/filial. Definir se entra no escopo.

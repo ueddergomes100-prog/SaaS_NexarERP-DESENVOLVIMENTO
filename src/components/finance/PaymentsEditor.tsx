@@ -21,7 +21,29 @@ import {
   type PaymentDraft,
   type PaymentMethod,
 } from '../../utils/financeDomain';
+import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import './PaymentsEditor.css';
+
+interface BandeiraCartao extends TenantCollectionItem {
+  nome: string;
+  ativo: boolean;
+  ordem: number;
+}
+
+/**
+ * Opcoes de bandeira para um pagamento: bandeiras ativas do catalogo do
+ * tenant, mais o valor atual do pagamento caso seja um texto legado que
+ * nao esta mais (ou nunca esteve) no catalogo -- nunca perde o valor
+ * gravado em vendas antigas.
+ */
+const buildBrandOptions = (bandeiras: BandeiraCartao[], currentValue: string): string[] => {
+  const active = bandeiras.filter((b) => b.ativo).map((b) => b.nome);
+  const trimmedCurrent = currentValue.trim();
+  if (trimmedCurrent && !active.some((nome) => nome.toLowerCase() === trimmedCurrent.toLowerCase())) {
+    return [...active, trimmedCurrent];
+  }
+  return active;
+};
 
 export interface PaymentFinanceConfig {
   defaultTermDays: number;
@@ -44,6 +66,7 @@ interface PaymentsEditorProps {
   onTransactionDateChange: (date: string) => void;
   onUpdatePayment: (id: string, updates: Partial<PaymentDraft>) => void;
   sourceLabel?: string;
+  tenantId?: string | null;
   totalCents: number;
   transactionDate: string;
   transactionDateLabel: string;
@@ -266,10 +289,14 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   onTransactionDateChange,
   onUpdatePayment,
   sourceLabel = 'operação',
+  tenantId,
   totalCents,
   transactionDate,
   transactionDateLabel,
 }) => {
+  const { items: bandeiras } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId, {
+    sortField: 'ordem',
+  });
   const informedCents = drafts.reduce((sum, payment) => sum + toCents(payment.valor), 0);
   const isFinalConsumer = customerName.toLowerCase().includes('consumidor final');
   const availableMethods: PaymentMethod[] = isFinalConsumer
@@ -398,13 +425,17 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                 <div className="payments-editor__card-grid">
                   <div className="input-group">
                     <label htmlFor={`${idPrefix}-brand-${payment.id}`}>Bandeira</label>
-                    <input
+                    <select
                       disabled={disabled}
                       id={`${idPrefix}-brand-${payment.id}`}
                       onChange={(event) => onUpdatePayment(payment.id, { bandeira: event.target.value })}
-                      placeholder="Ex.: Visa"
                       value={payment.bandeira}
-                    />
+                    >
+                      <option value="">Selecione...</option>
+                      {buildBrandOptions(bandeiras, payment.bandeira).map((nome) => (
+                        <option key={nome} value={nome}>{nome}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="input-group">
                     <label htmlFor={`${idPrefix}-operator-${payment.id}`}>Operadora / adquirente</label>

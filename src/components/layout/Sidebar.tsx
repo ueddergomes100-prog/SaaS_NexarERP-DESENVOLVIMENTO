@@ -12,6 +12,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ClipboardList,
+  CreditCard,
   DollarSign,
   Factory,
   FileText,
@@ -151,6 +152,7 @@ const Sidebar: React.FC = () => {
         { label: 'Serviços', to: '/servicos', icon: Briefcase, module: 'cadastros.servicos', permission: 'cadastros.servicos' },
         { label: 'Categorias', to: '/categorias', icon: Tags, module: 'cadastros.categorias', permission: 'cadastros.categorias' },
         { label: 'Unidades de Medida', to: '/unidades-medida', icon: Scale, module: 'cadastros.unidades_medida', permission: 'cadastros.unidades_medida' },
+        { label: 'Bandeiras de Cartão', to: '/bandeiras-cartao', icon: CreditCard, module: 'cadastros.bandeiras_cartao', permission: 'cadastros.bandeiras_cartao' },
         { label: 'Usuários', to: '/usuarios', icon: UserCog, module: 'cadastros.usuarios', permission: 'administrativo.equipe' }
       ]
     },

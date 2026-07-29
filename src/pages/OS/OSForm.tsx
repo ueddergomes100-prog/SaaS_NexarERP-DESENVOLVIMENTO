@@ -641,19 +641,21 @@ const OSForm: React.FC = () => {
 
     try {
       // 1. Check and Create Client if new
-      const clienteExiste = clientesDisponiveis.some(c => c.nome.toUpperCase() === formData.clienteNome.toUpperCase().trim());
-      if (!clienteExiste && formData.clienteNome.trim()) {
+      const clienteEncontrado = clientesDisponiveis.find(c => c.nome.toUpperCase() === formData.clienteNome.toUpperCase().trim());
+      let clienteIdParaSalvar: string | null = clienteEncontrado?.id || null;
+      if (!clienteEncontrado && formData.clienteNome.trim()) {
         const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
         const snapC = await getCountFromServer(qC);
         const nextId = snapC.data().count + 1;
 
-        await addDoc(collection(db, 'clientes'), {
+        const novoClienteRef = await addDoc(collection(db, 'clientes'), {
           codigo: String(nextId),
           nome: formData.clienteNome.toUpperCase().trim(),
           telefone: formData.clienteTelefone,
           tenantId,
           createdAt: serverTimestamp()
         });
+        clienteIdParaSalvar = novoClienteRef.id;
       }
 
       let estoqueFoiBaixado = formData.estoqueBaixado || false;
@@ -765,6 +767,7 @@ const OSForm: React.FC = () => {
         const osData = {
           ...formData,
           numeroOS: finalNumeroOS,
+          clienteId: clienteIdParaSalvar,
           clienteNome: formData.clienteNome.toUpperCase().trim(),
           servicos: servicosSelecionados,
           pecas: pecasSelecionadas,
@@ -836,6 +839,7 @@ const OSForm: React.FC = () => {
               sourceId: osRef.id,
               paymentIndex: payment.indice,
               idempotencyKey: `os:${osRef.id}:pagamento:${payment.indice}`,
+              clienteId: clienteIdParaSalvar,
               clienteNome: formData.clienteNome.toUpperCase().trim(),
               usuarioResponsavelId: currentUser.uid,
               mecanicoId: formData.mecanicoId,

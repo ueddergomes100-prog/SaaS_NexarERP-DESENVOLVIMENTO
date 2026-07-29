@@ -498,6 +498,7 @@ const PDV: React.FC = () => {
             pdvSessionId: session.id,
             paymentIndex: payment.indice,
             idempotencyKey: `pdv:${newPedidoRef.id}:pagamento:${payment.indice}`,
+            clienteId: selectedClient?.id || null,
             clienteNome,
             usuarioResponsavelId: currentUser.uid,
             vendedorId: currentUser.uid,

@@ -452,17 +452,19 @@ const PedidoVendaForm: React.FC = () => {
 
     try {
       // 1. Cadastrar Cliente (se não existir)
-      const clienteExiste = clientesDisponiveis.some(c => c.nome.toUpperCase() === finalClienteNome);
-      if (!clienteExiste) {
+      const clienteEncontrado = clientesDisponiveis.find(c => c.nome.toUpperCase() === finalClienteNome);
+      let clienteIdParaSalvar: string | null = clienteEncontrado?.id || null;
+      if (!clienteEncontrado) {
         const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
         const snapC = await getCountFromServer(qC);
-        await addDoc(collection(db, 'clientes'), {
+        const novoClienteRef = await addDoc(collection(db, 'clientes'), {
           codigo: String(snapC.data().count + 1),
           nome: finalClienteNome,
           isPadrao: finalClienteNome === 'CONSUMIDOR FINAL',
           tenantId: tenantId || '',
           createdAt: serverTimestamp()
         });
+        clienteIdParaSalvar = novoClienteRef.id;
       }
 
       const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
@@ -506,6 +508,7 @@ const PedidoVendaForm: React.FC = () => {
 
         const pedidoData = {
           numeroPedido: finalNumeroPedido,
+          clienteId: clienteIdParaSalvar,
           clienteNome: finalClienteNome,
           itens,
           valorTotalItens,
@@ -567,6 +570,7 @@ const PedidoVendaForm: React.FC = () => {
             sourceId: newPedidoRef.id,
             paymentIndex: payment.indice,
             idempotencyKey: `pedido:${newPedidoRef.id}:pagamento:${payment.indice}`,
+            clienteId: clienteIdParaSalvar,
             clienteNome: finalClienteNome,
             usuarioResponsavelId: currentUser.uid,
             vendedorId: selectedSellerId,

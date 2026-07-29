@@ -3,7 +3,7 @@ import { collection, query, onSnapshot, where, doc, getDocs, serverTimestamp, ru
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
-import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle } from 'lucide-react';
+import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search } from 'lucide-react';
 import {
   applyPaymentReceipt,
   financialNatureForPayment,
@@ -15,7 +15,7 @@ import {
   type PaymentMethod,
   type PaymentRecord,
 } from '../../utils/financeDomain';
-import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import './Financeiro.css';
 
 interface TransacaoData {
@@ -31,12 +31,27 @@ interface TransacaoData {
   osId?: string;
   dataPagamento?: string;
   createdAt?: any;
+  clienteId?: string | null;
   clienteNome?: string;
   pedidoId?: string;
   paymentIndex?: number;
   movimentaCaixaFisico?: boolean;
   naturezaFinanceira?: string;
+  dataVencimento?: string;
+  dataPrevistaRecebimento?: string;
 }
+
+interface GrupoCliente {
+  chave: string;
+  clienteId: string | null;
+  clienteNome: string;
+  transacoes: TransacaoData[];
+  totalPendente: number;
+  vencimentoMaisAntigo: string | null;
+  diasAtrasoMax: number;
+}
+
+const dataReferenciaTransacao = (t: TransacaoData) => t.dataVencimento || t.dataPrevistaRecebimento || t.data;
 
 const paymentMethods: PaymentMethod[] = [
   'Dinheiro',
@@ -89,6 +104,8 @@ const ContasReceber: React.FC = () => {
   });
   const [valorAbater, setValorAbater] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [clientesExpandidos, setClientesExpandidos] = useState<Set<string>>(new Set());
+  const [buscaCliente, setBuscaCliente] = useState('');
 
   const confirmarRecebimento = async (t: TransacaoData, formaPgto: PaymentMethod) => {
     if (!tenantId) return;
@@ -458,12 +475,65 @@ const ContasReceber: React.FC = () => {
   const totalPendente = contasPendentes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
   const totalRecebidoHoje = recebimentosHoje.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
 
+  // Agrupa as contas pendentes por cliente. Usa clienteId quando disponivel
+  // (vendas/OS finalizadas a partir de 2026-07-29); registros antigos sem
+  // clienteId agrupam pelo nome, sem garantia de que seja o mesmo cadastro.
+  const gruposPorCliente: GrupoCliente[] = (() => {
+    const mapa = new Map<string, GrupoCliente>();
+    contasPendentes.forEach((t) => {
+      const nome = t.clienteNome?.trim() || 'Cliente não identificado';
+      const chave = t.clienteId ? `id:${t.clienteId}` : `nome:${nome.toUpperCase()}`;
+      const dataRef = dataReferenciaTransacao(t);
+      const diasAtraso = dataRef ? (differenceInCalendarDays(dataRef, hojeStr) ?? 0) : 0;
+
+      let grupo = mapa.get(chave);
+      if (!grupo) {
+        grupo = {
+          chave,
+          clienteId: t.clienteId || null,
+          clienteNome: nome,
+          transacoes: [],
+          totalPendente: 0,
+          vencimentoMaisAntigo: null,
+          diasAtrasoMax: 0,
+        };
+        mapa.set(chave, grupo);
+      }
+      grupo.transacoes.push(t);
+      grupo.totalPendente += transactionNetAmount(t);
+      if (dataRef && (!grupo.vencimentoMaisAntigo || dataRef < grupo.vencimentoMaisAntigo)) {
+        grupo.vencimentoMaisAntigo = dataRef;
+      }
+      grupo.diasAtrasoMax = Math.max(grupo.diasAtrasoMax, diasAtraso);
+    });
+
+    return Array.from(mapa.values())
+      .filter((g) => !buscaCliente.trim() || g.clienteNome.toLowerCase().includes(buscaCliente.trim().toLowerCase()))
+      .sort((a, b) => b.totalPendente - a.totalPendente);
+  })();
+
+  const toggleClienteExpandido = (chave: string) => {
+    setClientesExpandidos((current) => {
+      const next = new Set(current);
+      if (next.has(chave)) next.delete(chave);
+      else next.add(chave);
+      return next;
+    });
+  };
+
+  const handleCobrarClienteWhatsApp = (grupo: GrupoCliente) => {
+    const valorMsg = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.totalPendente);
+    const qtd = grupo.transacoes.length;
+    const mensagem = `Olá ${grupo.clienteNome}. Gostaríamos de lembrar amigavelmente sobre ${qtd === 1 ? 'uma pendência financeira' : `${qtd} pendências financeiras`} no valor total de ${valorMsg}. O acerto tempestivo é fundamental para mantermos nossa excelência no atendimento. Aguardamos o seu retorno e estamos à disposição para eventuais dúvidas.`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(mensagem)}`, '_blank');
+  };
+
   return (
     <div className="financeiro-page" style={{ padding: '24px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
         <div>
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700 }}>Contas a Receber</h1>
-          <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Aguardando conciliação de pagamentos (Cartão, Boleto, Prazo)</p>
+          <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Clientes com débito em aberto (Cartão, Boleto, Prazo)</p>
         </div>
         <div style={{ display: 'flex', gap: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
@@ -487,16 +557,27 @@ const ContasReceber: React.FC = () => {
         </div>
       </div>
 
+      <div className="search-bar" style={{ position: 'relative', maxWidth: '360px', marginBottom: '16px' }}>
+        <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+        <input
+          type="text"
+          placeholder="Buscar cliente..."
+          value={buscaCliente}
+          onChange={(e) => setBuscaCliente(e.target.value)}
+          style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+        />
+      </div>
+
       <div className="card" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
         <div className="table-wrapper">
           <table className="data-table financeiro-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <th style={{ padding: '16px' }}>Data da OS</th>
-                <th style={{ padding: '16px' }}>Descrição / O.S</th>
-                <th style={{ padding: '16px' }}>Forma de Pgto.</th>
-                <th style={{ padding: '16px' }}>Status</th>
-                <th style={{ padding: '16px', textAlign: 'right' }}>Valor líquido (R$)</th>
+                <th style={{ padding: '16px', width: '32px' }}></th>
+                <th style={{ padding: '16px' }}>Cliente</th>
+                <th style={{ padding: '16px', textAlign: 'center' }}>Títulos em aberto</th>
+                <th style={{ padding: '16px' }}>Vencimento mais antigo</th>
+                <th style={{ padding: '16px', textAlign: 'right' }}>Valor pendente (R$)</th>
                 <th style={{ padding: '16px', textAlign: 'center' }}>Ação</th>
               </tr>
             </thead>
@@ -505,55 +586,109 @@ const ContasReceber: React.FC = () => {
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando contas a receber...</td>
                 </tr>
-              ) : contasPendentes.length === 0 ? (
+              ) : gruposPorCliente.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     <CheckCircle size={48} color="#10b981" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
-                    <div>Nenhuma conta pendente para conciliação no momento.</div>
+                    <div>{buscaCliente.trim() ? 'Nenhum cliente encontrado para essa busca.' : 'Nenhuma conta pendente para conciliação no momento.'}</div>
                   </td>
                 </tr>
               ) : (
-                contasPendentes.map((t) => (
-                  <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    <td style={{ padding: '16px', color: 'var(--text-muted)' }}>{t.data ? t.data.split('-').reverse().join('/') : new Date(t.createdAt?.seconds * 1000).toLocaleDateString('pt-BR')}</td>
-                    <td style={{ padding: '16px', fontWeight: 500 }}>{t.descricao}</td>
-                    <td style={{ padding: '16px' }}>
-                      <span style={{ fontSize: '12px', backgroundColor: 'var(--bg-tertiary)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
-                        {t.formaPagamento || 'Não informada'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '16px' }}>
-                      <span className="status-badge" style={{ backgroundColor: '#f59e0b20', color: '#f59e0b', whiteSpace: 'nowrap', padding: '4px 8px', borderRadius: '12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                        <span className="status-dot" style={{ backgroundColor: '#f59e0b', width: '6px', height: '6px', borderRadius: '50%' }}></span>
-                        Aguardando Conciliação
-                      </span>
-                    </td>
-                    <td style={{ padding: '16px', textAlign: 'right', fontWeight: '600', color: '#10b981' }}>
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t))}
-                    </td>
-                    <td style={{ padding: '16px', textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                        <button 
-                          onClick={() => handleCobrarWhatsApp(t)}
-                          style={{ backgroundColor: '#25D366', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
-                          title="Cobrar via WhatsApp"
-                          onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
-                          onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
-                        >
-                          <MessageCircle size={14} /> Cobrar
-                        </button>
-                        <button 
-                          onClick={() => handleConciliar(t)}
-                          style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
-                          onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
-                          onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
-                        >
-                          <CheckCircle size={14} /> Dar Baixa
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                gruposPorCliente.map((grupo) => {
+                  const expandido = clientesExpandidos.has(grupo.chave);
+                  const emAtraso = grupo.diasAtrasoMax > 0;
+                  return (
+                    <React.Fragment key={grupo.chave}>
+                      <tr
+                        onClick={() => toggleClienteExpandido(grupo.chave)}
+                        style={{ borderBottom: expandido ? 'none' : '1px solid var(--border-color)', cursor: 'pointer', backgroundColor: expandido ? 'var(--bg-tertiary)' : 'transparent' }}
+                      >
+                        <td style={{ padding: '16px 0 16px 16px', color: 'var(--text-muted)' }}>
+                          {expandido ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                        </td>
+                        <td style={{ padding: '16px', fontWeight: 600 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <User size={16} style={{ color: 'var(--text-muted)' }} />
+                            {grupo.clienteNome}
+                          </div>
+                        </td>
+                        <td style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)' }}>{grupo.transacoes.length}</td>
+                        <td style={{ padding: '16px' }}>
+                          {grupo.vencimentoMaisAntigo ? (
+                            <span style={{ color: emAtraso ? '#ef4444' : 'var(--text-secondary)', fontWeight: emAtraso ? 700 : 400 }}>
+                              {grupo.vencimentoMaisAntigo.split('-').reverse().join('/')}
+                              {emAtraso && ` (${grupo.diasAtrasoMax} ${grupo.diasAtrasoMax === 1 ? 'dia' : 'dias'} em atraso)`}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)' }}>-</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700, color: '#f59e0b' }}>
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.totalPendente)}
+                        </td>
+                        <td style={{ padding: '16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => handleCobrarClienteWhatsApp(grupo)}
+                            style={{ backgroundColor: '#25D366', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
+                            title="Cobrar via WhatsApp"
+                          >
+                            <MessageCircle size={14} /> Cobrar
+                          </button>
+                        </td>
+                      </tr>
+                      {expandido && (
+                        <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                          <td colSpan={6} style={{ padding: '0 16px 16px 48px', backgroundColor: 'var(--bg-tertiary)' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                              <thead>
+                                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                  <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Data</th>
+                                  <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Descrição / O.S</th>
+                                  <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Forma de Pgto.</th>
+                                  <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'right' }}>Valor líquido (R$)</th>
+                                  <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center' }}>Ação</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {grupo.transacoes.map((t) => (
+                                  <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                    <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{t.data ? t.data.split('-').reverse().join('/') : new Date(t.createdAt?.seconds * 1000).toLocaleDateString('pt-BR')}</td>
+                                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>{t.descricao}</td>
+                                    <td style={{ padding: '10px 8px' }}>
+                                      <span style={{ fontSize: '12px', backgroundColor: 'var(--bg-secondary)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
+                                        {t.formaPagamento || 'Não informada'}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#10b981' }}>
+                                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t))}
+                                    </td>
+                                    <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                        <button
+                                          onClick={() => handleCobrarWhatsApp(t)}
+                                          style={{ backgroundColor: '#25D366', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
+                                          title="Cobrar via WhatsApp"
+                                        >
+                                          <MessageCircle size={14} /> Cobrar
+                                        </button>
+                                        <button
+                                          onClick={() => handleConciliar(t)}
+                                          style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
+                                        >
+                                          <CheckCircle size={14} /> Dar Baixa
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>

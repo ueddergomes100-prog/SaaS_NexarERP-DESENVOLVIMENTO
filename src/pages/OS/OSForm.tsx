@@ -15,8 +15,10 @@ import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
+import { useTenantCollection } from '../../hooks/useTenantCollection';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
+  buildCardFeeSchedulesByBrand,
   buildServiceOrderCommissionSnapshot,
   cancelCommissionSnapshot,
   createEmptyPaymentDraft,
@@ -34,6 +36,14 @@ import {
 import './OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
+interface BandeiraCartao {
+  id: string;
+  nome: string;
+  taxaDebitoPercentual?: number;
+  taxasCreditoPorParcela?: Record<string, number>;
+  prazoRecebimentoCreditoDias?: number;
+  prazoRecebimentoDebitoDias?: number;
+}
 interface ServicoData { id: string; nome: string; preco: number; }
 interface ServicoSelecionado { id: string; nome: string; preco: number; quantidade: number; detalhamento?: string; tempoHoras?: number; }
 interface PecaData {
@@ -146,6 +156,8 @@ const OSForm: React.FC = () => {
   const [pecaSearchMode, setPecaSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
 
   const { currentUser, tenantId, userRole } = useAuth();
+  const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
+  const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
 
   const [isServicoDropdownOpen, setIsServicoDropdownOpen] = useState(false);
   const servicoDropdownRef = useRef<HTMLDivElement>(null);
@@ -658,6 +670,7 @@ const OSForm: React.FC = () => {
           debitFeePercent: financeConfig.debitFeePercent,
           creditSettlementDays: financeConfig.creditSettlementDays,
           debitSettlementDays: financeConfig.debitSettlementDays,
+          cardFeeSchedulesByBrand,
         });
         paymentSummary = summarizePayments(paymentRecords);
       } catch (error) {

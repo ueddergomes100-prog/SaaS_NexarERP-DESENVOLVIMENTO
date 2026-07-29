@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { addDaysToDateInput, formatDateInputPtBr } from '../../utils/dateTime';
 import {
+  buildCardFeeSchedulesByBrand,
   fromCents,
   isCardPayment,
   toCents,
@@ -28,6 +29,10 @@ interface BandeiraCartao extends TenantCollectionItem {
   nome: string;
   ativo: boolean;
   ordem: number;
+  taxaDebitoPercentual?: number;
+  taxasCreditoPorParcela?: Record<string, number>;
+  prazoRecebimentoCreditoDias?: number;
+  prazoRecebimentoDebitoDias?: number;
 }
 
 /**
@@ -297,6 +302,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   const { items: bandeiras } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId, {
     sortField: 'ordem',
   });
+  const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeiras);
   const informedCents = drafts.reduce((sum, payment) => sum + toCents(payment.valor), 0);
   const isFinalConsumer = customerName.toLowerCase().includes('consumidor final');
   const availableMethods: PaymentMethod[] = isFinalConsumer
@@ -333,9 +339,10 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
         const installmentPreview = fromCents(Math.floor(paymentCents / installmentCount));
         const dueDate = payment.dataVencimento
           || addDaysToDateInput(transactionDate, Number.parseInt(payment.prazoDias, 10) || 0);
+        const brandSchedule = payment.bandeira?.trim() ? cardFeeSchedulesByBrand[payment.bandeira.trim()] : undefined;
         const settlementDays = payment.forma === 'Cartão de Crédito'
-          ? financeConfig.creditSettlementDays
-          : financeConfig.debitSettlementDays;
+          ? (brandSchedule?.creditSettlementDays ?? financeConfig.creditSettlementDays)
+          : (brandSchedule?.debitSettlementDays ?? financeConfig.debitSettlementDays);
         const defaultSettlementDate = Number.isInteger(settlementDays) && Number(settlementDays) >= 0
           ? addDaysToDateInput(transactionDate, Number(settlementDays))
           : '';

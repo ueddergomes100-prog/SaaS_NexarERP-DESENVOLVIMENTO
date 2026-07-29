@@ -23,6 +23,7 @@ import {
   writeTenantSequenceValue,
 } from '../../utils/firestoreAtomic';
 import {
+  buildCardFeeSchedulesByBrand,
   buildCommissionSnapshot,
   fromCents,
   normalizePayments,
@@ -34,6 +35,7 @@ import {
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { useTenantCollection } from '../../hooks/useTenantCollection';
 import CartPanel from './components/CartPanel';
 import ClientModal from './components/ClientModal';
 import DiscountModal from './components/DiscountModal';
@@ -52,6 +54,15 @@ import {
 import type { PdvCartItem, PdvClient, PdvProduct, PdvSession } from './types';
 import './PDV.css';
 
+interface BandeiraCartao {
+  id: string;
+  nome: string;
+  taxaDebitoPercentual?: number;
+  taxasCreditoPorParcela?: Record<string, number>;
+  prazoRecebimentoCreditoDias?: number;
+  prazoRecebimentoDebitoDias?: number;
+}
+
 const normalizeText = (value: unknown) => String(value || '').trim();
 
 const PDV: React.FC = () => {
@@ -65,6 +76,8 @@ const PDV: React.FC = () => {
     selectedTenant,
     needsTenantSelection,
   } = useAuth();
+  const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
+  const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
 
   const productInputRef = useRef<HTMLInputElement | null>(null);
   const [loading, setLoading] = useState(true);
@@ -358,6 +371,7 @@ const PDV: React.FC = () => {
         debitFeePercent: financeConfig.debitFeePercent,
         creditSettlementDays: financeConfig.creditSettlementDays,
         debitSettlementDays: financeConfig.debitSettlementDays,
+        cardFeeSchedulesByBrand,
       });
     } catch (error) {
       showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os pagamentos.');

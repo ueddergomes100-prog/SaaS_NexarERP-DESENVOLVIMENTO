@@ -15,8 +15,10 @@ import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
+import { useTenantCollection } from '../../hooks/useTenantCollection';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
+  buildCardFeeSchedulesByBrand,
   buildCommissionSnapshot,
   cancelCommissionSnapshot,
   createEmptyPaymentDraft,
@@ -36,6 +38,14 @@ import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
 interface VendedorBasico { id: string; nome: string; email?: string; }
+interface BandeiraCartao {
+  id: string;
+  nome: string;
+  taxaDebitoPercentual?: number;
+  taxasCreditoPorParcela?: Record<string, number>;
+  prazoRecebimentoCreditoDias?: number;
+  prazoRecebimentoDebitoDias?: number;
+}
 interface ProdutoEstoque {
   id: string;
   nome: string;
@@ -141,6 +151,8 @@ const PedidoVendaForm: React.FC = () => {
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
+  const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
+  const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
 
   useEffect(() => {
     if (currentUser && !vendedorId) setVendedorId(currentUser.uid);
@@ -496,6 +508,7 @@ const PedidoVendaForm: React.FC = () => {
         debitFeePercent: financeConfig.debitFeePercent,
         creditSettlementDays: financeConfig.creditSettlementDays,
         debitSettlementDays: financeConfig.debitSettlementDays,
+        cardFeeSchedulesByBrand,
       });
     } catch (error) {
       showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os dados do pagamento.');

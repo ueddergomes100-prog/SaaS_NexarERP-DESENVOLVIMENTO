@@ -401,6 +401,16 @@ Ordem: **1 → 19 → 20 → 18 → 6 → 15**.
 
 **Aceite:** fechar uma venda inteira sem tocar no mouse; foco nunca fica perdido após ação; Esc fecha só o modal do topo da pilha; Tab não pula campo obrigatório.
 
+**Fatia 1/N concluída em 2026-07-29 — só Pedido de Venda:**
+- [`PedidoVendaForm.tsx`](../src/pages/Vendas/PedidoVendaForm.tsx) ganhou `useKeyboardShortcuts` (de [`useKeyboardFlow.ts`](../src/hooks/useKeyboardFlow.ts), F3) — primeira tela a consumir o hook de verdade. F2 foca Cliente, F3 foca Buscar Produto, F4 foca Desc. (R$) do item sendo adicionado, F5 abre "Alterar quantidade" do item selecionado no carrinho, F6/F7 focam a seção de Pagamento. Esc não precisou de binding novo — `ProductSearchModal`/`ClientAutocomplete` já registravam no `globalEscapeStack` compartilhado.
+- Decisão de mapeamento (confirmada com o usuário): como Pedido de Venda não tem modal de desconto nem de pagamento (diferente do PDV), F4/F6/F7 só **movem o foco** pro campo mais parecido, sem abrir/fechar nada — "mesma tecla, mesmo significado", não "mesma UI".
+- Novo: seleção de linha na tabela "Itens da Venda" (clique destaca a linha) + `askSelectedItemQuantity`, mesmo padrão de `PDV.tsx:327-342` — permite editar quantidade de um item já adicionado sem excluir e readicionar (reaproveita `isValidSaleQuantity` e a mesma checagem de estoque de `handleAddItem`).
+- Dica visual dos atalhos (`<kbd>`) na seção "Adicionar Produto", classe `.shortcuts-hint` nova em `OS.css` (compartilhada por Pedido/OS, não duplicada).
+- **Escopo explicitamente não incluído nesta fatia:** PDV.tsx (mantém seu próprio bug conhecido de Esc fechando os três modais juntos — não é o padrão correto, mas está fora do escopo aqui), OSForm.tsx e Cadastros (Categorias/Unidades/Bandeiras) — ficam para sessões seguintes.
+- Typecheck, lint (0 erros, mesmos ~70 warnings pré-existentes) e build passando. Suíte de testes (`run-finance-domain-tests.mjs`, 55 testes) passando — nenhum teste novo necessário, o recálculo de subtotal na edição de quantidade reaproveita a mesma fórmula já usada (e não testada isoladamente) em `handleAddItem`.
+
+**Pendente — validação manual:** mesma limitação de login real no navegador de todos os módulos anteriores; falta testar F2-F7/Esc e o fluxo completo de fechar uma venda sem tocar no mouse.
+
 ### Módulo 19 — Numeração
 
 **Estado atual:** `contadores/{tenantId}` já existe e é transacional para pedido, OS e orçamento ([`firestoreAtomic.ts`](../src/utils/firestoreAtomic.ts)).
@@ -550,7 +560,7 @@ Atualizar ao concluir cada item.
 | M14 Buscas do sistema | 1 | 🟨 Código pronto — falta validação manual; risco de performance da TopBar segue aberto (Seção 9) | 2026-07-28 |
 | M3 Impressão múltipla | 1 | 🟨 Código pronto — falta validação manual (quebra de página real) | 2026-07-28 |
 | M5 Flags fiscais | 1 | 🟨 Código pronto — falta validação manual | 2026-07-28 |
-| M1 Navegação por teclado | 2 | ⬜ Pendente | |
+| M1 Navegação por teclado | 2 | 🟨 Fatia 1/N (Pedido de Venda) pronta no código — falta validação manual; OS e Cadastros pendentes | 2026-07-29 |
 | M19 Numeração | 2 | ⬜ Pendente | |
 | M20 Responsabilidade | 2 | ⬜ Pendente | |
 | M18 Cancelamentos (auditoria) | 2 | ⬜ Pendente | |

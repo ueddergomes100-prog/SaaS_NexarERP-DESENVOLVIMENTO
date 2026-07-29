@@ -14,6 +14,7 @@ import ProductSearchModal from '../../components/common/ProductSearchModal';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildCommissionSnapshot,
@@ -97,6 +98,9 @@ const PedidoVendaForm: React.FC = () => {
   const paymentDraftCounter = useRef(1);
   const submitLockRef = useRef(false);
   const produtoBuscaInputRef = useRef<HTMLInputElement>(null);
+  const clienteInputRef = useRef<HTMLInputElement>(null);
+  const produtoDescontoInputRef = useRef<HTMLInputElement>(null);
+  const pagamentoSectionRef = useRef<HTMLDivElement>(null);
   const [paymentDrafts, setPaymentDrafts] = useState<PaymentDraft[]>([
     createEmptyPaymentDraft('pagamento-1', 0),
   ]);
@@ -124,6 +128,7 @@ const PedidoVendaForm: React.FC = () => {
   const [produtoPreco, setProdutoPreco] = useState<number>(0);
   const [produtoSelecionado, setProdutoSelecionado] = useState<ProdutoEstoque | null>(null);
   const [isProdutoSearchModalOpen, setIsProdutoSearchModalOpen] = useState(false);
+  const [selectedItemIndex, setSelectedItemIndex] = useState<number | null>(null);
 
 
   const [frete, setFrete] = useState<number>(0);
@@ -376,7 +381,62 @@ const PedidoVendaForm: React.FC = () => {
 
   const handleRemoveItem = (index: number) => {
     setItens(itens.filter((_, i) => i !== index));
+    setSelectedItemIndex((current) => (current === index ? null : current));
   };
+
+  const askSelectedItemQuantity = async () => {
+    if (selectedItemIndex === null) return;
+    const item = itens[selectedItemIndex];
+    if (!item) return;
+
+    const produtoCatalogo = produtosCatalogo.find((p) => p.id === item.id);
+
+    const result = await NexusSwal.fire({
+      title: 'Alterar quantidade',
+      text: item.nome,
+      input: 'number',
+      inputValue: String(item.quantidade),
+      inputAttributes: { min: '0.001', step: produtoCatalogo?.unidadeMedidaFracionado ? '0.001' : '1' },
+      showCancelButton: true,
+      confirmButtonText: 'Aplicar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!result.isConfirmed) return;
+
+    const novaQtd = Number(result.value) || 0;
+    if (novaQtd <= 0) {
+      showError('Atenção', 'A quantidade deve ser maior que zero.');
+      return;
+    }
+    if (!isValidSaleQuantity(novaQtd, produtoCatalogo?.unidadeMedidaFracionado)) {
+      showError('Operação Bloqueada', `O produto ${item.nome} está configurado na unidade ${item.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
+      return;
+    }
+    if (produtoCatalogo && !permitirVendaSemEstoque && novaQtd > (produtoCatalogo.quantidade || 0)) {
+      showError('Estoque Insuficiente', `Você tem apenas ${produtoCatalogo.quantidade || 0} de ${produtoCatalogo.nome} em estoque. Venda sem estoque desativada.`);
+      return;
+    }
+
+    setItens((current) => current.map((it, idx) => (
+      idx === selectedItemIndex
+        ? { ...it, quantidade: novaQtd, subtotal: Math.max(0, it.precoUnitario * novaQtd - it.desconto) }
+        : it
+    )));
+  };
+
+  const focusPagamentoSection = () => {
+    pagamentoSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    pagamentoSectionRef.current?.querySelector<HTMLElement>('input, select, button')?.focus();
+  };
+
+  useKeyboardShortcuts([
+    { key: 'F2', when: !isViewing, handler: () => clienteInputRef.current?.focus() },
+    { key: 'F3', when: !isViewing, handler: () => produtoBuscaInputRef.current?.focus() },
+    { key: 'F4', when: !isViewing, handler: () => produtoDescontoInputRef.current?.focus() },
+    { key: 'F5', when: !isViewing && selectedItemIndex !== null, handler: () => { void askSelectedItemQuantity(); } },
+    { key: 'F6', when: !isViewing, handler: focusPagamentoSection },
+    { key: 'F7', when: !isViewing, handler: focusPagamentoSection },
+  ]);
 
   const valorTotalItens = itens.reduce((acc, curr) => acc + (curr.precoUnitario * curr.quantidade), 0);
   const valorTotalDescontos = itens.reduce((acc, curr) => acc + curr.desconto, 0);
@@ -1376,6 +1436,7 @@ const PedidoVendaForm: React.FC = () => {
                 clients={clientesDisponiveis}
                 onSelect={(c) => setClienteNome(c.nome)}
                 disabled={isViewing}
+                inputRef={clienteInputRef}
                 placeholder="Busque ou digite o nome do cliente..."
                 ariaLabel="Buscar cliente"
                 renderItem={(c) => (
@@ -1410,6 +1471,15 @@ const PedidoVendaForm: React.FC = () => {
               <div className="section-header" style={{ marginBottom: '16px' }}>
                 <Package size={20} className="section-icon" />
                 <h3>Adicionar Produto</h3>
+              </div>
+
+              <div className="shortcuts-hint" style={{ marginBottom: '16px' }}>
+                <span><kbd>F2</kbd> Cliente</span>
+                <span><kbd>F3</kbd> Produto</span>
+                <span><kbd>F4</kbd> Desconto</span>
+                <span><kbd>F5</kbd> Qtd. item selecionado</span>
+                <span><kbd>F6</kbd> Pagamento</span>
+                <span><kbd>Esc</kbd> Fechar</span>
               </div>
 
               <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -1491,7 +1561,7 @@ const PedidoVendaForm: React.FC = () => {
 
                 <div style={{ flex: '0.8', minWidth: '100px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Desc. (R$)</label>
-                  <input type="number" step="0.01" value={produtoDesconto} onChange={(e) => setProdutoDesconto(Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                  <input ref={produtoDescontoInputRef} type="number" step="0.01" value={produtoDesconto} onChange={(e) => setProdutoDesconto(Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
                 </div>
 
                 <button type="button" onClick={handleAddItem} className="btn-primary" style={{ padding: '12px 24px', whiteSpace: 'nowrap' }}>
@@ -1526,7 +1596,12 @@ const PedidoVendaForm: React.FC = () => {
                     </tr>
                   ) : (
                     itens.map((item, index) => (
-                      <tr key={index} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <tr
+                        key={index}
+                        onClick={() => setSelectedItemIndex(index)}
+                        className={selectedItemIndex === index ? 'item-row-selectable selected' : 'item-row-selectable'}
+                        style={{ borderBottom: '1px solid var(--border-color)' }}
+                      >
                         <td style={{ padding: '12px 8px' }}>{item.nome}</td>
                         <td style={{ padding: '12px 8px', textAlign: 'center' }}>
                           {item.quantidade.toFixed(item.unidadeMedidaCasasDecimais ?? 0)} {item.unidadeMedidaSigla || 'UN'}
@@ -1536,7 +1611,7 @@ const PedidoVendaForm: React.FC = () => {
                         <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>R$ {item.subtotal.toFixed(2)}</td>
                         {!isViewing && (
                           <td style={{ padding: '12px 8px', textAlign: 'center' }}>
-                            <button onClick={() => handleRemoveItem(index)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                            <button onClick={(e) => { e.stopPropagation(); handleRemoveItem(index); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
                               <Trash2 size={16} />
                             </button>
                           </td>
@@ -1663,22 +1738,24 @@ const PedidoVendaForm: React.FC = () => {
             </div>
           </div>
 
-          <PaymentsEditor
-            customerName={clienteNome}
-            disabled={isViewing}
-            drafts={paymentDrafts}
-            financeConfig={financeConfig}
-            idPrefix="sale-payment"
-            onAddPayment={addPaymentDraft}
-            onRemovePayment={removePaymentDraft}
-            onTransactionDateChange={setDataVenda}
-            onUpdatePayment={updatePaymentDraft}
-            sourceLabel="venda"
-            tenantId={tenantId}
-            totalCents={valorTotalPedidoCentavos}
-            transactionDate={dataVenda}
-            transactionDateLabel="Data da venda"
-          />
+          <div ref={pagamentoSectionRef}>
+            <PaymentsEditor
+              customerName={clienteNome}
+              disabled={isViewing}
+              drafts={paymentDrafts}
+              financeConfig={financeConfig}
+              idPrefix="sale-payment"
+              onAddPayment={addPaymentDraft}
+              onRemovePayment={removePaymentDraft}
+              onTransactionDateChange={setDataVenda}
+              onUpdatePayment={updatePaymentDraft}
+              sourceLabel="venda"
+              tenantId={tenantId}
+              totalCents={valorTotalPedidoCentavos}
+              transactionDate={dataVenda}
+              transactionDateLabel="Data da venda"
+            />
+          </div>
 
           {!isViewing && (
             <button className="btn-primary" onClick={handleFinalizarVenda} disabled={isLoading} style={{ width: '100%', padding: '16px', fontSize: '16px', fontWeight: 700, backgroundColor: '#10b981', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}>

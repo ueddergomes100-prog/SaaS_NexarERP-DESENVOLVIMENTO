@@ -435,3 +435,39 @@
   font-size: 12px;
   color: var(--text-muted);
 }
+
+/* Dica de atalhos de teclado (padrao do PDV), reaproveitada por Pedido de Venda/OS */
+.shortcuts-hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.shortcuts-hint kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 26px;
+  height: 20px;
+  padding: 0 4px;
+  margin-right: 4px;
+  border-radius: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+/* Linha selecionada da tabela de itens, para o atalho F5 (editar quantidade) */
+.item-row-selectable {
+  cursor: pointer;
+}
+
+.item-row-selectable.selected {
+  background-color: rgba(139, 92, 246, 0.12);
+}

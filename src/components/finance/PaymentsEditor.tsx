@@ -333,6 +333,13 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
         const installmentPreview = fromCents(Math.floor(paymentCents / installmentCount));
         const dueDate = payment.dataVencimento
           || addDaysToDateInput(transactionDate, Number.parseInt(payment.prazoDias, 10) || 0);
+        const settlementDays = payment.forma === 'Cartão de Crédito'
+          ? financeConfig.creditSettlementDays
+          : financeConfig.debitSettlementDays;
+        const defaultSettlementDate = Number.isInteger(settlementDays) && Number(settlementDays) >= 0
+          ? addDaysToDateInput(transactionDate, Number(settlementDays))
+          : '';
+        const settlementDatePreview = payment.dataPrevistaRecebimento || defaultSettlementDate;
 
         return (
           <div className="payments-editor__payment" key={payment.id}>
@@ -438,16 +445,6 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                     </select>
                   </div>
                   <div className="input-group">
-                    <label htmlFor={`${idPrefix}-operator-${payment.id}`}>Operadora / adquirente</label>
-                    <input
-                      disabled={disabled}
-                      id={`${idPrefix}-operator-${payment.id}`}
-                      onChange={(event) => onUpdatePayment(payment.id, { operadora: event.target.value })}
-                      placeholder="Ex.: Cielo"
-                      value={payment.operadora}
-                    />
-                  </div>
-                  <div className="input-group">
                     <label htmlFor={`${idPrefix}-authorization-${payment.id}`}>NSU / autorização</label>
                     <input
                       disabled={disabled}
@@ -479,10 +476,16 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                       id={`${idPrefix}-settlement-${payment.id}`}
                       onChange={(event) => onUpdatePayment(payment.id, { dataPrevistaRecebimento: event.target.value })}
                       type="date"
-                      value={payment.dataPrevistaRecebimento}
+                      value={settlementDatePreview}
                     />
                   </div>
                 </div>
+                {defaultSettlementDate && !payment.dataPrevistaRecebimento && (
+                  <div className="payments-editor__term-notice">
+                    Recebimento calculado a partir da configuração de{' '}
+                    {payment.forma === 'Cartão de Crédito' ? 'crédito' : 'débito'}: <strong>{formatDateInputPtBr(defaultSettlementDate)}</strong>.
+                  </div>
+                )}
                 <div className="payments-editor__card-summary">
                   {payment.forma === 'Cartão de Crédito' ? (
                     <span>Parcelamento: <strong>{installmentCount}x de aproximadamente R$ {installmentPreview.toFixed(2)}</strong></span>

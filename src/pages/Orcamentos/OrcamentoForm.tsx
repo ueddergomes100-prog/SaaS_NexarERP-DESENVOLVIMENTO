@@ -98,6 +98,8 @@ const OrcamentoForm: React.FC = () => {
   const [isServicoDropdownOpen, setIsServicoDropdownOpen] = useState(false);
 
   const servicoDropdownRef = useRef<HTMLDivElement>(null);
+  const servicoNomeInputRef = useRef<HTMLInputElement>(null);
+  const pecaNomeInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -261,10 +263,12 @@ const OrcamentoForm: React.FC = () => {
     if (tipo === 'servico') {
       setServicoNomeInput('');
       setServicoPrecoInput('');
+      servicoNomeInputRef.current?.focus();
     } else {
       setPecaNomeInput('');
       setPecaPrecoInput('');
       setPecaSelecionada(null);
+      pecaNomeInputRef.current?.focus();
     }
   };
 
@@ -668,12 +672,14 @@ const OrcamentoForm: React.FC = () => {
               <div className="item-add-row">
                 <div style={{ position: 'relative' }} ref={servicoDropdownRef}>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Serviço</label>
-                  <input 
-                    type="text" 
-                    placeholder="Nome do Serviço..." 
+                  <input
+                    type="text"
+                    placeholder="Nome do Serviço..."
                     value={servicoNomeInput}
+                    ref={servicoNomeInputRef}
                     onChange={(e) => { setServicoNomeInput(e.target.value); setIsServicoDropdownOpen(true); }}
                     onFocus={() => setIsServicoDropdownOpen(true)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('servico'); } }}
                     style={{ paddingRight: '42px' }}
                   />
                   {servicoNomeInput && (
@@ -704,7 +710,7 @@ const OrcamentoForm: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Preço</label>
-                  <input type="text" placeholder="R$ 0,00" value={servicoPrecoInput} onChange={(e) => setServicoPrecoInput(e.target.value)} />
+                  <input type="text" placeholder="R$ 0,00" value={servicoPrecoInput} onChange={(e) => setServicoPrecoInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('servico'); } }} />
                 </div>
                 <button className="add-item-btn" onClick={() => handleAddItem('servico')} title="Adicionar Serviço">
                   <Plus size={20} />
@@ -719,6 +725,7 @@ const OrcamentoForm: React.FC = () => {
                   <ProductAutocomplete
                     value={pecaNomeInput}
                     products={pecasEstoque}
+                    inputRef={pecaNomeInputRef}
                     onChange={(value) => {
                       setPecaNomeInput(value);
                       const existsExact = pecasEstoque.find(p => p.nome.toLowerCase() === value.toLowerCase());
@@ -762,7 +769,7 @@ const OrcamentoForm: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Preço</label>
-                  <input type="text" placeholder="R$ 0,00" value={pecaPrecoInput} onChange={(e) => setPecaPrecoInput(e.target.value)} />
+                  <input type="text" placeholder="R$ 0,00" value={pecaPrecoInput} onChange={(e) => setPecaPrecoInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('peca'); } }} />
                 </div>
                 <button className="add-item-btn" onClick={() => handleAddItem('peca')} title="Adicionar Peça">
                   <Plus size={20} />

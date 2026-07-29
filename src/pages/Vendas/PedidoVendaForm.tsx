@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -1556,37 +1556,47 @@ const PedidoVendaForm: React.FC = () => {
               <span>Descontos:</span>
               <span>- R$ {valorTotalDescontos.toFixed(2)}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: 'var(--text-secondary)', alignItems: 'center' }}>
-              <span>Frete (+):</span>
-              {isViewing ? (
-                <span>R$ {frete.toFixed(2)}</span>
-              ) : (
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  value={frete || ''}
-                  onChange={(e) => setFrete(Math.max(0, Number(e.target.value)))}
-                  style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }}
-                />
-              )}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: 'var(--text-secondary)', alignItems: 'center' }}>
-              <span>Encargos (+):</span>
-              {isViewing ? (
-                <span>R$ {encargos.toFixed(2)}</span>
-              ) : (
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  value={encargos || ''}
-                  onChange={(e) => setEncargos(Math.max(0, Number(e.target.value)))}
-                  style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }}
-                />
-              )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px 16px', margin: '4px 0 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                <Truck size={14} />
+                Frete e Encargos
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Frete (+)</span>
+                {isViewing ? (
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>R$ {frete.toFixed(0)}</span>
+                ) : (
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    placeholder="0"
+                    inputMode="numeric"
+                    value={frete || ''}
+                    onChange={(e) => setFrete(Math.max(0, Math.trunc(Number(e.target.value) || 0)))}
+                    style={{ width: '100px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }}
+                  />
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Encargos (+)</span>
+                {isViewing ? (
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>R$ {encargos.toFixed(0)}</span>
+                ) : (
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    placeholder="0"
+                    inputMode="numeric"
+                    value={encargos || ''}
+                    onChange={(e) => setEncargos(Math.max(0, Math.trunc(Number(e.target.value) || 0)))}
+                    style={{ width: '100px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }}
+                  />
+                )}
+              </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px', paddingTop: '16px', borderTop: '1px dashed var(--border-color)', fontSize: '24px', fontWeight: 800, color: '#10b981' }}>
               <span>TOTAL:</span>

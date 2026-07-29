@@ -170,6 +170,15 @@ textarea {
   caret-color: var(--accent-purple);
 }
 
+/* Padrao do sistema: campos de texto/selecao em caixa alta, exceto
+   onde a caixa do valor digitado importa de verdade (e-mail e URL). */
+input:not([type='email']):not([type='url']),
+textarea,
+select,
+select option {
+  text-transform: uppercase;
+}
+
 select option {
   background-color: var(--bg-secondary);
   color: var(--text-primary);

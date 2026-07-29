@@ -96,6 +96,7 @@ const PedidoVendaForm: React.FC = () => {
   const [dataVenda, setDataVenda] = useState(() => getDateInputInTimeZone());
   const paymentDraftCounter = useRef(1);
   const submitLockRef = useRef(false);
+  const produtoBuscaInputRef = useRef<HTMLInputElement>(null);
   const [paymentDrafts, setPaymentDrafts] = useState<PaymentDraft[]>([
     createEmptyPaymentDraft('pagamento-1', 0),
   ]);
@@ -364,6 +365,7 @@ const PedidoVendaForm: React.FC = () => {
     setProdutoDesconto(0);
     setProdutoPreco(0);
     setProdutoSelecionado(null);
+    produtoBuscaInputRef.current?.focus();
   };
 
   const handleClearProdutoSelecionado = () => {
@@ -1417,6 +1419,7 @@ const PedidoVendaForm: React.FC = () => {
                     <ProductAutocomplete
                       value={produtoBusca}
                       products={produtosCatalogo}
+                      inputRef={produtoBuscaInputRef}
                       onChange={(value) => {
                         setProdutoBusca(value);
                         const exists = produtosCatalogo.find(p => p.nome.toLowerCase() === value.toLowerCase() || p.codigo === value);
@@ -1476,18 +1479,19 @@ const PedidoVendaForm: React.FC = () => {
                     step={produtoSelecionado?.unidadeMedidaFracionado ? "any" : "1"}
                     value={produtoQtd}
                     onChange={(e) => setProdutoQtd(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }}
                     style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
                   />
                 </div>
 
                 <div style={{ flex: '0.8', minWidth: '100px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Preço Unt.</label>
-                  <input type="number" step="0.01" value={produtoPreco} onChange={(e) => setProdutoPreco(Number(e.target.value))} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                  <input type="number" step="0.01" value={produtoPreco} onChange={(e) => setProdutoPreco(Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
                 </div>
 
                 <div style={{ flex: '0.8', minWidth: '100px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Desc. (R$)</label>
-                  <input type="number" step="0.01" value={produtoDesconto} onChange={(e) => setProdutoDesconto(Number(e.target.value))} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                  <input type="number" step="0.01" value={produtoDesconto} onChange={(e) => setProdutoDesconto(Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
                 </div>
 
                 <button type="button" onClick={handleAddItem} className="btn-primary" style={{ padding: '12px 24px', whiteSpace: 'nowrap' }}>

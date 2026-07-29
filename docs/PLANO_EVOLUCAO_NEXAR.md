@@ -268,6 +268,17 @@ Ver também [[project-plano-evolucao-nexar]].
 
 **Escopo:** só Orçamento. OS continua com a mesma lacuna, ainda não estendida — mesma pendência da Seção 9.
 
+### F13 — Mesma correção de foco estendida à OS (bugfix, 2026-07-29)
+
+**Descoberto ao planejar a fatia OS do Módulo 1** (não foi reportado separadamente pelo usuário): lendo `OSForm.tsx` inteiro, os campos de Serviço e Peça tinham a mesma lacuna de F11/F12 — só adicionavam por clique no botão "+", Enter não fazia nada.
+
+**Implementado em [`OSForm.tsx`](../src/pages/OS/OSForm.tsx):**
+- Novos refs `servicoNomeInputRef` e `pecaNomeInputRef` (este último via `inputRef` do `ProductAutocomplete` da peça).
+- Enter em Nome do Serviço, Preço do Serviço e Preço da Peça agora dispara `handleAddServico`/`handleAddPeca`.
+- Ao final de cada handler, foco volta pro campo de nome correspondente.
+
+**Escopo:** só OS. Fecha a pendência da Seção 9 sobre estender F11 a OS/Orçamento — agora as três telas (Pedido, Orçamento, OS) têm o mesmo comportamento de Enter-para-adicionar + retorno de foco.
+
 ---
 
 ## 3. Fase 1 — Ganhos operacionais (risco baixo)
@@ -410,6 +421,17 @@ Ordem: **1 → 19 → 20 → 18 → 6 → 15**.
 - Typecheck, lint (0 erros, mesmos ~70 warnings pré-existentes) e build passando. Suíte de testes (`run-finance-domain-tests.mjs`, 55 testes) passando — nenhum teste novo necessário, o recálculo de subtotal na edição de quantidade reaproveita a mesma fórmula já usada (e não testada isoladamente) em `handleAddItem`.
 
 **Pendente — validação manual:** mesma limitação de login real no navegador de todos os módulos anteriores; falta testar F2-F7/Esc e o fluxo completo de fechar uma venda sem tocar no mouse.
+
+**Fatia 2/N concluída em 2026-07-29 — OS (`OSForm.tsx`):**
+- Descoberta ao ler o arquivo inteiro: OS tinha a mesma lacuna de F11/F12 — Serviço e Peça só adicionavam por clique no botão "+". Corrigido separadamente como **F13** (commit próprio, antes deste, por ser bugfix e não Módulo 1): Enter em nome/preço do Serviço e preço da Peça chama `handleAddServico`/`handleAddPeca`; foco volta pro campo de nome (`servicoNomeInputRef`/`pecaNomeInputRef`) depois de adicionar.
+- Atalhos (`useKeyboardShortcuts`): F2 foca Cliente, F3 foca Peça (mais parecido com "produto" do PDV), **F8 foca Serviço** — tecla nova, sem equivalente no PDV/Pedido, porque OS tem dois fluxos de busca (Serviço e Peça) onde as outras telas só têm um. F5 foca a quantidade da última peça adicionada (sem popup — diferente do Pedido, OS já tinha `updateQuantidadePeca` com edição inline por linha, então só precisou de um ref pra última linha). F6/F7: se o status já é "Finalizada" (pagamento visível), foca o wrapper do `PaymentsEditor`; senão foca o `<select>` de Status — nunca muda o status sozinho, só ajuda a chegar no campo certo.
+- **F4 (desconto) não implementado nesta tela** — OS não tem campo de desconto em lugar nenhum (nem por item, nem por OS inteira), então não existe pra onde mapear a tecla. Documentado como "sem equivalente" em vez de forçar um mapeamento artificial.
+- Esc: `isServicoDropdownOpen` e `isVeiculoDropdownOpen` ganharam `useEscapeLayer` — antes nenhum dos dois respondia a Esc (só clique-fora ou clicar numa opção). Agora fecham corretamente, respeitando a pilha compartilhada com `ProductSearchModal`/`ClientAutocomplete`.
+- Dica visual dos atalhos reaproveitando a classe `.shortcuts-hint` (criada na fatia 1), perto do cabeçalho "Inclusão de Peças (Estoque)".
+- **Escopo não incluído:** PDV.tsx (mesma decisão da fatia 1) e Cadastros — ficam para depois do Módulo 1 completo.
+- Typecheck, lint (0 erros) e build passando. Suíte de testes (55) passando — sem lógica financeira nova.
+
+**Pendente — validação manual:** mesma limitação de login. Falta testar Enter em Serviço/Peça, F2/F3/F8/F5/F6-F7, e que Esc fecha só um painel por vez.
 
 ### Módulo 19 — Numeração
 
@@ -560,7 +582,7 @@ Atualizar ao concluir cada item.
 | M14 Buscas do sistema | 1 | 🟨 Código pronto — falta validação manual; risco de performance da TopBar segue aberto (Seção 9) | 2026-07-28 |
 | M3 Impressão múltipla | 1 | 🟨 Código pronto — falta validação manual (quebra de página real) | 2026-07-28 |
 | M5 Flags fiscais | 1 | 🟨 Código pronto — falta validação manual | 2026-07-28 |
-| M1 Navegação por teclado | 2 | 🟨 Fatia 1/N (Pedido de Venda) pronta no código — falta validação manual; OS e Cadastros pendentes | 2026-07-29 |
+| M1 Navegação por teclado | 2 | 🟨 Fatias Pedido de Venda + OS prontas no código — falta validação manual; só Cadastros pendente | 2026-07-29 |
 | M19 Numeração | 2 | ⬜ Pendente | |
 | M20 Responsabilidade | 2 | ⬜ Pendente | |
 | M18 Cancelamentos (auditoria) | 2 | ⬜ Pendente | |

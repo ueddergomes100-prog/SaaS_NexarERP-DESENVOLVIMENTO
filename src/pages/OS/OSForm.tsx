@@ -14,6 +14,7 @@ import ProductSearchModal from '../../components/common/ProductSearchModal';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildServiceOrderCommissionSnapshot,
@@ -106,6 +107,10 @@ const OSForm: React.FC = () => {
   const submitLockRef = useRef(false);
   const servicoNomeInputRef = useRef<HTMLInputElement>(null);
   const pecaNomeInputRef = useRef<HTMLInputElement | null>(null);
+  const clienteInputRef = useRef<HTMLInputElement>(null);
+  const pagamentoSectionRef = useRef<HTMLDivElement>(null);
+  const statusSelectRef = useRef<HTMLSelectElement>(null);
+  const pecaQtdLastRowRef = useRef<HTMLInputElement | null>(null);
   const [paymentDrafts, setPaymentDrafts] = useState<PaymentDraft[]>([
     createEmptyPaymentDraft('pagamento-1', 0),
   ]);
@@ -144,6 +149,9 @@ const OSForm: React.FC = () => {
 
   const [isServicoDropdownOpen, setIsServicoDropdownOpen] = useState(false);
   const servicoDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEscapeLayer(isServicoDropdownOpen, () => setIsServicoDropdownOpen(false));
+  useEscapeLayer(isVeiculoDropdownOpen, () => setIsVeiculoDropdownOpen(false));
 
   useEffect(() => {
     const isConsumidorFinal = formData.clienteNome.toLowerCase().includes('consumidor final');
@@ -557,6 +565,24 @@ const OSForm: React.FC = () => {
     novas[index].preco = Math.max(0, preco);
     setPecasSelecionadas(novas);
   };
+
+  const focusPagamentoSection = () => {
+    if (formData.status === 'Finalizada') {
+      pagamentoSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      pagamentoSectionRef.current?.querySelector<HTMLElement>('input, select, button')?.focus();
+    } else {
+      statusSelectRef.current?.focus();
+    }
+  };
+
+  useKeyboardShortcuts([
+    { key: 'F2', handler: () => clienteInputRef.current?.focus() },
+    { key: 'F3', handler: () => pecaNomeInputRef.current?.focus() },
+    { key: 'F8', handler: () => servicoNomeInputRef.current?.focus() },
+    { key: 'F5', handler: () => pecaQtdLastRowRef.current?.focus() },
+    { key: 'F6', handler: focusPagamentoSection },
+    { key: 'F7', handler: focusPagamentoSection },
+  ]);
 
   const totalServicos = servicosSelecionados.reduce((acc, curr) => acc + getServiceTotal(curr), 0);
   const totalPecas = pecasSelecionadas.reduce((acc, curr) => acc + (curr.preco * curr.quantidade), 0);
@@ -990,10 +1016,11 @@ const OSForm: React.FC = () => {
               <h3>Status da Ordem de Serviço</h3>
             </div>
             <div className="input-group">
-              <select 
-                name="status" 
-                value={formData.status} 
-                onChange={handleChange} 
+              <select
+                name="status"
+                value={formData.status}
+                onChange={handleChange}
+                ref={statusSelectRef}
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', fontWeight: 'bold' }}
               >
                 <option value="Orçamento Pendente">Orçamento Pendente</option>
@@ -1003,9 +1030,9 @@ const OSForm: React.FC = () => {
                 <option value="Cancelada">Cancelada</option>
               </select>
             </div>
-            
+
             {formData.status === 'Finalizada' && (
-              <div style={{ marginTop: '16px', padding: '16px', backgroundColor: 'rgba(16, 185, 129, 0.05)', borderRadius: 'var(--radius-md)', border: '1px dashed rgba(16, 185, 129, 0.3)' }}>
+              <div ref={pagamentoSectionRef} style={{ marginTop: '16px', padding: '16px', backgroundColor: 'rgba(16, 185, 129, 0.05)', borderRadius: 'var(--radius-md)', border: '1px dashed rgba(16, 185, 129, 0.3)' }}>
                 <PaymentsEditor
                   customerName={formData.clienteNome}
                   drafts={paymentDrafts}
@@ -1037,6 +1064,7 @@ const OSForm: React.FC = () => {
                 value={formData.clienteNome}
                 onChange={(value) => setFormData({ ...formData, clienteNome: value })}
                 clients={clientesDisponiveis}
+                inputRef={clienteInputRef}
                 onSelect={(c) => {
                   const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === c.id);
                   if (vDoCliente.length === 1) {
@@ -1357,6 +1385,16 @@ const OSForm: React.FC = () => {
                 </span>
               )}
             </div>
+
+            <div className="shortcuts-hint" style={{ marginBottom: '16px' }}>
+              <span><kbd>F2</kbd> Cliente</span>
+              <span><kbd>F3</kbd> Peça</span>
+              <span><kbd>F8</kbd> Serviço</span>
+              <span><kbd>F5</kbd> Qtd. última peça</span>
+              <span><kbd>F6</kbd> Pagamento</span>
+              <span><kbd>Esc</kbd> Fechar</span>
+            </div>
+
             <div className="item-add-container" style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
               <div style={{ flex: 2, position: 'relative' }}>
                 <ProductAutocomplete
@@ -1427,6 +1465,7 @@ const OSForm: React.FC = () => {
                           <input
                             type="number"
                             value={p.quantidade}
+                            ref={(el) => { if (index === pecasSelecionadas.length - 1) pecaQtdLastRowRef.current = el; }}
                             onChange={e => updateQuantidadePeca(index, Number(e.target.value))}
                             style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '4px', fontSize: '13px' }}
                             min="0.001"

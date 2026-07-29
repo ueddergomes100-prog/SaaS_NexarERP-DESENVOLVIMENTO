@@ -1,19 +1,43 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, CreditCard, Edit, Trash2, X, Loader2, AlertTriangle } from 'lucide-react';
-import { addDoc, collection, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { Search, Plus, CreditCard, Edit, Percent, Trash2, X, Loader2, AlertTriangle } from 'lucide-react';
+import { addDoc, collection, deleteDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { hasModuleAccess } from '../../utils/roles';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import { pickMissingDefaults } from '../../utils/catalogDefaults';
+import { normalizeCreditCardFeeSchedule } from '../../utils/financeDomain';
 
 interface BandeiraCartao extends TenantCollectionItem {
   nome: string;
   ativo: boolean;
   ordem: number;
+  taxaDebitoPercentual?: number;
+  taxasCreditoPorParcela?: Record<string, number>;
+  prazoRecebimentoCreditoDias?: number;
+  prazoRecebimentoDebitoDias?: number;
 }
+
+const toCreditCardRateInputs = (value: unknown, fallbackFeePercent = 0) => (
+  Object.fromEntries(
+    Object.entries(normalizeCreditCardFeeSchedule(value, fallbackFeePercent))
+      .map(([installments, fee]) => [installments, String(fee)]),
+  )
+);
+
+const toConfigurationNumber = (value: unknown) => {
+  const parsed = Number(String(value ?? '').trim().replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+};
+
+const emptyFeesForm = () => ({
+  taxaDebitoPercentual: '0',
+  taxasCreditoPorParcela: toCreditCardRateInputs(null),
+  prazoRecebimentoCreditoDias: '30',
+  prazoRecebimentoDebitoDias: '1',
+});
 
 const BANDEIRAS_PADRAO: Array<Pick<BandeiraCartao, 'nome' | 'ativo' | 'ordem'>> = [
   { nome: 'Visa', ativo: true, ordem: 1 },
@@ -46,6 +70,11 @@ const BandeirasCartaoList: React.FC = () => {
   const [modalForm, setModalForm] = useState({ nome: '', ativo: true, ordem: 1 });
   const [modalLoading, setModalLoading] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
+
+  const [feesTarget, setFeesTarget] = useState<BandeiraCartao | null>(null);
+  const [feesForm, setFeesForm] = useState(emptyFeesForm());
+  const [feesLoading, setFeesLoading] = useState(false);
+  const [isFeesSaving, setIsFeesSaving] = useState(false);
 
   const handleDelete = async (id: string, nome: string) => {
     const isConfirmed = await confirmDelete(`a bandeira (${nome})`);
@@ -91,6 +120,94 @@ const BandeirasCartaoList: React.FC = () => {
       showError('Erro', 'Ocorreu um erro ao carregar as bandeiras padrão.');
     } finally {
       setIsSeeding(false);
+    }
+  };
+
+  const openFeesModal = async (bandeira: BandeiraCartao) => {
+    setFeesTarget(bandeira);
+    setFeesLoading(true);
+    try {
+      if (bandeira.taxasCreditoPorParcela !== undefined) {
+        setFeesForm({
+          taxaDebitoPercentual: String(bandeira.taxaDebitoPercentual ?? 0),
+          taxasCreditoPorParcela: toCreditCardRateInputs(bandeira.taxasCreditoPorParcela),
+          prazoRecebimentoCreditoDias: String(bandeira.prazoRecebimentoCreditoDias ?? 30),
+          prazoRecebimentoDebitoDias: String(bandeira.prazoRecebimentoDebitoDias ?? 1),
+        });
+      } else {
+        // Bandeira ainda sem taxa propria: pre-preenche com o valor global
+        // atual de Configuracoes, pra nao comecar do zero.
+        const configSnap = tenantId ? await getDoc(doc(db, 'configuracoes', tenantId)) : null;
+        const config = configSnap?.exists() ? configSnap.data() : {};
+        setFeesForm({
+          taxaDebitoPercentual: String(config.taxaCartaoDebitoPercentual ?? 0),
+          taxasCreditoPorParcela: toCreditCardRateInputs(
+            config.taxasCartaoCreditoPorParcela,
+            config.taxaCartaoCreditoPercentual ?? 0,
+          ),
+          prazoRecebimentoCreditoDias: String(config.prazoRecebimentoCartaoCreditoDias ?? 30),
+          prazoRecebimentoDebitoDias: String(config.prazoRecebimentoCartaoDebitoDias ?? 1),
+        });
+      }
+    } catch (error) {
+      console.error(error);
+      setFeesForm(emptyFeesForm());
+    } finally {
+      setFeesLoading(false);
+    }
+  };
+
+  const closeFeesModal = () => {
+    setFeesTarget(null);
+    setFeesForm(emptyFeesForm());
+  };
+
+  const handleSaveFees = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feesTarget) return;
+
+    const debitFee = toConfigurationNumber(feesForm.taxaDebitoPercentual);
+    const creditSettlementDays = toConfigurationNumber(feesForm.prazoRecebimentoCreditoDias);
+    const debitSettlementDays = toConfigurationNumber(feesForm.prazoRecebimentoDebitoDias);
+    const creditFees = Object.fromEntries(
+      Array.from({ length: 12 }, (_, index) => {
+        const installments = String(index + 1);
+        return [installments, toConfigurationNumber(feesForm.taxasCreditoPorParcela[installments])];
+      }),
+    );
+
+    if (
+      !Number.isFinite(debitFee) || debitFee < 0 || debitFee > 100 ||
+      Object.values(creditFees).some((fee) => !Number.isFinite(fee) || fee < 0 || fee > 100)
+    ) {
+      showError('Configuração inválida', 'Todas as taxas devem estar entre 0% e 100%.');
+      return;
+    }
+    if (
+      !Number.isInteger(creditSettlementDays) || !Number.isInteger(debitSettlementDays) ||
+      creditSettlementDays < 0 || creditSettlementDays > 365 ||
+      debitSettlementDays < 0 || debitSettlementDays > 365
+    ) {
+      showError('Configuração inválida', 'Os prazos de recebimento devem ser números inteiros entre 0 e 365 dias.');
+      return;
+    }
+
+    setIsFeesSaving(true);
+    try {
+      await updateDoc(doc(db, 'bandeiras_cartao', feesTarget.id), {
+        taxaDebitoPercentual: debitFee,
+        taxasCreditoPorParcela: creditFees,
+        prazoRecebimentoCreditoDias: creditSettlementDays,
+        prazoRecebimentoDebitoDias: debitSettlementDays,
+        updatedAt: serverTimestamp(),
+      });
+      showSuccess('Taxas atualizadas!');
+      closeFeesModal();
+    } catch (error) {
+      console.error(error);
+      showError('Erro', 'Não foi possível salvar as taxas desta bandeira.');
+    } finally {
+      setIsFeesSaving(false);
     }
   };
 
@@ -240,6 +357,9 @@ const BandeirasCartaoList: React.FC = () => {
                         <button className="icon-btn" title="Editar" onClick={() => openEditModal(bandeira)}>
                           <Edit size={16} />
                         </button>
+                        <button className="icon-btn" title="Configurar taxas" style={{ color: '#8b5cf6' }} onClick={() => openFeesModal(bandeira)}>
+                          <Percent size={16} />
+                        </button>
                         <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(bandeira.id, bandeira.nome)}>
                           <Trash2 size={16} />
                         </button>
@@ -329,6 +449,116 @@ const BandeirasCartaoList: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {feesTarget && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999, padding: '20px',
+        }}>
+          <div style={{
+            width: '100%', maxWidth: '640px', backgroundColor: 'var(--bg-secondary)',
+            border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)',
+            padding: '24px', position: 'relative', boxShadow: 'var(--shadow-card)',
+            animation: 'pageFadeIn 0.2s ease-out', maxHeight: '90vh', overflowY: 'auto',
+          }}>
+            <button
+              onClick={closeFeesModal}
+              style={{ position: 'absolute', top: '16px', right: '16px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+            >
+              <X size={20} />
+            </button>
+
+            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Percent size={20} color="#8b5cf6" />
+              Taxas — {feesTarget.nome}
+            </h3>
+
+            {feesLoading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <Loader2 size={24} className="spin-icon" />
+              </div>
+            ) : (
+              <form onSubmit={handleSaveFees}>
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '10px', fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    Taxas desta bandeira
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: '10px' }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)' }}>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700, textAlign: 'center' }}>À vista</span>
+                      <div style={{ position: 'relative' }}>
+                        <input
+                          type="number" min="0" max="100" step="0.01"
+                          value={feesForm.taxaDebitoPercentual}
+                          onChange={(e) => setFeesForm({ ...feesForm, taxaDebitoPercentual: e.target.value })}
+                          style={{ width: '100%', height: '36px', padding: '8px 22px 8px 8px', boxSizing: 'border-box', textAlign: 'center', fontWeight: 700 }}
+                        />
+                        <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '12px', pointerEvents: 'none' }}>%</span>
+                      </div>
+                    </label>
+                    {Array.from({ length: 12 }, (_, index) => {
+                      const installments = String(index + 1);
+                      return (
+                        <label key={installments} style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)' }}>
+                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700, textAlign: 'center' }}>{installments}x</span>
+                          <div style={{ position: 'relative' }}>
+                            <input
+                              type="number" min="0" max="100" step="0.01"
+                              value={feesForm.taxasCreditoPorParcela[installments]}
+                              onChange={(e) => setFeesForm((current) => ({
+                                ...current,
+                                taxasCreditoPorParcela: { ...current.taxasCreditoPorParcela, [installments]: e.target.value },
+                              }))}
+                              style={{ width: '100%', height: '36px', padding: '8px 22px 8px 8px', boxSizing: 'border-box', textAlign: 'center', fontWeight: 700 }}
+                            />
+                            <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '12px', pointerEvents: 'none' }}>%</span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '9px 0 0' }}>
+                    À vista representa o débito. No crédito, a taxa correspondente ao número de parcelas é aplicada no fechamento financeiro.
+                  </p>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                  <div className="input-group">
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Primeiro recebimento do crédito (dias)</label>
+                    <input
+                      type="number" min="0" max="365" step="1"
+                      value={feesForm.prazoRecebimentoCreditoDias}
+                      onChange={(e) => setFeesForm({ ...feesForm, prazoRecebimentoCreditoDias: e.target.value })}
+                      style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Recebimento do débito (dias)</label>
+                    <input
+                      type="number" min="0" max="365" step="1"
+                      value={feesForm.prazoRecebimentoDebitoDias}
+                      onChange={(e) => setFeesForm({ ...feesForm, prazoRecebimentoDebitoDias: e.target.value })}
+                      style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                  <button type="button" className="btn-secondary" onClick={closeFeesModal} disabled={isFeesSaving}>
+                    Cancelar
+                  </button>
+                  <button type="submit" className="btn-primary" disabled={isFeesSaving} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {isFeesSaving && <Loader2 size={16} className="spin-icon" />}
+                    {isFeesSaving ? 'Salvando...' : 'Salvar taxas'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

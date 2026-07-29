@@ -296,6 +296,21 @@ Ver também [[project-plano-evolucao-nexar]].
 
 **Pendente — validação manual:** mesma limitação de login real no navegador de todos os módulos anteriores. Falta: cadastrar taxa numa bandeira e confirmar que uma venda de teste com essa bandeira usa o valor certo; confirmar que bandeira sem taxa própria ainda usa o valor herdado; abrir o relatório novo e conferir os totais.
 
+### F15 — Parcelas de cartão viram títulos separados em Contas a Receber (feature, 2026-07-29)
+
+**Não estava no prompt original.** Pedido direto do usuário: uma venda com cartão de crédito parcelado (ex.: 6x) gravava um único documento em `transacoes` com o valor cheio — Contas a Receber mostrava 1 linha, não 6. Pediu também que o espaçamento entre parcelas passasse a ser 30 dias úteis (não 1 mês corrido), usando o mesmo campo "Primeiro recebimento do crédito" por bandeira (F14) — confirmado que esse campo passa a ser contado em dias úteis, e que substitui a regra antiga, não é uma regra fixa separada.
+
+**Descoberta ao investigar:** o resto do sistema já tolera múltiplos documentos de `transacoes` por venda (cancelamento já itera sobre todos os documentos de um `pedidoId`; edição de OS já reconcilia um número variável de `pagamentos` entre salvamentos) — então "explodir" o pagamento parcelado em N documentos, um por parcela, **não exigiu nenhuma mudança em `ContasReceber.tsx`**: a tela já lista genericamente qualquer `transacoes` pendente agrupado por cliente.
+
+**Implementado:**
+- [`dateTime.ts`](../src/utils/dateTime.ts): nova `addBusinessDaysToDateInput` (pula sábado/domingo; sem calendário de feriados, que não existe no sistema).
+- [`financeDomain.ts`](../src/utils/financeDomain.ts): `buildCardDetails` ganhou `installmentIntervalDays` opcional — quando informado, cada parcela usa dias úteis em vez de `addMonthsToDateInput`; **sem essa opção, cai no comportamento antigo exatamente como estava** (retrocompatível, nenhum teste existente mudou). `normalizePayments` passa a calcular o primeiro recebimento do crédito em dias úteis (débito continua em dias corridos, não foi pedido). Nova função pura `explodeInstallmentPaymentRecords`, que separa um pagamento de crédito parcelado em N `PaymentRecord`s independentes (um por parcela, com `cartao.parcelas: 1` em cada um — mantém `applyPaymentReceipt`/recebimento parcial funcionando sem mudança), preservando `numero`/`totalParcelas` pra exibição.
+- PDV, Pedido de Venda e OS chamam `explodeInstallmentPaymentRecords` logo após `normalizePayments`, antes de `summarizePayments` — todo o resto (campo `pagamentos`, gravação em `transacoes`) já era genérico sobre o array. Pequeno ajuste cosmético: a descrição gravada em `transacoes` ganha "(Parcela 3/6)" quando aplicável.
+
+**Não faça:** não mexer no prazo do débito; não adicionar calendário de feriados (fora de escopo); não migrar vendas já finalizadas antes dessa mudança.
+
+**Pendente — validação manual:** mesma limitação de login. Falta finalizar uma venda de teste parcelada numa bandeira com taxa configurada e conferir em Contas a Receber que aparecem as N linhas com valores e vencimentos corretos.
+
 ---
 
 ## 3. Fase 1 — Ganhos operacionais (risco baixo)

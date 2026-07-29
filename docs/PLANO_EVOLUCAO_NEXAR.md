@@ -257,6 +257,17 @@ Ver também [[project-plano-evolucao-nexar]].
 
 **Escopo:** só Pedido de Venda, conforme pedido ("tela de vendas"). OS e Orçamento têm o mesmo padrão de "buscar produto → definir qtd/preço → clicar Adicionar" e provavelmente têm a mesma limitação de foco — não mexido ainda, ver Seção 9 se for pra estender.
 
+### F12 — Mesma correção de foco estendida ao Orçamento (bugfix, 2026-07-29)
+
+**Reportado pelo usuário:** confirmação de que o comportamento de F11 ("tela de vendas") ainda não se aplicava em todo lugar. Ao investigar, o Pedido de Venda já estava correto (F11); quem ainda tinha a lacuna era o Orçamento.
+
+**Implementado em [`OrcamentoForm.tsx`](../src/pages/Orcamentos/OrcamentoForm.tsx):**
+- Novos refs `servicoNomeInputRef` e `pecaNomeInputRef` (este último passado como `inputRef` do `ProductAutocomplete` da peça).
+- Enter nos campos Nome do Serviço/Preço e Preço da Peça agora dispara `handleAddItem` (antes só o clique no botão "Adicionar" funcionava).
+- Ao final de `handleAddItem`, foco volta pro campo de nome (serviço ou peça, conforme o tipo adicionado).
+
+**Escopo:** só Orçamento. OS continua com a mesma lacuna, ainda não estendida — mesma pendência da Seção 9.
+
 ---
 
 ## 3. Fase 1 — Ganhos operacionais (risco baixo)

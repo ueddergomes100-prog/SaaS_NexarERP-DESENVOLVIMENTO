@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Car, Printer, Search, ArrowRight, BarChart2, DollarSign, ArrowUpCircle, ArrowDownCircle, Calendar, ShoppingCart, Users } from 'lucide-react';
+import { FileText, Car, Printer, Search, ArrowRight, BarChart2, DollarSign, ArrowUpCircle, ArrowDownCircle, Calendar, ShoppingCart, Users, Percent } from 'lucide-react';
 import '../OS/OS.css'; // Reusing OS styles for consistency
 
 const RelatoriosDiversos: React.FC = () => {
@@ -68,6 +68,14 @@ const RelatoriosDiversos: React.FC = () => {
     () => getInitialState('vendasDataFim', getEndOfMonth())
   );
 
+  const [taxasCartaoDataInicio, setTaxasCartaoDataInicio] = useState<string>(
+    () => getInitialState('taxasCartaoDataInicio', getStartOfMonth())
+  );
+
+  const [taxasCartaoDataFim, setTaxasCartaoDataFim] = useState<string>(
+    () => getInitialState('taxasCartaoDataFim', getEndOfMonth())
+  );
+
   useEffect(() => {
     sessionStorage.setItem('relatorios_activeReport', JSON.stringify(activeReport));
   }, [activeReport]);
@@ -99,6 +107,14 @@ const RelatoriosDiversos: React.FC = () => {
   useEffect(() => {
     sessionStorage.setItem('relatorios_vendasDataFim', JSON.stringify(vendasDataFim));
   }, [vendasDataFim]);
+
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_taxasCartaoDataInicio', JSON.stringify(taxasCartaoDataInicio));
+  }, [taxasCartaoDataInicio]);
+
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_taxasCartaoDataFim', JSON.stringify(taxasCartaoDataFim));
+  }, [taxasCartaoDataFim]);
 
   const reports = [
     {
@@ -137,6 +153,13 @@ const RelatoriosDiversos: React.FC = () => {
       color: '#ef4444'
     },
     {
+      id: 'taxas-cartao',
+      title: 'Taxas Pagas às Administradoras',
+      description: 'Gere PDFs com o total de taxas de cartão pagas no período, agrupado por bandeira.',
+      icon: <Percent size={24} color="#06b6d4" />,
+      color: '#06b6d4'
+    },
+    {
       id: 'placeholder',
       title: 'Outros Relatórios (Em Breve)',
       description: 'Novos relatórios gerenciais serão adicionados aqui em atualizações futuras.',
@@ -155,6 +178,10 @@ const RelatoriosDiversos: React.FC = () => {
 
   const handlePrintVendas = (tipoReport: 'geral' | 'vendedor') => {
     navigate(`/relatorios-diversos/print/vendas?tipo=${tipoReport}&inicio=${vendasDataInicio}&fim=${vendasDataFim}`);
+  };
+
+  const handlePrintTaxasCartao = () => {
+    navigate(`/relatorios-diversos/print/taxas-cartao?inicio=${taxasCartaoDataInicio}&fim=${taxasCartaoDataFim}`);
   };
 
   const handleVendasPeriodoChange = (value: string) => {
@@ -430,6 +457,46 @@ const RelatoriosDiversos: React.FC = () => {
                     gap: '8px', 
                     fontWeight: 'bold',
                     boxShadow: `0 4px 12px ${activeReport === 'vendas-geral' ? 'rgba(139, 92, 246, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`
+                  }}
+                >
+                  <Printer size={18} />
+                  GERAR PDF
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeReport === 'taxas-cartao' && (
+            <div className="card form-section animate-fade-in-up" style={{ padding: '24px', border: '1px solid #06b6d450', backgroundColor: '#06b6d40a' }}>
+              <div className="section-header" style={{ marginBottom: '24px' }}>
+                <Percent size={20} color="#06b6d4" />
+                <h3 style={{ color: '#06b6d4' }}>Filtros: Taxas Pagas às Administradoras</h3>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                <div className="input-group">
+                  <label>Data Inicial</label>
+                  <input type="date" value={taxasCartaoDataInicio} onChange={(e) => setTaxasCartaoDataInicio(e.target.value)} style={{ width: '100%', padding: '12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
+                </div>
+                <div className="input-group">
+                  <label>Data Final</label>
+                  <input type="date" value={taxasCartaoDataFim} onChange={(e) => setTaxasCartaoDataFim(e.target.value)} style={{ width: '100%', padding: '12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn-primary"
+                  onClick={handlePrintTaxasCartao}
+                  style={{
+                    backgroundColor: '#06b6d4',
+                    borderColor: '#06b6d4',
+                    padding: '12px 24px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontWeight: 'bold',
+                    boxShadow: '0 4px 12px rgba(6, 182, 212, 0.3)'
                   }}
                 >
                   <Printer size={18} />

@@ -51,6 +51,7 @@ const RelatoriosDiversos = lazy(() => import('./pages/RelatoriosDiversos/Relator
 const PrintRelatorioVeiculos = lazy(() => import('./pages/RelatoriosDiversos/PrintRelatorioVeiculos'));
 const PrintRelatorioFinanceiro = lazy(() => import('./pages/RelatoriosDiversos/PrintRelatorioFinanceiro'));
 const PrintRelatorioVendas = lazy(() => import('./pages/RelatoriosDiversos/PrintRelatorioVendas'));
+const PrintRelatorioTaxasCartao = lazy(() => import('./pages/RelatoriosDiversos/PrintRelatorioTaxasCartao'));
 const UnidadesMedidaList = lazy(() => import('./pages/UnidadesMedida/UnidadesMedidaList'));
 const BandeirasCartaoList = lazy(() => import('./pages/BandeirasCartao/BandeirasCartaoList'));
 const LogsSistema = lazy(() => import('./pages/Configuracoes/LogsSistema'));
@@ -145,6 +146,7 @@ function App() {
                     <Route path="relatorios-diversos/print/veiculos" element={<PrintRelatorioVeiculos />} />
                     <Route path="relatorios-diversos/print/financeiro" element={<PrintRelatorioFinanceiro />} />
                     <Route path="relatorios-diversos/print/vendas" element={<PrintRelatorioVendas />} />
+                    <Route path="relatorios-diversos/print/taxas-cartao" element={<PrintRelatorioTaxasCartao />} />
                   </Route>
                 </Route>
                 

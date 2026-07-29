@@ -115,6 +115,24 @@ export const addDaysToDateInput = (value: string, days: number) => {
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
 };
 
+export const addBusinessDaysToDateInput = (value: string, days: number) => {
+  const parts = parseDateInput(value);
+  if (!parts || !Number.isInteger(days)) return '';
+  if (days === 0) return value;
+
+  const step = days > 0 ? 1 : -1;
+  let remaining = Math.abs(days);
+  let date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+
+  while (remaining > 0) {
+    date = new Date(date.getTime() + step * 24 * 60 * 60 * 1000);
+    const dayOfWeek = date.getUTCDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) remaining -= 1;
+  }
+
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+};
+
 export const addMonthsToDateInput = (value: string, months: number) => {
   const parts = parseDateInput(value);
   if (!parts || !Number.isInteger(months)) return '';

@@ -1,4 +1,5 @@
 import {
+  addBusinessDaysToDateInput,
   addDaysToDateInput,
   addMonthsToDateInput,
   differenceInCalendarDays,
@@ -56,6 +57,10 @@ export interface CardPaymentDetails {
   valorLiquido: number;
   dataPrevistaRecebimento?: string;
   detalhamentoParcelas: CardInstallment[];
+  /** Posicao desta parcela (1-based) apos explodeInstallmentPaymentRecords. */
+  numero?: number;
+  /** Total de parcelas da venda original, preservado apos a explosao. */
+  totalParcelas?: number;
 }
 
 export interface PaymentRecord {
@@ -263,6 +268,7 @@ export const buildCardDetails = (args: {
   installments: number;
   feePercent?: number;
   firstSettlementDate?: string;
+  installmentIntervalDays?: number;
   bandeira?: string;
   operadora?: string;
   autorizacao?: string;
@@ -314,10 +320,9 @@ export const buildCardDetails = (args: {
       valorLiquidoCentavos: netInstallments[index],
       valorLiquido: fromCents(netInstallments[index]),
       ...(firstDate ? {
-        dataPrevistaRecebimento: addMonthsToDateInput(
-          firstDate,
-          args.method === 'Cartão de Crédito' ? index : 0,
-        ),
+        dataPrevistaRecebimento: args.installmentIntervalDays !== undefined
+          ? addBusinessDaysToDateInput(firstDate, args.installmentIntervalDays * index)
+          : addMonthsToDateInput(firstDate, args.method === 'Cartão de Crédito' ? index : 0),
       } : {}),
     })),
   };
@@ -411,7 +416,9 @@ export const normalizePayments = (
           ? effectiveCreditSettlementDays
           : effectiveDebitSettlementDays;
         if (Number.isInteger(configuredDays) && Number(configuredDays) >= 0) {
-          firstSettlementDate = addDaysToDateInput(saleDate, Number(configuredDays));
+          firstSettlementDate = draft.forma === 'Cartão de Crédito'
+            ? addBusinessDaysToDateInput(saleDate, Number(configuredDays))
+            : addDaysToDateInput(saleDate, Number(configuredDays));
         }
       }
       if (
@@ -438,6 +445,7 @@ export const normalizePayments = (
           ? creditFeePercent
           : effectiveDebitFeePercent,
         firstSettlementDate,
+        installmentIntervalDays: draft.forma === 'Cartão de Crédito' ? effectiveCreditSettlementDays : undefined,
         bandeira: draft.bandeira,
         operadora: draft.operadora,
         autorizacao: draft.autorizacao,
@@ -453,6 +461,55 @@ export const normalizePayments = (
   }
 
   return records;
+};
+
+/**
+ * Explode um pagamento em cartao de credito parcelado em N registros
+ * independentes, um por parcela (usando o detalhamento ja calculado por
+ * buildCardDetails/normalizePayments) -- para que cada parcela vire seu
+ * proprio titulo em Contas a Receber, em vez de um unico titulo com o
+ * valor cheio. Debito e credito a vista passam direto, sem alteracao.
+ *
+ * cartao.parcelas fica 1 em cada registro explodido (mantem
+ * applyPaymentReceipt/recebimento parcial funcionando sem mudanca, ja
+ * que ele reusa esse campo para decidir quantas parcelas recalcular).
+ * numero/totalParcelas guardam a posicao original para exibicao.
+ */
+export const explodeInstallmentPaymentRecords = (records: PaymentRecord[]): PaymentRecord[] => {
+  const exploded = records.flatMap((record): PaymentRecord[] => {
+    const totalParcelas = record.cartao?.parcelas ?? 1;
+    if (record.formaPagamento !== 'Cartão de Crédito' || !record.cartao || totalParcelas <= 1) {
+      return [record];
+    }
+
+    const cartao = record.cartao;
+    return cartao.detalhamentoParcelas.map((installment): PaymentRecord => {
+      const feeCents = Math.max(0, installment.valorCentavos - installment.valorLiquidoCentavos);
+      return {
+        ...record,
+        id: `${record.id}-parcela-${installment.numero}`,
+        valorCentavos: installment.valorCentavos,
+        valor: installment.valor,
+        dataPrevistaRecebimento: installment.dataPrevistaRecebimento || record.dataPrevistaRecebimento,
+        cartao: {
+          ...cartao,
+          parcelas: 1,
+          numero: installment.numero,
+          totalParcelas,
+          valorBrutoCentavos: installment.valorCentavos,
+          valorBruto: installment.valor,
+          valorTaxaCentavos: feeCents,
+          valorTaxa: fromCents(feeCents),
+          valorLiquidoCentavos: installment.valorLiquidoCentavos,
+          valorLiquido: installment.valorLiquido,
+          ...(installment.dataPrevistaRecebimento ? { dataPrevistaRecebimento: installment.dataPrevistaRecebimento } : {}),
+          detalhamentoParcelas: [installment],
+        },
+      };
+    });
+  });
+
+  return exploded.map((record, index) => ({ ...record, indice: index + 1 }));
 };
 
 export const summarizePayments = (payments: PaymentRecord[]) => {

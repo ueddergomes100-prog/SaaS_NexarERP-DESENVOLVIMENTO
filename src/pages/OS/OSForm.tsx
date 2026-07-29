@@ -22,6 +22,7 @@ import {
   buildServiceOrderCommissionSnapshot,
   cancelCommissionSnapshot,
   createEmptyPaymentDraft,
+  explodeInstallmentPaymentRecords,
   fromCents,
   normalizeCreditCardFeeSchedule,
   normalizePayments,
@@ -672,6 +673,7 @@ const OSForm: React.FC = () => {
           debitSettlementDays: financeConfig.debitSettlementDays,
           cardFeeSchedulesByBrand,
         });
+        paymentRecords = explodeInstallmentPaymentRecords(paymentRecords);
         paymentSummary = summarizePayments(paymentRecords);
       } catch (error) {
         showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os dados do pagamento.');
@@ -855,8 +857,11 @@ const OSForm: React.FC = () => {
           persistedPayments.forEach((payment) => {
             const paymentRef = doc(db, 'transacoes', payment.transactionId);
             const existingPaymentSnapshot = paymentTransactionById.get(payment.transactionId);
+            const parcelaLabel = payment.cartao?.numero
+              ? ` (Parcela ${payment.cartao.numero}/${payment.cartao.totalParcelas})`
+              : '';
             transaction.set(paymentRef, {
-              descricao: `Recebimento OS #${finalNumeroOS || osRef.id.substring(0,6).toUpperCase()} - ${payment.formaPagamento}`,
+              descricao: `Recebimento OS #${finalNumeroOS || osRef.id.substring(0,6).toUpperCase()} - ${payment.formaPagamento}${parcelaLabel}`,
               categoria: 'Serviços',
               valor: payment.valor,
               valorCentavos: payment.valorCentavos,

@@ -6,6 +6,7 @@ import {
   buildCommissionSnapshot,
   cancelCommissionSnapshot,
   createEmptyPaymentDraft,
+  explodeInstallmentPaymentRecords,
   normalizeCreditCardFeeSchedule,
   normalizePayments,
   recalculateCommissionAfterReturn,
@@ -17,7 +18,7 @@ import {
   type PaymentDraft,
   type PaymentRecord,
 } from '../src/utils/financeDomain';
-import { getDashboardPeriodRange } from '../src/utils/dateTime';
+import { addBusinessDaysToDateInput, getDashboardPeriodRange } from '../src/utils/dateTime';
 
 const payment = (updates: Partial<PaymentDraft> = {}): PaymentDraft => ({
   ...createEmptyPaymentDraft('pagamento-1', 10_000),
@@ -177,6 +178,82 @@ test('buildCardFeeSchedulesByBrand indexa por nome e ignora bandeiras sem taxa c
   assert.equal(schedules.Visa.creditSettlementDays, 15);
   assert.deepEqual(schedules.Elo, {});
   assert.equal(Object.keys(schedules).length, 2);
+});
+
+test('addBusinessDaysToDateInput pula sabado e domingo', () => {
+  assert.equal(addBusinessDaysToDateInput('2026-01-05', 1), '2026-01-06');
+  assert.equal(addBusinessDaysToDateInput('2026-01-05', 5), '2026-01-12');
+  assert.equal(addBusinessDaysToDateInput('2026-01-05', 0), '2026-01-05');
+});
+
+test('parcelas de credito sao espacadas em dias uteis quando installmentIntervalDays e informado', () => {
+  const [record] = normalizePayments(60_000, [
+    payment({ forma: 'Cartão de Crédito', valor: '600.00', parcelas: '3', bandeira: 'Visa' }),
+  ], {
+    saleDate: '2026-01-05',
+    creditFeePercent: 0,
+    cardFeeSchedulesByBrand: {
+      Visa: { creditSettlementDays: 2 },
+    },
+  });
+
+  assert.deepEqual(
+    record.cartao?.detalhamentoParcelas.map((installment) => installment.dataPrevistaRecebimento),
+    ['2026-01-07', '2026-01-09', '2026-01-13'],
+  );
+});
+
+test('sem installmentIntervalDays, parcelas continuam espacadas por mes corrido (retrocompativel)', () => {
+  const [record] = normalizePayments(60_000, [
+    payment({
+      forma: 'Cartão de Crédito',
+      valor: '600.00',
+      parcelas: '3',
+      dataPrevistaRecebimento: '2026-08-17',
+    }),
+  ], { saleDate: '2026-07-18', creditFeePercent: 2.5, maxCreditInstallments: 12 });
+
+  assert.deepEqual(
+    record.cartao?.detalhamentoParcelas.map((installment) => installment.dataPrevistaRecebimento),
+    ['2026-08-17', '2026-09-17', '2026-10-17'],
+  );
+});
+
+test('explodeInstallmentPaymentRecords separa cada parcela em um registro proprio', () => {
+  const [record] = normalizePayments(60_000, [
+    payment({ forma: 'Cartão de Crédito', valor: '600.00', parcelas: '3', bandeira: 'Visa' }),
+  ], {
+    saleDate: '2026-01-05',
+    creditFeePercent: 10,
+    cardFeeSchedulesByBrand: { Visa: { creditSettlementDays: 2 } },
+  });
+
+  const exploded = explodeInstallmentPaymentRecords([record]);
+
+  assert.equal(exploded.length, 3);
+  assert.deepEqual(exploded.map((r) => r.cartao?.numero), [1, 2, 3]);
+  assert.deepEqual(exploded.map((r) => r.cartao?.totalParcelas), [3, 3, 3]);
+  assert.deepEqual(exploded.map((r) => r.cartao?.parcelas), [1, 1, 1]);
+  assert.deepEqual(exploded.map((r) => r.indice), [1, 2, 3]);
+  assert.deepEqual(exploded.map((r) => r.id), [`${record.id}-parcela-1`, `${record.id}-parcela-2`, `${record.id}-parcela-3`]);
+
+  const somaValorCentavos = exploded.reduce((sum, r) => sum + r.valorCentavos, 0);
+  assert.equal(somaValorCentavos, record.valorCentavos);
+  const somaLiquidoCentavos = exploded.reduce((sum, r) => sum + Number(r.cartao?.valorLiquidoCentavos || 0), 0);
+  assert.equal(somaLiquidoCentavos, record.cartao?.valorLiquidoCentavos);
+});
+
+test('explodeInstallmentPaymentRecords nao altera debito nem credito a vista', () => {
+  const records = normalizePayments(20_000, [
+    payment({ id: 'debito', forma: 'Cartão de Débito', valor: '100.00' }),
+    payment({ id: 'credito-avista', forma: 'Cartão de Crédito', valor: '100.00', parcelas: '1' }),
+  ]);
+
+  const exploded = explodeInstallmentPaymentRecords(records);
+
+  assert.equal(exploded.length, 2);
+  assert.equal(exploded[0].id, 'debito');
+  assert.equal(exploded[1].id, 'credito-avista');
 });
 
 test('débito rejeita parcelamento e crédito respeita máximo configurado', () => {

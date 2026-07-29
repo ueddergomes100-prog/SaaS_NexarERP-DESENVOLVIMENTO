@@ -25,6 +25,7 @@ import {
 import {
   buildCardFeeSchedulesByBrand,
   buildCommissionSnapshot,
+  explodeInstallmentPaymentRecords,
   fromCents,
   normalizePayments,
   summarizePayments,
@@ -377,6 +378,7 @@ const PDV: React.FC = () => {
       showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os pagamentos.');
       return;
     }
+    paymentRecords = explodeInstallmentPaymentRecords(paymentRecords);
 
     setSaving(true);
     try {
@@ -483,8 +485,11 @@ const PDV: React.FC = () => {
         });
 
         persistedPayments.forEach((payment) => {
+          const parcelaLabel = payment.cartao?.numero
+            ? ` (Parcela ${payment.cartao.numero}/${payment.cartao.totalParcelas})`
+            : '';
           transaction.set(doc(db, 'transacoes', payment.transactionId), {
-            descricao: `PDV #${finalNumeroPedido} - ${payment.formaPagamento}`,
+            descricao: `PDV #${finalNumeroPedido} - ${payment.formaPagamento}${parcelaLabel}`,
             categoria: 'Venda de Peças',
             valor: payment.valor,
             valorCentavos: payment.valorCentavos,

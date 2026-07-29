@@ -22,6 +22,7 @@ import {
   buildCommissionSnapshot,
   cancelCommissionSnapshot,
   createEmptyPaymentDraft,
+  explodeInstallmentPaymentRecords,
   fromCents,
   normalizeCreditCardFeeSchedule,
   normalizePayments,
@@ -514,6 +515,7 @@ const PedidoVendaForm: React.FC = () => {
       showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os dados do pagamento.');
       return;
     }
+    paymentRecords = explodeInstallmentPaymentRecords(paymentRecords);
     const paymentSummary = summarizePayments(paymentRecords);
 
     let finalClienteNome = clienteNome.trim().toUpperCase();
@@ -618,8 +620,11 @@ const PedidoVendaForm: React.FC = () => {
         transaction.set(newPedidoRef, pedidoData);
 
         persistedPayments.forEach((payment) => {
+          const parcelaLabel = payment.cartao?.numero
+            ? ` (Parcela ${payment.cartao.numero}/${payment.cartao.totalParcelas})`
+            : '';
           transaction.set(doc(db, 'transacoes', payment.transactionId), {
-            descricao: `Venda Direta #${finalNumeroPedido} - ${payment.formaPagamento}`,
+            descricao: `Venda Direta #${finalNumeroPedido} - ${payment.formaPagamento}${parcelaLabel}`,
             categoria: 'Venda de Peças',
             valor: payment.valor,
             valorCentavos: payment.valorCentavos,

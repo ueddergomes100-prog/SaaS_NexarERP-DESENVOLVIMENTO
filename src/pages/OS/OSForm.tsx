@@ -104,6 +104,8 @@ const OSForm: React.FC = () => {
   });
   const paymentDraftCounter = useRef(1);
   const submitLockRef = useRef(false);
+  const servicoNomeInputRef = useRef<HTMLInputElement>(null);
+  const pecaNomeInputRef = useRef<HTMLInputElement | null>(null);
   const [paymentDrafts, setPaymentDrafts] = useState<PaymentDraft[]>([
     createEmptyPaymentDraft('pagamento-1', 0),
   ]);
@@ -443,6 +445,7 @@ const OSForm: React.FC = () => {
       ]);
       setServicoNomeInput('');
       setServicoPrecoInput('');
+      servicoNomeInputRef.current?.focus();
     }
   };
 
@@ -518,6 +521,7 @@ const OSForm: React.FC = () => {
       }]);
       setPecaNomeInput('');
       setPecaPrecoInput('');
+      pecaNomeInputRef.current?.focus();
     }
   };
 
@@ -1217,10 +1221,11 @@ const OSForm: React.FC = () => {
 
             <div className="item-add-container" style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
               <div style={{ flex: 2, position: 'relative' }} ref={servicoDropdownRef}>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="Busque ou digite novo Serviço"
                   value={servicoNomeInput}
+                  ref={servicoNomeInputRef}
                   onChange={(e) => {
                     setServicoNomeInput(e.target.value);
                     setIsServicoDropdownOpen(true);
@@ -1228,6 +1233,7 @@ const OSForm: React.FC = () => {
                     if (exists) setServicoPrecoInput(String(exists.preco));
                   }}
                   onFocus={() => setIsServicoDropdownOpen(true)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddServico(); } }}
                   autoComplete="off"
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 42px 12px 16px', color: 'var(--text-primary)' }}
                 />
@@ -1263,11 +1269,12 @@ const OSForm: React.FC = () => {
                 )}
               </div>
 
-              <input 
-                type="number" 
+              <input
+                type="number"
                 placeholder="R$ por hora"
                 value={servicoPrecoInput}
                 onChange={(e) => setServicoPrecoInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddServico(); } }}
                 style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
               
@@ -1355,6 +1362,7 @@ const OSForm: React.FC = () => {
                 <ProductAutocomplete
                   value={pecaNomeInput}
                   products={pecasEstoque}
+                  inputRef={pecaNomeInputRef}
                   onChange={(value) => {
                     setPecaNomeInput(value);
                     const exists = pecasEstoque.find(p => p.nome.toLowerCase() === value.toLowerCase());
@@ -1396,11 +1404,12 @@ const OSForm: React.FC = () => {
                 />
               </div>
 
-              <input 
-                type="number" 
+              <input
+                type="number"
                 placeholder="R$ Valor"
                 value={pecaPrecoInput}
                 onChange={(e) => setPecaPrecoInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddPeca(); } }}
                 style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
               

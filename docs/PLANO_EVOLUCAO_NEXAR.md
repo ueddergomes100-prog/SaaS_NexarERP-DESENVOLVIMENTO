@@ -186,11 +186,11 @@ Erro ao buscar sequencia de OS: The query requires an index (ordens_de_servico: 
 
 **Concluído em 2026-07-27:** criado `firestore.indexes.json` com os 3 índices confirmados (mesmo formato `tenantId` + `numero*` desc, usados por `getCurrentMaxSequence`): `ordens_de_servico`, `pedidos_venda`, `orcamentos`. Registrado em `firebase.json`.
 
-**Pendente — passo manual:** o Firebase CLI não está instalado neste ambiente, então o arquivo foi criado mas **não foi implantado**. Para o erro de índice parar de aparecer de fato no console, rodar (com o projeto `sistema-nexus-dev` selecionado):
-```powershell
-firebase deploy --only firestore:indexes
+**Implantado em 2026-07-29:** o Firebase CLI não está instalado globalmente neste ambiente, mas foi possível rodar via `npx firebase-tools` usando o node de `H:\PartiuFut\.tools\node-v22.22.3-win-x64\` — havia um login do Firebase CLI já em cache na máquina (`~/.config/configstore/firebase-tools.json`), então não precisou de novo login interativo. Rodado explicitamente com `--project sistema-nexus-dev` (nunca produção):
+```bash
+npx --yes firebase-tools deploy --only firestore:rules,firestore:indexes --project sistema-nexus-dev
 ```
-Isso não apaga índices já existentes no console que não estejam neste arquivo — só cria os que faltam.
+Deploy confirmado com sucesso ("Deploying to 'sistema-nexus-dev'..."). Isso não apaga índices/regras já existentes no console que não estejam neste arquivo — só aplica o que está no repositório.
 
 Não investiguei os índices compostos dinâmicos de `LogsSistema.tsx` (filtros opcionais de módulo/status/ação combinados com `orderBy(dataHora)`) — ficam fora do escopo do F6 porque exigiriam testar cada combinação de filtro contra o que já está configurado no console, e não há erro observado ali nesta sessão.
 
@@ -291,10 +291,7 @@ Ordem sugerida: **2 → 10 → 9 → 11 → 14 → 3 → 5**.
 - `PaymentsEditor.tsx` ganhou prop `tenantId` e busca as bandeiras via `useTenantCollection`; o campo Bandeira virou `<select>`. Compatibilidade testada: `buildBrandOptions()` inclui o valor gravado mesmo se ele não estiver mais (ou nunca esteve) no catálogo.
 - OS e Pedido de Venda passam `tenantId` para o `PaymentsEditor`. PDV e Contas a Receber **não foram alterados** — nenhum dos dois captura bandeira hoje (checado no código antes de implementar), então não havia nada para trocar por seleção ali.
 
-**Pendente — mesma limitação do F6:** Firebase CLI não instalado neste ambiente. As regras novas (`bandeiras_cartao` liberado no `firestore.rules`) **não foram implantadas** em `sistema-nexus-dev`. Confirmado em teste real: criar uma bandeira agora retorna `permission-denied` (testei também `unidades_medida`, já implantado, e funcionou normalmente — isola o problema à falta de deploy, não a um bug). Rodar antes de usar de verdade:
-```powershell
-firebase deploy --only firestore:rules
-```
+**Resolvido em 2026-07-29:** o usuário reportou o erro "Ocorreu um erro ao carregar as bandeiras padrão" ao tentar usar "Carregar Padrões" — era exatamente esta pendência (confirmado: `firestore.rules` já tinha a regra certa desde 2026-07-28, só nunca tinha sido implantada). Implantado via `npx firebase-tools deploy --only firestore:rules,firestore:indexes --project sistema-nexus-dev` (ver F6 acima para como o CLI foi viabilizado sem instalação global).
 
 ### Módulo 10 — Limitar autocomplete a 6 + "Ver Mais"
 

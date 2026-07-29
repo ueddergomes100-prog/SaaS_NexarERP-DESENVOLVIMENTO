@@ -88,6 +88,15 @@ export interface PaymentValidationOptions {
   debitFeePercent?: number;
   creditSettlementDays?: number;
   debitSettlementDays?: number;
+  cardFeeSchedulesByBrand?: Record<string, CardFeeSchedule>;
+}
+
+export interface CardFeeSchedule {
+  creditFeePercentByInstallment?: CreditCardFeeSchedule;
+  creditFeePercent?: number;
+  debitFeePercent?: number;
+  creditSettlementDays?: number;
+  debitSettlementDays?: number;
 }
 
 export type CreditCardFeeSchedule = Record<string, number>;
@@ -181,6 +190,49 @@ export const creditCardFeeForInstallments = (
   const normalizedInstallments = Math.max(1, Math.min(12, Number.parseInt(String(installments), 10) || 1));
   return normalizeCreditCardFeeSchedule(schedule, fallbackFeePercent)[String(normalizedInstallments)];
 };
+
+/**
+ * Constroi o mapa de taxas/prazos por bandeira (chave = nome da bandeira,
+ * mesmo texto gravado em PaymentDraft.bandeira) a partir dos documentos
+ * de bandeiras_cartao. Bandeiras sem nenhum campo de taxa proprio geram
+ * uma entrada vazia -- o chamador deve tratar isso como "sem override",
+ * caindo no fallback global (ver normalizePayments).
+ */
+export const buildCardFeeSchedulesByBrand = (
+  bandeiras: Array<{
+    nome: string;
+    taxaDebitoPercentual?: unknown;
+    taxasCreditoPorParcela?: unknown;
+    prazoRecebimentoCreditoDias?: unknown;
+    prazoRecebimentoDebitoDias?: unknown;
+  }>,
+): Record<string, CardFeeSchedule> => (
+  Object.fromEntries(
+    bandeiras
+      .map((bandeira) => bandeira.nome?.trim())
+      .filter((nome): nome is string => Boolean(nome))
+      .map((nome) => {
+        const bandeira = bandeiras.find((item) => item.nome?.trim() === nome);
+        const schedule: CardFeeSchedule = {};
+        if (bandeira?.taxasCreditoPorParcela !== undefined) {
+          schedule.creditFeePercentByInstallment = normalizeCreditCardFeeSchedule(bandeira.taxasCreditoPorParcela);
+        }
+        if (bandeira?.taxaDebitoPercentual !== undefined) {
+          const parsed = Number(bandeira.taxaDebitoPercentual);
+          schedule.debitFeePercent = Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : 0;
+        }
+        if (bandeira?.prazoRecebimentoCreditoDias !== undefined) {
+          const parsed = Number(bandeira.prazoRecebimentoCreditoDias);
+          schedule.creditSettlementDays = Number.isFinite(parsed) ? Math.max(0, parsed) : undefined;
+        }
+        if (bandeira?.prazoRecebimentoDebitoDias !== undefined) {
+          const parsed = Number(bandeira.prazoRecebimentoDebitoDias);
+          schedule.debitSettlementDays = Number.isFinite(parsed) ? Math.max(0, parsed) : undefined;
+        }
+        return [nome, schedule];
+      }),
+  )
+);
 
 export const isCardPayment = (method: string) => (
   method === 'Cartão de Crédito' || method === 'Cartão de Débito'
@@ -344,11 +396,20 @@ export const normalizePayments = (
         throw new Error(`O cartão de crédito permite no máximo ${options.maxCreditInstallments} parcelas.`);
       }
 
+      const brandKey = draft.bandeira?.trim();
+      const brandSchedule = brandKey ? options.cardFeeSchedulesByBrand?.[brandKey] : undefined;
+      const effectiveCreditFeePercentByInstallment = brandSchedule?.creditFeePercentByInstallment
+        ?? options.creditFeePercentByInstallment;
+      const effectiveCreditFeePercent = brandSchedule?.creditFeePercent ?? options.creditFeePercent;
+      const effectiveDebitFeePercent = brandSchedule?.debitFeePercent ?? options.debitFeePercent;
+      const effectiveCreditSettlementDays = brandSchedule?.creditSettlementDays ?? options.creditSettlementDays;
+      const effectiveDebitSettlementDays = brandSchedule?.debitSettlementDays ?? options.debitSettlementDays;
+
       let firstSettlementDate = draft.dataPrevistaRecebimento;
       if (!firstSettlementDate) {
         const configuredDays = draft.forma === 'Cartão de Crédito'
-          ? options.creditSettlementDays
-          : options.debitSettlementDays;
+          ? effectiveCreditSettlementDays
+          : effectiveDebitSettlementDays;
         if (Number.isInteger(configuredDays) && Number(configuredDays) >= 0) {
           firstSettlementDate = addDaysToDateInput(saleDate, Number(configuredDays));
         }
@@ -365,9 +426,9 @@ export const normalizePayments = (
 
       if (firstSettlementDate) record.dataPrevistaRecebimento = firstSettlementDate;
       const creditFeePercent = creditCardFeeForInstallments(
-        options.creditFeePercentByInstallment,
+        effectiveCreditFeePercentByInstallment,
         installments,
-        options.creditFeePercent,
+        effectiveCreditFeePercent,
       );
       record.cartao = buildCardDetails({
         method: draft.forma,
@@ -375,7 +436,7 @@ export const normalizePayments = (
         installments,
         feePercent: draft.forma === 'Cartão de Crédito'
           ? creditFeePercent
-          : options.debitFeePercent,
+          : effectiveDebitFeePercent,
         firstSettlementDate,
         bandeira: draft.bandeira,
         operadora: draft.operadora,

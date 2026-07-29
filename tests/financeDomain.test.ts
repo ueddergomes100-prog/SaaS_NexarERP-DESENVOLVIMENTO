@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyPaymentReceipt,
+  buildCardFeeSchedulesByBrand,
   buildCommissionSnapshot,
   cancelCommissionSnapshot,
   createEmptyPaymentDraft,
@@ -132,6 +133,50 @@ test('cartão aplica a taxa exata configurada para cada quantidade de parcelas',
   assert.equal(sixInstallments.cartao?.valorTaxaCentavos, 2_550);
   assert.equal(sixInstallments.cartao?.valorLiquidoCentavos, 57_450);
   assert.equal(summarizePayments([sixInstallments]).financialNetCents, 57_450);
+});
+
+test('taxa por bandeira vence o fallback global quando a bandeira tem schedule próprio', () => {
+  const [visa] = normalizePayments(60_000, [
+    payment({ forma: 'Cartão de Crédito', valor: '600.00', parcelas: '1', bandeira: 'Visa' }),
+  ], {
+    creditFeePercent: 9.9,
+    cardFeeSchedulesByBrand: {
+      Visa: { creditFeePercentByInstallment: normalizeCreditCardFeeSchedule({ 1: 1.5 }) },
+    },
+  });
+
+  assert.equal(visa.cartao?.taxaPercentual, 1.5);
+});
+
+test('bandeira sem schedule proprio (ou nao selecionada) cai no fallback global', () => {
+  const [semSchedule] = normalizePayments(60_000, [
+    payment({ forma: 'Cartão de Crédito', valor: '600.00', parcelas: '1', bandeira: 'Elo' }),
+  ], {
+    creditFeePercent: 3.2,
+    cardFeeSchedulesByBrand: { Visa: { creditFeePercent: 1.5 } },
+  });
+  const [semBandeira] = normalizePayments(60_000, [
+    payment({ forma: 'Cartão de Crédito', valor: '600.00', parcelas: '1', bandeira: '' }),
+  ], {
+    creditFeePercent: 3.2,
+    cardFeeSchedulesByBrand: { Visa: { creditFeePercent: 1.5 } },
+  });
+
+  assert.equal(semSchedule.cartao?.taxaPercentual, 3.2);
+  assert.equal(semBandeira.cartao?.taxaPercentual, 3.2);
+});
+
+test('buildCardFeeSchedulesByBrand indexa por nome e ignora bandeiras sem taxa configurada', () => {
+  const schedules = buildCardFeeSchedulesByBrand([
+    { nome: 'Visa', taxaDebitoPercentual: 1.2, prazoRecebimentoCreditoDias: 15 },
+    { nome: 'Elo' },
+    { nome: '  ' },
+  ]);
+
+  assert.equal(schedules.Visa.debitFeePercent, 1.2);
+  assert.equal(schedules.Visa.creditSettlementDays, 15);
+  assert.deepEqual(schedules.Elo, {});
+  assert.equal(Object.keys(schedules).length, 2);
 });
 
 test('débito rejeita parcelamento e crédito respeita máximo configurado', () => {

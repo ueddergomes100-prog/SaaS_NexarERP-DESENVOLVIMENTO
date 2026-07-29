@@ -279,6 +279,23 @@ Ver também [[project-plano-evolucao-nexar]].
 
 **Escopo:** só OS. Fecha a pendência da Seção 9 sobre estender F11 a OS/Orçamento — agora as três telas (Pedido, Orçamento, OS) têm o mesmo comportamento de Enter-para-adicionar + retorno de foco.
 
+### F14 — Taxa de cartão por bandeira + relatório de taxas pagas (feature, 2026-07-29)
+
+**Não estava no prompt original de 20 módulos.** Pedido direto do usuário: a taxa de cartão (débito à vista + 12 parcelas de crédito) e os prazos de recebimento eram uma configuração única e global por tenant, em Configurações → "Cartões e Recebimento". Na prática cada bandeira/administradora cobra taxa e prazo diferentes — o pedido foi mover essa configuração pra dentro do cadastro de cada bandeira, remover a tela global, e criar um relatório de quanto a empresa paga de taxa às administradoras.
+
+**Decisões confirmadas com o usuário:** prazos de recebimento também viram por bandeira (não só a taxa %); a edição fica num ícone novo por linha em Bandeiras de Cartão (painel separado do lápis de Nome/Ordem/Ativa); bandeiras já cadastradas herdam o valor global atual como ponto de partida.
+
+**Implementado:**
+- [`financeDomain.ts`](../src/utils/financeDomain.ts): novo tipo `CardFeeSchedule` + `buildCardFeeSchedulesByBrand` (função pura, testada) + `PaymentValidationOptions.cardFeeSchedulesByBrand`. Em `normalizePayments`, quando a bandeira do pagamento tem schedule próprio no mapa, ele vence os campos globais (`creditFeePercentByInstallment`/`debitFeePercent`/`creditSettlementDays`/`debitSettlementDays`) — **sem o mapa, comportamento idêntico ao anterior**, os 55 testes existentes continuaram passando sem alteração; 3 testes novos cobrem o override por bandeira e o fallback.
+- [`BandeirasCartaoList.tsx`](../src/pages/BandeirasCartao/BandeirasCartaoList.tsx): novo ícone (%) por linha abre um modal só de taxas (mesma grade de Configurações + os 2 prazos). Ao abrir uma bandeira sem taxa própria ainda, os campos vêm pré-preenchidos com o valor de `configuracoes/{tenantId}` — migração "lazy", sem script em lote.
+- PDV, Pedido de Venda e OS passam a assinar `bandeiras_cartao` e montar `cardFeeSchedulesByBrand` antes de chamar `normalizePayments`; os campos globais de Configurações continuam sendo buscados e servem de fallback pra bandeiras sem taxa própria (é o mecanismo de herança, sem migração em lote). `PaymentsEditor.tsx` também passou a prever a data de recebimento pela bandeira selecionada em vez do prazo fixo global.
+- [`Configuracoes.tsx`](../src/pages/Configuracoes/Configuracoes.tsx): removida a grade de taxas + os 2 campos de prazo da UI. Mantido "Máximo de parcelas no crédito" (é política, não taxa) e mantidos os campos no documento Firestore (fallback interno, sem tela própria).
+- Novo relatório "Taxas Pagas às Administradoras" em Relatórios Diversos (substituiu o tile placeholder): [`PrintRelatorioTaxasCartao.tsx`](../src/pages/RelatoriosDiversos/PrintRelatorioTaxasCartao.tsx) lê `transacoes` por tenant, filtra as que têm pagamento em cartão dentro do período, e agrupa por bandeira (bruto, taxa paga, líquido, taxa média) — usa `cartao.taxaPercentual`/`valorTaxaCentavos` já gravado em cada transação no momento da venda, sem precisar recalcular nem migrar histórico.
+
+**Não faça:** não migrar dados históricos de `transacoes` (a taxa aplicada em vendas passadas fica congelada como estava, é o valor real cobrado na época); não remover os campos legados do documento `configuracoes` (ficam como fallback).
+
+**Pendente — validação manual:** mesma limitação de login real no navegador de todos os módulos anteriores. Falta: cadastrar taxa numa bandeira e confirmar que uma venda de teste com essa bandeira usa o valor certo; confirmar que bandeira sem taxa própria ainda usa o valor herdado; abrir o relatório novo e conferir os totais.
+
 ---
 
 ## 3. Fase 1 — Ganhos operacionais (risco baixo)

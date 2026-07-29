@@ -12,11 +12,47 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, reserveTenantSequence, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
+import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import ClientAutocomplete from '../../components/common/ClientAutocomplete';
+import ProductAutocomplete from '../../components/common/ProductAutocomplete';
+import ProductSearchModal from '../../components/common/ProductSearchModal';
 import '../OS/OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
 interface ServicoData { id: string; nome: string; preco: number; }
-interface ItemOrcamento { id: string; nome: string; preco: number; quantidade: number; tipo: 'servico' | 'peca'; }
+interface ItemOrcamento {
+  id: string;
+  nome: string;
+  preco: number;
+  quantidade: number;
+  tipo: 'servico' | 'peca';
+  unidadeMedidaSigla?: string;
+  unidadeMedidaFracionado?: boolean;
+  unidadeMedidaCasasDecimais?: number;
+}
+const renderPecaRow = (p: PecaOrcamento) => (
+  <>
+    <span>{p.nome}</span>
+    <span style={{ color: '#10b981' }}>R$ {p.precoVenda.toFixed(2)}</span>
+  </>
+);
+
+interface PecaOrcamento {
+  id: string;
+  nome: string;
+  precoVenda: number;
+  quantidade?: number;
+  codigo?: string;
+  codigoBarras?: string;
+  referencia?: string;
+  skuSistema?: string;
+  marca?: string;
+  categoria?: string;
+  fornecedor?: string;
+  unidadeMedidaSigla?: string;
+  unidadeMedidaFracionado?: boolean;
+  unidadeMedidaCasasDecimais?: number;
+}
 interface VeiculoBasico { id: string; placa: string; modelo: string; ano: string; cor: string; clienteId: string; }
 
 const OrcamentoForm: React.FC = () => {
@@ -49,27 +85,23 @@ const OrcamentoForm: React.FC = () => {
   const [servicoNomeInput, setServicoNomeInput] = useState('');
   const [servicoPrecoInput, setServicoPrecoInput] = useState('');
   
-  const [pecasEstoque, setPecasEstoque] = useState<any[]>([]);
+  const [pecasEstoque, setPecasEstoque] = useState<PecaOrcamento[]>([]);
   const [pecaNomeInput, setPecaNomeInput] = useState('');
   const [pecaPrecoInput, setPecaPrecoInput] = useState('');
+  const [pecaSelecionada, setPecaSelecionada] = useState<PecaOrcamento | null>(null);
+  const [isPecaSearchModalOpen, setIsPecaSearchModalOpen] = useState(false);
 
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
 
   const { currentUser, tenantId } = useAuth();
-  
-  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+
   const [isServicoDropdownOpen, setIsServicoDropdownOpen] = useState(false);
-  const [isPecaDropdownOpen, setIsPecaDropdownOpen] = useState(false);
-  
-  const dropdownRef = useRef<HTMLDivElement>(null);
+
   const servicoDropdownRef = useRef<HTMLDivElement>(null);
-  const pecaDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) setIsClientDropdownOpen(false);
       if (servicoDropdownRef.current && !servicoDropdownRef.current.contains(event.target as Node)) setIsServicoDropdownOpen(false);
-      if (pecaDropdownRef.current && !pecaDropdownRef.current.contains(event.target as Node)) setIsPecaDropdownOpen(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -100,8 +132,26 @@ const OrcamentoForm: React.FC = () => {
 
         const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
         const snapE = await getDocs(qE);
-        const dataE: any[] = [];
-        snapE.forEach((doc) => dataE.push({ id: doc.id, ...doc.data() }));
+        const dataE: PecaOrcamento[] = [];
+        snapE.forEach((doc) => {
+          const data = doc.data();
+          dataE.push({
+            id: doc.id,
+            nome: data.nome || '',
+            precoVenda: Number(data.precoVenda ?? 0),
+            quantidade: Number(data.quantidade ?? 0),
+            codigo: data.codigo || '',
+            codigoBarras: data.codigoBarras || '',
+            referencia: data.referencia || '',
+            skuSistema: data.skuSistema || '',
+            marca: data.marca || '',
+            categoria: data.categoria || '',
+            fornecedor: data.fornecedor || '',
+            unidadeMedidaSigla: data.unidadeMedidaSigla,
+            unidadeMedidaFracionado: data.unidadeMedidaFracionado,
+            unidadeMedidaCasasDecimais: data.unidadeMedidaCasasDecimais,
+          });
+        });
         setPecasEstoque(dataE);
 
         // Fetch Configurações
@@ -164,44 +214,57 @@ const OrcamentoForm: React.FC = () => {
   const handleClearPecaInput = () => {
     setPecaNomeInput('');
     setPecaPrecoInput('');
-    setIsPecaDropdownOpen(false);
+    setPecaSelecionada(null);
   };
 
   const handleAddItem = (tipo: 'servico' | 'peca') => {
     const nome = tipo === 'servico' ? servicoNomeInput : pecaNomeInput;
     const preco = tipo === 'servico' ? servicoPrecoInput : pecaPrecoInput;
-    
+
     if (!nome || !preco) return;
-    
+
     const precoNum = parseFloat(preco.replace(',', '.'));
-    const catalogo = tipo === 'servico' ? servicosCatalogo : pecasEstoque;
-    const exists = catalogo.find(i => i.nome.toLowerCase() === nome.toLowerCase());
+
+    let existingId: string | undefined;
+    let unidadeMedidaSigla: string | undefined;
+    let unidadeMedidaFracionado: boolean | undefined;
+    let unidadeMedidaCasasDecimais: number | undefined;
 
     if (tipo === 'peca') {
-      if (!permitirVendaSemEstoque && exists) {
-        if (1 > (exists.quantidade || 0)) {
-          showError('Estoque Insuficiente', `Você tem apenas ${exists.quantidade || 0} un. no estoque. Venda sem estoque desativada.`);
-          return;
-        }
+      const peca = pecaSelecionada || pecasEstoque.find(p => p.nome.toLowerCase() === nome.toLowerCase());
+      existingId = peca?.id;
+      unidadeMedidaSigla = peca?.unidadeMedidaSigla;
+      unidadeMedidaFracionado = peca?.unidadeMedidaFracionado;
+      unidadeMedidaCasasDecimais = peca?.unidadeMedidaCasasDecimais;
+
+      if (!permitirVendaSemEstoque && peca && 1 > (peca.quantidade || 0)) {
+        showError('Estoque Insuficiente', `Você tem apenas ${peca.quantidade || 0} un. no estoque. Venda sem estoque desativada.`);
+        return;
       }
+    } else {
+      existingId = servicosCatalogo.find(s => s.nome.toLowerCase() === nome.toLowerCase())?.id;
     }
 
     const novoItem: ItemOrcamento = {
-      id: exists?.id || 'avulso',
+      id: existingId || 'avulso',
       nome: nome.toUpperCase(),
       preco: precoNum,
       quantidade: 1,
-      tipo
+      tipo,
+      unidadeMedidaSigla,
+      unidadeMedidaFracionado,
+      unidadeMedidaCasasDecimais,
     };
 
     setItens([...itens, novoItem]);
-    
+
     if (tipo === 'servico') {
       setServicoNomeInput('');
       setServicoPrecoInput('');
     } else {
       setPecaNomeInput('');
       setPecaPrecoInput('');
+      setPecaSelecionada(null);
     }
   };
 
@@ -211,17 +274,28 @@ const OrcamentoForm: React.FC = () => {
 
   const updateItemQtd = (index: number, qtd: number) => {
     const novos = [...itens];
-    const novaQtd = Math.max(1, qtd);
-    
-    if (novos[index].tipo === 'peca' && !permitirVendaSemEstoque) {
-      const pecaEstoque = pecasEstoque.find(p => p.id === novos[index].id);
-      if (pecaEstoque && novaQtd > (pecaEstoque.quantidade || 0)) {
-        showError('Estoque Insuficiente', `Você tem apenas ${pecaEstoque.quantidade || 0} un. no estoque.`);
+    const item = novos[index];
+
+    if (item.tipo === 'peca') {
+      if (!isValidSaleQuantity(qtd, item.unidadeMedidaFracionado)) {
+        showError('Operação Bloqueada', `A peça ${item.nome} está configurada na unidade ${item.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
         return;
       }
+
+      if (!permitirVendaSemEstoque) {
+        const pecaEstoque = pecasEstoque.find(p => p.id === item.id);
+        if (pecaEstoque && qtd > (pecaEstoque.quantidade || 0)) {
+          showError('Estoque Insuficiente', `Você tem apenas ${pecaEstoque.quantidade || 0} un. no estoque.`);
+          return;
+        }
+      }
+
+      novos[index].quantidade = qtd;
+      setItens(novos);
+      return;
     }
 
-    novos[index].quantidade = novaQtd;
+    novos[index].quantidade = Math.max(1, qtd);
     setItens(novos);
   };
 
@@ -479,50 +553,38 @@ const OrcamentoForm: React.FC = () => {
               <User size={20} className="section-icon" />
               <h3>Dados do Cliente</h3>
             </div>
-            <div className="input-group" style={{ position: 'relative' }} ref={dropdownRef}>
+            <div className="input-group" style={{ position: 'relative' }}>
               <label>Cliente</label>
-              <input
-                type="text"
-                name="clienteNome"
+              <ClientAutocomplete
                 value={formData.clienteNome}
-                onChange={(e) => { handleChange(e); setIsClientDropdownOpen(true); }}
-                onFocus={() => setIsClientDropdownOpen(true)}
+                onChange={(value) => setFormData({ ...formData, clienteNome: value })}
+                clients={clientesDisponiveis}
+                onSelect={(cliente) => {
+                  const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === cliente.id);
+                  if (vDoCliente.length === 1) {
+                    const v = vDoCliente[0];
+                    setFormData({ ...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone, placa: v.placa, modelo: v.modelo, ano: v.ano, cor: v.cor });
+                    setVeiculosDoCliente([]);
+                    setIsVeiculoDropdownOpen(false);
+                  } else if (vDoCliente.length > 1) {
+                    setFormData({ ...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone });
+                    setVeiculosDoCliente(vDoCliente);
+                    setIsVeiculoDropdownOpen(true);
+                  } else {
+                    setFormData({ ...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone });
+                    setVeiculosDoCliente([]);
+                    setIsVeiculoDropdownOpen(false);
+                  }
+                }}
                 placeholder="Busque ou digite o nome"
-                autoComplete="off"
-                style={{ textTransform: 'uppercase' }}
+                ariaLabel="Buscar cliente"
+                renderItem={(cliente) => (
+                  <>
+                    <span>{cliente.nome}</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{cliente.telefone}</span>
+                  </>
+                )}
               />
-              {isClientDropdownOpen && (
-                <div className="select-dropdown">
-                  {clientesDisponiveis.filter(c => c.nome.toLowerCase().includes(formData.clienteNome.toLowerCase())).map(cliente => (
-                    <div 
-                      key={cliente.id} 
-                      className="select-option"
-                      onClick={() => {
-                        setIsClientDropdownOpen(false);
-                        
-                        const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === cliente.id);
-                        if (vDoCliente.length === 1) {
-                          const v = vDoCliente[0];
-                          setFormData({...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone, placa: v.placa, modelo: v.modelo, ano: v.ano, cor: v.cor});
-                          setVeiculosDoCliente([]);
-                          setIsVeiculoDropdownOpen(false);
-                        } else if (vDoCliente.length > 1) {
-                          setFormData({...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone});
-                          setVeiculosDoCliente(vDoCliente);
-                          setIsVeiculoDropdownOpen(true);
-                        } else {
-                          setFormData({...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone});
-                          setVeiculosDoCliente([]);
-                          setIsVeiculoDropdownOpen(false);
-                        }
-                      }}
-                    >
-                      <span>{cliente.nome}</span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{cliente.telefone}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
             <div className="input-group">
               <label>WhatsApp / Telefone</label>
@@ -652,15 +714,26 @@ const OrcamentoForm: React.FC = () => {
               <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '8px 0' }}></div>
 
               <div className="item-add-row">
-                <div style={{ position: 'relative' }} ref={pecaDropdownRef}>
+                <div style={{ position: 'relative' }}>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Peça / Produto</label>
-                  <input 
-                    type="text" 
-                    placeholder="Nome da Peça..." 
+                  <ProductAutocomplete
                     value={pecaNomeInput}
-                    onChange={(e) => { setPecaNomeInput(e.target.value); setIsPecaDropdownOpen(true); }}
-                    onFocus={() => setIsPecaDropdownOpen(true)}
-                    style={{ paddingRight: '42px' }}
+                    products={pecasEstoque}
+                    onChange={(value) => {
+                      setPecaNomeInput(value);
+                      const existsExact = pecasEstoque.find(p => p.nome.toLowerCase() === value.toLowerCase());
+                      setPecaSelecionada(existsExact || null);
+                    }}
+                    onSelect={(p) => {
+                      setPecaNomeInput(p.nome);
+                      setPecaPrecoInput(p.precoVenda.toString());
+                      setPecaSelecionada(p);
+                    }}
+                    placeholder="Nome da Peça..."
+                    ariaLabel="Buscar peça"
+                    className="has-clear-btn"
+                    onViewMore={() => setIsPecaSearchModalOpen(true)}
+                    renderItem={renderPecaRow}
                   />
                   {pecaNomeInput && (
                     <button
@@ -673,20 +746,19 @@ const OrcamentoForm: React.FC = () => {
                       <X size={16} />
                     </button>
                   )}
-                  {isPecaDropdownOpen && pecasEstoque.filter(p => p.nome.toLowerCase().includes(pecaNomeInput.toLowerCase())).length > 0 && (
-                    <div className="select-dropdown">
-                      {pecasEstoque.filter(p => p.nome.toLowerCase().includes(pecaNomeInput.toLowerCase())).map(p => (
-                        <div key={p.id} className="select-option" onClick={() => {
-                          setPecaNomeInput(p.nome);
-                          setPecaPrecoInput(p.precoVenda.toString());
-                          setIsPecaDropdownOpen(false);
-                        }}>
-                          <span>{p.nome}</span>
-                          <span style={{ color: '#10b981' }}>R$ {p.precoVenda.toFixed(2)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <ProductSearchModal
+                    open={isPecaSearchModalOpen}
+                    onClose={() => setIsPecaSearchModalOpen(false)}
+                    products={pecasEstoque}
+                    onSelect={(p) => {
+                      setPecaNomeInput(p.nome);
+                      setPecaPrecoInput(p.precoVenda.toString());
+                      setPecaSelecionada(p);
+                    }}
+                    renderItem={renderPecaRow}
+                    initialQuery={pecaNomeInput}
+                    title="Buscar peça"
+                  />
                 </div>
                 <div>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Preço</label>
@@ -706,10 +778,12 @@ const OrcamentoForm: React.FC = () => {
                     <div className="item-type">{item.tipo === 'servico' ? 'Mão de Obra' : 'Peça/Produto'}</div>
                   </div>
                   <div className="item-actions">
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       className="item-qty-input"
-                      value={item.quantidade} 
+                      min="0.001"
+                      step={item.tipo === 'peca' && item.unidadeMedidaFracionado ? 'any' : '1'}
+                      value={item.quantidade}
                       onChange={(e) => updateItemQtd(index, Number(e.target.value))}
                     />
                     <div className="item-total-price">

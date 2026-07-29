@@ -1,3 +1,5 @@
+import { normalizeSearchText } from './textSearch';
+
 export type ProductSearchMode = 'exata' | 'completa';
 
 export interface SearchableProduct {
@@ -30,18 +32,7 @@ const DEFAULT_LIMIT = 6;
 const CODE_FIELDS: Array<keyof SearchableProduct> = ['codigo', 'codigoBarras', 'referencia', 'skuSistema'];
 const TEXT_FIELDS: Array<keyof SearchableProduct> = ['nome', 'marca', 'categoria', 'fornecedor'];
 
-const DIACRITICS_PATTERN = new RegExp(
-  '[' + String.fromCharCode(0x0300) + '-' + String.fromCharCode(0x036f) + ']',
-  'g',
-);
-
-const normalize = (value: unknown): string => (
-  String(value ?? '')
-    .normalize('NFD')
-    .replace(DIACRITICS_PATTERN, '')
-    .trim()
-    .toLowerCase()
-);
+const normalize = normalizeSearchText;
 
 const matchesByMode = (haystack: string, term: string, mode: ProductSearchMode): boolean => {
   if (!haystack) return false;

@@ -33,6 +33,7 @@ import {
 } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
+import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import CartPanel from './components/CartPanel';
 import ClientModal from './components/ClientModal';
 import DiscountModal from './components/DiscountModal';
@@ -251,7 +252,7 @@ const PDV: React.FC = () => {
 
   const validateQuantity = useCallback((product: PdvProduct, nextQuantity: number) => {
     if (nextQuantity <= 0) return false;
-    if (product.unidadeMedidaFracionado === false && !Number.isInteger(nextQuantity)) {
+    if (!isValidSaleQuantity(nextQuantity, product.unidadeMedidaFracionado)) {
       showError('Operação bloqueada', `O produto ${product.nome} não permite quantidade fracionada.`);
       return false;
     }
@@ -330,7 +331,7 @@ const PDV: React.FC = () => {
       text: selectedItem.nome,
       input: 'number',
       inputValue: String(selectedItem.quantidade),
-      inputAttributes: { min: '0.001', step: selectedItem.unidadeMedidaFracionado === false ? '1' : '0.001' },
+      inputAttributes: { min: '0.001', step: selectedItem.unidadeMedidaFracionado === true ? '0.001' : '1' },
       showCancelButton: true,
       confirmButtonText: 'Aplicar',
       cancelButtonText: 'Cancelar',

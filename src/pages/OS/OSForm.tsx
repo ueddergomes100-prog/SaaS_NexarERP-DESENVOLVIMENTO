@@ -11,7 +11,9 @@ import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
+import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
+import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildServiceOrderCommissionSnapshot,
@@ -33,8 +35,26 @@ import './OS.css';
 interface ClienteBasico { id: string; nome: string; telefone: string; }
 interface ServicoData { id: string; nome: string; preco: number; }
 interface ServicoSelecionado { id: string; nome: string; preco: number; quantidade: number; detalhamento?: string; tempoHoras?: number; }
-interface PecaData { id: string; nome: string; precoVenda: number; quantidade?: number; codigo?: string; codigoBarras?: string; }
-interface PecaSelecionada { id: string; nome: string; preco: number; quantidade: number; }
+interface PecaData {
+  id: string;
+  nome: string;
+  precoVenda: number;
+  quantidade?: number;
+  codigo?: string;
+  codigoBarras?: string;
+  unidadeMedidaSigla?: string;
+  unidadeMedidaFracionado?: boolean;
+  unidadeMedidaCasasDecimais?: number;
+}
+interface PecaSelecionada {
+  id: string;
+  nome: string;
+  preco: number;
+  quantidade: number;
+  unidadeMedidaSigla?: string;
+  unidadeMedidaFracionado?: boolean;
+  unidadeMedidaCasasDecimais?: number;
+}
 
 const renderPecaRow = (p: PecaData) => (
   <>
@@ -120,9 +140,7 @@ const OSForm: React.FC = () => {
 
   const { currentUser, tenantId, userRole } = useAuth();
 
-  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const [isServicoDropdownOpen, setIsServicoDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
   const servicoDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -138,9 +156,6 @@ const OSForm: React.FC = () => {
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsClientDropdownOpen(false);
-      }
       if (servicoDropdownRef.current && !servicoDropdownRef.current.contains(event.target as Node)) {
         setIsServicoDropdownOpen(false);
       }
@@ -196,6 +211,9 @@ const OSForm: React.FC = () => {
         quantidade: doc.data().quantidade || 0,
         codigo: doc.data().codigo || '',
         codigoBarras: doc.data().codigoBarras || '',
+        unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
+        unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
+        unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
       }));
       setPecasEstoque(dataE);
 
@@ -358,13 +376,6 @@ const OSForm: React.FC = () => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    if (name === 'clienteNome') {
-      const clienteEncontrado = clientesDisponiveis.find(c => c.nome === value);
-      if (clienteEncontrado) {
-        setFormData({ ...formData, clienteNome: value, clienteTelefone: clienteEncontrado.telefone || '' });
-        return;
-      }
-    }
     if (name === 'mecanicoId') {
       const mecEncontrado = mecanicosDisponiveis.find(m => m.id === value);
       setFormData({ ...formData, mecanicoId: value, mecanicoNome: mecEncontrado ? mecEncontrado.nome : '' });
@@ -496,7 +507,15 @@ const OSForm: React.FC = () => {
         showError('Estoque Insuficiente', `A peça ${peca.nome} está sem estoque. Venda sem estoque desativada.`);
         return;
       }
-      setPecasSelecionadas([...pecasSelecionadas, { id: peca.id, nome: peca.nome, preco: precoNum, quantidade: 1 }]);
+      setPecasSelecionadas([...pecasSelecionadas, {
+        id: peca.id,
+        nome: peca.nome,
+        preco: precoNum,
+        quantidade: 1,
+        unidadeMedidaSigla: peca.unidadeMedidaSigla,
+        unidadeMedidaFracionado: peca.unidadeMedidaFracionado,
+        unidadeMedidaCasasDecimais: peca.unidadeMedidaCasasDecimais,
+      }]);
       setPecaNomeInput('');
       setPecaPrecoInput('');
     }
@@ -510,17 +529,22 @@ const OSForm: React.FC = () => {
 
   const updateQuantidadePeca = (index: number, qtd: number) => {
     const novas = [...pecasSelecionadas];
-    const novaQtd = Math.max(1, qtd);
-    
+    const peca = novas[index];
+
+    if (!isValidSaleQuantity(qtd, peca.unidadeMedidaFracionado)) {
+      showError('Operação Bloqueada', `A peça ${peca.nome} está configurada na unidade ${peca.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
+      return;
+    }
+
     if (!permitirVendaSemEstoque) {
-      const pecaEstoque = pecasEstoque.find(p => p.id === novas[index].id);
-      if (pecaEstoque && novaQtd > (pecaEstoque.quantidade || 0)) {
+      const pecaEstoque = pecasEstoque.find(p => p.id === peca.id);
+      if (pecaEstoque && qtd > (pecaEstoque.quantidade || 0)) {
         showError('Estoque Insuficiente', `Você tem apenas ${pecaEstoque.quantidade || 0} un. no estoque.`);
         return;
       }
     }
-    
-    novas[index].quantidade = novaQtd;
+
+    novas[index].quantidade = qtd;
     setPecasSelecionadas(novas);
   };
 
@@ -999,74 +1023,56 @@ const OSForm: React.FC = () => {
               <User size={20} className="section-icon" />
               <h3>Dados do Cliente</h3>
             </div>
-            <div className="input-group" style={{ position: 'relative' }} ref={dropdownRef}>
+            <div className="input-group" style={{ position: 'relative' }}>
               <label>Nome do Cliente *</label>
-              <input 
-                type="text" 
-                name="clienteNome" 
-                placeholder="Busque ou digite novo..." 
-                value={formData.clienteNome} 
-                onChange={(e) => {
-                  handleChange(e);
-                  setIsClientDropdownOpen(true);
-                }} 
-                onFocus={() => setIsClientDropdownOpen(true)}
-                autoComplete="off" 
-                style={{ textTransform: 'uppercase' }}
+              <ClientAutocomplete
+                value={formData.clienteNome}
+                onChange={(value) => setFormData({ ...formData, clienteNome: value })}
+                clients={clientesDisponiveis}
+                onSelect={(c) => {
+                  const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === c.id);
+                  if (vDoCliente.length === 1) {
+                    const v = vDoCliente[0];
+                    setFormData({
+                      ...formData,
+                      clienteNome: c.nome,
+                      clienteTelefone: c.telefone || '',
+                      placa: v.placa,
+                      modelo: v.modelo,
+                      marca: v.marca,
+                      ano: v.ano,
+                      cor: v.cor,
+                      renavam: v.renavam,
+                      quilometragem: v.kmAtual ? String(v.kmAtual) : '',
+                      combustivel: v.combustivel,
+                    });
+                    setVeiculosDoCliente([]);
+                    setIsVeiculoDropdownOpen(false);
+                  } else if (vDoCliente.length > 1) {
+                    setFormData({ ...formData, clienteNome: c.nome, clienteTelefone: c.telefone || '' });
+                    setVeiculosDoCliente(vDoCliente);
+                    setIsVeiculoDropdownOpen(true);
+                  } else {
+                    setFormData({ ...formData, clienteNome: c.nome, clienteTelefone: c.telefone || '' });
+                    setVeiculosDoCliente([]);
+                    setIsVeiculoDropdownOpen(false);
+                  }
+                }}
+                placeholder="Busque ou digite novo..."
+                ariaLabel="Buscar cliente"
+                emptyHint={
+                  <>
+                    <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                    Cadastrar "{formData.clienteNome}" como novo cliente
+                  </>
+                }
+                renderItem={(c) => (
+                  <>
+                    <span>{c.nome}</span>
+                    <span>{c.telefone}</span>
+                  </>
+                )}
               />
-              {isClientDropdownOpen && (
-                <div className="select-dropdown">
-                  {clientesDisponiveis
-                    .filter(c => c.nome.toLowerCase().includes(formData.clienteNome.toLowerCase()))
-                    .map(c => (
-                      <div 
-                        key={c.id} 
-                        className="select-option"
-                        onClick={() => {
-                          setIsClientDropdownOpen(false);
-                          
-                          // Check for vehicles linked to this client
-                          const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === c.id);
-                          if (vDoCliente.length === 1) {
-                            const v = vDoCliente[0];
-                            setFormData({
-                              ...formData,
-                              clienteNome: c.nome,
-                              clienteTelefone: c.telefone || '',
-                              placa: v.placa,
-                              modelo: v.modelo,
-                              marca: v.marca,
-                              ano: v.ano,
-                              cor: v.cor,
-                              renavam: v.renavam,
-                              quilometragem: v.kmAtual ? String(v.kmAtual) : '',
-                              combustivel: v.combustivel,
-                            });
-                            setVeiculosDoCliente([]);
-                            setIsVeiculoDropdownOpen(false);
-                          } else if (vDoCliente.length > 1) {
-                            setFormData({ ...formData, clienteNome: c.nome, clienteTelefone: c.telefone || '' });
-                            setVeiculosDoCliente(vDoCliente);
-                            setIsVeiculoDropdownOpen(true);
-                          } else {
-                            setFormData({ ...formData, clienteNome: c.nome, clienteTelefone: c.telefone || '' });
-                            setVeiculosDoCliente([]);
-                            setIsVeiculoDropdownOpen(false);
-                          }
-                        }}
-                      >
-                        <span>{c.nome}</span>
-                        <span>{c.telefone}</span>
-                      </div>
-                    ))}
-                  {formData.clienteNome && !clientesDisponiveis.some(c => c.nome.toLowerCase() === formData.clienteNome.toLowerCase()) && (
-                    <div style={{ padding: '12px 16px', color: 'var(--accent-purple)', fontSize: '13px', fontWeight: 500 }}>
-                      <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }}/>
-                      Cadastrar "{formData.clienteNome}" como novo cliente
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
             <div className="input-group">
               <label>Telefone / WhatsApp</label>
@@ -1405,12 +1411,13 @@ const OSForm: React.FC = () => {
                       <tr key={index} style={{ borderBottom: '1px solid var(--border-color)' }}>
                         <td style={{ padding: '8px 0' }}>{p.nome}</td>
                         <td style={{ padding: '8px 0', width: '70px' }}>
-                          <input 
-                            type="number" 
-                            value={p.quantidade} 
+                          <input
+                            type="number"
+                            value={p.quantidade}
                             onChange={e => updateQuantidadePeca(index, Number(e.target.value))}
-                            style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '4px', fontSize: '13px' }} 
-                            min="1" 
+                            style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '4px', fontSize: '13px' }}
+                            min="0.001"
+                            step={p.unidadeMedidaFracionado ? 'any' : '1'}
                           />
                         </td>
                         <td style={{ padding: '8px 0', width: '120px' }}>

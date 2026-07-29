@@ -11,6 +11,9 @@ const testFiles = [
   join(temporaryDirectory, 'tests', 'catalogDefaults.test.js'),
   join(temporaryDirectory, 'tests', 'roles.test.js'),
   join(temporaryDirectory, 'tests', 'documentMetadata.test.js'),
+  join(temporaryDirectory, 'tests', 'textSearch.test.js'),
+  join(temporaryDirectory, 'tests', 'clientSearch.test.js'),
+  join(temporaryDirectory, 'tests', 'saleQuantity.test.js'),
 ];
 
 try {
@@ -22,6 +25,9 @@ try {
     'tests/catalogDefaults.test.ts',
     'tests/roles.test.ts',
     'tests/documentMetadata.test.ts',
+    'tests/textSearch.test.ts',
+    'tests/clientSearch.test.ts',
+    'tests/saleQuantity.test.ts',
     'src/utils/financeDomain.ts',
     'src/utils/dateTime.ts',
     'src/utils/productSearch.ts',
@@ -29,6 +35,9 @@ try {
     'src/utils/catalogDefaults.ts',
     'src/utils/roles.ts',
     'src/utils/documentMetadata.ts',
+    'src/utils/textSearch.ts',
+    'src/utils/clientSearch.ts',
+    'src/utils/saleQuantity.ts',
     '--ignoreConfig',
     '--outDir', temporaryDirectory,
     '--rootDir', '.',

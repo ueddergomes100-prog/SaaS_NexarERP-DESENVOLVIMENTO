@@ -11,7 +11,9 @@ import { isPlatformAdminRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
+import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
+import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildCommissionSnapshot,
@@ -134,9 +136,6 @@ const PedidoVendaForm: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
 
-  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
-  const clientDropdownRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     if (currentUser && !vendedorId) setVendedorId(currentUser.uid);
   }, [currentUser, vendedorId]);
@@ -152,15 +151,6 @@ const PedidoVendaForm: React.FC = () => {
     )));
   }, [clienteNome]);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (clientDropdownRef.current && !clientDropdownRef.current.contains(event.target as Node)) {
-        setIsClientDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -348,7 +338,7 @@ const PedidoVendaForm: React.FC = () => {
       }
 
       // Validação de Venda Fracionada
-      if (produtoEncontrado.unidadeMedidaFracionado === false && !Number.isInteger(qtdNum)) {
+      if (!isValidSaleQuantity(qtdNum, produtoEncontrado.unidadeMedidaFracionado)) {
         showError('Operação Bloqueada', `O produto ${produtoEncontrado.nome} está configurado na unidade ${produtoEncontrado.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
         return;
       }
@@ -1372,34 +1362,23 @@ const PedidoVendaForm: React.FC = () => {
               <User size={20} className="section-icon" />
               <h3>Dados do Cliente</h3>
             </div>
-            <div className="input-group" style={{ position: 'relative' }} ref={clientDropdownRef}>
+            <div className="input-group" style={{ position: 'relative' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome do Cliente ou Consumidor Final *</label>
-              <input
-                type="text"
-                placeholder="Busque ou digite o nome do cliente..."
+              <ClientAutocomplete
                 value={clienteNome}
-                onChange={(e) => { setClienteNome(e.target.value); setIsClientDropdownOpen(true); }}
-                onFocus={() => setIsClientDropdownOpen(true)}
+                onChange={setClienteNome}
+                clients={clientesDisponiveis}
+                onSelect={(c) => setClienteNome(c.nome)}
                 disabled={isViewing}
-                autoComplete="off"
-                style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
+                placeholder="Busque ou digite o nome do cliente..."
+                ariaLabel="Buscar cliente"
+                renderItem={(c) => (
+                  <>
+                    <span>{c.nome}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{c.telefone}</span>
+                  </>
+                )}
               />
-              {!isViewing && isClientDropdownOpen && clientesDisponiveis.filter(c => c.nome.toLowerCase().includes(clienteNome.toLowerCase())).length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', maxHeight: '200px', overflowY: 'auto', zIndex: 50, boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
-                  {clientesDisponiveis.filter(c => c.nome.toLowerCase().includes(clienteNome.toLowerCase())).map(c => (
-                    <div
-                      key={c.id}
-                      onClick={() => { setClienteNome(c.nome); setIsClientDropdownOpen(false); }}
-                      style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}
-                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                    >
-                      <span>{c.nome}</span>
-                      <span style={{ color: 'var(--text-muted)' }}>{c.telefone}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
             <div className="input-group" style={{ marginTop: '16px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Vendedor responsável *</label>

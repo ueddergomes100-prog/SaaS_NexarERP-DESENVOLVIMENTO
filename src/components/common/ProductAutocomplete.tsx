@@ -56,10 +56,16 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
 
-  const result = useMemo(
-    () => searchProducts(products, value, { mode, limit }),
-    [products, value, mode, limit],
-  );
+  const result = useMemo(() => {
+    if (!value.trim()) {
+      return {
+        items: products.slice(0, limit),
+        total: products.length,
+        truncated: products.length > limit,
+      };
+    }
+    return searchProducts(products, value, { mode, limit });
+  }, [products, value, mode, limit]);
 
   useEffect(() => {
     setHighlightedIndex(0);
@@ -93,7 +99,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   };
 
   const trimmedValue = value.trim();
-  const showResults = isOpen && trimmedValue.length > 0 && result.items.length > 0;
+  const showResults = isOpen && result.items.length > 0;
   const showEmpty = isOpen && trimmedValue.length > 0 && result.items.length === 0 && emptyHint !== undefined;
   const extraCount = result.total - result.items.length;
 

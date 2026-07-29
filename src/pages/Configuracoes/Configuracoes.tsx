@@ -1150,7 +1150,9 @@ const Configuracoes: React.FC = () => {
                 <CreditCard size={19} style={{ color: '#8b5cf6' }} />
                 <div>
                   <h4 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '14px' }}>Cartões e Recebimento</h4>
-                  <p style={{ margin: '3px 0 0', color: 'var(--text-muted)', fontSize: '12px' }}>Regras usadas no cálculo de taxas, líquido e previsão de recebimento.</p>
+                  <p style={{ margin: '3px 0 0', color: 'var(--text-muted)', fontSize: '12px' }}>
+                    Taxas e prazos de recebimento agora são configurados por bandeira em Cadastros → Bandeiras de Cartão.
+                  </p>
                 </div>
               </div>
 
@@ -1168,152 +1170,6 @@ const Configuracoes: React.FC = () => {
                   disabled={!isEditingMode}
                 />
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Define até qual opção, entre 1x e 12x, poderá ser usada na operação.</p>
-              </div>
-
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={{ display: 'block', marginBottom: '10px', fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                  Taxas dos cartões
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(94px, 1fr))', gap: '10px', minWidth: 0 }}>
-                  <label
-                    htmlFor="taxaCartaoDebitoPercentual"
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '6px',
-                      padding: '10px',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border-color)',
-                      backgroundColor: 'var(--bg-tertiary)',
-                      minWidth: 0,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700, textAlign: 'center' }}>
-                      À vista
-                    </span>
-                    <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
-                      <input
-                        id="taxaCartaoDebitoPercentual"
-                        type="number"
-                        name="taxaCartaoDebitoPercentual"
-                        min="0"
-                        max="100"
-                        step="0.01"
-                        value={formData.taxaCartaoDebitoPercentual}
-                        onChange={handleChange}
-                        disabled={!isEditingMode}
-                        aria-label="Taxa do cartão de débito à vista"
-                        style={{
-                          display: 'block',
-                          width: '100%',
-                          minWidth: 0,
-                          maxWidth: '100%',
-                          height: '36px',
-                          padding: '8px 24px 8px 8px',
-                          boxSizing: 'border-box',
-                          textAlign: 'center',
-                          fontWeight: 700,
-                        }}
-                      />
-                      <span style={{ position: 'absolute', right: '9px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '12px', pointerEvents: 'none' }}>%</span>
-                    </div>
-                  </label>
-                  {Array.from({ length: 12 }, (_, index) => {
-                    const installments = String(index + 1);
-                    return (
-                      <label
-                        key={installments}
-                        htmlFor={`creditCardFee-${installments}`}
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '6px',
-                          padding: '10px',
-                          borderRadius: 'var(--radius-md)',
-                          border: '1px solid var(--border-color)',
-                          backgroundColor: 'var(--bg-tertiary)',
-                          minWidth: 0,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700, textAlign: 'center' }}>
-                          {installments}x
-                        </span>
-                        <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
-                          <input
-                            id={`creditCardFee-${installments}`}
-                            type="number"
-                            min="0"
-                            max="100"
-                            step="0.01"
-                            value={formData.taxasCartaoCreditoPorParcela[installments]}
-                            onChange={(event) => setFormData((current) => ({
-                              ...current,
-                              taxasCartaoCreditoPorParcela: {
-                                ...current.taxasCartaoCreditoPorParcela,
-                                [installments]: event.target.value,
-                              },
-                            }))}
-                            disabled={!isEditingMode}
-                            aria-label={`Taxa do cartão de crédito em ${installments} parcelas`}
-                            style={{
-                              display: 'block',
-                              width: '100%',
-                              minWidth: 0,
-                              maxWidth: '100%',
-                              height: '36px',
-                              padding: '8px 24px 8px 8px',
-                              boxSizing: 'border-box',
-                              textAlign: 'center',
-                              fontWeight: 700,
-                            }}
-                          />
-                          <span style={{ position: 'absolute', right: '9px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '12px', pointerEvents: 'none' }}>%</span>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '9px 0 0' }}>
-                  À vista representa o débito. No crédito, a taxa correspondente ao número de parcelas será aplicada internamente no fechamento financeiro.
-                </p>
-              </div>
-
-              <div className="input-group">
-                <label htmlFor="prazoRecebimentoCartaoCreditoDias">Primeiro recebimento do crédito (dias)</label>
-                <input
-                  id="prazoRecebimentoCartaoCreditoDias"
-                  type="number"
-                  name="prazoRecebimentoCartaoCreditoDias"
-                  min="0"
-                  max="365"
-                  step="1"
-                  value={formData.prazoRecebimentoCartaoCreditoDias}
-                  onChange={handleChange}
-                  disabled={!isEditingMode}
-                />
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>As parcelas seguintes são previstas mês a mês a partir desta data.</p>
-              </div>
-
-              <div className="input-group">
-                <label htmlFor="prazoRecebimentoCartaoDebitoDias">Recebimento do débito (dias)</label>
-                <input
-                  id="prazoRecebimentoCartaoDebitoDias"
-                  type="number"
-                  name="prazoRecebimentoCartaoDebitoDias"
-                  min="0"
-                  max="365"
-                  step="1"
-                  value={formData.prazoRecebimentoCartaoDebitoDias}
-                  onChange={handleChange}
-                  disabled={!isEditingMode}
-                />
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Use 0 quando a operadora creditar no mesmo dia.</p>
-              </div>
-
-              <div style={{ gridColumn: '1 / -1', padding: '12px 14px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.2)', color: 'var(--text-secondary)', fontSize: '12px', lineHeight: 1.5 }}>
-                Essas regras são aplicadas automaticamente ao selecionar cartão ou pagamento a prazo. Cada pagamento continua permitindo informar uma data prevista específica.
               </div>
             </div>
           )}

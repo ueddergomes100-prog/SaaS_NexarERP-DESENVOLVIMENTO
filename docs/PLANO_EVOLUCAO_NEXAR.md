@@ -311,6 +311,22 @@ Ver também [[project-plano-evolucao-nexar]].
 
 **Pendente — validação manual:** mesma limitação de login. Falta finalizar uma venda de teste parcelada numa bandeira com taxa configurada e conferir em Contas a Receber que aparecem as N linhas com valores e vencimentos corretos.
 
+### F16 — Tela "Banco" para conciliação de cartão + Contas a Receber só a Prazo (feature, 2026-07-29)
+
+**Não estava no prompt original.** Pedido direto do usuário: cartão de crédito/débito pendente caía em Contas a Receber junto com Pagamento a Prazo, e "dar baixa" lá deixava escolher qualquer forma de recebimento — não faz sentido pra cartão, que é garantido pela operadora e só precisa de conciliação bancária (confirmar que caiu, líquido da taxa da bandeira já configurada por bandeira desde o F14).
+
+**Decisões confirmadas com o usuário:** uma tela só, "Banco", cobre cartão pendente + saldo digital confirmado (não duas telas); Pix/Transferência continuam confirmados automaticamente na venda como sempre foram, só cartão fica pendente aguardando conciliação manual; Fluxo de Caixa continua só sobre dinheiro físico pro saldo, mas ganha uma lista informativa (sem soma) das vendas de PDV em meios digitais.
+
+**Implementado:**
+- [`ContasReceber.tsx`](../src/pages/Financeiro/ContasReceber.tsx): `contasPendentes` exclui Cartão de Crédito/Débito — fica só com Boleto/Pagamento a Prazo/Outros, os títulos que realmente dependem de cobrança.
+- Nova tela [`Banco.tsx`](../src/pages/Financeiro/Banco.tsx) (`/financeiro/banco`): seção "Cartão pendente de conciliação" (lista plana, não agrupada por cliente — quem olha é o financeiro conferindo o banco) com botão simples "Confirmar no banco" (sem diálogo de escolha de forma, já que não tem escolha); seção "Extrato digital confirmado" com saldo do período, reaproveitando o mesmo filtro que já existia como KPI dentro de `Caixa.tsx`. A ação de confirmar reaproveita `applyPaymentReceipt`/`summarizePayments`/`settledFinancialNatureForPayment` (já existentes, testados) pra manter os `pagamentos` da venda/OS sincronizados — mesma estrutura de `ContasReceber.confirmarRecebimento`, mantida separada (não extraída em abstração compartilhada) pra não arriscar mexer numa tela que já funciona.
+- [`Caixa.tsx`](../src/pages/Financeiro/Caixa.tsx): removido o card KPI "Saldo digital líquido do período" (esse papel virou a tela Banco de verdade); nova seção "Vendas do PDV (meios digitais)" usando o campo `sourceOrigin: 'pdv'` que o PDV já gravava nas transações — só registro/visão geral do dia, **sem nenhum total somado**.
+- Nova permissão `financeiro.banco` em [`moduleCatalog.ts`](../src/utils/moduleCatalog.ts) e na regra de escrita de `transacoes` em `firestore.rules` (ao lado de `financeiro.caixa`/`.receber`/`.pagar`); item novo no Sidebar.
+
+**Não faça:** Dashboard, Faturamento e TopBar continuam lendo `transacoes` sem distinguir cartão-pendente de prazo-pendente — não reclassificado nessa entrega (fora de escopo, risco desproporcional ao pedido); Contas a Pagar (saídas) não mudou.
+
+**Pendente — validação manual e de deploy:** mesma limitação de login. Falta abrir o Banco e conciliar um cartão de teste, conferir que some de Contas a Receber e apareça no extrato digital. **A regra nova do Firestore (`financeiro.banco`) ainda precisa ser implantada em `sistema-nexus-dev`** — combinado com o usuário confirmar antes de rodar o deploy.
+
 ---
 
 ## 3. Fase 1 — Ganhos operacionais (risco baixo)

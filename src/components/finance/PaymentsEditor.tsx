@@ -17,6 +17,7 @@ import {
   buildCardFeeSchedulesByBrand,
   fromCents,
   isCardPayment,
+  paymentRequiresBankAccount,
   toCents,
   type CreditCardFeeSchedule,
   type PaymentDraft,
@@ -33,6 +34,12 @@ interface BandeiraCartao extends TenantCollectionItem {
   taxasCreditoPorParcela?: Record<string, number>;
   prazoRecebimentoCreditoDias?: number;
   prazoRecebimentoDebitoDias?: number;
+}
+
+interface Banco extends TenantCollectionItem {
+  nome: string;
+  ativo: boolean;
+  ordem: number;
 }
 
 /**
@@ -302,6 +309,10 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   const { items: bandeiras } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId, {
     sortField: 'ordem',
   });
+  const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, {
+    sortField: 'ordem',
+  });
+  const bancosAtivos = bancos.filter((b) => b.ativo);
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeiras);
   const informedCents = drafts.reduce((sum, payment) => sum + toCents(payment.valor), 0);
   const isFinalConsumer = customerName.toLowerCase().includes('consumidor final');
@@ -394,6 +405,26 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                 />
               </div>
             </div>
+
+            {paymentRequiresBankAccount(payment.forma) && (
+              <div className="input-group">
+                <label htmlFor={`${idPrefix}-banco-${payment.id}`}>Banco de destino *</label>
+                <select
+                  disabled={disabled}
+                  id={`${idPrefix}-banco-${payment.id}`}
+                  onChange={(event) => {
+                    const banco = bancosAtivos.find((b) => b.id === event.target.value);
+                    onUpdatePayment(payment.id, { bancoId: event.target.value, bancoNome: banco?.nome || '' });
+                  }}
+                  value={payment.bancoId}
+                >
+                  <option value="">Selecione...</option>
+                  {bancosAtivos.map((banco) => (
+                    <option key={banco.id} value={banco.id}>{banco.nome}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {payment.forma === 'Pagamento a Prazo' && (
               <div className="payments-editor__term-fields">

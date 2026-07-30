@@ -31,6 +31,9 @@ export interface PaymentDraft {
   autorizacao: string;
   parcelas: string;
   dataPrevistaRecebimento: string;
+  /** Banco de destino (Modulo Bancos, F18) -- exigido para Pix/Transferencia/Cartao. */
+  bancoId: string;
+  bancoNome: string;
 }
 
 export interface CardInstallment {
@@ -82,6 +85,9 @@ export interface PaymentRecord {
   naturezaRecebimento?: FinancialNature;
   recebidoEm?: string;
   sourcePaymentTransactionId?: string;
+  /** Banco de destino escolhido na venda (Modulo Bancos, F18). */
+  bancoId?: string;
+  bancoNome?: string;
 }
 
 export interface PaymentValidationOptions {
@@ -245,6 +251,17 @@ export const isCardPayment = (method: string) => (
 
 export const isPhysicalCashPayment = (method?: string) => method === 'Dinheiro';
 
+/**
+ * Pagamentos cujo destino e um banco cadastrado (Modulo Bancos, F18):
+ * Pix/Transferencia liquidam na hora, cartao fica pendente ate a
+ * conciliacao -- mas em ambos os casos o operador ja escolhe o banco na
+ * venda. Dinheiro (caixa fisico) e Boleto/Pagamento a Prazo/Outros (destino
+ * incerto ate a baixa) ficam de fora.
+ */
+export const paymentRequiresBankAccount = (method: PaymentMethod) => (
+  method === 'Pix' || method === 'Transferência' || isCardPayment(method)
+);
+
 export const financialNatureForPayment = (method: PaymentMethod): FinancialNature => {
   if (method === 'Dinheiro') return 'caixa_fisico';
   if (method === 'Pix' || method === 'Transferência') return 'bancario_digital';
@@ -345,6 +362,8 @@ export const createEmptyPaymentDraft = (
   autorizacao: '',
   parcelas: '1',
   dataPrevistaRecebimento: '',
+  bancoId: '',
+  bancoNome: '',
 });
 
 export const normalizePayments = (
@@ -362,6 +381,9 @@ export const normalizePayments = (
   const records = drafts.map((draft, index): PaymentRecord => {
     const valueCents = toCents(draft.valor);
     if (valueCents <= 0) throw new Error(`O valor do pagamento ${index + 1} deve ser maior que zero.`);
+    if (paymentRequiresBankAccount(draft.forma) && !draft.bancoId?.trim()) {
+      throw new Error(`Selecione o banco de destino do pagamento ${index + 1}.`);
+    }
 
     const isTerm = draft.forma === 'Pagamento a Prazo';
     const nature = financialNatureForPayment(draft.forma);
@@ -376,6 +398,11 @@ export const normalizePayments = (
       naturezaFinanceira: nature,
       movimentaCaixaFisico: draft.forma === 'Dinheiro',
     };
+
+    if (draft.bancoId?.trim()) {
+      record.bancoId = draft.bancoId.trim();
+      record.bancoNome = draft.bancoNome?.trim() || '';
+    }
 
     if (isTerm) {
       const informedDays = Number.parseInt(draft.prazoDias, 10);

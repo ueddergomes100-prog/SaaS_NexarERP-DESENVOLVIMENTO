@@ -3,17 +3,26 @@ import { CreditCard, Plus, Trash2, X } from 'lucide-react';
 import {
   createEmptyPaymentDraft,
   fromCents,
+  paymentRequiresBankAccount,
   toCents,
   type PaymentDraft,
   type PaymentMethod,
 } from '../../../utils/financeDomain';
+import { useTenantCollection, type TenantCollectionItem } from '../../../hooks/useTenantCollection';
 import type { PdvFinanceConfig } from '../pdvHelpers';
 import { currency } from '../pdvHelpers';
+
+interface Banco extends TenantCollectionItem {
+  nome: string;
+  ativo: boolean;
+  ordem: number;
+}
 
 interface PaymentModalProps {
   open: boolean;
   totalCents: number;
   financeConfig: PdvFinanceConfig;
+  tenantId?: string | null;
   saving?: boolean;
   onClose: () => void;
   onFinalize: (drafts: PaymentDraft[], observation: string) => void;
@@ -36,12 +45,15 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   open,
   totalCents,
   financeConfig,
+  tenantId,
   saving,
   onClose,
   onFinalize,
 }) => {
   const [drafts, setDrafts] = useState<PaymentDraft[]>([]);
   const [observation, setObservation] = useState('');
+  const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
+  const bancosAtivos = bancos.filter((b) => b.ativo);
 
   useEffect(() => {
     if (open) {
@@ -129,6 +141,24 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                   onChange={(event) => updateDraft(draft.id, { valor: event.target.value })}
                 />
               </label>
+
+              {paymentRequiresBankAccount(draft.forma) && (
+                <label>
+                  <span>Banco de destino</span>
+                  <select
+                    value={draft.bancoId}
+                    onChange={(event) => {
+                      const banco = bancosAtivos.find((b) => b.id === event.target.value);
+                      updateDraft(draft.id, { bancoId: event.target.value, bancoNome: banco?.nome || '' });
+                    }}
+                  >
+                    <option value="">Selecione...</option>
+                    {bancosAtivos.map((banco) => (
+                      <option key={banco.id} value={banco.id}>{banco.nome}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
 
               {draft.forma === 'Cartão de Crédito' && (
                 <label>

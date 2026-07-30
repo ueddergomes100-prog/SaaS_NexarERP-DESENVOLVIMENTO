@@ -331,6 +331,8 @@ const OSForm: React.FC = () => {
                 autorizacao: payment.cartao?.autorizacao || '',
                 parcelas: String(payment.cartao?.parcelas || 1),
                 dataPrevistaRecebimento: payment.dataPrevistaRecebimento || payment.cartao?.dataPrevistaRecebimento || '',
+                bancoId: payment.bancoId || '',
+                bancoNome: payment.bancoNome || '',
               })));
               paymentDraftCounter.current = os.pagamentos.length;
             } else {
@@ -760,6 +762,22 @@ const OSForm: React.FC = () => {
           paymentTransactionSnapshots.map((snapshot) => [snapshot.id, snapshot]),
         );
 
+        const wasAlreadyFinalized = existingOsData?.status === 'Finalizada';
+        const bankCreditsByBanco = new Map<string, number>();
+        if (formData.status === 'Finalizada' && !wasAlreadyFinalized) {
+          persistedPayments.forEach((payment) => {
+            if (payment.status === 'confirmado' && payment.bancoId) {
+              bankCreditsByBanco.set(payment.bancoId, (bankCreditsByBanco.get(payment.bancoId) || 0) + payment.valorCentavos);
+            }
+          });
+        }
+        const bankBalancesById = new Map<string, number>();
+        for (const bancoId of bankCreditsByBanco.keys()) {
+          const bancoSnap = await transaction.get(doc(db, 'bancos', bancoId));
+          if (!bancoSnap.exists()) throw new Error('O banco de destino selecionado não foi encontrado.');
+          bankBalancesById.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
+        }
+
         if (formData.status === 'Finalizada' && !formData.estoqueBaixado) {
           await applyStockAdjustments(
             transaction,
@@ -785,7 +803,6 @@ const OSForm: React.FC = () => {
 
         const existingCommission = existingOsData?.comissao || null;
         let commission = existingCommission;
-        const wasAlreadyFinalized = existingOsData?.status === 'Finalizada';
         const wasAlreadyCancelled = existingOsData?.status === 'Cancelada';
         if (formData.status === 'Finalizada' && !existingCommission && !wasAlreadyFinalized) {
           const mechanicProfile = mechanicSnap?.exists() ? mechanicSnap.data() : {};
@@ -853,6 +870,13 @@ const OSForm: React.FC = () => {
           });
         }
 
+        bankCreditsByBanco.forEach((deltaCents, bancoId) => {
+          transaction.update(doc(db, 'bancos', bancoId), {
+            saldoCentavos: (bankBalancesById.get(bancoId) || 0) + deltaCents,
+            updatedAt: serverTimestamp(),
+          });
+        });
+
         if (formData.status === 'Finalizada') {
           persistedPayments.forEach((payment) => {
             const paymentRef = doc(db, 'transacoes', payment.transactionId);
@@ -877,6 +901,8 @@ const OSForm: React.FC = () => {
               status: payment.status === 'confirmado' ? 'Paga' : 'Pendente',
               naturezaFinanceira: payment.naturezaFinanceira,
               movimentaCaixaFisico: payment.movimentaCaixaFisico,
+              bancoId: payment.bancoId || null,
+              bancoNome: payment.bancoNome || null,
               prazoDias: payment.prazoDias || null,
               data: payment.dataVencimento || paymentDate,
               dataVencimento: payment.dataVencimento || null,

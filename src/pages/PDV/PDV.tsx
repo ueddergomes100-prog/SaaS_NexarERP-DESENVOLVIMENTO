@@ -388,6 +388,13 @@ const PDV: React.FC = () => {
       const paymentSummary = summarizePayments(paymentRecords);
       const saleDate = getDateInputInTimeZone();
 
+      const bankCreditsByBanco = new Map<string, number>();
+      paymentRecords.forEach((payment) => {
+        if (payment.status === 'confirmado' && payment.bancoId) {
+          bankCreditsByBanco.set(payment.bancoId, (bankCreditsByBanco.get(payment.bancoId) || 0) + payment.valorCentavos);
+        }
+      });
+
       await runTransaction(db, async (transaction) => {
         const nextPedido = await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
         const sellerSnap = await transaction.get(doc(db, 'usuarios', currentUser.uid));
@@ -396,6 +403,13 @@ const PDV: React.FC = () => {
           throw new Error('O operador não pertence à empresa ativa.');
         }
         const sellerName = sellerProfile.nome || sellerProfile.nomeResponsavel || operatorName;
+
+        const bankBalancesById = new Map<string, number>();
+        for (const bancoId of bankCreditsByBanco.keys()) {
+          const bancoSnap = await transaction.get(doc(db, 'bancos', bancoId));
+          if (!bancoSnap.exists()) throw new Error('O banco de destino selecionado não foi encontrado.');
+          bankBalancesById.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
+        }
 
         finalNumeroPedido = formatSequenceValue(nextPedido, 4);
         const newPedidoRef = doc(collection(db, 'pedidos_venda'));
@@ -484,6 +498,13 @@ const PDV: React.FC = () => {
           createdAt: serverTimestamp(),
         });
 
+        bankCreditsByBanco.forEach((deltaCents, bancoId) => {
+          transaction.update(doc(db, 'bancos', bancoId), {
+            saldoCentavos: (bankBalancesById.get(bancoId) || 0) + deltaCents,
+            updatedAt: serverTimestamp(),
+          });
+        });
+
         persistedPayments.forEach((payment) => {
           const parcelaLabel = payment.cartao?.numero
             ? ` (Parcela ${payment.cartao.numero}/${payment.cartao.totalParcelas})`
@@ -505,6 +526,8 @@ const PDV: React.FC = () => {
             status: payment.status === 'confirmado' ? 'Paga' : 'Pendente',
             naturezaFinanceira: payment.naturezaFinanceira,
             movimentaCaixaFisico: payment.movimentaCaixaFisico,
+            bancoId: payment.bancoId || null,
+            bancoNome: payment.bancoNome || null,
             prazoDias: payment.prazoDias || null,
             data: payment.dataVencimento || saleDate,
             dataVencimento: payment.dataVencimento || null,
@@ -702,6 +725,7 @@ const PDV: React.FC = () => {
         open={paymentModalOpen}
         totalCents={totals.totalCentavos}
         financeConfig={financeConfig}
+        tenantId={tenantId}
         saving={saving}
         onClose={() => setPaymentModalOpen(false)}
         onFinalize={finalizeSale}

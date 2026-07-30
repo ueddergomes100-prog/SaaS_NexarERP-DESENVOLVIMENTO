@@ -9,6 +9,7 @@ import {
   explodeInstallmentPaymentRecords,
   normalizeCreditCardFeeSchedule,
   normalizePayments,
+  paymentRequiresBankAccount,
   recalculateCommissionAfterReturn,
   summarizePayments,
   transactionFeeCents,
@@ -23,6 +24,8 @@ import { addBusinessDaysToDateInput, getDashboardPeriodRange } from '../src/util
 
 const payment = (updates: Partial<PaymentDraft> = {}): PaymentDraft => ({
   ...createEmptyPaymentDraft('pagamento-1', 10_000),
+  bancoId: 'banco-teste',
+  bancoNome: 'Banco Teste',
   ...updates,
 });
 
@@ -404,6 +407,38 @@ test('valores financeiros usam bruto, taxa e líquido inclusive em saldo parcial
   assert.equal(transactionFeeCents(transaction), 250);
   assert.equal(transactionNetCents(transaction), 9_750);
   assert.equal(transactionNetCents({ ...transaction, valor: 70, valorCentavos: 7_000 }), 6_825);
+});
+
+test('Pix/Transferência/Cartão exigem banco de destino; Dinheiro e Pagamento a Prazo não', () => {
+  assert.equal(paymentRequiresBankAccount('Pix'), true);
+  assert.equal(paymentRequiresBankAccount('Transferência'), true);
+  assert.equal(paymentRequiresBankAccount('Cartão de Crédito'), true);
+  assert.equal(paymentRequiresBankAccount('Cartão de Débito'), true);
+  assert.equal(paymentRequiresBankAccount('Dinheiro'), false);
+  assert.equal(paymentRequiresBankAccount('Pagamento a Prazo'), false);
+  assert.equal(paymentRequiresBankAccount('Boleto'), false);
+  assert.equal(paymentRequiresBankAccount('Outros'), false);
+
+  assert.throws(
+    () => normalizePayments(10_000, [payment({ forma: 'Pix', bancoId: '' })]),
+    /banco de destino/,
+  );
+  assert.doesNotThrow(
+    () => normalizePayments(10_000, [payment({ forma: 'Pix', bancoId: 'banco-1', bancoNome: 'Caixa' })]),
+  );
+});
+
+test('normalizePayments propaga bancoId/bancoNome pro PaymentRecord', () => {
+  const [record] = normalizePayments(10_000, [
+    payment({ forma: 'Transferência', bancoId: 'banco-xyz', bancoNome: 'Nubank PJ' }),
+  ]);
+  assert.equal(record.bancoId, 'banco-xyz');
+  assert.equal(record.bancoNome, 'Nubank PJ');
+
+  const [semBanco] = normalizePayments(10_000, [
+    payment({ forma: 'Pagamento a Prazo', prazoDias: '30', bancoId: '' }),
+  ], { saleDate: '2026-07-18' });
+  assert.equal(semBanco.bancoId, undefined);
 });
 
 test('transferência entre bancos exige origem, destino distintos e valor positivo', () => {

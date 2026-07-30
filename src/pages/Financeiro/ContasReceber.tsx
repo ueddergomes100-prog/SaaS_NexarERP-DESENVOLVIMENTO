@@ -469,7 +469,11 @@ const ContasReceber: React.FC = () => {
   };
 
   const hojeStr = getDateInputInTimeZone();
-  const contasPendentes = transacoes.filter(t => t.status === 'Pendente');
+  const contasPendentes = transacoes.filter(t => (
+    t.status === 'Pendente' &&
+    t.formaPagamento !== 'Cartão de Crédito' &&
+    t.formaPagamento !== 'Cartão de Débito'
+  ));
   const recebimentosHoje = transacoes.filter(t => t.status === 'Paga' && t.dataPagamento === hojeStr);
 
   const totalPendente = contasPendentes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
@@ -533,7 +537,7 @@ const ContasReceber: React.FC = () => {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
         <div>
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700 }}>Contas a Receber</h1>
-          <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Clientes com débito em aberto (Cartão, Boleto, Prazo)</p>
+          <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Clientes com débito em aberto (Boleto, a Prazo) — cartão fica na tela Banco</p>
         </div>
         <div style={{ display: 'flex', gap: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>

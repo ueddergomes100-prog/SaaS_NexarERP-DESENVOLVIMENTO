@@ -325,7 +325,9 @@ Ver também [[project-plano-evolucao-nexar]].
 
 **Não faça:** Dashboard, Faturamento e TopBar continuam lendo `transacoes` sem distinguir cartão-pendente de prazo-pendente — não reclassificado nessa entrega (fora de escopo, risco desproporcional ao pedido); Contas a Pagar (saídas) não mudou.
 
-**Pendente — validação manual e de deploy:** mesma limitação de login. Falta abrir o Banco e conciliar um cartão de teste, conferir que some de Contas a Receber e apareça no extrato digital. **A regra nova do Firestore (`financeiro.banco`) ainda precisa ser implantada em `sistema-nexus-dev`** — combinado com o usuário confirmar antes de rodar o deploy.
+**Implantado em 2026-07-30:** regra nova do Firestore (`financeiro.banco`) publicada em `sistema-nexus-dev` (`firebase deploy --only firestore:rules --project sistema-nexus-dev`, deploy confirmado com sucesso).
+
+**Pendente — só validação manual:** mesma limitação de login. Falta abrir o Banco e conciliar um cartão de teste, conferir que some de Contas a Receber e apareça no extrato digital.
 
 ---
 

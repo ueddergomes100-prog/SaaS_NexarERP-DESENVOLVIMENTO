@@ -826,6 +826,28 @@ export const transactionNetCents = (transaction: FinancialTransactionValue) => {
   return Math.max(0, Math.round(currentGrossCents * (originalNetCents / originalGrossCents)));
 };
 
+/**
+ * Valida uma transferencia manual entre dois bancos cadastrados (Modulo
+ * Bancos, F18) antes de gravar o par de lancamentos_bancarios. Lanca erro
+ * descritivo em vez de retornar boolean para reaproveitar o mesmo padrao
+ * de showError(error.message) ja usado em todo o financeDomain.
+ */
+export const validateBankTransfer = (args: {
+  originId: string;
+  destinationId: string;
+  amountCents: number;
+}): void => {
+  if (!args.originId || !args.destinationId) {
+    throw new Error('Selecione o banco de origem e o banco de destino.');
+  }
+  if (args.originId === args.destinationId) {
+    throw new Error('O banco de origem deve ser diferente do banco de destino.');
+  }
+  if (!Number.isInteger(args.amountCents) || args.amountCents <= 0) {
+    throw new Error('O valor da transferência deve ser maior que zero.');
+  }
+};
+
 export const transactionGrossAmount = (transaction: FinancialTransactionValue) => fromCents(transactionGrossCents(transaction));
 export const transactionFeeAmount = (transaction: FinancialTransactionValue) => fromCents(transactionFeeCents(transaction));
 export const transactionNetAmount = (transaction: FinancialTransactionValue) => fromCents(transactionNetCents(transaction));

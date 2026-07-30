@@ -15,6 +15,7 @@ import {
   transactionGrossCents,
   transactionNetCents,
   transactionMovesPhysicalCash,
+  validateBankTransfer,
   type PaymentDraft,
   type PaymentRecord,
 } from '../src/utils/financeDomain';
@@ -403,4 +404,13 @@ test('valores financeiros usam bruto, taxa e líquido inclusive em saldo parcial
   assert.equal(transactionFeeCents(transaction), 250);
   assert.equal(transactionNetCents(transaction), 9_750);
   assert.equal(transactionNetCents({ ...transaction, valor: 70, valorCentavos: 7_000 }), 6_825);
+});
+
+test('transferência entre bancos exige origem, destino distintos e valor positivo', () => {
+  assert.doesNotThrow(() => validateBankTransfer({ originId: 'banco-a', destinationId: 'banco-b', amountCents: 5_000 }));
+  assert.throws(() => validateBankTransfer({ originId: '', destinationId: 'banco-b', amountCents: 5_000 }));
+  assert.throws(() => validateBankTransfer({ originId: 'banco-a', destinationId: '', amountCents: 5_000 }));
+  assert.throws(() => validateBankTransfer({ originId: 'banco-a', destinationId: 'banco-a', amountCents: 5_000 }));
+  assert.throws(() => validateBankTransfer({ originId: 'banco-a', destinationId: 'banco-b', amountCents: 0 }));
+  assert.throws(() => validateBankTransfer({ originId: 'banco-a', destinationId: 'banco-b', amountCents: -100 }));
 });

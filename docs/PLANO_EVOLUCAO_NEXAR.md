@@ -329,6 +329,18 @@ Ver também [[project-plano-evolucao-nexar]].
 
 **Pendente — só validação manual:** mesma limitação de login. Falta abrir o Banco e conciliar um cartão de teste, conferir que some de Contas a Receber e apareça no extrato digital.
 
+### F17 — Exclusão de venda/OS apaga todas as parcelas em `transacoes` (bugfix, 2026-07-30)
+
+**Reportado pelo usuário:** excluiu uma venda e as parcelas de cartão continuaram aparecendo na tela Banco.
+
+**Causa raiz:** `PedidoVendas.tsx` (`handleDelete`) e `OSList.tsx` (`handleDeleteOS`) só tentavam apagar **um** documento de `transacoes` com `id` igual ao `id` do pedido/OS — funcionava antes do F15, quando pagamento em cartão era sempre um documento só. Depois do F15, parcelas viram documentos com id `{id}_pag_2`, `{id}_pag_3` etc., que ficavam órfãos após a exclusão (nunca eram apagados), continuando visíveis em Contas a Receber e na nova tela Banco.
+
+**Implementado em [`PedidoVendas.tsx`](../src/pages/Vendas/PedidoVendas.tsx) e [`OSList.tsx`](../src/pages/OS/OSList.tsx):** troca a exclusão por id fixo por uma busca `where('pedidoId'/'osId', '==', id)` — mesmo padrão já usado no cancelamento de venda/OS (`handleCancelarVenda`) — e apaga todos os documentos encontrados.
+
+**Não faça:** o fluxo de "cancelar" (diferente de "excluir") continua sem tocar — ele já fazia estorno/status corretamente, nunca teve esse bug; só a exclusão definitiva (hard delete) tinha o problema.
+
+**Pendente — validação manual:** mesma limitação de login. Falta excluir uma venda de teste parcelada e confirmar que nenhuma parcela sobra em Contas a Receber/Banco.
+
 ---
 
 ## 3. Fase 1 — Ganhos operacionais (risco baixo)

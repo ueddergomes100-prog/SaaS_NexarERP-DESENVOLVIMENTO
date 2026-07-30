@@ -29,6 +29,7 @@ const EstoqueForm = lazy(() => import('./pages/Estoque/EstoqueForm'));
 const LembretesList = lazy(() => import('./pages/Lembretes/LembretesList'));
 const LembreteForm = lazy(() => import('./pages/Lembretes/LembreteForm'));
 const Caixa = lazy(() => import('./pages/Financeiro/Caixa'));
+const Banco = lazy(() => import('./pages/Financeiro/Banco'));
 const Faturamento = lazy(() => import('./pages/Financeiro/Faturamento'));
 const ContasReceber = lazy(() => import('./pages/Financeiro/ContasReceber'));
 const ContasPagar = lazy(() => import('./pages/Financeiro/ContasPagar'));
@@ -108,6 +109,7 @@ function App() {
                     <Route path="crm/agenda" element={<Agenda />} />
                     
                     <Route path="financeiro/caixa" element={<Caixa />} />
+                    <Route path="financeiro/banco" element={<Banco />} />
                     <Route path="financeiro/contas-receber" element={<ContasReceber />} />
                     <Route path="financeiro/contas-pagar" element={<ContasPagar />} />
                     <Route path="financeiro/faturamento" element={<Faturamento />} />

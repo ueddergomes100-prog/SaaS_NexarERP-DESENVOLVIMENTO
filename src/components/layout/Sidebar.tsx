@@ -17,6 +17,7 @@ import {
   Factory,
   FileText,
   Inbox,
+  Landmark,
   LayoutDashboard,
   Link2,
   LogOut,
@@ -163,6 +164,7 @@ const Sidebar: React.FC = () => {
       tone: '#facc15',
       items: [
         { label: 'Fluxo de Caixa', to: '/financeiro/caixa', icon: Wallet, module: 'financeiro.caixa', permission: 'financeiro.caixa' },
+        { label: 'Banco', to: '/financeiro/banco', icon: Landmark, module: 'financeiro.banco', permission: 'financeiro.banco' },
         { label: 'Contas a Receber', to: '/financeiro/contas-receber', icon: Clock, module: 'financeiro.receber', permission: 'financeiro.receber' },
         { label: 'Contas a Pagar', to: '/financeiro/contas-pagar', icon: Receipt, module: 'financeiro.pagar', permission: 'financeiro.pagar' },
         { label: 'Faturamento', to: '/financeiro/faturamento', icon: BarChart2, module: 'financeiro.faturamento', permission: 'financeiro.faturamento' },

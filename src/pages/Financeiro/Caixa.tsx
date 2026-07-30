@@ -24,6 +24,7 @@ interface TransacaoData {
   dataPagamento?: string;
   movimentaCaixaFisico?: boolean;
   naturezaFinanceira?: string;
+  sourceOrigin?: string;
 }
 
 const transactionDate = (transaction: TransacaoData) => {
@@ -138,14 +139,13 @@ const Caixa: React.FC = () => {
   const totalEntradas = filteredTransacoes.filter(t => t.tipo === 'entrada').reduce((acc, curr) => acc + Number(curr.valor || 0), 0);
   const totalSaidas = filteredTransacoes.filter(t => t.tipo === 'saida' && t.status === 'Paga').reduce((acc, curr) => acc + curr.valor, 0);
   const saldoAtual = totalEntradas - totalSaidas;
-  const digitalTransactions = transacoes.filter((transaction) => (
+  // Vendas de PDV em meios digitais: so registro/visao geral do dia, nao
+  // soma no saldo (o saldo digital de verdade vive na tela Banco).
+  const pdvDigitalTransactions = transacoes.filter((transaction) => (
+    transaction.sourceOrigin === 'pdv' &&
     !transactionMovesPhysicalCash(transaction) &&
-    transaction.formaPagamento !== 'Crédito de Devolução' &&
     matchesVisibleFilters(transaction)
   ));
-  const totalRecebimentosDigitais = digitalTransactions.reduce((sum, transaction) => (
-    sum + (transaction.tipo === 'entrada' ? transactionNetAmount(transaction) : -transactionNetAmount(transaction))
-  ), 0);
 
   const handleOpenModal = (tipo: 'entrada' | 'saida') => {
     setModalTipo(tipo);
@@ -336,17 +336,6 @@ const Caixa: React.FC = () => {
           </div>
         </div>
 
-        <div className="card stat-card">
-          <div className="stat-header">
-            <div className="stat-icon" style={{ backgroundColor: '#37d7ff15', color: '#37d7ff' }}>
-              <CheckCircle size={24} />
-            </div>
-          </div>
-          <div className="stat-info">
-            <h3>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalRecebimentosDigitais)}</h3>
-            <p>Saldo digital líquido do período</p>
-          </div>
-        </div>
       </div>
 
       <div className="card list-container">
@@ -439,6 +428,47 @@ const Caixa: React.FC = () => {
                         </button>
                       </td>
                     )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="card list-container" style={{ marginTop: '24px' }}>
+        <div className="list-toolbar">
+          <div>
+            <h3 style={{ margin: 0, fontSize: '15px' }}>Vendas do PDV (meios digitais)</h3>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Registro do dia a dia do PDV (Pix, cartão) — só visão geral, não entra no saldo acima. O saldo digital de verdade fica na tela Banco.
+            </p>
+          </div>
+        </div>
+        <div className="table-wrapper">
+          <table className="data-table financeiro-table">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Descrição</th>
+                <th>Forma</th>
+                <th style={{ textAlign: 'right' }}>Valor (R$)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
+              ) : pdvDigitalTransactions.length === 0 ? (
+                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>Nenhuma venda de PDV em meio digital no período selecionado.</td></tr>
+              ) : (
+                pdvDigitalTransactions.map((t) => (
+                  <tr key={t.id}>
+                    <td style={{ color: 'var(--text-muted)' }}>{t.data ? t.data.split('-').reverse().join('/') : '-'}</td>
+                    <td className="font-medium">{t.descricao}</td>
+                    <td>{t.formaPagamento || '-'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600, color: t.tipo === 'entrada' ? '#10b981' : '#ef4444' }}>
+                      {t.tipo === 'entrada' ? '+' : '-'} {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t))}
+                    </td>
                   </tr>
                 ))
               )}

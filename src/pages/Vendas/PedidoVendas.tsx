@@ -145,9 +145,19 @@ const PedidoVendas: React.FC = () => {
         }
         await deleteDoc(doc(db, 'pedidos_venda', pedido.id));
         try {
-          await deleteDoc(doc(db, 'transacoes', pedido.id));
-        } catch {
-          // ignore error
+          // Uma venda em cartao parcelado grava uma transacao por
+          // parcela (pedidoId igual, id diferente) -- excluir so o doc
+          // com id == pedido.id deixava as demais parcelas orfas,
+          // ainda visiveis em Contas a Receber/Banco.
+          const qTransacoes = query(
+            collection(db, 'transacoes'),
+            where('tenantId', '==', tenantId),
+            where('pedidoId', '==', pedido.id)
+          );
+          const transacoesSnap = await getDocs(qTransacoes);
+          await Promise.all(transacoesSnap.docs.map((transacaoDoc) => deleteDoc(transacaoDoc.ref)));
+        } catch (err) {
+          console.error('Erro ao excluir transações vinculadas ao pedido:', err);
         }
 
         try {

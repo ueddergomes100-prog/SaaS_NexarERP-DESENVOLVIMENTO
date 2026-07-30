@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Filter, Printer, Edit, MessageCircle, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, where, doc, deleteDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, doc, deleteDoc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
@@ -95,8 +95,20 @@ const OSList: React.FC = () => {
       try {
         await deleteDoc(doc(db, 'ordens_de_servico', osId));
         try {
-          await deleteDoc(doc(db, 'transacoes', osId));
-        } catch(e) {}
+          // Uma OS com cartao parcelado grava uma transacao por parcela
+          // (osId igual, id diferente) -- excluir so o doc com id == osId
+          // deixava as demais parcelas orfas, ainda visiveis em Contas a
+          // Receber/Banco.
+          const qTransacoes = query(
+            collection(db, 'transacoes'),
+            where('tenantId', '==', tenantId),
+            where('osId', '==', osId)
+          );
+          const transacoesSnap = await getDocs(qTransacoes);
+          await Promise.all(transacoesSnap.docs.map((transacaoDoc) => deleteDoc(transacaoDoc.ref)));
+        } catch (e) {
+          console.error('Erro ao excluir transações vinculadas à OS:', e);
+        }
         showSuccess('OS excluída com sucesso!');
       } catch(err) {
         showError('Erro', 'Não foi possível excluir a Ordem de Serviço.');

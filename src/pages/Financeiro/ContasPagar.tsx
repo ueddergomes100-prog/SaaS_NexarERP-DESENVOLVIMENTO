@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { toCents } from '../../utils/financeDomain';
 import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, Trash2 } from 'lucide-react';
 import './Financeiro.css';
 
@@ -19,6 +20,8 @@ interface TransacaoData {
   vendaId?: string;
   dataPagamento?: string;
   createdAt?: any;
+  bancoId?: string;
+  bancoNome?: string;
 }
 
 const ContasPagar: React.FC = () => {
@@ -115,16 +118,71 @@ const ContasPagar: React.FC = () => {
       }
     });
 
-    if (result.isConfirmed) {
-      const formaPgto = result.value;
-      try {
-        const docRef = doc(db, 'transacoes', t.id);
-        const dataPagamento = new Date().toISOString().split('T')[0];
-        await updateDoc(docRef, { status: 'Paga', formaPagamento: formaPgto, dataPagamento });
-        showSuccess('Pagamento registrado no Fluxo de Caixa!');
-      } catch (err) {
-        showError('Erro', 'Não foi possível confirmar o pagamento.');
+    if (!result.isConfirmed) return;
+    const formaPgto = result.value as string;
+
+    let bancoId: string | undefined;
+    let bancoNome: string | undefined;
+    if (formaPgto !== 'Dinheiro') {
+      const qBancos = query(
+        collection(db, 'bancos'),
+        where('tenantId', '==', tenantId),
+        where('ativo', '==', true),
+      );
+      const snapBancos = await getDocs(qBancos);
+      const bancosDisponiveis = snapBancos.docs.map((d) => ({ id: d.id, nome: String(d.data().nome || '') }));
+      if (bancosDisponiveis.length === 0) {
+        showError('Nenhum banco cadastrado', 'Cadastre um banco em Cadastros > Bancos antes de confirmar este pagamento.');
+        return;
       }
+      const bancoResult = await NexusSwal.fire({
+        title: 'De qual banco saiu?',
+        input: 'select',
+        inputOptions: Object.fromEntries(bancosDisponiveis.map((b) => [b.id, b.nome])),
+        inputPlaceholder: 'Selecione o banco',
+        showCancelButton: true,
+        confirmButtonText: 'Confirmar',
+        cancelButtonText: 'Cancelar',
+        inputValidator: (value) => (value ? undefined : 'Selecione um banco.'),
+      });
+      if (!bancoResult.isConfirmed) return;
+      bancoId = bancoResult.value as string;
+      bancoNome = bancosDisponiveis.find((b) => b.id === bancoId)?.nome;
+    }
+
+    try {
+      const docRef = doc(db, 'transacoes', t.id);
+      const dataPagamento = new Date().toISOString().split('T')[0];
+      const valorCentavos = toCents(t.valor);
+
+      if (bancoId) {
+        const bancoRef = doc(db, 'bancos', bancoId);
+        await runTransaction(db, async (transaction) => {
+          const bancoSnap = await transaction.get(bancoRef);
+          if (!bancoSnap.exists()) throw new Error('O banco selecionado não foi encontrado.');
+          const saldoAtualCentavos = Number(bancoSnap.data().saldoCentavos || 0);
+
+          transaction.update(docRef, {
+            status: 'Paga',
+            formaPagamento: formaPgto,
+            dataPagamento,
+            valorCentavos,
+            bancoId,
+            bancoNome: bancoNome || null,
+            updatedAt: serverTimestamp(),
+          });
+          transaction.update(bancoRef, {
+            saldoCentavos: saldoAtualCentavos - valorCentavos,
+            updatedAt: serverTimestamp(),
+          });
+        });
+      } else {
+        await updateDoc(docRef, { status: 'Paga', formaPagamento: formaPgto, dataPagamento, valorCentavos });
+      }
+      showSuccess('Pagamento registrado no Fluxo de Caixa!');
+    } catch (err) {
+      console.error(err);
+      showError('Erro', err instanceof Error ? err.message : 'Não foi possível confirmar o pagamento.');
     }
   };
 

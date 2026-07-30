@@ -8,6 +8,7 @@ import {
   applyPaymentReceipt,
   financialNatureForPayment,
   fromCents,
+  paymentRequiresBankAccount,
   settledFinancialNatureForPayment,
   summarizePayments,
   toCents,
@@ -107,7 +108,12 @@ const ContasReceber: React.FC = () => {
   const [clientesExpandidos, setClientesExpandidos] = useState<Set<string>>(new Set());
   const [buscaCliente, setBuscaCliente] = useState('');
 
-  const confirmarRecebimento = async (t: TransacaoData, formaPgto: PaymentMethod) => {
+  const confirmarRecebimento = async (
+    t: TransacaoData,
+    formaPgto: PaymentMethod,
+    bancoId?: string,
+    bancoNome?: string,
+  ) => {
     if (!tenantId) return;
     const transactionRef = doc(db, 'transacoes', t.id);
     const paymentDate = getDateInputInTimeZone();
@@ -139,6 +145,14 @@ const ContasReceber: React.FC = () => {
       const amountCents = Number(transactionData.valorCentavos ?? toCents(transactionData.valor));
       const settlementNature = settledFinancialNatureForPayment(formaPgto);
 
+      const bancoRef = bancoId ? doc(db, 'bancos', bancoId) : null;
+      let bancoSaldoAtualCentavos = 0;
+      if (bancoRef) {
+        const bancoSnap = await transaction.get(bancoRef);
+        if (!bancoSnap.exists()) throw new Error('O banco selecionado não foi encontrado.');
+        bancoSaldoAtualCentavos = Number(bancoSnap.data().saldoCentavos || 0);
+      }
+
       transaction.update(transactionRef, {
         status: 'Paga',
         formaPagamentoOriginal: transactionData.formaPagamentoOriginal || transactionData.formaPagamento || null,
@@ -148,9 +162,17 @@ const ContasReceber: React.FC = () => {
         dataPagamento: paymentDate,
         naturezaFinanceira: settlementNature,
         movimentaCaixaFisico: formaPgto === 'Dinheiro',
+        ...(bancoRef ? { bancoId, bancoNome: bancoNome || null } : {}),
         recebidoEm: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+
+      if (bancoRef) {
+        transaction.update(bancoRef, {
+          saldoCentavos: bancoSaldoAtualCentavos + amountCents,
+          updatedAt: serverTimestamp(),
+        });
+      }
 
       if (sourceRef && sourceSnap?.exists()) {
         const sourceData = sourceSnap.data();
@@ -242,8 +264,38 @@ const ContasReceber: React.FC = () => {
 
     if (!result.isConfirmed) return;
     const formaPgto = result.value as PaymentMethod;
+
+    let bancoId: string | undefined;
+    let bancoNome: string | undefined;
+    if (paymentRequiresBankAccount(formaPgto)) {
+      const qBancos = query(
+        collection(db, 'bancos'),
+        where('tenantId', '==', tenantId),
+        where('ativo', '==', true),
+      );
+      const snapBancos = await getDocs(qBancos);
+      const bancosDisponiveis = snapBancos.docs.map((d) => ({ id: d.id, nome: String(d.data().nome || '') }));
+      if (bancosDisponiveis.length === 0) {
+        showError('Nenhum banco cadastrado', 'Cadastre um banco em Cadastros > Bancos antes de confirmar este recebimento.');
+        return;
+      }
+      const bancoResult = await NexusSwal.fire({
+        title: 'Em qual banco caiu?',
+        input: 'select',
+        inputOptions: Object.fromEntries(bancosDisponiveis.map((b) => [b.id, b.nome])),
+        inputPlaceholder: 'Selecione o banco',
+        showCancelButton: true,
+        confirmButtonText: 'Confirmar',
+        cancelButtonText: 'Cancelar',
+        inputValidator: (value) => (value ? undefined : 'Selecione um banco.'),
+      });
+      if (!bancoResult.isConfirmed) return;
+      bancoId = bancoResult.value as string;
+      bancoNome = bancosDisponiveis.find((b) => b.id === bancoId)?.nome;
+    }
+
     try {
-      await confirmarRecebimento(t, formaPgto);
+      await confirmarRecebimento(t, formaPgto, bancoId, bancoNome);
       showSuccess(formaPgto === 'Dinheiro'
         ? 'Recebimento confirmado e lançado no caixa físico!'
         : 'Recebimento confirmado no fluxo financeiro correspondente!');

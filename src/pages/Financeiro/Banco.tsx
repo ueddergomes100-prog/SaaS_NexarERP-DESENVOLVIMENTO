@@ -12,10 +12,12 @@ import {
   toCents,
   transactionMovesPhysicalCash,
   transactionNetAmount,
+  transactionNetCents,
   type PaymentMethod,
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
+import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import './Financeiro.css';
 
 interface CartaoInfo {
@@ -46,6 +48,15 @@ interface TransacaoData {
   naturezaFinanceira?: string;
   dataPrevistaRecebimento?: string;
   cartao?: CartaoInfo | null;
+  bancoId?: string;
+  bancoNome?: string;
+}
+
+interface Banco extends TenantCollectionItem {
+  nome: string;
+  ativo: boolean;
+  ordem: number;
+  saldoCentavos: number;
 }
 
 const legacyPaymentForTransaction = (
@@ -93,6 +104,8 @@ const Banco: React.FC = () => {
   const [diasFiltro, setDiasFiltro] = useState<number>(30);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const { currentUser, tenantId } = useAuth();
+  const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
+  const bancosAtivos = bancos.filter((b) => b.ativo);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -115,9 +128,32 @@ const Banco: React.FC = () => {
   const confirmarRecebimentoCartao = async (t: TransacaoData) => {
     if (!tenantId || processingId) return;
 
+    let bancoId = t.bancoId;
+    let bancoNome = t.bancoNome;
+    if (!bancoId) {
+      if (bancosAtivos.length === 0) {
+        showError('Nenhum banco cadastrado', 'Cadastre um banco em Cadastros > Bancos antes de conciliar este título.');
+        return;
+      }
+      const bancoResult = await NexusSwal.fire({
+        title: 'Em qual banco caiu?',
+        text: 'Esta venda não tem banco de destino definido (venda antiga). Selecione onde o valor caiu:',
+        input: 'select',
+        inputOptions: Object.fromEntries(bancosAtivos.map((b) => [b.id, b.nome])),
+        inputPlaceholder: 'Selecione o banco',
+        showCancelButton: true,
+        confirmButtonText: 'Continuar',
+        cancelButtonText: 'Cancelar',
+        inputValidator: (value) => (value ? undefined : 'Selecione um banco.'),
+      });
+      if (!bancoResult.isConfirmed) return;
+      bancoId = bancoResult.value as string;
+      bancoNome = bancosAtivos.find((b) => b.id === bancoId)?.nome;
+    }
+
     const confirmacao = await NexusSwal.fire({
       title: 'Confirmar recebimento no banco?',
-      text: `Confirma que o valor líquido de R$ ${transactionNetAmount(t).toFixed(2)} referente a "${t.descricao}" caiu na conta?`,
+      text: `Confirma que o valor líquido de R$ ${transactionNetAmount(t).toFixed(2)} referente a "${t.descricao}" caiu em "${bancoNome}"?`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonText: 'Sim, confirmar',
@@ -127,6 +163,7 @@ const Banco: React.FC = () => {
 
     setProcessingId(t.id);
     const transactionRef = doc(db, 'transacoes', t.id);
+    const bancoRef = doc(db, 'bancos', bancoId);
     const paymentDate = getDateInputInTimeZone();
 
     try {
@@ -154,16 +191,28 @@ const Banco: React.FC = () => {
           throw new Error(saleId ? 'A venda vinculada está cancelada.' : 'A OS vinculada está cancelada.');
         }
 
+        const bancoSnap = await transaction.get(bancoRef);
+        if (!bancoSnap.exists()) throw new Error('O banco selecionado não foi encontrado.');
+        const bancoSaldoAtualCentavos = Number(bancoSnap.data().saldoCentavos || 0);
+
         const formaPgto = (transactionData.formaPagamento || t.formaPagamento) as PaymentMethod;
         const amountCents = Number(transactionData.valorCentavos ?? toCents(transactionData.valor));
         const settlementNature = settledFinancialNatureForPayment(formaPgto);
+        const netCents = transactionNetCents(transactionData);
 
         transaction.update(transactionRef, {
           status: 'Paga',
           dataPagamento: paymentDate,
           naturezaFinanceira: settlementNature,
           movimentaCaixaFisico: false,
+          bancoId,
+          bancoNome: bancoNome || null,
           recebidoEm: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+
+        transaction.update(bancoRef, {
+          saldoCentavos: bancoSaldoAtualCentavos + netCents,
           updatedAt: serverTimestamp(),
         });
 
@@ -230,10 +279,6 @@ const Banco: React.FC = () => {
     isWithinSelectedDays(t)
   ));
 
-  const saldoDigital = extratoDigital.reduce((sum, t) => (
-    sum + (t.tipo === 'entrada' ? transactionNetAmount(t) : -transactionNetAmount(t))
-  ), 0);
-
   return (
     <div className="financeiro-page" style={{ padding: '24px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
@@ -246,14 +291,25 @@ const Banco: React.FC = () => {
             Conciliação de cartão e extrato digital (Pix, Transferência, cartão de crédito/débito)
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(55, 215, 255, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(55, 215, 255, 0.2)' }}>
-          <CheckCircle size={24} color="#37d7ff" />
-          <div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Saldo digital do período</div>
-            <div style={{ fontSize: '20px', fontWeight: 700, color: '#37d7ff' }}>
-              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(saldoDigital)}
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {bancosAtivos.length === 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(55, 215, 255, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(55, 215, 255, 0.2)' }}>
+              <CheckCircle size={24} color="#37d7ff" />
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Nenhum banco cadastrado ainda</div>
             </div>
-          </div>
+          ) : (
+            bancosAtivos.map((banco) => (
+              <div key={banco.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(55, 215, 255, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(55, 215, 255, 0.2)' }}>
+                <CheckCircle size={24} color="#37d7ff" />
+                <div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{banco.nome}</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#37d7ff' }}>
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(banco.saldoCentavos || 0))}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -287,6 +343,7 @@ const Banco: React.FC = () => {
                 <th style={{ padding: '12px 8px' }}>Descrição</th>
                 <th style={{ padding: '12px 8px' }}>Cliente</th>
                 <th style={{ padding: '12px 8px' }}>Bandeira</th>
+                <th style={{ padding: '12px 8px' }}>Banco</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>Valor Bruto</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>Taxa</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>Valor Líquido</th>
@@ -295,10 +352,10 @@ const Banco: React.FC = () => {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
+                <tr><td colSpan={9} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : pendentesCartao.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     <CheckCircle size={40} color="#10b981" style={{ margin: '0 auto 12px', opacity: 0.5, display: 'block' }} />
                     Nenhum cartão pendente de conciliação no momento.
                   </td>
@@ -313,6 +370,7 @@ const Banco: React.FC = () => {
                       <td style={{ padding: '10px 8px', fontWeight: 500 }}>{t.descricao}{parcelaLabel}</td>
                       <td style={{ padding: '10px 8px' }}>{t.clienteNome || '-'}</td>
                       <td style={{ padding: '10px 8px' }}>{t.cartao?.bandeira || '-'}</td>
+                      <td style={{ padding: '10px 8px' }}>{t.bancoNome || <span style={{ color: 'var(--text-muted)' }}>A definir</span>}</td>
                       <td style={{ padding: '10px 8px', textAlign: 'right' }}>
                         {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor))}
                       </td>

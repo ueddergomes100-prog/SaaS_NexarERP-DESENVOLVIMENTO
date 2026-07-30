@@ -341,6 +341,29 @@ Ver também [[project-plano-evolucao-nexar]].
 
 **Pendente — validação manual:** mesma limitação de login. Falta excluir uma venda de teste parcelada e confirmar que nenhuma parcela sobra em Contas a Receber/Banco.
 
+### F18 — Módulo Bancos: cadastro de contas bancárias, saldo e integração com a venda (feature, 2026-07-30)
+
+**Não estava no prompt original.** Pedido direto do usuário: poder cadastrar os bancos reais que a empresa usa (ex: Itaú, Nubank, conta 2 da matriz), cada um com seu próprio saldo e conferência, integrado com PDV/Pedido de Venda/OS/Contas a Receber/Contas a Pagar — evolução do F16, que tratava "banco" como uma única conta digital implícita.
+
+**Decisões confirmadas com o usuário antes de codar:** (1) o banco de destino é escolhido **na hora da venda** (PDV/Pedido/OS), junto com Pix/Transferência/Cartão — não só na conciliação; (2) o saldo é **automático + lançamento manual** (ajuste, tarifa, transferência entre bancos); (3) Contas a Pagar **também** escolhe banco e debita o saldo — saídas afetam o saldo bancário, não só entradas. Trabalho grande demais pra um commit só (toca ~12 arquivos); fatiado em 5 fases sequenciais, cada uma com checklist completo (1.2) antes de avançar.
+
+**Modelo de dados novo:**
+- Coleção `bancos` (catálogo por tenant): `nome`, `banco` (instituição, texto livre), `agencia`, `conta`, `tipoConta`, `saldoInicialCentavos` (só na criação), `saldoCentavos` (corrente, só mutado via `runTransaction`), `ativo`, `ordem`.
+- Coleção `lancamentos_bancarios` (ledger de auditoria só pra movimentações manuais — as automáticas já têm o doc de `transacoes` como rastro): `bancoId`, `tipo` (`ajuste`/`tarifa`/`transferencia_entrada`/`transferencia_saida`/`saldo_inicial`), `direcao`, `valorCentavos`, `descricao`, `data`, `transferenciaParId` (linka o par de uma transferência).
+- [`financeDomain.ts`](../src/utils/financeDomain.ts): `bancoId`/`bancoNome` novos em `PaymentDraft`/`PaymentRecord`; `paymentRequiresBankAccount(method)` (Pix/Transferência/Cartão exigem banco; Dinheiro e Boleto/Pagamento a Prazo/Outros não, porque o destino é incerto até a baixa); `validateBankTransfer` pra transferência manual entre bancos. 6 testes novos (66 no total).
+
+**Implementado por fase:**
+- **Fase A:** nova tela [`BancosList.tsx`](../src/pages/Bancos/BancosList.tsx) (`/bancos`, permissão `cadastros.bancos`) — CRUD do banco + ação "Lançamentos" por linha (histórico + novo lançamento manual + transferência entre bancos, tudo via `runTransaction`).
+- **Fase B:** [`PaymentsEditor.tsx`](../src/components/finance/PaymentsEditor.tsx) (Pedido/Orçamento/OS) e o modal próprio do PDV ([`PaymentModal.tsx`](../src/pages/PDV/components/PaymentModal.tsx)) ganham o seletor "Banco de destino" pra Pix/Transferência/Cartão. `normalizePayments` valida e propaga `bancoId`/`bancoNome`. PDV/Pedido/OS creditam o saldo do banco atomicamente dentro do mesmo `runTransaction` da venda quando o pagamento já liquida na hora (Pix/Transferência); cartão fica pendente. Em OS (única tela com edição/reabertura), o crédito só acontece na primeira finalização (`!wasAlreadyFinalized`), pra não duplicar saldo reeditando uma OS já finalizada.
+- **Fase C:** [`Banco.tsx`](../src/pages/Financeiro/Banco.tsx) credita o `bancoId` gravado na venda ao confirmar cartão (com fallback pra escolher o banco na hora, se for uma venda antiga sem `bancoId`); o KPI único "saldo digital do período" virou uma lista com o saldo de cada banco. [`ContasReceber.tsx`](../src/pages/Financeiro/ContasReceber.tsx): baixa de Boleto/Pagamento a Prazo/Outros (que não escolhem banco na venda) passa a pedir o banco no momento da confirmação.
+- **Fase D:** [`ContasPagar.tsx`](../src/pages/Financeiro/ContasPagar.tsx): `handleConciliar` pede o banco de origem (exceto Dinheiro) e debita o saldo atomicamente; grava `valorCentavos` na baixa (pré-requisito — não dá pra debitar saldo em centavos com float).
+
+**Não faça:** criação de despesa em Contas a Pagar continua no modelo legado em float (sem `valorCentavos` na criação, só na baixa) — não migrado; Dashboard/Faturamento/TopBar continuam sem distinguir por banco.
+
+**Pendente — só validação manual:** mesma limitação de login de sempre. Falta: cadastrar 2 bancos, fazer uma venda Pix escolhendo um banco e confirmar que o saldo sobe na hora, fazer uma venda cartão e confirmar que só credita após conciliar em Banco.tsx, dar baixa em Contas a Receber/Pagar escolhendo banco, fazer uma transferência manual entre bancos, e confirmar que um usuário sem `cadastros.bancos` não acessa a tela.
+
+**Implantado em 2026-07-30:** regra nova do Firestore (`bancos`/`lancamentos_bancarios`) publicada em `sistema-nexus-dev` (`firebase deploy --only firestore:rules --project sistema-nexus-dev`, deploy confirmado com sucesso).
+
 ---
 
 ## 3. Fase 1 — Ganhos operacionais (risco baixo)

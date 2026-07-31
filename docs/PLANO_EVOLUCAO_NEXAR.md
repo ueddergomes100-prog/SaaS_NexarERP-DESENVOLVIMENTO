@@ -573,7 +573,16 @@ Ordem: **1 → 19 → 20 → 18 → 6 → 15**.
 - `UsuarioForm.tsx` é o caso mais particular: criação de funcionário já gravava um campo próprio `createdBy` (não o padrão do F5) — mantido como está e os campos novos (`criadoPor`/`criadoEm`/`alteradoPor`/`alteradoEm`) adicionados ao lado, sem remover nada. O doc de índice `usernames/{usernameFinal}` (só email+tenantId, usado pelo Login pra descobrir o email a partir do usuário) ficou de fora — não é um documento de negócio, não faz sentido rastrear "responsabilidade" nele.
 - Typecheck, lint (0 erros, **66** warnings — 2 a menos que antes: `VeiculoForm`/outros tinham `currentUser` importado e nunca usado, warning some sozinho ao consumir o valor) e build passando. Suíte de testes (66) passando.
 
-**Fatia restante:** Fiscal/Admin/Auth (`NFE.tsx`, `EntradaNFE.tsx`, `SuperAdmin.tsx`, `Configuracoes.tsx`, `PerfilModal.tsx`, `AuthContext.tsx`, `Login.tsx`) — exige mais cuidado por tocar fluxo de autenticação/tenant/onboarding.
+**Fatia 5/5 concluída em 2026-07-31 — Fiscal/Admin/Auth, fechando o Módulo 20 por completo:**
+- `NFE.tsx`: emissão/retransmissão de nota e cancelamento (com justificativa) ganharam metadados. **Decisão deliberada:** as duas rotinas de sincronização de status com a Spedy (`syncPendingInvoices`, usada tanto no polling automático quanto no botão de sincronizar manualmente, e `handleManualSyncSingle`) **não** ganharam `alteradoPor` — elas só espelham o status vindo da SEFAZ/Spedy, e a mesma função roda tanto sozinha (sem ação do usuário) quanto por clique; gravar `currentUser.uid` nesse caso atribuiria uma mudança automática a quem só estava com a tela aberta, informação enganosa.
+- `EntradaNFE.tsx`: importação de XML (atualização/criação de peças no estoque + lançamento da conta a pagar) ganhou metadados.
+- `SuperAdmin.tsx`: painel cross-tenant do NexarAdmin — não desestruturava `currentUser` de `useAuth()` (só `userRole`), adicionado. Edição de mensalidade/nome da empresa/limite de usuários (grava em `usuarios` e `configuracoes` do tenant-alvo) e o aviso global (`system_alerts/global`, tratado como criação a cada publicação já que é sempre um `setDoc` sem merge) ganharam metadados.
+- `Configuracoes.tsx`: salvar configurações gerais (público + `configuracoes_privadas`), salvar permissões/regras de comissão de um funcionário e salvar módulos bloqueados do tenant — nenhuma das duas últimas tinha guarda de `currentUser` nulo, adicionada.
+- `PerfilModal.tsx`: edição do próprio nome (dono edita `configuracoes.nomeUsuario`, funcionário edita `usuarios.nome`) ganhou metadados.
+- **Decisão deliberada — fora de escopo:** `AuthContext.tsx` (heartbeat de sessão a cada 30s + fechamento de sessão no logout) e o `updateDoc` de `Login.tsx` (registro da sessão ativa no login) **não** ganharam metadados de responsabilidade — são telemetria de sistema (o próprio usuário atualizando o rastro da sua sessão), não edição de um documento de negócio por um terceiro; aplicar `alteradoPor` ali só adicionaria ruído (o mesmo uid do dono do documento, a cada 30 segundos).
+- Typecheck, lint (0 erros, 66 warnings pré-existentes) e build passando. Suíte de testes (66) passando.
+
+**Módulo 20 (Responsabilidade) está com todo o código pronto**, cobrindo as 5 fatias (Cadastros simples, Vendas/PDV/OS/Orçamentos, Financeiro, Cadastros com form próprio, Fiscal/Admin/Auth) — só falta validação manual (mesma limitação de login de sempre).
 
 ### Módulo 18 — Cancelamentos
 
@@ -712,7 +721,7 @@ Atualizar ao concluir cada item.
 | M5 Flags fiscais | 1 | 🟨 Código pronto — falta validação manual | 2026-07-28 |
 | M1 Navegação por teclado | 2 | 🟨 Código pronto (PDV + Pedido + OS + Cadastros) — falta validação manual | 2026-07-31 |
 | M19 Numeração | 2 | ✅ Concluído — sem código novo, nada implementável hoje (ver seção do módulo) | 2026-07-31 |
-| M20 Responsabilidade | 2 | 🟨 Fatias 1-4/N prontas no código (Cadastros simples, Vendas/PDV/OS/Orçamentos, Financeiro, Cadastros com form próprio) — falta só Fiscal/Admin/Auth | 2026-07-31 |
+| M20 Responsabilidade | 2 | 🟨 Código 100% pronto (5/5 fatias) — falta validação manual | 2026-07-31 |
 | M18 Cancelamentos (auditoria) | 2 | ⬜ Pendente | |
 | M6 Central de Notas Fiscais | 2 | ⬜ Pendente | |
 | M15 Relatórios padronizados | 2 | ⬜ Pendente | |

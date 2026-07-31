@@ -10,6 +10,7 @@ import { MODULE_GROUPS } from '../../utils/moduleCatalog';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { normalizeCreditCardFeeSchedule, parseCreditTerms } from '../../utils/financeDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 const toStringArray = (value: unknown): string[] => {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -283,6 +284,7 @@ const Configuracoes: React.FC = () => {
         tenantId,
         spedyApiKey: trimmedSpedyApiKey,
         updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
       }, { merge: true });
 
       await setDoc(docRef, {
@@ -299,6 +301,7 @@ const Configuracoes: React.FC = () => {
         spedyApiKeyConfigured: Boolean(trimmedSpedyApiKey),
         tenantId,
         updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
       }, { merge: true });
 
       setFormData((current) => ({
@@ -350,7 +353,7 @@ const Configuracoes: React.FC = () => {
   };
 
   const handleSavePermissions = async () => {
-    if (!selectedUserId) return;
+    if (!selectedUserId || !currentUser) return;
     setIsSavingPermissions(true);
     try {
       await updateDoc(doc(db, 'usuarios', selectedUserId), {
@@ -358,7 +361,8 @@ const Configuracoes: React.FC = () => {
         recebeComissaoServicos: recebeComissaoServicos,
         comissaoPercentualServicos: comissaoPercentualServicos,
         recebeComissaoPecas: recebeComissaoPecas,
-        comissaoPercentualPecas: comissaoPercentualPecas
+        comissaoPercentualPecas: comissaoPercentualPecas,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Permissões/regras de comissão atualizadas'),
       });
       // Atualiza o estado local para não perder
       setTenantUsers(prev => prev.map(u => u.id === selectedUserId ? {
@@ -395,24 +399,28 @@ const Configuracoes: React.FC = () => {
       showError('Atenção', 'Selecione uma empresa ativa para configurar os módulos.');
       return;
     }
+    if (!currentUser) return;
 
     setIsSavingTenantModules(true);
     try {
       await updateDoc(doc(db, 'usuarios', tenantId), {
         modulosBloqueados: moduleBlockedDraft,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Módulos bloqueados atualizados'),
       });
 
       try {
         await updateDoc(doc(db, 'configuracoes', tenantId), {
           modulosBloqueados: moduleBlockedDraft,
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Módulos bloqueados atualizados'),
         });
       } catch {
         await setDoc(doc(db, 'configuracoes', tenantId), {
           tenantId,
           modulosBloqueados: moduleBlockedDraft,
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Módulos bloqueados atualizados'),
         }, { merge: true });
       }
 

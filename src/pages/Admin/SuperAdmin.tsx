@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Ban, Search, ExternalLink, Edit2, Trash2, Megaphone, Blocks, Wallet } from 'lucide-react';
-import { collection, query, getDocs, updateDoc, doc, deleteDoc, where, setDoc } from 'firebase/firestore';
+import { collection, query, getDocs, updateDoc, doc, deleteDoc, where, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -8,6 +8,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import Swal from 'sweetalert2';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { moduleLabelMap } from '../../utils/moduleCatalog';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 interface TenantInfo {
   id: string;
@@ -33,7 +34,7 @@ const toDate = (value?: any): Date | null => {
 const normalizeDeleteConfirmation = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
 
 const SuperAdmin: React.FC = () => {
-  const { userRole } = useAuth();
+  const { userRole, currentUser } = useAuth();
   const navigate = useNavigate();
   const [tenants, setTenants] = useState<TenantInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,10 +115,11 @@ const SuperAdmin: React.FC = () => {
       }
     });
 
-    if (novoValor) {
+    if (novoValor && currentUser) {
       try {
         await updateDoc(doc(db, 'usuarios', tenantId), {
-          valorMensalidade: Number(novoValor)
+          valorMensalidade: Number(novoValor),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Mensalidade alterada pelo admin da plataforma'),
         });
         
         setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, valor: Number(novoValor) } : t));
@@ -143,21 +145,24 @@ const SuperAdmin: React.FC = () => {
       }
     });
 
-    if (novoNome) {
+    if (novoNome && currentUser) {
       setLoading(true);
       try {
         await updateDoc(doc(db, 'usuarios', tenantId), {
-          nomeOficina: novoNome.trim()
+          nomeOficina: novoNome.trim(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Nome da empresa alterado pelo admin da plataforma'),
         });
-        
+
         try {
           await updateDoc(doc(db, 'configuracoes', tenantId), {
-            nomeOficina: novoNome.trim()
+            nomeOficina: novoNome.trim(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Nome da empresa alterado pelo admin da plataforma'),
           });
         } catch (err) {
           console.warn("Erro ao atualizar configuracoes da empresa, tentando setDoc com merge...", err);
           await setDoc(doc(db, 'configuracoes', tenantId), {
-            nomeOficina: novoNome.trim()
+            nomeOficina: novoNome.trim(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Nome da empresa alterado pelo admin da plataforma'),
           }, { merge: true });
         }
 
@@ -266,11 +271,12 @@ const SuperAdmin: React.FC = () => {
       cancelButtonText: 'Cancelar'
     });
 
-    if (text !== undefined) {
+    if (text !== undefined && currentUser) {
       try {
         await setDoc(doc(db, 'system_alerts', 'global'), {
           message: text.trim() || null,
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         if (text.trim()) {
           Swal.fire('Publicado!', 'O aviso aparecerá para todas as empresas agora.', 'success');
@@ -299,21 +305,24 @@ const SuperAdmin: React.FC = () => {
       }
     });
 
-    if (novoLimite) {
+    if (novoLimite && currentUser) {
       setLoading(true);
       try {
         const val = Number(novoLimite);
         await updateDoc(doc(db, 'usuarios', tenantId), {
-          limiteUsuarios: val
+          limiteUsuarios: val,
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Limite de usuários alterado pelo admin da plataforma'),
         });
-        
+
         try {
           await updateDoc(doc(db, 'configuracoes', tenantId), {
-            limiteUsuarios: val
+            limiteUsuarios: val,
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Limite de usuários alterado pelo admin da plataforma'),
           });
         } catch {
           await setDoc(doc(db, 'configuracoes', tenantId), {
-            limiteUsuarios: val
+            limiteUsuarios: val,
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Limite de usuários alterado pelo admin da plataforma'),
           }, { merge: true });
         }
 

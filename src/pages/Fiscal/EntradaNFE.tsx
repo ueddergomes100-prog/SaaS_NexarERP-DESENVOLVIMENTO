@@ -5,6 +5,7 @@ import { collection, query, where, getDocs, doc, addDoc, updateDoc, serverTimest
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import Swal from 'sweetalert2';
 
 interface ParsedItem {
@@ -192,7 +193,7 @@ const EntradaNFE: React.FC = () => {
 
   // Salva dados no Firestore
   const handleConfirmarEntrada = async () => {
-    if (!parsedData || !tenantId) return;
+    if (!parsedData || !tenantId || !currentUser) return;
 
     setIsProcessing(true);
 
@@ -221,7 +222,8 @@ const EntradaNFE: React.FC = () => {
             quantidade: novaQuantidade,
             precoCusto: item.valorUnitario,
             fornecedor: parsedData.fornecedorNome.toUpperCase(),
-            updatedAt: serverTimestamp()
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Entrada de NF ${parsedData.numeroNF}`),
           });
           pecasAtualizadas++;
         } else {
@@ -239,7 +241,8 @@ const EntradaNFE: React.FC = () => {
             unidadeMedidaSigla: item.unidade.toUpperCase() || 'UN',
             unidadeMedidaCasasDecimais: 0,
             tenantId,
-            createdAt: serverTimestamp()
+            createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
           pecasCriadas++;
         }
@@ -254,7 +257,8 @@ const EntradaNFE: React.FC = () => {
         status: 'Pendente',
         tipo: 'saida',
         tenantId,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
       });
 
       // Cria log de auditoria

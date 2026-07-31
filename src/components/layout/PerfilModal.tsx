@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Lock } from 'lucide-react';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 interface PerfilModalProps {
   onClose: () => void;
@@ -34,11 +35,13 @@ const PerfilModal: React.FC<PerfilModalProps> = ({ onClose, userData, configData
     try {
       if (isTenantManagerRole(userRole) && tenantId) {
         await updateDoc(doc(db, 'configuracoes', tenantId), {
-          nomeUsuario: nome.trim()
+          nomeUsuario: nome.trim(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
       } else {
         await updateDoc(doc(db, 'usuarios', currentUser.uid), {
-          nome: nome.trim()
+          nome: nome.trim(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
       }
       setSuccess(true);

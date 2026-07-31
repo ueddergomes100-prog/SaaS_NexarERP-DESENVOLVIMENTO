@@ -10,6 +10,7 @@ import { spedyService } from '../../services/spedyService';
 import type { SpedyInvoice } from '../../services/spedyService';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import Swal from 'sweetalert2';
 
 interface FiscalConfig {
@@ -569,6 +570,7 @@ const NFE: React.FC = () => {
 
   // Solicita cancelamento
   const handleCancel = async (note: LocalInvoice) => {
+    if (!currentUser) return;
     const { value: justification } = await NexusSwal.fire({
       title: 'Cancelar Nota Fiscal',
       input: 'textarea',
@@ -604,7 +606,8 @@ const NFE: React.FC = () => {
         // Atualiza banco local
         await updateDoc(doc(db, 'notas_fiscais', note.id), {
           status: 'canceled',
-          processingMessage: 'Solicitação de cancelamento enviada.'
+          processingMessage: 'Solicitação de cancelamento enviada.',
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Cancelamento solicitado: ${justification}`),
         });
 
         Swal.close();
@@ -657,7 +660,7 @@ const NFE: React.FC = () => {
   // Emissão de nova nota
   const handleEmitir = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!config?.spedyApiKey || !tenantId) return;
+    if (!config?.spedyApiKey || !tenantId || !currentUser) return;
 
     if (!formData.clienteNome || !formData.documento || !formData.valor || !formData.descricao) {
       showError('Campos Incompletos', 'Preencha Nome do Cliente, Documento, Descrição e Valor.');
@@ -841,7 +844,8 @@ const NFE: React.FC = () => {
           processingMessage: spedyNote.processingDetail?.message || null,
           processingCode: spedyNote.processingDetail?.code || null,
           updatedAt: serverTimestamp(),
-          data: new Date().toISOString()
+          data: new Date().toISOString(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Retransmitida na Spedy'),
         });
       } else {
         // Salva nova referência local no Firestore
@@ -857,6 +861,7 @@ const NFE: React.FC = () => {
           processingMessage: spedyNote.processingDetail?.message || null,
           processingCode: spedyNote.processingDetail?.code || null,
           tenantId,
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           createdAt: serverTimestamp(),
           data: new Date().toISOString()
         });

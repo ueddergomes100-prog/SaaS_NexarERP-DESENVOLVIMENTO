@@ -4,6 +4,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { toCents } from '../../utils/financeDomain';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, Trash2 } from 'lucide-react';
 import './Financeiro.css';
 
@@ -119,6 +120,7 @@ const ContasPagar: React.FC = () => {
     });
 
     if (!result.isConfirmed) return;
+    if (!currentUser) return;
     const formaPgto = result.value as string;
 
     let bancoId: string | undefined;
@@ -170,14 +172,22 @@ const ContasPagar: React.FC = () => {
             bancoId,
             bancoNome: bancoNome || null,
             updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Pagamento confirmado'),
           });
           transaction.update(bancoRef, {
             saldoCentavos: saldoAtualCentavos - valorCentavos,
             updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Débito da despesa "${t.descricao}"`),
           });
         });
       } else {
-        await updateDoc(docRef, { status: 'Paga', formaPagamento: formaPgto, dataPagamento, valorCentavos });
+        await updateDoc(docRef, {
+          status: 'Paga',
+          formaPagamento: formaPgto,
+          dataPagamento,
+          valorCentavos,
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+        });
       }
       showSuccess('Pagamento registrado no Fluxo de Caixa!');
     } catch (err) {
@@ -260,7 +270,8 @@ const ContasPagar: React.FC = () => {
           data: formData.data,
           valor: valorNum,
           categoria: formData.categoria.toUpperCase().trim(),
-          status: formData.status
+          status: formData.status,
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Conta atualizada com sucesso!');
       } else {
@@ -272,7 +283,8 @@ const ContasPagar: React.FC = () => {
           status: formData.status,
           tipo: 'saida',
           tenantId,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Conta a pagar lançada com sucesso!');
       }

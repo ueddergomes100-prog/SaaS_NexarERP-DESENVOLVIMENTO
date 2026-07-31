@@ -17,6 +17,7 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import './Financeiro.css';
 
 interface TransacaoData {
@@ -114,7 +115,7 @@ const ContasReceber: React.FC = () => {
     bancoId?: string,
     bancoNome?: string,
   ) => {
-    if (!tenantId) return;
+    if (!tenantId || !currentUser) return;
     const transactionRef = doc(db, 'transacoes', t.id);
     const paymentDate = getDateInputInTimeZone();
 
@@ -165,12 +166,14 @@ const ContasReceber: React.FC = () => {
         ...(bancoRef ? { bancoId, bancoNome: bancoNome || null } : {}),
         recebidoEm: serverTimestamp(),
         updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Recebimento confirmado'),
       });
 
       if (bancoRef) {
         transaction.update(bancoRef, {
           saldoCentavos: bancoSaldoAtualCentavos + amountCents,
           updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Recebimento de "${t.descricao}"`),
         });
       }
 
@@ -205,6 +208,7 @@ const ContasReceber: React.FC = () => {
               ? 'Parcial'
               : 'Pendente',
           updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Recebimento confirmado em Contas a Receber'),
         });
       }
     });
@@ -413,6 +417,7 @@ const ContasReceber: React.FC = () => {
             saldoDisponivel: fromCents(balanceCents),
             status: balanceCents <= 0 ? 'esgotado' : 'usado_parcial',
             updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Crédito usado na baixa'),
           });
         });
 
@@ -428,6 +433,7 @@ const ContasReceber: React.FC = () => {
             recebidoEm: serverTimestamp(),
             observacao: `Pagamento realizado utilizando ${fromCents(creditCents).toFixed(2)} em crédito do cliente.`,
             updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Quitada com crédito de devolução'),
           });
         } else {
           transaction.update(transactionRef, {
@@ -435,6 +441,7 @@ const ContasReceber: React.FC = () => {
             valor: fromCents(remainingCents),
             observacao: `Abatimento de R$ ${fromCents(creditCents).toFixed(2)} em crédito; saldo pendente de R$ ${fromCents(remainingCents).toFixed(2)}.`,
             updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Abatida parcialmente com crédito de devolução'),
           });
           transaction.set(creditPaymentRef, {
             descricao: `${transactionData.descricao || t.descricao} - Crédito de devolução`,
@@ -456,6 +463,7 @@ const ContasReceber: React.FC = () => {
             idempotencyKey: `credito:${creditPaymentRef.id}`,
             tenantId,
             createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
         }
 
@@ -489,6 +497,7 @@ const ContasReceber: React.FC = () => {
                 ? 'Parcial'
                 : 'Pendente',
             updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Baixa com crédito de devolução'),
           });
         }
       });

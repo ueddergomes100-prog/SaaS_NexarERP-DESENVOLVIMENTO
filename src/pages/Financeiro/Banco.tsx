@@ -17,6 +17,7 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import './Financeiro.css';
 
@@ -126,7 +127,7 @@ const Banco: React.FC = () => {
   }, [currentUser, tenantId]);
 
   const confirmarRecebimentoCartao = async (t: TransacaoData) => {
-    if (!tenantId || processingId) return;
+    if (!tenantId || !currentUser || processingId) return;
 
     let bancoId = t.bancoId;
     let bancoNome = t.bancoNome;
@@ -209,11 +210,13 @@ const Banco: React.FC = () => {
           bancoNome: bancoNome || null,
           recebidoEm: serverTimestamp(),
           updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Cartão conciliado no banco'),
         });
 
         transaction.update(bancoRef, {
           saldoCentavos: bancoSaldoAtualCentavos + netCents,
           updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Recebimento de cartão conciliado'),
         });
 
         if (sourceRef && sourceSnap?.exists()) {
@@ -244,6 +247,7 @@ const Banco: React.FC = () => {
               ? 'Paga'
               : summary.receivedCents > 0 ? 'Parcial' : 'Pendente',
             updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Recebimento de cartão conciliado no banco'),
           });
         }
       });

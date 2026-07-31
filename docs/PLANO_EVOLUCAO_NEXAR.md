@@ -562,7 +562,12 @@ Ordem: **1 → 19 → 20 → 18 → 6 → 15**.
 - Sites com `set`/`merge` condicional pra criar-ou-atualizar (ex: pagamento de OS reaberta) recebem `buildDocumentMetadata` ou `buildDocumentUpdateMetadata` dependendo se o documento já existia, mesma lógica condicional que já existia ali pra `createdAt`/`updatedAt`.
 - Typecheck, lint (0 erros, 68 warnings pré-existentes) e build passando. Suíte de testes (66) passando.
 
-**Fatias restantes:** Financeiro (`Banco.tsx`, `Caixa.tsx`, `ContasPagar.tsx`, `ContasReceber.tsx`); Cadastros com formulário próprio (Clientes, Veículos, Estoque/Produtos, Serviços, Usuários); Fiscal/Admin/Auth (`NFE.tsx`, `EntradaNFE.tsx`, `SuperAdmin.tsx`, `Configuracoes.tsx`, `PerfilModal.tsx`, `AuthContext.tsx`, `Login.tsx`) — esta última exige mais cuidado por tocar fluxo de autenticação/tenant.
+**Fatia 3/N concluída em 2026-07-31 — Financeiro (`Banco.tsx`, `Caixa.tsx`, `ContasPagar.tsx`, `ContasReceber.tsx`):**
+- Cobertos: conciliação de cartão e crédito de banco (Banco.tsx), lançamento manual e estorno no Fluxo de Caixa (Caixa.tsx), baixa e criação de despesa (ContasPagar.tsx), confirmação de recebimento — incluindo o fluxo de abatimento com crédito de devolução do cliente, o mais complexo do módulo — em ContasReceber.tsx.
+- Várias funções não tinham guarda de `currentUser` nulo (só checavam `tenantId`/estado do modal): `Banco.confirmarRecebimentoCartao`, `Caixa.handleEstornar`, `ContasPagar.handleConciliar`, `ContasReceber.confirmarRecebimento` — adicionada em todas, mesmo raciocínio das fatias anteriores.
+- Typecheck, lint (0 erros, 68 warnings pré-existentes) e build passando. Suíte de testes (66) passando.
+
+**Fatias restantes:** Cadastros com formulário próprio (Clientes, Veículos, Estoque/Produtos, Serviços, Usuários); Fiscal/Admin/Auth (`NFE.tsx`, `EntradaNFE.tsx`, `SuperAdmin.tsx`, `Configuracoes.tsx`, `PerfilModal.tsx`, `AuthContext.tsx`, `Login.tsx`) — esta última exige mais cuidado por tocar fluxo de autenticação/tenant.
 
 ### Módulo 18 — Cancelamentos
 
@@ -701,7 +706,7 @@ Atualizar ao concluir cada item.
 | M5 Flags fiscais | 1 | 🟨 Código pronto — falta validação manual | 2026-07-28 |
 | M1 Navegação por teclado | 2 | 🟨 Código pronto (PDV + Pedido + OS + Cadastros) — falta validação manual | 2026-07-31 |
 | M19 Numeração | 2 | ✅ Concluído — sem código novo, nada implementável hoje (ver seção do módulo) | 2026-07-31 |
-| M20 Responsabilidade | 2 | 🟨 Fatias 1-2/N (Cadastros simples + Vendas/PDV/OS/Orçamentos) prontas no código — faltam Financeiro, Cadastros com form próprio e Fiscal/Admin/Auth | 2026-07-31 |
+| M20 Responsabilidade | 2 | 🟨 Fatias 1-3/N (Cadastros simples + Vendas/PDV/OS/Orçamentos + Financeiro) prontas no código — faltam Cadastros com form próprio e Fiscal/Admin/Auth | 2026-07-31 |
 | M18 Cancelamentos (auditoria) | 2 | ⬜ Pendente | |
 | M6 Central de Notas Fiscais | 2 | ⬜ Pendente | |
 | M15 Relatórios padronizados | 2 | ⬜ Pendente | |

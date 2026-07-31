@@ -7,6 +7,7 @@ import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { fromCents, toCents, transactionMovesPhysicalCash, transactionNetAmount } from '../../utils/financeDomain';
 import { dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import './Financeiro.css';
 
 interface TransacaoData {
@@ -187,7 +188,8 @@ const Caixa: React.FC = () => {
         movimentaCaixaFisico: true,
         origem: 'manual',
         tenantId,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
       });
       try {
         const { createAuditLog } = await import('../../services/logService');
@@ -220,6 +222,7 @@ const Caixa: React.FC = () => {
       showError('Sem Permissão', 'Você não tem permissão para estornar lançamentos.');
       return;
     }
+    if (!currentUser) return;
 
     const result = await NexusSwal.fire({
       title: 'Estornar Lançamento?',
@@ -241,7 +244,8 @@ const Caixa: React.FC = () => {
         await updateDoc(doc(db, 'transacoes', id), {
           status: 'Pendente',
           movimentaCaixaFisico: false,
-          estornadaEm: serverTimestamp()
+          estornadaEm: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estornada no Fluxo de Caixa'),
         });
 
         try {

@@ -13,6 +13,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, reserveTenantSequence, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
@@ -329,7 +330,10 @@ const OrcamentoForm: React.FC = () => {
       };
 
       if (isEditing && id) {
-        await updateDoc(doc(db, 'orcamentos', id), dataToSave);
+        await updateDoc(doc(db, 'orcamentos', id), {
+          ...dataToSave,
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+        });
       } else {
         let finalNumeroOrcamento = formData.numeroOrcamento;
         const currentMaxOrcamento = await getCurrentMaxSequence(db, 'orcamentos', tenantId, 'numeroOrcamento').catch(() => 0);
@@ -342,6 +346,7 @@ const OrcamentoForm: React.FC = () => {
             ...dataToSave,
             numeroOrcamento: finalNumeroOrcamento,
             createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
         });
         setFormData(prev => ({ ...prev, numeroOrcamento: finalNumeroOrcamento }));
@@ -370,6 +375,7 @@ const OrcamentoForm: React.FC = () => {
       setIsLoading(true);
       try {
         if (!tenantId) throw new Error('Tenant nao carregado.');
+        if (!currentUser) throw new Error('Usuário não autenticado.');
         const currentMaxOs = await getCurrentMaxSequence(db, 'ordens_de_servico', tenantId, 'numeroOS').catch(() => 0);
         let newOsId = '';
 
@@ -392,10 +398,16 @@ const OrcamentoForm: React.FC = () => {
             valorTotal: totalGeral,
             tenantId,
             createdAt: serverTimestamp(),
-            orcamentoId: id
+            orcamentoId: id,
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
 
-          if (id) transaction.update(doc(db, 'orcamentos', id), { status: 'Finalizado' });
+          if (id) {
+            transaction.update(doc(db, 'orcamentos', id), {
+              status: 'Finalizado',
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Convertido em OS'),
+            });
+          }
         });
         showSuccess('Convertido em OS!');
         navigate(`/os/editar/${newOsId}`);
@@ -431,6 +443,7 @@ const OrcamentoForm: React.FC = () => {
         }
 
         if (!tenantId) throw new Error('Tenant nao carregado.');
+        if (!currentUser) throw new Error('Usuário não autenticado.');
         const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
 
         await runTransaction(db, async (transaction) => {
@@ -465,9 +478,10 @@ const OrcamentoForm: React.FC = () => {
             formaPagamento: 'Dinheiro',
             status: 'Finalizada',
             tenantId,
-            usuarioResponsavelId: currentUser?.uid || '',
+            usuarioResponsavelId: currentUser.uid,
             createdAt: serverTimestamp(),
-            orcamentoId: id
+            orcamentoId: id,
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
 
           transaction.set(doc(collection(db, 'transacoes')), {
@@ -479,10 +493,16 @@ const OrcamentoForm: React.FC = () => {
             formaPagamento: 'Dinheiro',
             tenantId,
             createdAt: serverTimestamp(),
-            pedidoId: newVendaRef.id
+            pedidoId: newVendaRef.id,
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
 
-          if (id) transaction.update(doc(db, 'orcamentos', id), { status: 'Finalizado' });
+          if (id) {
+            transaction.update(doc(db, 'orcamentos', id), {
+              status: 'Finalizado',
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Convertido em venda'),
+            });
+          }
         });
         showSuccess('Venda realizada com sucesso!');
         navigate('/pedidos-venda');

@@ -14,6 +14,7 @@ import ProductSearchModal from '../../components/common/ProductSearchModal';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
@@ -449,7 +450,8 @@ const OSForm: React.FC = () => {
           preco: precoNum,
           categoria: 'Geral',
           tenantId,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         servico = { id: newRef.id, nome: servicoNomeInput, preco: precoNum };
         setServicosCatalogo([...servicosCatalogo, servico]);
@@ -516,7 +518,8 @@ const OSForm: React.FC = () => {
           categoria: 'Peças Adicionais',
           quantidade: 10, // Base default para não zerar logo de cara
           tenantId,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         peca = { id: newRef.id, nome: pecaNomeInput, precoVenda: precoNum };
         setPecasEstoque([...pecasEstoque, peca]);
@@ -700,7 +703,8 @@ const OSForm: React.FC = () => {
           nome: formData.clienteNome.toUpperCase().trim(),
           telefone: formData.clienteTelefone,
           tenantId,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         clienteIdParaSalvar = novoClienteRef.id;
       }
@@ -861,12 +865,17 @@ const OSForm: React.FC = () => {
         };
 
         if (isEditing && id) {
-          transaction.update(osRef, { ...osData, updatedAt: serverTimestamp() });
+          transaction.update(osRef, {
+            ...osData,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+          });
         } else {
           transaction.set(osRef, {
             ...osData,
             tenantId,
-            createdAt: serverTimestamp()
+            createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
         }
 
@@ -874,6 +883,7 @@ const OSForm: React.FC = () => {
           transaction.update(doc(db, 'bancos', bancoId), {
             saldoCentavos: (bankBalancesById.get(bancoId) || 0) + deltaCents,
             updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Crédito da OS #${finalNumeroOS}`),
           });
         });
 
@@ -919,8 +929,8 @@ const OSForm: React.FC = () => {
               mecanicoId: formData.mecanicoId,
               tenantId,
               ...(existingPaymentSnapshot?.exists()
-                ? { updatedAt: serverTimestamp() }
-                : { createdAt: serverTimestamp() }),
+                ? { updatedAt: serverTimestamp(), ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()) }
+                : { createdAt: serverTimestamp(), ...buildDocumentMetadata(currentUser.uid, serverTimestamp()) }),
             }, { merge: true });
           });
 
@@ -931,6 +941,7 @@ const OSForm: React.FC = () => {
               movimentaCaixaFisico: false,
               substituidaEm: serverTimestamp(),
               updatedAt: serverTimestamp(),
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Substituída por novo pagamento'),
             });
           });
         } else if (isEditing) {
@@ -946,6 +957,7 @@ const OSForm: React.FC = () => {
                   statusOperacional: 'Cancelada',
                   estornadaEm: serverTimestamp(),
                   updatedAt: serverTimestamp(),
+                  ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estornada pelo cancelamento da OS'),
                 });
                 transaction.set(doc(db, 'transacoes', `estorno_cancelamento_${paymentSnapshot.id}`), {
                   descricao: `Estorno do cancelamento da OS #${finalNumeroOS}`,
@@ -976,6 +988,7 @@ const OSForm: React.FC = () => {
                   usuarioResponsavelId: currentUser.uid,
                   tenantId,
                   createdAt: serverTimestamp(),
+                  ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
                 }, { merge: true });
               } else {
                 transaction.update(paymentSnapshot.ref, {
@@ -983,6 +996,7 @@ const OSForm: React.FC = () => {
                   movimentaCaixaFisico: false,
                   estornadaEm: serverTimestamp(),
                   updatedAt: serverTimestamp(),
+                  ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Cancelada junto com a OS'),
                 });
               }
             });
@@ -993,6 +1007,7 @@ const OSForm: React.FC = () => {
                 status: 'Pendente',
                 movimentaCaixaFisico: false,
                 updatedAt: serverTimestamp(),
+                ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Reaberta (OS deixou de estar Finalizada)'),
               });
             });
           }
@@ -1000,7 +1015,10 @@ const OSForm: React.FC = () => {
 
         if (formData.orcamentoId) {
           const novoStatusOrcamento = formData.status === 'Cancelada' ? 'Pendente' : 'Finalizado';
-          transaction.update(doc(db, 'orcamentos', formData.orcamentoId), { status: novoStatusOrcamento });
+          transaction.update(doc(db, 'orcamentos', formData.orcamentoId), {
+            status: novoStatusOrcamento,
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `OS #${finalNumeroOS} atualizou o status`),
+          });
         }
       });
 

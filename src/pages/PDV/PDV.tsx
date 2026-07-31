@@ -36,6 +36,7 @@ import {
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import CartPanel from './components/CartPanel';
 import ClientModal from './components/ClientModal';
@@ -496,12 +497,14 @@ const PDV: React.FC = () => {
           vendedorNome: sellerName,
           comissao: commissionSnapshot,
           createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
 
         bankCreditsByBanco.forEach((deltaCents, bancoId) => {
           transaction.update(doc(db, 'bancos', bancoId), {
             saldoCentavos: (bankBalancesById.get(bancoId) || 0) + deltaCents,
             updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Crédito da venda PDV #${finalNumeroPedido}`),
           });
         });
 
@@ -546,6 +549,7 @@ const PDV: React.FC = () => {
             vendedorId: currentUser.uid,
             tenantId,
             createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
         });
       });

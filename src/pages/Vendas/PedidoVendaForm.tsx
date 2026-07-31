@@ -14,6 +14,7 @@ import ProductSearchModal from '../../components/common/ProductSearchModal';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
@@ -541,7 +542,8 @@ const PedidoVendaForm: React.FC = () => {
           nome: finalClienteNome,
           isPadrao: finalClienteNome === 'CONSUMIDOR FINAL',
           tenantId: tenantId || '',
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         clienteIdParaSalvar = novoClienteRef.id;
       }
@@ -631,7 +633,8 @@ const PedidoVendaForm: React.FC = () => {
           vendedorId: selectedSellerId,
           vendedorNome: sellerName,
           comissao: commissionSnapshot,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         };
 
         transaction.set(newPedidoRef, pedidoData);
@@ -640,6 +643,7 @@ const PedidoVendaForm: React.FC = () => {
           transaction.update(doc(db, 'bancos', bancoId), {
             saldoCentavos: (bankBalancesById.get(bancoId) || 0) + deltaCents,
             updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Crédito da venda #${finalNumeroPedido}`),
           });
         });
 
@@ -681,7 +685,8 @@ const PedidoVendaForm: React.FC = () => {
             usuarioResponsavelId: currentUser.uid,
             vendedorId: selectedSellerId,
             tenantId,
-            createdAt: serverTimestamp()
+            createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
         });
       });
@@ -890,7 +895,8 @@ const PedidoVendaForm: React.FC = () => {
             tenantId,
             createdAt: serverTimestamp(),
             data: new Date().toISOString(),
-            pedidoId: newPedidoId
+            pedidoId: newPedidoId,
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
 
           Swal.close();
@@ -1136,7 +1142,8 @@ const PedidoVendaForm: React.FC = () => {
         tenantId,
         createdAt: serverTimestamp(),
         data: new Date().toISOString(),
-        pedidoId: id
+        pedidoId: id,
+        ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
       });
 
       // Atualiza o estado local
@@ -1216,7 +1223,8 @@ const PedidoVendaForm: React.FC = () => {
         number: spedyNote.number,
         accessKey: spedyNote.accessKey || null,
         processingMessage: spedyNote.processingDetail?.message || null,
-        processingCode: spedyNote.processingDetail?.code || null
+        processingCode: spedyNote.processingDetail?.code || null,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Status da NFC-e consultado na Spedy'),
       });
 
       setNfeDoc({
@@ -1289,7 +1297,8 @@ const PedidoVendaForm: React.FC = () => {
           status: 'Cancelada',
           ...(saleSnap.data().comissao ? { comissao: cancelCommissionSnapshot(saleSnap.data().comissao) } : {}),
           canceladaEm: serverTimestamp(),
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Venda cancelada'),
         });
 
         paymentSnapshots.forEach((paymentSnapshot) => {
@@ -1302,6 +1311,7 @@ const PedidoVendaForm: React.FC = () => {
               statusOperacional: 'Cancelada',
               estornadaEm: serverTimestamp(),
               updatedAt: serverTimestamp(),
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estornada pelo cancelamento da venda'),
             });
             transaction.set(doc(db, 'transacoes', `estorno_cancelamento_${paymentSnapshot.id}`), {
               descricao: `Estorno do cancelamento da venda #${numeroPedido}`,
@@ -1332,6 +1342,7 @@ const PedidoVendaForm: React.FC = () => {
               usuarioResponsavelId: currentUser.uid,
               tenantId,
               createdAt: serverTimestamp(),
+              ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
             }, { merge: true });
           } else {
             transaction.update(paymentSnapshot.ref, {
@@ -1339,6 +1350,7 @@ const PedidoVendaForm: React.FC = () => {
               movimentaCaixaFisico: false,
               estornadaEm: serverTimestamp(),
               updatedAt: serverTimestamp(),
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Cancelada junto com a venda'),
             });
           }
         });
@@ -1364,7 +1376,10 @@ const PedidoVendaForm: React.FC = () => {
       // 4. Reabrir Orçamento se houver orcamentoId
       if (orcamentoId) {
         try {
-          await updateDoc(doc(db, 'orcamentos', orcamentoId), { status: 'Pendente' });
+          await updateDoc(doc(db, 'orcamentos', orcamentoId), {
+            status: 'Pendente',
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Reaberto pelo cancelamento da venda'),
+          });
         } catch (err) {
           console.error("Erro ao reabrir orçamento:", err);
         }

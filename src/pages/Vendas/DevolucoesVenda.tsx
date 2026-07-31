@@ -9,6 +9,7 @@ import { isPlatformAdminRole } from '../../utils/roles';
 import { applyStockAdjustments } from '../../utils/firestoreAtomic';
 import { recalculateCommissionAfterReturn, toCents } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 const DevolucoesVenda: React.FC = () => {
   const navigate = useNavigate();
@@ -216,6 +217,7 @@ const DevolucoesVenda: React.FC = () => {
           idempotencyKey: `devolucao:${novaDevolucaoRef.id}`,
           createdAt: serverTimestamp(),
           itensDevolvidos,
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
 
         const savedCommission = saleData.comissao?.regraVersion
@@ -225,6 +227,7 @@ const DevolucoesVenda: React.FC = () => {
           itens: updatedItems,
           ...(savedCommission ? { comissao: savedCommission } : {}),
           updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Devolução registrada'),
         });
 
         if (destinoValor === 'caixa') {
@@ -245,6 +248,7 @@ const DevolucoesVenda: React.FC = () => {
             idempotencyKey: `devolucao:${novaDevolucaoRef.id}:caixa`,
             tenantId,
             createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
         } else {
           transaction.set(doc(db, 'creditos_cliente', `devolucao_${novaDevolucaoRef.id}`), {
@@ -259,6 +263,7 @@ const DevolucoesVenda: React.FC = () => {
             tenantId,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
         }
       });

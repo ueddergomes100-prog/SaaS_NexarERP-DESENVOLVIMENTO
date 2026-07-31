@@ -567,7 +567,13 @@ Ordem: **1 → 19 → 20 → 18 → 6 → 15**.
 - Várias funções não tinham guarda de `currentUser` nulo (só checavam `tenantId`/estado do modal): `Banco.confirmarRecebimentoCartao`, `Caixa.handleEstornar`, `ContasPagar.handleConciliar`, `ContasReceber.confirmarRecebimento` — adicionada em todas, mesmo raciocínio das fatias anteriores.
 - Typecheck, lint (0 erros, 68 warnings pré-existentes) e build passando. Suíte de testes (66) passando.
 
-**Fatias restantes:** Cadastros com formulário próprio (Clientes, Veículos, Estoque/Produtos, Serviços, Usuários); Fiscal/Admin/Auth (`NFE.tsx`, `EntradaNFE.tsx`, `SuperAdmin.tsx`, `Configuracoes.tsx`, `PerfilModal.tsx`, `AuthContext.tsx`, `Login.tsx`) — esta última exige mais cuidado por tocar fluxo de autenticação/tenant.
+**Fatia 4/N concluída em 2026-07-31 — Cadastros com formulário próprio** (Clientes, Veículos, Estoque/Produtos, Serviços, Usuários):
+- Mesmo padrão das fatias 1-3, aplicado a `ClienteForm.tsx`/`ClientesList.tsx`, `VeiculoForm.tsx`, `EstoqueForm.tsx`/`EstoqueList.tsx`, `ServicoForm.tsx`/`ServicosList.tsx` e `UsuarioForm.tsx`.
+- Praticamente todo `handleSave` de criação/edição nessas telas não tinha nenhuma guarda de `currentUser` nulo (`ClienteForm`, `VeiculoForm`, `EstoqueForm` na edição, `ServicoForm` na edição) — adicionada em todas, mesmo padrão das fatias anteriores.
+- `UsuarioForm.tsx` é o caso mais particular: criação de funcionário já gravava um campo próprio `createdBy` (não o padrão do F5) — mantido como está e os campos novos (`criadoPor`/`criadoEm`/`alteradoPor`/`alteradoEm`) adicionados ao lado, sem remover nada. O doc de índice `usernames/{usernameFinal}` (só email+tenantId, usado pelo Login pra descobrir o email a partir do usuário) ficou de fora — não é um documento de negócio, não faz sentido rastrear "responsabilidade" nele.
+- Typecheck, lint (0 erros, **66** warnings — 2 a menos que antes: `VeiculoForm`/outros tinham `currentUser` importado e nunca usado, warning some sozinho ao consumir o valor) e build passando. Suíte de testes (66) passando.
+
+**Fatia restante:** Fiscal/Admin/Auth (`NFE.tsx`, `EntradaNFE.tsx`, `SuperAdmin.tsx`, `Configuracoes.tsx`, `PerfilModal.tsx`, `AuthContext.tsx`, `Login.tsx`) — exige mais cuidado por tocar fluxo de autenticação/tenant/onboarding.
 
 ### Módulo 18 — Cancelamentos
 
@@ -706,7 +712,7 @@ Atualizar ao concluir cada item.
 | M5 Flags fiscais | 1 | 🟨 Código pronto — falta validação manual | 2026-07-28 |
 | M1 Navegação por teclado | 2 | 🟨 Código pronto (PDV + Pedido + OS + Cadastros) — falta validação manual | 2026-07-31 |
 | M19 Numeração | 2 | ✅ Concluído — sem código novo, nada implementável hoje (ver seção do módulo) | 2026-07-31 |
-| M20 Responsabilidade | 2 | 🟨 Fatias 1-3/N (Cadastros simples + Vendas/PDV/OS/Orçamentos + Financeiro) prontas no código — faltam Cadastros com form próprio e Fiscal/Admin/Auth | 2026-07-31 |
+| M20 Responsabilidade | 2 | 🟨 Fatias 1-4/N prontas no código (Cadastros simples, Vendas/PDV/OS/Orçamentos, Financeiro, Cadastros com form próprio) — falta só Fiscal/Admin/Auth | 2026-07-31 |
 | M18 Cancelamentos (auditoria) | 2 | ⬜ Pendente | |
 | M6 Central de Notas Fiscais | 2 | ⬜ Pendente | |
 | M15 Relatórios padronizados | 2 | ⬜ Pendente | |

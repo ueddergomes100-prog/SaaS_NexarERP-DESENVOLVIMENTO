@@ -5,6 +5,7 @@ import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 const ClienteForm: React.FC = () => {
   const navigate = useNavigate();
@@ -86,22 +87,28 @@ const ClienteForm: React.FC = () => {
       }
     }
 
+    if (!currentUser) return;
     setIsLoading(true);
 
     try {
-      const dataToSave = { 
-        ...formData, 
+      const dataToSave = {
+        ...formData,
         nome: formData.nome.toUpperCase().trim(),
         tenantId
       };
 
       if (isEditing && id) {
-        await updateDoc(doc(db, 'clientes', id), { ...dataToSave, updatedAt: serverTimestamp() });
+        await updateDoc(doc(db, 'clientes', id), {
+          ...dataToSave,
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+        });
         showSuccess('Cliente atualizado!');
       } else {
-        await addDoc(collection(db, 'clientes'), { 
-          ...dataToSave, 
-          createdAt: serverTimestamp() 
+        await addDoc(collection(db, 'clientes'), {
+          ...dataToSave,
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Cliente cadastrado!');
       }

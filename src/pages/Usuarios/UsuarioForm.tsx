@@ -5,6 +5,7 @@ import { collection, setDoc, doc, serverTimestamp, getDoc, updateDoc, query, whe
 import { db, firebaseConfig } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 // Importa app secundário para criar usuário sem deslogar o dono
 import { initializeApp } from 'firebase/app';
@@ -74,7 +75,8 @@ const UsuarioForm: React.FC = () => {
       try {
         await updateDoc(doc(db, 'usuarios', id), {
           nome: formData.nome,
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Usuário atualizado com sucesso!');
         navigate('/usuarios');
@@ -146,7 +148,8 @@ const UsuarioForm: React.FC = () => {
         tenantId: tenantId, // Vincula à oficina do dono
         createdAt: serverTimestamp(),
         createdBy: currentUser.uid,
-        status: 'Ativo'
+        status: 'Ativo',
+        ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
       });
 
       // 4. Salva no índice global de usernames para o Login poder descobrir o email depois

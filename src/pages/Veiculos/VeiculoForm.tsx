@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, Save, Car, User, Settings, Hash, MapPin, Calendar, Activity } from 'lucide-react';
 import { showSuccess, showError } from '../../utils/alerts';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import '../OS/OS.css'; // Reusing OS styles
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
@@ -96,6 +97,7 @@ const VeiculoForm: React.FC = () => {
       showError('Atenção', 'Os campos Placa, Modelo e Cliente são obrigatórios.');
       return;
     }
+    if (!currentUser) return;
 
     setIsLoading(true);
     try {
@@ -107,7 +109,10 @@ const VeiculoForm: React.FC = () => {
       };
 
       if (isEditing && id) {
-        await updateDoc(doc(db, 'veiculos', id), dataToSave);
+        await updateDoc(doc(db, 'veiculos', id), {
+          ...dataToSave,
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+        });
         showSuccess('Veículo atualizado com sucesso!');
       } else {
         // Check if placa already exists
@@ -121,7 +126,8 @@ const VeiculoForm: React.FC = () => {
 
         await addDoc(collection(db, 'veiculos'), {
           ...dataToSave,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Veículo cadastrado com sucesso!');
       }

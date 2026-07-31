@@ -6,6 +6,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -631,6 +632,7 @@ const EstoqueForm: React.FC = () => {
   const handleSave = async (e?: React.FormEvent | React.MouseEvent) => {
     e?.preventDefault();
     if (!validateForm()) return;
+    if (!currentUser) return;
 
     setIsLoading(true);
 
@@ -804,7 +806,12 @@ const EstoqueForm: React.FC = () => {
       };
 
       if (isEditing && id) {
-        await updateDoc(doc(db, 'estoque', id), { ...produtoData, tenantId: tenantId || '', updatedAt: serverTimestamp() });
+        await updateDoc(doc(db, 'estoque', id), {
+          ...produtoData,
+          tenantId: tenantId || '',
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+        });
         try {
           const { createAuditLog } = await import('../../services/logService');
           createAuditLog({
@@ -822,11 +829,11 @@ const EstoqueForm: React.FC = () => {
         }
         showSuccess('Produto atualizado!');
       } else {
-        if (!currentUser) return;
         const newDocRef = await addDoc(collection(db, 'estoque'), {
           ...produtoData,
           tenantId: tenantId || '',
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         try {
           const { createAuditLog } = await import('../../services/logService');

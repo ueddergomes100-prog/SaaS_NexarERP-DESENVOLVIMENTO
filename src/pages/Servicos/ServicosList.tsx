@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Plus, Wrench, Edit, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 interface ServicoData {
   id: string;
@@ -47,6 +48,7 @@ const ServicosList: React.FC = () => {
   };
 
   const handleFixNames = async () => {
+    if (!currentUser) return;
     const isConfirmed = await NexusSwal.fire({
       title: 'Padronizar Nomes?',
       text: 'Isto converterá o nome de TODOS os serviços para MAIÚSCULAS.',
@@ -62,7 +64,10 @@ const ServicosList: React.FC = () => {
         for (const s of servicos) {
           const upName = s.nome.toUpperCase().trim();
           if (s.nome !== upName) {
-            await updateDoc(doc(db, 'servicos', s.id), { nome: upName });
+            await updateDoc(doc(db, 'servicos', s.id), {
+              nome: upName,
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Nome padronizado para maiúsculas'),
+            });
             count++;
           }
         }

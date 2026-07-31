@@ -5,6 +5,7 @@ import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 const ServicoForm: React.FC = () => {
   const navigate = useNavigate();
@@ -67,7 +68,8 @@ const ServicoForm: React.FC = () => {
       showError('Campos incompletos', 'Nome e valor por hora são obrigatórios.');
       return;
     }
-    
+    if (!currentUser) return;
+
     setIsLoading(true);
     try {
       const dataToSave = {
@@ -79,15 +81,16 @@ const ServicoForm: React.FC = () => {
       if (isEditing && id) {
         await updateDoc(doc(db, 'servicos', id), {
           ...dataToSave,
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Serviço atualizado!');
       } else {
-        if (!currentUser) return;
         await addDoc(collection(db, 'servicos'), {
           ...dataToSave,
           tenantId,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Serviço cadastrado!');
       }

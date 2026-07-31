@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Filter, AlertCircle, Package, Edit, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, doc, deleteDoc, where, updateDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, deleteDoc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import './Estoque.css';
 
 interface PecaData {
@@ -74,6 +75,7 @@ const EstoqueList: React.FC = () => {
   };
 
   const handleFixNames = async () => {
+    if (!currentUser) return;
     const isConfirmed = await NexusSwal.fire({
       title: 'Padronizar Nomes?',
       text: 'Isto converterá o nome de TODAS as peças do estoque para MAIÚSCULAS.',
@@ -89,7 +91,10 @@ const EstoqueList: React.FC = () => {
         for (const p of pecasList) {
           const upName = p.nome.toUpperCase().trim();
           if (p.nome !== upName) {
-            await updateDoc(doc(db, 'estoque', p.id), { nome: upName });
+            await updateDoc(doc(db, 'estoque', p.id), {
+              nome: upName,
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Nome padronizado para maiúsculas'),
+            });
             count++;
           }
         }

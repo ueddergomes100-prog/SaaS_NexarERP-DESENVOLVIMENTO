@@ -602,6 +602,8 @@ Trabalho fatiado (mudança estrutural na arquitetura de rotas do app inteiro, Re
 
 **Pendente — validação manual:** mesma limitação de login. Falta abrir várias telas pelo menu, conferir que a barra de abas aparece e reflete a navegação, fechar/reabrir abas, e que a lista sobrevive a um F5.
 
+**Complemento pedido pelo usuário em 2026-07-31, ainda na Fase A: reordenar abas arrastando com o mouse.** `reorderTab(draggedId, targetId)` novo no `TabsContext` (tira a aba arrastada da posição atual e reinsere na posição da aba alvo); `TabBar.tsx` usa a API nativa de drag-and-drop do HTML5 (`draggable` + `onDragStart`/`onDragOver`/`onDrop`/`onDragEnd`, sem biblioteca nova), com feedback visual (`.dragging` esmaece a aba sendo arrastada, `.drag-over` destaca a aba alvo). Checklist completo passando.
+
 **Fases restantes:**
 - **Fase B (a mais pesada):** isolar cada aba num `<MemoryRouter>` próprio, sempre montado enquanto a aba existir (escondido via CSS `display:none` quando inativa, nunca desmontado ao trocar — só ao fechar). Extrair a lista de rotas hoje aninhada em `App.tsx` sob `AppLayout` pra um `RouteObject[]` reutilizável, consumido via `useRoutes()` dentro de cada `MemoryRouter`. Sincronização de URL só de leitura (aba ativa → barra do navegador via `history.replaceState`), nunca o contrário. Fecha a promessa de "não perde o que estava fazendo" — e também aumenta o custo real de leituras do Firestore (cada aba aberta mantém suas próprias escutas `onSnapshot` rodando em segundo plano), avisado ao usuário antes de aprovar o plano.
 - **Fase C:** título dinâmico por aba (nome do registro, não só o nome da tela), aviso ao fechar aba com alterações não salvas (Pedido/OS/Orçamento), atalhos de teclado (checar que não colide com F2-F8 do Módulo 1).

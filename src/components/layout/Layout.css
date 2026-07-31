@@ -943,6 +943,14 @@ body.light-theme .nexus-nav-group-trigger small {
   color: var(--text-primary);
 }
 
+.tab-bar-item.dragging {
+  opacity: 0.4;
+}
+
+.tab-bar-item.drag-over {
+  border-color: var(--accent-purple);
+}
+
 .tab-bar-label {
   overflow: hidden;
   text-overflow: ellipsis;

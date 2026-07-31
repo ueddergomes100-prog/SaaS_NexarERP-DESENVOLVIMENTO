@@ -12,6 +12,7 @@ interface TabsContextValue {
   tabs: Tab[];
   activeTabId: string;
   closeTab: (id: string) => void;
+  reorderTab: (draggedId: string, targetId: string) => void;
 }
 
 const TabsContext = createContext<TabsContextValue | null>(null);
@@ -137,7 +138,24 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, [activeTabId, navigate]);
 
-  const value = useMemo(() => ({ tabs, activeTabId, closeTab }), [tabs, activeTabId, closeTab]);
+  const reorderTab = useCallback((draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return;
+    setTabs((current) => {
+      const draggedIndex = current.findIndex((tab) => tab.id === draggedId);
+      const targetIndex = current.findIndex((tab) => tab.id === targetId);
+      if (draggedIndex === -1 || targetIndex === -1) return current;
+
+      const next = [...current];
+      const [draggedTab] = next.splice(draggedIndex, 1);
+      next.splice(targetIndex, 0, draggedTab);
+      return next;
+    });
+  }, []);
+
+  const value = useMemo(
+    () => ({ tabs, activeTabId, closeTab, reorderTab }),
+    [tabs, activeTabId, closeTab, reorderTab],
+  );
 
   return <TabsContext.Provider value={value}>{children}</TabsContext.Provider>;
 };

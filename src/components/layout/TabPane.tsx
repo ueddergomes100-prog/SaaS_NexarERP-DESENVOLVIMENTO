@@ -1,42 +1,54 @@
 import React, { Suspense, useEffect } from 'react';
-import { MemoryRouter, useLocation, useRoutes } from 'react-router-dom';
+import { useLocation, useNavigate, useRoutes } from 'react-router-dom';
 import { ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { resolveRouteAccess } from '../../utils/routeAccess';
 import { appRoutesConfig } from '../../routes/appRoutesConfig';
 import { TabActiveContext, useTabs, type Tab } from '../../contexts/TabsContext';
+import { ErrorBoundary } from '../ErrorBoundary';
 import PageLoader from './PageLoader';
 
 /**
- * Conteudo de uma aba: resolve as rotas (useRoutes) e o bloqueio por
- * modulo/permissao a partir da localizacao INTERNA do MemoryRouter da
- * aba -- nao da URL real do navegador, que so espelha a aba ativa (ver
- * TabPane mais abaixo).
+ * Conteudo de uma aba. react-router proibe <Router> aninhado (nao da pra
+ * dar a cada aba seu proprio MemoryRouter dentro do BrowserRouter externo
+ * -- "You cannot render a <Router> inside another <Router>"), entao todas
+ * as abas compartilham o MESMO router; o que muda por aba e qual location
+ * usamos pra resolver a rota:
+ * - aba ativa: resolve contra a location REAL do navegador (useLocation),
+ *   entao navigate()/Link dentro da tela funcionam normalmente; um efeito
+ *   espelha a location real de volta pro tab.path (persistencia).
+ * - aba em segundo plano: resolve contra o ultimo tab.path conhecido
+ *   (congelado), sem depender da location real, que pertence a aba ativa.
+ * Ao trocar de aba ativa, um efeito empurra tab.path pra location real via
+ * navigate(..., {replace:true}), pra aba recem-ativada assumir o timao.
  */
 const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActive }) => {
   const location = useLocation();
-  const element = useRoutes(appRoutesConfig);
+  const navigate = useNavigate();
+  const element = useRoutes(appRoutesConfig, isActive ? undefined : tab.path);
   const { updateTabLocation } = useTabs();
   const { blockedModules, userRole, userPermissions, isOwner, isPlatformAdmin } = useAuth();
 
-  useEffect(() => {
-    updateTabLocation(tab.id, location.pathname);
-  }, [location.pathname, tab.id, updateTabLocation]);
-
-  // So a aba ativa espelha sua localizacao interna pra URL real do
-  // navegador (leitura -> escrita, nunca o contrario) -- mantem F5 e
-  // deep-link coerentes sem fazer as abas em segundo plano brigarem
-  // pela barra de enderecos.
+  // Ao virar a aba ativa (troca de aba, ou primeiro mount ja ativa),
+  // assume a location real do navegador -- so essa aba deve mexer nela.
   useEffect(() => {
     if (!isActive) return;
-    const target = `${location.pathname}${location.search}${location.hash}`;
-    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== target) {
-      window.history.replaceState(null, '', target);
-    }
-  }, [isActive, location]);
+    if (location.pathname === tab.path) return;
+    navigate(tab.path, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive]);
 
-  const { routeModule, routePermission } = resolveRouteAccess(location.pathname);
+  // So a aba ativa espelha sua location real de volta pro tab.path
+  // (leitura -> escrita, nunca o contrario) -- mantem F5 e deep-link
+  // coerentes sem fazer as abas em segundo plano brigarem pela URL.
+  useEffect(() => {
+    if (!isActive) return;
+    updateTabLocation(tab.id, location.pathname);
+  }, [isActive, location.pathname, tab.id, updateTabLocation]);
+
+  const effectivePath = isActive ? location.pathname : tab.path;
+  const { routeModule, routePermission } = resolveRouteAccess(effectivePath);
   const isModuleBlocked = routeModule && !isPlatformAdmin && blockedModules?.includes(routeModule);
   const hasFullAccess = hasTenantFullAccess(userRole, isOwner);
   const isRouteAllowed = !routePermission || hasFullAccess || userPermissions?.includes(routePermission);
@@ -67,21 +79,24 @@ const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActi
 };
 
 /**
- * Uma aba = um MemoryRouter proprio, sempre montado enquanto a aba
- * existir (fechar de verdade desmonta e limpa as escutas do Firestore
- * daquela tela; trocar de aba so esconde via CSS). Sistema de Abas
- * (F19), fase B.
+ * Uma aba, sempre montada enquanto a aba existir (fechar de verdade
+ * desmonta e limpa as escutas do Firestore daquela tela; trocar de aba
+ * so esconde via CSS). Sistema de Abas (F19), fase B -- todas as abas
+ * compartilham o unico Router do App (ver TabPaneContent acima).
  */
 const TabPane: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActive }) => (
   <div style={{ display: isActive ? 'contents' : 'none' }}>
-    <MemoryRouter initialEntries={[tab.path]}>
+    {/* ErrorBoundary proprio por aba: uma tela quebrando em segundo plano
+        nao pode derrubar as outras abas -- so o ErrorBoundary de App.tsx
+        nao bastava, porque todas as abas ficam sempre montadas juntas. */}
+    <ErrorBoundary>
       {/* Suspense proprio por aba: uma aba nova carregando sua tela lazy
           nao pode "piscar" o conteudo das outras abas ja carregadas, que
           compartilhariam o mesmo boundary se ele fosse so o de App.tsx. */}
       <Suspense fallback={<PageLoader />}>
         <TabPaneContent tab={tab} isActive={isActive} />
       </Suspense>
-    </MemoryRouter>
+    </ErrorBoundary>
   </div>
 );
 

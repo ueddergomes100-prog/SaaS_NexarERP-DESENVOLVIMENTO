@@ -5,6 +5,7 @@ import { collection, addDoc, updateDoc, doc, getDoc, serverTimestamp, query, whe
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 const CategoriaForm: React.FC = () => {
   const navigate = useNavigate();
@@ -47,7 +48,8 @@ const CategoriaForm: React.FC = () => {
       showError('Campos incompletos', 'Nome da categoria é obrigatório.');
       return;
     }
-    
+    if (!currentUser) return;
+
     setIsLoading(true);
     try {
       const dataToSave = {
@@ -58,15 +60,16 @@ const CategoriaForm: React.FC = () => {
       if (isEditing && id) {
         await updateDoc(doc(db, 'categorias', id), {
           ...dataToSave,
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Categoria atualizada!');
       } else {
-        if (!currentUser) return;
         await addDoc(collection(db, 'categorias'), {
           ...dataToSave,
           tenantId,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Categoria cadastrada!');
       }

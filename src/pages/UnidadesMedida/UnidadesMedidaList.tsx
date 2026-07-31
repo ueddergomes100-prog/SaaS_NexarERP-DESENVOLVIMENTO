@@ -6,6 +6,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
 
@@ -74,6 +75,7 @@ const UnidadesMedidaList: React.FC = () => {
   };
 
   const handleLoadDefaults = async () => {
+    if (!currentUser) return;
     const isConfirmed = await NexusSwal.fire({
       title: 'Carregar Padrões?',
       text: 'Isso criará automaticamente as unidades básicas (UN, KG, LTS, MT).',
@@ -99,7 +101,8 @@ const UnidadesMedidaList: React.FC = () => {
             await addDoc(collection(db, 'unidades_medida'), {
               ...item,
               tenantId,
-              createdAt: serverTimestamp()
+              createdAt: serverTimestamp(),
+              ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
             });
           }
         }
@@ -145,6 +148,7 @@ const UnidadesMedidaList: React.FC = () => {
       showError('Erro', 'Preencha todos os campos obrigatórios.');
       return;
     }
+    if (!currentUser) return;
 
     setModalLoading(true);
     try {
@@ -158,7 +162,10 @@ const UnidadesMedidaList: React.FC = () => {
       };
 
       if (editingId) {
-        await updateDoc(doc(db, 'unidades_medida', editingId), docData);
+        await updateDoc(doc(db, 'unidades_medida', editingId), {
+          ...docData,
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+        });
         showSuccess('Unidade de medida atualizada!');
       } else {
         // Verifica se a sigla já existe
@@ -171,7 +178,8 @@ const UnidadesMedidaList: React.FC = () => {
 
         await addDoc(collection(db, 'unidades_medida'), {
           ...docData,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Unidade de medida cadastrada!');
       }

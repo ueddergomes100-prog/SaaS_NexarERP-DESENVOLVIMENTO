@@ -20,6 +20,7 @@ import { hasModuleAccess } from '../../utils/roles';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import { fromCents, toCents, validateBankTransfer } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
 
@@ -167,6 +168,7 @@ const BancosList: React.FC = () => {
       showError('Erro', 'Informe o nome do banco.');
       return;
     }
+    if (!currentUser) return;
 
     setModalLoading(true);
     try {
@@ -180,6 +182,7 @@ const BancosList: React.FC = () => {
           ativo: modalForm.ativo,
           ordem: Number(modalForm.ordem) || 0,
           updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Banco atualizado!');
       } else {
@@ -197,6 +200,7 @@ const BancosList: React.FC = () => {
           tenantId,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         if (saldoInicialCentavos !== 0) {
           await addDoc(collection(db, 'lancamentos_bancarios'), {
@@ -254,7 +258,7 @@ const BancosList: React.FC = () => {
 
   const handleSaveLancamento = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ledgerBanco) return;
+    if (!ledgerBanco || !currentUser) return;
 
     const valorCentavos = toCents(lancamentoForm.valor);
     if (!Number.isInteger(valorCentavos) || valorCentavos <= 0) {
@@ -292,6 +296,7 @@ const BancosList: React.FC = () => {
         transaction.update(bancoRef, {
           saldoCentavos: currentCents + delta,
           updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Lançamento manual registrado'),
         });
       });
       showSuccess('Lançamento registrado!');
@@ -306,7 +311,7 @@ const BancosList: React.FC = () => {
 
   const handleSaveTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ledgerBanco) return;
+    if (!ledgerBanco || !currentUser) return;
 
     const destino = bancos.find((b) => b.id === transferForm.destinoId);
     const valorCentavos = toCents(transferForm.valor);
@@ -376,8 +381,16 @@ const BancosList: React.FC = () => {
           createdBy: currentUser?.uid || null,
           createdAt: serverTimestamp(),
         });
-        transaction.update(originRef, { saldoCentavos: originCents - valorCentavos, updatedAt: serverTimestamp() });
-        transaction.update(destinationRef, { saldoCentavos: destinationCents + valorCentavos, updatedAt: serverTimestamp() });
+        transaction.update(originRef, {
+          saldoCentavos: originCents - valorCentavos,
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Transferência para ${destino.nome}`),
+        });
+        transaction.update(destinationRef, {
+          saldoCentavos: destinationCents + valorCentavos,
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Transferência de ${ledgerBanco.nome}`),
+        });
       });
       showSuccess('Transferência realizada!');
       setTransferForm(emptyTransferForm());

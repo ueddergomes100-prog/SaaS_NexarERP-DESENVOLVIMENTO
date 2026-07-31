@@ -535,11 +535,27 @@ Ordem: **1 → 19 → 20 → 18 → 6 → 15**.
 
 **Não faça:** não trocar o mecanismo existente — ele já é atômico e correto. Apenas estender o tipo.
 
+**Concluído em 2026-07-31 — sem código novo, confirmado por leitura de código:** as sequências que faltavam não têm pra onde ir hoje. Produção e Conferência (Módulos 4/12) não têm nenhuma rota/tela implementada em `App.tsx` — não existe processo que precise de numeração própria ainda. Notas fiscais (`NFE.tsx`) usam o campo `numero` vindo do Spedy/SEFAZ (`spedyService`), não uma sequência interna — não é um caso pra `contadores/{tenantId}`. O "caixa" do PDV (`pdvHelpers.ts`/`PDV.tsx`) nem é documento do Firestore, é só uma chave de `localStorage` por sessão — não tem o que numerar. Módulo 19 fecha aqui; reabrir quando Produção/Conferência entrarem em pauta (Fase 3).
+
 ### Módulo 20 — Responsabilidade
 
 **Estado atual:** `usuarioResponsavelId` + `createdAt` existem, mas de forma irregular; `alteradoPor` não existe.
 
 **Como implementar:** via F5, aplicando o helper a todo documento novo, e adicionando aos existentes **sem migração retroativa** (documento antigo simplesmente não tem o campo; a UI trata ausência).
+
+**Escopo real descoberto em 2026-07-31:** o helper (`buildDocumentMetadata`/`buildDocumentUpdateMetadata`, já existia com testes desde o F5) não era consumido em lugar nenhum do código — `grep` por escritas (`addDoc`/`updateDoc`/`transaction.set`/`transaction.update`) encontrou **30 arquivos**. Módulo bem maior do que os outros da Fase 2; fatiado por área, mesmo espírito do Módulo 1.
+
+**Fatia 1/N concluída em 2026-07-31 — Cadastros simples (Categorias, Unidades de Medida, Bandeiras de Cartão, Bancos):**
+- Todo `addDoc` novo ganhou `...buildDocumentMetadata(currentUser.uid, serverTimestamp())` **além** dos campos `createdAt`/`updatedAt` já existentes (não substituídos, para não quebrar nada que já leia esses nomes) — `criadoPor`/`criadoEm`/`alteradoPor`/`alteradoEm` são campos novos, adicionais.
+- Todo `updateDoc`/`transaction.update` de edição ganhou `...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp())`, incluindo os `transaction.update` que só mexem em `saldoCentavos` (ajuste manual e as duas pontas de uma transferência em `BancosList.tsx`) — contam como alteração do documento `bancos` também.
+- `BandeirasCartaoList.tsx` não desestruturava `currentUser` de `useAuth()` — adicionado.
+- Onde a função ainda não tinha guarda de `currentUser` nulo antes de gravar (ex: `CategoriaForm.tsx` na edição, `CategoriasList.handleFixNames`, `BandeirasCartaoList.handleLoadDefaults`/`handleSaveFees`), adicionado `if (!currentUser) return;` no início — mesmo padrão defensivo que já existia no caminho de criação dessas telas.
+- `lancamentos_bancarios` (F18) mantém seu campo `createdBy` próprio — não convertido pro padrão novo nesta fatia (são documentos imutáveis de auditoria, já carregam "quem" desde que nasceram; normalizar o nome do campo é polimento, não correção).
+- Typecheck, lint (0 erros, 68 warnings pré-existentes) e build passando. Suíte de testes (66) passando — `buildDocumentMetadata`/`buildDocumentUpdateMetadata` já tinham testes próprios desde o F5, nenhum novo necessário (são só consumidos, não mudou a lógica pura).
+
+**Pendente — validação manual:** mesma limitação de login. Falta criar/editar um item em cada uma das 4 telas e conferir no Firestore que `criadoPor`/`alteradoPor` aparecem corretamente.
+
+**Fatias restantes (ainda não iniciadas):** Vendas/PDV/OS/Orçamentos (`PedidoVendaForm.tsx`, `OSForm.tsx`, `PDV.tsx`, `OrcamentoForm.tsx`, `DevolucoesVenda.tsx`); Financeiro (`Banco.tsx`, `Caixa.tsx`, `ContasPagar.tsx`, `ContasReceber.tsx`); Cadastros com formulário próprio (Clientes, Veículos, Estoque/Produtos, Serviços, Usuários); Fiscal/Admin/Auth (`NFE.tsx`, `EntradaNFE.tsx`, `SuperAdmin.tsx`, `Configuracoes.tsx`, `PerfilModal.tsx`, `AuthContext.tsx`, `Login.tsx`) — esta última exige mais cuidado por tocar fluxo de autenticação/tenant.
 
 ### Módulo 18 — Cancelamentos
 
@@ -677,8 +693,8 @@ Atualizar ao concluir cada item.
 | M3 Impressão múltipla | 1 | 🟨 Código pronto — falta validação manual (quebra de página real) | 2026-07-28 |
 | M5 Flags fiscais | 1 | 🟨 Código pronto — falta validação manual | 2026-07-28 |
 | M1 Navegação por teclado | 2 | 🟨 Código pronto (PDV + Pedido + OS + Cadastros) — falta validação manual | 2026-07-31 |
-| M19 Numeração | 2 | ⬜ Pendente | |
-| M20 Responsabilidade | 2 | ⬜ Pendente | |
+| M19 Numeração | 2 | ✅ Concluído — sem código novo, nada implementável hoje (ver seção do módulo) | 2026-07-31 |
+| M20 Responsabilidade | 2 | 🟨 Fatia 1/N (Cadastros simples) pronta no código — faltam Vendas/PDV/OS, Financeiro, Cadastros com form próprio e Fiscal/Admin/Auth | 2026-07-31 |
 | M18 Cancelamentos (auditoria) | 2 | ⬜ Pendente | |
 | M6 Central de Notas Fiscais | 2 | ⬜ Pendente | |
 | M15 Relatórios padronizados | 2 | ⬜ Pendente | |

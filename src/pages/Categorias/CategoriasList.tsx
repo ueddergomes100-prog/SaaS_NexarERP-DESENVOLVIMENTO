@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Plus, Tags, Edit, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
 
@@ -54,6 +55,7 @@ const CategoriasList: React.FC = () => {
   };
 
   const handleFixNames = async () => {
+    if (!currentUser) return;
     const isConfirmed = await NexusSwal.fire({
       title: 'Padronizar Nomes?',
       text: 'Isto converterá o nome de TODAS as categorias para MAIÚSCULAS.',
@@ -69,7 +71,10 @@ const CategoriasList: React.FC = () => {
         for (const c of categorias) {
           const upName = c.nome.toUpperCase().trim();
           if (c.nome !== upName) {
-            await updateDoc(doc(db, 'categorias', c.id), { nome: upName });
+            await updateDoc(doc(db, 'categorias', c.id), {
+              nome: upName,
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Nome padronizado para maiúsculas'),
+            });
             count++;
           }
         }

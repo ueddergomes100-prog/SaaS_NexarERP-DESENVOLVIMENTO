@@ -9,6 +9,7 @@ import { hasModuleAccess } from '../../utils/roles';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import { pickMissingDefaults } from '../../utils/catalogDefaults';
 import { normalizeCreditCardFeeSchedule } from '../../utils/financeDomain';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
 
@@ -53,7 +54,7 @@ const REQUIRED_PERMISSION = 'cadastros.bandeiras_cartao';
 
 const BandeirasCartaoList: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const canAccess = hasModuleAccess({
     role: userRole,
     isOwner,
@@ -100,6 +101,7 @@ const BandeirasCartaoList: React.FC = () => {
   };
 
   const handleLoadDefaults = async () => {
+    if (!currentUser) return;
     const missing = pickMissingDefaults(BANDEIRAS_PADRAO, bandeiras, 'nome');
     if (missing.length === 0) {
       showSuccess('As bandeiras padrão já estão cadastradas.');
@@ -122,6 +124,7 @@ const BandeirasCartaoList: React.FC = () => {
           ...item,
           tenantId,
           createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
       }
       showSuccess('Bandeiras padrão adicionadas!');
@@ -174,7 +177,7 @@ const BandeirasCartaoList: React.FC = () => {
 
   const handleSaveFees = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!feesTarget) return;
+    if (!feesTarget || !currentUser) return;
 
     const debitFee = toConfigurationNumber(feesForm.taxaDebitoPercentual);
     const creditSettlementDays = toConfigurationNumber(feesForm.prazoRecebimentoCreditoDias);
@@ -210,6 +213,7 @@ const BandeirasCartaoList: React.FC = () => {
         prazoRecebimentoCreditoDias: creditSettlementDays,
         prazoRecebimentoDebitoDias: debitSettlementDays,
         updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Taxas de cartão atualizadas'),
       });
       showSuccess('Taxas atualizadas!');
       closeFeesModal();
@@ -244,6 +248,7 @@ const BandeirasCartaoList: React.FC = () => {
       showError('Erro', 'Informe o nome da bandeira.');
       return;
     }
+    if (!currentUser) return;
 
     setModalLoading(true);
     try {
@@ -256,7 +261,10 @@ const BandeirasCartaoList: React.FC = () => {
       };
 
       if (editingId) {
-        await updateDoc(doc(db, 'bandeiras_cartao', editingId), docData);
+        await updateDoc(doc(db, 'bandeiras_cartao', editingId), {
+          ...docData,
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+        });
         showSuccess('Bandeira atualizada!');
       } else {
         const jaExiste = bandeiras.some((b) => b.nome.toUpperCase() === docData.nome.toUpperCase());
@@ -266,7 +274,11 @@ const BandeirasCartaoList: React.FC = () => {
           return;
         }
 
-        await addDoc(collection(db, 'bandeiras_cartao'), { ...docData, createdAt: serverTimestamp() });
+        await addDoc(collection(db, 'bandeiras_cartao'), {
+          ...docData,
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
         showSuccess('Bandeira cadastrada!');
       }
       closeModal();

@@ -457,10 +457,11 @@ const Login: React.FC = () => {
             <label>E-mail ou Usuário</label>
             <div className="auth-input-wrapper">
               <User size={18} className="auth-input-icon" />
-              <input 
-                type="text" 
-                className="auth-input" 
-                placeholder="Dono: seu@email.com / Funcionário: joao" 
+              <input
+                type="text"
+                className="auth-input"
+                style={{ textTransform: 'none' }}
+                placeholder="Dono: seu@email.com / Funcionário: joao"
                 value={loginStr}
                 disabled={loading}
                 onChange={(e) => setLoginStr(e.target.value)}

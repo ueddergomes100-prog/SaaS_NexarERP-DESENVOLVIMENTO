@@ -584,6 +584,28 @@ Ordem: **1 → 19 → 20 → 18 → 6 → 15**.
 
 **Módulo 20 (Responsabilidade) está com todo o código pronto**, cobrindo as 5 fatias (Cadastros simples, Vendas/PDV/OS/Orçamentos, Financeiro, Cadastros com form próprio, Fiscal/Admin/Auth) — só falta validação manual (mesma limitação de login de sempre).
 
+### F19 — Sistema de Abas: múltiplas telas abertas ao mesmo tempo (feature, 2026-07-31)
+
+**Não estava no prompt original.** Pedido direto do usuário, com mockup: barra horizontal de abas abaixo do topbar (estilo navegador), permitindo ter Dashboard/Clientes/Pedidos/OS/Produtos etc. abertos ao mesmo tempo, cada aba fechável com "x".
+
+**Decisões confirmadas com o usuário antes de planejar:** (1) trocar de aba **preserva o estado de verdade** (carrinho, formulário em andamento, rolagem) — não é só um atalho visual que recarrega a tela; (2) o **PDV fica fora do sistema de abas** — continua tela cheia, sem menu lateral/barra de abas, como já é hoje; (3) **uma aba por registro aberto** — editar Cliente A e Cliente B ao mesmo tempo são duas abas distintas, não uma aba "Clientes" só.
+
+Trabalho fatiado (mudança estrutural na arquitetura de rotas do app inteiro, React Router 7):
+
+**Fase A concluída em 2026-07-31 — fundação visual (abas "leves"):**
+- Novo `TabsContext` (`src/contexts/TabsContext.tsx`): observa `useLocation()` e garante automaticamente uma aba pra URL atual sempre que ela muda — por clique no menu, redirecionamento interno após salvar, F5 ou digitar a URL direto. Não precisou instrumentar nenhum `navigate()` existente no app (dezenas de call sites) pra registrar abas; a detecção é passiva, via efeito no path. `resolveTabLabel` deriva o rótulo por prefixo de rota (tabela `SECTION_LABELS`), com fallback pro último segmento da URL formatado.
+- Persistência em `localStorage` (`nexus_tabs_v1`), restaurada ao recarregar a página; limpa no `logout()` de `AuthContext.tsx`.
+- Limite de segurança de **8 abas simultâneas** — a 9ª mostra aviso pedindo pra fechar alguma antes.
+- Novo `<TabBar/>` (`src/components/layout/TabBar.tsx`) entre `TopBar` e `page-content` em `AppLayout.tsx`, dentro de um `<TabsProvider>` que já envolve a área de conteúdo inteira (preparado pra Fase B, que vai passar a renderizar uma aba por `MemoryRouter` isolado ali dentro). CSS novo em `Layout.css` (`.tab-bar` e variantes), reaproveitando as mesmas variáveis do topbar (`--bg-secondary`, `--border-color`, `color-mix` com `--bg-primary`).
+- **Ainda não preserva estado** — trocar de aba hoje faz um `navigate()` de verdade (o `<Outlet/>` único de sempre desmonta/remonta a tela). Isso é só a fundação visual, validável cedo; a preservação de verdade (decisão #1) é a Fase B.
+- Typecheck, lint (0 erros, 66 warnings pré-existentes) e build passando. Suíte de testes (66) passando — sem lógica financeira nova, sem testes novos necessários.
+
+**Pendente — validação manual:** mesma limitação de login. Falta abrir várias telas pelo menu, conferir que a barra de abas aparece e reflete a navegação, fechar/reabrir abas, e que a lista sobrevive a um F5.
+
+**Fases restantes:**
+- **Fase B (a mais pesada):** isolar cada aba num `<MemoryRouter>` próprio, sempre montado enquanto a aba existir (escondido via CSS `display:none` quando inativa, nunca desmontado ao trocar — só ao fechar). Extrair a lista de rotas hoje aninhada em `App.tsx` sob `AppLayout` pra um `RouteObject[]` reutilizável, consumido via `useRoutes()` dentro de cada `MemoryRouter`. Sincronização de URL só de leitura (aba ativa → barra do navegador via `history.replaceState`), nunca o contrário. Fecha a promessa de "não perde o que estava fazendo" — e também aumenta o custo real de leituras do Firestore (cada aba aberta mantém suas próprias escutas `onSnapshot` rodando em segundo plano), avisado ao usuário antes de aprovar o plano.
+- **Fase C:** título dinâmico por aba (nome do registro, não só o nome da tela), aviso ao fechar aba com alterações não salvas (Pedido/OS/Orçamento), atalhos de teclado (checar que não colide com F2-F8 do Módulo 1).
+
 ### Módulo 18 — Cancelamentos
 
 **Estado atual:** **em grande parte pronto.** A reformulação financeira de 19/07 já entregou estorno determinístico com `idempotencyKey`, cancelamento de venda ([`PedidoVendaForm.tsx:1159`](../src/pages/Vendas/PedidoVendaForm.tsx)) e de OS ([`OSForm.tsx:834`](../src/pages/OS/OSForm.tsx)), com comissão marcada como cancelada.

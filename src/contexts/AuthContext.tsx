@@ -395,6 +395,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
     clearStoredSessionId();
+    localStorage.removeItem('nexus_tabs_v1');
     sessionCloseTokenRef.current = '';
     return signOut(auth);
   };

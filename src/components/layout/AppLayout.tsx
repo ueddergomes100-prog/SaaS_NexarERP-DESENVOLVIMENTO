@@ -4,8 +4,10 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { Building2, Megaphone, X, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { TabsProvider } from '../../contexts/TabsContext';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
+import TabBar from './TabBar';
 import './Layout.css';
 import { hasTenantFullAccess } from '../../utils/roles';
 
@@ -132,9 +134,9 @@ const AppLayout: React.FC = () => {
         <Sidebar />
         <div className="main-content">
           <TopBar />
-          <main className="page-content">
-            <div className="page-transition">
-              {needsTenantSelection ? (
+          {needsTenantSelection ? (
+            <main className="page-content">
+              <div className="page-transition">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '65vh', padding: '24px' }}>
                   <div className="card" style={{ width: '100%', maxWidth: '560px', padding: '28px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '18px' }}>
@@ -165,25 +167,34 @@ const AppLayout: React.FC = () => {
                     )}
                   </div>
                 </div>
-              ) : isModuleBlocked || !isRouteAllowed ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px', color: 'var(--text-primary)', textAlign: 'center', padding: '24px' }}>
-                  <div style={{ padding: '16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: '50%', color: '#ef4444' }}>
-                    <ShieldAlert size={48} />
-                  </div>
-                  <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '8px 0 4px 0' }}>
-                    {isModuleBlocked ? 'Módulo Não Disponível' : 'Acesso não permitido'}
-                  </h2>
-                  <p style={{ color: 'var(--text-secondary)', maxWidth: '460px', fontSize: '15px', lineHeight: '1.6', margin: 0 }}>
-                    {isModuleBlocked
-                      ? 'Este módulo está desativado para a sua conta. Caso precise utilizá-lo, entre em contato com o suporte ou o administrador do sistema para atualizar o seu plano.'
-                      : 'Seu usuário não possui permissão para acessar esta área. Peça ao administrador para revisar seus acessos.'}
-                  </p>
+              </div>
+            </main>
+          ) : (
+            <TabsProvider>
+              <TabBar />
+              <main className="page-content">
+                <div className="page-transition">
+                  {isModuleBlocked || !isRouteAllowed ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px', color: 'var(--text-primary)', textAlign: 'center', padding: '24px' }}>
+                      <div style={{ padding: '16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: '50%', color: '#ef4444' }}>
+                        <ShieldAlert size={48} />
+                      </div>
+                      <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '8px 0 4px 0' }}>
+                        {isModuleBlocked ? 'Módulo Não Disponível' : 'Acesso não permitido'}
+                      </h2>
+                      <p style={{ color: 'var(--text-secondary)', maxWidth: '460px', fontSize: '15px', lineHeight: '1.6', margin: 0 }}>
+                        {isModuleBlocked
+                          ? 'Este módulo está desativado para a sua conta. Caso precise utilizá-lo, entre em contato com o suporte ou o administrador do sistema para atualizar o seu plano.'
+                          : 'Seu usuário não possui permissão para acessar esta área. Peça ao administrador para revisar seus acessos.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <Outlet />
+                  )}
                 </div>
-              ) : (
-                <Outlet />
-              )}
-            </div>
-          </main>
+              </main>
+            </TabsProvider>
+          )}
         </div>
       </div>
     </div>

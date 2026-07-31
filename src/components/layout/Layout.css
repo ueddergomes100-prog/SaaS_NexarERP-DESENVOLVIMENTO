@@ -901,6 +901,90 @@ body.light-theme .nexus-nav-group-trigger small {
   color: var(--text-muted);
 }
 
+/* Tab Bar (múltiplas telas abertas) */
+.tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 44px;
+  padding: 0 16px;
+  background-color: color-mix(in srgb, var(--bg-primary) 86%, var(--bg-secondary));
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.tab-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.tab-bar-item:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.tab-bar-item.active {
+  background-color: var(--accent-purple-glow);
+  border-color: color-mix(in srgb, var(--accent-purple) 40%, transparent);
+  color: var(--text-primary);
+}
+
+.tab-bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.tab-bar-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.tab-bar-close:hover {
+  background-color: rgba(239, 68, 68, 0.18);
+  color: #ef4444;
+  opacity: 1;
+}
+
+.tab-bar-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tab-bar-add:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
 /* Page Content */
 .page-content {
   flex: 1;

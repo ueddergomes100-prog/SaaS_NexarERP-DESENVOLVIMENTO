@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Plus, CreditCard, Edit, Percent, Trash2, X, Loader2, AlertTriangle } from 'lucide-react';
 import { addDoc, collection, deleteDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
@@ -9,6 +9,8 @@ import { hasModuleAccess } from '../../utils/roles';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import { pickMissingDefaults } from '../../utils/catalogDefaults';
 import { normalizeCreditCardFeeSchedule } from '../../utils/financeDomain';
+import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
+import '../OS/OS.css';
 
 interface BandeiraCartao extends TenantCollectionItem {
   nome: string;
@@ -75,6 +77,14 @@ const BandeirasCartaoList: React.FC = () => {
   const [feesForm, setFeesForm] = useState(emptyFeesForm());
   const [feesLoading, setFeesLoading] = useState(false);
   const [isFeesSaving, setIsFeesSaving] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEscapeLayer(isModalOpen, () => closeModal());
+  useEscapeLayer(!!feesTarget, () => closeFeesModal());
+  useKeyboardShortcuts([
+    { key: 'F2', handler: () => searchInputRef.current?.focus() },
+    { key: 'F6', handler: () => openNewModal() },
+  ]);
 
   const handleDelete = async (id: string, nome: string) => {
     const isConfirmed = await confirmDelete(`a bandeira (${nome})`);
@@ -306,16 +316,22 @@ const BandeirasCartaoList: React.FC = () => {
       </div>
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
           <div className="search-box" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
             <input
               type="text"
               placeholder="Buscar bandeira..."
+              ref={searchInputRef}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
+          </div>
+          <div className="shortcuts-hint">
+            <span><kbd>F2</kbd> Buscar</span>
+            <span><kbd>F6</kbd> Nova</span>
+            <span><kbd>Esc</kbd> Fechar</span>
           </div>
         </div>
 

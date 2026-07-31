@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   addDoc,
@@ -20,6 +20,8 @@ import { hasModuleAccess } from '../../utils/roles';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import { fromCents, toCents, validateBankTransfer } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
+import '../OS/OS.css';
 
 interface Banco extends TenantCollectionItem {
   nome: string;
@@ -104,6 +106,14 @@ const BancosList: React.FC = () => {
   const [transferForm, setTransferForm] = useState(emptyTransferForm());
   const [isTransferMode, setIsTransferMode] = useState(false);
   const [isSavingTransfer, setIsSavingTransfer] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEscapeLayer(isModalOpen, () => closeModal());
+  useEscapeLayer(!!ledgerBanco, () => closeLedger());
+  useKeyboardShortcuts([
+    { key: 'F2', handler: () => searchInputRef.current?.focus() },
+    { key: 'F6', handler: () => openNewModal() },
+  ]);
 
   useEffect(() => {
     if (!ledgerBanco || !tenantId) {
@@ -422,16 +432,22 @@ const BancosList: React.FC = () => {
       </div>
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
           <div className="search-box" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
             <input
               type="text"
               placeholder="Buscar banco..."
+              ref={searchInputRef}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
+          </div>
+          <div className="shortcuts-hint">
+            <span><kbd>F2</kbd> Buscar</span>
+            <span><kbd>F6</kbd> Novo</span>
+            <span><kbd>Esc</kbd> Fechar</span>
           </div>
         </div>
 

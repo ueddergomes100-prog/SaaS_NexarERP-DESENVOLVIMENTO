@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Plus, Tags, Edit, Trash2 } from 'lucide-react';
 import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
+import '../OS/OS.css';
 
 interface CategoriaData {
   id: string;
@@ -16,8 +18,15 @@ const CategoriasList: React.FC = () => {
   const navigate = useNavigate();
   const [categorias, setCategorias] = useState<CategoriaData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const { currentUser, tenantId } = useAuth();
+
+  useKeyboardShortcuts([
+    { key: 'F2', handler: () => searchInputRef.current?.focus() },
+    { key: 'F6', handler: () => navigate('/categorias/nova') },
+  ]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -73,6 +82,8 @@ const CategoriasList: React.FC = () => {
     }
   };
 
+  const filteredCategorias = categorias.filter((cat) => cat.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -91,14 +102,21 @@ const CategoriasList: React.FC = () => {
       </div>
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
           <div className="search-box" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
-            <input 
-              type="text" 
-              placeholder="Buscar categoria..." 
+            <input
+              type="text"
+              placeholder="Buscar categoria..."
+              ref={searchInputRef}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
+          </div>
+          <div className="shortcuts-hint">
+            <span><kbd>F2</kbd> Buscar</span>
+            <span><kbd>F6</kbd> Nova</span>
           </div>
         </div>
 
@@ -114,10 +132,10 @@ const CategoriasList: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr><td colSpan={3} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
-              ) : categorias.length === 0 ? (
-                <tr><td colSpan={3} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><Tags size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} /><p>Nenhuma categoria cadastrada.</p></td></tr>
+              ) : filteredCategorias.length === 0 ? (
+                <tr><td colSpan={3} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><Tags size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} /><p>Nenhuma categoria encontrada.</p></td></tr>
               ) : (
-                categorias.map((cat) => (
+                filteredCategorias.map((cat) => (
                   <tr key={cat.id}>
                     <td className="font-medium">{cat.nome}</td>
                     <td>

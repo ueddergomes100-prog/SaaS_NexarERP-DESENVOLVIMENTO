@@ -518,6 +518,15 @@ Ordem: **1 → 19 → 20 → 18 → 6 → 15**.
 
 **Pendente — validação manual:** mesma limitação de login. Falta testar Enter em Serviço/Peça, F2/F3/F8/F5/F6-F7, e que Esc fecha só um painel por vez.
 
+**Fatia 3/3 concluída em 2026-07-31 — Cadastros (Categorias, Unidades de Medida, Bandeiras de Cartão e Bancos), fechando o Módulo 1:**
+- Telas de catálogo simples (lista + busca + modal/rota de criação) não têm os mesmos conceitos de Cliente/Produto/Desconto/Pagamento do PDV/Pedido/OS, então o mapeamento é mais enxuto: **F2 foca a busca**, **F6 abre "Novo(a) [item]"** (ou navega pra rota de criação, no caso de Categorias, que usa página separada em vez de modal), **Esc fecha o modal aberto** via `useEscapeLayer` — nas telas com dois modais (Bandeiras: cadastro + taxas; Bancos: cadastro + lançamentos), cada um registra sua própria camada, mas só um fica aberto por vez na prática.
+- Bônus descoberto ao mexer em `CategoriasList.tsx`: a busca era só visual — o `<input>` nunca teve `value`/`onChange`, não filtrava nada. Como o atalho F2 focar um campo que não filtra seria um atalho inútil, a busca foi conectada (filtro por nome), mesmo padrão já usado nas outras 3 telas.
+- Classe `.shortcuts-hint` (criada na fatia 1, em `OS.css`) reaproveitada nas 4 telas — import cross-diretório deliberado, mesmo padrão já usado por Pedido/OS, evita duplicar a definição CSS.
+- Com esta fatia, **Módulo 1 (Navegação por teclado) está com todo o código pronto** — PDV (já tinha), Pedido de Venda, OS e Cadastros.
+- Typecheck, lint (0 erros, 68 warnings pré-existentes) e build passando. Suíte de testes (66) passando — sem lógica financeira nova.
+
+**Pendente — validação manual:** mesma limitação de login. Falta testar F2/F6/Esc nas 4 telas e confirmar que a busca de Categorias agora filtra de verdade.
+
 ### Módulo 19 — Numeração
 
 **Estado atual:** `contadores/{tenantId}` já existe e é transacional para pedido, OS e orçamento ([`firestoreAtomic.ts`](../src/utils/firestoreAtomic.ts)).
@@ -667,7 +676,7 @@ Atualizar ao concluir cada item.
 | M14 Buscas do sistema | 1 | 🟨 Código pronto — falta validação manual; risco de performance da TopBar segue aberto (Seção 9) | 2026-07-28 |
 | M3 Impressão múltipla | 1 | 🟨 Código pronto — falta validação manual (quebra de página real) | 2026-07-28 |
 | M5 Flags fiscais | 1 | 🟨 Código pronto — falta validação manual | 2026-07-28 |
-| M1 Navegação por teclado | 2 | 🟨 Fatias Pedido de Venda + OS prontas no código — falta validação manual; só Cadastros pendente | 2026-07-29 |
+| M1 Navegação por teclado | 2 | 🟨 Código pronto (PDV + Pedido + OS + Cadastros) — falta validação manual | 2026-07-31 |
 | M19 Numeração | 2 | ⬜ Pendente | |
 | M20 Responsabilidade | 2 | ⬜ Pendente | |
 | M18 Cancelamentos (auditoria) | 2 | ⬜ Pendente | |

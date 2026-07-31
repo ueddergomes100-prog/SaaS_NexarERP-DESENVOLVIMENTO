@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, Receipt, LifeBuoy } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useTabs } from '../../contexts/TabsContext';
 import { collection, query, where, onSnapshot, doc, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -11,7 +11,7 @@ import './Layout.css';
 
 const TopBar: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId } = useAuth();
-  const navigate = useNavigate();
+  const { openTab } = useTabs();
   const SUPPORT_DESK_URL = import.meta.env.VITE_SUPPORT_DESK_URL || '';
   const [notifications, setNotifications] = useState<any[]>([]);
   const [configData, setConfigData] = useState<any>(null);
@@ -341,12 +341,12 @@ const TopBar: React.FC = () => {
   const goToResult = (link: string) => {
     setShowSearchDropdown(false);
     setSearchTerm('');
-    navigate(link);
+    openTab(link);
   };
 
   const goToLembretes = () => {
     setShowDropdown(false);
-    navigate('/crm/lembretes');
+    openTab('/crm/lembretes', 'Alertas de Retorno');
   };
 
   const handleSupportClick = () => {
@@ -520,9 +520,9 @@ const TopBar: React.FC = () => {
                       display: 'flex', gap: '12px', cursor: 'pointer', transition: 'background 0.2s', position: 'relative'
                     }}
                     onClick={() => {
-                      if (notif.tipoLogico === 'agendamento') navigate('/crm/agenda');
-                      else if (notif.tipoLogico === 'conta_pagar') navigate('/financeiro/contas-pagar');
-                      else navigate('/crm/lembretes');
+                      if (notif.tipoLogico === 'agendamento') openTab('/crm/agenda', 'Agendamentos');
+                      else if (notif.tipoLogico === 'conta_pagar') openTab('/financeiro/contas-pagar', 'Contas a Pagar');
+                      else openTab('/crm/lembretes', 'Alertas de Retorno');
                       setShowDropdown(false);
                     }}
                     onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
@@ -610,7 +610,7 @@ const TopBar: React.FC = () => {
 
                 {(isPlatformAdmin || isTenantManagerRole(userRole) || userPermissions?.includes('administrativo.config')) && (
                   <button 
-                    onClick={() => { setShowProfileDropdown(false); navigate('/configuracoes'); }}
+                    onClick={() => { setShowProfileDropdown(false); openTab('/configuracoes', 'Configurações'); }}
                     style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 'var(--radius-md)', transition: 'background 0.2s', textAlign: 'left', fontSize: '13px' }}
                     onMouseOver={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
                     onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}

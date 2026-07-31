@@ -568,6 +568,7 @@ body.light-theme .nexus-nav-group-trigger small {
 }
 
 .nexus-nav-link {
+  width: calc(100% - 30px);
   min-height: 38px;
   display: flex;
   align-items: center;
@@ -575,10 +576,15 @@ body.light-theme .nexus-nav-group-trigger small {
   margin-left: 30px;
   margin-bottom: 3px;
   padding: 0 9px;
+  border: 0;
   border-radius: 7px;
+  background: transparent;
   color: var(--nexus-text-secondary);
   font-size: 13px;
+  font-family: inherit;
   font-weight: 650;
+  text-align: left;
+  cursor: pointer;
   position: relative;
   transition: background-color 0.18s ease, color 0.18s ease;
 }

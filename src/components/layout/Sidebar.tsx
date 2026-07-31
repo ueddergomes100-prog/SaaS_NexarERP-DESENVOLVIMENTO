@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { useTabs } from '../../contexts/TabsContext';
 import {
   BarChart2,
   Bell,
@@ -74,7 +75,8 @@ const Sidebar: React.FC = () => {
     selectedTenant
   } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
+  const { tabs, activeTabId, openTab } = useTabs();
+  const currentPath = tabs.find((tab) => tab.id === activeTabId)?.path || '';
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isNavigatingHome, setIsNavigatingHome] = useState(false);
@@ -276,7 +278,7 @@ const Sidebar: React.FC = () => {
     { label: 'Orçamento', to: '/orcamentos/novo', icon: FileText, permission: 'vendas.orcamentos', module: 'comercial.orcamentos' }
   ].filter(canAccess);
 
-  const isGroupActive = (group: NavGroup) => group.items.some((item) => location.pathname.startsWith(item.to));
+  const isGroupActive = (group: NavGroup) => group.items.some((item) => currentPath.startsWith(item.to));
   const isExpanded = (group: NavGroup) => {
     if (searchTerm.trim()) return true;
     return expandedGroups[group.id] ?? isGroupActive(group);
@@ -290,10 +292,17 @@ const Sidebar: React.FC = () => {
     localStorage.setItem('nexus_sidebar_groups', JSON.stringify(nextState));
   };
 
-  const navigateTo = (to: string) => {
+  // PDV e' a unica tela fora do sistema de abas (tela cheia, sem menu
+  // lateral/barra de abas) -- continua navegacao real. Todo o resto abre
+  // ou reaproveita uma aba.
+  const navigateTo = (to: string, label?: string) => {
     setActionMenuOpen(false);
     document.body.classList.remove('mobile-sidebar-open');
-    navigate(to);
+    if (to === '/pdv') {
+      navigate(to);
+    } else {
+      openTab(to, label);
+    }
   };
 
   const handleLogout = useCallback(() => {
@@ -302,10 +311,10 @@ const Sidebar: React.FC = () => {
   }, [logout]);
 
   const handleGoHome = () => {
-    if (window.location.pathname === '/dashboard') return;
+    if (currentPath === '/dashboard') return;
     setIsNavigatingHome(true);
     setTimeout(() => {
-      navigate('/dashboard');
+      openTab('/dashboard', 'Dashboard');
       setIsNavigatingHome(false);
     }, 700);
   };
@@ -413,7 +422,7 @@ const Sidebar: React.FC = () => {
                   {quickActions.map((action) => {
                     const Icon = action.icon;
                     return (
-                      <button key={action.to} type="button" onClick={() => navigateTo(action.to)}>
+                      <button key={action.to} type="button" onClick={() => navigateTo(action.to, action.label)}>
                         <Icon size={17} />
                         <span>{action.label}</span>
                       </button>
@@ -449,17 +458,18 @@ const Sidebar: React.FC = () => {
                   <div className={expanded ? 'nexus-nav-items open' : 'nexus-nav-items'}>
                     {group.items.map((item) => {
                       const ItemIcon = item.icon;
+                      const itemActive = currentPath === item.to || currentPath.startsWith(`${item.to}/`);
                       return (
-                        <NavLink
+                        <button
                           key={item.to}
-                          to={item.to}
-                          className={({ isActive }) => isActive ? 'nexus-nav-link active' : 'nexus-nav-link'}
-                          onClick={() => document.body.classList.remove('mobile-sidebar-open')}
+                          type="button"
+                          className={itemActive ? 'nexus-nav-link active' : 'nexus-nav-link'}
+                          onClick={() => navigateTo(item.to, item.label)}
                         >
                           <ItemIcon size={16} />
                           <span>{item.label}</span>
                           {item.badge && <small>{item.badge}</small>}
-                        </NavLink>
+                        </button>
                       );
                     })}
                   </div>

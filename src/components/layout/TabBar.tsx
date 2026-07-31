@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Plus, X } from 'lucide-react';
 import { useTabs, MAX_TABS_LIMIT } from '../../contexts/TabsContext';
 import { showError } from '../../utils/alerts';
 
 const TabBar: React.FC = () => {
-  const { tabs, activeTabId, closeTab, reorderTab } = useTabs();
-  const navigate = useNavigate();
+  const { tabs, activeTabId, activateTab, closeTab, reorderTab, openTab } = useTabs();
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
@@ -15,7 +13,7 @@ const TabBar: React.FC = () => {
       showError('Limite de abas atingido', `Você pode manter no máximo ${MAX_TABS_LIMIT} abas abertas ao mesmo tempo. Feche alguma antes de abrir outra.`);
       return;
     }
-    navigate('/dashboard');
+    openTab('/dashboard', 'Dashboard');
   };
 
   const handleCloseTab = (event: React.MouseEvent, id: string) => {
@@ -60,7 +58,7 @@ const TabBar: React.FC = () => {
             aria-selected={tab.id === activeTabId}
             className={classNames.join(' ')}
             draggable
-            onClick={() => navigate(tab.path)}
+            onClick={() => activateTab(tab.id)}
             onDragStart={() => handleDragStart(tab.id)}
             onDragOver={(event) => handleDragOver(event, tab.id)}
             onDrop={(event) => handleDrop(event, tab.id)}

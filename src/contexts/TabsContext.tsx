@@ -1,9 +1,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
 
 export interface Tab {
-  /** Igual ao path completo -- garante uma aba por registro aberto (ex: /clientes/editar/A != /clientes/editar/B). */
+  /** Identificador estavel da aba (nao muda mesmo que o usuario navegue
+   * internamente pra outro path dentro da mesma aba). */
   id: string;
+  /** Path atual exibido nesta aba -- pode "andar" com a navegacao interna
+   * (ex: da lista de Clientes pra Editar Cliente, na mesma aba). */
   path: string;
   label: string;
 }
@@ -11,15 +13,28 @@ export interface Tab {
 interface TabsContextValue {
   tabs: Tab[];
   activeTabId: string;
+  /** Reaproveita a aba que ja estiver mostrando esse path; senao cria uma nova e ativa. */
+  openTab: (path: string, label?: string) => void;
+  activateTab: (id: string) => void;
   closeTab: (id: string) => void;
   reorderTab: (draggedId: string, targetId: string) => void;
+  /** Chamado pelo TabPane quando a navegacao interna daquela aba muda de path. */
+  updateTabLocation: (id: string, path: string, label?: string) => void;
 }
 
 const TabsContext = createContext<TabsContextValue | null>(null);
 
+/** Sinaliza se o conteudo atual esta dentro da aba ativa -- usado por
+ * useKeyboardShortcuts/useEscapeLayer pra nao reagir em abas escondidas
+ * (elas continuam montadas, so nao visiveis). Default true fora do
+ * sistema de abas (ex: PDV, que nao usa TabsProvider). */
+export const TabActiveContext = createContext(true);
+
 const STORAGE_KEY = 'nexus_tabs_v1';
 const MAX_TABS = 8;
-const DEFAULT_TAB: Tab = { id: '/dashboard', path: '/dashboard', label: 'Dashboard' };
+
+let tabIdCounter = 0;
+const makeTabId = () => `tab-${Date.now()}-${tabIdCounter++}`;
 
 /**
  * Tabela de prefixo -> rotulo (mais especifico primeiro). Sub-rotas de
@@ -65,7 +80,7 @@ const humanizeSegment = (segment: string) => (
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
 );
 
-const resolveTabLabel = (pathname: string): string => {
+export const resolveTabLabel = (pathname: string): string => {
   const match = SECTION_LABELS
     .filter(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))
     .sort((a, b) => b[0].length - a[0].length)[0];
@@ -98,63 +113,99 @@ const loadStoredTabs = (): { tabs: Tab[]; activeTabId: string } | null => {
   }
 };
 
+const initialTabsState = (): { tabs: Tab[]; activeTabId: string } => {
+  const stored = loadStoredTabs();
+  if (stored && stored.tabs.some((tab) => tab.id === stored.activeTabId)) return stored;
+
+  // Primeiro acesso (ou storage invalido): honra a URL real que o
+  // navegador tinha no momento do carregamento (ex: F5 numa tela
+  // especifica), em vez de sempre resetar pro Dashboard.
+  const initialPath = window.location.pathname && window.location.pathname !== '/'
+    ? window.location.pathname
+    : '/dashboard';
+  const tab: Tab = { id: makeTabId(), path: initialPath, label: resolveTabLabel(initialPath) };
+  return { tabs: [tab], activeTabId: tab.id };
+};
+
+interface TabsState {
+  tabs: Tab[];
+  activeTabId: string;
+}
+
 export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const location = useLocation();
-  const navigate = useNavigate();
+  // tabs + activeTabId vivem num unico useState (em vez de dois separados)
+  // porque o calculo inicial (initialTabsState) pode CRIAR uma aba nova --
+  // precisam nascer consistentes um com o outro. O inicializador passado
+  // pro useState so roda uma vez, no mount, garantido pelo proprio React.
+  const [state, setState] = useState<TabsState>(initialTabsState);
+  const { tabs, activeTabId } = state;
 
-  const [tabs, setTabs] = useState<Tab[]>(() => loadStoredTabs()?.tabs ?? [DEFAULT_TAB]);
-  const [activeTabId, setActiveTabId] = useState<string>(() => loadStoredTabs()?.activeTabId ?? DEFAULT_TAB.id);
-
-  // Garante uma aba pra localizacao atual sempre que a URL muda -- por
-  // qualquer motivo (clique no menu, redirecionamento apos salvar, F5,
-  // digitar a URL direto). Nao precisa instrumentar cada navigate() do app.
   useEffect(() => {
-    const pathname = location.pathname;
-    setTabs((current) => {
-      if (current.some((tab) => tab.id === pathname)) return current;
-      if (current.length >= MAX_TABS) return current;
-      return [...current, { id: pathname, path: pathname, label: resolveTabLabel(pathname) }];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [state]);
+
+  const openTab = useCallback((path: string, label?: string) => {
+    setState((current) => {
+      const existing = current.tabs.find((tab) => tab.path === path);
+      if (existing) {
+        return existing.id === current.activeTabId ? current : { ...current, activeTabId: existing.id };
+      }
+      if (current.tabs.length >= MAX_TABS) return current;
+
+      const newTab: Tab = { id: makeTabId(), path, label: label || resolveTabLabel(path) };
+      return { tabs: [...current.tabs, newTab], activeTabId: newTab.id };
     });
-    setActiveTabId(pathname);
-  }, [location.pathname]);
+  }, []);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ tabs, activeTabId }));
-  }, [tabs, activeTabId]);
+  const activateTab = useCallback((id: string) => {
+    setState((current) => (current.activeTabId === id ? current : { ...current, activeTabId: id }));
+  }, []);
+
+  const updateTabLocation = useCallback((id: string, path: string, label?: string) => {
+    setState((current) => {
+      const target = current.tabs.find((tab) => tab.id === id);
+      if (!target || target.path === path) return current;
+      return {
+        ...current,
+        tabs: current.tabs.map((tab) => (
+          tab.id === id ? { ...tab, path, label: label || resolveTabLabel(path) } : tab
+        )),
+      };
+    });
+  }, []);
 
   const closeTab = useCallback((id: string) => {
-    setTabs((current) => {
-      if (current.length <= 1) return current;
-      const closingIndex = current.findIndex((tab) => tab.id === id);
+    setState((current) => {
+      if (current.tabs.length <= 1) return current;
+      const closingIndex = current.tabs.findIndex((tab) => tab.id === id);
       if (closingIndex === -1) return current;
-      const next = current.filter((tab) => tab.id !== id);
+      const nextTabs = current.tabs.filter((tab) => tab.id !== id);
 
-      if (id === activeTabId) {
-        const fallback = next[closingIndex - 1] || next[0] || DEFAULT_TAB;
-        navigate(fallback.path);
-      }
+      const nextActiveTabId = id === current.activeTabId
+        ? (nextTabs[closingIndex - 1] || nextTabs[0]).id
+        : current.activeTabId;
 
-      return next.length > 0 ? next : [DEFAULT_TAB];
+      return { tabs: nextTabs, activeTabId: nextActiveTabId };
     });
-  }, [activeTabId, navigate]);
+  }, []);
 
   const reorderTab = useCallback((draggedId: string, targetId: string) => {
     if (draggedId === targetId) return;
-    setTabs((current) => {
-      const draggedIndex = current.findIndex((tab) => tab.id === draggedId);
-      const targetIndex = current.findIndex((tab) => tab.id === targetId);
+    setState((current) => {
+      const draggedIndex = current.tabs.findIndex((tab) => tab.id === draggedId);
+      const targetIndex = current.tabs.findIndex((tab) => tab.id === targetId);
       if (draggedIndex === -1 || targetIndex === -1) return current;
 
-      const next = [...current];
-      const [draggedTab] = next.splice(draggedIndex, 1);
-      next.splice(targetIndex, 0, draggedTab);
-      return next;
+      const nextTabs = [...current.tabs];
+      const [draggedTab] = nextTabs.splice(draggedIndex, 1);
+      nextTabs.splice(targetIndex, 0, draggedTab);
+      return { ...current, tabs: nextTabs };
     });
   }, []);
 
   const value = useMemo(
-    () => ({ tabs, activeTabId, closeTab, reorderTab }),
-    [tabs, activeTabId, closeTab, reorderTab],
+    () => ({ tabs, activeTabId, openTab, activateTab, closeTab, reorderTab, updateTabLocation }),
+    [tabs, activeTabId, openTab, activateTab, closeTab, reorderTab, updateTabLocation],
   );
 
   return <TabsContext.Provider value={value}>{children}</TabsContext.Provider>;

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2 } from 'lucide-react';
+import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2, AlertTriangle, Truck, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs, doc, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { addDaysToDateInput } from '../../utils/dateTime';
 import Swal from 'sweetalert2';
 
 interface ParsedItem {
@@ -19,6 +20,12 @@ interface ParsedItem {
   valorTotal: number;
 }
 
+interface Duplicata {
+  numero: string;
+  vencimento: string;
+  valor: number;
+}
+
 interface ParsedXML {
   fornecedorNome: string;
   fornecedorCnpj: string;
@@ -26,6 +33,7 @@ interface ParsedXML {
   dataEmissao: string;
   valorTotal: number;
   items: ParsedItem[];
+  duplicatas: Duplicata[];
 }
 
 interface EstoqueItem {
@@ -34,6 +42,8 @@ interface EstoqueItem {
   nome: string;
   quantidade: number;
 }
+
+type FornecedorStatus = 'idle' | 'checking' | 'found' | 'missing';
 
 const EntradaNFE: React.FC = () => {
   const navigate = useNavigate();
@@ -47,6 +57,16 @@ const EntradaNFE: React.FC = () => {
 
   // Estoque atual para busca rápida local
   const [estoqueAtual, setEstoqueAtual] = useState<EstoqueItem[]>([]);
+
+  // Reconciliação do fornecedor do XML com o cadastro de Fornecedores --
+  // a confirmação da entrada fica bloqueada até haver um fornecedor
+  // vinculado (decisão combinada com o usuário: não deixa entrar nota
+  // com fornecedor "texto livre" sem cadastro).
+  const [fornecedorMatch, setFornecedorMatch] = useState<{ id: string; nome: string } | null>(null);
+  const [fornecedorStatus, setFornecedorStatus] = useState<FornecedorStatus>('idle');
+  const [showFornecedorModal, setShowFornecedorModal] = useState(false);
+  const [fornecedorForm, setFornecedorForm] = useState({ nome: '', cnpj: '', telefone: '', email: '' });
+  const [isSavingFornecedor, setIsSavingFornecedor] = useState(false);
 
   // Carrega produtos em estoque no carregamento para acelerar a reconciliação
   useEffect(() => {
@@ -72,6 +92,82 @@ const EntradaNFE: React.FC = () => {
     };
     fetchEstoque();
   }, [tenantId]);
+
+  // Assim que o XML é lido, reconcilia o fornecedor pelo CNPJ com o
+  // cadastro de Fornecedores. Sem match, abre o popup de cadastro rápido
+  // e bloqueia a confirmação até ele ser preenchido.
+  useEffect(() => {
+    const checkFornecedor = async () => {
+      if (!parsedData || !tenantId) return;
+      setFornecedorStatus('checking');
+      setFornecedorMatch(null);
+
+      const cnpjDigits = parsedData.fornecedorCnpj.replace(/\D/g, '');
+      try {
+        if (cnpjDigits) {
+          const q = query(
+            collection(db, 'fornecedores'),
+            where('tenantId', '==', tenantId),
+            where('cnpj', '==', cnpjDigits)
+          );
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const match = snap.docs[0];
+            setFornecedorMatch({ id: match.id, nome: (match.data().nome as string) || parsedData.fornecedorNome });
+            setFornecedorStatus('found');
+            setShowFornecedorModal(false);
+            return;
+          }
+        }
+
+        setFornecedorStatus('missing');
+        setFornecedorForm({ nome: parsedData.fornecedorNome, cnpj: cnpjDigits, telefone: '', email: '' });
+        setShowFornecedorModal(true);
+      } catch (err) {
+        console.error('Erro ao verificar fornecedor:', err);
+        setFornecedorStatus('missing');
+        setFornecedorForm({ nome: parsedData.fornecedorNome, cnpj: cnpjDigits, telefone: '', email: '' });
+        setShowFornecedorModal(true);
+      }
+    };
+
+    checkFornecedor();
+  }, [parsedData, tenantId]);
+
+  const handleSalvarFornecedor = async () => {
+    if (!fornecedorForm.nome.trim()) {
+      showError('Nome obrigatório', 'Informe o nome/razão social do fornecedor.');
+      return;
+    }
+    if (fornecedorForm.cnpj && fornecedorForm.cnpj.length !== 11 && fornecedorForm.cnpj.length !== 14) {
+      showError('Documento inválido', 'O CNPJ deve ter 14 dígitos (ou 11 para CPF), apenas números.');
+      return;
+    }
+    if (!currentUser || !tenantId) return;
+
+    setIsSavingFornecedor(true);
+    try {
+      const nomeFinal = fornecedorForm.nome.toUpperCase().trim();
+      const docRef = await addDoc(collection(db, 'fornecedores'), {
+        nome: nomeFinal,
+        cnpj: fornecedorForm.cnpj,
+        telefone: fornecedorForm.telefone,
+        email: fornecedorForm.email,
+        tenantId,
+        createdAt: serverTimestamp(),
+        ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+      });
+      setFornecedorMatch({ id: docRef.id, nome: nomeFinal });
+      setFornecedorStatus('found');
+      setShowFornecedorModal(false);
+      showSuccess('Fornecedor cadastrado! Pode continuar a importação.');
+    } catch (err) {
+      console.error('Erro ao cadastrar fornecedor:', err);
+      showError('Erro ao cadastrar', 'Não foi possível salvar o fornecedor. Tente novamente.');
+    } finally {
+      setIsSavingFornecedor(false);
+    }
+  };
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -146,6 +242,21 @@ const EntradaNFE: React.FC = () => {
         const totalNode = xmlDoc.getElementsByTagName("ICMSTot")[0];
         const valorTotal = totalNode ? Number(getValue("vNF", totalNode) || 0) : 0;
 
+        // Duplicatas (parcelas de pagamento), se a nota trouxer -- vira
+        // um título de Contas a Pagar por parcela; sem duplicata, a
+        // entrada lança um único título com vencimento padrão.
+        const dupNodes = xmlDoc.getElementsByTagName("dup");
+        const duplicatas: Duplicata[] = [];
+        for (let i = 0; i < dupNodes.length; i++) {
+          const dupNode = dupNodes[i];
+          const vencimento = getValue("dVenc", dupNode);
+          duplicatas.push({
+            numero: getValue("nDup", dupNode) || String(i + 1),
+            vencimento: vencimento || dataEmissao,
+            valor: Number(getValue("vDup", dupNode) || 0)
+          });
+        }
+
         // Itens da Nota
         const detNodes = xmlDoc.getElementsByTagName("det");
         const items: ParsedItem[] = [];
@@ -177,7 +288,8 @@ const EntradaNFE: React.FC = () => {
           numeroNF,
           dataEmissao,
           valorTotal,
-          items
+          items,
+          duplicatas
         });
 
       } catch (err) {
@@ -193,7 +305,7 @@ const EntradaNFE: React.FC = () => {
 
   // Salva dados no Firestore
   const handleConfirmarEntrada = async () => {
-    if (!parsedData || !tenantId || !currentUser) return;
+    if (!parsedData || !tenantId || !currentUser || !fornecedorMatch) return;
 
     setIsProcessing(true);
 
@@ -221,7 +333,8 @@ const EntradaNFE: React.FC = () => {
           await updateDoc(doc(db, 'estoque', pecaExistente.id), {
             quantidade: novaQuantidade,
             precoCusto: item.valorUnitario,
-            fornecedor: parsedData.fornecedorNome.toUpperCase(),
+            fornecedor: fornecedorMatch.nome,
+            fornecedorId: fornecedorMatch.id,
             updatedAt: serverTimestamp(),
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Entrada de NF ${parsedData.numeroNF}`),
           });
@@ -235,7 +348,8 @@ const EntradaNFE: React.FC = () => {
             estoqueMinimo: 0,
             precoCusto: item.valorUnitario,
             precoVenda: item.valorUnitario * 1.5, // 50% Margem padrão
-            fornecedor: parsedData.fornecedorNome.toUpperCase(),
+            fornecedor: fornecedorMatch.nome,
+            fornecedorId: fornecedorMatch.id,
             categoria: 'DIVERSOS',
             unidadeMedidaId: 'un',
             unidadeMedidaSigla: item.unidade.toUpperCase() || 'UN',
@@ -248,18 +362,33 @@ const EntradaNFE: React.FC = () => {
         }
       }
 
-      // Lança a conta a pagar
-      await addDoc(collection(db, 'transacoes'), {
-        descricao: `COMPRA NF ${parsedData.numeroNF} - ${parsedData.fornecedorNome.toUpperCase()}`,
-        data: parsedData.dataEmissao,
-        valor: parsedData.valorTotal,
-        categoria: 'FORNEDORES DE PEÇAS',
-        status: 'Pendente',
-        tipo: 'saida',
-        tenantId,
-        createdAt: serverTimestamp(),
-        ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-      });
+      // Lança a(s) conta(s) a pagar -- uma por duplicata da nota, ou um
+      // único título com vencimento padrão (emissão + 30 dias) quando o
+      // XML não trouxer duplicatas.
+      const duplicatasParaLancar = parsedData.duplicatas.length > 0
+        ? parsedData.duplicatas
+        : [{ numero: '1', vencimento: addDaysToDateInput(parsedData.dataEmissao, 30), valor: parsedData.valorTotal }];
+
+      for (let i = 0; i < duplicatasParaLancar.length; i++) {
+        const parcela = duplicatasParaLancar[i];
+        const descricaoParcela = duplicatasParaLancar.length > 1
+          ? `COMPRA NF ${parsedData.numeroNF} - ${fornecedorMatch.nome} (Parcela ${i + 1}/${duplicatasParaLancar.length})`
+          : `COMPRA NF ${parsedData.numeroNF} - ${fornecedorMatch.nome}`;
+
+        await addDoc(collection(db, 'transacoes'), {
+          descricao: descricaoParcela,
+          data: parcela.vencimento,
+          valor: parcela.valor,
+          categoria: 'FORNECEDORES DE PEÇAS',
+          status: 'Pendente',
+          tipo: 'saida',
+          fornecedorId: fornecedorMatch.id,
+          fornecedorNome: fornecedorMatch.nome,
+          tenantId,
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+      }
 
       // Cria log de auditoria
       try {
@@ -270,7 +399,7 @@ const EntradaNFE: React.FC = () => {
           usuarioEmail: currentUser?.email || '',
           modulo: 'estoque',
           acao: 'criacao',
-          descricao: `Importação de XML NF ${parsedData.numeroNF} realizada. ${pecasAtualizadas} itens atualizados, ${pecasCriadas} novos itens cadastrados. Contas a pagar lançada de R$ ${parsedData.valorTotal.toFixed(2)}.`,
+          descricao: `Importação de XML NF ${parsedData.numeroNF} (${fornecedorMatch.nome}) realizada. ${pecasAtualizadas} itens atualizados, ${pecasCriadas} novos itens cadastrados. ${duplicatasParaLancar.length} título(s) lançado(s) em Contas a Pagar totalizando R$ ${parsedData.valorTotal.toFixed(2)}.`,
           status: 'sucesso'
         });
       } catch {
@@ -281,8 +410,7 @@ const EntradaNFE: React.FC = () => {
       showSuccess(`Sucesso! ${pecasAtualizadas} produtos incrementados e ${pecasCriadas} novos itens criados no estoque.`);
 
       // Reseta tela
-      setSelectedFile(null);
-      setParsedData(null);
+      handleRemoverFile();
       navigate('/estoque');
 
     } catch (err) {
@@ -297,6 +425,9 @@ const EntradaNFE: React.FC = () => {
   const handleRemoverFile = () => {
     setSelectedFile(null);
     setParsedData(null);
+    setFornecedorMatch(null);
+    setFornecedorStatus('idle');
+    setShowFornecedorModal(false);
   };
 
   return (
@@ -377,6 +508,30 @@ const EntradaNFE: React.FC = () => {
                   </button>
                 </div>
 
+                {fornecedorStatus === 'checking' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', backgroundColor: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.2)', borderRadius: 'var(--radius-md)', marginBottom: '20px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    <Loader2 size={16} className="spin-icon" />
+                    Verificando cadastro do fornecedor...
+                  </div>
+                )}
+                {fornecedorStatus === 'found' && fornecedorMatch && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', backgroundColor: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: 'var(--radius-md)', marginBottom: '20px', fontSize: '13px', color: '#10b981', fontWeight: 600 }}>
+                    <Truck size={16} />
+                    Fornecedor vinculado: {fornecedorMatch.nome}
+                  </div>
+                )}
+                {fornecedorStatus === 'missing' && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '12px 16px', backgroundColor: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 'var(--radius-md)', marginBottom: '20px', fontSize: '13px', color: '#ef4444', fontWeight: 600 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <AlertTriangle size={16} />
+                      Fornecedor não cadastrado — cadastre antes de confirmar a importação
+                    </span>
+                    <button type="button" className="btn-secondary" onClick={() => setShowFornecedorModal(true)} style={{ padding: '6px 12px', fontSize: '12px' }}>
+                      Cadastrar agora
+                    </button>
+                  </div>
+                )}
+
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
                   <div>
                     <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Fornecedor</label>
@@ -404,6 +559,29 @@ const EntradaNFE: React.FC = () => {
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parsedData.valorTotal)}
                     </strong>
                   </div>
+                </div>
+              </div>
+
+              {/* Card Contas a Pagar */}
+              <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                  <FileText size={18} color="var(--accent-purple)" />
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>
+                    Títulos a lançar em Contas a Pagar {parsedData.duplicatas.length > 0 ? `(${parsedData.duplicatas.length} duplicata(s) da nota)` : '(sem duplicata na nota — vencimento padrão de 30 dias)'}
+                  </h3>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {(parsedData.duplicatas.length > 0
+                    ? parsedData.duplicatas
+                    : [{ numero: '1', vencimento: addDaysToDateInput(parsedData.dataEmissao, 30), valor: parsedData.valorTotal }]
+                  ).map((parcela, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', fontSize: '13px' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Parcela {parcela.numero} — vence em {parcela.vencimento.split('-').reverse().join('/')}</span>
+                      <strong style={{ color: 'var(--text-primary)' }}>
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parcela.valor)}
+                      </strong>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -468,7 +646,10 @@ const EntradaNFE: React.FC = () => {
               </div>
 
               {/* Ações */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '16px', marginTop: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '16px', marginTop: '16px' }}>
+                {fornecedorStatus !== 'found' && (
+                  <span style={{ fontSize: '13px', color: '#ef4444' }}>Cadastre o fornecedor para liberar a confirmação</span>
+                )}
                 <button
                   className="btn-secondary"
                   onClick={handleRemoverFile}
@@ -479,8 +660,8 @@ const EntradaNFE: React.FC = () => {
                 <button
                   className="btn-primary"
                   onClick={handleConfirmarEntrada}
-                  disabled={isProcessing}
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', backgroundColor: '#10b981', borderColor: '#10b981', boxShadow: '0 0 15px rgba(16, 185, 129, 0.3)', opacity: isProcessing ? 0.7 : 1 }}
+                  disabled={isProcessing || fornecedorStatus !== 'found'}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', backgroundColor: '#10b981', borderColor: '#10b981', boxShadow: '0 0 15px rgba(16, 185, 129, 0.3)', opacity: (isProcessing || fornecedorStatus !== 'found') ? 0.5 : 1, cursor: (isProcessing || fornecedorStatus !== 'found') ? 'not-allowed' : 'pointer' }}
                 >
                   <Save size={18} />
                   {isProcessing ? 'Gravando dados...' : 'Confirmar Importação no Estoque'}
@@ -488,6 +669,78 @@ const EntradaNFE: React.FC = () => {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {showFornecedorModal && parsedData && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '480px', padding: '28px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+              <Truck size={22} color="var(--accent-purple)" />
+              <h2 style={{ margin: 0, fontSize: '18px' }}>Cadastrar Fornecedor</h2>
+            </div>
+            <p style={{ margin: '0 0 20px', color: 'var(--text-muted)', fontSize: '13px', lineHeight: 1.5 }}>
+              O fornecedor <strong>{parsedData.fornecedorNome}</strong> não está cadastrado. Confirme os dados abaixo para cadastrá-lo e liberar a importação da nota.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="input-group">
+                <label>Nome / Razão Social *</label>
+                <input
+                  type="text"
+                  value={fornecedorForm.nome}
+                  onChange={(e) => setFornecedorForm({ ...fornecedorForm, nome: e.target.value })}
+                  style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
+                />
+              </div>
+              <div className="input-group">
+                <label>CNPJ / CPF (apenas números)</label>
+                <input
+                  type="text"
+                  value={fornecedorForm.cnpj}
+                  onChange={(e) => setFornecedorForm({ ...fornecedorForm, cnpj: e.target.value.replace(/\D/g, '').slice(0, 14) })}
+                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div className="input-group">
+                  <label>Telefone</label>
+                  <input
+                    type="text"
+                    placeholder="(00) 00000-0000"
+                    value={fornecedorForm.telefone}
+                    onChange={(e) => setFornecedorForm({ ...fornecedorForm, telefone: e.target.value })}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>E-mail</label>
+                  <input
+                    type="email"
+                    value={fornecedorForm.email}
+                    onChange={(e) => setFornecedorForm({ ...fornecedorForm, email: e.target.value })}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
+              <button type="button" className="btn-secondary" onClick={handleRemoverFile} disabled={isSavingFornecedor}>
+                Cancelar importação
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleSalvarFornecedor}
+                disabled={isSavingFornecedor}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: isSavingFornecedor ? 0.7 : 1 }}
+              >
+                {isSavingFornecedor ? <Loader2 size={16} className="spin-icon" /> : <Save size={16} />}
+                {isSavingFornecedor ? 'Salvando...' : 'Cadastrar e continuar'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

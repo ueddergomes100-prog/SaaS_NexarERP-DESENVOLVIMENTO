@@ -4,7 +4,7 @@ import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, del
 import Swal from 'sweetalert2';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
@@ -42,7 +42,7 @@ const Agenda: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   
   const { currentUser, tenantId } = useAuth();
-  const navigate = useNavigate();
+  const { openTab } = useTabs();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Fecha dropdown ao clicar fora
@@ -338,7 +338,7 @@ const Agenda: React.FC = () => {
                       
                     {/* Botão fixo no dropdown para cadastrar novo */}
                     <div 
-                      onClick={() => navigate('/clientes/novo')}
+                      onClick={() => openTab('/clientes/novo')}
                       style={{ padding: '12px 16px', color: '#10b981', fontSize: '13px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(16, 185, 129, 0.1)' }}
                     >
                       <Plus size={16} /> Criar cadastro de cliente

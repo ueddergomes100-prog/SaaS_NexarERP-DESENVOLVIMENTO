@@ -3,7 +3,7 @@ import { UserCog, Plus, Search, Edit2, Trash2 } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, deleteDoc, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useTabs } from '../../contexts/TabsContext';
 import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
 import { isTenantManagerRole } from '../../utils/roles';
 
@@ -19,7 +19,7 @@ interface UsuarioData {
 
 const UsuariosList: React.FC = () => {
   const { tenantId, userRole } = useAuth();
-  const navigate = useNavigate();
+  const { openTab } = useTabs();
   const [usuarios, setUsuarios] = useState<UsuarioData[]>([]);
   const [loading, setLoading] = useState(true);
   const canManageUsers = isTenantManagerRole(userRole);
@@ -97,7 +97,7 @@ const UsuariosList: React.FC = () => {
           <p style={{ color: 'var(--text-muted)' }}>Crie logins para seus funcionários e defina o que eles podem ver no sistema.</p>
         </div>
         {canManageUsers && (
-          <button className="btn-primary" onClick={() => navigate('/usuarios/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button className="btn-primary" onClick={() => openTab('/usuarios/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={20} /> Adicionar Funcionário
           </button>
         )}
@@ -153,7 +153,7 @@ const UsuariosList: React.FC = () => {
                       <td style={{ padding: '16px', textAlign: 'right' }}>
                         {!isTenantManagerRole(user.role) && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                            <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => navigate(`/usuarios/editar/${user.id}`)} title="Editar Usuário">
+                            <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => openTab(`/usuarios/editar/${user.id}`)} title="Editar Usuário">
                               <Edit2 size={18} />
                             </button>
                             <button className="icon-btn" style={{ color: '#ef4444' }} onClick={() => handleDelete(user.id, user.username)} title="Remover Acesso">

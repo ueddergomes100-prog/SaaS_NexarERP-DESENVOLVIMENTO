@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Search, Plus, Wrench, Edit, Trash2 } from 'lucide-react';
 import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTabs } from '../../contexts/TabsContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
@@ -16,7 +16,7 @@ interface ServicoData {
 }
 
 const ServicosList: React.FC = () => {
-  const navigate = useNavigate();
+  const { openTab } = useTabs();
   const [servicos, setServicos] = useState<ServicoData[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -91,7 +91,7 @@ const ServicosList: React.FC = () => {
           <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
             Padronizar (A-Z)
           </button>
-          <button className="btn-primary" onClick={() => navigate('/servicos/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button className="btn-primary" onClick={() => openTab('/servicos/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Novo Serviço
           </button>
         </div>
@@ -136,7 +136,7 @@ const ServicosList: React.FC = () => {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="icon-btn" title="Editar" onClick={() => navigate(`/servicos/editar/${servico.id}`)}>
+                        <button className="icon-btn" title="Editar" onClick={() => openTab(`/servicos/editar/${servico.id}`)}>
                           <Edit size={16} />
                         </button>
                         <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(servico.id)}>

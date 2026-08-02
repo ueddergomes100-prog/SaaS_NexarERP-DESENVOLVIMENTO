@@ -4,6 +4,7 @@ import { Plus, Search, Filter, Printer, Edit, MessageCircle, Trash2 } from 'luci
 import { collection, query, onSnapshot, where, doc, deleteDoc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import './OS.css';
@@ -23,6 +24,7 @@ interface OSData {
 
 const OSList: React.FC = () => {
   const navigate = useNavigate();
+  const { openTab } = useTabs();
   const [osList, setOsList] = useState<OSData[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'Ativas' | 'Finalizadas' | 'Canceladas'>('Ativas');
@@ -143,7 +145,7 @@ const OSList: React.FC = () => {
         </div>
         <button 
           className="btn-primary"
-          onClick={() => navigate('/os/nova')}
+          onClick={() => openTab('/os/nova')}
         >
           <Plus size={18} style={{ marginRight: 8 }} />
           Nova OS
@@ -263,7 +265,7 @@ const OSList: React.FC = () => {
                         {canEditOS && (
                           <button 
                             className="icon-btn" 
-                            onClick={() => navigate(`/os/editar/${os.id}`)}
+                            onClick={() => openTab(`/os/editar/${os.id}`)}
                             title="Editar OS"
                           >
                             <Edit size={18} />

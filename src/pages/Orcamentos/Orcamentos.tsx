@@ -7,6 +7,7 @@ import {
 import { collection, query, where, getDocs, deleteDoc, doc, updateDoc, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 
@@ -26,6 +27,7 @@ interface Orcamento {
 
 const Orcamentos: React.FC = () => {
   const navigate = useNavigate();
+  const { openTab } = useTabs();
   const { tenantId, userRole, userPermissions, isOwner } = useAuth();
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
 
@@ -113,7 +115,7 @@ const Orcamentos: React.FC = () => {
           </h1>
           <p style={{ color: 'var(--text-muted)' }}>Gerenciamento de propostas comerciais e orçamentos</p>
         </div>
-        <button className="btn-primary" onClick={() => navigate('/orcamentos/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button className="btn-primary" onClick={() => openTab('/orcamentos/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Plus size={20} /> Novo Orçamento
         </button>
       </div>
@@ -206,7 +208,7 @@ const Orcamentos: React.FC = () => {
                           {canEditOrcamento && (
                             <button 
                               title="Editar"
-                              onClick={() => navigate(`/orcamentos/editar/${orc.id}`)}
+                              onClick={() => openTab(`/orcamentos/editar/${orc.id}`)}
                               style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: 'none', cursor: 'pointer' }}
                             >
                               <Edit2 size={18} />

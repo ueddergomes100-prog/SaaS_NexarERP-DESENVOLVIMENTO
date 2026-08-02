@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Search, Filter, Plus, Users, Edit, Trash2 } from 'lucide-react';
 import { collection, query, onSnapshot, doc, deleteDoc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTabs } from '../../contexts/TabsContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
@@ -19,7 +19,7 @@ interface ClienteData {
 }
 
 const ClientesList: React.FC = () => {
-  const navigate = useNavigate();
+  const { openTab } = useTabs();
   const [clientes, setClientes] = useState<ClienteData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -114,7 +114,7 @@ const ClientesList: React.FC = () => {
           <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
             Padronizar (A-Z)
           </button>
-          <button className="btn-primary" onClick={() => navigate('/clientes/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button className="btn-primary" onClick={() => openTab('/clientes/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Novo Cliente
           </button>
         </div>
@@ -174,7 +174,7 @@ const ClientesList: React.FC = () => {
                         <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Sistema Padrão</span>
                       ) : (
                         <div style={{ display: 'flex', gap: '8px' }}>
-                          <button className="icon-btn" title="Editar" onClick={() => navigate(`/clientes/editar/${cliente.id}`)}>
+                          <button className="icon-btn" title="Editar" onClick={() => openTab(`/clientes/editar/${cliente.id}`)}>
                             <Edit size={16} />
                           </button>
                           <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(cliente.id)}>

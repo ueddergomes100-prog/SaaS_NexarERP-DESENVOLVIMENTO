@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Filter, AlertCircle, Package, Edit, Trash2 } from 'lucide-react';
 import { collection, query, onSnapshot, doc, deleteDoc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTabs } from '../../contexts/TabsContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import './Estoque.css';
@@ -20,7 +20,7 @@ interface PecaData {
 }
 
 const EstoqueList: React.FC = () => {
-  const navigate = useNavigate();
+  const { openTab } = useTabs();
   const [pecasList, setPecasList] = useState<PecaData[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -145,7 +145,7 @@ const EstoqueList: React.FC = () => {
           </button>
           <button 
             className="btn-primary"
-            onClick={() => navigate('/estoque/nova')}
+            onClick={() => openTab('/estoque/nova')}
           >
             <Plus size={18} style={{ marginRight: 8 }} />
             Nova Peça
@@ -238,7 +238,7 @@ const EstoqueList: React.FC = () => {
                     <td>{getStatusBadge(Number(peca.quantidade))}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="icon-btn" title="Editar" onClick={() => navigate(`/estoque/editar/${peca.id}`)}>
+                        <button className="icon-btn" title="Editar" onClick={() => openTab(`/estoque/editar/${peca.id}`)}>
                           <Edit size={16} />
                         </button>
                         <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(peca.id)}>

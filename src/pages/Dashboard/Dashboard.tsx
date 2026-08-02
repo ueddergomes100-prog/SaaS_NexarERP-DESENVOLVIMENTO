@@ -32,6 +32,7 @@ import {
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTabs } from '../../contexts/TabsContext';
 import {
   dateInputToUtcStart,
   DEFAULT_TIME_ZONE,
@@ -176,6 +177,7 @@ const periodBucket = (date: Date, period: DashboardPeriod) => {
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { openTab } = useTabs();
   const [osList, setOsList] = useState<OSData[]>([]);
   const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
   const [pedidos, setPedidos] = useState<PedidoVendaData[]>([]);
@@ -1011,7 +1013,7 @@ const Dashboard: React.FC = () => {
                         </td>
                         <td className="font-medium">{formatMoney(Number(vehicle.valorTotal || vehicle.total || 0))}</td>
                         <td>
-                          <button className="icon-btn" onClick={() => navigate(`/os/editar/${vehicle.id}`)} title="Ver detalhes">
+                          <button className="icon-btn" onClick={() => openTab(`/os/editar/${vehicle.id}`)} title="Ver detalhes">
                             <MoreVertical size={18} />
                           </button>
                         </td>

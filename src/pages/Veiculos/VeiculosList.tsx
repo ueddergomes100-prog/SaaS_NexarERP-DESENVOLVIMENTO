@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs, deleteDoc, doc, orderBy } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTabs } from '../../contexts/TabsContext';
 import { Plus, Search, Edit, Trash2, Car, MapPin, Calendar, Hash } from 'lucide-react';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
@@ -25,7 +25,7 @@ const VeiculosList: React.FC = () => {
   const [veiculos, setVeiculos] = useState<Veiculo[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const navigate = useNavigate();
+  const { openTab } = useTabs();
   const { tenantId, userPermissions, userRole, isOwner } = useAuth();
   
   const canEdit = isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('cadastros.clientes');
@@ -105,7 +105,7 @@ const VeiculosList: React.FC = () => {
         </div>
         <div className="header-actions">
           {canEdit && (
-            <button className="btn-primary" onClick={() => navigate('/veiculos/novo')}>
+            <button className="btn-primary" onClick={() => openTab('/veiculos/novo')}>
               <Plus size={20} />
               Novo Veículo
             </button>
@@ -183,7 +183,7 @@ const VeiculosList: React.FC = () => {
                           <>
                             <button 
                               className="icon-btn edit-btn" 
-                              onClick={() => navigate(`/veiculos/editar/${veiculo.id}`)}
+                              onClick={() => openTab(`/veiculos/editar/${veiculo.id}`)}
                               title="Editar Veículo"
                               style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '8px', borderRadius: '8px' }}
                             >

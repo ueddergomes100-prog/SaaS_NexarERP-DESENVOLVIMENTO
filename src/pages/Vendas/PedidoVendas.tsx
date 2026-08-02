@@ -4,6 +4,7 @@ import { ShoppingCart, Plus, Search, FileText, Printer, Trash2 } from 'lucide-re
 import { collection, query, where, onSnapshot, deleteDoc, doc, getDoc, updateDoc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { spedyService } from '../../services/spedyService';
 import { isPlatformAdminRole } from '../../utils/roles';
@@ -30,6 +31,7 @@ interface PedidoVendaData {
 
 const PedidoVendas: React.FC = () => {
   const navigate = useNavigate();
+  const { openTab } = useTabs();
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
 
   const canDeleteVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.excluir'));
@@ -241,7 +243,7 @@ const PedidoVendas: React.FC = () => {
           </h1>
           <p style={{ color: 'var(--text-muted)' }}>Gerenciamento de vendas diretas e PDV</p>
         </div>
-        <button className="btn-primary" onClick={() => navigate('/pedidos-venda/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button className="btn-primary" onClick={() => openTab('/pedidos-venda/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Plus size={20} /> Nova Venda (PDV)
         </button>
       </div>
@@ -352,7 +354,7 @@ const PedidoVendas: React.FC = () => {
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valorTotal)}
                     </td>
                     <td style={{ padding: '16px', display: 'flex', justifyContent: 'center', gap: '8px' }}>
-                      <button onClick={() => navigate(`/pedidos-venda/visualizar/${p.id}`)} className="icon-btn" title="Visualizar Pedido" style={{ color: '#3b82f6' }}>
+                      <button onClick={() => openTab(`/pedidos-venda/visualizar/${p.id}`)} className="icon-btn" title="Visualizar Pedido" style={{ color: '#3b82f6' }}>
                         <FileText size={18} />
                       </button>
                       {authorizedCupons[p.id] && authorizedCupons[p.id].status === 'authorized' ? (

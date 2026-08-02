@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Search, Plus, Tags, Edit, Trash2 } from 'lucide-react';
 import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTabs } from '../../contexts/TabsContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
@@ -16,7 +16,7 @@ interface CategoriaData {
 }
 
 const CategoriasList: React.FC = () => {
-  const navigate = useNavigate();
+  const { openTab } = useTabs();
   const [categorias, setCategorias] = useState<CategoriaData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -26,7 +26,7 @@ const CategoriasList: React.FC = () => {
 
   useKeyboardShortcuts([
     { key: 'F2', handler: () => searchInputRef.current?.focus() },
-    { key: 'F6', handler: () => navigate('/categorias/nova') },
+    { key: 'F6', handler: () => openTab('/categorias/nova') },
   ]);
 
   useEffect(() => {
@@ -100,7 +100,7 @@ const CategoriasList: React.FC = () => {
           <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
             Padronizar (A-Z)
           </button>
-          <button className="btn-primary" onClick={() => navigate('/categorias/nova')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button className="btn-primary" onClick={() => openTab('/categorias/nova')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Nova Categoria
           </button>
         </div>
@@ -150,7 +150,7 @@ const CategoriasList: React.FC = () => {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="icon-btn" title="Editar" onClick={() => navigate(`/categorias/editar/${cat.id}`)}>
+                        <button className="icon-btn" title="Editar" onClick={() => openTab(`/categorias/editar/${cat.id}`)}>
                           <Edit size={16} />
                         </button>
                         <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(cat.id)}>

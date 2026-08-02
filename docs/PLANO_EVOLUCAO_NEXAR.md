@@ -709,15 +709,19 @@ Ordem obrigatória: **13 → 12 → 4 → 16**. Cada um depende do anterior.
 
 ### Módulo 4 — Produção
 
-**Estado atual:** não existe. Já há esqueleto nas `firestore.rules` (`ordens_producao`, `produtos_composicao`, `estoque_lotes`) e placeholder de rota (`/operacoes/:moduleId` → `RoadmapModule`), com a permissão `operacoes.producao` já catalogada.
+**Estado atual:** iniciado em 2026-08-02. Já há esqueleto nas `firestore.rules` (`ordens_producao`, `produtos_composicao`, `estoque_lotes`) e placeholder de rota (`/operacoes/:moduleId` → `RoadmapModule`), com a permissão `operacoes.producao` já catalogada (essa fica reservada pra fatia de Ordem de Produção — a de Matéria-Prima abaixo usa uma permissão própria, `cadastros.materia_prima`).
 
-**⚠ Atenção:** o PDF original tem **um trecho corrompido logo após "relatórios"** nesta seção. Pode haver requisito não lido. **Confirmar com o usuário antes de iniciar.**
+**⚠ Resolvido em 2026-08-02:** o trecho corrompido do PDF, confirmado com o usuário — faltava uma seção de **Cadastro de Matéria-Prima**, com a mesma lógica do cadastro de produtos, mas como **pool de estoque separado** do estoque de produtos acabados e de itens que não dependem de produção.
 
 **Fluxo:** Entrada Matéria Prima → Estoque → Ordem de Produção → Em Produção → Pausada → Retornada → Finalizada → Produto Acabado.
 
 **Controlar:** matéria-prima, produto acabado, perdas, produção parcial, responsável, data/hora, tempo, status, histórico, relatórios.
 
-**Como implementar:** é o maior módulo — quebrar em sub-etapas com commit próprio: (a) composição de produto, (b) ordem de produção + máquina de estados, (c) consumo de matéria-prima integrado ao Módulo 13, (d) perdas e produção parcial, (e) relatórios.
+**Como implementar:** é o maior módulo — quebrado em sub-etapas com commit próprio: **(0) Cadastro de Matéria-Prima**, (a) composição de produto, (b) ordem de produção + máquina de estados, (c) consumo de matéria-prima, (d) perdas e produção parcial, (e) relatórios.
+
+**Decisão confirmada com o usuário (AskUserQuestion, 2026-08-02):** a "ordem obrigatória 13 → 12 → 4" da Fase 3 (ver início da Seção 5) **não se aplica** aqui — foi pensada para quando Produção consumiria o mesmo pool de estoque das vendas. Com Matéria-Prima como pool separado, o consumo numa Ordem de Produção não depende do mecanismo de reserva do Módulo 13; é um débito/crédito atômico dentro da própria transação da ordem, no mesmo padrão que `applyStockAdjustments` já usa. Módulos 13/12 ficam pendentes, sem bloquear o 4.
+
+**Fatia 0/N concluída em 2026-08-02 — Cadastro de Matéria-Prima** (commit `6673e26`): nova coleção `materias_primas`; `MateriasPrimasList.tsx` + `MateriaPrimaForm.tsx` em [`src/pages/Producao/`](../src/pages/Producao/) no mesmo padrão de Estoque (código, nome, categoria, unidade, quantidade, estoque mínimo, custo, fornecedor) — **simplificação deliberada:** unidade de medida é campo de texto livre, não ligada ao cadastro de Unidades de Medida (evita replicar a lógica de `unidadeMedidaId`/fracionado do `EstoqueForm.tsx`, fora de escopo pra essa fatia); fornecedor também é texto livre (não linkado a `fornecedorId`, diferente do que foi feito na Entrada de XML). Nova permissão `cadastros.materia_prima`, não pendurada em `cadastros.estoque` (seguindo a orientação já registrada na Seção do Módulo 12). Regra implantada em `sistema-nexus-dev` no mesmo dia. Typecheck/lint/build/66 testes passando. **Falta validação manual** (mesma limitação de sempre).
 
 ### Módulo 16 — Dashboard integrado
 
@@ -795,7 +799,8 @@ Atualizar ao concluir cada item.
 | M15 Relatórios padronizados | 2 | ⬜ Pendente — adiado, depois de M4 | |
 | M13 Reserva de estoque | 3 | ⬜ Pendente | |
 | M12 Conferência de mercadoria | 3 | ⬜ Pendente | |
-| M4 Produção | 3 | ⬜ Pendente — próximo da fila (priorizado a pedido do usuário) | |
+| M4 Produção — fatia 0/N Matéria-Prima | 3 | 🟨 Código pronto, regra implantada — falta validação manual | 2026-08-02 |
+| M4 Produção — fatias restantes (composição, ordem, consumo, perdas, relatórios) | 3 | ⬜ Pendente | |
 | M16 Dashboard integrado | 3 | ⬜ Pendente | |
 | M7 Novo fluxo de vendas | 4 | 🔒 Travado — aguarda decisão | |
 | M8 Nota com valor diferente | 4 | 🔒 Travado — aguarda contador | |
@@ -804,7 +809,7 @@ Atualizar ao concluir cada item.
 
 ## 9. Pendências a esclarecer com o usuário
 
-1. **Módulo 4:** trecho corrompido no PDF original — confirmar se falta requisito de Produção.
+1. ~~**Módulo 4:** trecho corrompido no PDF original — confirmar se falta requisito de Produção.~~ Resolvido em 2026-08-02: faltava Cadastro de Matéria-Prima (pool de estoque separado, mesma lógica do cadastro de produtos) — ver seção do Módulo 4.
 2. **Módulo 15:** "Excel" exige `.xlsx` real ou CSV atende?
 3. ~~**Módulo 2:** operadora/adquirente também vira catálogo agora ou fica texto livre?~~ Decidido em 2026-07-28: continua texto livre.
 4. **Módulo 7:** decisão de arquitetura + plano de migração.

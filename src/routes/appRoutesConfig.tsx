@@ -55,6 +55,8 @@ const LogsSistema = lazy(() => import('../pages/Configuracoes/LogsSistema'));
 const RoadmapModule = lazy(() => import('../pages/Roadmap/RoadmapModule'));
 const FornecedoresList = lazy(() => import('../pages/Fornecedores/FornecedoresList'));
 const FornecedorForm = lazy(() => import('../pages/Fornecedores/FornecedorForm'));
+const MateriasPrimasList = lazy(() => import('../pages/Producao/MateriasPrimasList'));
+const MateriaPrimaForm = lazy(() => import('../pages/Producao/MateriaPrimaForm'));
 
 export const appRoutesConfig: RouteObject[] = [
   { index: true, element: <Navigate to="/dashboard" replace /> },
@@ -123,6 +125,10 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'fornecedores', element: <FornecedoresList /> },
   { path: 'fornecedores/novo', element: <FornecedorForm /> },
   { path: 'fornecedores/editar/:id', element: <FornecedorForm /> },
+
+  { path: 'materias-primas', element: <MateriasPrimasList /> },
+  { path: 'materias-primas/nova', element: <MateriaPrimaForm /> },
+  { path: 'materias-primas/editar/:id', element: <MateriaPrimaForm /> },
 
   { path: 'configuracoes', element: <Configuracoes /> },
   { path: 'logs-sistema', element: <LogsSistema /> },

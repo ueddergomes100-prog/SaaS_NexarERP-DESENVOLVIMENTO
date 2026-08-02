@@ -1361,6 +1361,7 @@ const Configuracoes: React.FC = () => {
                       { id: 'dashboard.valores', label: 'Dashboard: Visão Financeira', color: '#10b981' },
                       { id: 'cadastros.clientes', label: 'Cadastros: Clientes', color: '#8b5cf6' },
                       { id: 'cadastros.estoque', label: 'Cadastros: Estoque / Produtos', color: '#8b5cf6' },
+                      { id: 'cadastros.materia_prima', label: 'Cadastros: Matéria-Prima', color: '#8b5cf6' },
                       { id: 'cadastros.servicos', label: 'Cadastros: Serviços', color: '#8b5cf6' },
                       { id: 'cadastros.categorias', label: 'Cadastros: Categorias', color: '#8b5cf6' },
                       { id: 'cadastros.unidades_medida', label: 'Cadastros: Unidades de Medida', color: '#8b5cf6' },

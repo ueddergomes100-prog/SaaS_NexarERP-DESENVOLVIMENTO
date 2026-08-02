@@ -21,6 +21,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/servicos')) routeModule = 'cadastros.servicos';
   else if (path.startsWith('/categorias')) routeModule = 'cadastros.categorias';
   else if (path.startsWith('/unidades-medida')) routeModule = 'cadastros.unidades_medida';
+  else if (path.startsWith('/fornecedores')) routeModule = 'cadastros.fornecedores';
   else if (path.startsWith('/pedidos-venda')) routeModule = 'comercial.pedidos';
   else if (path.startsWith('/orcamentos')) routeModule = 'comercial.orcamentos';
   else if (path.startsWith('/vendas/devolucoes') || path.startsWith('/vendas')) routeModule = 'comercial.devolucoes';
@@ -47,6 +48,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/servicos')) routePermission = 'cadastros.servicos';
   else if (path.startsWith('/categorias')) routePermission = 'cadastros.categorias';
   else if (path.startsWith('/unidades-medida')) routePermission = 'cadastros.unidades_medida';
+  else if (path.startsWith('/fornecedores')) routePermission = 'cadastros.estoque';
   else if (path.startsWith('/pedidos-venda')) routePermission = 'vendas.pedidos';
   else if (path.startsWith('/orcamentos')) routePermission = 'vendas.orcamentos';
   else if (path.startsWith('/vendas/devolucoes') || path.startsWith('/vendas')) routePermission = 'vendas.devolucao';

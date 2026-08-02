@@ -157,6 +157,7 @@ const Sidebar: React.FC = () => {
         { label: 'Unidades de Medida', to: '/unidades-medida', icon: Scale, module: 'cadastros.unidades_medida', permission: 'cadastros.unidades_medida' },
         { label: 'Bandeiras de Cartão', to: '/bandeiras-cartao', icon: CreditCard, module: 'cadastros.bandeiras_cartao', permission: 'cadastros.bandeiras_cartao' },
         { label: 'Bancos', to: '/bancos', icon: Building2, module: 'cadastros.bancos', permission: 'cadastros.bancos' },
+        { label: 'Fornecedores', to: '/fornecedores', icon: Truck, module: 'cadastros.fornecedores', permission: 'cadastros.estoque' },
         { label: 'Usuários', to: '/usuarios', icon: UserCog, module: 'cadastros.usuarios', permission: 'administrativo.equipe' }
       ]
     },
@@ -221,7 +222,6 @@ const Sidebar: React.FC = () => {
       roadmap: true,
       items: [
         { label: 'Pedidos de Compra', to: '/compras/pedidos-compra', icon: ClipboardList, module: 'compras.pedidos' },
-        { label: 'Fornecedores', to: '/compras/fornecedores', icon: Users, module: 'compras.fornecedores' },
         { label: 'Cotação de Compra', to: '/compras/cotacoes', icon: Inbox, module: 'compras.cotacoes' }
       ]
     },

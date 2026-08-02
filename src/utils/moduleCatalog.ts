@@ -21,7 +21,8 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'cadastros.categorias', label: 'Categorias' },
     { id: 'cadastros.unidades_medida', label: 'Unidades de Medida' },
     { id: 'cadastros.bandeiras_cartao', label: 'Bandeiras de Cartão' },
-    { id: 'cadastros.bancos', label: 'Bancos' }
+    { id: 'cadastros.bancos', label: 'Bancos' },
+    { id: 'cadastros.fornecedores', label: 'Fornecedores' }
   ]},
   { group: 'Comercial & Vendas', items: [
     { id: 'comercial.pedidos', label: 'Pedido de Vendas' },
@@ -51,7 +52,6 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
   ]},
   { group: 'Compras & Fornecedores', items: [
     { id: 'compras.pedidos', label: 'Pedidos de Compra' },
-    { id: 'compras.fornecedores', label: 'Fornecedores' },
     { id: 'compras.cotacoes', label: 'Cotação de Compra' }
   ]},
   { group: 'E-commerce & Integrações', items: [

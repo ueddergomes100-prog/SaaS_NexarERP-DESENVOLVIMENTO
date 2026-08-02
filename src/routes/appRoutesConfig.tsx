@@ -53,6 +53,8 @@ const BandeirasCartaoList = lazy(() => import('../pages/BandeirasCartao/Bandeira
 const BancosList = lazy(() => import('../pages/Bancos/BancosList'));
 const LogsSistema = lazy(() => import('../pages/Configuracoes/LogsSistema'));
 const RoadmapModule = lazy(() => import('../pages/Roadmap/RoadmapModule'));
+const FornecedoresList = lazy(() => import('../pages/Fornecedores/FornecedoresList'));
+const FornecedorForm = lazy(() => import('../pages/Fornecedores/FornecedorForm'));
 
 export const appRoutesConfig: RouteObject[] = [
   { index: true, element: <Navigate to="/dashboard" replace /> },
@@ -118,6 +120,9 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'unidades-medida', element: <UnidadesMedidaList /> },
   { path: 'bandeiras-cartao', element: <BandeirasCartaoList /> },
   { path: 'bancos', element: <BancosList /> },
+  { path: 'fornecedores', element: <FornecedoresList /> },
+  { path: 'fornecedores/novo', element: <FornecedorForm /> },
+  { path: 'fornecedores/editar/:id', element: <FornecedorForm /> },
 
   { path: 'configuracoes', element: <Configuracoes /> },
   { path: 'logs-sistema', element: <LogsSistema /> },

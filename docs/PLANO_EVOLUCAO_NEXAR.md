@@ -489,6 +489,8 @@ Ordem sugerida: **2 → 10 → 9 → 11 → 14 → 3 → 5**.
 
 Ordem: **1 → 19 → 20 → 18 → 6 → 15**.
 
+**Reordenado em 2026-08-02 a pedido explícito do usuário:** a fatia de Entrada de XML do Módulo 6 (não a listagem central de notas) furou a fila pra ser feita agora, seguida do Módulo 4 (Produção) — ambos antes de 18/6(listagem)/15, que ficam pra depois. Ver "Módulo 6 — fatia Entrada de XML" logo abaixo do Módulo 18/6/15 nesta seção para o que já foi feito.
+
 ### Módulo 1 — Navegação por teclado
 
 **Estado atual:** PDV tem F2–F7, Esc, setas e Enter ([`PDV.tsx:560`](../src/pages/PDV/PDV.tsx)). Pedido de Venda, OS e Cadastros praticamente não têm.
@@ -630,6 +632,25 @@ Typecheck, lint (0 erros, mesmos 66 warnings pré-existentes) e build passando. 
 **Fase restante:**
 - **Fase C:** título dinâmico por aba (nome do registro, não só o nome da tela), aviso ao fechar aba com alterações não salvas (Pedido/OS/Orçamento).
 
+### Módulo 6 — fatia Entrada de XML (priorizada em 2026-08-02 a pedido do usuário)
+
+**Pedido do usuário:** dar prioridade à tela de Entrada de Nota Fiscal por XML, integrada de verdade com Contas a Pagar, Estoque, com popup automático de cadastro de fornecedor quando ele não existir, e uma tela própria de "Cadastro de Fornecedores". Depois de validado, seguir para o Módulo 4 (Produção).
+
+**Concluído em 2026-08-02, em 2 commits:**
+
+1. **`4f0b1f9` — Cadastro de Fornecedores.** Nova coleção `fornecedores` (já prevista nas `firestore.rules` desde o F5/F6, só faltava UI). `FornecedoresList.tsx` + `FornecedorForm.tsx` no mesmo padrão de Clientes (código, nome, telefone, e-mail, CNPJ/CPF, endereço), com `openTab()` desde o início — a lacuna corrigida na sessão anterior (F19) não se repetiu aqui. Nova entrada no menu Cadastros, reaproveitando a permissão `cadastros.estoque` (é a que as `firestore.rules` já exigem pra essa coleção, não criei uma permissão nova). Substituiu o item "Fornecedores" que só existia como mockup do roadmap em `/compras/fornecedores` (grupo "Compras", ainda não implementado) — removido de lá e do catálogo de módulos pra não duplicar o mesmo nome apontando pra duas telas diferentes.
+
+2. **`f4f4aa1` — Integração da Entrada de XML.** A tela ([`EntradaNFE.tsx`](../src/pages/Fiscal/EntradaNFE.tsx)) já incrementava estoque e lançava um título em Contas a Pagar antes disso, mas com lacunas reais:
+   - **Fornecedor era só texto livre**, sem vínculo a nenhum cadastro. Agora, ao ler o XML, busca o fornecedor pelo CNPJ em `fornecedores`; sem match, abre um **popup bloqueante** de cadastro rápido pré-preenchido com nome/CNPJ do XML — decisão confirmada com o usuário (via AskUserQuestion): a confirmação da importação fica desabilitada até o fornecedor existir, não dá pra pular. Itens de estoque e título(s) de Contas a Pagar passam a gravar `fornecedorId` + `fornecedorNome`.
+   - **Vencimento do título usava a data de emissão da nota**, o que é logicamente errado (emissão não é a data de pagamento) — bug real, não só lacuna. Corrigido: novo parser das duplicatas (`<dup>`/`<dVenc>`/`<vDup>`) do XML — nota com parcelamento lança **um título por duplicata**, cada um com seu vencimento; sem duplicata no XML, lança um único título com vencimento padrão de emissão + 30 dias (`addDaysToDateInput`, já existente e testado desde o F15).
+   - Corrigido também um typo na categoria lançada (`"FORNEDORES DE PEÇAS"` → `"FORNECEDORES DE PEÇAS"`), que agora bate com o Plano de Contas mostrado em `ContasPagar.tsx`.
+
+Typecheck, lint e build passando limpos; suíte de 66 testes sem mudança (nenhuma lógica financeira nova além de `addDaysToDateInput`, que já tinha teste). Publicado em `dev`.
+
+**Continua pendente:** validação manual de ponta a ponta (mesma limitação de sempre — a Claude não pode logar). Roteiro sugerido: importar um XML de nota real (com e sem duplicata), conferir que o popup de fornecedor abre quando o CNPJ não bate com nada cadastrado, que a importação fica bloqueada até cadastrar, e que o(s) título(s) aparecem corretos em Contas a Pagar com o vencimento certo.
+
+**Deliberadamente fora do escopo desta fatia:** a listagem central de Notas Fiscais (a parte "Módulo 6" original, ver mais abaixo) não foi tocada — fica pra depois de Produção, conforme combinado.
+
 ### Módulo 18 — Cancelamentos
 
 **Estado atual:** **em grande parte pronto.** A reformulação financeira de 19/07 já entregou estorno determinístico com `idempotencyKey`, cancelamento de venda ([`PedidoVendaForm.tsx:1159`](../src/pages/Vendas/PedidoVendaForm.tsx)) e de OS ([`OSForm.tsx:834`](../src/pages/OS/OSForm.tsx)), com comissão marcada como cancelada.
@@ -768,12 +789,13 @@ Atualizar ao concluir cada item.
 | M1 Navegação por teclado | 2 | 🟨 Código pronto (PDV + Pedido + OS + Cadastros) — falta validação manual | 2026-07-31 |
 | M19 Numeração | 2 | ✅ Concluído — sem código novo, nada implementável hoje (ver seção do módulo) | 2026-07-31 |
 | M20 Responsabilidade | 2 | 🟨 Código 100% pronto (5/5 fatias) — falta validação manual | 2026-07-31 |
-| M18 Cancelamentos (auditoria) | 2 | ⬜ Pendente | |
-| M6 Central de Notas Fiscais | 2 | ⬜ Pendente | |
-| M15 Relatórios padronizados | 2 | ⬜ Pendente | |
+| M6 fatia Entrada de XML (Fornecedores + Contas a Pagar + Estoque) | 2 | 🟨 Código pronto — falta validação manual (priorizada fora de ordem a pedido do usuário) | 2026-08-02 |
+| M18 Cancelamentos (auditoria) | 2 | ⬜ Pendente — adiado, depois de M4 | |
+| M6 Central de Notas Fiscais (listagem) | 2 | ⬜ Pendente — adiado, depois de M4 | |
+| M15 Relatórios padronizados | 2 | ⬜ Pendente — adiado, depois de M4 | |
 | M13 Reserva de estoque | 3 | ⬜ Pendente | |
 | M12 Conferência de mercadoria | 3 | ⬜ Pendente | |
-| M4 Produção | 3 | ⬜ Pendente | |
+| M4 Produção | 3 | ⬜ Pendente — próximo da fila (priorizado a pedido do usuário) | |
 | M16 Dashboard integrado | 3 | ⬜ Pendente | |
 | M7 Novo fluxo de vendas | 4 | 🔒 Travado — aguarda decisão | |
 | M8 Nota com valor diferente | 4 | 🔒 Travado — aguarda contador | |

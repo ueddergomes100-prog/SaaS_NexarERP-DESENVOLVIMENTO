@@ -169,6 +169,7 @@ const Sidebar: React.FC = () => {
       tone: '#f97316',
       items: [
         { label: 'Ordens de Produção', to: '/producao/ordens', icon: ClipboardList, module: 'operacoes.producao', permission: 'operacoes.producao' },
+        { label: 'Relatório de Produção', to: '/producao/relatorios', icon: PieChart, module: 'operacoes.producao', permission: 'operacoes.producao' },
       ]
     },
     {

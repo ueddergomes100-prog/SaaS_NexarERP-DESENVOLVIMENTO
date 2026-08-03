@@ -59,6 +59,7 @@ const MateriasPrimasList = lazy(() => import('../pages/Producao/MateriasPrimasLi
 const MateriaPrimaForm = lazy(() => import('../pages/Producao/MateriaPrimaForm'));
 const OrdensProducaoList = lazy(() => import('../pages/Producao/OrdensProducaoList'));
 const OrdemProducaoForm = lazy(() => import('../pages/Producao/OrdemProducaoForm'));
+const RelatorioProducao = lazy(() => import('../pages/Producao/RelatorioProducao'));
 
 export const appRoutesConfig: RouteObject[] = [
   { index: true, element: <Navigate to="/dashboard" replace /> },
@@ -135,6 +136,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'producao/ordens', element: <OrdensProducaoList /> },
   { path: 'producao/ordens/nova', element: <OrdemProducaoForm /> },
   { path: 'producao/ordens/editar/:id', element: <OrdemProducaoForm /> },
+  { path: 'producao/relatorios', element: <RelatorioProducao /> },
 
   { path: 'configuracoes', element: <Configuracoes /> },
   { path: 'logs-sistema', element: <LogsSistema /> },

@@ -26,9 +26,28 @@ import PageLoader from './PageLoader';
 const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActive }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const element = useRoutes(appRoutesConfig, isActive ? undefined : tab.path);
   const { updateTabLocation } = useTabs();
   const { blockedModules, userRole, userPermissions, isOwner, isPlatformAdmin } = useAuth();
+
+  // No exato render em que uma aba vira ativa, a location REAL do
+  // navegador ainda pertence a aba anterior (o navigate() que corrige
+  // isso so roda depois, num efeito) -- se usassemos location aqui
+  // mesmo assim, a aba recem-ativada resolveria a rota errada por um
+  // frame e mostraria o conteudo da aba anterior por cima da propria
+  // (a "piscada" de dados trocados que o usuario viu). Por isso, nesse
+  // frame de transicao, ainda usamos o tab.path congelado (correto);
+  // location so volta a ser confiavel a partir do proximo render, depois
+  // do navigate() de baixo ja ter alinhado as duas. Ajustar estado
+  // durante a propria renderizacao (padrao oficial do React pra "notar"
+  // a mudanca de uma prop) em vez de useRef+useEffect, que só
+  // atualizaria um frame tarde demais pra evitar esse flash.
+  const [wasActive, setWasActive] = useState(isActive);
+  const justActivated = isActive && !wasActive;
+  if (isActive !== wasActive) {
+    setWasActive(isActive);
+  }
+
+  const element = useRoutes(appRoutesConfig, isActive && !justActivated ? undefined : tab.path);
 
   // Ao virar a aba ativa (troca de aba, ou primeiro mount ja ativa),
   // assume a location real do navegador -- so essa aba deve mexer nela.
@@ -47,7 +66,7 @@ const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActi
     updateTabLocation(tab.id, location.pathname);
   }, [isActive, location.pathname, tab.id, updateTabLocation]);
 
-  const effectivePath = isActive ? location.pathname : tab.path;
+  const effectivePath = isActive && !justActivated ? location.pathname : tab.path;
   const { routeModule, routePermission } = resolveRouteAccess(effectivePath);
   const isModuleBlocked = routeModule && !isPlatformAdmin && blockedModules?.includes(routeModule);
   const hasFullAccess = hasTenantFullAccess(userRole, isOwner);

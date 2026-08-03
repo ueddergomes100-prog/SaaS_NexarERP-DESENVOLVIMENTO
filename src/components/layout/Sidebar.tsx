@@ -163,6 +163,15 @@ const Sidebar: React.FC = () => {
       ]
     },
     {
+      id: 'producao',
+      label: 'Produção',
+      icon: Factory,
+      tone: '#f97316',
+      items: [
+        { label: 'Ordens de Produção', to: '/producao/ordens', icon: ClipboardList, module: 'operacoes.producao', permission: 'operacoes.producao' },
+      ]
+    },
+    {
       id: 'financeiro',
       label: 'Financeiro',
       icon: Wallet,
@@ -245,7 +254,6 @@ const Sidebar: React.FC = () => {
       tone: '#14b8a6',
       roadmap: true,
       items: [
-        { label: 'Produção Interna', to: '/operacoes/producao', icon: Factory, module: 'operacoes.producao' },
         { label: 'Expedição e Entregas', to: '/operacoes/expedicao', icon: Truck, module: 'operacoes.expedicao' },
         { label: 'Lotes e Validades', to: '/operacoes/lotes-validades', icon: Package, module: 'operacoes.lotes' }
       ]

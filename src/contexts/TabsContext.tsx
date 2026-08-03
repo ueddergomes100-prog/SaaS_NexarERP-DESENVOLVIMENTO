@@ -54,6 +54,7 @@ const SECTION_LABELS: Array<[string, string]> = [
   ['/bancos', 'Bancos'],
   ['/fornecedores', 'Fornecedores'],
   ['/materias-primas', 'Matéria-Prima'],
+  ['/producao/ordens', 'Ordens de Produção'],
   ['/usuarios', 'Usuários'],
   ['/pedidos-venda', 'Pedidos de Venda'],
   ['/orcamentos', 'Orçamentos'],

@@ -271,6 +271,21 @@ const Sidebar: React.FC = () => {
       .filter(Boolean) as NavGroup[];
   }, [canAccess, groups, searchTerm]);
 
+  // Trilha de icones do menu compacto: atalhos diretos pra telas
+  // especificas (nao pra grupos) -- pedido do usuario, pra nao precisar
+  // expandir o menu completo so pra trocar de tela com o menu recolhido.
+  const railShortcuts: NavItem[] = [
+    { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, module: 'dashboard.empresa' },
+    { label: 'Pedido de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
+    { label: 'Ordem de Serviço', to: '/os', icon: ClipboardList, module: 'mecanica.os', permission: 'mecanica.os' },
+    { label: 'Estoque', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
+    { label: 'Contas a Receber', to: '/financeiro/contas-receber', icon: Clock, module: 'financeiro.receber', permission: 'financeiro.receber' },
+    { label: 'Entrada de Notas', to: '/fiscal/entrada-nfe', icon: Inbox, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' },
+    { label: 'Agendamento', to: '/crm/agenda', icon: Calendar, module: 'crm.agenda', permission: 'crm.agenda' },
+    { label: 'Relatórios Diversos', to: '/relatorios-diversos', icon: FileText, module: 'logs.relatorios_diversos', managerOnly: true },
+    { label: 'Configuração Geral', to: '/configuracoes', icon: Settings, module: 'admin.config', permission: 'administrativo.config' },
+  ].filter(canAccess);
+
   const quickActions = [
     { label: 'PDV', to: '/pdv', icon: Store, permission: 'vendas.pedidos', module: 'comercial.pedidos' },
     { label: 'Venda', to: '/pedidos-venda/novo', icon: ShoppingCart, permission: 'vendas.pedidos', module: 'comercial.pedidos' },
@@ -284,8 +299,6 @@ const Sidebar: React.FC = () => {
     if (searchTerm.trim()) return true;
     return expandedGroups[group.id] ?? isGroupActive(group);
   };
-  const isRailActive = (group: NavGroup) => expandedGroups[group.id] ?? isGroupActive(group);
-
   const toggleGroup = (group: NavGroup) => {
     const currentlyExpanded = expandedGroups[group.id] ?? isGroupActive(group);
     const nextState = { ...expandedGroups, [group.id]: !currentlyExpanded };
@@ -351,49 +364,47 @@ const Sidebar: React.FC = () => {
       />
 
       <aside className="sidebar nexus-sidebar">
-        <div className="nexus-sidebar-rail">
-          <button className="nexus-rail-logo" onClick={handleGoHome} title="Ir para Dashboard">
-            N
-          </button>
-
-          <div className="nexus-rail-modules">
-            {visibleGroups.slice(0, 9).map((group) => {
-              const Icon = group.icon;
-              const expanded = isRailActive(group);
-              return (
-                <button
-                  key={group.id}
-                  className={expanded ? 'nexus-rail-item active' : 'nexus-rail-item'}
-                  onClick={() => {
-                    if (miniSidebar) {
-                      setMiniSidebar(false);
-                      localStorage.setItem('nexus_mini_sidebar', 'false');
-                      document.body.classList.remove('mini-sidebar');
-                    }
-                    toggleGroup(group);
-                  }}
-                  title={group.label}
-                  aria-pressed={expanded}
-                  style={{ '--module-color': group.tone } as React.CSSProperties}
-                >
-                  <Icon size={20} />
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="nexus-rail-bottom">
-            <button className="nexus-rail-item" onClick={toggleMiniSidebar} title={miniSidebar ? 'Expandir menu' : 'Recolher menu'}>
-              {miniSidebar ? <ChevronsRight size={19} /> : <ChevronsLeft size={19} />}
+        {miniSidebar && (
+          <div className="nexus-sidebar-rail">
+            <button className="nexus-rail-logo" onClick={handleGoHome} title="Ir para Dashboard">
+              N
             </button>
+
+            <div className="nexus-rail-modules">
+              {railShortcuts.map((item) => {
+                const Icon = item.icon;
+                const active = currentPath === item.to || currentPath.startsWith(`${item.to}/`);
+                return (
+                  <button
+                    key={item.to}
+                    className={active ? 'nexus-rail-item active' : 'nexus-rail-item'}
+                    onClick={() => navigateTo(item.to, item.label)}
+                    title={item.label}
+                    aria-pressed={active}
+                  >
+                    <Icon size={20} />
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="nexus-rail-bottom">
+              <button className="nexus-rail-item" onClick={toggleMiniSidebar} title="Expandir menu">
+                <ChevronsRight size={19} />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="nexus-sidebar-pane">
           <div className="nexus-sidebar-header">
             <button className="nexus-workspace" onClick={handleGoHome} title={tenantName}>
               <span>{tenantName}</span>
               <ChevronDown size={16} />
+            </button>
+
+            <button className="icon-btn" onClick={toggleMiniSidebar} title="Recolher menu">
+              <ChevronsLeft size={16} />
             </button>
 
             <div className="nexus-sidebar-search">

@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, Package, DollarSign, Loader2 } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where } from 'firebase/firestore';
+import { ArrowLeft, Save, Package, DollarSign, Loader2, Factory, Plus, Trash2 } from 'lucide-react';
+import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, setDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
@@ -17,7 +17,20 @@ interface UnidadeMedida {
   permiteFracionado: boolean;
 }
 
-type TabId = 'geral' | 'precos' | 'estoque' | 'fiscal' | 'compras' | 'atacado' | 'ecommerce' | 'avancado';
+type TabId = 'geral' | 'precos' | 'estoque' | 'fiscal' | 'compras' | 'composicao' | 'atacado' | 'ecommerce' | 'avancado';
+
+interface MateriaPrimaOption {
+  id: string;
+  nome: string;
+  unidade: string;
+}
+
+interface ComposicaoItem {
+  materiaPrimaId: string;
+  materiaPrimaNome: string;
+  unidade: string;
+  quantidade: number;
+}
 
 interface AtacadoFaixa {
   id: string;
@@ -123,6 +136,7 @@ const tabs: Array<{ id: TabId; label: string }> = [
   { id: 'estoque', label: 'Estoque' },
   { id: 'fiscal', label: 'Fiscal (Tributação)' },
   { id: 'compras', label: 'Compras' },
+  { id: 'composicao', label: 'Composição (Produção)' },
   { id: 'atacado', label: 'Atacado' },
   { id: 'ecommerce', label: 'E-commerce' },
   { id: 'avancado', label: 'Configurações Avançadas' }
@@ -322,6 +336,17 @@ const EstoqueForm: React.FC = () => {
   const [historicoPrecos, setHistoricoPrecos] = useState<HistoricoPreco[]>([]);
   const [produtoOriginal, setProdutoOriginal] = useState<ProdutoOriginalData | null>(null);
   const [modoCadastro, setModoCadastro] = useState<'rapido' | 'avancado'>('avancado');
+
+  // Composicao (Modulo 4, sub-etapa "a"): quais materias-primas e em que
+  // quantidade sao consumidas pra produzir 1 unidade deste produto.
+  // Guardado num documento proprio em produtos_composicao/{produtoId} --
+  // colecao separada, nao mexe no documento de estoque em si.
+  const [materiasPrimasDisponiveis, setMateriasPrimasDisponiveis] = useState<MateriaPrimaOption[]>([]);
+  const [composicaoItens, setComposicaoItens] = useState<ComposicaoItem[]>([]);
+  const [composicaoLoading, setComposicaoLoading] = useState(false);
+  const [isSavingComposicao, setIsSavingComposicao] = useState(false);
+  const [novaMateriaPrimaId, setNovaMateriaPrimaId] = useState('');
+  const [novaQuantidade, setNovaQuantidade] = useState('1');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
@@ -490,6 +515,93 @@ const EstoqueForm: React.FC = () => {
     };
     fetchInitialData();
   }, [id, isEditing, tenantId, currentUser]);
+
+  // Composicao: so faz sentido pra um produto ja salvo (precisa do id).
+  // Carrega o catalogo de materias-primas do tenant e a composicao ja
+  // salva pra este produto, se existir.
+  useEffect(() => {
+    if (!isEditing || !id || !tenantId || !currentUser) return;
+
+    const fetchComposicao = async () => {
+      setComposicaoLoading(true);
+      try {
+        const qMp = query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId));
+        const snapMp = await getDocs(qMp);
+        const materiasPrimas: MateriaPrimaOption[] = [];
+        snapMp.forEach(d => {
+          const data = d.data();
+          materiasPrimas.push({ id: d.id, nome: data.nome || '', unidade: data.unidade || 'UN' });
+        });
+        materiasPrimas.sort((a, b) => a.nome.localeCompare(b.nome));
+        setMateriasPrimasDisponiveis(materiasPrimas);
+
+        const composicaoSnap = await getDoc(doc(db, 'produtos_composicao', id));
+        if (composicaoSnap.exists()) {
+          const data = composicaoSnap.data();
+          setComposicaoItens(Array.isArray(data.itens) ? data.itens : []);
+        } else {
+          setComposicaoItens([]);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar composição:', error);
+        showError('Erro ao carregar', 'Não foi possível carregar a composição deste produto.');
+      } finally {
+        setComposicaoLoading(false);
+      }
+    };
+    fetchComposicao();
+  }, [id, isEditing, tenantId, currentUser]);
+
+  const handleAdicionarItemComposicao = () => {
+    if (!novaMateriaPrimaId) {
+      showError('Selecione uma matéria-prima', 'Escolha qual matéria-prima entra na composição.');
+      return;
+    }
+    const quantidadeNum = Number(novaQuantidade);
+    if (!Number.isFinite(quantidadeNum) || quantidadeNum <= 0) {
+      showError('Quantidade inválida', 'Informe uma quantidade maior que zero.');
+      return;
+    }
+    if (composicaoItens.some(item => item.materiaPrimaId === novaMateriaPrimaId)) {
+      showError('Já adicionada', 'Essa matéria-prima já está na composição. Remova antes de adicionar de novo.');
+      return;
+    }
+    const materiaPrima = materiasPrimasDisponiveis.find(mp => mp.id === novaMateriaPrimaId);
+    if (!materiaPrima) return;
+
+    setComposicaoItens(prev => [...prev, {
+      materiaPrimaId: materiaPrima.id,
+      materiaPrimaNome: materiaPrima.nome,
+      unidade: materiaPrima.unidade,
+      quantidade: quantidadeNum
+    }]);
+    setNovaMateriaPrimaId('');
+    setNovaQuantidade('1');
+  };
+
+  const handleRemoverItemComposicao = (materiaPrimaId: string) => {
+    setComposicaoItens(prev => prev.filter(item => item.materiaPrimaId !== materiaPrimaId));
+  };
+
+  const handleSalvarComposicao = async () => {
+    if (!id || !tenantId || !currentUser) return;
+    setIsSavingComposicao(true);
+    try {
+      await setDoc(doc(db, 'produtos_composicao', id), {
+        produtoId: id,
+        itens: composicaoItens,
+        tenantId,
+        updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+      }, { merge: true });
+      showSuccess('Composição salva!');
+    } catch (error) {
+      console.error('Erro ao salvar composição:', error);
+      showError('Erro ao salvar', 'Não foi possível salvar a composição.');
+    } finally {
+      setIsSavingComposicao(false);
+    }
+  };
 
   const updateField = (name: keyof ProdutoFormData, value: string | boolean) => {
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -1322,6 +1434,105 @@ const EstoqueForm: React.FC = () => {
                   <p>{formatCurrency(toNumber(formData.ultimoCusto) || precoCusto)} será usada como referência gerencial.</p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'composicao' && (
+            <div className="card form-section product-card">
+              <div className="section-header">
+                <Factory size={20} className="section-icon" />
+                <div>
+                  <h3>Composição (Produção)</h3>
+                  <p>Matérias-primas e quantidades necessárias para produzir 1 unidade deste produto.</p>
+                </div>
+              </div>
+
+              {!isEditing ? (
+                <div className="info-panel">
+                  <strong>Salve o produto primeiro</strong>
+                  <p>A composição só pode ser definida depois que o produto for salvo pela primeira vez.</p>
+                </div>
+              ) : composicaoLoading ? (
+                <p>Carregando composição...</p>
+              ) : (
+                <>
+                  {materiasPrimasDisponiveis.length === 0 ? (
+                    <div className="info-panel">
+                      <strong>Nenhuma matéria-prima cadastrada</strong>
+                      <p>Cadastre matérias-primas em Cadastros → Matéria-Prima antes de montar a composição.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="form-grid-3" style={{ alignItems: 'flex-end' }}>
+                        <div className="input-group">
+                          <label>Matéria-Prima</label>
+                          <select value={novaMateriaPrimaId} onChange={(e) => setNovaMateriaPrimaId(e.target.value)}>
+                            <option value="">Selecione...</option>
+                            {materiasPrimasDisponiveis
+                              .filter(mp => !composicaoItens.some(item => item.materiaPrimaId === mp.id))
+                              .map(mp => (
+                                <option key={mp.id} value={mp.id}>{mp.nome}</option>
+                              ))}
+                          </select>
+                        </div>
+                        <div className="input-group">
+                          <label>Quantidade por unidade produzida</label>
+                          <input type="number" step="any" min="0" value={novaQuantidade} onChange={(e) => setNovaQuantidade(e.target.value)} />
+                        </div>
+                        <button type="button" className="btn-secondary" onClick={handleAdicionarItemComposicao} style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+                          <Plus size={16} /> Adicionar
+                        </button>
+                      </div>
+
+                      <div className="table-wrapper" style={{ marginTop: '20px' }}>
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>Matéria-Prima</th>
+                              <th>Quantidade por unidade</th>
+                              <th>Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {composicaoItens.length === 0 ? (
+                              <tr>
+                                <td colSpan={3} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
+                                  Nenhuma matéria-prima adicionada ainda.
+                                </td>
+                              </tr>
+                            ) : (
+                              composicaoItens.map(item => (
+                                <tr key={item.materiaPrimaId}>
+                                  <td>{item.materiaPrimaNome}</td>
+                                  <td>{item.quantidade} {item.unidade}</td>
+                                  <td>
+                                    <button type="button" className="icon-btn" style={{ color: '#ef4444' }} title="Remover" onClick={() => handleRemoverItemComposicao(item.materiaPrimaId)}>
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={handleSalvarComposicao}
+                      disabled={isSavingComposicao}
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: isSavingComposicao ? 0.7 : 1 }}
+                    >
+                      {isSavingComposicao ? <Loader2 size={16} className="spin-icon" /> : <Save size={16} />}
+                      {isSavingComposicao ? 'Salvando...' : 'Salvar Composição'}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

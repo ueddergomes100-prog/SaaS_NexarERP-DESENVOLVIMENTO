@@ -744,6 +744,10 @@ Ordem obrigatória: **13 → 12 → 4 → 16**. Cada um depende do anterior.
 
 **Fatia 3/N concluída em 2026-08-02 — Conferência de perdas antes de finalizar** (commit `01d7287`): o usuário testou a fatia 2 e apontou uma lacuna real — "Finalizar Produção" debitava a matéria-prima num clique só, sem nenhuma etapa de conferência, e não tinha como registrar produção parcial nem perda além do previsto na receita. Corrigido: "Finalizar Produção" agora abre uma **tela de conferência** (nada é gravado ainda) mostrando a quantidade produzida (editável, pré-preenchida com a planejada) e, por matéria-prima, o "necessário" recalculado ao vivo (receita × produzido) mais um campo de "perda extra" editável — só debita de verdade ao confirmar. **Decisão confirmada com o usuário (AskUserQuestion):** produção parcial consome pela quantidade **produzida**, não pela planejada (se planejou 100 e só saiu 95 boas, só debita proporcional a 95; a diferença vira perda extra manual, não é embutida automaticamente). `itensConsumidos` ganhou `quantidadeNecessaria`/`perdaExtra` separados do total consumido, refletido também na tabela pós-finalização. Typecheck/lint/build/66 testes passando. **Falta validação manual.**
 
+**Fatia 4/4 concluída em 2026-08-02 — Relatório de Produção, fechando o Módulo 4** (commit `7d365a2`): `RelatorioProducao.tsx` em `src/pages/Producao/`, mesmo padrão visual dos relatórios já existentes (`StatCard`/`ChartWrapper`/`ReportFilter` reaproveitados sem mudança). Cobre: total de ordens no período, finalizadas/em andamento/canceladas, eficiência de produção (produzido/planejado, usando os números reais pós-conferência da fatia anterior), volume por dia, distribuição por status, ranking de produtos mais fabricados, ranking de responsáveis, e uma tabela de perda de matéria-prima no período agrupada por matéria-prima (não dava pra comprimir num único número porque cada matéria-prima tem sua própria unidade). Nova rota `/producao/relatorios`, mesma permissão `operacoes.producao` — sem regra nova no Firestore (só leitura de `ordens_producao`, já coberta). Typecheck/lint/build/66 testes passando. **Falta validação manual.**
+
+**Módulo 4 fechado no código com isso — as 4 fatias completas:** (0) Cadastro de Matéria-Prima, (1) Composição de produto, (2) Ordem de Produção + máquina de estados, (3) conferência de perdas/produção parcial, (4) relatórios. Falta só validação manual de ponta a ponta.
+
 ### Módulo 16 — Dashboard integrado
 
 **Bloqueado** por 4 e 12. Integrar produção, perdas, conferência, pedidos, notas e financeiro no dashboard existente. O prompt é explícito: **nunca criar dashboard separado** — estender [`Dashboard.tsx`](../src/pages/Dashboard/Dashboard.tsx), que já respeita os períodos Hoje/Semana/Mês e o tema claro/escuro.
@@ -825,7 +829,7 @@ Atualizar ao concluir cada item.
 | M4 Produção — fatia 1/N Composição de produto | 3 | 🟨 Código pronto (regra já existia) — falta validação manual | 2026-08-02 |
 | M4 Produção — fatia 2/N Ordem de Produção + máquina de estados | 3 | 🟨 Código pronto, regra implantada — falta validação manual | 2026-08-02 |
 | M4 Produção — fatia 3/N Conferência de perdas/produção parcial | 3 | 🟨 Código pronto — falta validação manual | 2026-08-02 |
-| M4 Produção — fatia restante (relatórios) | 3 | ⬜ Pendente | |
+| M4 Produção — fatia 4/4 Relatórios (fecha o módulo) | 3 | 🟨 Código pronto — falta validação manual | 2026-08-02 |
 | M16 Dashboard integrado | 3 | ⬜ Pendente | |
 | M7 Novo fluxo de vendas | 4 | 🔒 Travado — aguarda decisão | |
 | M8 Nota com valor diferente | 4 | 🔒 Travado — aguarda contador | |

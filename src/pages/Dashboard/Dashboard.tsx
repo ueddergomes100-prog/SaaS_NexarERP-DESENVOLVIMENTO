@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -32,7 +32,7 @@ import {
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { useTabs } from '../../contexts/TabsContext';
+import { TabActiveContext, useTabs } from '../../contexts/TabsContext';
 import {
   dateInputToUtcStart,
   DEFAULT_TIME_ZONE,
@@ -44,7 +44,6 @@ import {
   type DashboardPeriod,
 } from '../../utils/dateTime';
 import { transactionNetAmount } from '../../utils/financeDomain';
-import { useChartRemountKey } from '../../hooks/useChartRemountKey';
 import './Dashboard.css';
 
 interface OSData {
@@ -179,7 +178,6 @@ const periodBucket = (date: Date, period: DashboardPeriod) => {
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
-  const chartKey = useChartRemountKey();
   const [osList, setOsList] = useState<OSData[]>([]);
   const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
   const [pedidos, setPedidos] = useState<PedidoVendaData[]>([]);
@@ -199,6 +197,7 @@ const Dashboard: React.FC = () => {
   const quickActionMenuRef = useRef<HTMLDivElement>(null);
 
   const { currentUser, userPermissions, tenantId, isOwner } = useAuth();
+  const isTabActive = useContext(TabActiveContext);
   const hasFinancialAccess = isOwner || userPermissions?.includes('dashboard.valores');
 
   const newActionOptions = [
@@ -208,10 +207,18 @@ const Dashboard: React.FC = () => {
     { label: 'Orçamento', detail: 'Novo orçamento', icon: FileText, route: '/orcamentos/novo' }
   ];
 
+  // O Dashboard fica sempre montado enquanto a aba existir (Sistema de
+  // Abas, F19), mesmo escondida -- sem essa guarda, esse relogio re-
+  // renderizaria o Dashboard inteiro (com todos os graficos) uma vez
+  // por segundo pra sempre em segundo plano, mesmo com o usuario em
+  // outra aba, roubando desempenho da tela inteira o tempo todo. So
+  // conta o tempo enquanto a aba do Dashboard estiver realmente visivel.
   useEffect(() => {
+    if (!isTabActive) return;
+    setCurrentDate(new Date());
     const timer = setInterval(() => setCurrentDate(new Date()), 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isTabActive]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -792,7 +799,7 @@ const Dashboard: React.FC = () => {
               userSelect: hideData && hasFinancialAccess ? 'none' : 'auto'
             }}
           >
-            <ResponsiveContainer key={chartKey} width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={performanceData} margin={{ top: 18, right: 18, left: 4, bottom: 0 }}>
                 <defs>
                   <linearGradient id="dashboardCyanArea" x1="0" y1="0" x2="0" y2="1">
@@ -916,7 +923,7 @@ const Dashboard: React.FC = () => {
               </div>
               <p>{card.meta}</p>
               <div className="dashboard-mini-chart">
-                <ResponsiveContainer key={chartKey} width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={performanceData.slice(-8)} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
                     {card.chartType === 'bar' ? (
                       <Bar dataKey={card.dataKey} fill="currentColor" radius={[5, 5, 0, 0]} maxBarSize={10} />
@@ -1063,7 +1070,7 @@ const Dashboard: React.FC = () => {
                 userSelect: hideData ? 'none' : 'auto'
               }}
             >
-              <ResponsiveContainer key={chartKey} width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={cashFlowData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }} barGap={8}>
                   <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
                   <XAxis dataKey="name" stroke="#7f8aa4" tick={{ fill: '#7f8aa4', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -1095,7 +1102,7 @@ const Dashboard: React.FC = () => {
           <div className="chart-wrapper pie-wrapper">
             {osStatusData.length > 0 ? (
               <>
-                <ResponsiveContainer key={chartKey} width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={osStatusData} innerRadius={58} outerRadius={88} paddingAngle={5} dataKey="value" stroke="none">
                       {osStatusData.map((entry) => (
@@ -1134,7 +1141,7 @@ const Dashboard: React.FC = () => {
             <div className="chart-wrapper pie-wrapper">
               {paymentData.length > 0 ? (
                 <>
-                  <ResponsiveContainer key={chartKey} width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={paymentData} innerRadius={58} outerRadius={88} paddingAngle={4} dataKey="value" stroke="none">
                         {paymentData.map((entry) => (

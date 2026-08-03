@@ -115,8 +115,15 @@ const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActi
  * desmonta e limpa as escutas do Firestore daquela tela; trocar de aba
  * so esconde via CSS). Sistema de Abas (F19), fase B -- todas as abas
  * compartilham o unico Router do App (ver TabPaneContent acima).
+ *
+ * React.memo: ao trocar de aba, so as DUAS abas envolvidas (a que sai e
+ * a que entra) realmente mudam de prop (isActive); sem isso, toda troca
+ * forcava TODAS as abas abertas a re-renderizar (o React sempre invoca
+ * de novo os filhos de um componente que re-renderizou, mesmo que as
+ * props deles nao tenham mudado), custando mais desempenho quanto mais
+ * abas o usuario tiver aberto ao mesmo tempo.
  */
-const TabPane: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActive }) => (
+const TabPane: React.FC<{ tab: Tab; isActive: boolean }> = React.memo(({ tab, isActive }) => (
   <div style={{ display: isActive ? 'contents' : 'none' }}>
     {/* ErrorBoundary proprio por aba: uma tela quebrando em segundo plano
         nao pode derrubar as outras abas -- so o ErrorBoundary de App.tsx
@@ -130,7 +137,7 @@ const TabPane: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActive }) =
       </Suspense>
     </ErrorBoundary>
   </div>
-);
+));
 
 /** Renderiza uma TabPane por aba aberta -- todas ficam montadas o tempo todo. */
 export const TabPanesArea: React.FC = () => {

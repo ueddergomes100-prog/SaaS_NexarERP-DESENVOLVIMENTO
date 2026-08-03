@@ -9,7 +9,6 @@ import Swal from 'sweetalert2';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { moduleLabelMap } from '../../utils/moduleCatalog';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
-import { useChartRemountKey } from '../../hooks/useChartRemountKey';
 
 interface TenantInfo {
   id: string;
@@ -37,7 +36,6 @@ const normalizeDeleteConfirmation = (value: string) => value.trim().replace(/\s+
 const SuperAdmin: React.FC = () => {
   const { userRole, currentUser } = useAuth();
   const navigate = useNavigate();
-  const chartKey = useChartRemountKey();
   const [tenants, setTenants] = useState<TenantInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -491,7 +489,7 @@ const SuperAdmin: React.FC = () => {
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)' }}>
           <h3 style={{ fontSize: '18px', marginBottom: '24px', fontWeight: 600 }}>Crescimento do MRR (6 Meses)</h3>
           <div style={{ height: '360px' }}>
-            <ResponsiveContainer key={chartKey} width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={mrrData}>
                 <defs>
                   <linearGradient id="colorMrr" x1="0" y1="0" x2="0" y2="1">
@@ -516,7 +514,7 @@ const SuperAdmin: React.FC = () => {
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)' }}>
           <h3 style={{ fontSize: '18px', marginBottom: '24px', fontWeight: 600 }}>Distribuição de Planos</h3>
           <div style={{ height: '300px' }}>
-            <ResponsiveContainer key={chartKey} width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={planData}
@@ -544,7 +542,7 @@ const SuperAdmin: React.FC = () => {
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)' }}>
           <h3 style={{ fontSize: '18px', marginBottom: '24px', fontWeight: 600 }}>Receita por Plano</h3>
           <div style={{ height: '280px' }}>
-            <ResponsiveContainer key={chartKey} width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%">
               <BarChart data={planRevenueData} margin={{ top: 20, right: 24, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
                 <XAxis dataKey="name" stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} />
@@ -563,7 +561,7 @@ const SuperAdmin: React.FC = () => {
           <h3 style={{ fontSize: '18px', marginBottom: '24px', fontWeight: 600 }}>Módulos mais Bloqueados</h3>
           <div style={{ height: '280px' }}>
             {moduleBlockData.length > 0 ? (
-              <ResponsiveContainer key={chartKey} width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={moduleBlockData} layout="vertical" margin={{ top: 8, right: 24, left: 96, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" horizontal={false} />
                   <XAxis type="number" stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} allowDecimals={false} />
@@ -583,7 +581,7 @@ const SuperAdmin: React.FC = () => {
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)' }}>
           <h3 style={{ fontSize: '18px', marginBottom: '24px', fontWeight: 600 }}>Status da Carteira</h3>
           <div style={{ height: '300px' }}>
-            <ResponsiveContainer key={chartKey} width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={statusData}

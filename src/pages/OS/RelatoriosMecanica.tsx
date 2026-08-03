@@ -13,14 +13,12 @@ import ChartWrapper from '../../components/Reports/ChartWrapper';
 import ReportFilter from '../../components/Reports/ReportFilter';
 import { format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, isWithinInterval, parseISO } from 'date-fns';
 import { getServiceTotal } from '../../utils/osServicePricing';
-import { useChartRemountKey } from '../../hooks/useChartRemountKey';
 
 const COLORS = ['#8b5cf6', '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4'];
 
 const RelatoriosMecanica: React.FC = () => {
   console.log('RelatoriosMecanica mounting...');
   const { tenantId } = useAuth();
-  const chartKey = useChartRemountKey();
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('mes');
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
@@ -255,7 +253,7 @@ const RelatoriosMecanica: React.FC = () => {
       {/* Charts Section */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px' }}>
         <ChartWrapper title="Volume de OS por Dia" icon={Activity} flex={2}>
-          <ResponsiveContainer key={chartKey} width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={stats.timeline}>
               <defs>
                 <linearGradient id="colorOS" x1="0" y1="0" x2="0" y2="1">
@@ -276,7 +274,7 @@ const RelatoriosMecanica: React.FC = () => {
         </ChartWrapper>
 
         <ChartWrapper title="Serviços vs Peças (R$)" icon={Package} height={300} flex={1}>
-          <ResponsiveContainer key={chartKey} width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
                 data={stats.servicosVsPecas}

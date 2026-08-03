@@ -14,7 +14,17 @@ interface ItemConsumido {
   materiaPrimaId: string;
   materiaPrimaNome: string;
   unidade: string;
+  quantidadeNecessaria: number;
+  perdaExtra: number;
   quantidadeConsumida: number;
+}
+
+interface ItemComposicaoPreview {
+  materiaPrimaId: string;
+  materiaPrimaNome: string;
+  unidade: string;
+  quantidadePorUnidade: number;
+  perdaExtra: string;
 }
 
 interface OrdemData {
@@ -70,6 +80,14 @@ const OrdemProducaoForm: React.FC = () => {
   const [produtosDisponiveis, setProdutosDisponiveis] = useState<OpcaoSimples[]>([]);
   const [usuariosDisponiveis, setUsuariosDisponiveis] = useState<OpcaoSimples[]>([]);
   const [ordem, setOrdem] = useState<OrdemData | null>(null);
+
+  // Conferencia antes de finalizar (perdas/producao parcial): abre com a
+  // composicao carregada, deixa revisar a quantidade produzida e lancar
+  // perda extra por materia-prima antes de aplicar o debito de verdade.
+  const [isLoadingRevisao, setIsLoadingRevisao] = useState(false);
+  const [showRevisaoFinalizacao, setShowRevisaoFinalizacao] = useState(false);
+  const [quantidadeProduzidaInput, setQuantidadeProduzidaInput] = useState('');
+  const [composicaoPreview, setComposicaoPreview] = useState<ItemComposicaoPreview[]>([]);
 
   const [formData, setFormData] = useState({
     produtoId: '',
@@ -268,20 +286,11 @@ const OrdemProducaoForm: React.FC = () => {
     }
   };
 
-  const handleFinalizar = async () => {
-    if (!id || !tenantId || !currentUser || !ordem) return;
-
-    const confirm = await NexusSwal.fire({
-      title: 'Finalizar produção?',
-      text: `Isso vai debitar as matérias-primas da composição de "${ordem.produtoNome}" e creditar ${ordem.quantidadePlanejada} unidade(s) no estoque.`,
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonText: 'Sim, finalizar',
-      cancelButtonText: 'Voltar',
-    });
-    if (!confirm.isConfirmed) return;
-
-    setIsProcessing(true);
+  // Passo 1: carrega a composicao atual do produto e abre a tela de
+  // conferencia -- nada e gravado ainda aqui.
+  const handleAbrirRevisaoFinalizacao = async () => {
+    if (!ordem) return;
+    setIsLoadingRevisao(true);
     try {
       const composicaoSnap = await getDoc(doc(db, 'produtos_composicao', ordem.produtoId));
       const itensComposicao = composicaoSnap.exists() && Array.isArray(composicaoSnap.data().itens) ? composicaoSnap.data().itens : [];
@@ -290,50 +299,90 @@ const OrdemProducaoForm: React.FC = () => {
         return;
       }
 
+      setComposicaoPreview(itensComposicao.map((item: any) => ({
+        materiaPrimaId: item.materiaPrimaId,
+        materiaPrimaNome: item.materiaPrimaNome,
+        unidade: item.unidade,
+        quantidadePorUnidade: Number(item.quantidade || 0),
+        perdaExtra: '0',
+      })));
+      setQuantidadeProduzidaInput(String(ordem.quantidadePlanejada));
+      setShowRevisaoFinalizacao(true);
+    } catch (error) {
+      console.error('Erro ao carregar composição:', error);
+      showError('Erro ao carregar', 'Não foi possível carregar a composição deste produto.');
+    } finally {
+      setIsLoadingRevisao(false);
+    }
+  };
+
+  const handleAlterarPerdaExtra = (materiaPrimaId: string, valor: string) => {
+    setComposicaoPreview(prev => prev.map(item => (
+      item.materiaPrimaId === materiaPrimaId ? { ...item, perdaExtra: valor } : item
+    )));
+  };
+
+  // Passo 2: aplica o debito de verdade, com a quantidade produzida (nao
+  // a planejada) e a perda extra revisadas na tela de conferencia.
+  const handleConfirmarFinalizacao = async () => {
+    if (!id || !tenantId || !currentUser || !ordem) return;
+
+    const quantidadeProduzida = Number(quantidadeProduzidaInput);
+    if (!Number.isFinite(quantidadeProduzida) || quantidadeProduzida <= 0) {
+      showError('Quantidade inválida', 'Informe a quantidade produzida (maior que zero).');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
       let itensConsumidosFinal: ItemConsumido[] = [];
 
       await runTransaction(db, async (transaction) => {
         const ordemRef = doc(db, 'ordens_producao', id);
-        const materiaPrimaRefs = itensComposicao.map((item: any) => doc(db, 'materias_primas', item.materiaPrimaId));
-        const materiaPrimaSnaps = await Promise.all(materiaPrimaRefs.map((ref: ReturnType<typeof doc>) => transaction.get(ref)));
+        const materiaPrimaRefs = composicaoPreview.map(item => doc(db, 'materias_primas', item.materiaPrimaId));
+        const materiaPrimaSnaps = await Promise.all(materiaPrimaRefs.map((ref) => transaction.get(ref)));
         const produtoRef = doc(db, 'estoque', ordem.produtoId);
         const produtoSnap = await transaction.get(produtoRef);
 
         const itensConsumidos: ItemConsumido[] = [];
-        for (let i = 0; i < itensComposicao.length; i++) {
-          const itemComposicao = itensComposicao[i];
+        for (let i = 0; i < composicaoPreview.length; i++) {
+          const itemPreview = composicaoPreview[i];
           const snap = materiaPrimaSnaps[i];
           if (!snap.exists()) {
-            throw new Error(`Matéria-prima "${itemComposicao.materiaPrimaNome}" não foi encontrada (pode ter sido excluída).`);
+            throw new Error(`Matéria-prima "${itemPreview.materiaPrimaNome}" não foi encontrada (pode ter sido excluída).`);
           }
-          const quantidadeNecessaria = Number(itemComposicao.quantidade || 0) * ordem.quantidadePlanejada;
+          const quantidadeNecessaria = itemPreview.quantidadePorUnidade * quantidadeProduzida;
+          const perdaExtra = Number(itemPreview.perdaExtra) || 0;
+          const quantidadeConsumida = quantidadeNecessaria + Math.max(0, perdaExtra);
           const quantidadeAtual = Number(snap.data().quantidade || 0);
-          if (quantidadeAtual < quantidadeNecessaria) {
-            throw new Error(`Estoque insuficiente de "${itemComposicao.materiaPrimaNome}". Necessário: ${quantidadeNecessaria} ${itemComposicao.unidade}, disponível: ${quantidadeAtual} ${itemComposicao.unidade}.`);
+          if (quantidadeAtual < quantidadeConsumida) {
+            throw new Error(`Estoque insuficiente de "${itemPreview.materiaPrimaNome}". Necessário: ${quantidadeConsumida} ${itemPreview.unidade}, disponível: ${quantidadeAtual} ${itemPreview.unidade}.`);
           }
           transaction.update(materiaPrimaRefs[i], {
-            quantidade: quantidadeAtual - quantidadeNecessaria,
+            quantidade: quantidadeAtual - quantidadeConsumida,
             updatedAt: serverTimestamp(),
           });
           itensConsumidos.push({
-            materiaPrimaId: itemComposicao.materiaPrimaId,
-            materiaPrimaNome: itemComposicao.materiaPrimaNome,
-            unidade: itemComposicao.unidade,
-            quantidadeConsumida: quantidadeNecessaria,
+            materiaPrimaId: itemPreview.materiaPrimaId,
+            materiaPrimaNome: itemPreview.materiaPrimaNome,
+            unidade: itemPreview.unidade,
+            quantidadeNecessaria,
+            perdaExtra: Math.max(0, perdaExtra),
+            quantidadeConsumida,
           });
         }
 
         if (produtoSnap.exists()) {
           const quantidadeProdutoAtual = Number(produtoSnap.data().quantidade || 0);
           transaction.update(produtoRef, {
-            quantidade: quantidadeProdutoAtual + ordem.quantidadePlanejada,
+            quantidade: quantidadeProdutoAtual + quantidadeProduzida,
             updatedAt: serverTimestamp(),
           });
         }
 
         transaction.update(ordemRef, {
           status: 'finalizada',
-          quantidadeProduzida: ordem.quantidadePlanejada,
+          quantidadeProduzida,
           itensConsumidos,
           dataFim: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Ordem finalizada'),
@@ -345,9 +394,10 @@ const OrdemProducaoForm: React.FC = () => {
       setOrdem(prev => prev ? {
         ...prev,
         status: 'finalizada',
-        quantidadeProduzida: prev.quantidadePlanejada,
+        quantidadeProduzida,
         itensConsumidos: itensConsumidosFinal,
       } : prev);
+      setShowRevisaoFinalizacao(false);
       showSuccess('Produção finalizada! Matéria-prima debitada e estoque do produto atualizado.');
     } catch (error) {
       console.error('Erro ao finalizar produção:', error);
@@ -406,8 +456,8 @@ const OrdemProducaoForm: React.FC = () => {
                     <button type="button" className="btn-secondary" disabled={isProcessing} onClick={handlePausar} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <Pause size={16} /> Pausar
                     </button>
-                    <button type="button" className="btn-primary" disabled={isProcessing} onClick={handleFinalizar} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981', borderColor: '#10b981' }}>
-                      <CheckCircle2 size={16} /> Finalizar Produção
+                    <button type="button" className="btn-primary" disabled={isProcessing || isLoadingRevisao} onClick={handleAbrirRevisaoFinalizacao} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981', borderColor: '#10b981' }}>
+                      {isLoadingRevisao ? <Loader2 size={16} className="spin-icon" /> : <CheckCircle2 size={16} />} Finalizar Produção
                     </button>
                   </>
                 )}
@@ -463,18 +513,96 @@ const OrdemProducaoForm: React.FC = () => {
                     <thead>
                       <tr>
                         <th>Matéria-Prima</th>
-                        <th>Quantidade consumida</th>
+                        <th>Necessário (receita)</th>
+                        <th>Perda extra</th>
+                        <th>Total consumido</th>
                       </tr>
                     </thead>
                     <tbody>
                       {ordem.itensConsumidos.map(item => (
                         <tr key={item.materiaPrimaId}>
                           <td>{item.materiaPrimaNome}</td>
-                          <td>{item.quantidadeConsumida} {item.unidade}</td>
+                          <td>{item.quantidadeNecessaria} {item.unidade}</td>
+                          <td>{item.perdaExtra > 0 ? `${item.perdaExtra} ${item.unidade}` : '-'}</td>
+                          <td><strong>{item.quantidadeConsumida} {item.unidade}</strong></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            )}
+
+            {showRevisaoFinalizacao && (
+              <div style={{ padding: '20px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--accent-purple)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Package size={18} color="var(--accent-purple)" />
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>Conferência antes de finalizar</h3>
+                </div>
+                <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
+                  Confira a quantidade produzida e a matéria-prima que será debitada. Se houve refugo/desperdício além do previsto na receita, informe a perda extra por item.
+                </p>
+
+                <div className="input-group" style={{ maxWidth: '260px' }}>
+                  <label>Quantidade Produzida (boas)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={quantidadeProduzidaInput}
+                    onChange={(e) => setQuantidadeProduzidaInput(e.target.value)}
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div className="table-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Matéria-Prima</th>
+                        <th>Necessário (receita × produzido)</th>
+                        <th>Perda extra</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {composicaoPreview.map(item => {
+                        const quantidadeProduzidaNum = Number(quantidadeProduzidaInput) || 0;
+                        const necessario = item.quantidadePorUnidade * quantidadeProduzidaNum;
+                        return (
+                          <tr key={item.materiaPrimaId}>
+                            <td>{item.materiaPrimaNome}</td>
+                            <td>{necessario} {item.unidade}</td>
+                            <td style={{ maxWidth: '140px' }}>
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={item.perdaExtra}
+                                onChange={(e) => handleAlterarPerdaExtra(item.materiaPrimaId, e.target.value)}
+                                style={{ ...inputStyle, padding: '8px 12px' }}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                  <button type="button" className="btn-secondary" disabled={isProcessing} onClick={() => setShowRevisaoFinalizacao(false)}>
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={isProcessing}
+                    onClick={handleConfirmarFinalizacao}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981', borderColor: '#10b981', opacity: isProcessing ? 0.7 : 1 }}
+                  >
+                    {isProcessing ? <Loader2 size={16} className="spin-icon" /> : <CheckCircle2 size={16} />}
+                    {isProcessing ? 'Finalizando...' : 'Confirmar Finalização'}
+                  </button>
                 </div>
               </div>
             )}

@@ -632,6 +632,19 @@ Typecheck, lint (0 erros, mesmos 66 warnings pré-existentes) e build passando. 
 **Fase restante:**
 - **Fase C:** título dinâmico por aba (nome do registro, não só o nome da tela), aviso ao fechar aba com alterações não salvas (Pedido/OS/Orçamento).
 
+### F20 — Trilha de ícones do menu compacto vira atalho direto por tela (feature, 2026-08-02)
+
+**Não estava no prompt original.** Pedido direto do usuário, a partir de uma captura de tela do menu recolhido (`Sidebar.tsx`).
+
+**Antes:** a trilha fina de ícones (`nexus-sidebar-rail`) ficava **sempre visível**, mesmo com o menu completo aberto ao lado dela — um ícone por *grupo* de menu (Principal, Comercial, Cadastros...), e clicar nele só expandia/recolhia esse grupo no painel largo, redundante com o próprio painel.
+
+**Depois (commit `9a44a6b`):**
+- A trilha só renderiza quando o menu está no **modo compacto** (`miniSidebar`); com o menu completo, ela desaparece — só o painel largo com os grupos fica visível.
+- Os 9 ícones deixaram de representar grupos e viraram **atalhos diretos pra telas específicas**, na ordem pedida pelo usuário: Dashboard, Pedido de Venda, Ordem de Serviço, Estoque, Contas a Receber, Entrada de Notas, Agendamento, Relatórios Diversos, Configuração Geral. Clicar navega direto (reaproveita `navigateTo`/`openTab`, o mesmo mecanismo do resto do menu), em vez de tentar abrir um submenu que nem apareceria com o menu recolhido. Cada atalho respeita módulo/permissão do item real via `canAccess`, igual ao resto do menu.
+- **Efeito colateral que precisou de correção:** o botão de recolher/expandir menu vivia dentro da trilha — como ela some no modo completo, ficaria impossível voltar pro modo compacto. Adicionado um botão de recolher próprio no cabeçalho do painel largo, visível só quando o menu está completo.
+
+Typecheck, lint, build e suíte de 66 testes passando. **Falta validação manual** (mesma limitação de sempre).
+
 ### Módulo 6 — fatia Entrada de XML (priorizada em 2026-08-02 a pedido do usuário)
 
 **Pedido do usuário:** dar prioridade à tela de Entrada de Nota Fiscal por XML, integrada de verdade com Contas a Pagar, Estoque, com popup automático de cadastro de fornecedor quando ele não existir, e uma tela própria de "Cadastro de Fornecedores". Depois de validado, seguir para o Módulo 4 (Produção).
@@ -723,6 +736,8 @@ Ordem obrigatória: **13 → 12 → 4 → 16**. Cada um depende do anterior.
 
 **Fatia 0/N concluída em 2026-08-02 — Cadastro de Matéria-Prima** (commit `6673e26`): nova coleção `materias_primas`; `MateriasPrimasList.tsx` + `MateriaPrimaForm.tsx` em [`src/pages/Producao/`](../src/pages/Producao/) no mesmo padrão de Estoque (código, nome, categoria, unidade, quantidade, estoque mínimo, custo, fornecedor) — **simplificação deliberada:** unidade de medida é campo de texto livre, não ligada ao cadastro de Unidades de Medida (evita replicar a lógica de `unidadeMedidaId`/fracionado do `EstoqueForm.tsx`, fora de escopo pra essa fatia); fornecedor também é texto livre (não linkado a `fornecedorId`, diferente do que foi feito na Entrada de XML). Nova permissão `cadastros.materia_prima`, não pendurada em `cadastros.estoque` (seguindo a orientação já registrada na Seção do Módulo 12). Regra implantada em `sistema-nexus-dev` no mesmo dia. Typecheck/lint/build/66 testes passando. **Falta validação manual** (mesma limitação de sempre).
 
+**Fatia 1/N concluída em 2026-08-02 — Composição de produto** (commit `b6ec2e7`): nova aba "Composição (Produção)" em [`EstoqueForm.tsx`](../src/pages/Estoque/EstoqueForm.tsx), visível só no modo Avançado e só depois do produto já salvo (precisa do `id`). Lista as matérias-primas cadastradas e monta a receita: quais matérias-primas e em que quantidade são consumidas pra produzir 1 unidade do produto acabado. Guardado num documento próprio por produto em `produtos_composicao/{produtoId}` — coleção **já liberada nas `firestore.rules` desde o F5/F6** sob a permissão `cadastros.estoque`, não precisou de deploy de regra nova. Salvamento independente do formulário principal do produto (botão "Salvar Composição" próprio, `setDoc(merge:true)`) — deliberado, pra não inchar ainda mais o `handleSave` já grande do produto. Typecheck/lint/build/66 testes passando. **Falta validação manual.**
+
 ### Módulo 16 — Dashboard integrado
 
 **Bloqueado** por 4 e 12. Integrar produção, perdas, conferência, pedidos, notas e financeiro no dashboard existente. O prompt é explícito: **nunca criar dashboard separado** — estender [`Dashboard.tsx`](../src/pages/Dashboard/Dashboard.tsx), que já respeita os períodos Hoje/Semana/Mês e o tema claro/escuro.
@@ -792,6 +807,7 @@ Atualizar ao concluir cada item.
 | M5 Flags fiscais | 1 | 🟨 Código pronto — falta validação manual | 2026-07-28 |
 | M1 Navegação por teclado | 2 | 🟨 Código pronto (PDV + Pedido + OS + Cadastros) — falta validação manual | 2026-07-31 |
 | M19 Numeração | 2 | ✅ Concluído — sem código novo, nada implementável hoje (ver seção do módulo) | 2026-07-31 |
+| F20 Trilha do menu compacto vira atalho | 2 | 🟨 Código pronto — falta validação manual | 2026-08-02 |
 | M20 Responsabilidade | 2 | 🟨 Código 100% pronto (5/5 fatias) — falta validação manual | 2026-07-31 |
 | M6 fatia Entrada de XML (Fornecedores + Contas a Pagar + Estoque) | 2 | 🟨 Código pronto — falta validação manual (priorizada fora de ordem a pedido do usuário) | 2026-08-02 |
 | M18 Cancelamentos (auditoria) | 2 | ⬜ Pendente — adiado, depois de M4 | |
@@ -800,7 +816,8 @@ Atualizar ao concluir cada item.
 | M13 Reserva de estoque | 3 | ⬜ Pendente | |
 | M12 Conferência de mercadoria | 3 | ⬜ Pendente | |
 | M4 Produção — fatia 0/N Matéria-Prima | 3 | 🟨 Código pronto, regra implantada — falta validação manual | 2026-08-02 |
-| M4 Produção — fatias restantes (composição, ordem, consumo, perdas, relatórios) | 3 | ⬜ Pendente | |
+| M4 Produção — fatia 1/N Composição de produto | 3 | 🟨 Código pronto (regra já existia) — falta validação manual | 2026-08-02 |
+| M4 Produção — fatias restantes (ordem de produção, consumo, perdas, relatórios) | 3 | ⬜ Pendente | |
 | M16 Dashboard integrado | 3 | ⬜ Pendente | |
 | M7 Novo fluxo de vendas | 4 | 🔒 Travado — aguarda decisão | |
 | M8 Nota com valor diferente | 4 | 🔒 Travado — aguarda contador | |

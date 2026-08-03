@@ -645,6 +645,8 @@ Typecheck, lint (0 erros, mesmos 66 warnings pré-existentes) e build passando. 
 
 Typecheck, lint, build e suíte de 66 testes passando. **Falta validação manual** (mesma limitação de sempre).
 
+**Complemento em 2026-08-02 (commit `78913a8`):** removido o switch "Menu Compacto" que existia na `TopBar.tsx` — um controle duplicado e praticamente morto: só ficava habilitado depois que o usuário usasse o toggle do próprio `Sidebar.tsx` pelo menos uma vez (dependia de um flag `nexus_sidebar_expand_all` gravado só ali, sem nenhum jeito visível de ligá-lo por conta própria). Removidos junto: os estados `expandAll`/`miniSidebar` e o handler que só existiam pra esse switch em `TopBar.tsx`, o `dispatchEvent('sidebar-state-change')` órfão em `Sidebar.tsx` (a `TopBar` era a única ouvinte) e a regra CSS órfã `.menu-compacto-toggle`. O menu compacto continua controlável pelos dois botões que já vivem no próprio Sidebar (trilha, quando recolhido; botão no cabeçalho do painel largo, quando expandido).
+
 ### Módulo 6 — fatia Entrada de XML (priorizada em 2026-08-02 a pedido do usuário)
 
 **Pedido do usuário:** dar prioridade à tela de Entrada de Nota Fiscal por XML, integrada de verdade com Contas a Pagar, Estoque, com popup automático de cadastro de fornecedor quando ele não existir, e uma tela própria de "Cadastro de Fornecedores". Depois de validado, seguir para o Módulo 4 (Produção).

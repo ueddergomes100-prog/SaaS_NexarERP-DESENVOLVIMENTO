@@ -345,9 +345,7 @@ const Sidebar: React.FC = () => {
     const nextValue = !miniSidebar;
     setMiniSidebar(nextValue);
     localStorage.setItem('nexus_mini_sidebar', String(nextValue));
-    localStorage.setItem('nexus_sidebar_expand_all', 'true');
     document.body.classList.toggle('mini-sidebar', nextValue);
-    window.dispatchEvent(new Event('sidebar-state-change'));
   };
 
   useEffect(() => {

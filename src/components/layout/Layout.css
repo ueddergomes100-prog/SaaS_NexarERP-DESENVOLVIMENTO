@@ -1237,9 +1237,6 @@ body.mini-sidebar .logout-btn {
   .topbar-actions {
     gap: 12px;
   }
-  .menu-compacto-toggle {
-    display: none !important;
-  }
   .profile-menu span {
     display: none;
   }

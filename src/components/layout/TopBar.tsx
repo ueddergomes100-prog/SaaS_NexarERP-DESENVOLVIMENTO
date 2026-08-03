@@ -29,8 +29,6 @@ const TopBar: React.FC = () => {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  const [expandAll, setExpandAll] = useState(() => localStorage.getItem('nexus_sidebar_expand_all') === 'true');
-  const [miniSidebar, setMiniSidebar] = useState(() => localStorage.getItem('nexus_mini_sidebar') === 'true');
   const [theme, setTheme] = useState(() => localStorage.getItem('nexus_theme') || 'dark');
 
   useEffect(() => {
@@ -44,39 +42,6 @@ const TopBar: React.FC = () => {
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-  };
-
-  useEffect(() => {
-    const updateState = () => {
-      setExpandAll(localStorage.getItem('nexus_sidebar_expand_all') === 'true');
-      setMiniSidebar(localStorage.getItem('nexus_mini_sidebar') === 'true');
-    };
-    window.addEventListener('sidebar-state-change', updateState);
-    return () => window.removeEventListener('sidebar-state-change', updateState);
-  }, []);
-
-  useEffect(() => {
-    if (miniSidebar && expandAll) {
-      document.body.classList.add('mini-sidebar');
-    } else if (!expandAll && miniSidebar) {
-      setMiniSidebar(false);
-      localStorage.setItem('nexus_mini_sidebar', 'false');
-      document.body.classList.remove('mini-sidebar');
-    } else if (!miniSidebar) {
-      document.body.classList.remove('mini-sidebar');
-    }
-  }, [miniSidebar, expandAll]);
-
-  const handleMiniSidebarToggle = () => {
-    if (!expandAll) return;
-    const newVal = !miniSidebar;
-    setMiniSidebar(newVal);
-    localStorage.setItem('nexus_mini_sidebar', String(newVal));
-    if (newVal) {
-      document.body.classList.add('mini-sidebar');
-    } else {
-      document.body.classList.remove('mini-sidebar');
-    }
   };
 
   useEffect(() => {
@@ -450,37 +415,7 @@ const TopBar: React.FC = () => {
           </div>
         )}
 
-        {/* Toggle Menu Compacto */}
-        <div className="menu-compacto-toggle" style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: expandAll ? 1 : 0.5, marginRight: '8px' }} title={!expandAll ? "Ative 'Expandir todos os blocos' no menu lateral primeiro" : "Recolher menu lateral"}>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Menu Compacto</span>
-          <div 
-            onClick={handleMiniSidebarToggle}
-            style={{ 
-              position: 'relative', 
-              width: '32px', 
-              height: '18px', 
-              backgroundColor: miniSidebar && expandAll ? 'var(--accent-purple)' : 'var(--bg-tertiary)', 
-              borderRadius: '10px', 
-              transition: 'background-color 0.3s',
-              cursor: expandAll ? 'pointer' : 'not-allowed',
-              border: '1px solid var(--border-color)'
-            }}
-          >
-            <div style={{ 
-              position: 'absolute', 
-              top: '0px', 
-              left: miniSidebar && expandAll ? '14px' : '0px', 
-              width: '16px', 
-              height: '16px', 
-              backgroundColor: 'var(--text-primary)',
-              borderRadius: '50%', 
-              transition: 'left 0.3s',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
-            }} />
-          </div>
-        </div>
-
-        <button 
+        <button
           className="action-btn theme-toggle-btn" 
           onClick={toggleTheme}
           title={theme === 'dark' ? "Mudar para tema claro" : "Mudar para tema escuro"}

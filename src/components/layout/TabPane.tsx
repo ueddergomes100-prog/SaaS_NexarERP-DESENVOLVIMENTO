@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { useLocation, useNavigate, useRoutes } from 'react-router-dom';
 import { ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -53,10 +53,23 @@ const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActi
   const hasFullAccess = hasTenantFullAccess(userRole, isOwner);
   const isRouteAllowed = !routePermission || hasFullAccess || userPermissions?.includes(routePermission);
 
+  // O CSS reinicia a animacao de fade-in do .page-transition toda vez
+  // que o display volta de "none" pra "contents" -- ou seja, toda vez
+  // que o usuario troca de volta pra essa aba, nao so no primeiro
+  // carregamento. Isso pisca a tela inteira a cada troca de aba. Depois
+  // do fade-in de entrada tocar uma vez (400ms de folga), a classe
+  // "settled" zera a animacao, entao trocas de aba seguintes nao
+  // reiniciam mais nada.
+  const [hasSettled, setHasSettled] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setHasSettled(true), 400);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <TabActiveContext.Provider value={isActive}>
       <main className="page-content">
-        <div className="page-transition">
+        <div className={hasSettled ? 'page-transition page-transition--settled' : 'page-transition'}>
           {isModuleBlocked || !isRouteAllowed ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px', color: 'var(--text-primary)', textAlign: 'center', padding: '24px' }}>
               <div style={{ padding: '16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: '50%', color: '#ef4444' }}>

@@ -136,6 +136,15 @@ button {
   height: 100%;
 }
 
+/* Sistema de Abas (F19): abas escondidas usam display:none, e o
+   navegador reinicia animacoes CSS toda vez que um elemento volta de
+   display:none pra visivel -- sem isso, o fade-in de entrada tocaria de
+   novo a cada troca de aba, nao so na primeira vez. Aplicada depois que
+   o fade-in inicial ja tocou (ver TabPane.tsx). */
+.page-transition--settled {
+  animation: none;
+}
+
 /* Global Premium Form Input Styles */
 .input-group {
   display: flex;

@@ -10,6 +10,7 @@ import StatCard from '../../components/Reports/StatCard';
 import ChartWrapper from '../../components/Reports/ChartWrapper';
 import ReportFilter from '../../components/Reports/ReportFilter';
 import { format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, isWithinInterval, parseISO } from 'date-fns';
+import { useChartRemountKey } from '../../hooks/useChartRemountKey';
 
 const COLORS = ['#8b5cf6', '#10b981', '#3b82f6', '#f59e0b', '#ef4444'];
 
@@ -44,6 +45,7 @@ interface OrdemProducaoData {
 
 const RelatorioProducao: React.FC = () => {
   const { tenantId } = useAuth();
+  const chartKey = useChartRemountKey();
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('mes');
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
@@ -235,7 +237,7 @@ const RelatorioProducao: React.FC = () => {
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px' }}>
         <ChartWrapper title="Ordens de Produção por Dia" icon={Activity} flex={2}>
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer key={chartKey} width="100%" height="100%">
             <AreaChart data={stats.timeline}>
               <defs>
                 <linearGradient id="colorOrdens" x1="0" y1="0" x2="0" y2="1">
@@ -256,7 +258,7 @@ const RelatorioProducao: React.FC = () => {
         </ChartWrapper>
 
         <ChartWrapper title="Ordens por Status" icon={Factory} height={300} flex={1}>
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer key={chartKey} width="100%" height="100%">
             <PieChart>
               <Pie
                 data={stats.porStatus}

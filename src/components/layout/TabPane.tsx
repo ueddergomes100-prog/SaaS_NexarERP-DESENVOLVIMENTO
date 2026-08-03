@@ -96,8 +96,23 @@ const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActi
  * desmonta e limpa as escutas do Firestore daquela tela; trocar de aba
  * so esconde via CSS). Sistema de Abas (F19), fase B -- todas as abas
  * compartilham o unico Router do App (ver TabPaneContent acima).
+ *
+ * React.memo: ao trocar de aba, so as DUAS abas envolvidas (a que sai e
+ * a que entra) realmente mudam de prop (isActive); sem isso, toda troca
+ * forcava TODAS as abas abertas a re-renderizar (o React sempre invoca
+ * de novo os filhos de um componente que re-renderizou, mesmo que as
+ * props deles nao tenham mudado), custando mais desempenho quanto mais
+ * abas o usuario tiver aberto ao mesmo tempo. Validado com
+ * PerformanceObserver (commit 09a6b2e); perdido sem querer no revert do
+ * "justActivated" (a4f355e), que reescreveu o arquivo inteiro pro estado
+ * anterior a essa otimizacao -- reposto aqui sozinho, sem a logica que
+ * causou o loop. NAO trocar `display:none` por `visibility:hidden` +
+ * `position:absolute` pra tentar consertar o "flash 0x0" do Recharts:
+ * ja tentado nesta sessao (2026-08-03) e causa um loop CONTINUO de
+ * mount/desmontagem do Dashboard, pior que o problema original -- ver
+ * plano de evolucao, secao F19, pra detalhes do diagnostico.
  */
-const TabPane: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActive }) => (
+const TabPane: React.FC<{ tab: Tab; isActive: boolean }> = React.memo(({ tab, isActive }) => (
   <div style={{ display: isActive ? 'contents' : 'none' }}>
     {/* ErrorBoundary proprio por aba: uma tela quebrando em segundo plano
         nao pode derrubar as outras abas -- so o ErrorBoundary de App.tsx
@@ -111,7 +126,7 @@ const TabPane: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActive }) =
       </Suspense>
     </ErrorBoundary>
   </div>
-);
+));
 
 /** Renderiza uma TabPane por aba aberta -- todas ficam montadas o tempo todo. */
 export const TabPanesArea: React.FC = () => {

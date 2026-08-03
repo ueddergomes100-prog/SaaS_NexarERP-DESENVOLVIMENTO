@@ -738,6 +738,8 @@ Ordem obrigatória: **13 → 12 → 4 → 16**. Cada um depende do anterior.
 
 **Fatia 1/N concluída em 2026-08-02 — Composição de produto** (commit `b6ec2e7`): nova aba "Composição (Produção)" em [`EstoqueForm.tsx`](../src/pages/Estoque/EstoqueForm.tsx), visível só no modo Avançado e só depois do produto já salvo (precisa do `id`). Lista as matérias-primas cadastradas e monta a receita: quais matérias-primas e em que quantidade são consumidas pra produzir 1 unidade do produto acabado. Guardado num documento próprio por produto em `produtos_composicao/{produtoId}` — coleção **já liberada nas `firestore.rules` desde o F5/F6** sob a permissão `cadastros.estoque`, não precisou de deploy de regra nova. Salvamento independente do formulário principal do produto (botão "Salvar Composição" próprio, `setDoc(merge:true)`) — deliberado, pra não inchar ainda mais o `handleSave` já grande do produto. Typecheck/lint/build/66 testes passando. **Falta validação manual.**
 
+**Fatia 2/N concluída em 2026-08-02 — Ordem de Produção + máquina de estados** (commit `d344182`): `OrdensProducaoList.tsx` + `OrdemProducaoForm.tsx` em `src/pages/Producao/`. Máquina de estados: Criada → Em Produção ⇄ Pausada → Finalizada, ou Cancelada a partir de qualquer estado não-final. Criação pede produto (do Estoque), quantidade planejada e responsável (mesmo padrão de `mecanicoId` do `OSForm.tsx`); número sequencial via `reserveTenantSequence`, mesmo padrão de OS/Pedido/Orçamento. **"Finalizar Produção"** lê a composição do produto (fatia anterior) e roda uma `runTransaction`: debita cada matéria-prima (erro claro se saldo insuficiente) e credita a quantidade planejada no produto acabado em `estoque` — sem composição cadastrada, bloqueia a finalização com aviso. **Deliberadamente fora de escopo nesta fatia:** produção parcial e perdas (fatia (d), ainda não implementada) — aqui a ordem sempre produz a quantidade planejada inteira, sem opção de registrar perda/sobra. Nova permissão `operacoes.producao` (já catalogada desde o esqueleto original, só faltava virar permissão de verdade): `ordens_producao` saiu do balaio genérico de `cadastros.estoque` nas `firestore.rules` e ganhou cláusula própria, seguindo a orientação já registrada no plano pra módulos novos — regra implantada em `sistema-nexus-dev` no mesmo dia. Novo grupo "Produção" no menu lateral; removido o item "Produção Interna" do grupo roadmap "Operações" (não é mais mockup). Typecheck/lint/build/66 testes passando. **Falta validação manual.**
+
 ### Módulo 16 — Dashboard integrado
 
 **Bloqueado** por 4 e 12. Integrar produção, perdas, conferência, pedidos, notas e financeiro no dashboard existente. O prompt é explícito: **nunca criar dashboard separado** — estender [`Dashboard.tsx`](../src/pages/Dashboard/Dashboard.tsx), que já respeita os períodos Hoje/Semana/Mês e o tema claro/escuro.
@@ -817,7 +819,8 @@ Atualizar ao concluir cada item.
 | M12 Conferência de mercadoria | 3 | ⬜ Pendente | |
 | M4 Produção — fatia 0/N Matéria-Prima | 3 | 🟨 Código pronto, regra implantada — falta validação manual | 2026-08-02 |
 | M4 Produção — fatia 1/N Composição de produto | 3 | 🟨 Código pronto (regra já existia) — falta validação manual | 2026-08-02 |
-| M4 Produção — fatias restantes (ordem de produção, consumo, perdas, relatórios) | 3 | ⬜ Pendente | |
+| M4 Produção — fatia 2/N Ordem de Produção + máquina de estados | 3 | 🟨 Código pronto, regra implantada — falta validação manual | 2026-08-02 |
+| M4 Produção — fatias restantes (perdas/produção parcial, relatórios) | 3 | ⬜ Pendente | |
 | M16 Dashboard integrado | 3 | ⬜ Pendente | |
 | M7 Novo fluxo de vendas | 4 | 🔒 Travado — aguarda decisão | |
 | M8 Nota com valor diferente | 4 | 🔒 Travado — aguarda contador | |

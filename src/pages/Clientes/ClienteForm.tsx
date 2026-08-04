@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, User, Loader2, MapPin } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, getDoc, getDocs, serverTimestamp, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
@@ -43,10 +43,18 @@ const ClienteForm: React.FC = () => {
             setFormData(prev => ({ ...prev, ...data }));
           }
         } else {
+          // Maior codigo numerico ja usado (nao a contagem de clientes --
+          // contagem quebra a sequencia apos qualquer exclusao, reusando
+          // um codigo ja existente). orderBy no Firestore nao serve aqui
+          // porque 'codigo' e string sem padding fixo (ordenacao lexica,
+          // nao numerica), entao o maximo e calculado no cliente.
           const q = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
-          const snap = await getCountFromServer(q);
-          const nextId = snap.data().count + 1;
-          setFormData(prev => ({ ...prev, codigo: String(nextId) }));
+          const snap = await getDocs(q);
+          const maxCodigo = snap.docs.reduce((max, docSnap) => {
+            const parsed = Number.parseInt(String(docSnap.data().codigo || '').replace(/\D/g, ''), 10);
+            return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
+          }, 0);
+          setFormData(prev => ({ ...prev, codigo: String(maxCodigo + 1) }));
         }
       } catch (error) {
         console.error("Erro ao carregar dados:", error);

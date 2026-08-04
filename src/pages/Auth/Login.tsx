@@ -336,12 +336,15 @@ const Login: React.FC = () => {
             <div style={{
               position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '44px', fontWeight: 'bold', color: 'var(--text-primary)',
-              background: 'linear-gradient(135deg, #a78bfa, #3b82f6)',
-              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-              filter: 'drop-shadow(0 0 10px rgba(139, 92, 246, 0.35))'
             }}>
-              N
+              <img
+                src={hennderIcon}
+                alt="Hennder ERP"
+                style={{
+                  width: '64px', height: '64px', objectFit: 'contain',
+                  filter: 'drop-shadow(0 0 10px rgba(139, 92, 246, 0.35))'
+                }}
+              />
             </div>
           </div>
 

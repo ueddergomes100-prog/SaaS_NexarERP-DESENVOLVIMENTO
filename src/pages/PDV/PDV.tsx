@@ -639,7 +639,7 @@ const PDV: React.FC = () => {
           </button>
           <img src={hennderIcon} alt="Hennder ERP" className="pdv-logo" />
           <span>
-            <small>{selectedTenant?.nomeOficina || 'Nexus Company'}</small>
+            <small>{selectedTenant?.nomeOficina || 'Hennder Company'}</small>
             <strong>Frente de Caixa</strong>
           </span>
         </div>

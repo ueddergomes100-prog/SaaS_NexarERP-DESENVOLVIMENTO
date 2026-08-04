@@ -40,7 +40,7 @@ function getEncryptionKey() {
     console.warn('[Backup] BACKUP_ENCRYPTION_KEY ausente. Usando chave local apenas para desenvolvimento.');
   }
 
-  const effectiveSecret = secret || 'NexusERPLocalDevelopmentKeyOnly2026!';
+  const effectiveSecret = secret || 'HennderERPLocalDevelopmentKeyOnly2026!';
   return crypto.createHash('sha256').update(effectiveSecret).digest();
 }
 

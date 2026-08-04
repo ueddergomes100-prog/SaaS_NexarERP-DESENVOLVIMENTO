@@ -360,7 +360,7 @@ const Sidebar: React.FC = () => {
     document.body.classList.toggle('mini-sidebar', miniSidebar);
   }, [miniSidebar]);
 
-  const tenantName = selectedTenant?.nomeOficina || 'Nexus Company';
+  const tenantName = selectedTenant?.nomeOficina || 'Hennder Company';
   const userName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Usuário';
   const userInitial = userName.trim().charAt(0).toUpperCase() || 'N';
 

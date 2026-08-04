@@ -1,7 +1,7 @@
 {
   "name": "nexus-erp-backup-server",
   "version": "1.0.0",
-  "description": "Backend de Backup e Restauração para o SaaS Nexus ERP utilizando Google Cloud Storage",
+  "description": "Backend de Backup e Restauração para o SaaS Hennder ERP utilizando Google Cloud Storage",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {

@@ -284,7 +284,7 @@ const PrintRelatorioVendas: React.FC = () => {
         {/* Header */}
         <div className="a4-header">
           <div className="a4-logo">
-            <h2>{config?.nomeOficina || 'Nexus Company'}</h2>
+            <h2>{config?.nomeOficina || 'Hennder Company'}</h2>
             {config?.cnpj && <p><strong>CNPJ:</strong> {config.cnpj}</p>}
             {config?.telefone && <p><strong>Telefone:</strong> {config.telefone}</p>}
             {config?.email && <p><strong>E-mail:</strong> {config.email}</p>}
@@ -538,7 +538,7 @@ const PrintRelatorioVendas: React.FC = () => {
         )}
 
         <div className="a4-footer">
-          Documento gerencial auxiliar emitido pelo Sistema Nexus Company. A veracidade das informações apresentadas é de inteira responsabilidade da administração da empresa.
+          Documento gerencial auxiliar emitido pelo Sistema Hennder Company. A veracidade das informações apresentadas é de inteira responsabilidade da administração da empresa.
         </div>
       </div>
     </div>

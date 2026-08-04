@@ -87,7 +87,7 @@ app.use((err, req, res, next) => {
 });
 
 // Inicialização dos Serviços em Background
-console.log('[Nexus Server] Inicializando serviços...');
+console.log('[Hennder Server] Inicializando serviços...');
 
 // 1. Inicia o agendador node-cron de backups automáticos salvos no banco
 initScheduler();

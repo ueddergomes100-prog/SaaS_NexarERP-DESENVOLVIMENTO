@@ -141,7 +141,13 @@ service cloud.firestore {
     }
 
     function canReadTenantDocument() {
-      return isSuperAdmin() || (hasProfile() && resource.data.tenantId == currentTenantId());
+      // resource == null quando o documento nao existe (ex: transaction.get
+      // de um id de pagamento que nunca foi criado) -- sem essa checagem,
+      // resource.data.tenantId quebra a avaliacao da regra e o Firestore
+      // devolve "Missing or insufficient permissions" em vez de so dizer
+      // que o documento nao existe. Permitir aqui e seguro: nao ha dado
+      // nenhum pra vazar num documento inexistente.
+      return isSuperAdmin() || (hasProfile() && (resource == null || resource.data.tenantId == currentTenantId()));
     }
 
     function canCreateTenantDocument() {

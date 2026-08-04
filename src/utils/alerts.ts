@@ -43,6 +43,28 @@ export const confirmDelete = async (itemName: string) => {
     cancelButtonText: 'Cancelar',
     reverseButtons: true
   });
-  
+
   return result.isConfirmed;
+};
+
+// Pop-up de 3 vias ao fechar uma aba com dados nao salvos (Sistema de
+// Abas, F19). Mesmo padrao ja usado em PedidoVendaForm (showDenyButton)
+// pra oferecer uma terceira opcao alem de confirmar/cancelar.
+export const confirmUnsavedChanges = async (): Promise<'save' | 'discard' | 'cancel'> => {
+  const result = await NexusSwal.fire({
+    title: 'Fechar aba com dados não salvos?',
+    text: 'Essa aba tem informações digitadas que ainda não foram salvas.',
+    icon: 'warning',
+    showDenyButton: true,
+    showCancelButton: true,
+    confirmButtonText: 'Salvar e fechar',
+    denyButtonText: 'Fechar sem salvar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#10b981',
+    denyButtonColor: '#ef4444',
+  });
+
+  if (result.isConfirmed) return 'save';
+  if (result.isDenied) return 'discard';
+  return 'cancel';
 };

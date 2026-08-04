@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { resolveRouteAccess } from '../../utils/routeAccess';
 import { appRoutesConfig } from '../../routes/appRoutesConfig';
-import { TabActiveContext, useTabs, type Tab } from '../../contexts/TabsContext';
+import { TabActiveContext, TabIdContext, useTabs, type Tab } from '../../contexts/TabsContext';
 import { ErrorBoundary } from '../ErrorBoundary';
 import PageLoader from './PageLoader';
 
@@ -105,27 +105,29 @@ const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActi
   }, []);
 
   return (
-    <TabActiveContext.Provider value={isActive}>
-      <main className="page-content">
-        <div className={hasSettled ? 'page-transition page-transition--settled' : 'page-transition'}>
-          {isModuleBlocked || !isRouteAllowed ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px', color: 'var(--text-primary)', textAlign: 'center', padding: '24px' }}>
-              <div style={{ padding: '16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: '50%', color: '#ef4444' }}>
-                <ShieldAlert size={48} />
+    <TabIdContext.Provider value={tab.id}>
+      <TabActiveContext.Provider value={isActive}>
+        <main className="page-content">
+          <div className={hasSettled ? 'page-transition page-transition--settled' : 'page-transition'}>
+            {isModuleBlocked || !isRouteAllowed ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px', color: 'var(--text-primary)', textAlign: 'center', padding: '24px' }}>
+                <div style={{ padding: '16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: '50%', color: '#ef4444' }}>
+                  <ShieldAlert size={48} />
+                </div>
+                <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '8px 0 4px 0' }}>
+                  {isModuleBlocked ? 'Módulo Não Disponível' : 'Acesso não permitido'}
+                </h2>
+                <p style={{ color: 'var(--text-secondary)', maxWidth: '460px', fontSize: '15px', lineHeight: '1.6', margin: 0 }}>
+                  {isModuleBlocked
+                    ? 'Este módulo está desativado para a sua conta. Caso precise utilizá-lo, entre em contato com o suporte ou o administrador do sistema para atualizar o seu plano.'
+                    : 'Seu usuário não possui permissão para acessar esta área. Peça ao administrador para revisar seus acessos.'}
+                </p>
               </div>
-              <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '8px 0 4px 0' }}>
-                {isModuleBlocked ? 'Módulo Não Disponível' : 'Acesso não permitido'}
-              </h2>
-              <p style={{ color: 'var(--text-secondary)', maxWidth: '460px', fontSize: '15px', lineHeight: '1.6', margin: 0 }}>
-                {isModuleBlocked
-                  ? 'Este módulo está desativado para a sua conta. Caso precise utilizá-lo, entre em contato com o suporte ou o administrador do sistema para atualizar o seu plano.'
-                  : 'Seu usuário não possui permissão para acessar esta área. Peça ao administrador para revisar seus acessos.'}
-              </p>
-            </div>
-          ) : element}
-        </div>
-      </main>
-    </TabActiveContext.Provider>
+            ) : element}
+          </div>
+        </main>
+      </TabActiveContext.Provider>
+    </TabIdContext.Provider>
   );
 };
 

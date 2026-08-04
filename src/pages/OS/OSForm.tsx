@@ -17,6 +17,7 @@ import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildCardFeeSchedulesByBrand,
@@ -139,6 +140,12 @@ const OSForm: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingOS, setIsFetchingOS] = useState(isEditing);
+  // Decoupled de isFetchingOS (que so controla o spinner de tela cheia)
+  // -- marca quando o carregamento inicial de verdade terminou (edicao
+  // OU criacao, que tambem busca o proximo numero de OS de forma
+  // assincrona), pra so entao capturar o snapshot que decide se a aba
+  // esta "suja".
+  const [formReady, setFormReady] = useState(false);
   const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
   const [veiculosDisponiveis, setVeiculosDisponiveis] = useState<VeiculoBasico[]>([]);
   const [veiculosDoCliente, setVeiculosDoCliente] = useState<VeiculoBasico[]>([]);
@@ -350,6 +357,7 @@ const OSForm: React.FC = () => {
           console.error("Erro ao carregar OS:", error);
         } finally {
           setIsFetchingOS(false);
+          setFormReady(true);
         }
       } else {
         // Pre-fill mecanicoId with current user
@@ -395,10 +403,30 @@ const OSForm: React.FC = () => {
           }));
         }
         setIsFetchingOS(false);
+        setFormReady(true);
       }
     };
     fetchInitialData();
   }, [id, isEditing, navigate, currentUser, tenantId]);
+
+  // Snapshot dos campos de negocio (formData + pagamentos + servicos +
+  // pecas), reaproveitado tanto pro snapshot inicial quanto pro atual --
+  // evita falso-positivo de "sujo" por ordem de chave diferente no
+  // JSON.stringify. Estado so-de-UI (busca, dropdown aberto, input de
+  // preco/nome do item sendo adicionado) fica de fora de proposito.
+  const buildDirtySnapshot = () => JSON.stringify({ formData, paymentDrafts, servicosSelecionados, pecasSelecionadas });
+  const initialSnapshotRef = useRef<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  useEffect(() => {
+    if (!formReady) return;
+    if (initialSnapshotRef.current === null) {
+      initialSnapshotRef.current = buildDirtySnapshot();
+      setIsDirty(false);
+    } else {
+      setIsDirty(buildDirtySnapshot() !== initialSnapshotRef.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formReady, formData, paymentDrafts, servicosSelecionados, pecasSelecionadas]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -655,13 +683,14 @@ const OSForm: React.FC = () => {
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (submitLockRef.current) return;
-    if (!currentUser || !tenantId) return;
+  /** Devolve true/false (sucesso) -- usado tanto pelo clique do botao
+   * quanto pelo useUnsavedChangesGuard (fechar aba -> "Salvar e fechar"). */
+  const saveOS = async (): Promise<boolean> => {
+    if (submitLockRef.current) return false;
+    if (!currentUser || !tenantId) return false;
     if (!formData.clienteNome || !formData.placa) {
       showError('Campos incompletos', 'Por favor, preencha o Nome do Cliente e a Placa.');
-      return;
+      return false;
     }
 
     let paymentRecords: PaymentRecord[] = [];
@@ -682,7 +711,7 @@ const OSForm: React.FC = () => {
         paymentSummary = summarizePayments(paymentRecords);
       } catch (error) {
         showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os dados do pagamento.');
-        return;
+        return false;
       }
     }
 
@@ -1038,14 +1067,25 @@ const OSForm: React.FC = () => {
       }));
       
       showSuccess(`OS ${isEditing ? 'atualizada' : 'criada'}!`);
+      initialSnapshotRef.current = buildDirtySnapshot();
+      setIsDirty(false);
       navigate('/os');
+      return true;
     } catch (error) {
       console.error('Erro ao salvar OS:', error);
       showError('Erro ao salvar', error instanceof Error ? error.message : 'Verifique a conexão e tente novamente.');
+      return false;
     } finally {
       submitLockRef.current = false;
       setIsLoading(false);
     }
+  };
+
+  useUnsavedChangesGuard(isDirty, saveOS);
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    saveOS();
   };
 
   if (isFetchingOS) {

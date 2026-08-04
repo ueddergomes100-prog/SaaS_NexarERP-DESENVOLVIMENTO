@@ -17,6 +17,7 @@ import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildCardFeeSchedulesByBrand,
@@ -339,6 +340,30 @@ const PedidoVendaForm: React.FC = () => {
     fetchInitialData();
   }, [id, isViewing, navigate, currentUser, tenantId]);
 
+  // Snapshot dos campos de negocio, reaproveitado tanto pro snapshot
+  // inicial quanto pro atual (evita falso-positivo de "sujo" por ordem
+  // de chave diferente no JSON.stringify). So os ~9 campos que realmente
+  // persistem na venda -- os demais useState deste arquivo sao estado
+  // so-de-UI (busca de produto, modal aberto, indice selecionado etc.)
+  // e ficam de fora de proposito. Em modo visualizacao (isViewing) todo
+  // campo fica desabilitado, entao isso nunca muda e isDirty fica falso
+  // sozinho, sem precisar de um caso especial aqui.
+  const buildDirtySnapshot = () => JSON.stringify({
+    clienteNome, formaPagamento, dataVenda, itens, orcamentoId, vendedorId, frete, encargos, paymentDrafts,
+  });
+  const initialSnapshotRef = useRef<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  useEffect(() => {
+    if (isFetchingData) return;
+    if (initialSnapshotRef.current === null) {
+      initialSnapshotRef.current = buildDirtySnapshot();
+      setIsDirty(false);
+    } else {
+      setIsDirty(buildDirtySnapshot() !== initialSnapshotRef.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFetchingData, clienteNome, formaPagamento, dataVenda, itens, orcamentoId, vendedorId, frete, encargos, paymentDrafts]);
+
   const handleAddItem = () => {
     if (!produtoBusca) {
       showError('Atenção', 'Selecione ou digite o nome de um produto.');
@@ -495,12 +520,18 @@ const PedidoVendaForm: React.FC = () => {
       : current);
   };
 
-  const handleFinalizarVenda = async () => {
-    if (submitLockRef.current) return;
-    if (!currentUser || !tenantId) return;
+  /** Devolve true/false (sucesso) -- usado tanto pelo clique do botao
+   * quanto pelo useUnsavedChangesGuard (fechar aba -> "Salvar e fechar").
+   * `saveSucceeded` marca o ponto em que a venda ja foi persistida de
+   * verdade (fim da transacao); o resto da funcao (perguntar se emite
+   * NFC-e/imprime recibo) continua rodando igual ao fluxo normal do
+   * botao -- so o valor de retorno no final e novo. */
+  const handleFinalizarVenda = async (): Promise<boolean> => {
+    if (submitLockRef.current) return false;
+    if (!currentUser || !tenantId) return false;
     if (itens.length === 0) {
       showError('Atenção', 'Adicione pelo menos um item à venda.');
-      return;
+      return false;
     }
 
     let paymentRecords: PaymentRecord[];
@@ -516,7 +547,7 @@ const PedidoVendaForm: React.FC = () => {
       });
     } catch (error) {
       showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os dados do pagamento.');
-      return;
+      return false;
     }
     paymentRecords = explodeInstallmentPaymentRecords(paymentRecords);
     const paymentSummary = summarizePayments(paymentRecords);
@@ -529,6 +560,7 @@ const PedidoVendaForm: React.FC = () => {
 
     submitLockRef.current = true;
     setIsLoading(true);
+    let saveSucceeded = false;
 
     try {
       // 1. Cadastrar Cliente (se não existir)
@@ -711,6 +743,9 @@ const PedidoVendaForm: React.FC = () => {
       }
 
       setIsLoading(false);
+      saveSucceeded = true;
+      initialSnapshotRef.current = buildDirtySnapshot();
+      setIsDirty(false);
 
       // 5. Perguntar o que fazer
       const result = await NexusSwal.fire({
@@ -965,7 +1000,10 @@ const PedidoVendaForm: React.FC = () => {
     } finally {
       submitLockRef.current = false;
     }
+    return saveSucceeded;
   };
+
+  useUnsavedChangesGuard(isDirty, handleFinalizarVenda);
 
   const handleEmitirCupomVendaExistente = async () => {
     if (!currentUser || !tenantId || !id) return;

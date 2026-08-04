@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { showError } from '../utils/alerts';
+import { showError, confirmUnsavedChanges } from '../utils/alerts';
 
 export interface Tab {
   /** Identificador estavel da aba (nao muda mesmo que o usuario navegue
@@ -18,18 +18,38 @@ interface TabsContextValue {
   openTab: (path: string, label?: string) => void;
   activateTab: (id: string) => void;
   closeTab: (id: string) => void;
+  /** Fecha a aba direto se ela nao tiver dados nao salvos registrados
+   * (ver setTabDirty); senao pergunta salvar/descartar/cancelar antes.
+   * E o que a TabBar chama ao clicar no X -- closeTab continua existindo
+   * pra fechamentos que nao devem passar por essa checagem (ex: depois
+   * que o proprio onSaveRequest ja confirmou o salvamento). */
+  requestCloseTab: (id: string) => Promise<void>;
+  /** Registra (ou limpa, com isDirty=false) se a aba tem dados digitados
+   * ainda nao salvos, e o callback que salva-los caso o usuario escolha
+   * "Salvar e fechar" na hora de fechar essa aba. Chamado pelo hook
+   * useUnsavedChangesGuard, nao diretamente pelas telas. */
+  setTabDirty: (tabId: string, isDirty: boolean, onSaveRequest?: () => Promise<boolean>) => void;
   reorderTab: (draggedId: string, targetId: string) => void;
   /** Chamado pelo TabPane quando a navegacao interna daquela aba muda de path. */
   updateTabLocation: (id: string, path: string, label?: string) => void;
 }
 
-const TabsContext = createContext<TabsContextValue | null>(null);
+/** Exportado (alem do hook useTabs) so pra useUnsavedChangesGuard poder
+ * ler com useContext direto e virar no-op fora do TabsProvider, em vez
+ * de lancar erro (useTabs lanca de proposito nos outros usos, pra pegar
+ * bug de tela usada fora do lugar certo cedo). */
+export const TabsContext = createContext<TabsContextValue | null>(null);
 
 /** Sinaliza se o conteudo atual esta dentro da aba ativa -- usado por
  * useKeyboardShortcuts/useEscapeLayer pra nao reagir em abas escondidas
  * (elas continuam montadas, so nao visiveis). Default true fora do
  * sistema de abas (ex: PDV, que nao usa TabsProvider). */
 export const TabActiveContext = createContext(true);
+
+/** Id da aba que esta renderizando o componente atual -- usado por
+ * useUnsavedChangesGuard pra saber em qual aba registrar "tenho dados
+ * nao salvos". null fora do sistema de abas (ex: PDV). */
+export const TabIdContext = createContext<string | null>(null);
 
 const STORAGE_KEY = 'nexus_tabs_v1';
 const MAX_TABS = 8;
@@ -198,7 +218,17 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, []);
 
+  // Ref, nao state -- registrar/desregistrar "aba suja" acontece a cada
+  // tecla digitada em algum formulario; se isso fosse state, cada tecla
+  // re-renderizaria toda a arvore que consome TabsContext.
+  const dirtyTabsRef = useRef(new Map<string, () => Promise<boolean>>());
+
   const closeTab = useCallback((id: string) => {
+    // Limpa o registro de "aba suja" aqui tambem, nao so no cleanup do
+    // useUnsavedChangesGuard -- evita entrada fantasma se o componente
+    // que registrou nao chegar a desmontar antes de outra checagem (ex:
+    // fechamentos em sequencia rapida).
+    dirtyTabsRef.current.delete(id);
     setState((current) => {
       if (current.tabs.length <= 1) return current;
       const closingIndex = current.tabs.findIndex((tab) => tab.id === id);
@@ -212,6 +242,34 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { tabs: nextTabs, activeTabId: nextActiveTabId };
     });
   }, []);
+
+  const setTabDirty = useCallback((tabId: string, isDirty: boolean, onSaveRequest?: () => Promise<boolean>) => {
+    if (isDirty && onSaveRequest) {
+      dirtyTabsRef.current.set(tabId, onSaveRequest);
+    } else {
+      dirtyTabsRef.current.delete(tabId);
+    }
+  }, []);
+
+  const requestCloseTab = useCallback(async (id: string) => {
+    const onSaveRequest = dirtyTabsRef.current.get(id);
+    if (!onSaveRequest) {
+      closeTab(id);
+      return;
+    }
+
+    const choice = await confirmUnsavedChanges();
+    if (choice === 'cancel') return;
+    if (choice === 'discard') {
+      closeTab(id);
+      return;
+    }
+
+    // choice === 'save' -- so fecha se o proprio formulario confirmar
+    // que salvou com sucesso (ele mesmo ja mostra o erro se falhar).
+    const saved = await onSaveRequest();
+    if (saved) closeTab(id);
+  }, [closeTab]);
 
   const reorderTab = useCallback((draggedId: string, targetId: string) => {
     if (draggedId === targetId) return;
@@ -228,8 +286,8 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const value = useMemo(
-    () => ({ tabs, activeTabId, openTab, activateTab, closeTab, reorderTab, updateTabLocation }),
-    [tabs, activeTabId, openTab, activateTab, closeTab, reorderTab, updateTabLocation],
+    () => ({ tabs, activeTabId, openTab, activateTab, closeTab, requestCloseTab, setTabDirty, reorderTab, updateTabLocation }),
+    [tabs, activeTabId, openTab, activateTab, closeTab, requestCloseTab, setTabDirty, reorderTab, updateTabLocation],
   );
 
   return <TabsContext.Provider value={value}>{children}</TabsContext.Provider>;

@@ -3,13 +3,16 @@ import { X } from 'lucide-react';
 import { useTabs } from '../../contexts/TabsContext';
 
 const TabBar: React.FC = () => {
-  const { tabs, activeTabId, activateTab, closeTab, reorderTab } = useTabs();
+  const { tabs, activeTabId, activateTab, requestCloseTab, reorderTab } = useTabs();
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const handleCloseTab = (event: React.MouseEvent, id: string) => {
     event.stopPropagation();
-    closeTab(id);
+    // Async: se a aba tiver dados nao salvos, pergunta antes de fechar
+    // (ver useUnsavedChangesGuard) -- nada aqui precisa aguardar o
+    // resultado, o proprio requestCloseTab decide o que fazer.
+    requestCloseTab(id);
   };
 
   const handleDragStart = (id: string) => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Factory, Loader2, Play, Pause, CheckCircle2, XCircle, RotateCcw, Package, Trash2, Undo2 } from 'lucide-react';
 import { collection, doc, deleteDoc, getDoc, getDocs, updateDoc, serverTimestamp, query, where, runTransaction } from 'firebase/firestore';
@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, confirmDelete, NexusSwal } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { reserveTenantSequence, formatSequenceValue, getCurrentMaxSequence } from '../../utils/firestoreAtomic';
+import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
@@ -82,6 +83,11 @@ const OrdemProducaoForm: React.FC = () => {
   const { currentUser, tenantId } = useAuth();
 
   const [isFetching, setIsFetching] = useState(isEditing);
+  // Decoupled de isFetching (que so controla o spinner de tela cheia, e
+  // no modo "nova ordem" ja comeca `false` mesmo com a busca assincrona
+  // do responsavel padrao em andamento) -- marca quando o carregamento
+  // inicial de verdade terminou.
+  const [formReady, setFormReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -153,23 +159,49 @@ const OrdemProducaoForm: React.FC = () => {
         showError('Erro ao carregar', 'Não foi possível carregar os dados da ordem de produção.');
       } finally {
         setIsFetching(false);
+        setFormReady(true);
       }
     };
     fetchDados();
   }, [id, isEditing, tenantId, currentUser]);
 
-  const handleCriar = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Snapshot dos campos de negocio pre-criacao, reaproveitado tanto pro
+  // snapshot inicial quanto pro atual (evita falso-positivo por ordem de
+  // chave diferente no JSON.stringify). So faz sentido enquanto !isEditing
+  // -- depois de criada, a tela nao tem mais campo de texto livre, so
+  // botoes de acao (ver isDirty abaixo).
+  const buildDirtySnapshot = () => JSON.stringify(formData);
+  const initialSnapshotRef = useRef<string | null>(null);
+  const [isFormDirty, setIsFormDirty] = useState(false);
+  useEffect(() => {
+    if (!formReady) return;
+    if (initialSnapshotRef.current === null) {
+      initialSnapshotRef.current = buildDirtySnapshot();
+      setIsFormDirty(false);
+    } else {
+      setIsFormDirty(buildDirtySnapshot() !== initialSnapshotRef.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formReady, formData]);
+
+  // Duas fases: antes de criar, "sujo" e o formulario ter mudado desde o
+  // carregamento; depois de criada, a unica forma de trabalho nao salvo
+  // e a conferencia de finalizacao aberta (perda/sobra digitadas ali
+  // ainda nao foram confirmadas) -- fechar a aba nesse momento tambem
+  // deve perguntar, por isso nao da pra so desligar o guard em edicao.
+  const isDirty = !isEditing ? isFormDirty : showRevisaoFinalizacao;
+
+  const handleCriar = async (): Promise<boolean> => {
     if (!formData.produtoId) {
       showError('Selecione um produto', 'Escolha qual produto será fabricado nesta ordem.');
-      return;
+      return false;
     }
     const quantidadeNum = Number(formData.quantidadePlanejada);
     if (!Number.isFinite(quantidadeNum) || quantidadeNum <= 0) {
       showError('Quantidade inválida', 'Informe uma quantidade planejada maior que zero.');
-      return;
+      return false;
     }
-    if (!currentUser || !tenantId) return;
+    if (!currentUser || !tenantId) return false;
 
     setIsLoading(true);
     try {
@@ -202,10 +234,14 @@ const OrdemProducaoForm: React.FC = () => {
       });
 
       showSuccess('Ordem de produção criada!');
+      initialSnapshotRef.current = buildDirtySnapshot();
+      setIsFormDirty(false);
       navigate(`/producao/ordens/editar/${novoId}`);
+      return true;
     } catch (error) {
       console.error('Erro ao criar ordem de produção:', error);
       showError('Erro ao criar', 'Não foi possível criar a ordem de produção.');
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -425,13 +461,13 @@ const OrdemProducaoForm: React.FC = () => {
 
   // Passo 2: aplica o debito de verdade, com a quantidade produzida (nao
   // a planejada) e a perda extra revisadas na tela de conferencia.
-  const handleConfirmarFinalizacao = async () => {
-    if (!id || !tenantId || !currentUser || !ordem) return;
+  const handleConfirmarFinalizacao = async (): Promise<boolean> => {
+    if (!id || !tenantId || !currentUser || !ordem) return false;
 
     const quantidadeProduzida = Number(quantidadeProduzidaInput);
     if (!Number.isFinite(quantidadeProduzida) || quantidadeProduzida <= 0) {
       showError('Quantidade inválida', 'Informe a quantidade produzida (maior que zero).');
-      return;
+      return false;
     }
 
     setIsProcessing(true);
@@ -505,13 +541,24 @@ const OrdemProducaoForm: React.FC = () => {
       } : prev);
       setShowRevisaoFinalizacao(false);
       showSuccess('Produção finalizada! Matéria-prima debitada e estoque do produto atualizado.');
+      return true;
     } catch (error) {
       console.error('Erro ao finalizar produção:', error);
       showError('Erro ao finalizar', (error as Error).message || 'Não foi possível finalizar a produção.');
+      return false;
     } finally {
       setIsProcessing(false);
     }
   };
+
+  /** Escolhe qual dos dois fluxos de salvar chamar, dependendo da fase
+   * atual (ver isDirty acima) -- e o que useUnsavedChangesGuard chama ao
+   * usuario escolher "Salvar e fechar" na hora de fechar a aba. */
+  const saveForGuard = (): Promise<boolean> => (
+    !isEditing ? handleCriar() : handleConfirmarFinalizacao()
+  );
+
+  useUnsavedChangesGuard(isDirty, saveForGuard);
 
   if (isFetching) return <div style={{ padding: '40px', color: 'var(--text-primary)' }}>Carregando...</div>;
 

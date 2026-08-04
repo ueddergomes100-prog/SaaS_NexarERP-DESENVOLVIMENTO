@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Factory, Loader2 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, getDoc, getCountFromServer, serverTimestamp, query, where } from 'firebase/firestore';
@@ -8,6 +8,7 @@ import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialStock';
 import { computeEstoquePrevisto } from '../../utils/producaoDomain';
+import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 
 const inputStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg-tertiary)',
@@ -36,6 +37,13 @@ const MateriaPrimaForm: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
+  // Decoupled de isFetching (que so controla o spinner de tela cheia, e
+  // no modo "novo" ja comeca `false` mesmo com uma busca assincrona em
+  // andamento pro codigo automatico) -- marca quando o carregamento
+  // inicial de verdade terminou, pra so entao capturar o snapshot que
+  // decide se a aba esta "suja".
+  const [formReady, setFormReady] = useState(false);
+  const initialSnapshotRef = useRef<string | null>(null);
   const { currentUser, tenantId } = useAuth();
   const { reservedMap } = useReservedRawMaterialStock(tenantId);
   const reservado = isEditing && id ? (reservedMap.get(id) || 0) : 0;
@@ -68,24 +76,37 @@ const MateriaPrimaForm: React.FC = () => {
         console.error("Erro ao carregar dados:", error);
       } finally {
         setIsFetching(false);
+        setFormReady(true);
       }
     };
     fetchInitialData();
   }, [id, isEditing, tenantId]);
+
+  const [isDirty, setIsDirty] = useState(false);
+  useEffect(() => {
+    if (!formReady) return;
+    if (initialSnapshotRef.current === null) {
+      initialSnapshotRef.current = JSON.stringify(formData);
+      setIsDirty(false);
+    } else {
+      setIsDirty(JSON.stringify(formData) !== initialSnapshotRef.current);
+    }
+  }, [formReady, formData]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /** Devolve true/false (sucesso) -- usado tanto pelo clique do botao
+   * quanto pelo useUnsavedChangesGuard (fechar aba -> "Salvar e fechar"). */
+  const saveMateriaPrima = async (): Promise<boolean> => {
     if (!formData.nome) {
       showError('Campos incompletos', 'Por favor, preencha o Nome da matéria-prima.');
-      return;
+      return false;
     }
 
-    if (!currentUser) return;
+    if (!currentUser) return false;
     setIsLoading(true);
 
     try {
@@ -116,13 +137,24 @@ const MateriaPrimaForm: React.FC = () => {
         });
         showSuccess('Matéria-prima cadastrada!');
       }
+      initialSnapshotRef.current = JSON.stringify(formData);
+      setIsDirty(false);
       navigate('/materias-primas');
+      return true;
     } catch (error) {
       console.error('Erro ao salvar matéria-prima:', error);
       showError('Erro ao salvar', 'Verifique sua conexão e tente novamente.');
+      return false;
     } finally {
       setIsLoading(false);
     }
+  };
+
+  useUnsavedChangesGuard(isDirty, saveMateriaPrima);
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    saveMateriaPrima();
   };
 
   if (isFetching) return <div style={{ padding: '40px', color: 'var(--text-primary)' }}>Carregando...</div>;

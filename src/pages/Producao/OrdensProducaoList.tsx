@@ -5,7 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 
-type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada';
+type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
 interface OrdemProducaoData {
   id: string;
@@ -23,6 +23,7 @@ const STATUS_LABELS: Record<StatusOrdem, string> = {
   pausada: 'Pausada',
   finalizada: 'Finalizada',
   cancelada: 'Cancelada',
+  estornada: 'Estornada',
 };
 
 const STATUS_COLORS: Record<StatusOrdem, string> = {
@@ -31,6 +32,7 @@ const STATUS_COLORS: Record<StatusOrdem, string> = {
   pausada: '#f59e0b',
   finalizada: '#10b981',
   cancelada: '#ef4444',
+  estornada: '#64748b',
 };
 
 const OrdensProducaoList: React.FC = () => {

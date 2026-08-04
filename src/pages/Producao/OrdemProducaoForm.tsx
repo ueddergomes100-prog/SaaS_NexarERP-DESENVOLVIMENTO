@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, Factory, Loader2, Play, Pause, CheckCircle2, XCircle, RotateCcw, Package } from 'lucide-react';
-import { collection, doc, getDoc, getDocs, updateDoc, serverTimestamp, query, where, runTransaction } from 'firebase/firestore';
+import { ArrowLeft, Save, Factory, Loader2, Play, Pause, CheckCircle2, XCircle, RotateCcw, Package, Trash2, Undo2 } from 'lucide-react';
+import { collection, doc, deleteDoc, getDoc, getDocs, updateDoc, serverTimestamp, query, where, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, confirmDelete, NexusSwal } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { reserveTenantSequence, formatSequenceValue, getCurrentMaxSequence } from '../../utils/firestoreAtomic';
 
-type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada';
+type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
 interface ItemConsumido {
   materiaPrimaId: string;
@@ -50,6 +50,7 @@ const STATUS_LABELS: Record<StatusOrdem, string> = {
   pausada: 'Pausada',
   finalizada: 'Finalizada',
   cancelada: 'Cancelada',
+  estornada: 'Estornada',
 };
 
 const STATUS_COLORS: Record<StatusOrdem, string> = {
@@ -58,7 +59,12 @@ const STATUS_COLORS: Record<StatusOrdem, string> = {
   pausada: '#f59e0b',
   finalizada: '#10b981',
   cancelada: '#ef4444',
+  estornada: '#64748b',
 };
+
+/** Status que ainda nao tocaram estoque -- excluir e so apagar o documento,
+ * sem nenhuma reversao necessaria. */
+const STATUS_EXCLUIVEL: StatusOrdem[] = ['criada', 'em_producao', 'pausada', 'cancelada'];
 
 const inputStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg-tertiary)',
@@ -288,6 +294,92 @@ const OrdemProducaoForm: React.FC = () => {
     }
   };
 
+  // Exclusao definitiva -- so permitida pra status que nunca tocaram
+  // estoque (STATUS_EXCLUIVEL), entao nao ha nada pra reverter.
+  const handleExcluir = async () => {
+    if (!id || !ordem) return;
+    const isConfirmed = await confirmDelete(`a ordem de produção ${ordem.numero}`);
+    if (!isConfirmed) return;
+
+    setIsProcessing(true);
+    try {
+      await deleteDoc(doc(db, 'ordens_producao', id));
+      showSuccess('Ordem de produção excluída!');
+      navigate('/producao/ordens');
+    } catch (error) {
+      console.error('Erro ao excluir ordem de produção:', error);
+      showError('Erro ao excluir', 'Tente novamente mais tarde.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Estorno de uma ordem ja finalizada -- devolve a materia-prima
+  // debitada, retira a quantidade creditada no produto acabado, e marca
+  // a ordem como 'estornada' (mantem o registro, nao apaga -- mesmo
+  // padrao do cancelamento de OS/venda ja usado no sistema).
+  const handleEstornar = async () => {
+    if (!id || !tenantId || !currentUser || !ordem) return;
+    const confirm = await NexusSwal.fire({
+      title: 'Estornar produção?',
+      text: `A matéria-prima debitada será devolvida ao estoque e ${ordem.quantidadeProduzida} unidade(s) de "${ordem.produtoNome}" serão retiradas do estoque de produtos. O registro da ordem é mantido, com status "Estornada". Esta ação não pode ser desfeita.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, estornar produção',
+      cancelButtonText: 'Voltar',
+    });
+    if (!confirm.isConfirmed) return;
+
+    setIsProcessing(true);
+    try {
+      await runTransaction(db, async (transaction) => {
+        const ordemRef = doc(db, 'ordens_producao', id);
+        const produtoRef = doc(db, 'estoque', ordem.produtoId);
+        const materiaPrimaRefs = ordem.itensConsumidos.map(item => doc(db, 'materias_primas', item.materiaPrimaId));
+
+        const produtoSnap = await transaction.get(produtoRef);
+        const materiaPrimaSnaps = await Promise.all(materiaPrimaRefs.map((ref) => transaction.get(ref)));
+
+        const quantidadeProduzida = ordem.quantidadeProduzida || 0;
+        if (produtoSnap.exists()) {
+          const quantidadeProdutoAtual = Number(produtoSnap.data().quantidade || 0);
+          if (quantidadeProdutoAtual < quantidadeProduzida) {
+            throw new Error(`Não é possível estornar: parte das ${quantidadeProduzida} unidades produzidas de "${ordem.produtoNome}" já saiu do estoque (venda ou outro movimento). Estoque atual: ${quantidadeProdutoAtual}.`);
+          }
+          transaction.update(produtoRef, {
+            quantidade: quantidadeProdutoAtual - quantidadeProduzida,
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        for (let i = 0; i < ordem.itensConsumidos.length; i++) {
+          const item = ordem.itensConsumidos[i];
+          const snap = materiaPrimaSnaps[i];
+          if (!snap.exists()) continue; // materia-prima pode ter sido excluida desde a finalizacao
+          const quantidadeAtual = Number(snap.data().quantidade || 0);
+          transaction.update(materiaPrimaRefs[i], {
+            quantidade: quantidadeAtual + item.quantidadeConsumida,
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        transaction.update(ordemRef, {
+          status: 'estornada',
+          dataEstorno: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Ordem estornada'),
+        });
+      });
+
+      setOrdem(prev => prev ? { ...prev, status: 'estornada' } : prev);
+      showSuccess('Produção estornada! Matéria-prima devolvida e estoque do produto atualizado.');
+    } catch (error) {
+      console.error('Erro ao estornar produção:', error);
+      showError('Erro ao estornar', (error as Error).message || 'Não foi possível estornar a produção.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   // Passo 1: carrega a composicao atual do produto e abre a tela de
   // conferencia -- nada e gravado ainda aqui.
   const handleAbrirRevisaoFinalizacao = async () => {
@@ -483,6 +575,16 @@ const OrdemProducaoForm: React.FC = () => {
                 {['criada', 'em_producao', 'pausada'].includes(ordem.status) && (
                   <button type="button" className="icon-btn" style={{ color: '#ef4444' }} title="Cancelar ordem" disabled={isProcessing} onClick={handleCancelar}>
                     <XCircle size={18} />
+                  </button>
+                )}
+                {ordem.status === 'finalizada' && (
+                  <button type="button" className="btn-secondary" disabled={isProcessing} onClick={handleEstornar} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b' }}>
+                    <Undo2 size={16} /> Estornar Produção
+                  </button>
+                )}
+                {STATUS_EXCLUIVEL.includes(ordem.status) && (
+                  <button type="button" className="icon-btn" style={{ color: '#ef4444' }} title="Excluir ordem" disabled={isProcessing} onClick={handleExcluir}>
+                    <Trash2 size={18} />
                   </button>
                 )}
               </div>

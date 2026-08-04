@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Factory, ClipboardList, CheckCircle2, XCircle, Clock, Activity, TrendingDown, FileText
+  Factory, ClipboardList, CheckCircle2, XCircle, Clock, Activity, TrendingDown, FileText, Undo2
 } from 'lucide-react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -19,6 +19,7 @@ const STATUS_LABELS: Record<string, string> = {
   pausada: 'Pausada',
   finalizada: 'Finalizada',
   cancelada: 'Cancelada',
+  estornada: 'Estornada',
 };
 
 interface ItemConsumidoData {
@@ -95,6 +96,7 @@ const RelatorioProducao: React.FC = () => {
   const stats = useMemo(() => {
     let qtdFinalizadas = 0;
     let qtdCanceladas = 0;
+    let qtdEstornadas = 0;
     let qtdEmAndamento = 0;
     let planejadoTotal = 0;
     let produzidoTotal = 0;
@@ -149,6 +151,8 @@ const RelatorioProducao: React.FC = () => {
         });
       } else if (o.status === 'cancelada') {
         qtdCanceladas++;
+      } else if (o.status === 'estornada') {
+        qtdEstornadas++;
       } else {
         qtdEmAndamento++;
       }
@@ -160,6 +164,7 @@ const RelatorioProducao: React.FC = () => {
       qtdTotal: filteredData.length,
       qtdFinalizadas,
       qtdCanceladas,
+      qtdEstornadas,
       qtdEmAndamento,
       planejadoTotal,
       produzidoTotal,
@@ -235,6 +240,13 @@ const RelatorioProducao: React.FC = () => {
           icon={XCircle}
           color="#ef4444"
           subtitle="Sem consumo de matéria-prima"
+        />
+        <StatCard
+          title="Estornadas"
+          value={String(stats.qtdEstornadas)}
+          icon={Undo2}
+          color="#64748b"
+          subtitle="Finalizadas e depois revertidas"
         />
         <StatCard
           title="Eficiência de Produção"

@@ -647,6 +647,8 @@ Typecheck, lint (0 erros, mesmos 66 warnings pré-existentes) e build passando. 
 3. **Revertido tudo pro estado do commit `8ce4fd2`** (só a correção da animação CSS, sem a lógica de "justActivated" dos commits `430dfe7`/`09a6b2e`). Confirmado ao vivo que essa versão **não tem o loop** (longtasks voltam ao padrão de fundo normal, sem ciclo contínuo).
 4. **Achado crítico: o teste de perder o texto digitado falha IGUALMENTE nessa versão revertida, mais simples.** Ou seja, **a perda de estado ao trocar de aba não é uma regressão de hoje — é um bug pré-existente desde a Fase B do F19** (`useRoutes(appRoutesConfig, locationArg)` não preserva a identidade do componente de forma confiável ao alternar `isActive` entre `true`/`false`, mesmo quando o pathname resultante é o mesmo). Nunca tinha sido pego porque nenhuma sessão anterior conseguiu de fato logar e testar digitando algo antes de trocar de aba.
 
+> **RESOLVIDO em 2026-08-04 (commit `6d3a93b`) — ver "Sexta rodada" no fim desta seção.** A pendência crítica descrita abaixo era real e foi corrigida na raiz, com validação ao vivo. O texto original fica preservado como registro da investigação.
+
 **PENDÊNCIA CRÍTICA PRA PRÓXIMA SESSÃO — não resolvida:** o sistema de abas hoje NÃO preserva estado local de formulário/busca ao trocar de aba, contradizendo a decisão #1 combinada com o usuário antes de construir o F19 ("trocar de aba preserva estado de verdade, não só recarrega"). Isso é sério — pode incluir perda de dados digitados em formulários (Pedido, OS, Orçamento), não só busca. Merece uma sessão dedicada, com tempo pra investigar a fundo o mecanismo do `useRoutes` compartilhado (talvez a solução correta seja voltar a usar Router isolado por aba de alguma forma que não esbarre na proibição de Router aninhado — por exemplo, um Router por aba fora da árvore do BrowserRouter principal, renderizado via portal, ou reavaliar a arquitetura de isolamento por completo) em vez de mais tentativas rápidas de patch. **Antes de mexer de novo:** reproduzir o teste simples primeiro (abrir uma aba, digitar em qualquer campo de texto, trocar de aba, voltar, ver se o texto sumiu) pra confirmar se ainda falha antes de tentar qualquer fix novo.
 
 **Quinta rodada em 2026-08-03 — foco em fluidez a pedido do usuário, mais um beco sem saída documentado** (commit `3df0200`). Retomando de onde a quarta rodada parou:
@@ -664,6 +666,35 @@ Typecheck, lint (0 erros, mesmos 66 warnings pré-existentes) e build passando. 
 4. **Conclusão importante pra próxima sessão:** essa é a SEGUNDA tentativa (depois do "justActivated" da quarta rodada) de resolver um sintoma do F19 com uma mudança pontual que acaba desestabilizando a resolução de rota compartilhada entre abas. Reforça a suspeita já registrada acima — o mecanismo de múltiplos `useRoutes()` paralelos contra um único `BrowserRouter` é frágil por natureza, não só num ponto específico. **A perda de estado ao trocar de aba (pendência crítica acima) e o custo de ~300ms do Recharts no Dashboard são provavelmente sintomas do MESMO problema de fundo**, não dois bugs separados — ambos só se manifestam quando uma aba estava "congelada" (via `tab.path` fixo) e precisa assumir a location real de novo. Isso reforça, mais do que nunca, que a solução certa é uma sessão dedicada reavaliando a arquitetura de isolamento por completo (ex: Router por aba fora da árvore principal via portal), não mais tentativas pontuais — já são duas tentativas de patch que pioraram a situação em vez de melhorar.
 
 Typecheck, lint, build e suíte de 66 testes passando. Publicado em `dev` (commit `3df0200`).
+
+**Sexta rodada em 2026-08-04 — RESOLVIDO NA RAIZ, com validação ao vivo** (commits `d4cbc93` e `6d3a93b`). O usuário pediu pra focar na fluidez da troca de abas; a investigação acabou encontrando a causa raiz que explicava TUDO — fluidez, perda de estado e o "flash" de conteúdo trocado eram **um bug só**, não três.
+
+**As duas causas, encontradas lendo o código-fonte do react-router v7** (não por tentativa e erro — a diferença decisiva em relação às cinco rodadas anteriores):
+
+1. **`useRoutes()` só embrulha o resultado num `<LocationContext.Provider>` QUANDO recebe um `locationArg`**; sem ele, devolve a árvore crua:
+   ```js
+   if (locationArg && renderedMatches) {
+     return <LocationContext.Provider ...>{renderedMatches}</LocationContext.Provider>;
+   }
+   return renderedMatches;
+   ```
+   O `TabPane` chamava `useRoutes(appRoutesConfig, isActive ? undefined : tab.path)` — ou seja, esse wrapper **aparecia e sumia do topo da árvore a cada troca de aba**. O React vê um tipo de elemento diferente naquela posição e desmonta/remonta a subárvore inteira em vez de reconciliar.
+
+2. **Mais grave e mais sutil: o `<BrowserRouter>` do react-router v7 aplica TODA mudança de URL dentro de um `React.startTransition`** (confirmado no fonte: `React.startTransition(() => setStateImpl(newState))`). Transições têm prioridade baixa, então o React renderiza primeiro a mudança urgente (qual aba está ativa) e **só depois**, numa renderização separada, a URL nova. Consequência: no exato render em que uma aba vira ativa, a URL real **ainda é a da aba anterior** — e a aba recém-ativada, por resolver a rota contra a URL real, renderizava a tela da OUTRA aba, destruindo a sua própria. Confirmado ao vivo com log de ciclo de vida: **dois `OSForm` montados ao mesmo tempo** (dois `UNMOUNT` seguidos sem `MOUNT` no meio — só possível com duas instâncias vivas).
+
+**Tentativa descartada no caminho (registrada porque parece óbvia e não funciona):** tornar a ativação atômica, chamando `navigate()` junto do `setState` no próprio handler do clique (o React agrupa os dois numa renderização só). **Não resolveu** — o `startTransition` do BrowserRouter separa as renderizações de qualquer jeito. Medido ao vivo: o log mostrava `activateTab -> navigate(/dashboard) | urlAtual=/os/nova` e, 147ms depois, um `OSForm MOUNT` na aba do Dashboard. Revertido; não sobrou nada dessa tentativa no código.
+
+**Correção final (commit `6d3a93b`, uma linha de lógica + os efeitos):** `useRoutes(appRoutesConfig, tab.path)` para **toda** aba, ativa ou não. O `tab.path` passa a ser a única verdade pra renderizar, e a URL real vira só espelho (barra de endereço, F5, deep-link). Com isso o `locationArg` nunca deixa de existir nem muda ao trocar de aba — resolve (1) — e a renderização deixa de depender do timing da URL — resolve (2).
+
+Os dois efeitos que sincronizavam URL ↔ `tab.path` viraram **um só**, com um `syncedRef` pra desempatar quem manda quando eles divergem — porque "URL ≠ tab.path" tem duas causas opostas: ou a aba acabou de virar ativa (a URL está atrasada, `tab.path` manda), ou a própria tela chamou `navigate()` (a URL é a novidade, ela manda). Sem esse desempate os dois lados se sobrescrevem — era essa ambiguidade que fazia as tentativas anteriores virarem loop. O `tab.path` agora guarda também a query string, senão as telas de impressão em lote (`?ids=...`) perderiam os parâmetros.
+
+**Validação ao vivo (com o usuário logado, no navegador interno):**
+- Preencher 3 campos de uma OS nova → passar por 3 outras abas → voltar: **os 3 campos continuam preenchidos**, e o log de ciclo de vida do `OSForm` registra **zero** mount/unmount na troca (antes registrava vários).
+- Mesmo teste no campo de busca da lista de OS: texto e filtro sobrevivem.
+- Sem regressão: navegação dentro da aba (botão voltar do formulário leva à lista, e o rótulo da aba acompanha), abrir registro em nova aba pelo "Editar" da lista, zero erros no console.
+- `longtask`s na troca caíram de picos de ~300-330ms pra ~230ms — como não há mais remontagem da página inteira. O custo residual é o das escutas `onSnapshot` em várias abas, já documentado como tradeoff aceito.
+
+**Complemento (commit `d4cbc93`, feito antes na mesma sessão):** o revert `a4f355e` tinha jogado fora sem querer o `React.memo(TabPane)` (otimização válida, do commit `09a6b2e`) junto com a lógica problemática do "justActivated" — as duas viviam no mesmo arquivo. Reposto sozinho.
 
 **Fase restante:**
 - **Fase C:** título dinâmico por aba (nome do registro, não só o nome da tela), aviso ao fechar aba com alterações não salvas (Pedido/OS/Orçamento).

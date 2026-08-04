@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
+import hennderIcon from '../../assets/hennder-icon.svg';
 import './Layout.css';
 
 type NavItem = {
@@ -374,7 +375,7 @@ const Sidebar: React.FC = () => {
         {miniSidebar && (
           <div className="nexus-sidebar-rail">
             <button className="nexus-rail-logo" onClick={handleGoHome} title="Ir para Dashboard">
-              N
+              <img src={hennderIcon} alt="Hennder ERP" />
             </button>
 
             <div className="nexus-rail-modules">
@@ -528,7 +529,7 @@ const Sidebar: React.FC = () => {
         {isLoggingOut && (
           <div className="logout-overlay">
             <div className="logout-logo-container">
-              <div className="logo-icon animate-pulse-logo">N</div>
+              <img src={hennderIcon} alt="Hennder ERP" className="logo-icon animate-pulse-logo" />
               <h2 className="animate-fade-in-up">Até logo!</h2>
             </div>
           </div>
@@ -537,7 +538,7 @@ const Sidebar: React.FC = () => {
         {isNavigatingHome && (
           <div className="logout-overlay" style={{ animationDuration: '0.2s', backgroundColor: 'rgba(10, 10, 11, 0.95)' }}>
             <div className="logout-logo-container">
-              <div className="logo-icon animate-pulse-logo" style={{ animationDuration: '0.8s', width: '60px', height: '60px', fontSize: '28px' }}>N</div>
+              <img src={hennderIcon} alt="Hennder ERP" className="logo-icon animate-pulse-logo" style={{ animationDuration: '0.8s', width: '60px', height: '60px' }} />
             </div>
           </div>
         )}

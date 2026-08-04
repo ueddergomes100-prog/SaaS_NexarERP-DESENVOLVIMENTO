@@ -74,7 +74,7 @@ const OSList: React.FC = () => {
 
     const mensagem = encodeURIComponent(
       `Olá, ${os.clienteNome}! Tudo bem?\n\n` +
-      `Somos da Nexar ERP. Gostaríamos de atualizar sobre o serviço do seu ${os.modelo || 'veículo'} (Placa: ${os.placa.toUpperCase()}).\n` +
+      `Somos da Hennder ERP. Gostaríamos de atualizar sobre o serviço do seu ${os.modelo || 'veículo'} (Placa: ${os.placa.toUpperCase()}).\n` +
       `O status atual da sua OS #${os.numeroOS || os.id.substring(0,8).toUpperCase()} é: *${os.status}*.\n\n` +
       `Acesse seu orçamento/OS neste link: (Link do PDF aqui)`
     );

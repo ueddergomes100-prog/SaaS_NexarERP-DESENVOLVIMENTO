@@ -56,16 +56,10 @@
 .auth-logo {
   width: 64px;
   height: 64px;
-  background-color: var(--accent-purple);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  font-weight: 800;
-  color: white;
+  object-fit: contain;
   margin: 0 auto 16px;
-  box-shadow: var(--shadow-neon);
+  display: block;
+  filter: drop-shadow(var(--shadow-neon));
 }
 
 .auth-header h1 {

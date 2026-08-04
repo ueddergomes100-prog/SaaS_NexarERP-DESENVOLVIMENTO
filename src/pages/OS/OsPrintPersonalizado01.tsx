@@ -11,6 +11,7 @@ import { getCompanyAddressRows } from '../../utils/companyAddress';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import instagramIcon from '../../assets/instagram-icon.png';
 import whatsappIcon from '../../assets/whatsapp-icon.png';
+import hennderIcon from '../../assets/hennder-icon.svg';
 import './OsPrintPersonalizado01.css';
 
 interface OsPrintPersonalizado01Props {
@@ -102,7 +103,7 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
             {configData?.logo ? (
               <img src={configData.logo} alt="Logotipo da empresa" />
             ) : (
-              <div className="os-custom-brand-mark">N</div>
+              <img src={hennderIcon} alt="Hennder ERP" className="os-custom-brand-mark" />
             )}
           </div>
           <div className="os-custom-brand-info">
@@ -313,7 +314,7 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
       <footer className="os-custom-footer">
         <strong>{configData?.nomeOficina || 'NEXAR ERP'}</strong>
         <span>{[configData?.telefone, configData?.email].filter(Boolean).join('  |  ')}</span>
-        <small>Documento gerado pelo Nexar ERP</small>
+        <small>Documento gerado pelo Hennder ERP</small>
       </footer>
     </article>
   );

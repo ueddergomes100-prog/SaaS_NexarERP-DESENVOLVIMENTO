@@ -54,6 +54,7 @@ import {
   toCurrencyInput,
 } from './pdvHelpers';
 import type { PdvCartItem, PdvClient, PdvProduct, PdvSession } from './types';
+import hennderIcon from '../../assets/hennder-icon.svg';
 import './PDV.css';
 
 interface BandeiraCartao {
@@ -636,7 +637,7 @@ const PDV: React.FC = () => {
           <button type="button" onClick={() => navigate('/dashboard')} title="Voltar para a retaguarda">
             <ArrowLeft size={20} />
           </button>
-          <div className="pdv-logo">N</div>
+          <img src={hennderIcon} alt="Hennder ERP" className="pdv-logo" />
           <span>
             <small>{selectedTenant?.nomeOficina || 'Nexus Company'}</small>
             <strong>Frente de Caixa</strong>

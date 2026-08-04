@@ -406,7 +406,7 @@ const SuperAdmin: React.FC = () => {
         <div>
           <h1 style={{ fontSize: '32px', fontWeight: 800, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-primary)' }}>
             <LayoutDashboard size={36} color="#8b5cf6" />
-            Nexar SaaS Dashboard
+            Hennder SaaS Dashboard
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '16px' }}>Seu centro de comando financeiro e gestão de clientes.</p>
         </div>

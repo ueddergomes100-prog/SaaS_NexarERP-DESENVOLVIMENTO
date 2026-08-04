@@ -148,7 +148,7 @@ const PedidoPrintDocument: React.FC<PedidoPrintDocumentProps> = ({ pedidoData, c
 
       <div className="a4-footer">
         <p>Obrigado pela preferência!</p>
-        <p>Gerado pelo Sistema Nexar ERP.</p>
+        <p>Gerado pelo Sistema Hennder ERP.</p>
       </div>
     </div>
   );

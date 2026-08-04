@@ -650,7 +650,7 @@ const Configuracoes: React.FC = () => {
               <input
                 type="text"
                 name="nomeOficina"
-                placeholder="Ex: Mercado Central Nexar"
+                placeholder="Ex: Mercado Central Hennder"
                 value={formData.nomeOficina}
                 onChange={handleChange}
                 disabled={!isEditingMode}

@@ -230,7 +230,7 @@ const OsPrint: React.FC = () => {
 
         <div className="a4-footer">
           <p>{configData?.garantiaPadrao || 'Garantia de 90 dias para peças e serviços executados de acordo com o Código de Defesa do Consumidor.'}</p>
-          <p>Gerado pelo Sistema Nexar ERP.</p>
+          <p>Gerado pelo Sistema Hennder ERP.</p>
         </div>
       </div>
       )}

@@ -18,6 +18,7 @@ import {
   type PublicCnpjData,
   type StartOnboardingResponse
 } from '../../services/onboardingService';
+import hennderIcon from '../../assets/hennder-icon.svg';
 import './Auth.css';
 
 type RegisterStep = 'company' | 'codes' | 'password';
@@ -474,7 +475,7 @@ const Register: React.FC = () => {
     <div className="auth-container">
       <div className={`auth-card auth-register-card ${loading ? 'auth-card-loading' : ''}`}>
         <div className="auth-header">
-          <div className="auth-logo">N</div>
+          <img src={hennderIcon} alt="Hennder ERP" className="auth-logo" />
           <h1>Crie sua conta</h1>
           <p>Cadastre sua empresa com validacao de CNPJ, e-mail e telefone.</p>
         </div>

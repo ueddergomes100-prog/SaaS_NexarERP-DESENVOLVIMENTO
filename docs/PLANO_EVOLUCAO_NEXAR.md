@@ -1,6 +1,6 @@
-# Plano de Evolução do Nexar ERP
+# Plano de Evolução do Hennder ERP
 
-Documento de arquitetura e execução derivado do prompt "Nexar ERP — Missão de Implementação e Evolução do Sistema".
+Documento de arquitetura e execução derivado do prompt "Hennder ERP — Missão de Implementação e Evolução do Sistema".
 
 - **Criado em:** 2026-07-27
 - **Destinatário:** agente de implementação (Claude Sonnet 5) em sessões futuras

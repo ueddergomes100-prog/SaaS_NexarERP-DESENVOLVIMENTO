@@ -62,14 +62,9 @@
 }
 
 .os-custom-brand-mark {
-  display: grid;
   width: 52px;
   height: 52px;
-  place-items: center;
-  background: var(--os-accent);
-  color: #fff;
-  font-size: 28px;
-  font-weight: 800;
+  object-fit: contain;
 }
 
 .os-custom-brand-info {

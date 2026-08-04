@@ -12,7 +12,7 @@ const { reloadCompanyJob } = require('../services/scheduler');
 async function getTenants(req, res) {
   try {
     if (!req.user.isPlatformAdmin) {
-      return res.status(403).json({ error: 'Acesso negado. Apenas a equipe Nexar pode listar as empresas.' });
+      return res.status(403).json({ error: 'Acesso negado. Apenas a equipe Hennder pode listar as empresas.' });
     }
 
     const snap = await db.collection('usuarios').get();

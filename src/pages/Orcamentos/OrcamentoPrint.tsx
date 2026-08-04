@@ -203,7 +203,7 @@ const OrcamentoPrint: React.FC = () => {
 
         <div className="a4-footer">
           <p>Este orçamento tem validade de {data.validadeDias || 15} dias a partir da data de emissão.</p>
-          <p>Gerado pelo Sistema Nexar ERP.</p>
+          <p>Gerado pelo Sistema Hennder ERP.</p>
         </div>
       </div>
     </div>

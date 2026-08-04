@@ -1,6 +1,6 @@
 # Integração Obrigatória com Obsidian
 
-O projeto Nexar ERP possui um vault oficial de documentação em:
+O projeto Hennder ERP possui um vault oficial de documentação em:
 
 `C:\Users\uedde\OneDrive\Área de Trabalho\Obsidian Uedder\uedder\Nexar ERP`
 

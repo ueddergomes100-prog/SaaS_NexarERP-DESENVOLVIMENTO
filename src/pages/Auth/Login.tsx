@@ -14,6 +14,7 @@ import {
 } from '../../utils/sessionInfo';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { activeTenantStorageKey, loadTenantOptions } from '../../utils/platformTenants';
+import hennderIcon from '../../assets/hennder-icon.svg';
 import './Auth.css';
 
 const LOGIN_LOADING_STEPS = [
@@ -404,8 +405,8 @@ const Login: React.FC = () => {
       <div className="auth-container" style={{ display: showSplash ? 'none' : 'flex' }}>
       <div className={`auth-card ${loading ? 'auth-card-loading' : ''}`}>
         <div className="auth-header">
-          <div className="auth-logo">N</div>
-          <h1>Bem-vindo ao Nexar ERP</h1>
+          <img src={hennderIcon} alt="Hennder ERP" className="auth-logo" />
+          <h1>Bem-vindo ao Hennder ERP</h1>
           <p>Faça login para acessar o sistema da sua empresa.</p>
         </div>
 

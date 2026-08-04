@@ -42,15 +42,8 @@
 .logo-icon {
   width: 38px;
   height: 38px;
-  background: var(--accent-blue);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 18px;
-  color: #fff;
-  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.22);
+  object-fit: contain;
+  filter: drop-shadow(0 10px 22px rgba(37, 99, 235, 0.22));
 }
 
 .sidebar-logo h2 {
@@ -297,13 +290,16 @@ body.light-theme .nexus-sidebar {
   height: 42px;
   border: 0;
   border-radius: 8px;
-  background: linear-gradient(135deg, #0ea5e9, #2563eb);
-  color: #fff;
-  font-size: 24px;
-  font-weight: 900;
-  letter-spacing: 0;
+  background: transparent;
+  padding: 0;
   cursor: pointer;
-  box-shadow: 0 16px 34px rgba(37, 99, 235, 0.28);
+  filter: drop-shadow(0 16px 34px rgba(37, 99, 235, 0.28));
+}
+
+.nexus-rail-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .nexus-rail-modules {

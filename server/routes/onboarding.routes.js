@@ -223,7 +223,7 @@ const fetchCnpjData = async (cnpj) => {
     headers: {
       Accept: 'application/json',
       'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
-      'User-Agent': 'NexarERP-Onboarding/1.0 (+https://nexar-erp.local)'
+      'User-Agent': 'HennderERP-Onboarding/1.0 (+https://hennder-erp.local)'
     }
   });
   const data = await response.json().catch(() => ({}));
@@ -268,8 +268,8 @@ const validateCnpjForOnboarding = async (cnpjInput) => {
 };
 
 const sendEmailCode = async ({ email, code, companyName }) => {
-  const subject = 'Codigo de verificacao Nexar ERP';
-  const text = `Seu codigo de verificacao Nexar ERP para ${companyName} e: ${code}. Ele expira em 10 minutos.`;
+  const subject = 'Codigo de verificacao Hennder ERP';
+  const text = `Seu codigo de verificacao Hennder ERP para ${companyName} e: ${code}. Ele expira em 10 minutos.`;
   const safeCompanyName = escapeHtml(companyName);
   const safeCode = escapeHtml(code);
   const html = `
@@ -339,7 +339,7 @@ const sendEmailCode = async ({ email, code, companyName }) => {
 };
 
 const sendPhoneCode = async ({ phone, code, companyName }) => {
-  const message = `Nexar ERP: seu codigo para validar ${companyName} e ${code}. Expira em 10 minutos.`;
+  const message = `Hennder ERP: seu codigo para validar ${companyName} e ${code}. Expira em 10 minutos.`;
 
   if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_PHONE) {
     const credentials = Buffer

@@ -980,25 +980,6 @@ body.light-theme .nexus-nav-group-trigger small {
   opacity: 1;
 }
 
-.tab-bar-add {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-md);
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.tab-bar-add:hover {
-  background-color: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
 /* Page Content */
 .page-content {
   flex: 1;

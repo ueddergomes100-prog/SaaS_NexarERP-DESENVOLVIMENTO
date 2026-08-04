@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { showError } from '../utils/alerts';
 
 export interface Tab {
   /** Identificador estavel da aba (nao muda mesmo que o usuario navegue
@@ -148,11 +149,30 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
+  // Espelha `tabs` num ref pra openTab poder ler o valor mais recente sem
+  // precisar depender de `[tabs]` -- isso manteria a identidade da funcao
+  // mudando a cada abertura/fechamento de aba, o que poderia disparar
+  // efeitos desnecessarios em qualquer lugar que a use como dependencia.
+  const tabsRef = useRef(tabs);
+  useEffect(() => {
+    tabsRef.current = tabs;
+  }, [tabs]);
+
   const openTab = useCallback((path: string, label?: string) => {
+    const existing = tabsRef.current.find((tab) => tab.path === path);
+    if (!existing && tabsRef.current.length >= MAX_TABS) {
+      // Antes, esse aviso so aparecia se o usuario clicasse no botao "+"
+      // (que tinha sua propria checagem duplicada) -- todo outro jeito de
+      // abrir uma tela (menu lateral, "Editar"/"Novo" de qualquer lista)
+      // so fazia um no-op silencioso aqui, parecendo que o sistema travou.
+      showError('Limite de abas atingido', `Você pode manter no máximo ${MAX_TABS} abas abertas ao mesmo tempo. Feche alguma antes de abrir outra.`);
+      return;
+    }
+
     setState((current) => {
-      const existing = current.tabs.find((tab) => tab.path === path);
-      if (existing) {
-        return existing.id === current.activeTabId ? current : { ...current, activeTabId: existing.id };
+      const found = current.tabs.find((tab) => tab.path === path);
+      if (found) {
+        return found.id === current.activeTabId ? current : { ...current, activeTabId: found.id };
       }
       if (current.tabs.length >= MAX_TABS) return current;
 

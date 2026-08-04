@@ -1,20 +1,11 @@
 import React, { useState } from 'react';
-import { Plus, X } from 'lucide-react';
-import { useTabs, MAX_TABS_LIMIT } from '../../contexts/TabsContext';
-import { showError } from '../../utils/alerts';
+import { X } from 'lucide-react';
+import { useTabs } from '../../contexts/TabsContext';
 
 const TabBar: React.FC = () => {
-  const { tabs, activeTabId, activateTab, closeTab, reorderTab, openTab } = useTabs();
+  const { tabs, activeTabId, activateTab, closeTab, reorderTab } = useTabs();
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
-
-  const handleAddTab = () => {
-    if (tabs.length >= MAX_TABS_LIMIT) {
-      showError('Limite de abas atingido', `Você pode manter no máximo ${MAX_TABS_LIMIT} abas abertas ao mesmo tempo. Feche alguma antes de abrir outra.`);
-      return;
-    }
-    openTab('/dashboard', 'Dashboard');
-  };
 
   const handleCloseTab = (event: React.MouseEvent, id: string) => {
     event.stopPropagation();
@@ -78,9 +69,6 @@ const TabBar: React.FC = () => {
           </button>
         );
       })}
-      <button type="button" className="tab-bar-add" onClick={handleAddTab} title="Abrir nova aba">
-        <Plus size={16} />
-      </button>
     </div>
   );
 };

@@ -15,6 +15,12 @@ interface CategoriaData {
   tipo: string;
 }
 
+const TIPO_COLORS: Record<string, string> = {
+  'Serviço': '#8b5cf6',
+  'Matéria-Prima': '#f59e0b',
+};
+const TIPO_COLOR_DEFAULT = '#10b981'; // Peça / Produto
+
 const CategoriasList: React.FC = () => {
   const { openTab } = useTabs();
   const [categorias, setCategorias] = useState<CategoriaData[]>([]);
@@ -144,9 +150,14 @@ const CategoriasList: React.FC = () => {
                   <tr key={cat.id}>
                     <td className="font-medium">{cat.nome}</td>
                     <td>
-                      <span className="status-badge" style={{ backgroundColor: cat.tipo === 'Serviço' ? '#8b5cf620' : '#10b98120', color: cat.tipo === 'Serviço' ? '#8b5cf6' : '#10b981' }}>
-                        {cat.tipo}
-                      </span>
+                      {(() => {
+                        const color = TIPO_COLORS[cat.tipo] || TIPO_COLOR_DEFAULT;
+                        return (
+                          <span className="status-badge" style={{ backgroundColor: `${color}20`, color }}>
+                            {cat.tipo}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: '8px' }}>

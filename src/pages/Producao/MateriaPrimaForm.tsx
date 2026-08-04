@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Factory, Loader2 } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, getDoc, getCountFromServer, serverTimestamp, query, where } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
@@ -37,6 +37,7 @@ const MateriaPrimaForm: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
+  const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
   // Decoupled de isFetching (que so controla o spinner de tela cheia, e
   // no modo "novo" ja comeca `false` mesmo com uma busca assincrona em
   // andamento pro codigo automatico) -- marca quando o carregamento
@@ -54,6 +55,14 @@ const MateriaPrimaForm: React.FC = () => {
     const fetchInitialData = async () => {
       if (!tenantId) return;
       try {
+        const qCat = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
+        const snapCat = await getDocs(qCat);
+        const cats: string[] = [];
+        snapCat.forEach(d => {
+          if (d.data().tipo === 'Matéria-Prima') cats.push(d.data().nome);
+        });
+        setCategoriasDB(cats);
+
         if (isEditing && id) {
           const docSnap = await getDoc(doc(db, 'materias_primas', id));
           if (docSnap.exists()) {
@@ -220,7 +229,10 @@ const MateriaPrimaForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Categoria</label>
-              <input type="text" name="categoria" placeholder="Ex: METAIS" value={formData.categoria} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+              <input type="text" name="categoria" list="categorias-materia-prima" placeholder="Ex: METAIS" value={formData.categoria} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+              <datalist id="categorias-materia-prima">
+                {categoriasDB.map((cat, idx) => <option key={idx} value={cat} />)}
+              </datalist>
             </div>
             <div className="input-group">
               <label>Unidade de Medida</label>

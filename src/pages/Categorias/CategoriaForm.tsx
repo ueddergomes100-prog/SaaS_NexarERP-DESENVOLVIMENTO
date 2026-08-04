@@ -119,6 +119,7 @@ const CategoriaForm: React.FC = () => {
               <select name="tipo" value={formData.tipo} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}>
                 <option value="Peça">Peça / Produto</option>
                 <option value="Serviço">Serviço</option>
+                <option value="Matéria-Prima">Matéria-Prima</option>
               </select>
             </div>
           </div>

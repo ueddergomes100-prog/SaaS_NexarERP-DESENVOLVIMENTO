@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useRoutes } from 'react-router-dom';
 import { ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -13,57 +13,79 @@ import PageLoader from './PageLoader';
  * Conteudo de uma aba. react-router proibe <Router> aninhado (nao da pra
  * dar a cada aba seu proprio MemoryRouter dentro do BrowserRouter externo
  * -- "You cannot render a <Router> inside another <Router>"), entao todas
- * as abas compartilham o MESMO router; o que muda por aba e qual location
- * usamos pra resolver a rota:
- * - aba ativa: resolve contra a location REAL do navegador (useLocation),
- *   entao navigate()/Link dentro da tela funcionam normalmente; um efeito
- *   espelha a location real de volta pro tab.path (persistencia).
- * - aba em segundo plano: resolve contra o ultimo tab.path conhecido
- *   (congelado), sem depender da location real, que pertence a aba ativa.
- * Ao trocar de aba ativa, um efeito empurra tab.path pra location real via
- * navigate(..., {replace:true}), pra aba recem-ativada assumir o timao.
+ * as abas compartilham o MESMO router. O que isola uma aba da outra e
+ * que CADA UMA resolve sua rota contra o proprio `tab.path`, nunca
+ * contra a URL real do navegador -- inclusive a aba ativa.
  *
- * CUIDADO -- a aba ativa passa `location` (o objeto real do useLocation)
- * em vez de `undefined`, e isso NAO e redundante: o useRoutes do
- * react-router embrulha o resultado num <LocationContext.Provider>
- * QUANDO (e so quando) recebe um locationArg; sem locationArg ele
- * devolve a arvore crua. Passar `undefined` pra aba ativa e uma string
- * pras inativas fazia esse wrapper aparecer/sumir do topo da arvore a
- * cada troca de aba -- o React via um tipo de elemento diferente naquela
- * posicao e DESMONTAVA/REMONTAVA a tela inteira. Era a causa raiz de
- * tres sintomas ao mesmo tempo: texto digitado sumindo ao trocar de aba
- * (estado local destruido), ~300ms de travada por troca (pagina inteira
- * reconstruida) e o ResponsiveContainer do Recharts remedindo do zero.
- * Passando sempre um locationArg, a forma da arvore nunca muda e o React
- * so re-renderiza, preservando o estado. Semanticamente identico: sem
- * locationArg o proprio react-router usa a location do contexto, que e
- * exatamente o que passamos aqui.
+ * Isso e o ponto mais delicado do F19, e a fonte de varios bugs ate
+ * 2026-08-04. Antes, a aba ativa resolvia contra a URL real
+ * (`useRoutes(routes, isActive ? undefined : tab.path)`), o que parecia
+ * natural mas quebrava por DOIS motivos independentes:
+ *
+ * 1. O `useRoutes` so embrulha o resultado num <LocationContext.Provider>
+ *    QUANDO recebe um locationArg; sem ele, devolve a arvore crua. Como
+ *    a aba alternava entre `undefined` (ativa) e uma string (inativa),
+ *    esse wrapper aparecia e sumia do topo da arvore a cada troca de
+ *    aba -- o React via outro tipo de elemento naquela posicao e
+ *    desmontava/remontava a tela inteira.
+ *
+ * 2. Pior: o <BrowserRouter> do react-router v7 aplica TODA mudanca de
+ *    URL dentro de um React.startTransition (ver o fonte de
+ *    BrowserRouter). Transicoes tem prioridade baixa, entao o React
+ *    renderiza primeiro a mudanca urgente (qual aba esta ativa) e so
+ *    depois a URL nova. Ou seja, no render em que uma aba vira ativa a
+ *    URL real AINDA E A DA ABA ANTERIOR -- e a aba recem-ativada
+ *    renderizava a tela da outra aba, destruindo a sua propria. Nao da
+ *    pra consertar isso sincronizando melhor (navegar junto do clique
+ *    nao adianta: o startTransition separa as duas renderizacoes de
+ *    qualquer jeito) -- foi medido ao vivo, com log de ciclo de vida.
+ *
+ * Resolvendo os dois de uma vez: `tab.path` e sempre a verdade pra
+ * renderizar, e a URL real vira so um espelho (pra barra de endereco,
+ * F5 e deep-link). Com isso o locationArg nunca deixa de existir nem
+ * muda ao trocar de aba, o React so re-renderiza, e o estado local dos
+ * formularios sobrevive.
+ *
+ * O efeito abaixo mantem os dois lados em dia nas duas direcoes, usando
+ * `syncedRef` pra desempatar QUEM manda quando eles divergem -- porque
+ * "URL != tab.path" tem duas causas opostas: ou a aba acabou de virar
+ * ativa (a URL esta atrasada, tab.path manda), ou a propria tela chamou
+ * navigate() (a URL e a novidade, ela manda).
  */
 const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActive }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const element = useRoutes(appRoutesConfig, isActive ? location : tab.path);
+  const element = useRoutes(appRoutesConfig, tab.path);
   const { updateTabLocation } = useTabs();
   const { blockedModules, userRole, userPermissions, isOwner, isPlatformAdmin } = useAuth();
 
-  // Ao virar a aba ativa (troca de aba, ou primeiro mount ja ativa),
-  // assume a location real do navegador -- so essa aba deve mexer nela.
-  useEffect(() => {
-    if (!isActive) return;
-    if (location.pathname === tab.path) return;
-    navigate(tab.path, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActive]);
+  // Inclui a query string: telas de impressao em lote passam ?ids=...
+  const currentPath = `${location.pathname}${location.search}`;
+  const syncedRef = useRef(false);
 
-  // So a aba ativa espelha sua location real de volta pro tab.path
-  // (leitura -> escrita, nunca o contrario) -- mantem F5 e deep-link
-  // coerentes sem fazer as abas em segundo plano brigarem pela URL.
   useEffect(() => {
-    if (!isActive) return;
-    updateTabLocation(tab.id, location.pathname);
-  }, [isActive, location.pathname, tab.id, updateTabLocation]);
+    if (!isActive) {
+      // Aba em segundo plano nao mexe na URL nem se deixa influenciar
+      // por ela (a URL agora pertence a outra aba).
+      syncedRef.current = false;
+      return;
+    }
+    if (currentPath === tab.path) {
+      syncedRef.current = true;
+      return;
+    }
+    if (syncedRef.current) {
+      // Ja estavamos em dia e a URL mudou: foi a propria tela navegando
+      // (ex: salvou e seguiu pra outra rota) -- espelha pro tab.path.
+      updateTabLocation(tab.id, currentPath);
+    } else {
+      // Ainda nao estavamos em dia: esta aba acabou de virar ativa e a
+      // URL e a que a aba anterior deixou. Puxa a URL pra ca.
+      navigate(tab.path, { replace: true });
+    }
+  }, [isActive, currentPath, tab.path, tab.id, navigate, updateTabLocation]);
 
-  const effectivePath = isActive ? location.pathname : tab.path;
+  const effectivePath = tab.path;
   const { routeModule, routePermission } = resolveRouteAccess(effectivePath);
   const isModuleBlocked = routeModule && !isPlatformAdmin && blockedModules?.includes(routeModule);
   const hasFullAccess = hasTenantFullAccess(userRole, isOwner);

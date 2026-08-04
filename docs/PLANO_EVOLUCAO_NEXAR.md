@@ -703,6 +703,12 @@ Os dois efeitos que sincronizavam URL ↔ `tab.path` viraram **um só**, com um 
 
 Typecheck/lint (0 erros, 66 warnings pré-existentes)/build/73 testes passando nas duas fatias.
 
+**Sétima rodada em 2026-08-04 — Matéria-Prima e Ordens de Produção limitadas a 1 aba por vez** (commit `5eabb03`): o usuário viu duas abas "Matéria-Prima" idênticas na barra e pediu pra corrigir. Causa raiz: o dedup de `openTab()` só rodava na criação (path exato); nada impedia duas abas convergirem pro mesmo path depois, via navegação interna (ex: botão "Voltar" de um formulário voltando pra lista, quando outra aba já estava lá). Escopo confirmado com o usuário (AskUserQuestion): só esses dois módulos, não o sistema inteiro (que continua "uma aba por registro"); comportamento — reaproveita a aba existente do módulo, trocando o conteúdo (com o aviso de dados não salvos entrando em ação se necessário).
+
+Correção em duas frentes: `openTab()` ganhou um caminho pra módulos "single-session" (`SINGLE_SESSION_PREFIXES`), reaproveitando qualquer aba já aberta sob o mesmo prefixo em vez de dedup por path exato — checando dado não salvo antes via `confirmUnsavedChanges()`. `updateTabLocation()` ganhou uma limpeza automática: se a navegação interna de uma aba pousar no território de um módulo single-session que outra aba já ocupa, fecha a outra. **Achado ao planejar:** reaproveitar a aba pra um registro diferente não remonta o componente sozinho (mesma rota, só o `:id` muda) — precisou de `key={tab.path}` no elemento renderizado (`TabPane.tsx`, só pros módulos single-session) pra forçar remount limpo, evitando `MateriaPrimaForm`/`OrdemProducaoForm` vazarem estado de um registro pro outro.
+
+Validado ao vivo: abrir ordem → voltar → abrir outra ordem manteve 1 aba só, dados corretos de cada uma; editar matéria-prima, digitar sem salvar, clicar no atalho do menu → aviso apareceu, as 3 opções testadas (Cancelar/Fechar sem salvar/Salvar e fechar) todas sem duplicar aba. Typecheck/lint/build/73 testes passando.
+
 **Fase restante:**
 - **Fase C:** título dinâmico por aba (nome do registro, não só o nome da tela).
 

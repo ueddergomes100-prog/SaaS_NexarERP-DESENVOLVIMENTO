@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { showError, confirmUnsavedChanges } from '../utils/alerts';
 
 export interface Tab {
@@ -14,8 +15,10 @@ export interface Tab {
 interface TabsContextValue {
   tabs: Tab[];
   activeTabId: string;
-  /** Reaproveita a aba que ja estiver mostrando esse path; senao cria uma nova e ativa. */
-  openTab: (path: string, label?: string) => void;
+  /** Reaproveita a aba que ja estiver mostrando esse path; senao cria uma
+   * nova e ativa. Pros modulos single-session (ver singleSessionPrefixFor),
+   * reaproveita qualquer aba do mesmo modulo, nao so path identico. */
+  openTab: (path: string, label?: string) => Promise<void>;
   activateTab: (id: string) => void;
   closeTab: (id: string) => void;
   /** Fecha a aba direto se ela nao tiver dados nao salvos registrados
@@ -99,6 +102,21 @@ const SECTION_LABELS: Array<[string, string]> = [
   ['/configuracoes', 'Configurações'],
 ];
 
+/**
+ * Modulos que so podem ter UMA aba aberta por vez (pedido explicito do
+ * usuario, 2026-08-04, depois de ver duas abas "Matéria-Prima" iguais
+ * na barra -- editar um registro diferente do mesmo modulo reaproveita
+ * a aba existente em vez de abrir outra). Deliberadamente restrito a
+ * esses dois modulos, nao o sistema inteiro -- os demais mantem "uma
+ * aba por registro" (decisao original do F19).
+ */
+const SINGLE_SESSION_PREFIXES = ['/materias-primas', '/producao/ordens'];
+
+/** Prefixo de modulo single-session que `pathname` pertence, ou null. */
+export const singleSessionPrefixFor = (pathname: string): string | null => (
+  SINGLE_SESSION_PREFIXES.find((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)) || null
+);
+
 const humanizeSegment = (segment: string) => (
   segment
     .replace(/[-_]/g, ' ')
@@ -164,6 +182,7 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // pro useState so roda uma vez, no mount, garantido pelo proprio React.
   const [state, setState] = useState<TabsState>(initialTabsState);
   const { tabs, activeTabId } = state;
+  const navigate = useNavigate();
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -178,7 +197,53 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     tabsRef.current = tabs;
   }, [tabs]);
 
-  const openTab = useCallback((path: string, label?: string) => {
+  // Ref, nao state -- registrar/desregistrar "aba suja" acontece a cada
+  // tecla digitada em algum formulario; se isso fosse state, cada tecla
+  // re-renderizaria toda a arvore que consome TabsContext.
+  const dirtyTabsRef = useRef(new Map<string, () => Promise<boolean>>());
+
+  const openTab = useCallback(async (path: string, label?: string) => {
+    const modulePrefix = singleSessionPrefixFor(path);
+    if (modulePrefix) {
+      const existingSameModule = tabsRef.current.find((tab) => singleSessionPrefixFor(tab.path) === modulePrefix);
+      if (existingSameModule) {
+        if (existingSameModule.path === path) {
+          setState((current) => (current.activeTabId === existingSameModule.id ? current : { ...current, activeTabId: existingSameModule.id }));
+          return;
+        }
+
+        // Reaproveita a aba existente do modulo em vez de abrir uma nova
+        // (pedido do usuario, 2026-08-04) -- se ela tiver dado nao salvo,
+        // pergunta antes de trocar o conteudo, mesmo fluxo do X de fechar.
+        const onSaveRequest = dirtyTabsRef.current.get(existingSameModule.id);
+        if (onSaveRequest) {
+          const choice = await confirmUnsavedChanges();
+          if (choice === 'cancel') return;
+          if (choice === 'save') {
+            const saved = await onSaveRequest();
+            if (!saved) return;
+          }
+        }
+        dirtyTabsRef.current.delete(existingSameModule.id);
+
+        // Navega a URL real junto -- se essa aba ja for a ativa, o efeito
+        // de sincronizacao do TabPane so reage a MUDANCA de isActive, nao
+        // a troca externa de tab.path; sem isso a URL ficaria atrasada.
+        // Se a aba ainda nao for a ativa, isso e inocuo (a URL some da
+        // tela ate a aba ativar, no mesmo lote de render).
+        navigate(path, { replace: true });
+        setState((current) => ({
+          ...current,
+          tabs: current.tabs.map((tab) => (
+            tab.id === existingSameModule.id ? { ...tab, path, label: label || resolveTabLabel(path) } : tab
+          )),
+          activeTabId: existingSameModule.id,
+        }));
+        return;
+      }
+      // Nenhuma aba desse modulo ainda -- cai pro fluxo normal abaixo.
+    }
+
     const existing = tabsRef.current.find((tab) => tab.path === path);
     if (!existing && tabsRef.current.length >= MAX_TABS) {
       // Antes, esse aviso so aparecia se o usuario clicasse no botao "+"
@@ -199,7 +264,7 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const newTab: Tab = { id: makeTabId(), path, label: label || resolveTabLabel(path) };
       return { tabs: [...current.tabs, newTab], activeTabId: newTab.id };
     });
-  }, []);
+  }, [navigate]);
 
   const activateTab = useCallback((id: string) => {
     setState((current) => (current.activeTabId === id ? current : { ...current, activeTabId: id }));
@@ -209,19 +274,28 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setState((current) => {
       const target = current.tabs.find((tab) => tab.id === id);
       if (!target || target.path === path) return current;
-      return {
-        ...current,
-        tabs: current.tabs.map((tab) => (
-          tab.id === id ? { ...tab, path, label: label || resolveTabLabel(path) } : tab
-        )),
-      };
+
+      let nextTabs = current.tabs.map((tab) => (
+        tab.id === id ? { ...tab, path, label: label || resolveTabLabel(path) } : tab
+      ));
+
+      // Se a navegacao interna da propria aba (ex: botao "Voltar" de um
+      // formulario) fez ela "pousar" no territorio de um modulo
+      // single-session que JA tem outra aba aberta, fecha a outra --
+      // nao da pra ter duas abas de Matéria-Prima/Ordens de Produção ao
+      // mesmo tempo. A aba que esta navegando (`id`) sempre vence porque
+      // e a que o usuario esta olhando agora.
+      const modulePrefix = singleSessionPrefixFor(path);
+      if (modulePrefix) {
+        nextTabs
+          .filter((tab) => tab.id !== id && singleSessionPrefixFor(tab.path) === modulePrefix)
+          .forEach((tab) => dirtyTabsRef.current.delete(tab.id));
+        nextTabs = nextTabs.filter((tab) => tab.id === id || singleSessionPrefixFor(tab.path) !== modulePrefix);
+      }
+
+      return { ...current, tabs: nextTabs };
     });
   }, []);
-
-  // Ref, nao state -- registrar/desregistrar "aba suja" acontece a cada
-  // tecla digitada em algum formulario; se isso fosse state, cada tecla
-  // re-renderizaria toda a arvore que consome TabsContext.
-  const dirtyTabsRef = useRef(new Map<string, () => Promise<boolean>>());
 
   const closeTab = useCallback((id: string) => {
     // Limpa o registro de "aba suja" aqui tambem, nao so no cleanup do

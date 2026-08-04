@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { resolveRouteAccess } from '../../utils/routeAccess';
 import { appRoutesConfig } from '../../routes/appRoutesConfig';
-import { TabActiveContext, TabIdContext, useTabs, type Tab } from '../../contexts/TabsContext';
+import { TabActiveContext, TabIdContext, singleSessionPrefixFor, useTabs, type Tab } from '../../contexts/TabsContext';
 import { ErrorBoundary } from '../ErrorBoundary';
 import PageLoader from './PageLoader';
 
@@ -123,7 +123,17 @@ const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActi
                     : 'Seu usuário não possui permissão para acessar esta área. Peça ao administrador para revisar seus acessos.'}
                 </p>
               </div>
-            ) : element}
+            ) : (
+              // Modulos single-session (ver singleSessionPrefixFor) reaproveitam
+              // a mesma aba pra registros diferentes (ex: editar outra
+              // materia-prima) -- sem essa key, o React manteria a MESMA
+              // instancia do componente pra um `id` novo (mesmo padrao de rota),
+              // vazando o formData/estado do registro anterior pro novo em vez
+              // de recarregar do zero. Nas demais abas (uma por registro), a
+              // key nao muda nunca (tab.path so muda dentro da mesma tela por
+              // navegacao normal), entao isso e inocuo pra elas.
+              singleSessionPrefixFor(tab.path) ? <React.Fragment key={tab.path}>{element}</React.Fragment> : element
+            )}
           </div>
         </main>
       </TabActiveContext.Provider>

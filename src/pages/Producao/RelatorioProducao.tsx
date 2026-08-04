@@ -27,6 +27,7 @@ interface ItemConsumidoData {
   unidade: string;
   quantidadeNecessaria?: number;
   perdaExtra?: number;
+  sobra?: number;
   quantidadeConsumida: number;
 }
 
@@ -102,6 +103,7 @@ const RelatorioProducao: React.FC = () => {
     const porProduto: Record<string, { nome: string; produzido: number; ordens: number }> = {};
     const porResponsavel: Record<string, { nome: string; ordens: number }> = {};
     const perdaPorMateriaPrima: Record<string, { nome: string; unidade: string; perda: number }> = {};
+    const sobraPorMateriaPrima: Record<string, { nome: string; unidade: string; sobra: number }> = {};
     const timelineData: Record<string, { name: string; qtd: number }> = {};
 
     filteredData.forEach(o => {
@@ -130,11 +132,20 @@ const RelatorioProducao: React.FC = () => {
 
         (o.itensConsumidos || []).forEach(item => {
           const perda = Number(item.perdaExtra || 0);
-          if (perda <= 0) return;
-          if (!perdaPorMateriaPrima[item.materiaPrimaId]) {
-            perdaPorMateriaPrima[item.materiaPrimaId] = { nome: item.materiaPrimaNome, unidade: item.unidade, perda: 0 };
+          if (perda > 0) {
+            if (!perdaPorMateriaPrima[item.materiaPrimaId]) {
+              perdaPorMateriaPrima[item.materiaPrimaId] = { nome: item.materiaPrimaNome, unidade: item.unidade, perda: 0 };
+            }
+            perdaPorMateriaPrima[item.materiaPrimaId].perda += perda;
           }
-          perdaPorMateriaPrima[item.materiaPrimaId].perda += perda;
+
+          const sobra = Number(item.sobra || 0);
+          if (sobra > 0) {
+            if (!sobraPorMateriaPrima[item.materiaPrimaId]) {
+              sobraPorMateriaPrima[item.materiaPrimaId] = { nome: item.materiaPrimaNome, unidade: item.unidade, sobra: 0 };
+            }
+            sobraPorMateriaPrima[item.materiaPrimaId].sobra += sobra;
+          }
         });
       } else if (o.status === 'cancelada') {
         qtdCanceladas++;
@@ -157,6 +168,7 @@ const RelatorioProducao: React.FC = () => {
       porProduto: Object.values(porProduto).sort((a, b) => b.produzido - a.produzido),
       porResponsavel: Object.values(porResponsavel).sort((a, b) => b.ordens - a.ordens),
       perdaPorMateriaPrima: Object.values(perdaPorMateriaPrima).sort((a, b) => b.perda - a.perda),
+      sobraPorMateriaPrima: Object.values(sobraPorMateriaPrima).sort((a, b) => b.sobra - a.sobra),
       timeline: Object.values(timelineData),
     };
   }, [filteredData]);
@@ -361,6 +373,38 @@ const RelatorioProducao: React.FC = () => {
                   <tr key={item.nome}>
                     <td>{item.nome}</td>
                     <td style={{ color: '#ef4444', fontWeight: 700 }}>{item.perda} {item.unidade}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
+        <h3 style={{ fontSize: '16px', fontWeight: 700, margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <TrendingDown size={18} style={{ color: '#10b981', transform: 'scaleY(-1)' }} />
+          Sobra de Matéria-Prima no Período
+        </h3>
+        <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted)', fontSize: '13px' }}>
+          Soma da sobra registrada na conferência de finalização — matéria-prima que voltou pro estoque em vez de ser descartada.
+        </p>
+        {stats.sobraPorMateriaPrima.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Nenhuma sobra registrada no período.</p>
+        ) : (
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Matéria-Prima</th>
+                  <th>Sobra no período</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.sobraPorMateriaPrima.map(item => (
+                  <tr key={item.nome}>
+                    <td>{item.nome}</td>
+                    <td style={{ color: '#10b981', fontWeight: 700 }}>{item.sobra} {item.unidade}</td>
                   </tr>
                 ))}
               </tbody>

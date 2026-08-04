@@ -16,6 +16,7 @@ interface ItemConsumido {
   unidade: string;
   quantidadeNecessaria: number;
   perdaExtra: number;
+  sobra: number;
   quantidadeConsumida: number;
 }
 
@@ -25,6 +26,7 @@ interface ItemComposicaoPreview {
   unidade: string;
   quantidadePorUnidade: number;
   perdaExtra: string;
+  sobra: string;
 }
 
 interface OrdemData {
@@ -305,6 +307,7 @@ const OrdemProducaoForm: React.FC = () => {
         unidade: item.unidade,
         quantidadePorUnidade: Number(item.quantidade || 0),
         perdaExtra: '0',
+        sobra: '0',
       })));
       setQuantidadeProduzidaInput(String(ordem.quantidadePlanejada));
       setShowRevisaoFinalizacao(true);
@@ -319,6 +322,12 @@ const OrdemProducaoForm: React.FC = () => {
   const handleAlterarPerdaExtra = (materiaPrimaId: string, valor: string) => {
     setComposicaoPreview(prev => prev.map(item => (
       item.materiaPrimaId === materiaPrimaId ? { ...item, perdaExtra: valor } : item
+    )));
+  };
+
+  const handleAlterarSobra = (materiaPrimaId: string, valor: string) => {
+    setComposicaoPreview(prev => prev.map(item => (
+      item.materiaPrimaId === materiaPrimaId ? { ...item, sobra: valor } : item
     )));
   };
 
@@ -352,8 +361,12 @@ const OrdemProducaoForm: React.FC = () => {
             throw new Error(`Matéria-prima "${itemPreview.materiaPrimaNome}" não foi encontrada (pode ter sido excluída).`);
           }
           const quantidadeNecessaria = itemPreview.quantidadePorUnidade * quantidadeProduzida;
-          const perdaExtra = Number(itemPreview.perdaExtra) || 0;
-          const quantidadeConsumida = quantidadeNecessaria + Math.max(0, perdaExtra);
+          const perdaExtra = Math.max(0, Number(itemPreview.perdaExtra) || 0);
+          const sobra = Math.max(0, Number(itemPreview.sobra) || 0);
+          const quantidadeConsumida = quantidadeNecessaria + perdaExtra - sobra;
+          if (quantidadeConsumida < 0) {
+            throw new Error(`Sobra informada para "${itemPreview.materiaPrimaNome}" é maior do que o necessário + perda extra (não é possível devolver mais do que foi retirado do estoque).`);
+          }
           const quantidadeAtual = Number(snap.data().quantidade || 0);
           if (quantidadeAtual < quantidadeConsumida) {
             throw new Error(`Estoque insuficiente de "${itemPreview.materiaPrimaNome}". Necessário: ${quantidadeConsumida} ${itemPreview.unidade}, disponível: ${quantidadeAtual} ${itemPreview.unidade}.`);
@@ -367,7 +380,8 @@ const OrdemProducaoForm: React.FC = () => {
             materiaPrimaNome: itemPreview.materiaPrimaNome,
             unidade: itemPreview.unidade,
             quantidadeNecessaria,
-            perdaExtra: Math.max(0, perdaExtra),
+            perdaExtra,
+            sobra,
             quantidadeConsumida,
           });
         }
@@ -515,6 +529,7 @@ const OrdemProducaoForm: React.FC = () => {
                         <th>Matéria-Prima</th>
                         <th>Necessário (receita)</th>
                         <th>Perda extra</th>
+                        <th>Sobra</th>
                         <th>Total consumido</th>
                       </tr>
                     </thead>
@@ -524,6 +539,7 @@ const OrdemProducaoForm: React.FC = () => {
                           <td>{item.materiaPrimaNome}</td>
                           <td>{item.quantidadeNecessaria} {item.unidade}</td>
                           <td>{item.perdaExtra > 0 ? `${item.perdaExtra} ${item.unidade}` : '-'}</td>
+                          <td>{item.sobra > 0 ? `${item.sobra} ${item.unidade}` : '-'}</td>
                           <td><strong>{item.quantidadeConsumida} {item.unidade}</strong></td>
                         </tr>
                       ))}
@@ -540,7 +556,7 @@ const OrdemProducaoForm: React.FC = () => {
                   <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>Conferência antes de finalizar</h3>
                 </div>
                 <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
-                  Confira a quantidade produzida e a matéria-prima que será debitada. Se houve refugo/desperdício além do previsto na receita, informe a perda extra por item.
+                  Confira a quantidade produzida e a matéria-prima que será debitada. Se houve refugo/desperdício além do previsto na receita, informe a perda extra por item; se sobrou material que volta pro estoque, informe a sobra.
                 </p>
 
                 <div className="input-group" style={{ maxWidth: '260px' }}>
@@ -562,6 +578,7 @@ const OrdemProducaoForm: React.FC = () => {
                         <th>Matéria-Prima</th>
                         <th>Necessário (receita × produzido)</th>
                         <th>Perda extra</th>
+                        <th>Sobra</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -579,6 +596,16 @@ const OrdemProducaoForm: React.FC = () => {
                                 min="0"
                                 value={item.perdaExtra}
                                 onChange={(e) => handleAlterarPerdaExtra(item.materiaPrimaId, e.target.value)}
+                                style={{ ...inputStyle, padding: '8px 12px' }}
+                              />
+                            </td>
+                            <td style={{ maxWidth: '140px' }}>
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={item.sobra}
+                                onChange={(e) => handleAlterarSobra(item.materiaPrimaId, e.target.value)}
                                 style={{ ...inputStyle, padding: '8px 12px' }}
                               />
                             </td>

@@ -6,6 +6,8 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialStock';
+import { computeEstoquePrevisto } from '../../utils/producaoDomain';
 
 const inputStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg-tertiary)',
@@ -35,6 +37,10 @@ const MateriaPrimaForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const { currentUser, tenantId } = useAuth();
+  const { reservedMap } = useReservedRawMaterialStock(tenantId);
+  const reservado = isEditing && id ? (reservedMap.get(id) || 0) : 0;
+  const quantidadeAtual = Number(formData.quantidade) || 0;
+  const estoquePrevisto = computeEstoquePrevisto(quantidadeAtual, reservado);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -154,6 +160,19 @@ const MateriaPrimaForm: React.FC = () => {
             <Factory size={20} style={{ color: 'var(--accent-purple)' }} />
             <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Dados da Matéria-Prima</h3>
           </div>
+
+          {isEditing && reservado > 0 && (
+            <div style={{ display: 'flex', gap: '24px', padding: '14px 18px', backgroundColor: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)', borderRadius: 'var(--radius-md)' }}>
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Reservado (produção em andamento)</label>
+                <strong style={{ color: '#8b5cf6' }}>{reservado} {formData.unidade || 'UN'}</strong>
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Estoque Previsto</label>
+                <strong style={{ color: '#8b5cf6' }}>{estoquePrevisto} {formData.unidade || 'UN'}</strong>
+              </div>
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
             <div className="input-group">

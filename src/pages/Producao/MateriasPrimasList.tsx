@@ -5,6 +5,8 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
+import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialStock';
+import { computeEstoquePrevisto } from '../../utils/producaoDomain';
 
 interface MateriaPrimaData {
   id: string;
@@ -25,6 +27,7 @@ const MateriasPrimasList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
 
   const { currentUser, tenantId } = useAuth();
+  const { reservedMap } = useReservedRawMaterialStock(tenantId);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -106,6 +109,7 @@ const MateriasPrimasList: React.FC = () => {
                 <th>Nome</th>
                 <th>Categoria</th>
                 <th>Quantidade</th>
+                <th>Estoque Previsto</th>
                 <th>Custo Unitário</th>
                 <th>Fornecedor</th>
                 <th>Ações</th>
@@ -114,11 +118,11 @@ const MateriasPrimasList: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>Carregando matérias-primas...</td>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '20px' }}>Carregando matérias-primas...</td>
                 </tr>
               ) : filteredMateriasPrimas.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
                     <Factory size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>{searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhuma matéria-prima cadastrada."}</p>
                   </td>
@@ -126,16 +130,32 @@ const MateriasPrimasList: React.FC = () => {
               ) : (
                 filteredMateriasPrimas.map((item) => {
                   const abaixoDoMinimo = item.estoqueMinimo > 0 && item.quantidade <= item.estoqueMinimo;
+                  const reservado = reservedMap.get(item.id) || 0;
+                  const emProducao = reservado > 0;
+                  const estoquePrevisto = computeEstoquePrevisto(item.quantidade, reservado);
                   return (
                     <tr key={item.id}>
                       <td style={{ color: 'var(--text-muted)' }}>{item.codigo || '-'}</td>
-                      <td className="font-medium">{item.nome}</td>
+                      <td className="font-medium">
+                        {item.nome}
+                        {emProducao && (
+                          <span
+                            title={`${reservado} ${item.unidade || 'UN'} reservados por ordens de produção em andamento`}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginLeft: '10px', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 700, color: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.14)' }}
+                          >
+                            <Factory size={11} /> Em Produção
+                          </span>
+                        )}
+                      </td>
                       <td>{item.categoria || '-'}</td>
                       <td>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: abaixoDoMinimo ? '#ef4444' : 'inherit', fontWeight: abaixoDoMinimo ? 600 : 400 }}>
                           {abaixoDoMinimo && <AlertTriangle size={14} />}
                           {item.quantidade} {item.unidade || 'UN'}
                         </span>
+                      </td>
+                      <td style={{ color: emProducao ? '#8b5cf6' : 'var(--text-muted)', fontWeight: emProducao ? 600 : 400 }}>
+                        {emProducao ? `${estoquePrevisto} ${item.unidade || 'UN'}` : '-'}
                       </td>
                       <td>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.precoCusto || 0)}</td>
                       <td>{item.fornecedor || '-'}</td>

@@ -22,11 +22,27 @@ import PageLoader from './PageLoader';
  *   (congelado), sem depender da location real, que pertence a aba ativa.
  * Ao trocar de aba ativa, um efeito empurra tab.path pra location real via
  * navigate(..., {replace:true}), pra aba recem-ativada assumir o timao.
+ *
+ * CUIDADO -- a aba ativa passa `location` (o objeto real do useLocation)
+ * em vez de `undefined`, e isso NAO e redundante: o useRoutes do
+ * react-router embrulha o resultado num <LocationContext.Provider>
+ * QUANDO (e so quando) recebe um locationArg; sem locationArg ele
+ * devolve a arvore crua. Passar `undefined` pra aba ativa e uma string
+ * pras inativas fazia esse wrapper aparecer/sumir do topo da arvore a
+ * cada troca de aba -- o React via um tipo de elemento diferente naquela
+ * posicao e DESMONTAVA/REMONTAVA a tela inteira. Era a causa raiz de
+ * tres sintomas ao mesmo tempo: texto digitado sumindo ao trocar de aba
+ * (estado local destruido), ~300ms de travada por troca (pagina inteira
+ * reconstruida) e o ResponsiveContainer do Recharts remedindo do zero.
+ * Passando sempre um locationArg, a forma da arvore nunca muda e o React
+ * so re-renderiza, preservando o estado. Semanticamente identico: sem
+ * locationArg o proprio react-router usa a location do contexto, que e
+ * exatamente o que passamos aqui.
  */
 const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActive }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const element = useRoutes(appRoutesConfig, isActive ? undefined : tab.path);
+  const element = useRoutes(appRoutesConfig, isActive ? location : tab.path);
   const { updateTabLocation } = useTabs();
   const { blockedModules, userRole, userPermissions, isOwner, isPlatformAdmin } = useAuth();
 

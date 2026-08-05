@@ -35,11 +35,14 @@ const STATUS_COLORS: Record<StatusOrdem, string> = {
   estornada: '#64748b',
 };
 
+const STATUS_FILTER_ORDER: StatusOrdem[] = ['criada', 'em_producao', 'pausada', 'finalizada', 'cancelada', 'estornada'];
+
 const OrdensProducaoList: React.FC = () => {
   const { openTab } = useTabs();
   const [ordens, setOrdens] = useState<OrdemProducaoData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusOrdem | 'todas'>('todas');
 
   const { currentUser, tenantId } = useAuth();
 
@@ -65,6 +68,7 @@ const OrdensProducaoList: React.FC = () => {
   }, [currentUser, tenantId]);
 
   const filteredOrdens = ordens.filter(ordem => {
+    if (statusFilter !== 'todas' && ordem.status !== statusFilter) return false;
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return (
@@ -85,6 +89,42 @@ const OrdensProducaoList: React.FC = () => {
             <Plus size={18} /> Nova Ordem
           </button>
         </div>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+        <button
+          onClick={() => setStatusFilter('todas')}
+          style={{
+            padding: '8px 16px',
+            borderRadius: 'var(--radius-md)',
+            border: 'none',
+            cursor: 'pointer',
+            backgroundColor: statusFilter === 'todas' ? 'var(--accent-purple)' : 'var(--bg-secondary)',
+            color: 'var(--text-primary)',
+            fontWeight: 600,
+            fontSize: '13px',
+          }}
+        >
+          Todas
+        </button>
+        {STATUS_FILTER_ORDER.map((status) => (
+          <button
+            key={status}
+            onClick={() => setStatusFilter(status)}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 'var(--radius-md)',
+              border: 'none',
+              cursor: 'pointer',
+              backgroundColor: statusFilter === status ? STATUS_COLORS[status] : 'var(--bg-secondary)',
+              color: 'var(--text-primary)',
+              fontWeight: 600,
+              fontSize: '13px',
+            }}
+          >
+            {STATUS_LABELS[status]}
+          </button>
+        ))}
       </div>
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
@@ -122,7 +162,13 @@ const OrdensProducaoList: React.FC = () => {
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
                     <Factory size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-                    <p>{searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhuma ordem de produção cadastrada."}</p>
+                    <p>
+                      {searchTerm
+                        ? `Nenhum resultado encontrado para "${searchTerm}".`
+                        : statusFilter !== 'todas'
+                          ? `Nenhuma ordem com status "${STATUS_LABELS[statusFilter]}".`
+                          : "Nenhuma ordem de produção cadastrada."}
+                    </p>
                   </td>
                 </tr>
               ) : (

@@ -103,7 +103,7 @@ const RelatorioProducao: React.FC = () => {
 
     const porStatus: Record<string, { name: string; value: number }> = {};
     const porProduto: Record<string, { nome: string; produzido: number; ordens: number }> = {};
-    const porResponsavel: Record<string, { nome: string; ordens: number }> = {};
+    const porResponsavel: Record<string, { nome: string; ordens: number; produzido: number }> = {};
     const perdaPorMateriaPrima: Record<string, { nome: string; unidade: string; perda: number }> = {};
     const sobraPorMateriaPrima: Record<string, { nome: string; unidade: string; sobra: number }> = {};
     const timelineData: Record<string, { name: string; qtd: number }> = {};
@@ -129,8 +129,9 @@ const RelatorioProducao: React.FC = () => {
         porProduto[produtoKey].ordens += 1;
 
         const respKey = o.responsavelNome || 'Sem responsável';
-        if (!porResponsavel[respKey]) porResponsavel[respKey] = { nome: respKey, ordens: 0 };
+        if (!porResponsavel[respKey]) porResponsavel[respKey] = { nome: respKey, ordens: 0, produzido: 0 };
         porResponsavel[respKey].ordens += 1;
+        porResponsavel[respKey].produzido += Number(o.quantidadeProduzida || 0);
 
         (o.itensConsumidos || []).forEach(item => {
           const perda = Number(item.perdaExtra || 0);
@@ -171,7 +172,7 @@ const RelatorioProducao: React.FC = () => {
       eficiencia,
       porStatus: Object.values(porStatus),
       porProduto: Object.values(porProduto).sort((a, b) => b.produzido - a.produzido),
-      porResponsavel: Object.values(porResponsavel).sort((a, b) => b.ordens - a.ordens),
+      porResponsavel: Object.values(porResponsavel).sort((a, b) => b.produzido - a.produzido),
       perdaPorMateriaPrima: Object.values(perdaPorMateriaPrima).sort((a, b) => b.perda - a.perda),
       sobraPorMateriaPrima: Object.values(sobraPorMateriaPrima).sort((a, b) => b.sobra - a.sobra),
       timeline: Object.values(timelineData),
@@ -345,13 +346,15 @@ const RelatorioProducao: React.FC = () => {
                   <tr>
                     <th>Responsável</th>
                     <th>Ordens Finalizadas</th>
+                    <th>Produção Total</th>
                   </tr>
                 </thead>
                 <tbody>
                   {stats.porResponsavel.map(item => (
                     <tr key={item.nome}>
                       <td>{item.nome}</td>
-                      <td><strong>{item.ordens}</strong></td>
+                      <td>{item.ordens}</td>
+                      <td><strong>{item.produzido}</strong></td>
                     </tr>
                   ))}
                 </tbody>

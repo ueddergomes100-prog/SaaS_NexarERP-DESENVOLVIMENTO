@@ -41,7 +41,18 @@ interface OrdemData {
   responsavelNome: string;
   observacoes: string;
   itensConsumidos: ItemConsumido[];
+  dataInicio: any;
+  dataFim: any;
+  dataEstorno: any;
 }
+
+/** Formata um Timestamp do Firestore (ou um Date "otimista" gravado
+ * localmente logo apos a acao, antes do refetch) como data+hora no
+ * relogio do sistema. Retorna null se ainda nao aconteceu. */
+const formatDateTime = (value: any): string | null => {
+  const date = value?.toDate ? value.toDate() : value instanceof Date ? value : null;
+  return date ? date.toLocaleString('pt-BR') : null;
+};
 
 interface OpcaoSimples { id: string; nome: string; }
 
@@ -144,6 +155,9 @@ const OrdemProducaoForm: React.FC = () => {
               responsavelNome: data.responsavelNome || '',
               observacoes: data.observacoes || '',
               itensConsumidos: Array.isArray(data.itensConsumidos) ? data.itensConsumidos : [],
+              dataInicio: data.dataInicio || null,
+              dataFim: data.dataFim || null,
+              dataEstorno: data.dataEstorno || null,
             });
           }
         } else if (currentUser) {
@@ -256,7 +270,7 @@ const OrdemProducaoForm: React.FC = () => {
         dataInicio: serverTimestamp(),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Produção iniciada'),
       });
-      setOrdem(prev => prev ? { ...prev, status: 'em_producao' } : prev);
+      setOrdem(prev => prev ? { ...prev, status: 'em_producao', dataInicio: new Date() } : prev);
       showSuccess('Produção iniciada!');
     } catch (error) {
       console.error('Erro ao iniciar produção:', error);
@@ -406,7 +420,7 @@ const OrdemProducaoForm: React.FC = () => {
         });
       });
 
-      setOrdem(prev => prev ? { ...prev, status: 'estornada' } : prev);
+      setOrdem(prev => prev ? { ...prev, status: 'estornada', dataEstorno: new Date() } : prev);
       showSuccess('Produção estornada! Matéria-prima devolvida e estoque do produto atualizado.');
     } catch (error) {
       console.error('Erro ao estornar produção:', error);
@@ -538,6 +552,7 @@ const OrdemProducaoForm: React.FC = () => {
         status: 'finalizada',
         quantidadeProduzida,
         itensConsumidos: itensConsumidosFinal,
+        dataFim: new Date(),
       } : prev);
       setShowRevisaoFinalizacao(false);
       showSuccess('Produção finalizada! Matéria-prima debitada e estoque do produto atualizado.');
@@ -654,6 +669,24 @@ const OrdemProducaoForm: React.FC = () => {
                 <div>
                   <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Quantidade Produzida</label>
                   <strong style={{ color: '#10b981' }}>{ordem.quantidadeProduzida}</strong>
+                </div>
+              )}
+              {formatDateTime(ordem.dataInicio) && (
+                <div>
+                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Início da Produção</label>
+                  <strong style={{ color: 'var(--text-primary)' }}>{formatDateTime(ordem.dataInicio)}</strong>
+                </div>
+              )}
+              {formatDateTime(ordem.dataFim) && (
+                <div>
+                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Término da Produção</label>
+                  <strong style={{ color: 'var(--text-primary)' }}>{formatDateTime(ordem.dataFim)}</strong>
+                </div>
+              )}
+              {formatDateTime(ordem.dataEstorno) && (
+                <div>
+                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Estornada em</label>
+                  <strong style={{ color: '#64748b' }}>{formatDateTime(ordem.dataEstorno)}</strong>
                 </div>
               )}
             </div>

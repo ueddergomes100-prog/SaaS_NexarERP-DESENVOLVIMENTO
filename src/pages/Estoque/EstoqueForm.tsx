@@ -23,6 +23,7 @@ interface MateriaPrimaOption {
   id: string;
   nome: string;
   unidade: string;
+  precoCusto: number;
 }
 
 interface ComposicaoItem {
@@ -96,9 +97,13 @@ interface ProdutoFormData {
   cest: string;
   cstPis: string;
   cstCofins: string;
+  cstIbs: string;
+  cstCbs: string;
   aliquotaIcms: string;
   aliquotaPis: string;
   aliquotaCofins: string;
+  aliquotaIbs: string;
+  aliquotaCbs: string;
   reducaoBaseIcms: string;
   icmsSt: boolean;
   codigoAnp: string;
@@ -122,6 +127,7 @@ interface ProdutoFormData {
   produtoRevenda: boolean;
   bloquearVendaSemEstoque: boolean;
   exigirSerialLote: boolean;
+  lote: string;
   validade: string;
   controlarLote: boolean;
   permitirCashback: boolean;
@@ -248,9 +254,13 @@ const emptyFormData: ProdutoFormData = {
   cest: '',
   cstPis: '',
   cstCofins: '',
+  cstIbs: '',
+  cstCbs: '',
   aliquotaIcms: '',
   aliquotaPis: '',
   aliquotaCofins: '',
+  aliquotaIbs: '',
+  aliquotaCbs: '',
   reducaoBaseIcms: '',
   icmsSt: false,
   codigoAnp: '',
@@ -274,6 +284,7 @@ const emptyFormData: ProdutoFormData = {
   produtoRevenda: true,
   bloquearVendaSemEstoque: false,
   exigirSerialLote: false,
+  lote: '',
   validade: '',
   controlarLote: false,
   permitirCashback: false,
@@ -365,7 +376,20 @@ const EstoqueForm: React.FC = () => {
   const activeUnidades = unidadesDB.length > 0 ? unidadesDB : fallbackUnidades;
   const isSuperAdmin = isPlatformAdminRole(userRole);
 
-  const precoCusto = toNumber(formData.precoCusto);
+  // Produto "produzido internamente" com composicao cadastrada: o custo
+  // nao e mais digitado a mao, e a soma de (quantidade x custo unitario)
+  // de cada materia-prima da composicao -- puxado do cadastro de
+  // Materia-Prima, nao de um valor fixo salvo aqui. Produto de revenda
+  // (nao produzido aqui) continua com o custo manual/da nota fiscal, como
+  // sempre foi.
+  const custoComposicao = useMemo(() => (
+    composicaoItens.reduce((soma, item) => {
+      const materiaPrima = materiasPrimasDisponiveis.find(mp => mp.id === item.materiaPrimaId);
+      return soma + item.quantidade * (materiaPrima?.precoCusto || 0);
+    }, 0)
+  ), [composicaoItens, materiasPrimasDisponiveis]);
+  const custoCalculadoPelaComposicao = formData.produzidoInternamente && composicaoItens.length > 0;
+  const precoCusto = custoCalculadoPelaComposicao ? custoComposicao : toNumber(formData.precoCusto);
   const precoVenda = toNumber(formData.precoVenda);
   const precoPromocional = toNumber(formData.precoPromocional);
   const margemLucro = precoCusto > 0 ? ((precoVenda - precoCusto) / precoCusto) * 100 : 0;
@@ -462,9 +486,13 @@ const EstoqueForm: React.FC = () => {
               cest: data.cest || data.fiscal?.cest || '',
               cstPis: data.cstPis || data.fiscal?.cstPis || '',
               cstCofins: data.cstCofins || data.fiscal?.cstCofins || '',
+              cstIbs: data.cstIbs || data.fiscal?.cstIbs || '',
+              cstCbs: data.cstCbs || data.fiscal?.cstCbs || '',
               aliquotaIcms: String(data.aliquotaIcms ?? data.fiscal?.aliquotaIcms ?? ''),
               aliquotaPis: String(data.aliquotaPis ?? data.fiscal?.aliquotaPis ?? ''),
               aliquotaCofins: String(data.aliquotaCofins ?? data.fiscal?.aliquotaCofins ?? ''),
+              aliquotaIbs: String(data.aliquotaIbs ?? data.fiscal?.aliquotaIbs ?? ''),
+              aliquotaCbs: String(data.aliquotaCbs ?? data.fiscal?.aliquotaCbs ?? ''),
               reducaoBaseIcms: String(data.reducaoBaseIcms ?? data.fiscal?.reducaoBaseIcms ?? ''),
               icmsSt: Boolean(data.icmsSt ?? data.fiscal?.icmsSt ?? false),
               codigoAnp: data.codigoAnp || data.fiscal?.codigoAnp || '',
@@ -488,6 +516,7 @@ const EstoqueForm: React.FC = () => {
               produtoRevenda: Boolean(data.produtoRevenda ?? data.avancado?.produtoRevenda ?? true),
               bloquearVendaSemEstoque: Boolean(data.bloquearVendaSemEstoque ?? data.avancado?.bloquearVendaSemEstoque ?? false),
               exigirSerialLote: Boolean(data.exigirSerialLote ?? data.avancado?.exigirSerialLote ?? false),
+              lote: data.lote || data.avancado?.lote || '',
               validade: data.validade || data.avancado?.validade || '',
               controlarLote: Boolean(data.controlarLote ?? data.avancado?.controlarLote ?? false),
               permitirCashback: Boolean(data.permitirCashback ?? data.avancado?.permitirCashback ?? false),
@@ -530,7 +559,7 @@ const EstoqueForm: React.FC = () => {
         const materiasPrimas: MateriaPrimaOption[] = [];
         snapMp.forEach(d => {
           const data = d.data();
-          materiasPrimas.push({ id: d.id, nome: data.nome || '', unidade: data.unidade || 'UN' });
+          materiasPrimas.push({ id: d.id, nome: data.nome || '', unidade: data.unidade || 'UN', precoCusto: Number(data.precoCusto || 0) });
         });
         materiasPrimas.sort((a, b) => a.nome.localeCompare(b.nome));
         setMateriasPrimasDisponiveis(materiasPrimas);
@@ -809,6 +838,8 @@ const EstoqueForm: React.FC = () => {
         aliquotaIcms: toNumber(formData.aliquotaIcms),
         aliquotaPis: toNumber(formData.aliquotaPis),
         aliquotaCofins: toNumber(formData.aliquotaCofins),
+        aliquotaIbs: toNumber(formData.aliquotaIbs),
+        aliquotaCbs: toNumber(formData.aliquotaCbs),
         reducaoBaseIcms: toNumber(formData.reducaoBaseIcms),
         ncm: formData.ncm.replace(/\D/g, ''),
         cfop: formData.cfop,
@@ -857,9 +888,13 @@ const EstoqueForm: React.FC = () => {
           cest: formData.cest,
           cstPis: formData.cstPis,
           cstCofins: formData.cstCofins,
+          cstIbs: formData.cstIbs,
+          cstCbs: formData.cstCbs,
           aliquotaIcms: toNumber(formData.aliquotaIcms),
           aliquotaPis: toNumber(formData.aliquotaPis),
           aliquotaCofins: toNumber(formData.aliquotaCofins),
+          aliquotaIbs: toNumber(formData.aliquotaIbs),
+          aliquotaCbs: toNumber(formData.aliquotaCbs),
           reducaoBaseIcms: toNumber(formData.reducaoBaseIcms),
           icmsSt: formData.icmsSt,
           codigoAnp: formData.codigoAnp,
@@ -903,6 +938,7 @@ const EstoqueForm: React.FC = () => {
           produtoRevenda: formData.produtoRevenda,
           bloquearVendaSemEstoque: formData.bloquearVendaSemEstoque,
           exigirSerialLote: formData.exigirSerialLote,
+          lote: formData.lote,
           validade: formData.validade,
           controlarLote: formData.controlarLote,
           permitirCashback: formData.permitirCashback,
@@ -1141,7 +1177,19 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>Custo do produto</label>
-                  <input type="number" name="precoCusto" step="0.01" min="0" value={formData.precoCusto} onChange={handleChange} />
+                  <input
+                    type="number"
+                    name="precoCusto"
+                    step="0.01"
+                    min="0"
+                    value={custoCalculadoPelaComposicao ? precoCusto.toFixed(2) : formData.precoCusto}
+                    onChange={handleChange}
+                    readOnly={custoCalculadoPelaComposicao}
+                    disabled={custoCalculadoPelaComposicao}
+                  />
+                  {custoCalculadoPelaComposicao && (
+                    <span className="field-hint">Calculado automaticamente pela composição (aba "Composição"), não editável aqui.</span>
+                  )}
                 </div>
                 <div className="input-group">
                   <label>Última alteração</label>
@@ -1377,6 +1425,30 @@ const EstoqueForm: React.FC = () => {
                 </div>
               </div>
 
+              <div className="form-grid-4">
+                <div className="input-group">
+                  <label>CST IBS</label>
+                  <select name="cstIbs" value={formData.cstIbs} onChange={handleChange} className="form-select">
+                    {cstOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Alíquota IBS (%)</label>
+                  <input type="number" name="aliquotaIbs" step="0.01" min="0" value={formData.aliquotaIbs} onChange={handleChange} />
+                </div>
+                <div className="input-group">
+                  <label>CST CBS</label>
+                  <select name="cstCbs" value={formData.cstCbs} onChange={handleChange} className="form-select">
+                    {cstOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Alíquota CBS (%)</label>
+                  <input type="number" name="aliquotaCbs" step="0.01" min="0" value={formData.aliquotaCbs} onChange={handleChange} />
+                </div>
+              </div>
+              <span className="field-hint">IBS e CBS são os novos tributos da Reforma Tributária (substituem gradualmente ICMS/ISS e PIS/COFINS até 2033).</span>
+
               <div className="fiscal-tip">
                 <strong>Dica fiscal</strong>
                 <p>Revenda no Simples Nacional costuma usar CFOP 5102, CSOSN 102 e origem 0. Produtos com substituição tributária geralmente exigem CEST e CSOSN 500. Confirme sempre com a contabilidade da empresa.</p>
@@ -1517,6 +1589,17 @@ const EstoqueForm: React.FC = () => {
                         </table>
                       </div>
                     </>
+                  )}
+
+                  {composicaoItens.length > 0 && (
+                    <div className="info-panel" style={{ marginTop: '20px' }}>
+                      <strong>Custo total da composição: {formatCurrency(custoComposicao)}</strong>
+                      <p>
+                        {formData.produzidoInternamente
+                          ? 'Este valor substitui automaticamente o "Custo do produto" na aba Preços e Custos, somando (quantidade × custo unitário) de cada matéria-prima.'
+                          : 'Marque "Produto produzido internamente" na aba Configurações Avançadas para este valor ser usado como custo do produto.'}
+                      </p>
+                    </div>
                   )}
 
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
@@ -1678,9 +1761,15 @@ const EstoqueForm: React.FC = () => {
                 ))}
               </div>
 
-              <div className="input-group">
-                <label>Validade</label>
-                <input type="date" name="validade" value={formData.validade} onChange={handleChange} />
+              <div className="form-grid-3">
+                <div className="input-group">
+                  <label>Lote</label>
+                  <input type="text" name="lote" placeholder="Ex: L2026-08" value={formData.lote} onChange={handleChange} />
+                </div>
+                <div className="input-group">
+                  <label>Validade</label>
+                  <input type="date" name="validade" value={formData.validade} onChange={handleChange} />
+                </div>
               </div>
             </div>
           )}

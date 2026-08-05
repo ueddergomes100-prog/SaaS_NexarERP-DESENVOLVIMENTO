@@ -33,6 +33,8 @@ const MateriaPrimaForm: React.FC = () => {
     estoqueMinimo: '0',
     precoCusto: '0',
     fornecedor: '',
+    lote: '',
+    validade: '',
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -128,6 +130,8 @@ const MateriaPrimaForm: React.FC = () => {
         estoqueMinimo: Number(formData.estoqueMinimo) || 0,
         precoCusto: Number(formData.precoCusto) || 0,
         fornecedor: formData.fornecedor.toUpperCase().trim(),
+        lote: formData.lote.trim(),
+        validade: formData.validade,
         tenantId
       };
 
@@ -258,6 +262,17 @@ const MateriaPrimaForm: React.FC = () => {
           <div className="input-group">
             <label>Fornecedor (texto livre)</label>
             <input type="text" name="fornecedor" placeholder="Ex: METALÚRGICA SUL LTDA" value={formData.fornecedor} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div className="input-group">
+              <label>Lote</label>
+              <input type="text" name="lote" placeholder="Ex: L2026-08" value={formData.lote} onChange={handleChange} style={inputStyle} />
+            </div>
+            <div className="input-group">
+              <label>Validade</label>
+              <input type="date" name="validade" value={formData.validade} onChange={handleChange} style={inputStyle} />
+            </div>
           </div>
         </div>
       </div>

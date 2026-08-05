@@ -32,6 +32,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/relatorios-mecanica')) routeModule = 'mecanica.relatorios';
   else if (path.startsWith('/crm/agenda')) routeModule = 'crm.agenda';
   else if (path.startsWith('/crm/lembretes') || path.startsWith('/crm')) routeModule = 'crm.lembretes';
+  else if (path.startsWith('/financeiro/caixa-registros')) routeModule = 'financeiro.caixa_registros';
   else if (path.startsWith('/financeiro/caixa')) routeModule = 'financeiro.caixa';
   else if (path.startsWith('/financeiro/contas-receber')) routeModule = 'financeiro.receber';
   else if (path.startsWith('/financeiro/contas-pagar')) routeModule = 'financeiro.pagar';
@@ -61,6 +62,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/relatorios-mecanica')) routePermission = 'mecanica.relatorios';
   else if (path.startsWith('/crm/agenda')) routePermission = 'crm.agenda';
   else if (path.startsWith('/crm/lembretes') || path.startsWith('/crm')) routePermission = 'crm.alertas';
+  else if (path.startsWith('/financeiro/caixa-registros')) routePermission = 'financeiro.caixa_registros';
   else if (path.startsWith('/financeiro/caixa')) routePermission = 'financeiro.caixa';
   else if (path.startsWith('/financeiro/contas-receber')) routePermission = 'financeiro.receber';
   else if (path.startsWith('/financeiro/contas-pagar')) routePermission = 'financeiro.pagar';

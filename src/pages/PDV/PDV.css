@@ -468,6 +468,25 @@
   font-weight: 800;
 }
 
+.pdv-session-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.pdv-session-actions button {
+  flex: 1;
+}
+
+.pdv-session-actions .btn-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+}
+
 .pdv-client-card {
   gap: 10px;
   padding: 12px;

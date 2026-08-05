@@ -110,6 +110,7 @@ service cloud.firestore {
         (collectionName == 'notas_fiscais' && hasAnyPermission(['fiscal.emitir', 'fiscal.excluir'])) ||
         (collectionName == 'creditos_cliente' && hasAnyPermission(['vendas.pedidos', 'financeiro.receber'])) ||
         (collectionName == 'transacoes' && hasAnyPermission(['financeiro.caixa', 'financeiro.banco', 'financeiro.receber', 'financeiro.pagar', 'financeiro.estornar', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os'])) ||
+        (collectionName == 'caixas_pdv' && hasAnyPermission(['vendas.pedidos', 'financeiro.caixa_registros'])) ||
         (collectionName in ['integracoes_canais', 'integracoes_produtos', 'integracoes_fila', 'pedidos_externos', 'integracoes_logs'] && hasPermission('cadastros.estoque'));
     }
 
@@ -133,6 +134,7 @@ service cloud.firestore {
         (collectionName == 'notas_fiscais' && hasPermission('fiscal.excluir')) ||
         (collectionName == 'creditos_cliente' && hasAnyPermission(['vendas.pedidos', 'financeiro.receber'])) ||
         (collectionName == 'transacoes' && hasPermission('financeiro.estornar')) ||
+        (collectionName == 'caixas_pdv' && hasPermission('financeiro.caixa_registros')) ||
         (collectionName in ['integracoes_canais', 'integracoes_produtos', 'integracoes_fila', 'pedidos_externos', 'integracoes_logs'] && hasPermission('cadastros.estoque'));
     }
 
@@ -336,7 +338,8 @@ service cloud.firestore {
         'produtos_composicao',
         'estoque_lotes',
         'expedicoes',
-        'entregas'
+        'entregas',
+        'caixas_pdv'
       ] && canReadTenantDocument();
 
       allow create: if collectionName in [
@@ -374,7 +377,8 @@ service cloud.firestore {
         'produtos_composicao',
         'estoque_lotes',
         'expedicoes',
-        'entregas'
+        'entregas',
+        'caixas_pdv'
       ] && canCreateTenantDocument() && canWriteTenantCollection(collectionName);
 
       allow update: if collectionName in [
@@ -411,7 +415,8 @@ service cloud.firestore {
         'produtos_composicao',
         'estoque_lotes',
         'expedicoes',
-        'entregas'
+        'entregas',
+        'caixas_pdv'
       ] && canUpdateTenantDocument() && (
         canWriteTenantCollection(collectionName) ||
         (collectionName == 'estoque' && canAdjustStockQuantity())
@@ -451,7 +456,8 @@ service cloud.firestore {
         'produtos_composicao',
         'estoque_lotes',
         'expedicoes',
-        'entregas'
+        'entregas',
+        'caixas_pdv'
       ] && canDeleteTenantDocument() && canDeleteTenantCollection(collectionName);
     }
 

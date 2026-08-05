@@ -180,6 +180,7 @@ const Sidebar: React.FC = () => {
       tone: '#facc15',
       items: [
         { label: 'Fluxo de Caixa', to: '/financeiro/caixa', icon: Wallet, module: 'financeiro.caixa', permission: 'financeiro.caixa' },
+        { label: 'Caixa (Sessões PDV)', to: '/financeiro/caixa-registros', icon: Wallet, module: 'financeiro.caixa_registros', permission: 'financeiro.caixa_registros' },
         { label: 'Banco', to: '/financeiro/banco', icon: Landmark, module: 'financeiro.banco', permission: 'financeiro.banco' },
         { label: 'Contas a Receber', to: '/financeiro/contas-receber', icon: Clock, module: 'financeiro.receber', permission: 'financeiro.receber' },
         { label: 'Contas a Pagar', to: '/financeiro/contas-pagar', icon: Receipt, module: 'financeiro.pagar', permission: 'financeiro.pagar' },

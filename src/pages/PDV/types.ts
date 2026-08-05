@@ -55,12 +55,31 @@ export interface PdvTotals {
 
 export type SaleDiscountMode = 'valor' | 'percentual';
 
+export interface CaixaSangria {
+  id: string;
+  valorCentavos: number;
+  motivo: string;
+  registradoEm: string;
+  registradoPor: string;
+  registradoPorNome: string;
+}
+
 export interface PdvSession {
   id: string;
-  openedAt: string;
-  openingAmount: number;
-  operatorId: string;
-  operatorName: string;
+  tenantId: string;
+  operadorId: string;
+  operadorNome: string;
+  status: 'aberto' | 'fechado';
+  saldoInicialCentavos: number;
+  saldoAnteriorSugeridoCentavos: number | null;
+  saldoAnteriorConfirmado: boolean;
+  abertoEm: string;
+  fechadoEm: string | null;
+  saldoFinalInformadoCentavos: number | null;
+  saldoEsperadoCentavos: number | null;
+  diferencaCentavos: number | null;
+  sangrias: CaixaSangria[];
+  totalSangriasCentavos: number;
 }
 
 export type PdvPaymentDraft = PaymentDraft;

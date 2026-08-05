@@ -2,13 +2,19 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, LockKeyhole, Maximize2, PackageSearch, Store, X } from 'lucide-react';
 import {
+  addDoc,
+  arrayUnion,
   collection,
   doc,
   getDoc,
   getDocs,
+  increment,
+  limit,
+  orderBy,
   query,
   runTransaction,
   serverTimestamp,
+  updateDoc,
   where,
 } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -44,16 +50,19 @@ import DiscountModal from './components/DiscountModal';
 import PaymentModal from './components/PaymentModal';
 import PdvSummary from './components/PdvSummary';
 import ProductSearch from './components/ProductSearch';
+import SangriaModal from './components/SangriaModal';
 import {
   buildPdvFinanceConfig,
   calculatePdvTotals,
   clampDiscountCents,
+  currency,
   defaultPdvFinanceConfig,
+  fromCurrencyInput,
   makeCartItemFromProduct,
   makePdvSessionStorageKey,
   toCurrencyInput,
 } from './pdvHelpers';
-import type { PdvCartItem, PdvClient, PdvProduct, PdvSession } from './types';
+import type { CaixaSangria, PdvCartItem, PdvClient, PdvProduct, PdvSession } from './types';
 import hennderIcon from '../../assets/hennder-icon.svg';
 import './PDV.css';
 
@@ -194,7 +203,24 @@ const PDV: React.FC = () => {
     const savedSession = localStorage.getItem(sessionStorageKey);
     if (savedSession) {
       try {
-        setSession(JSON.parse(savedSession) as PdvSession);
+        const cachedSession = JSON.parse(savedSession) as PdvSession;
+        // Mostra o cache local otimisticamente (evita bloquear o mount numa
+        // rodada de rede), mas a fonte da verdade e o Firestore -- confirma
+        // em paralelo que a sessao continua aberta no servidor (pode ter
+        // sido fechada em outro dispositivo/aba).
+        setSession(cachedSession);
+        void (async () => {
+          try {
+            const snapAtual = await getDoc(doc(db, 'caixas_pdv', cachedSession.id));
+            if (!active) return;
+            if (!snapAtual.exists() || snapAtual.data().status !== 'aberto') {
+              setSession(null);
+              localStorage.removeItem(sessionStorageKey);
+            }
+          } catch (error) {
+            console.error('Erro ao validar sessão de caixa aberta:', error);
+          }
+        })();
       } catch {
         localStorage.removeItem(sessionStorageKey);
       }
@@ -222,11 +248,33 @@ const PDV: React.FC = () => {
   }, []);
 
   const openSession = useCallback(async () => {
+    if (!currentUser || !tenantId) return;
+
+    let saldoAnteriorSugeridoCentavos: number | null = null;
+    try {
+      const qUltimoFechamento = query(
+        collection(db, 'caixas_pdv'),
+        where('tenantId', '==', tenantId),
+        where('operadorId', '==', currentUser.uid),
+        where('status', '==', 'fechado'),
+        orderBy('fechadoEm', 'desc'),
+        limit(1),
+      );
+      const snapUltimo = await getDocs(qUltimoFechamento);
+      if (!snapUltimo.empty) {
+        saldoAnteriorSugeridoCentavos = Number(snapUltimo.docs[0].data().saldoFinalInformadoCentavos ?? 0);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar saldo anterior do caixa:', error);
+    }
+
     const result = await NexusSwal.fire({
       title: 'Abrir caixa',
-      text: 'Informe o saldo inicial em dinheiro.',
+      text: saldoAnteriorSugeridoCentavos !== null
+        ? `Saldo do último fechamento: ${currency.format(fromCents(saldoAnteriorSugeridoCentavos))}. Confirme ou ajuste o saldo inicial em dinheiro.`
+        : 'Informe o saldo inicial em dinheiro.',
       input: 'number',
-      inputValue: '0.00',
+      inputValue: saldoAnteriorSugeridoCentavos !== null ? toCurrencyInput(saldoAnteriorSugeridoCentavos) : '0.00',
       inputAttributes: { min: '0', step: '0.01' },
       showCancelButton: true,
       confirmButtonText: 'Abrir caixa',
@@ -235,19 +283,69 @@ const PDV: React.FC = () => {
 
     if (!result.isConfirmed) return;
 
-    const nextSession: PdvSession = {
-      id: `pdv_${tenantId}_${currentUser?.uid}_${Date.now()}`,
-      openedAt: new Date().toISOString(),
-      openingAmount: Number(result.value || 0),
-      operatorId: currentUser?.uid || '',
-      operatorName,
-    };
-    setSession(nextSession);
-    localStorage.setItem(sessionStorageKey, JSON.stringify(nextSession));
-    showSuccess('Caixa aberto');
-  }, [currentUser?.uid, operatorName, sessionStorageKey, tenantId]);
+    const saldoInicialCentavos = fromCurrencyInput(result.value || 0);
+    const saldoAnteriorConfirmado = saldoAnteriorSugeridoCentavos !== null && saldoInicialCentavos === saldoAnteriorSugeridoCentavos;
+
+    try {
+      const novaSessaoRef = await addDoc(collection(db, 'caixas_pdv'), {
+        tenantId,
+        operadorId: currentUser.uid,
+        operadorNome: operatorName,
+        status: 'aberto',
+        saldoInicialCentavos,
+        saldoAnteriorSugeridoCentavos,
+        saldoAnteriorConfirmado,
+        fechadoEm: null,
+        saldoFinalInformadoCentavos: null,
+        saldoEsperadoCentavos: null,
+        diferencaCentavos: null,
+        sangrias: [],
+        totalSangriasCentavos: 0,
+        createdAt: serverTimestamp(),
+        ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+      });
+
+      const nextSession: PdvSession = {
+        id: novaSessaoRef.id,
+        tenantId,
+        operadorId: currentUser.uid,
+        operadorNome: operatorName,
+        status: 'aberto',
+        saldoInicialCentavos,
+        saldoAnteriorSugeridoCentavos,
+        saldoAnteriorConfirmado,
+        abertoEm: new Date().toISOString(),
+        fechadoEm: null,
+        saldoFinalInformadoCentavos: null,
+        saldoEsperadoCentavos: null,
+        diferencaCentavos: null,
+        sangrias: [],
+        totalSangriasCentavos: 0,
+      };
+      setSession(nextSession);
+      localStorage.setItem(sessionStorageKey, JSON.stringify(nextSession));
+      showSuccess('Caixa aberto');
+
+      const { createAuditLog } = await import('../../services/logService');
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || '',
+        modulo: 'financeiro',
+        acao: 'abrir_caixa',
+        descricao: `Caixa aberto por ${operatorName} com saldo inicial de ${currency.format(fromCents(saldoInicialCentavos))}.`,
+        registroRelacionadoId: novaSessaoRef.id,
+        status: 'sucesso',
+      });
+    } catch (error) {
+      console.error('Erro ao abrir caixa:', error);
+      showError('Erro ao abrir caixa', 'Não foi possível abrir o caixa. Tente novamente.');
+    }
+  }, [currentUser, operatorName, sessionStorageKey, tenantId]);
 
   const closeSession = async () => {
+    if (!session || !currentUser || !tenantId) return;
+
     if (cartItems.length > 0) {
       const confirmation = await NexusSwal.fire({
         title: 'Fechar caixa?',
@@ -260,11 +358,118 @@ const PDV: React.FC = () => {
       if (!confirmation.isConfirmed) return;
     }
 
-    resetSale();
-    setSession(null);
-    localStorage.removeItem(sessionStorageKey);
-    showSuccess('Caixa fechado');
+    let saldoEsperadoCentavos = session.saldoInicialCentavos - session.totalSangriasCentavos;
+    try {
+      const qVendasEmDinheiro = query(
+        collection(db, 'transacoes'),
+        where('tenantId', '==', tenantId),
+        where('pdvSessionId', '==', session.id),
+        where('movimentaCaixaFisico', '==', true),
+      );
+      const snapVendas = await getDocs(qVendasEmDinheiro);
+      snapVendas.forEach((docSnap) => {
+        saldoEsperadoCentavos += Number(docSnap.data().valorCentavos || 0);
+      });
+    } catch (error) {
+      console.error('Erro ao calcular saldo esperado do caixa:', error);
+    }
+
+    const result = await NexusSwal.fire({
+      title: 'Fechar caixa',
+      text: `Saldo esperado em dinheiro: ${currency.format(fromCents(saldoEsperadoCentavos))}. Informe o valor contado fisicamente no caixa.`,
+      input: 'number',
+      inputValue: toCurrencyInput(saldoEsperadoCentavos),
+      inputAttributes: { min: '0', step: '0.01' },
+      showCancelButton: true,
+      confirmButtonText: 'Fechar caixa',
+      cancelButtonText: 'Cancelar',
+    });
+
+    if (!result.isConfirmed) return;
+
+    const saldoFinalInformadoCentavos = fromCurrencyInput(result.value || 0);
+    const diferencaCentavos = saldoFinalInformadoCentavos - saldoEsperadoCentavos;
+
+    try {
+      await updateDoc(doc(db, 'caixas_pdv', session.id), {
+        status: 'fechado',
+        fechadoEm: serverTimestamp(),
+        saldoFinalInformadoCentavos,
+        saldoEsperadoCentavos,
+        diferencaCentavos,
+        updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Caixa fechado'),
+      });
+
+      const { createAuditLog } = await import('../../services/logService');
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || '',
+        modulo: 'financeiro',
+        acao: 'fechar_caixa',
+        descricao: `Caixa fechado por ${operatorName}. Esperado: ${currency.format(fromCents(saldoEsperadoCentavos))}, informado: ${currency.format(fromCents(saldoFinalInformadoCentavos))}, diferença: ${currency.format(fromCents(diferencaCentavos))}.`,
+        registroRelacionadoId: session.id,
+        status: 'sucesso',
+      });
+
+      resetSale();
+      setSession(null);
+      localStorage.removeItem(sessionStorageKey);
+      showSuccess('Caixa fechado');
+    } catch (error) {
+      console.error('Erro ao fechar caixa:', error);
+      showError('Erro ao fechar caixa', 'Não foi possível fechar o caixa. Tente novamente.');
+    }
   };
+
+  const [sangriaModalOpen, setSangriaModalOpen] = useState(false);
+
+  const registrarSangria = useCallback(async (valorCentavos: number, motivo: string) => {
+    if (!session || !currentUser || !tenantId) return;
+
+    const novaSangria: CaixaSangria = {
+      id: crypto.randomUUID(),
+      valorCentavos,
+      motivo,
+      registradoEm: new Date().toISOString(),
+      registradoPor: currentUser.uid,
+      registradoPorNome: operatorName,
+    };
+
+    try {
+      await updateDoc(doc(db, 'caixas_pdv', session.id), {
+        sangrias: arrayUnion(novaSangria),
+        totalSangriasCentavos: increment(valorCentavos),
+        updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Sangria de ${currency.format(fromCents(valorCentavos))}`),
+      });
+
+      const nextSession: PdvSession = {
+        ...session,
+        sangrias: [...session.sangrias, novaSangria],
+        totalSangriasCentavos: session.totalSangriasCentavos + valorCentavos,
+      };
+      setSession(nextSession);
+      localStorage.setItem(sessionStorageKey, JSON.stringify(nextSession));
+      showSuccess('Sangria registrada');
+
+      const { createAuditLog } = await import('../../services/logService');
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || '',
+        modulo: 'financeiro',
+        acao: 'sangria_caixa',
+        descricao: `Sangria de ${currency.format(fromCents(valorCentavos))} (${motivo}) registrada por ${operatorName}.`,
+        registroRelacionadoId: session.id,
+        status: 'sucesso',
+      });
+    } catch (error) {
+      console.error('Erro ao registrar sangria:', error);
+      showError('Erro ao registrar sangria', 'Não foi possível registrar a sangria. Tente novamente.');
+    }
+  }, [currentUser, operatorName, session, sessionStorageKey, tenantId]);
 
   const validateQuantity = useCallback((product: PdvProduct, nextQuantity: number) => {
     if (nextQuantity <= 0) return false;
@@ -705,6 +910,7 @@ const PDV: React.FC = () => {
             onClearSale={clearSale}
             onOpenSession={openSession}
             onCloseSession={closeSession}
+            onOpenSangria={() => setSangriaModalOpen(true)}
           />
         </main>
       )}
@@ -715,6 +921,12 @@ const PDV: React.FC = () => {
         selectedClient={selectedClient}
         onClose={() => setClientModalOpen(false)}
         onSelect={setSelectedClient}
+      />
+
+      <SangriaModal
+        open={sangriaModalOpen}
+        onClose={() => setSangriaModalOpen(false)}
+        onConfirm={registrarSangria}
       />
 
       <DiscountModal

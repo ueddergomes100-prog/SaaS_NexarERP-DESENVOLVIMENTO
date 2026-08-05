@@ -24,6 +24,7 @@ const EstoqueForm = lazy(() => import('../pages/Estoque/EstoqueForm'));
 const LembretesList = lazy(() => import('../pages/Lembretes/LembretesList'));
 const LembreteForm = lazy(() => import('../pages/Lembretes/LembreteForm'));
 const Caixa = lazy(() => import('../pages/Financeiro/Caixa'));
+const CaixaRegistros = lazy(() => import('../pages/Financeiro/CaixaRegistros'));
 const Banco = lazy(() => import('../pages/Financeiro/Banco'));
 const Faturamento = lazy(() => import('../pages/Financeiro/Faturamento'));
 const ContasReceber = lazy(() => import('../pages/Financeiro/ContasReceber'));
@@ -97,6 +98,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'crm/agenda', element: <Agenda /> },
 
   { path: 'financeiro/caixa', element: <Caixa /> },
+  { path: 'financeiro/caixa-registros', element: <CaixaRegistros /> },
   { path: 'financeiro/banco', element: <Banco /> },
   { path: 'financeiro/contas-receber', element: <ContasReceber /> },
   { path: 'financeiro/contas-pagar', element: <ContasPagar /> },

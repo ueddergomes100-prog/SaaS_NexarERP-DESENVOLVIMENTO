@@ -1,5 +1,5 @@
 import React from 'react';
-import { CreditCard, Eraser, ReceiptText, UserRound } from 'lucide-react';
+import { Banknote, CreditCard, Eraser, ReceiptText, UserRound } from 'lucide-react';
 import type { PdvClient, PdvSession, PdvTotals } from '../types';
 import { currency } from '../pdvHelpers';
 import { fromCents } from '../../../utils/financeDomain';
@@ -15,6 +15,7 @@ interface PdvSummaryProps {
   onClearSale: () => void;
   onOpenSession: () => void;
   onCloseSession: () => void;
+  onOpenSangria: () => void;
 }
 
 const PdvSummary: React.FC<PdvSummaryProps> = ({
@@ -28,14 +29,23 @@ const PdvSummary: React.FC<PdvSummaryProps> = ({
   onClearSale,
   onOpenSession,
   onCloseSession,
+  onOpenSangria,
 }) => (
   <aside className="pdv-summary">
     <div className="pdv-session-card">
       <span>{session ? 'Caixa aberto' : 'Caixa fechado'}</span>
-      <strong>{session ? session.operatorName : 'Abra o caixa'}</strong>
-      <button type="button" onClick={session ? onCloseSession : onOpenSession}>
-        {session ? 'Fechar caixa' : 'Abrir caixa'}
-      </button>
+      <strong>{session ? session.operadorNome : 'Abra o caixa'}</strong>
+      <div className="pdv-session-actions">
+        {session && (
+          <button type="button" className="btn-secondary" onClick={onOpenSangria} title="Registrar sangria">
+            <Banknote size={16} />
+            Sangria
+          </button>
+        )}
+        <button type="button" onClick={session ? onCloseSession : onOpenSession}>
+          {session ? 'Fechar caixa' : 'Abrir caixa'}
+        </button>
+      </div>
     </div>
 
     <button type="button" className="pdv-client-card" onClick={onOpenClient}>

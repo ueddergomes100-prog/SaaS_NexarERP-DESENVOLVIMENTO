@@ -23,6 +23,16 @@
         { "fieldPath": "tenantId", "order": "ASCENDING" },
         { "fieldPath": "numeroOrcamento", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "caixas_pdv",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "operadorId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "fechadoEm", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

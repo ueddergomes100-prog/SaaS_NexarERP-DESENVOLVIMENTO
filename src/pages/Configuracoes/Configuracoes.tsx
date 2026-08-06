@@ -10,6 +10,7 @@ import { MODULE_GROUPS } from '../../utils/moduleCatalog';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { normalizeCreditCardFeeSchedule, parseCreditTerms } from '../../utils/financeDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
+import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 const toStringArray = (value: unknown): string[] => {
@@ -63,6 +64,7 @@ const Configuracoes: React.FC = () => {
     nomeOficina: '',
     nomeUsuario: '',
     cnpj: '',
+    regimeTributario: DEFAULT_REGIME_TRIBUTARIO as RegimeTributario,
     telefone: '',
     whatsapp: '',
     instagram: '',
@@ -124,6 +126,7 @@ const Configuracoes: React.FC = () => {
             emiteNFe: data.emiteNFe ?? false,
             emiteNFCe: data.emiteNFCe ?? false,
             emiteNFSe: data.emiteNFSe ?? false,
+            regimeTributario: (data.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario,
             whatsapp: data.whatsapp ?? '',
             instagram: data.instagram ?? '',
             rua: data.rua ?? data.endereco ?? '',
@@ -694,6 +697,20 @@ const Configuracoes: React.FC = () => {
                 disabled={!isEditingMode}
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
+            </div>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Regime Tributário</label>
+              <select
+                name="regimeTributario"
+                value={formData.regimeTributario}
+                onChange={(e) => setFormData({ ...formData, regimeTributario: e.target.value as RegimeTributario })}
+                disabled={!isEditingMode}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+              >
+                {REGIME_TRIBUTARIO_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
             </div>
           </div>
 

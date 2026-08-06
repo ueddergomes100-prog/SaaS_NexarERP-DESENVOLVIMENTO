@@ -8,6 +8,19 @@ export interface ModuleCatalogGroup {
   items: ModuleCatalogItem[];
 }
 
+/**
+ * Catalogo de MODULOS bloqueaveis pelo SuperAdmin por tenant (plano SaaS),
+ * gravado em usuarios/{tenantOwnerId}.modulosBloqueados e comparado contra
+ * `routeModule` em src/utils/routeAccess.ts (ver TabPane.tsx/Sidebar.tsx).
+ * Vocabulario DIFERENTE, de proposito, da permissao granular do Funcionario
+ * (ver o array embutido em src/pages/Configuracoes/Configuracoes.tsx, secao
+ * "Modulos Permitidos") -- um controla o plano contratado da empresa, o
+ * outro o que cada funcionario pode fazer dentro dela.
+ * Toda vez que uma tela/modulo novo for implantado, adicionar tanto aqui
+ * quanto no catalogo granular de Configuracoes.tsx -- e confirmar que existe
+ * uma branch correspondente em routeAccess.ts (routeModule E routePermission),
+ * senao o bloqueio/permissao nao tem efeito real na rota (auditoria 2026-08-05).
+ */
 export const MODULE_GROUPS: ModuleCatalogGroup[] = [
   { group: 'Visão Geral', items: [
     { id: 'dashboard.empresa', label: 'Dashboard da Empresa' }

@@ -14,13 +14,16 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   const path = pathname.toLowerCase();
 
   let routeModule = '';
-  if (path.startsWith('/clientes')) routeModule = 'cadastros.clientes';
+  if (path.startsWith('/dashboard')) routeModule = 'dashboard.empresa';
+  else if (path.startsWith('/clientes')) routeModule = 'cadastros.clientes';
   else if (path.startsWith('/usuarios')) routeModule = 'cadastros.usuarios';
   else if (path.startsWith('/veiculos')) routeModule = 'cadastros.veiculos';
   else if (path.startsWith('/estoque')) routeModule = 'cadastros.estoque';
   else if (path.startsWith('/servicos')) routeModule = 'cadastros.servicos';
   else if (path.startsWith('/categorias')) routeModule = 'cadastros.categorias';
   else if (path.startsWith('/unidades-medida')) routeModule = 'cadastros.unidades_medida';
+  else if (path.startsWith('/bandeiras-cartao')) routeModule = 'cadastros.bandeiras_cartao';
+  else if (path.startsWith('/bancos')) routeModule = 'cadastros.bancos';
   else if (path.startsWith('/fornecedores')) routeModule = 'cadastros.fornecedores';
   else if (path.startsWith('/materias-primas')) routeModule = 'cadastros.materia_prima';
   else if (path.startsWith('/producao/ordens') || path.startsWith('/producao/relatorios')) routeModule = 'operacoes.producao';
@@ -34,6 +37,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/crm/lembretes') || path.startsWith('/crm')) routeModule = 'crm.lembretes';
   else if (path.startsWith('/financeiro/caixa-registros')) routeModule = 'financeiro.caixa_registros';
   else if (path.startsWith('/financeiro/caixa')) routeModule = 'financeiro.caixa';
+  else if (path.startsWith('/financeiro/banco')) routeModule = 'financeiro.banco';
   else if (path.startsWith('/financeiro/contas-receber')) routeModule = 'financeiro.receber';
   else if (path.startsWith('/financeiro/contas-pagar')) routeModule = 'financeiro.pagar';
   else if (path.startsWith('/financeiro/faturamento')) routeModule = 'financeiro.faturamento';
@@ -51,6 +55,8 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/servicos')) routePermission = 'cadastros.servicos';
   else if (path.startsWith('/categorias')) routePermission = 'cadastros.categorias';
   else if (path.startsWith('/unidades-medida')) routePermission = 'cadastros.unidades_medida';
+  else if (path.startsWith('/bandeiras-cartao')) routePermission = 'cadastros.bandeiras_cartao';
+  else if (path.startsWith('/bancos')) routePermission = 'cadastros.bancos';
   else if (path.startsWith('/fornecedores')) routePermission = 'cadastros.estoque';
   else if (path.startsWith('/materias-primas')) routePermission = 'cadastros.materia_prima';
   else if (path.startsWith('/producao/ordens') || path.startsWith('/producao/relatorios')) routePermission = 'operacoes.producao';
@@ -64,12 +70,14 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/crm/lembretes') || path.startsWith('/crm')) routePermission = 'crm.alertas';
   else if (path.startsWith('/financeiro/caixa-registros')) routePermission = 'financeiro.caixa_registros';
   else if (path.startsWith('/financeiro/caixa')) routePermission = 'financeiro.caixa';
+  else if (path.startsWith('/financeiro/banco')) routePermission = 'financeiro.banco';
   else if (path.startsWith('/financeiro/contas-receber')) routePermission = 'financeiro.receber';
   else if (path.startsWith('/financeiro/contas-pagar')) routePermission = 'financeiro.pagar';
   else if (path.startsWith('/financeiro/faturamento')) routePermission = 'financeiro.faturamento';
   else if (path.startsWith('/financeiro/comissoes') || path.startsWith('/financeiro')) routePermission = 'financeiro.comissoes';
   else if (path.startsWith('/fiscal/nfe')) routePermission = 'fiscal.emitir';
   else if (path.startsWith('/fiscal/entrada-nfe') || path.startsWith('/fiscal')) routePermission = 'fiscal.entrada';
+  else if (path.startsWith('/relatorios-diversos')) routePermission = 'administrativo.relatorios';
   else if (path.startsWith('/logs-sistema')) routePermission = 'administrativo.logs';
   else if (path.startsWith('/configuracoes')) routePermission = 'administrativo.config';
 

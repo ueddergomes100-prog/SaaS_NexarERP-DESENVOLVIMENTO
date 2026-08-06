@@ -1357,6 +1357,15 @@ const Configuracoes: React.FC = () => {
                     </h4>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px', marginTop: '16px' }}>
+                    {/* Catalogo de permissao GRANULAR do Funcionario (id no formato dominio.acao,
+                        gravado em usuarios/{id}.permissoes e checado em firestore.rules +
+                        routeAccess.ts `routePermission` + .includes() espalhados pelas telas).
+                        Deliberadamente um vocabulario DIFERENTE do MODULE_GROUPS de
+                        src/utils/moduleCatalog.ts (esse aqui e usado pro bloqueio de modulo por
+                        plano SaaS do SuperAdmin, `routeModule`). Toda vez que uma tela/permissao
+                        nova for implantada, adicionar tanto aqui quanto em MODULE_GROUPS -- e
+                        garantir que exista uma branch correspondente em routeAccess.ts, senao a
+                        tela fica acessivel por URL mesmo sem a permissao (auditoria 2026-08-05). */}
                     {[
                       { id: 'dashboard.valores', label: 'Dashboard: Visão Financeira', color: '#10b981' },
                       { id: 'cadastros.clientes', label: 'Cadastros: Clientes', color: '#8b5cf6' },
@@ -1366,6 +1375,8 @@ const Configuracoes: React.FC = () => {
                       { id: 'cadastros.servicos', label: 'Cadastros: Serviços', color: '#8b5cf6' },
                       { id: 'cadastros.categorias', label: 'Cadastros: Categorias', color: '#8b5cf6' },
                       { id: 'cadastros.unidades_medida', label: 'Cadastros: Unidades de Medida', color: '#8b5cf6' },
+                      { id: 'cadastros.bandeiras_cartao', label: 'Cadastros: Bandeiras de Cartão', color: '#8b5cf6' },
+                      { id: 'cadastros.bancos', label: 'Cadastros: Bancos', color: '#8b5cf6' },
                       { id: 'vendas.pedidos', label: 'Vendas: Pedidos de Venda', color: '#f59e0b' },
                       { id: 'vendas.alterar', label: 'Vendas: Alterar Pedidos', color: '#f59e0b' },
                       { id: 'vendas.excluir', label: 'Vendas: Excluir Pedidos', color: '#ef4444' },
@@ -1384,6 +1395,8 @@ const Configuracoes: React.FC = () => {
                       { id: 'fiscal.entrada', label: 'Fiscal: Entrada de XML', color: '#f59e0b' },
                       { id: 'fiscal.excluir', label: 'Fiscal: Excluir/Cancelar Nota Fiscal', color: '#ef4444' },
                       { id: 'financeiro.caixa', label: 'Financeiro: Fluxo de Caixa', color: '#10b981' },
+                      { id: 'financeiro.caixa_registros', label: 'Financeiro: Caixa (Sessões PDV)', color: '#10b981' },
+                      { id: 'financeiro.banco', label: 'Financeiro: Banco (Conciliação de Cartão)', color: '#10b981' },
                       { id: 'financeiro.receber', label: 'Financeiro: Contas a Receber', color: '#10b981' },
                       { id: 'financeiro.pagar', label: 'Financeiro: Contas a Pagar', color: '#10b981' },
                       { id: 'financeiro.faturamento', label: 'Financeiro: Faturamento', color: '#10b981' },
@@ -1391,7 +1404,8 @@ const Configuracoes: React.FC = () => {
                       { id: 'financeiro.estornar', label: 'Financeiro: Estornar Pagamento/Recebimento', color: '#10b981' },
                       { id: 'administrativo.config', label: 'Admin: Configurações', color: '#6b7280' },
                       { id: 'administrativo.equipe', label: 'Admin: Equipe e Acessos', color: '#6b7280' },
-                      { id: 'administrativo.logs', label: 'Admin: Logs do Sistema', color: '#6b7280' }
+                      { id: 'administrativo.logs', label: 'Admin: Logs do Sistema', color: '#6b7280' },
+                      { id: 'administrativo.relatorios', label: 'Admin: Relatórios Diversos', color: '#6b7280' }
                     ].map(mod => {
                       const isChecked = selectedUserPermissions.includes(mod.id);
                       return (

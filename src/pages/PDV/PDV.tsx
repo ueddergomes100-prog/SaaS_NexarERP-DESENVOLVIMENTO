@@ -85,6 +85,8 @@ const PDV: React.FC = () => {
     userRole,
     userPermissions,
     isOwner,
+    isPlatformAdmin,
+    blockedModules,
     selectedTenant,
     needsTenantSelection,
   } = useAuth();
@@ -114,6 +116,12 @@ const PDV: React.FC = () => {
     isPlatformAdminRole(userRole) ||
     isTenantManagerRole(userRole) ||
     userPermissions?.includes('vendas.pedidos');
+
+  // O PDV vive fora do sistema de abas/TabPane (ver App.tsx), entao nao
+  // herda automaticamente a checagem de blockedModules que toda outra tela
+  // ganha de graca -- sem isso, bloquear o modulo "comercial.pedidos" pelo
+  // SuperAdmin nao tinha nenhum efeito aqui (auditoria 2026-08-05).
+  const isPdvModuleBlocked = !isPlatformAdmin && blockedModules?.includes('comercial.pedidos');
 
   const sessionStorageKey = useMemo(
     () => makePdvSessionStorageKey(tenantId, currentUser?.uid),
@@ -821,6 +829,16 @@ const PDV: React.FC = () => {
         <LockKeyhole size={42} />
         <h1>Selecione uma empresa ativa</h1>
         <p>O PDV precisa de uma base de empresa antes de abrir o caixa.</p>
+      </div>
+    );
+  }
+
+  if (isPdvModuleBlocked) {
+    return (
+      <div className="pdv-access-state">
+        <LockKeyhole size={42} />
+        <h1>Módulo não disponível</h1>
+        <p>O módulo de Pedidos de Venda está desativado para a sua conta. Entre em contato com o administrador do sistema para atualizar o plano.</p>
       </div>
     );
   }

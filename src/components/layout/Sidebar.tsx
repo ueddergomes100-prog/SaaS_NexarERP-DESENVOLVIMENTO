@@ -214,7 +214,7 @@ const Sidebar: React.FC = () => {
       icon: ShieldAlert,
       tone: '#94a3b8',
       items: [
-        { label: 'Relatórios Diversos', to: '/relatorios-diversos', icon: FileText, module: 'logs.relatorios_diversos', managerOnly: true },
+        { label: 'Relatórios Diversos', to: '/relatorios-diversos', icon: FileText, module: 'logs.relatorios_diversos', permission: 'administrativo.relatorios' },
         { label: 'Logs do Sistema', to: '/logs-sistema', icon: ShieldAlert, module: 'logs.sistema', permission: 'administrativo.logs' }
       ]
     },
@@ -293,7 +293,7 @@ const Sidebar: React.FC = () => {
     { label: 'Contas a Receber', to: '/financeiro/contas-receber', icon: Clock, module: 'financeiro.receber', permission: 'financeiro.receber' },
     { label: 'Entrada de Notas', to: '/fiscal/entrada-nfe', icon: Inbox, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' },
     { label: 'Agendamento', to: '/crm/agenda', icon: Calendar, module: 'crm.agenda', permission: 'crm.agenda' },
-    { label: 'Relatórios Diversos', to: '/relatorios-diversos', icon: FileText, module: 'logs.relatorios_diversos', managerOnly: true },
+    { label: 'Relatórios Diversos', to: '/relatorios-diversos', icon: FileText, module: 'logs.relatorios_diversos', permission: 'administrativo.relatorios' },
     { label: 'Configuração Geral', to: '/configuracoes', icon: Settings, module: 'admin.config', permission: 'administrativo.config' },
   ].filter(canAccess);
 

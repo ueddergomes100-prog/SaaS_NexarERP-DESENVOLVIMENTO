@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { showError, confirmUnsavedChanges } from '../utils/alerts';
+import { showError, confirmUnsavedChanges, warnBlockedTabClose } from '../utils/alerts';
 
 export interface Tab {
   /** Identificador estavel da aba (nao muda mesmo que o usuario navegue
@@ -10,6 +10,11 @@ export interface Tab {
    * (ex: da lista de Clientes pra Editar Cliente, na mesma aba). */
   path: string;
   label: string;
+  /** Id da aba de onde esta foi aberta, quando aberta de dentro de outra
+   * aba (nao do menu lateral/superior) -- ver useTabs() abaixo, que injeta
+   * isso automaticamente via TabIdContext. Usado por requestCloseTab pra
+   * bloquear o fechamento da aba-pai enquanto a aba-filha ainda existir. */
+  parentTabId?: string;
 }
 
 interface TabsContextValue {
@@ -18,7 +23,7 @@ interface TabsContextValue {
   /** Reaproveita a aba que ja estiver mostrando esse path; senao cria uma
    * nova e ativa. Pros modulos single-session (ver singleSessionPrefixFor),
    * reaproveita qualquer aba do mesmo modulo, nao so path identico. */
-  openTab: (path: string, label?: string) => Promise<void>;
+  openTab: (path: string, label?: string, parentTabId?: string) => Promise<void>;
   activateTab: (id: string) => void;
   closeTab: (id: string) => void;
   /** Fecha a aba direto se ela nao tiver dados nao salvos registrados
@@ -202,7 +207,7 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // re-renderizaria toda a arvore que consome TabsContext.
   const dirtyTabsRef = useRef(new Map<string, () => Promise<boolean>>());
 
-  const openTab = useCallback(async (path: string, label?: string) => {
+  const openTab = useCallback(async (path: string, label?: string, parentTabId?: string) => {
     const modulePrefix = singleSessionPrefixFor(path);
     if (modulePrefix) {
       const existingSameModule = tabsRef.current.find((tab) => singleSessionPrefixFor(tab.path) === modulePrefix);
@@ -261,7 +266,7 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       if (current.tabs.length >= MAX_TABS) return current;
 
-      const newTab: Tab = { id: makeTabId(), path, label: label || resolveTabLabel(path) };
+      const newTab: Tab = { id: makeTabId(), path, label: label || resolveTabLabel(path), parentTabId };
       return { tabs: [...current.tabs, newTab], activeTabId: newTab.id };
     });
   }, [navigate]);
@@ -326,6 +331,12 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const requestCloseTab = useCallback(async (id: string) => {
+    const openChildren = tabsRef.current.filter((tab) => tab.parentTabId === id);
+    if (openChildren.length > 0) {
+      await warnBlockedTabClose(openChildren.map((tab) => tab.label));
+      return;
+    }
+
     const onSaveRequest = dirtyTabsRef.current.get(id);
     if (!onSaveRequest) {
       closeTab(id);
@@ -370,7 +381,20 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
 export const useTabs = (): TabsContextValue => {
   const ctx = useContext(TabsContext);
   if (!ctx) throw new Error('useTabs deve ser usado dentro de TabsProvider');
-  return ctx;
+
+  // Injeta o id da aba atual como parentTabId automaticamente, lendo
+  // TabIdContext no ponto de chamada -- so existe dentro do conteudo de
+  // uma TabPane (ver TabPane.tsx), entao chamadas vindas da Sidebar/TopBar
+  // (fora do sistema de abas) continuam sem parentTabId. Isso evita ter
+  // que editar cada um dos ~25 call sites de openTab() espalhados pelas
+  // telas de lista so pra registrar a hierarquia pai/filho.
+  const currentTabId = useContext(TabIdContext);
+  const openTab = useCallback(
+    (path: string, label?: string) => ctx.openTab(path, label, currentTabId ?? undefined),
+    [ctx.openTab, currentTabId],
+  );
+
+  return useMemo(() => ({ ...ctx, openTab }), [ctx, openTab]);
 };
 
 export const MAX_TABS_LIMIT = MAX_TABS;

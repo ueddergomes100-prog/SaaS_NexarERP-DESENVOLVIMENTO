@@ -59,7 +59,7 @@ const TabBar: React.FC = () => {
             onDragEnd={handleDragEnd}
           >
             <span className="tab-bar-label">{tab.label}</span>
-            {tabs.length > 1 && (
+            {tabs.length > 1 && tab.path !== '/dashboard' && (
               <span
                 className="tab-bar-close"
                 role="button"

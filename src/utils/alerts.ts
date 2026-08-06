@@ -68,3 +68,16 @@ export const confirmUnsavedChanges = async (): Promise<'save' | 'discard' | 'can
   if (result.isDenied) return 'discard';
   return 'cancel';
 };
+
+// Bloqueio de fechamento quando a aba abriu outra(s) aba(s) a partir de
+// dentro dela (ver TabsContext.tsx, parentTabId) -- fecha primeiro a(s)
+// aba(s) filha(s), so depois a aba de origem pode ser fechada.
+export const warnBlockedTabClose = async (childLabels: string[]) => {
+  const items = childLabels.map((label) => `• ${label}`).join('<br/>');
+  return NexusSwal.fire({
+    icon: 'warning',
+    title: 'Não é possível fechar esta aba',
+    html: `Existe(m) tela(s) aberta(s) a partir dela. Feche primeiro:<br/><br/>${items}`,
+    confirmButtonText: 'Entendi',
+  });
+};

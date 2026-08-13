@@ -25,13 +25,40 @@ const getAuthHeaders = async (json = true) => {
   };
 };
 
+/** Erro de chamada a Spedy com o status HTTP original anexado -- a Spedy
+ * usa os codigos de forma consistente (ver docs.spedy.com.br/pages/start/erros-e-respostas):
+ * 400 e definitivo (nao adianta reenviar sem corrigir os dados), 403 e
+ * configuracao (chave/ambiente errados), 429 e limite de requisicoes
+ * (reenviar com espera). `retryable` deixa a UI decidir se vale oferecer
+ * "tentar de novo" sem o usuario precisar interpretar a mensagem. */
+export class SpedyApiError extends Error {
+  status: number;
+  retryable: boolean;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'SpedyApiError';
+    this.status = status;
+    this.retryable = status === 429 || status >= 500;
+  }
+}
+
+const STATUS_MESSAGE_PREFIX: Record<number, string> = {
+  400: 'Dados inválidos para a Spedy: ',
+  403: 'Configuração da integração fiscal incorreta: ',
+  429: 'Limite de requisições da Spedy atingido, aguarde um instante e tente novamente: ',
+};
+
 const getApiError = async (response: Response, fallback: string) => {
+  let message = fallback;
   try {
     const data = await response.json();
-    return data.error || fallback;
+    message = data.error || fallback;
   } catch {
-    return fallback;
+    // mantem o fallback
   }
+  const prefix = STATUS_MESSAGE_PREFIX[response.status] || '';
+  return new SpedyApiError(`${prefix}${message}`, response.status);
 };
 
 const requestJson = async <T>(path: string, options: RequestInit = {}, fallbackError = 'Erro ao comunicar com o backend fiscal.'): Promise<T> => {
@@ -45,7 +72,7 @@ const requestJson = async <T>(path: string, options: RequestInit = {}, fallbackE
   });
 
   if (!response.ok) {
-    throw new Error(await getApiError(response, fallbackError));
+    throw await getApiError(response, fallbackError);
   }
 
   return response.json();
@@ -179,7 +206,7 @@ export const spedyService = {
     });
 
     if (!response.ok) {
-      throw new Error(await getApiError(response, 'Erro ao baixar arquivo fiscal.'));
+      throw await getApiError(response, 'Erro ao baixar arquivo fiscal.');
     }
 
     const blob = await response.blob();

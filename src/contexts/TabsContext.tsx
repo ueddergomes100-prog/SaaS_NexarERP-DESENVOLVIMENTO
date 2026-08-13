@@ -280,6 +280,21 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const target = current.tabs.find((tab) => tab.id === id);
       if (!target || target.path === path) return current;
 
+      // Navegacao interna (ex: botao "Voltar" de um formulario) pousou
+      // exatamente no path da propria aba-pai -- em vez de virar uma
+      // segunda aba mostrando a mesma lista que ja esta aberta, fecha
+      // esta e reativa a aba-pai original. So nao faz isso se esta aba
+      // tiver, ela mesma, uma aba-filha aberta (senao violaria a trava de
+      // fechamento com filhas pendentes).
+      if (target.parentTabId) {
+        const parent = current.tabs.find((tab) => tab.id === target.parentTabId);
+        const hasOwnChildren = current.tabs.some((tab) => tab.parentTabId === id);
+        if (parent && parent.path === path && !hasOwnChildren) {
+          dirtyTabsRef.current.delete(id);
+          return { tabs: current.tabs.filter((tab) => tab.id !== id), activeTabId: parent.id };
+        }
+      }
+
       let nextTabs = current.tabs.map((tab) => (
         tab.id === id ? { ...tab, path, label: label || resolveTabLabel(path) } : tab
       ));

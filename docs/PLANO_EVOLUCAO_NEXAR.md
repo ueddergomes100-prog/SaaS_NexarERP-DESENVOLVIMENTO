@@ -752,6 +752,17 @@ Typecheck, lint e build passando limpos; suíte de 66 testes sem mudança (nenhu
 
 **O que falta:** auditar cobertura de "Reabrir" (existe?) e garantir que os módulos novos (produção, conferência) nasçam com as quatro operações. Este módulo vira **checklist de auditoria**, não implementação nova.
 
+**Auditoria rodada em 2026-08-13 (agente de exploração, varredura completa de Pedido de Venda/OS/Orçamento/Devolução/Produção) achou bugs reais, não só itens de checklist — todos corrigidos em 5 fatias, cada uma com commit próprio:**
+- **Fatia 1 (crítico):** o crédito lançado em `bancos/{id}.saldoCentavos` na finalização de venda/OS com pagamento digital nunca era revertido — nem ao cancelar, nem ao "reabrir" uma OS, nem ao excluir uma venda. Nova `computeBankCreditsMap` (`financeDomain.ts`) reaproveitada pra creditar e reverter. **Fixup no mesmo dia:** a reversão inicial usava o valor bruto do pagamento em vez do líquido (cartão só credita o banco na conciliação manual em `Banco.tsx`, pelo valor já descontada a taxa da administradora) — achado testando ao vivo, corrigido pra usar `transactionNetCents`.
+- **Fatia 2:** Devolução de Venda deixou de ser tela separada (`/vendas/devolucoes`) e virou botão dentro da própria tela do Pedido de Venda finalizado — sem etapa de busca, já que o pedido já está carregado. Ganhou capacidade de estornar (antes era via de mão única). Módulo órfão `comercial.devolucoes` removido do catálogo (mesmo erro do `admin.backup` não repetido).
+- **Fatia 3:** exclusão de Orçamento já convertido em Venda/OS agora é bloqueada (evitava `orcamentoId` órfão).
+- **Fatia 4:** Ordem de Produção ganhou checagem de permissão granular nas 3 ações destrutivas (Firestore já protegia a escrita, então era inconsistência de UX, não brecha de segurança).
+- **Fatia 5:** log de auditoria (`logs_sistema`) adicionado nos pontos que mexiam em estoque/financeiro sem deixar rastro (Cancelar/Excluir OS, as 3 ações de Produção).
+
+**Achados fora do escopo do Módulo 18, resolvidos na mesma sessão a pedido do usuário:** coluna de saldo removida da listagem de Cadastros > Bancos (duplicava Financeiro > Banco).
+
+**Falta validação manual de ponta a ponta** (mesma limitação de sempre — login é ação do usuário).
+
 **Não faça:** não reescrever a lógica de estorno existente.
 
 ### Módulo 6 — Central de Notas Fiscais
@@ -908,7 +919,7 @@ Atualizar ao concluir cada item.
 | F20 Trilha do menu compacto vira atalho | 2 | 🟨 Código pronto — falta validação manual | 2026-08-02 |
 | M20 Responsabilidade | 2 | 🟨 Código 100% pronto (5/5 fatias) — falta validação manual | 2026-07-31 |
 | M6 fatia Entrada de XML (Fornecedores + Contas a Pagar + Estoque) | 2 | 🟨 Código pronto — falta validação manual (priorizada fora de ordem a pedido do usuário) | 2026-08-02 |
-| M18 Cancelamentos (auditoria) | 2 | ⬜ Pendente — adiado, depois de M4 | |
+| M18 Cancelamentos (auditoria) | 2 | 🟨 Código pronto (5/5 fatias, achou e corrigiu bugs reais além do checklist) — falta validação manual | 2026-08-13 |
 | M6 Central de Notas Fiscais (listagem) | 2 | ⬜ Pendente — adiado, depois de M4 | |
 | M15 Relatórios padronizados | 2 | ⬜ Pendente — adiado, depois de M4 | |
 | M13 Reserva de estoque | 3 | ⬜ Pendente | |

@@ -102,6 +102,12 @@ const NFE: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
+  // Idempotencia da Spedy: `integrationId` estavel por tentativa de
+  // emissao, gerado uma vez por abertura do modal e reaproveitado se o
+  // usuario clicar "Emitir" de novo apos um erro/timeout, sem fechar o
+  // modal -- evita nota fiscal duplicada num reenvio manual. Zerado em
+  // handleCloseModal (nota nova = id novo).
+  const pendingIntegrationIdRef = useRef<string | null>(null);
 
   // Importação de Pedidos
   const [pedidosVenda, setPedidosVenda] = useState<PedidoVenda[]>([]);
@@ -117,6 +123,7 @@ const NFE: React.FC = () => {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setRetransmittingInvoiceId(null);
+    pendingIntegrationIdRef.current = null;
   };
 
   const [formData, setFormData] = useState({
@@ -694,6 +701,21 @@ const NFE: React.FC = () => {
     setIsSubmitting(true);
 
     try {
+      // Procura se já existe uma nota rejeitada para este pedido e tipo --
+      // reenvio manual (retransmissão) ou reenvio automático de uma nota
+      // já rejeitada reaproveitam o id dela como integrationId da Spedy
+      // (mesma operação lógica, garante idempotência). Sem nenhum dos
+      // dois, cai no id gerado uma vez por sessão do modal (ver
+      // pendingIntegrationIdRef acima).
+      const existingRejectedNote = importedPedidoId
+        ? invoices.find(inv => inv.pedidoId === importedPedidoId && inv.tipo === formData.tipo && (inv.status === 'rejected' || inv.status === 'denied'))
+        : null;
+      const targetInvoiceId = retransmittingInvoiceId || existingRejectedNote?.id || null;
+      if (!targetInvoiceId && !pendingIntegrationIdRef.current) {
+        pendingIntegrationIdRef.current = crypto.randomUUID();
+      }
+      const integrationId = targetInvoiceId || pendingIntegrationIdRef.current!;
+
       const cleanDoc = formData.documento.replace(/\D/g, '');
       const cleanCep = formData.cep.replace(/\D/g, '');
       const valorNumerico = Number(formData.valor);
@@ -702,6 +724,7 @@ const NFE: React.FC = () => {
 
       if (formData.tipo === 'NFS-e') {
         const payload = {
+          integrationId,
           effectiveDate: new Date().toISOString(),
           sendEmailToCustomer: !!formData.email,
           description: formData.descricao,
@@ -808,6 +831,7 @@ const NFE: React.FC = () => {
         const destination = clientState.toUpperCase() === companyState.toUpperCase() ? 'internal' : 'interstate';
 
         const payload = {
+          integrationId,
           isFinalCustomer: true,
           operationType: 'outgoing',
           destination: destination,
@@ -850,13 +874,6 @@ const NFE: React.FC = () => {
 
         spedyNote = await spedyService.emitProductInvoice(config.spedyApiKey, config.spedyEnvironment, payload);
       }
-
-      // Procura se já existe uma nota rejeitada para este pedido e tipo
-      const existingRejectedNote = importedPedidoId
-        ? invoices.find(inv => inv.pedidoId === importedPedidoId && inv.tipo === formData.tipo && (inv.status === 'rejected' || inv.status === 'denied'))
-        : null;
-
-      const targetInvoiceId = retransmittingInvoiceId || existingRejectedNote?.id;
 
       if (targetInvoiceId) {
         // Atualiza a nota fiscal existente em vez de criar uma nova

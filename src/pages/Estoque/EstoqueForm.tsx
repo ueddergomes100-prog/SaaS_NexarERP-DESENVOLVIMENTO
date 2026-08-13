@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -99,11 +100,13 @@ interface ProdutoFormData {
   cstCofins: string;
   cstIbs: string;
   cstCbs: string;
+  cstIpi: string;
   aliquotaIcms: string;
   aliquotaPis: string;
   aliquotaCofins: string;
   aliquotaIbs: string;
   aliquotaCbs: string;
+  aliquotaIpi: string;
   reducaoBaseIcms: string;
   icmsSt: boolean;
   codigoAnp: string;
@@ -256,11 +259,13 @@ const emptyFormData: ProdutoFormData = {
   cstCofins: '',
   cstIbs: '',
   cstCbs: '',
+  cstIpi: '',
   aliquotaIcms: '',
   aliquotaPis: '',
   aliquotaCofins: '',
   aliquotaIbs: '',
   aliquotaCbs: '',
+  aliquotaIpi: '',
   reducaoBaseIcms: '',
   icmsSt: false,
   codigoAnp: '',
@@ -364,6 +369,7 @@ const EstoqueForm: React.FC = () => {
   const [unidadesDB, setUnidadesDB] = useState<UnidadeMedida[]>([]);
   const [validarCadastroProduto, setValidarCadastroProduto] = useState(false);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
+  const [regimeTributario, setRegimeTributario] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
   const { currentUser, tenantId, userRole } = useAuth();
 
   const fallbackUnidades: UnidadeMedida[] = [
@@ -408,9 +414,11 @@ const EstoqueForm: React.FC = () => {
           const configData = configSnap.data();
           setValidarCadastroProduto(configData.validarCadastroProduto === true);
           setPermitirVendaSemEstoque(configData.venderSemEstoque === true);
+          setRegimeTributario((configData.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
         } else {
           setValidarCadastroProduto(false);
           setPermitirVendaSemEstoque(false);
+          setRegimeTributario(DEFAULT_REGIME_TRIBUTARIO);
         }
 
         const qCat = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
@@ -488,11 +496,13 @@ const EstoqueForm: React.FC = () => {
               cstCofins: data.cstCofins || data.fiscal?.cstCofins || '',
               cstIbs: data.cstIbs || data.fiscal?.cstIbs || '',
               cstCbs: data.cstCbs || data.fiscal?.cstCbs || '',
+              cstIpi: data.cstIpi || data.fiscal?.cstIpi || '',
               aliquotaIcms: String(data.aliquotaIcms ?? data.fiscal?.aliquotaIcms ?? ''),
               aliquotaPis: String(data.aliquotaPis ?? data.fiscal?.aliquotaPis ?? ''),
               aliquotaCofins: String(data.aliquotaCofins ?? data.fiscal?.aliquotaCofins ?? ''),
               aliquotaIbs: String(data.aliquotaIbs ?? data.fiscal?.aliquotaIbs ?? ''),
               aliquotaCbs: String(data.aliquotaCbs ?? data.fiscal?.aliquotaCbs ?? ''),
+              aliquotaIpi: String(data.aliquotaIpi ?? data.fiscal?.aliquotaIpi ?? ''),
               reducaoBaseIcms: String(data.reducaoBaseIcms ?? data.fiscal?.reducaoBaseIcms ?? ''),
               icmsSt: Boolean(data.icmsSt ?? data.fiscal?.icmsSt ?? false),
               codigoAnp: data.codigoAnp || data.fiscal?.codigoAnp || '',
@@ -840,10 +850,12 @@ const EstoqueForm: React.FC = () => {
         aliquotaCofins: toNumber(formData.aliquotaCofins),
         aliquotaIbs: toNumber(formData.aliquotaIbs),
         aliquotaCbs: toNumber(formData.aliquotaCbs),
+        aliquotaIpi: toNumber(formData.aliquotaIpi),
         reducaoBaseIcms: toNumber(formData.reducaoBaseIcms),
         ncm: formData.ncm.replace(/\D/g, ''),
         cfop: formData.cfop,
         csosn: formData.csosn,
+        cstIpi: formData.cstIpi,
         origem: formData.origem,
         skuSistema: skuFinal,
         slugUrl: formData.slugUrl || sugestaoSlug,
@@ -890,11 +902,13 @@ const EstoqueForm: React.FC = () => {
           cstCofins: formData.cstCofins,
           cstIbs: formData.cstIbs,
           cstCbs: formData.cstCbs,
+          cstIpi: formData.cstIpi,
           aliquotaIcms: toNumber(formData.aliquotaIcms),
           aliquotaPis: toNumber(formData.aliquotaPis),
           aliquotaCofins: toNumber(formData.aliquotaCofins),
           aliquotaIbs: toNumber(formData.aliquotaIbs),
           aliquotaCbs: toNumber(formData.aliquotaCbs),
+          aliquotaIpi: toNumber(formData.aliquotaIpi),
           reducaoBaseIcms: toNumber(formData.reducaoBaseIcms),
           icmsSt: formData.icmsSt,
           codigoAnp: formData.codigoAnp,
@@ -1337,14 +1351,16 @@ const EstoqueForm: React.FC = () => {
                 </div>
               </div>
 
-              <div className="input-group">
-                <label>Perfil fiscal automático</label>
-                <select value={formData.perfilFiscal} onChange={(e) => applyFiscalProfile(e.target.value)} className="form-select">
-                  <option value="">Selecionar perfil...</option>
-                  {Object.entries(fiscalProfiles).map(([key, profile]) => <option key={key} value={key}>{profile.label}</option>)}
-                </select>
-                <span className="field-hint">Ao selecionar um perfil, CFOP, CSOSN, origem e ST são preenchidos automaticamente.</span>
-              </div>
+              {usesCsosn(regimeTributario) && (
+                <div className="input-group">
+                  <label>Perfil fiscal automático</label>
+                  <select value={formData.perfilFiscal} onChange={(e) => applyFiscalProfile(e.target.value)} className="form-select">
+                    <option value="">Selecionar perfil...</option>
+                    {Object.entries(fiscalProfiles).map(([key, profile]) => <option key={key} value={key}>{profile.label}</option>)}
+                  </select>
+                  <span className="field-hint">Ao selecionar um perfil, CFOP, CSOSN, origem e ST são preenchidos automaticamente.</span>
+                </div>
+              )}
 
               <div className="form-grid-4">
                 <div className="input-group">
@@ -1365,9 +1381,9 @@ const EstoqueForm: React.FC = () => {
                   </select>
                 </div>
                 <div className="input-group">
-                  <label>CSOSN ou CST *</label>
+                  <label>{usesCsosn(regimeTributario) ? 'CSOSN *' : 'CST de ICMS *'}</label>
                   <select name="csosn" value={formData.csosn} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
-                    {csosnOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    {(usesCsosn(regimeTributario) ? csosnOptions : ICMS_CST_OPTIONS).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
               </div>
@@ -1411,6 +1427,19 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>Redução base ICMS (%)</label>
                   <input type="number" name="reducaoBaseIcms" step="0.01" min="0" value={formData.reducaoBaseIcms} onChange={handleChange} />
+                </div>
+              </div>
+
+              <div className="form-grid-4">
+                <div className="input-group">
+                  <label>CST IPI</label>
+                  <select name="cstIpi" value={formData.cstIpi} onChange={handleChange} className="form-select">
+                    {cstOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Alíquota IPI (%)</label>
+                  <input type="number" name="aliquotaIpi" step="0.01" min="0" value={formData.aliquotaIpi} onChange={handleChange} />
                 </div>
               </div>
 

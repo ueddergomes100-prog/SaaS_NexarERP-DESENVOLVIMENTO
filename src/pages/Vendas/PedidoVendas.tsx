@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingCart, Plus, Search, FileText, Printer, Trash2 } from 'lucide-react';
-import { collection, query, where, onSnapshot, deleteDoc, doc, getDoc, updateDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, deleteDoc, doc, getDoc, updateDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { computeBankCreditsMap } from '../../utils/financeDomain';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { spedyService } from '../../services/spedyService';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from './pedidoPrintLoteConstants';
@@ -129,6 +131,29 @@ const PedidoVendas: React.FC = () => {
 
     if (confirm.isConfirmed || confirm.isDenied) {
       try {
+        // Reverte o credito bancario (Pix/Cartao/Transferencia) que a venda
+        // aplicou ao ser criada -- excluir sem isso deixava o saldo do banco
+        // inflado pra sempre, incondicional as opcoes de estoque acima
+        // (excluir sem devolver dinheiro esta sempre errado).
+        if (pedido.status !== 'Cancelada') {
+          try {
+            const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', pedido.id));
+            const bankDebitsByBanco = computeBankCreditsMap(pedidoSnap.data()?.pagamentos || []);
+            for (const [bancoId, deltaCents] of bankDebitsByBanco) {
+              const bancoRef = doc(db, 'bancos', bancoId);
+              const bancoSnap = await getDoc(bancoRef);
+              if (!bancoSnap.exists()) continue;
+              await updateDoc(bancoRef, {
+                saldoCentavos: Number(bancoSnap.data().saldoCentavos || 0) - deltaCents,
+                updatedAt: serverTimestamp(),
+                ...buildDocumentUpdateMetadata(currentUser?.uid || '', serverTimestamp(), `Estorno da exclusão do pedido #${pedido.numeroPedido}`),
+              });
+            }
+          } catch (err) {
+            console.error('Erro ao reverter crédito bancário do pedido excluído:', err);
+          }
+        }
+
         if (confirm.isConfirmed && pedido.status !== 'Cancelada' && pedido.itens) {
           for (const item of pedido.itens) {
             if (item.id !== 'avulso') {

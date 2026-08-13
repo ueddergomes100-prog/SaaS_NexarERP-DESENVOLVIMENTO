@@ -262,6 +262,25 @@ export const paymentRequiresBankAccount = (method: PaymentMethod) => (
   method === 'Pix' || method === 'Transferência' || isCardPayment(method)
 );
 
+/**
+ * Soma por banco quanto cada pagamento confirmado credita (venda/OS
+ * finalizada) -- usada tanto pra aplicar o credito quanto, com o mesmo
+ * mapa, pra reverte-lo (cancelamento, reabertura, exclusao). Ignora
+ * pagamento sem banco escolhido ou ainda nao confirmado (Boleto/Prazo
+ * pendente nunca chegou a creditar nada).
+ */
+export const computeBankCreditsMap = (
+  payments: Array<Pick<PaymentRecord, 'status' | 'bancoId' | 'valorCentavos'>>,
+): Map<string, number> => {
+  const creditsByBanco = new Map<string, number>();
+  payments.forEach((payment) => {
+    if (payment.status === 'confirmado' && payment.bancoId) {
+      creditsByBanco.set(payment.bancoId, (creditsByBanco.get(payment.bancoId) || 0) + payment.valorCentavos);
+    }
+  });
+  return creditsByBanco;
+};
+
 export const financialNatureForPayment = (method: PaymentMethod): FinancialNature => {
   if (method === 'Dinheiro') return 'caixa_fisico';
   if (method === 'Pix' || method === 'Transferência') return 'bancario_digital';

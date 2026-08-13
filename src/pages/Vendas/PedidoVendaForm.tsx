@@ -23,6 +23,7 @@ import {
   buildCardFeeSchedulesByBrand,
   buildCommissionSnapshot,
   cancelCommissionSnapshot,
+  computeBankCreditsMap,
   createEmptyPaymentDraft,
   explodeInstallmentPaymentRecords,
   fromCents,
@@ -1318,9 +1319,22 @@ const PedidoVendaForm: React.FC = () => {
       await runTransaction(db, async (transaction) => {
         const saleSnap = await transaction.get(saleRef);
         if (!saleSnap.exists()) throw new Error('A venda não existe mais.');
-        if (saleSnap.data().status === 'Cancelada') {
+        const saleData = saleSnap.data();
+        if (saleData.status === 'Cancelada') {
           throw new Error('Esta venda já foi cancelada.');
         }
+
+        // Reverte o credito bancario aplicado na criacao da venda (pagamento
+        // Pix/Cartao/Transferencia) -- antes ficava pra sempre no saldo do
+        // banco mesmo apos cancelar. So roda uma vez porque o cancelamento
+        // em si ja e bloqueado contra repeticao (checagem de status acima).
+        const bankDebitsByBanco = computeBankCreditsMap(saleData.pagamentos || []);
+        const bankBalancesById = new Map<string, number>();
+        for (const bancoId of bankDebitsByBanco.keys()) {
+          const bancoSnap = await transaction.get(doc(db, 'bancos', bancoId));
+          if (bancoSnap.exists()) bankBalancesById.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
+        }
+
         const paymentSnapshots = await Promise.all(paymentRefs.map((paymentRef) => transaction.get(paymentRef)));
 
         await applyStockAdjustments(
@@ -1337,6 +1351,16 @@ const PedidoVendaForm: React.FC = () => {
           canceladaEm: serverTimestamp(),
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Venda cancelada'),
+        });
+
+        bankDebitsByBanco.forEach((deltaCents, bancoId) => {
+          const currentBalance = bankBalancesById.get(bancoId);
+          if (currentBalance === undefined) return;
+          transaction.update(doc(db, 'bancos', bancoId), {
+            saldoCentavos: currentBalance - deltaCents,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Estorno da venda #${numeroPedido} cancelada`),
+          });
         });
 
         paymentSnapshots.forEach((paymentSnapshot) => {

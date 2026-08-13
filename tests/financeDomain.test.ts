@@ -5,6 +5,7 @@ import {
   buildCardFeeSchedulesByBrand,
   buildCommissionSnapshot,
   cancelCommissionSnapshot,
+  computeBankCreditsMap,
   createEmptyPaymentDraft,
   explodeInstallmentPaymentRecords,
   normalizeCreditCardFeeSchedule,
@@ -448,4 +449,27 @@ test('transferência entre bancos exige origem, destino distintos e valor positi
   assert.throws(() => validateBankTransfer({ originId: 'banco-a', destinationId: 'banco-a', amountCents: 5_000 }));
   assert.throws(() => validateBankTransfer({ originId: 'banco-a', destinationId: 'banco-b', amountCents: 0 }));
   assert.throws(() => validateBankTransfer({ originId: 'banco-a', destinationId: 'banco-b', amountCents: -100 }));
+});
+
+test('computeBankCreditsMap soma pagamentos confirmados por banco', () => {
+  const map = computeBankCreditsMap([
+    { status: 'confirmado', bancoId: 'banco-1', valorCentavos: 10_000 },
+    { status: 'confirmado', bancoId: 'banco-1', valorCentavos: 5_000 },
+    { status: 'confirmado', bancoId: 'banco-2', valorCentavos: 3_000 },
+  ]);
+  assert.equal(map.get('banco-1'), 15_000);
+  assert.equal(map.get('banco-2'), 3_000);
+  assert.equal(map.size, 2);
+});
+
+test('computeBankCreditsMap ignora pagamento pendente e pagamento sem banco', () => {
+  const map = computeBankCreditsMap([
+    { status: 'pendente', bancoId: 'banco-1', valorCentavos: 10_000 },
+    { status: 'confirmado', bancoId: undefined, valorCentavos: 5_000 },
+  ]);
+  assert.equal(map.size, 0);
+});
+
+test('computeBankCreditsMap com lista vazia devolve mapa vazio', () => {
+  assert.equal(computeBankCreditsMap([]).size, 0);
 });

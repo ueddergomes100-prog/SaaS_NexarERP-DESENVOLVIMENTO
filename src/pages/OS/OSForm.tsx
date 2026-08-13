@@ -23,6 +23,7 @@ import {
   buildCardFeeSchedulesByBrand,
   buildServiceOrderCommissionSnapshot,
   cancelCommissionSnapshot,
+  computeBankCreditsMap,
   createEmptyPaymentDraft,
   explodeInstallmentPaymentRecords,
   fromCents,
@@ -796,18 +797,27 @@ const OSForm: React.FC = () => {
         );
 
         const wasAlreadyFinalized = existingOsData?.status === 'Finalizada';
-        const bankCreditsByBanco = new Map<string, number>();
-        if (formData.status === 'Finalizada' && !wasAlreadyFinalized) {
-          persistedPayments.forEach((payment) => {
-            if (payment.status === 'confirmado' && payment.bancoId) {
-              bankCreditsByBanco.set(payment.bancoId, (bankCreditsByBanco.get(payment.bancoId) || 0) + payment.valorCentavos);
-            }
-          });
-        }
+        const bankCreditsByBanco = formData.status === 'Finalizada' && !wasAlreadyFinalized
+          ? computeBankCreditsMap(persistedPayments)
+          : new Map<string, number>();
+        // Reverte o credito bancario aplicado na finalizacao sempre que a OS
+        // deixa de estar Finalizada -- cobre tanto cancelamento quanto
+        // "reabertura" (troca de status pra qualquer outro), que antes
+        // deixavam o saldo do banco inflado pra sempre. Le do
+        // existingOsData.pagamentos (o que foi creditado de fato), nao do
+        // formData atual (que pode ter mudado forma de pagamento na mesma
+        // edicao). Naturalmente idempotente: so roda quando o status
+        // PERSISTIDO ainda era Finalizada, entao nao reverte duas vezes.
+        const bankDebitsByBanco = wasAlreadyFinalized && formData.status !== 'Finalizada'
+          ? computeBankCreditsMap(existingOsData?.pagamentos || [])
+          : new Map<string, number>();
         const bankBalancesById = new Map<string, number>();
-        for (const bancoId of bankCreditsByBanco.keys()) {
+        for (const bancoId of new Set([...bankCreditsByBanco.keys(), ...bankDebitsByBanco.keys()])) {
           const bancoSnap = await transaction.get(doc(db, 'bancos', bancoId));
-          if (!bancoSnap.exists()) throw new Error('O banco de destino selecionado não foi encontrado.');
+          if (!bancoSnap.exists()) {
+            if (bankCreditsByBanco.has(bancoId)) throw new Error('O banco de destino selecionado não foi encontrado.');
+            continue; // banco do credito original nao existe mais -- reversao segue sem quebrar o fluxo
+          }
           bankBalancesById.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
         }
 
@@ -913,6 +923,15 @@ const OSForm: React.FC = () => {
             saldoCentavos: (bankBalancesById.get(bancoId) || 0) + deltaCents,
             updatedAt: serverTimestamp(),
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Crédito da OS #${finalNumeroOS}`),
+          });
+        });
+        bankDebitsByBanco.forEach((deltaCents, bancoId) => {
+          const currentBalance = bankBalancesById.get(bancoId);
+          if (currentBalance === undefined) return;
+          transaction.update(doc(db, 'bancos', bancoId), {
+            saldoCentavos: currentBalance - deltaCents,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Estorno do crédito da OS #${finalNumeroOS}`),
           });
         });
 

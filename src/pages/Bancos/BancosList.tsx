@@ -471,17 +471,16 @@ const BancosList: React.FC = () => {
                 <th>Nome</th>
                 <th>Instituição</th>
                 <th>Agência / Conta</th>
-                <th style={{ textAlign: 'right' }}>Saldo</th>
                 <th style={{ width: '15%' }}>Status</th>
                 <th style={{ width: '15%' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
+                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : filteredBancos.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     <Building2 size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>Nenhum banco cadastrado.</p>
                   </td>
@@ -492,9 +491,6 @@ const BancosList: React.FC = () => {
                     <td className="font-medium">{banco.nome}</td>
                     <td>{banco.banco || '-'}</td>
                     <td>{banco.agencia || '-'} / {banco.conta || '-'}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 600, color: (banco.saldoCentavos || 0) >= 0 ? '#10b981' : '#ef4444' }}>
-                      {formatBRL(fromCents(banco.saldoCentavos || 0))}
-                    </td>
                     <td>
                       <span className="status-badge" style={{
                         backgroundColor: banco.ativo ? '#10b98120' : 'rgba(255,255,255,0.05)',

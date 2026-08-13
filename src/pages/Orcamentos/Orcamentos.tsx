@@ -28,7 +28,7 @@ interface Orcamento {
 const Orcamentos: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
-  const { tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
 
   const canEditOrcamento = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.orcamentos_alterar'));
@@ -58,7 +58,15 @@ const Orcamentos: React.FC = () => {
     fetchOrcamentos();
   }, [tenantId]);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (orcamento: Orcamento) => {
+    // Ja foi convertido em Venda/OS -- excluir deixaria orcamentoId orfao
+    // apontando pra um documento inexistente (achado na auditoria do
+    // Modulo 18).
+    if (orcamento.status === 'Finalizado') {
+      showError('Não é possível excluir', 'Este orçamento já foi convertido em Venda ou Ordem de Serviço. Cancele a Venda/OS gerada primeiro, se for o caso.');
+      return;
+    }
+
     const confirm = await NexusSwal.fire({
       title: 'Excluir Orçamento?',
       text: 'Esta ação não pode ser desfeita.',
@@ -71,7 +79,23 @@ const Orcamentos: React.FC = () => {
 
     if (confirm.isConfirmed) {
       try {
-        await deleteDoc(doc(db, 'orcamentos', id));
+        await deleteDoc(doc(db, 'orcamentos', orcamento.id));
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser?.uid || '',
+            usuarioEmail: currentUser?.email || '',
+            modulo: 'vendas',
+            acao: 'exclusao',
+            descricao: `Orçamento #${orcamento.numeroOrcamento} excluído.`,
+            registroRelacionadoId: orcamento.id,
+            status: 'sucesso',
+            critical: true,
+          });
+        } catch {
+          // ignore audit log error
+        }
         showSuccess('Orçamento excluído!');
         fetchOrcamentos();
       } catch (error) {
@@ -217,7 +241,7 @@ const Orcamentos: React.FC = () => {
                           {canDeleteOrcamento && (
                             <button 
                               title="Excluir"
-                              onClick={() => handleDelete(orc.id)}
+                              onClick={() => handleDelete(orc)}
                               style={{ padding: '8px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}
                             >
                               <Trash2 size={18} />

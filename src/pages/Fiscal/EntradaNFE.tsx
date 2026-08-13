@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2, AlertTriangle, Truck, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs, doc, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { addDaysToDateInput } from '../../utils/dateTime';
+import { DEFAULT_REGIME_TRIBUTARIO, matchProdutoFromXmlItem, usesCsosn, type EstoqueItemForMatch, type RegimeTributario } from '../../utils/fiscalDomain';
 import Swal from 'sweetalert2';
 
 interface ParsedItem {
@@ -14,6 +15,7 @@ interface ParsedItem {
   descricao: string;
   ncm: string;
   cfop: string;
+  ean: string;
   unidade: string;
   quantidade: number;
   valorUnitario: number;
@@ -36,10 +38,7 @@ interface ParsedXML {
   duplicatas: Duplicata[];
 }
 
-interface EstoqueItem {
-  id: string;
-  codigo: string;
-  nome: string;
+interface EstoqueItem extends EstoqueItemForMatch {
   quantidade: number;
 }
 
@@ -68,6 +67,11 @@ const EntradaNFE: React.FC = () => {
   const [fornecedorForm, setFornecedorForm] = useState({ nome: '', cnpj: '', telefone: '', email: '' });
   const [isSavingFornecedor, setIsSavingFornecedor] = useState(false);
 
+  // Regime tributario do tenant -- decide o CSOSN/CST default gravado num
+  // produto novo criado pela importacao (mesmo padrao de leitura direta
+  // de configuracoes/{tenantId} ja usado em EstoqueForm.tsx/NFE.tsx).
+  const [regimeTributario, setRegimeTributario] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
+
   // Carrega produtos em estoque no carregamento para acelerar a reconciliação
   useEffect(() => {
     const fetchEstoque = async () => {
@@ -82,6 +86,9 @@ const EntradaNFE: React.FC = () => {
             id: d.id,
             codigo: data.codigo || '',
             nome: data.nome || '',
+            codigoBarras: data.codigoBarras || '',
+            ncm: data.ncm || data.fiscal?.ncm || '',
+            codigosFornecedor: data.codigosFornecedor || {},
             quantidade: Number(data.quantidade || 0)
           });
         });
@@ -90,7 +97,17 @@ const EntradaNFE: React.FC = () => {
         console.error("Erro ao carregar estoque para reconciliação:", err);
       }
     };
+    const fetchRegimeTributario = async () => {
+      if (!tenantId) return;
+      try {
+        const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
+        setRegimeTributario((configSnap.data()?.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
+      } catch (err) {
+        console.error("Erro ao carregar regime tributário:", err);
+      }
+    };
     fetchEstoque();
+    fetchRegimeTributario();
   }, [tenantId]);
 
   // Assim que o XML é lido, reconcilia o fornecedor pelo CNPJ com o
@@ -265,11 +282,16 @@ const EntradaNFE: React.FC = () => {
           const detNode = detNodes[i];
           const prodNode = detNode.getElementsByTagName("prod")[0];
           if (prodNode) {
+            const eanBruto = getValue("cEAN", prodNode);
             items.push({
               codigo: getValue("cProd", prodNode),
               descricao: getValue("xProd", prodNode),
               ncm: getValue("NCM", prodNode),
               cfop: getValue("CFOP", prodNode),
+              // XML costuma trazer "SEM GTIN" quando o produto nao tem
+              // codigo de barras -- nao e um EAN de verdade, nao usar pra
+              // matching.
+              ean: eanBruto && eanBruto.toUpperCase() !== 'SEM GTIN' ? eanBruto : '',
               unidade: getValue("uCom", prodNode) || 'UN',
               quantidade: Number(getValue("qCom", prodNode) || 0),
               valorUnitario: Number(getValue("vUnCom", prodNode) || 0),
@@ -321,26 +343,32 @@ const EntradaNFE: React.FC = () => {
       let pecasCriadas = 0;
 
       for (const item of parsedData.items) {
-        // Tenta encontrar peça correspondente no estoque do tenant
-        const pecaExistente = estoqueAtual.find(
-          p => p.codigo.toLowerCase() === item.codigo.toLowerCase() ||
-               p.nome.toLowerCase() === item.descricao.toLowerCase()
-        );
+        // Reconhecimento em camadas: EAN -> codigo que esse fornecedor
+        // usa pra esse item (aprendido de importacoes anteriores dele) ->
+        // NCM+nome como ultimo recurso (ver fiscalDomain.ts).
+        const { produto: pecaExistente } = matchProdutoFromXmlItem(item, estoqueAtual, fornecedorMatch.id);
 
         if (pecaExistente) {
-          // Incrementa quantidade
+          // Incrementa quantidade e memoriza o codigo que este fornecedor
+          // usa pra este item, pra a proxima importacao dele cair direto
+          // na camada 2 (mais rapida e confiavel que NCM+nome).
           const novaQuantidade = pecaExistente.quantidade + item.quantidade;
           await updateDoc(doc(db, 'estoque', pecaExistente.id), {
             quantidade: novaQuantidade,
             precoCusto: item.valorUnitario,
             fornecedor: fornecedorMatch.nome,
             fornecedorId: fornecedorMatch.id,
+            [`codigosFornecedor.${fornecedorMatch.id}`]: item.codigo,
             updatedAt: serverTimestamp(),
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Entrada de NF ${parsedData.numeroNF}`),
           });
           pecasAtualizadas++;
         } else {
-          // Cria novo produto com markup padrao de 50%
+          // Cria novo produto com markup padrao de 50% -- ja gravando NCM,
+          // CFOP, EAN e um CSOSN/CST default seguro (nunca deixa o produto
+          // sem dado fiscal, como acontecia antes). Pra Presumido/Real nao
+          // da pra chutar CST de ICMS com seguranca -- fica em branco,
+          // exigindo edicao manual no cadastro do produto.
           await addDoc(collection(db, 'estoque'), {
             codigo: item.codigo,
             nome: item.descricao.toUpperCase(),
@@ -350,10 +378,16 @@ const EntradaNFE: React.FC = () => {
             precoVenda: item.valorUnitario * 1.5, // 50% Margem padrão
             fornecedor: fornecedorMatch.nome,
             fornecedorId: fornecedorMatch.id,
+            codigosFornecedor: { [fornecedorMatch.id]: item.codigo },
             categoria: 'DIVERSOS',
             unidadeMedidaId: 'un',
             unidadeMedidaSigla: item.unidade.toUpperCase() || 'UN',
             unidadeMedidaCasasDecimais: 0,
+            ncm: item.ncm.replace(/\D/g, ''),
+            cfop: item.cfop,
+            codigoBarras: item.ean,
+            csosn: usesCsosn(regimeTributario) ? '102' : '',
+            origem: '0',
             tenantId,
             createdAt: serverTimestamp(),
             ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
@@ -607,10 +641,8 @@ const EntradaNFE: React.FC = () => {
                     </thead>
                     <tbody>
                       {parsedData.items.map((item, idx) => {
-                        const correspondente = estoqueAtual.find(
-                          p => p.codigo.toLowerCase() === item.codigo.toLowerCase() ||
-                               p.nome.toLowerCase() === item.descricao.toLowerCase()
-                        );
+                        const { produto: correspondente, layer } = matchProdutoFromXmlItem(item, estoqueAtual, fornecedorMatch?.id || '');
+                        const layerLabel = layer === 'ean' ? 'por código de barras' : layer === 'codigo_fornecedor' ? 'pelo código deste fornecedor' : layer === 'ncm_nome' ? 'por NCM + nome' : '';
 
                         return (
                           <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '14px' }}>
@@ -628,7 +660,7 @@ const EntradaNFE: React.FC = () => {
                             </td>
                             <td style={{ padding: '16px', textAlign: 'center' }}>
                               {correspondente ? (
-                                <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+                                <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }} title={`Reconhecido ${layerLabel}`}>
                                   Mesclar Estoque (+{correspondente.quantidade} cadastrados)
                                 </span>
                               ) : (

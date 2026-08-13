@@ -29,3 +29,68 @@ export const ICMS_CST_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '70', label: '70 - Com redução de base de cálculo e cobrança de ICMS por ST' },
   { value: '90', label: '90 - Outras' },
 ];
+
+/** Item lido do XML de uma NF-e de entrada, o suficiente pra tentar casar
+ * com um produto ja cadastrado. */
+export interface XmlItemForMatch {
+  codigo: string;
+  descricao: string;
+  ncm: string;
+  ean?: string;
+}
+
+/** Produto do estoque, campos usados pelo matching. */
+export interface EstoqueItemForMatch {
+  id: string;
+  codigo: string;
+  nome: string;
+  codigoBarras?: string;
+  ncm?: string;
+  /** Mapa fornecedorId -> cProd que esse fornecedor usa pra este produto,
+   * aprendido a cada importacao de XML confirmada (ver EntradaNFE.tsx). */
+  codigosFornecedor?: Record<string, string>;
+}
+
+export type ProdutoMatchLayer = 'ean' | 'codigo_fornecedor' | 'ncm_nome';
+
+export interface ProdutoMatchResult<T extends EstoqueItemForMatch> {
+  produto: T | null;
+  layer: ProdutoMatchLayer | null;
+}
+
+/** Reconhecimento de produto na importacao de XML, em camadas: EAN
+ * (mais confiavel) -> codigo que o fornecedor usa pra esse item, salvo de
+ * uma importacao anterior dele -> NCM+nome (exige os dois, nao so um,
+ * como ultimo recurso). Pura e testavel sem Firestore. Generico em T pra
+ * o chamador poder passar um tipo de estoque com campos extras (ex:
+ * quantidade) sem perder esses campos no resultado. */
+export const matchProdutoFromXmlItem = <T extends EstoqueItemForMatch>(
+  item: XmlItemForMatch,
+  estoqueAtual: T[],
+  fornecedorId: string,
+): ProdutoMatchResult<T> => {
+  const ean = (item.ean || '').trim();
+  if (ean) {
+    const porEan = estoqueAtual.find((p) => (p.codigoBarras || '').trim() === ean);
+    if (porEan) return { produto: porEan, layer: 'ean' };
+  }
+
+  const codigo = (item.codigo || '').trim().toLowerCase();
+  if (codigo && fornecedorId) {
+    const porCodigoFornecedor = estoqueAtual.find(
+      (p) => (p.codigosFornecedor?.[fornecedorId] || '').trim().toLowerCase() === codigo,
+    );
+    if (porCodigoFornecedor) return { produto: porCodigoFornecedor, layer: 'codigo_fornecedor' };
+  }
+
+  const ncm = (item.ncm || '').trim();
+  const nome = (item.descricao || '').trim().toLowerCase();
+  if (ncm && nome) {
+    const porNcmNome = estoqueAtual.find(
+      (p) => (p.ncm || '').trim() === ncm && p.nome.trim().toLowerCase() === nome,
+    );
+    if (porNcmNome) return { produto: porNcmNome, layer: 'ncm_nome' };
+  }
+
+  return { produto: null, layer: null };
+};

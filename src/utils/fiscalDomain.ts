@@ -94,3 +94,116 @@ export const matchProdutoFromXmlItem = <T extends EstoqueItemForMatch>(
 
   return { produto: null, layer: null };
 };
+
+/** Dados fiscais de um produto/item de venda usados pra montar o bloco
+ * `taxes` enviado a Spedy. `csosn` guarda o CSOSN (Simples Nacional) ou o
+ * CST de ICMS (outros regimes) -- mesmo campo unico usado no cadastro de
+ * produto (EstoqueForm.tsx) desde a Fatia B. */
+export interface ProdutoFiscalData {
+  origem?: string;
+  csosn?: string;
+  aliquotaIcms?: number;
+  reducaoBaseIcms?: number;
+  cstPis?: string;
+  aliquotaPis?: number;
+  cstCofins?: string;
+  aliquotaCofins?: number;
+  cstIpi?: string;
+  aliquotaIpi?: number;
+}
+
+interface SpedyIcmsTax {
+  origin: number;
+  csosn?: number;
+  cst?: number;
+  baseTaxModality?: number;
+  baseTax?: number;
+  baseTaxReduction?: number;
+  rate?: number;
+  amount?: number;
+}
+
+interface SpedyPisCofinsTax {
+  cst: number;
+  baseTax?: number;
+  rate?: number;
+  amount?: number;
+}
+
+interface SpedyIpiTax {
+  cst: number;
+  baseTax?: number;
+  rate?: number;
+  amount?: number;
+}
+
+export interface SpedyTaxesPayload {
+  icms: SpedyIcmsTax;
+  pis: SpedyPisCofinsTax;
+  cofins: SpedyPisCofinsTax;
+  ipi?: SpedyIpiTax;
+}
+
+/** Modalidade de Base de Calculo do ICMS [modBC] da tabela do SEFAZ --
+ * 3 = "Valor da operacao", o caso comum de venda sem pauta/preco
+ * tabelado. Nao implementamos ICMS-ST nesta fatia (fica pra quando for
+ * pedido). */
+const ICMS_BASE_TAX_MODALITY_VALOR_OPERACAO = 3;
+
+/** Monta o bloco `taxes` no formato exato que a API da Spedy espera
+ * (schema `SefazInvoiceItemIcmsDto`/`PisDto`/`CofinsDto`/`IpiDto`,
+ * confirmado em 2026-08 lendo https://docs.spedy.com.br/openapi/v1.json
+ * -- csosn e cst vivem no MESMO objeto `icms`, mutuamente exclusivos por
+ * regime). Simples Nacional mantem o payload minimo que ja funcionava
+ * (so csosn/origem no ICMS, so cst no PIS/COFINS, sem base/aliquota --
+ * dispensado pela Spedy nesse regime). Lucro Presumido/Real usam CST real
+ * de ICMS/PIS/COFINS com base de calculo e aliquota efetivas, vindas do
+ * cadastro do produto. IPI so entra no payload quando o produto tem CST
+ * de IPI configurado (campo opcional, nem todo produto tem). */
+export const buildTaxesPayload = (
+  produto: ProdutoFiscalData,
+  regime: RegimeTributario,
+  itemValue: number,
+): SpedyTaxesPayload => {
+  const origin = Number(produto.origem || '0');
+
+  const icms: SpedyIcmsTax = usesCsosn(regime)
+    ? { origin, csosn: Number(produto.csosn || '400') }
+    : (() => {
+        const baseTaxReduction = Number(produto.reducaoBaseIcms || 0);
+        const baseTax = itemValue * (1 - baseTaxReduction / 100);
+        const rate = Number(produto.aliquotaIcms || 0);
+        return {
+          origin,
+          cst: Number(produto.csosn || '0'),
+          baseTaxModality: ICMS_BASE_TAX_MODALITY_VALOR_OPERACAO,
+          baseTax,
+          baseTaxReduction,
+          rate,
+          amount: baseTax * (rate / 100),
+        };
+      })();
+
+  const pis: SpedyPisCofinsTax = usesCsosn(regime)
+    ? { cst: 7 }
+    : (() => {
+        const rate = Number(produto.aliquotaPis || 0);
+        return { cst: Number(produto.cstPis || '1'), baseTax: itemValue, rate, amount: itemValue * (rate / 100) };
+      })();
+
+  const cofins: SpedyPisCofinsTax = usesCsosn(regime)
+    ? { cst: 7 }
+    : (() => {
+        const rate = Number(produto.aliquotaCofins || 0);
+        return { cst: Number(produto.cstCofins || '1'), baseTax: itemValue, rate, amount: itemValue * (rate / 100) };
+      })();
+
+  const payload: SpedyTaxesPayload = { icms, pis, cofins };
+
+  if (produto.cstIpi) {
+    const rate = Number(produto.aliquotaIpi || 0);
+    payload.ipi = { cst: Number(produto.cstIpi), baseTax: itemValue, rate, amount: itemValue * (rate / 100) };
+  }
+
+  return payload;
+};

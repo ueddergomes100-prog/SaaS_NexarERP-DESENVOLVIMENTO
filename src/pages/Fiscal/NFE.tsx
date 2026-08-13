@@ -11,6 +11,7 @@ import type { SpedyInvoice } from '../../services/spedyService';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { DEFAULT_REGIME_TRIBUTARIO, buildTaxesPayload, type RegimeTributario } from '../../utils/fiscalDomain';
 import Swal from 'sweetalert2';
 
 interface FiscalConfig {
@@ -59,6 +60,14 @@ interface PedidoVendaItem {
   cfop?: string;
   csosn?: string;
   origem?: string;
+  aliquotaIcms?: number;
+  reducaoBaseIcms?: number;
+  cstPis?: string;
+  aliquotaPis?: number;
+  cstCofins?: string;
+  aliquotaCofins?: number;
+  cstIpi?: string;
+  aliquotaIpi?: number;
 }
 
 interface PedidoVenda {
@@ -79,6 +88,7 @@ const NFE: React.FC = () => {
   // Configurações
   const [config, setConfig] = useState<FiscalConfig | null>(null);
   const [isConfigLoading, setIsConfigLoading] = useState(true);
+  const [regimeTributario, setRegimeTributario] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
 
   // Estado de dados
   const [invoices, setInvoices] = useState<LocalInvoice[]>([]);
@@ -159,6 +169,12 @@ const NFE: React.FC = () => {
           spedyApiKey: runtimeConfig.spedyApiKeyConfigured ? '__backend_proxy__' : '',
           spedyEnvironment: runtimeConfig.spedyEnvironment
         });
+
+        // 1b. Regime tributário do tenant -- decide se o bloco de impostos
+        // enviado a Spedy usa CSOSN (Simples Nacional) ou CST real com
+        // base/alíquota (Presumido/Real).
+        const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
+        setRegimeTributario((configSnap.data()?.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
 
         // 2. Busca lista de clientes locais
         const clientsRef = collection(db, 'clientes');
@@ -297,7 +313,15 @@ const NFE: React.FC = () => {
               ncm: pData.ncm || '87082999',
               cfop: pData.cfop || '5102',
               csosn: pData.csosn || '400',
-              origem: pData.origem || '0'
+              origem: pData.origem || '0',
+              aliquotaIcms: Number(pData.aliquotaIcms || 0),
+              reducaoBaseIcms: Number(pData.reducaoBaseIcms || 0),
+              cstPis: pData.cstPis || '',
+              aliquotaPis: Number(pData.aliquotaPis || 0),
+              cstCofins: pData.cstCofins || '',
+              aliquotaCofins: Number(pData.aliquotaCofins || 0),
+              cstIpi: pData.cstIpi || '',
+              aliquotaIpi: Number(pData.aliquotaIpi || 0)
             });
             continue;
           }
@@ -728,14 +752,12 @@ const NFE: React.FC = () => {
                 quantityTax: Number(item.quantidade || 1),
                 unitTaxAmount: unitAmount,
                 makeupTotal: true,
-                taxes: {
-                  icms: {
-                    origin: Number(item.origem || '0'),
-                    csosn: Number(item.csosn || '400')
-                  },
-                  pis: { cst: 7 },
-                  cofins: { cst: 7 }
-                }
+                // Regime Simples Nacional mantem o payload minimo (so
+                // csosn/origem, sem base/aliquota -- ja funcionava assim);
+                // Presumido/Real usam CST real com base/aliquota efetivas
+                // do produto (ver fiscalDomain.ts, formato confirmado na
+                // documentacao da Spedy).
+                taxes: buildTaxesPayload(item, regimeTributario, itemTotal)
               };
             })
           : [
@@ -752,6 +774,12 @@ const NFE: React.FC = () => {
                 quantityTax: 1,
                 unitTaxAmount: valorNumerico,
                 makeupTotal: true,
+                // Lançamento avulso (sem pedido importado) -- o modal so
+                // coleta NCM/CFOP/CSOSN manualmente, sem CST/aliquota real
+                // de ICMS/PIS/COFINS por item. Mantido no formato minimo
+                // de Simples Nacional mesmo pra tenants Presumido/Real;
+                // pra emissao fiel ao regime, importar de um Pedido de
+                // Venda (produto ja traz os dados reais, ver acima).
                 taxes: {
                   icms: {
                     origin: 0,

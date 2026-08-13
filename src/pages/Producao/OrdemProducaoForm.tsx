@@ -8,6 +8,7 @@ import { showSuccess, showError, confirmDelete, NexusSwal } from '../../utils/al
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { reserveTenantSequence, formatSequenceValue, getCurrentMaxSequence } from '../../utils/firestoreAtomic';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
+import { isPlatformAdminRole } from '../../utils/roles';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
@@ -91,7 +92,8 @@ const OrdemProducaoForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditing = !!id;
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const canManageProducao = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('operacoes.producao'));
 
   const [isFetching, setIsFetching] = useState(isEditing);
   // Decoupled de isFetching (que so controla o spinner de tela cheia, e
@@ -318,6 +320,10 @@ const OrdemProducaoForm: React.FC = () => {
 
   const handleCancelar = async () => {
     if (!id || !currentUser) return;
+    if (!canManageProducao) {
+      showError('Acesso negado', 'Você não tem permissão para cancelar ordens de produção.');
+      return;
+    }
     const confirm = await NexusSwal.fire({
       title: 'Cancelar ordem de produção?',
       text: 'Nenhuma matéria-prima será debitada e nenhum estoque será creditado. Esta ação não pode ser desfeita.',
@@ -348,6 +354,10 @@ const OrdemProducaoForm: React.FC = () => {
   // estoque (STATUS_EXCLUIVEL), entao nao ha nada pra reverter.
   const handleExcluir = async () => {
     if (!id || !ordem) return;
+    if (!canManageProducao) {
+      showError('Acesso negado', 'Você não tem permissão para excluir ordens de produção.');
+      return;
+    }
     const isConfirmed = await confirmDelete(`a ordem de produção ${ordem.numero}`);
     if (!isConfirmed) return;
 
@@ -370,6 +380,10 @@ const OrdemProducaoForm: React.FC = () => {
   // padrao do cancelamento de OS/venda ja usado no sistema).
   const handleEstornar = async () => {
     if (!id || !tenantId || !currentUser || !ordem) return;
+    if (!canManageProducao) {
+      showError('Acesso negado', 'Você não tem permissão para estornar ordens de produção.');
+      return;
+    }
     const confirm = await NexusSwal.fire({
       title: 'Estornar produção?',
       text: `A matéria-prima debitada será devolvida ao estoque e ${ordem.quantidadeProduzida} unidade(s) de "${ordem.produtoNome}" serão retiradas do estoque de produtos. O registro da ordem é mantido, com status "Estornada". Esta ação não pode ser desfeita.`,
@@ -634,17 +648,17 @@ const OrdemProducaoForm: React.FC = () => {
                     <RotateCcw size={16} /> Retomar
                   </button>
                 )}
-                {['criada', 'em_producao', 'pausada'].includes(ordem.status) && (
+                {canManageProducao && ['criada', 'em_producao', 'pausada'].includes(ordem.status) && (
                   <button type="button" className="icon-btn" style={{ color: '#ef4444' }} title="Cancelar ordem" disabled={isProcessing} onClick={handleCancelar}>
                     <XCircle size={18} />
                   </button>
                 )}
-                {ordem.status === 'finalizada' && (
+                {canManageProducao && ordem.status === 'finalizada' && (
                   <button type="button" className="btn-secondary" disabled={isProcessing} onClick={handleEstornar} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b' }}>
                     <Undo2 size={16} /> Estornar Produção
                   </button>
                 )}
-                {STATUS_EXCLUIVEL.includes(ordem.status) && (
+                {canManageProducao && STATUS_EXCLUIVEL.includes(ordem.status) && (
                   <button type="button" className="icon-btn" style={{ color: '#ef4444' }} title="Excluir ordem" disabled={isProcessing} onClick={handleExcluir}>
                     <Trash2 size={18} />
                   </button>

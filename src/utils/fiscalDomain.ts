@@ -110,6 +110,10 @@ export interface ProdutoFiscalData {
   aliquotaCofins?: number;
   cstIpi?: string;
   aliquotaIpi?: number;
+  cstIbs?: string;
+  aliquotaIbs?: number;
+  cstCbs?: string;
+  aliquotaCbs?: number;
 }
 
 interface SpedyIcmsTax {
@@ -137,11 +141,31 @@ interface SpedyIpiTax {
   amount?: number;
 }
 
+/** MVP deliberadamente parcial do schema real da Spedy pra IBS/CBS
+ * (`SefazInvoiceItemIbsCbsDto`), que tem mais de 30 campos -- IBS estadual
+ * e municipal separados, tributacao monofasica, credito presumido, campos
+ * de transicao que mudam de valor a cada ano ate 2033. Nosso cadastro de
+ * produto so coleta 1 CST e 1 aliquota por tributo (nao separa IBS
+ * estadual de municipal), entao so mandamos o que da pra montar sem
+ * inventar numero: `cst`/`baseTax` pro IBS (sem os campos de rate/amount
+ * separados por UF/municipio, que exigiriam um dado que nao coletamos) e
+ * o bloco completo de CBS (federal, sem split, nossos campos batem 1:1
+ * com o schema). Decisao confirmada com o usuario: MVP com os campos que
+ * ja existem, documentado como parcial -- nao e a implementacao completa
+ * da Reforma Tributaria. */
+interface SpedyIbsCbsTax {
+  cst: number;
+  baseTax?: number;
+  cbsRate?: number;
+  cbsAmount?: number;
+}
+
 export interface SpedyTaxesPayload {
   icms: SpedyIcmsTax;
   pis: SpedyPisCofinsTax;
   cofins: SpedyPisCofinsTax;
   ipi?: SpedyIpiTax;
+  ibsCbs?: SpedyIbsCbsTax;
 }
 
 /** Modalidade de Base de Calculo do ICMS [modBC] da tabela do SEFAZ --
@@ -203,6 +227,16 @@ export const buildTaxesPayload = (
   if (produto.cstIpi) {
     const rate = Number(produto.aliquotaIpi || 0);
     payload.ipi = { cst: Number(produto.cstIpi), baseTax: itemValue, rate, amount: itemValue * (rate / 100) };
+  }
+
+  if (produto.cstIbs || produto.cstCbs) {
+    const cbsRate = Number(produto.aliquotaCbs || 0);
+    payload.ibsCbs = {
+      cst: Number(produto.cstIbs || produto.cstCbs),
+      baseTax: itemValue,
+      cbsRate,
+      cbsAmount: itemValue * (cbsRate / 100),
+    };
   }
 
   return payload;

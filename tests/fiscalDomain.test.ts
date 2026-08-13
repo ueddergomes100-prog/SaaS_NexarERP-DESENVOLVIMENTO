@@ -125,3 +125,11 @@ test('buildTaxesPayload so inclui IPI quando o produto tem CST de IPI configurad
   const comIpi = buildTaxesPayload({ origem: '0', csosn: '00', cstIpi: '50', aliquotaIpi: 10 }, 'lucro_real', 1000);
   assert.deepEqual(comIpi.ipi, { cst: 50, baseTax: 1000, rate: 10, amount: 100 });
 });
+
+test('buildTaxesPayload so inclui IBS/CBS quando o produto tem CST configurado (MVP parcial, sem split estadual/municipal)', () => {
+  const sem = buildTaxesPayload({ origem: '0', csosn: '00' }, 'lucro_real', 1000);
+  assert.equal(sem.ibsCbs, undefined);
+
+  const com = buildTaxesPayload({ origem: '0', csosn: '00', cstIbs: '01', cstCbs: '01', aliquotaCbs: 1 }, 'lucro_real', 1000);
+  assert.deepEqual(com.ibsCbs, { cst: 1, baseTax: 1000, cbsRate: 1, cbsAmount: 10 });
+});

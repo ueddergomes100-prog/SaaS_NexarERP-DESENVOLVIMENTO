@@ -68,6 +68,10 @@ interface PedidoVendaItem {
   aliquotaCofins?: number;
   cstIpi?: string;
   aliquotaIpi?: number;
+  cstIbs?: string;
+  aliquotaIbs?: number;
+  cstCbs?: string;
+  aliquotaCbs?: number;
 }
 
 interface PedidoVenda {
@@ -328,7 +332,11 @@ const NFE: React.FC = () => {
               cstCofins: pData.cstCofins || '',
               aliquotaCofins: Number(pData.aliquotaCofins || 0),
               cstIpi: pData.cstIpi || '',
-              aliquotaIpi: Number(pData.aliquotaIpi || 0)
+              aliquotaIpi: Number(pData.aliquotaIpi || 0),
+              cstIbs: pData.cstIbs || '',
+              aliquotaIbs: Number(pData.aliquotaIbs || 0),
+              cstCbs: pData.cstCbs || '',
+              aliquotaCbs: Number(pData.aliquotaCbs || 0)
             });
             continue;
           }

@@ -268,14 +268,22 @@ export const paymentRequiresBankAccount = (method: PaymentMethod) => (
  * mapa, pra reverte-lo (cancelamento, reabertura, exclusao). Ignora
  * pagamento sem banco escolhido ou ainda nao confirmado (Boleto/Prazo
  * pendente nunca chegou a creditar nada).
+ *
+ * Usa transactionNetCents, nao valorCentavos bruto: cartao credita o
+ * banco pelo valor LIQUIDO da taxa da administradora (conciliado em
+ * Banco.tsx, campo cartao.valorLiquidoCentavos), so pra Pix/Transferencia
+ * o liquido e igual ao bruto. Usar o bruto aqui fazia a reversao (cancelar/
+ * reabrir/excluir) subtrair a mais do que foi creditado de fato, deixando
+ * o saldo do banco negativo pelo valor da taxa (achado em teste ao vivo).
  */
 export const computeBankCreditsMap = (
-  payments: Array<Pick<PaymentRecord, 'status' | 'bancoId' | 'valorCentavos'>>,
+  payments: Array<Pick<PaymentRecord, 'status' | 'bancoId' | 'valorCentavos' | 'cartao'>>,
 ): Map<string, number> => {
   const creditsByBanco = new Map<string, number>();
   payments.forEach((payment) => {
     if (payment.status === 'confirmado' && payment.bancoId) {
-      creditsByBanco.set(payment.bancoId, (creditsByBanco.get(payment.bancoId) || 0) + payment.valorCentavos);
+      const netCents = transactionNetCents(payment);
+      creditsByBanco.set(payment.bancoId, (creditsByBanco.get(payment.bancoId) || 0) + netCents);
     }
   });
   return creditsByBanco;

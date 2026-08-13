@@ -473,3 +473,28 @@ test('computeBankCreditsMap ignora pagamento pendente e pagamento sem banco', ()
 test('computeBankCreditsMap com lista vazia devolve mapa vazio', () => {
   assert.equal(computeBankCreditsMap([]).size, 0);
 });
+
+test('computeBankCreditsMap usa o valor liquido do cartao, nao o bruto -- achado em teste ao vivo (saldo negativo ao cancelar)', () => {
+  const map = computeBankCreditsMap([
+    {
+      status: 'confirmado',
+      bancoId: 'banco-1',
+      valorCentavos: 10_000,
+      cartao: {
+        tipo: 'credito',
+        parcelas: 1,
+        taxaPercentual: 3,
+        valorBrutoCentavos: 10_000,
+        valorBruto: 100,
+        valorTaxaCentavos: 300,
+        valorTaxa: 3,
+        valorLiquidoCentavos: 9_700,
+        valorLiquido: 97,
+        detalhamentoParcelas: [],
+      },
+    },
+  ]);
+  // Credita/reverte o liquido (9700), nao o bruto (10000) -- a taxa da
+  // administradora nunca chega a entrar no banco.
+  assert.equal(map.get('banco-1'), 9_700);
+});

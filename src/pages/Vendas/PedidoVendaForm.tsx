@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2 } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -19,6 +19,7 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
+import DevolucaoVendaModal from './DevolucaoVendaModal';
 import {
   buildCardFeeSchedulesByBrand,
   buildCommissionSnapshot,
@@ -30,6 +31,7 @@ import {
   normalizeCreditCardFeeSchedule,
   normalizePayments,
   parseCreditTerms,
+  recalculateCommissionAfterReturn,
   summarizePayments,
   toCents,
   transactionMovesPhysicalCash,
@@ -78,6 +80,16 @@ interface LinkedNfe {
   status: string;
   number: number | null;
   accessKey?: string;
+}
+
+interface DevolucaoVenda {
+  id: string;
+  valorTotalDevolvido: number;
+  destinoValor: 'credito' | 'caixa';
+  motivo: string;
+  status: 'concluida' | 'estornada';
+  createdAt?: { seconds?: number };
+  itensDevolvidos: Array<{ id: string; nome: string; quantidadeDevolvida: number }>;
 }
 
 const renderProdutoRow = (p: ProdutoEstoque) => (
@@ -130,6 +142,9 @@ const PedidoVendaForm: React.FC = () => {
   const [status, setStatus] = useState('Aberta');
   const [itens, setItens] = useState<ItemVenda[]>([]);
   const [orcamentoId, setOrcamentoId] = useState('');
+  const [showDevolucaoModal, setShowDevolucaoModal] = useState(false);
+  const [devolucoes, setDevolucoes] = useState<DevolucaoVenda[]>([]);
+  const [estornandoDevolucaoId, setEstornandoDevolucaoId] = useState<string | null>(null);
 
   const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
   const [vendedoresDisponiveis, setVendedoresDisponiveis] = useState<VendedorBasico[]>([]);
@@ -155,6 +170,7 @@ const PedidoVendaForm: React.FC = () => {
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
+  const canReturnVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao'));
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
 
@@ -173,6 +189,26 @@ const PedidoVendaForm: React.FC = () => {
     )));
   }, [clienteNome]);
 
+
+  const fetchDevolucoes = async (pedidoId: string) => {
+    try {
+      const qDevolucoes = query(collection(db, 'devolucoes_venda'), where('pedidoVendaId', '==', pedidoId));
+      const snap = await getDocs(qDevolucoes);
+      const lista: DevolucaoVenda[] = snap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        valorTotalDevolvido: docSnap.data().valorTotalDevolvido || 0,
+        destinoValor: docSnap.data().destinoValor,
+        motivo: docSnap.data().motivo || '',
+        status: docSnap.data().status || 'concluida',
+        createdAt: docSnap.data().createdAt,
+        itensDevolvidos: docSnap.data().itensDevolvidos || [],
+      }));
+      lista.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setDevolucoes(lista);
+    } catch (err) {
+      console.error('Erro ao buscar devoluções do pedido:', err);
+    }
+  };
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -310,6 +346,8 @@ const PedidoVendaForm: React.FC = () => {
             } catch (err) {
               console.error("Erro ao buscar nota fiscal vinculada:", err);
             }
+
+            await fetchDevolucoes(id);
           } else {
             showError('Erro', 'Pedido não encontrado.');
             navigate('/pedidos-venda');
@@ -1458,6 +1496,153 @@ const PedidoVendaForm: React.FC = () => {
     }
   };
 
+  const handleEstornarDevolucao = async (devolucao: DevolucaoVenda) => {
+    if (!currentUser || !tenantId || !id || estornandoDevolucaoId) return;
+
+    const confirm = await NexusSwal.fire({
+      title: 'Estornar Devolução?',
+      text: 'O estoque devolvido será retirado de novo e o crédito/caixa gerado será desfeito, se ainda não tiver sido usado.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, estornar',
+      cancelButtonText: 'Manter',
+      confirmButtonColor: '#ef4444',
+    });
+    if (!confirm.isConfirmed) return;
+
+    setEstornandoDevolucaoId(devolucao.id);
+    try {
+      const saleRef = doc(db, 'pedidos_venda', id);
+      const devolucaoRef = doc(db, 'devolucoes_venda', devolucao.id);
+
+      await runTransaction(db, async (transaction) => {
+        const [saleSnap, devolucaoSnap] = await Promise.all([
+          transaction.get(saleRef),
+          transaction.get(devolucaoRef),
+        ]);
+        if (!saleSnap.exists()) throw new Error('A venda não existe mais.');
+        if (!devolucaoSnap.exists()) throw new Error('A devolução não existe mais.');
+        const devolucaoData = devolucaoSnap.data();
+        if (devolucaoData.status === 'estornada') throw new Error('Esta devolução já foi estornada.');
+
+        const itensDevolvidos: Array<{ id: string; nome: string; quantidadeDevolvida: number }> = devolucaoData.itensDevolvidos || [];
+
+        // So estorna o destino do valor se ele ainda nao foi usado --
+        // credito ja parcialmente gasto em Contas a Receber nao pode ser
+        // desfeito silenciosamente.
+        let creditoRef = null;
+        if (devolucaoData.destinoValor === 'credito') {
+          creditoRef = doc(db, 'creditos_cliente', `devolucao_${devolucao.id}`);
+          const creditoSnap = await transaction.get(creditoRef);
+          if (creditoSnap.exists()) {
+            const creditoData = creditoSnap.data();
+            if (Number(creditoData.saldoDisponivel || 0) !== Number(creditoData.valorOriginal || 0)) {
+              throw new Error('Este crédito já foi parcialmente utilizado e não pode mais ser estornado.');
+            }
+          }
+        }
+
+        const saleData = saleSnap.data();
+        const storedItems = Array.isArray(saleData.itens) ? saleData.itens : [];
+        const updatedItems = storedItems.map((storedItem: ItemVenda) => {
+          const devolvido = itensDevolvidos.find((item) => item.id === storedItem.id && item.nome === storedItem.nome);
+          if (!devolvido) return storedItem;
+          const atual = Number(storedItem.quantidadeJaDevolvida || 0);
+          return { ...storedItem, quantidadeJaDevolvida: Math.max(0, atual - devolvido.quantidadeDevolvida) };
+        });
+
+        await applyStockAdjustments(
+          transaction,
+          db,
+          itensDevolvidos.map((item) => ({ id: item.id, nome: item.nome, quantidade: item.quantidadeDevolvida })),
+          'decrement',
+          true,
+        );
+
+        const valorDevolvidoCentavos = toCents(devolucaoData.valorTotalDevolvido || 0);
+        const savedCommission = saleData.comissao?.regraVersion
+          ? recalculateCommissionAfterReturn(saleData.comissao, -valorDevolvidoCentavos)
+          : null;
+
+        transaction.update(saleRef, {
+          itens: updatedItems,
+          ...(savedCommission ? { comissao: savedCommission } : {}),
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Devolução estornada'),
+        });
+
+        transaction.update(devolucaoRef, {
+          status: 'estornada',
+          estornadaEm: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Devolução estornada'),
+        });
+
+        if (devolucaoData.destinoValor === 'caixa') {
+          const caixaRef = doc(db, 'transacoes', `devolucao_${devolucao.id}`);
+          transaction.update(caixaRef, {
+            estornada: true,
+            statusOperacional: 'Estornada',
+            estornadaEm: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estorno da devolução'),
+          });
+          transaction.set(doc(db, 'transacoes', `estorno_devolucao_${devolucao.id}`), {
+            descricao: `Estorno da devolução do pedido #${numeroPedido}`,
+            categoria: 'Devolução de Venda',
+            valor: Number(devolucaoData.valorTotalDevolvido || 0),
+            valorCentavos: valorDevolvidoCentavos,
+            tipo: 'entrada',
+            formaPagamento: 'Dinheiro',
+            naturezaFinanceira: 'caixa_fisico',
+            movimentaCaixaFisico: true,
+            status: 'Paga',
+            data: getDateInputInTimeZone(),
+            clienteNome,
+            pedidoOrigemId: id,
+            devolucaoId: devolucao.id,
+            idempotencyKey: `estorno_devolucao:${devolucao.id}`,
+            tenantId,
+            createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          }, { merge: true });
+        } else if (creditoRef) {
+          transaction.update(creditoRef, {
+            status: 'cancelado',
+            saldoDisponivel: 0,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estorno da devolução'),
+          });
+        }
+      });
+
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'vendas',
+          acao: 'estorno_devolucao',
+          descricao: `Devolução do pedido #${numeroPedido} estornada.`,
+          registroRelacionadoId: devolucao.id,
+          status: 'sucesso',
+          critical: true,
+        });
+      } catch (logError) {
+        console.error('Erro ao registrar auditoria do estorno de devolução:', logError);
+      }
+
+      showSuccess('Devolução estornada com sucesso!');
+      await fetchDevolucoes(id);
+    } catch (err) {
+      console.error('Erro ao estornar devolução:', err);
+      showError('Erro', err instanceof Error ? err.message : 'Não foi possível estornar a devolução.');
+    } finally {
+      setEstornandoDevolucaoId(null);
+    }
+  };
+
   if (isFetchingData) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando dados da Venda...</div>;
   }
@@ -1527,6 +1712,17 @@ const PedidoVendaForm: React.FC = () => {
                   <XCircle size={18} /> Estornar/Cancelar
                 </button>
               )}
+              {canReturnVenda && (
+                <button
+                  className="btn-secondary"
+                  onClick={() => setShowDevolucaoModal(true)}
+                  disabled={isLoading || itens.every(item => (item.quantidade - (item.quantidadeJaDevolvida || 0)) <= 0)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                  title="Devolução de itens deste pedido"
+                >
+                  <RotateCcw size={18} /> Devolução
+                </button>
+              )}
             </>
           )}
           {!isViewing && (
@@ -1537,6 +1733,62 @@ const PedidoVendaForm: React.FC = () => {
           )}
         </div>
       </div>
+
+      {isViewing && devolucoes.length > 0 && (
+        <div className="card form-section" style={{ padding: '24px', marginBottom: '24px' }}>
+          <div className="section-header" style={{ marginBottom: '16px' }}>
+            <RotateCcw size={20} className="section-icon" />
+            <h3>Devoluções deste Pedido</h3>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {devolucoes.map((devolucao) => (
+              <div key={devolucao.id} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px',
+                padding: '12px 16px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '8px',
+                border: '1px solid var(--border-color)', opacity: devolucao.status === 'estornada' ? 0.6 : 1,
+              }}>
+                <div>
+                  <strong style={{ fontSize: '14px' }}>R$ {devolucao.valorTotalDevolvido.toFixed(2)}</strong>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '8px' }}>
+                    {devolucao.motivo} · {devolucao.destinoValor === 'credito' ? 'Crédito ao cliente' : 'Caixa'}
+                    {devolucao.status === 'estornada' && ' · ESTORNADA'}
+                  </span>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    {devolucao.itensDevolvidos.map((item) => `${item.quantidadeDevolvida}x ${item.nome}`).join(', ')}
+                  </div>
+                </div>
+                {canReturnVenda && devolucao.status === 'concluida' && (
+                  <button
+                    className="btn-secondary"
+                    onClick={() => handleEstornarDevolucao(devolucao)}
+                    disabled={estornandoDevolucaoId === devolucao.id}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', whiteSpace: 'nowrap' }}
+                  >
+                    <Undo2 size={16} /> {estornandoDevolucaoId === devolucao.id ? 'Estornando...' : 'Estornar'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showDevolucaoModal && (
+        <DevolucaoVendaModal
+          pedidoId={id!}
+          numeroPedido={numeroPedido}
+          clienteNome={clienteNome}
+          itens={itens}
+          onClose={() => setShowDevolucaoModal(false)}
+          onSuccess={async () => {
+            await fetchDevolucoes(id!);
+            const saleSnap = await getDoc(doc(db, 'pedidos_venda', id!));
+            if (saleSnap.exists()) {
+              setItens(saleSnap.data().itens || []);
+            }
+          }}
+        />
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '24px', alignItems: 'start' }}>
 

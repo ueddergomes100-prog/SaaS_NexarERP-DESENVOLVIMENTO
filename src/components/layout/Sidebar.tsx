@@ -26,7 +26,6 @@ import {
   PieChart,
   Plus,
   Receipt,
-  RotateCcw,
   Scale,
   Search,
   Settings,
@@ -129,7 +128,6 @@ const Sidebar: React.FC = () => {
         { label: 'Frente de Caixa', to: '/pdv', icon: Store, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
         { label: 'Pedidos de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
         { label: 'Orçamentos', to: '/orcamentos', icon: FileText, module: 'comercial.orcamentos', permission: 'vendas.orcamentos' },
-        { label: 'Devolução de Venda', to: '/vendas/devolucoes', icon: RotateCcw, module: 'comercial.devolucoes', permission: 'vendas.devolucao' },
         { label: 'Relatório de Vendas', to: '/relatorios-vendas', icon: BarChart2, module: 'comercial.relatorios', permission: 'vendas.relatorios' }
       ]
     },

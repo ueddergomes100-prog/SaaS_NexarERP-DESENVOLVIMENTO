@@ -88,7 +88,6 @@ const SECTION_LABELS: Array<[string, string]> = [
   ['/usuarios', 'Usuários'],
   ['/pedidos-venda', 'Pedidos de Venda'],
   ['/orcamentos', 'Orçamentos'],
-  ['/vendas/devolucoes', 'Devolução de Venda'],
   ['/relatorios-vendas', 'Relatório de Vendas'],
   ['/os', 'Ordens de Serviço'],
   ['/crm/agenda', 'Agendamentos'],

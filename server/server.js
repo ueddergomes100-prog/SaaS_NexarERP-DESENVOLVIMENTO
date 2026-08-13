@@ -10,6 +10,7 @@ const { initScheduler } = require('./services/scheduler');
 const { initQueueService } = require('./services/queue');
 const backupRoutes = require('./routes/backup.routes');
 const spedyRoutes = require('./routes/spedy.routes');
+const spedyWebhookRoutes = require('./routes/spedyWebhook.routes');
 const sessionRoutes = require('./routes/session.routes');
 const onboardingRoutes = require('./routes/onboarding.routes');
 
@@ -75,6 +76,9 @@ app.get('/health', (req, res) => {
 // Vincular as rotas do módulo de backup
 app.use('/api/backups', backupRoutes);
 app.use('/api/spedy', spedyRoutes);
+// Fora do middleware de autenticacao de spedyRoutes de proposito -- quem
+// chama aqui e a propria Spedy, sem token Firebase (ver spedyWebhook.routes.js).
+app.use('/api/spedy-webhook', spedyWebhookRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 

@@ -762,6 +762,7 @@ const OSForm: React.FC = () => {
       const currentMaxOs = !isEditing
         ? await getCurrentMaxSequence(db, 'ordens_de_servico', tenantId, 'numeroOS').catch(() => 0)
         : 0;
+      let didCancelJustNow = false;
 
       await runTransaction(db, async (transaction) => {
         let nextOs: number | null = null;
@@ -994,6 +995,7 @@ const OSForm: React.FC = () => {
           });
         } else if (isEditing) {
           if (formData.status === 'Cancelada' && !wasAlreadyCancelled) {
+            didCancelJustNow = true;
             paymentTransactionSnapshots.forEach((paymentSnapshot) => {
               if (!paymentSnapshot.exists()) return;
               const existingTransaction = paymentSnapshot.data();
@@ -1069,6 +1071,25 @@ const OSForm: React.FC = () => {
           });
         }
       });
+
+      if (didCancelJustNow) {
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'mecanica',
+            acao: 'cancelamento',
+            descricao: `OS #${finalNumeroOS} cancelada.`,
+            registroRelacionadoId: id || finalNumeroOS,
+            status: 'sucesso',
+            critical: true,
+          });
+        } catch (logError) {
+          console.error('Erro ao registrar log de cancelamento da OS:', logError);
+        }
+      }
 
       setFormData(prev => ({
         ...prev,

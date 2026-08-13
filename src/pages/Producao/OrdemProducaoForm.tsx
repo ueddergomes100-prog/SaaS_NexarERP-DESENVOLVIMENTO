@@ -341,6 +341,22 @@ const OrdemProducaoForm: React.FC = () => {
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Ordem cancelada'),
       });
       setOrdem(prev => prev ? { ...prev, status: 'cancelada' } : prev);
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'producao',
+          acao: 'cancelamento',
+          descricao: `Ordem de produção ${ordem?.numero || id} cancelada.`,
+          registroRelacionadoId: id,
+          status: 'sucesso',
+          critical: true,
+        });
+      } catch (logError) {
+        console.error('Erro ao registrar log de cancelamento da ordem:', logError);
+      }
       showSuccess('Ordem de produção cancelada.');
     } catch (error) {
       console.error('Erro ao cancelar ordem:', error);
@@ -364,6 +380,22 @@ const OrdemProducaoForm: React.FC = () => {
     setIsProcessing(true);
     try {
       await deleteDoc(doc(db, 'ordens_producao', id));
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser?.uid || '',
+          usuarioEmail: currentUser?.email || '',
+          modulo: 'producao',
+          acao: 'exclusao',
+          descricao: `Ordem de produção ${ordem.numero} excluída permanentemente.`,
+          registroRelacionadoId: id,
+          status: 'sucesso',
+          critical: true,
+        });
+      } catch {
+        // ignore audit log error
+      }
       showSuccess('Ordem de produção excluída!');
       navigate('/producao/ordens');
     } catch (error) {
@@ -435,6 +467,22 @@ const OrdemProducaoForm: React.FC = () => {
       });
 
       setOrdem(prev => prev ? { ...prev, status: 'estornada', dataEstorno: new Date() } : prev);
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'producao',
+          acao: 'estorno',
+          descricao: `Ordem de produção ${ordem.numero} estornada.`,
+          registroRelacionadoId: id,
+          status: 'sucesso',
+          critical: true,
+        });
+      } catch (logError) {
+        console.error('Erro ao registrar log de estorno da ordem:', logError);
+      }
       showSuccess('Produção estornada! Matéria-prima devolvida e estoque do produto atualizado.');
     } catch (error) {
       console.error('Erro ao estornar produção:', error);

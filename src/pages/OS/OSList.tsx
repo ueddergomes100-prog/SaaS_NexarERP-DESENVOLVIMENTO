@@ -82,7 +82,7 @@ const OSList: React.FC = () => {
     window.open(`https://wa.me/55${telLimpado}?text=${mensagem}`, '_blank');
   };
 
-  const handleDeleteOS = async (osId: string) => {
+  const handleDeleteOS = async (os: OSData) => {
     const confirm = await NexusSwal.fire({
       title: 'Excluir Definitivamente?',
       text: 'Esta ação removerá a OS do sistema para sempre. Não pode ser desfeita.',
@@ -95,7 +95,7 @@ const OSList: React.FC = () => {
 
     if (confirm.isConfirmed) {
       try {
-        await deleteDoc(doc(db, 'ordens_de_servico', osId));
+        await deleteDoc(doc(db, 'ordens_de_servico', os.id));
         try {
           // Uma OS com cartao parcelado grava uma transacao por parcela
           // (osId igual, id diferente) -- excluir so o doc com id == osId
@@ -104,12 +104,28 @@ const OSList: React.FC = () => {
           const qTransacoes = query(
             collection(db, 'transacoes'),
             where('tenantId', '==', tenantId),
-            where('osId', '==', osId)
+            where('osId', '==', os.id)
           );
           const transacoesSnap = await getDocs(qTransacoes);
           await Promise.all(transacoesSnap.docs.map((transacaoDoc) => deleteDoc(transacaoDoc.ref)));
         } catch (e) {
           console.error('Erro ao excluir transações vinculadas à OS:', e);
+        }
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser?.uid || '',
+            usuarioEmail: currentUser?.email || '',
+            modulo: 'mecanica',
+            acao: 'exclusao',
+            descricao: `OS #${os.numeroOS || os.id.substring(0, 6).toUpperCase()} excluída permanentemente. Cliente: ${os.clienteNome || 'Geral'}.`,
+            registroRelacionadoId: os.id,
+            status: 'sucesso',
+            critical: true,
+          });
+        } catch {
+          // ignore audit log error
         }
         showSuccess('OS excluída com sucesso!');
       } catch(err) {
@@ -281,7 +297,7 @@ const OSList: React.FC = () => {
                         {os.status === 'Cancelada' && canDeleteOS && (
                           <button 
                             className="icon-btn" 
-                            onClick={() => handleDeleteOS(os.id)}
+                            onClick={() => handleDeleteOS(os)}
                             title="Excluir Definitivamente"
                             style={{ color: '#ef4444' }}
                           >

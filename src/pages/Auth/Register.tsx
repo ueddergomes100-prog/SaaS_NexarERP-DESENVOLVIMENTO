@@ -12,12 +12,17 @@ import {
   Store,
   User
 } from 'lucide-react';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import {
   onboardingService,
   type OnboardingCodeType,
   type PublicCnpjData,
   type StartOnboardingResponse
 } from '../../services/onboardingService';
+import { auth, authPersistenceReady, db } from '../../services/firebase';
+import { createSessionId, setStoredSessionId } from '../../utils/session';
+import { buildSessionMetadata } from '../../utils/sessionInfo';
 import hennderIcon from '../../assets/hennder-icon.svg';
 import './Auth.css';
 
@@ -203,8 +208,44 @@ const Register: React.FC = () => {
         onboardingId: onboarding.onboardingId,
         password
       });
-      setSuccess('Cadastro aprovado. Voce ja pode entrar no sistema.');
-      window.setTimeout(() => navigate('/login', { replace: true }), 1300);
+
+      try {
+        await authPersistenceReady;
+        const userCredential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+        const user = userCredential.user;
+
+        const newSessionId = createSessionId();
+        setStoredSessionId(newSessionId);
+        const sessionMetadata = await buildSessionMetadata(user);
+        await updateDoc(doc(db, 'usuarios', user.uid), {
+          activeSessionId: newSessionId,
+          activeSession: {
+            ...sessionMetadata,
+            sessionId: newSessionId,
+            startedAt: serverTimestamp(),
+            lastSeenAt: serverTimestamp(),
+            lastSeenClientAt: new Date().toISOString()
+          }
+        });
+
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId: user.uid,
+          usuarioId: user.uid,
+          usuarioEmail: user.email || user.uid,
+          modulo: 'autenticacao',
+          acao: 'cadastro',
+          descricao: 'Usuário criou a conta e acessou o sistema pela primeira vez.',
+          status: 'sucesso'
+        });
+
+        setSuccess('Cadastro aprovado! Entrando no sistema...');
+        window.setTimeout(() => navigate('/dashboard', { replace: true }), 1000);
+      } catch (sessionErr) {
+        console.error('Erro ao entrar automaticamente apos o cadastro:', sessionErr);
+        setSuccess('Cadastro aprovado. Faca login para acessar o sistema.');
+        window.setTimeout(() => navigate('/login', { replace: true }), 1300);
+      }
     } catch (err) {
       setError(getErrorMessage(err, 'Nao foi possivel finalizar o cadastro.'));
     } finally {

@@ -727,6 +727,24 @@ Typecheck, lint, build e suíte de 66 testes passando. **Falta validação manua
 
 **Complemento em 2026-08-02 (commit `78913a8`):** removido o switch "Menu Compacto" que existia na `TopBar.tsx` — um controle duplicado e praticamente morto: só ficava habilitado depois que o usuário usasse o toggle do próprio `Sidebar.tsx` pelo menos uma vez (dependia de um flag `nexus_sidebar_expand_all` gravado só ali, sem nenhum jeito visível de ligá-lo por conta própria). Removidos junto: os estados `expandAll`/`miniSidebar` e o handler que só existiam pra esse switch em `TopBar.tsx`, o `dispatchEvent('sidebar-state-change')` órfão em `Sidebar.tsx` (a `TopBar` era a única ouvinte) e a regra CSS órfã `.menu-compacto-toggle`. O menu compacto continua controlável pelos dois botões que já vivem no próprio Sidebar (trilha, quando recolhido; botão no cabeçalho do painel largo, quando expandido).
 
+### F21 — Redesign de Login/Cadastro: card dividido com painel de destaque deslizante (feature, 2026-08-14)
+
+**Não estava no prompt original.** Pedido direto do usuário, com referência visual ao vivo (padrão "auth switch" popular, visto num componente de galeria — 21st.dev). Decisão confirmada antes de implementar: recriar o visual com nosso CSS próprio (variáveis de tema já existentes), sem adicionar Tailwind/shadcn ao projeto.
+
+**Antes:** `Login.tsx` e `Register.tsx` eram duas telas separadas, cada uma com seu próprio card centralizado (`auth-container`/`auth-card`), navegação entre elas via link simples de rodapé.
+
+**Depois:** novo `AuthPage.tsx` substitui os dois arquivos — Login e o passo "Empresa" do Cadastro (assistente de 3 passos: Empresa → Validação de e-mail/telefone → Senha) viram **um único componente montado**, com um card dividido em duas metades: painel de formulário e painel de destaque com gradiente (`--accent-purple` → `--accent-blue`, nossas cores) e borda curva que desliza de lado ao alternar entre "Entrar" e "Criar Conta". A troca de modo usa **estado local + `window.history.replaceState`** (nunca `navigate()` do react-router) — é isso que evita desmontar o componente e permite a transição CSS da curva acontecer de verdade, em vez de um "flash" de troca de página. As URLs `/login` e `/cadastro` continuam funcionando pra link direto/recarregar (`AuthPage` lê `useLocation().pathname` só na montagem pra decidir o modo inicial).
+
+**Decisões confirmadas com o usuário antes de implementar (via AskUserQuestion):**
+- Os passos de Validação e Senha do cadastro **não** entram no painel dividido (formato incompatível com códigos/senha) — continuam no layout de card único de sempre, acionado assim que `signupStep !== 'company'`.
+- Ícones de login social (Google/Facebook/Twitter/LinkedIn) ficam como **enfeite visual puro**, sem `onClick` nem OAuth de verdade — o Hennder ERP só tem login por e-mail/senha ou usuário+CNPJ.
+
+**Risco tratado com cuidado:** `Login.tsx`/`Register.tsx` tinham lógica de segurança real (sessão ativa, seleção de tenant multi-empresa, verificação de CNPJ/e-mail/telefone via backend, criação de senha, login automático pós-cadastro do F-anterior desta mesma sessão). Toda essa lógica foi **movida literalmente** pro arquivo novo, sem reescrever nada — só a casca visual (JSX de wrapper + CSS) mudou.
+
+**Bug pego na validação ao vivo com o usuário, corrigido no mesmo commit:** a primeira versão deixava o painel de gradiente cobrir o texto do formulário no ponto mais largo da curva (`z-index` do painel de destaque acima do painel de formulário, sem que o texto tivesse recuo suficiente). Primeira tentativa de correção (dar fundo opaco ao painel de formulário e subir seu `z-index` acima do painel de destaque) resolveu a sobreposição mas deixou a curva com cara de "cortada" — o usuário apontou que não ficou igual à referência. Correção definitiva: manter o painel de destaque por cima (curva completa e fluida, como o site de referência), e em vez disso dar **padding assimétrico** ao painel de formulário (~100px do lado que enfrenta a curva, ~40px do lado oposto, espelhado entre os dois modos) — o texto nunca entra na zona de alcance máximo da curva. Confirmado por cálculo geométrico (não só visual): ~30px de folga entre o ponto mais largo da curva e o início do texto, nos dois modos.
+
+Typecheck, lint (0 erros, warnings pré-existentes) e build passando. Validado ao vivo: animação de slide nos dois sentidos, cadastro completo de ponta a ponta (CNPJ real → códigos → senha → login automático → Dashboard, reaproveitando o fluxo do F-anterior), login normal (`handleLogin` intacto), tema claro, fallback responsivo mobile (painel de destaque vira faixa horizontal compacta acima do formulário). Conta de teste apagada do banco de dev ao final. Commit `b743a92`, publicado em `dev`.
+
 ### Módulo 6 — fatia Entrada de XML (priorizada em 2026-08-02 a pedido do usuário)
 
 **Pedido do usuário:** dar prioridade à tela de Entrada de Nota Fiscal por XML, integrada de verdade com Contas a Pagar, Estoque, com popup automático de cadastro de fornecedor quando ele não existir, e uma tela própria de "Cadastro de Fornecedores". Depois de validado, seguir para o Módulo 4 (Produção).
@@ -923,6 +941,7 @@ Atualizar ao concluir cada item.
 | M1 Navegação por teclado | 2 | 🟨 Código pronto (PDV + Pedido + OS + Cadastros) — falta validação manual | 2026-07-31 |
 | M19 Numeração | 2 | ✅ Concluído — sem código novo, nada implementável hoje (ver seção do módulo) | 2026-07-31 |
 | F20 Trilha do menu compacto vira atalho | 2 | 🟨 Código pronto — falta validação manual | 2026-08-02 |
+| F21 Redesign Login/Cadastro (auth switch) | - | ✅ Concluído — validado ao vivo (animação, cadastro completo, login, tema claro, mobile) | 2026-08-14 |
 | M20 Responsabilidade | 2 | 🟨 Código 100% pronto (5/5 fatias) — falta validação manual | 2026-07-31 |
 | M6 fatia Entrada de XML (Fornecedores + Contas a Pagar + Estoque) | 2 | 🟨 Código pronto — falta validação manual (priorizada fora de ordem a pedido do usuário) | 2026-08-02 |
 | M18 Cancelamentos (auditoria) | 2 | 🟨 Código pronto (5/5 fatias, achou e corrigiu bugs reais além do checklist) — falta validação manual | 2026-08-13 |

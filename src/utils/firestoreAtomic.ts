@@ -10,6 +10,7 @@ import {
   type Transaction,
   where,
 } from 'firebase/firestore';
+import type { StockFieldDelta } from './estoqueReservaDomain';
 
 /**
  * Chave do contador por tenant (documento "contadores/{tenantId}").
@@ -150,6 +151,56 @@ export const applyStockAdjustments = async (
 
     transaction.update(stockRef, {
       quantidade: allowNegativeStock ? nextQuantity : Math.max(0, nextQuantity),
+      updatedAt: serverTimestamp(),
+    });
+  }
+};
+
+// Aditiva -- nao mexe em applyStockAdjustments nem nos 7 pontos que ja a
+// chamam (PDV/OS/Orcamento/PedidoVenda/Devolucao). Usada pelo Modulo 13
+// (Reserva de estoque) pra mexer em quantidade e/ou quantidadeReservada na
+// mesma escrita, a partir dos deltas puros de estoqueReservaDomain.ts.
+export const applyStockFieldDeltas = async (
+  transaction: Transaction,
+  db: Firestore,
+  deltas: StockFieldDelta[],
+  allowNegativeStock = false
+) => {
+  if (deltas.length === 0) return;
+
+  const reads = await Promise.all(
+    deltas.map(async (delta) => {
+      const stockRef = doc(db, 'estoque', delta.id);
+      return {
+        delta,
+        stockRef,
+        stockSnap: await transaction.get(stockRef),
+      };
+    })
+  );
+
+  for (const { delta, stockRef, stockSnap } of reads) {
+    if (!stockSnap.exists()) continue;
+
+    const currentQuantidade = Number(stockSnap.data().quantidade || 0);
+    const currentReservada = Number(stockSnap.data().quantidadeReservada || 0);
+    const nextQuantidade = currentQuantidade + delta.quantidadeDelta;
+    const itemName = delta.nome || 'item selecionado';
+
+    if (delta.quantidadeDelta < 0 && nextQuantidade < 0 && !allowNegativeStock) {
+      throw new Error(`Estoque insuficiente para ${itemName}. Disponivel: ${currentQuantidade}.`);
+    }
+
+    if (delta.quantidadeReservadaDelta > 0 && !allowNegativeStock) {
+      const disponivel = currentQuantidade - currentReservada;
+      if (disponivel < delta.quantidadeReservadaDelta) {
+        throw new Error(`Estoque insuficiente para reservar ${itemName}. Disponivel: ${disponivel}.`);
+      }
+    }
+
+    transaction.update(stockRef, {
+      quantidade: allowNegativeStock ? nextQuantidade : Math.max(0, nextQuantidade),
+      quantidadeReservada: Math.max(0, currentReservada + delta.quantidadeReservadaDelta),
       updatedAt: serverTimestamp(),
     });
   }

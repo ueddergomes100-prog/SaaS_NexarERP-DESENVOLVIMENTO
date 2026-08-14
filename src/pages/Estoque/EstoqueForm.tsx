@@ -8,6 +8,7 @@ import { showSuccess, showError } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
+import { computeAvailableStock } from '../../utils/estoqueReservaDomain';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -55,6 +56,7 @@ interface ProdutoOriginalData {
   precoVenda?: number;
   precoCusto?: number;
   ultimaAlteracaoPreco?: string | null;
+  quantidadeReservada?: number;
 }
 
 interface ProdutoFormData {
@@ -1288,6 +1290,12 @@ const EstoqueForm: React.FC = () => {
                       {permitirVendaSemEstoque
                         ? 'Venda sem estoque está ativa; a quantidade pode ser ajustada manualmente.'
                         : 'Em produto já cadastrado, a quantidade muda por NFE, venda, cancelamento ou movimentação.'}
+                    </span>
+                  )}
+                  {isEditing && Number(produtoOriginal?.quantidadeReservada) > 0 && (
+                    <span className="field-hint">
+                      Disponível: {computeAvailableStock(Number(formData.quantidade), produtoOriginal?.quantidadeReservada)}
+                      {' '}({produtoOriginal?.quantidadeReservada} reservado em Ordens de Serviço)
                     </span>
                   )}
                 </div>

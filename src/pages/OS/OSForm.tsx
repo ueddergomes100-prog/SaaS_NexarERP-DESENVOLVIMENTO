@@ -6,7 +6,15 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showSuccess, showError } from '../../utils/alerts';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
-import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
+import { applyStockAdjustments, applyStockFieldDeltas, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
+import {
+  computeReservationCommit,
+  computeReservationDelta,
+  computeReservationRelease,
+  computeReservationReturn,
+  DEFAULT_MOMENTO_BAIXA_ESTOQUE,
+  type MomentoBaixaEstoque,
+} from '../../utils/estoqueReservaDomain';
 import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
@@ -111,6 +119,7 @@ const OSForm: React.FC = () => {
     status: 'Orçamento Pendente', // Status padrão na criação
     numeroOS: '',
     estoqueBaixado: false,
+    estoqueReservado: false,
     formaPagamento: 'Dinheiro',
     statusPagamento: 'Pendente',
     mecanicoId: '',
@@ -164,6 +173,7 @@ const OSForm: React.FC = () => {
   const [pecasSelecionadas, setPecasSelecionadas] = useState<PecaSelecionada[]>([]);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
   const [pecaSearchMode, setPecaSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
+  const [momentoBaixaEstoque, setMomentoBaixaEstoque] = useState<MomentoBaixaEstoque>(DEFAULT_MOMENTO_BAIXA_ESTOQUE);
 
   const { currentUser, tenantId, userRole } = useAuth();
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
@@ -257,6 +267,7 @@ const OSForm: React.FC = () => {
           const config = configSnap.data();
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
           setPecaSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
+          setMomentoBaixaEstoque((config.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque);
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
           const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
@@ -320,6 +331,7 @@ const OSForm: React.FC = () => {
               status: os.status || 'Orçamento Pendente',
               numeroOS: os.numeroOS || '',
               estoqueBaixado: os.estoqueBaixado || false,
+              estoqueReservado: os.estoqueReservado || false,
               formaPagamento: os.formaPagamento || 'Dinheiro',
               statusPagamento: os.statusPagamento || 'Pendente',
               mecanicoId: os.mecanicoId || '',
@@ -741,6 +753,7 @@ const OSForm: React.FC = () => {
 
       let estoqueFoiBaixado = formData.estoqueBaixado || false;
       let deveRetornarEstoque = false;
+      let novoEstoqueReservado = false;
 
       if (formData.status === 'Cancelada' && estoqueFoiBaixado) {
         const confirmRetorno = await NexusSwal.fire({
@@ -822,23 +835,42 @@ const OSForm: React.FC = () => {
           bankBalancesById.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
         }
 
+        // Reserva de estoque (Modulo 13, Fatia 1) -- so tem efeito real quando
+        // momentoBaixaEstoque === 'pedido'. Para todo tenant no default
+        // ('imediato'), hasOrphanReservation e' sempre false (nunca houve
+        // reserva pra essa OS) e o fluxo cai exatamente nos mesmos dois
+        // applyStockAdjustments de sempre, inalterados.
+        const wasReserved = existingOsData?.estoqueReservado === true;
+        const previousReserved = wasReserved ? (existingOsData.pecas || []) : [];
+        const wasAlreadyBaixado = existingOsData?.estoqueBaixado === true;
+        const hasOrphanReservation = wasReserved && previousReserved.length > 0;
+        const pecasItems = pecasSelecionadas.map(peca => ({ id: peca.id, nome: peca.nome, quantidade: peca.quantidade }));
+
         if (formData.status === 'Finalizada' && !formData.estoqueBaixado) {
-          await applyStockAdjustments(
-            transaction,
-            db,
-            pecasSelecionadas.map(peca => ({ id: peca.id, nome: peca.nome, quantidade: peca.quantidade })),
-            'decrement',
-            permitirVendaSemEstoque
-          );
+          if (hasOrphanReservation || momentoBaixaEstoque === 'pedido') {
+            const deltas = computeReservationCommit(previousReserved, pecasItems);
+            if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, permitirVendaSemEstoque);
+          } else {
+            await applyStockAdjustments(transaction, db, pecasItems, 'decrement', permitirVendaSemEstoque);
+          }
           estoqueFoiBaixado = true;
         } else if (deveRetornarEstoque) {
-          await applyStockAdjustments(
-            transaction,
-            db,
-            pecasSelecionadas.map(peca => ({ id: peca.id, nome: peca.nome, quantidade: peca.quantidade })),
-            'increment',
-            true
-          );
+          if (hasOrphanReservation) {
+            const deltas = computeReservationReturn(previousReserved, pecasItems);
+            await applyStockFieldDeltas(transaction, db, deltas, true);
+          } else {
+            await applyStockAdjustments(transaction, db, pecasItems, 'increment', true);
+          }
+        } else if (formData.status === 'Cancelada' && hasOrphanReservation) {
+          const deltas = computeReservationRelease(previousReserved);
+          if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, true);
+        } else if (momentoBaixaEstoque === 'pedido' && !wasAlreadyBaixado && formData.status !== 'Cancelada') {
+          const deltas = computeReservationDelta(previousReserved, pecasItems);
+          if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, permitirVendaSemEstoque);
+          novoEstoqueReservado = pecasItems.length > 0;
+        } else if (hasOrphanReservation) {
+          const deltas = computeReservationRelease(previousReserved);
+          if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, true);
         }
 
         if (nextOs !== null) {
@@ -881,6 +913,7 @@ const OSForm: React.FC = () => {
           valorTotalCentavos: totalOSCentavos,
           statusColor: getStatusColor(formData.status),
           estoqueBaixado: estoqueFoiBaixado,
+          estoqueReservado: novoEstoqueReservado,
           formaPagamento: paymentSummary?.paymentMethodLabel || formData.formaPagamento,
           statusPagamento: formData.status === 'Cancelada'
             ? 'Cancelada'
@@ -1095,6 +1128,7 @@ const OSForm: React.FC = () => {
         ...prev,
         numeroOS: finalNumeroOS,
         estoqueBaixado: estoqueFoiBaixado,
+        estoqueReservado: novoEstoqueReservado,
         ...(formData.status === 'Finalizada' && paymentSummary ? {
           dataSaida: paymentDate,
           formaPagamento: paymentSummary.paymentMethodLabel,
@@ -1524,6 +1558,11 @@ const OSForm: React.FC = () => {
               {formData.estoqueBaixado && (
                 <span style={{ fontSize: '11px', backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '4px 8px', borderRadius: '4px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
                   Estoque Baixado
+                </span>
+              )}
+              {formData.estoqueReservado && (
+                <span style={{ fontSize: '11px', backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '4px 8px', borderRadius: '4px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  Estoque Reservado
                 </span>
               )}
             </div>

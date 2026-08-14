@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Filter, Printer, Edit, MessageCircle, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, where, doc, deleteDoc, getDocs } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, doc, deleteDoc, getDocs, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { applyStockFieldDeltas } from '../../utils/firestoreAtomic';
+import { computeReservationRelease } from '../../utils/estoqueReservaDomain';
 import './OS.css';
 
 interface OSData {
@@ -95,7 +97,22 @@ const OSList: React.FC = () => {
 
     if (confirm.isConfirmed) {
       try {
-        await deleteDoc(doc(db, 'ordens_de_servico', os.id));
+        // Antes de excluir, libera qualquer reserva de estoque pendente
+        // desta OS (Modulo 13) -- sem isso, quantidadeReservada em
+        // estoque/{id} ficaria travada pra sempre (reserva orfa). No-op
+        // pra qualquer OS que nunca usou o modo 'Reservar no Pedido'.
+        await runTransaction(db, async (transaction) => {
+          const osRef = doc(db, 'ordens_de_servico', os.id);
+          const osSnap = await transaction.get(osRef);
+          if (osSnap.exists()) {
+            const osData = osSnap.data();
+            if (osData.estoqueReservado === true && Array.isArray(osData.pecas) && osData.pecas.length > 0) {
+              const deltas = computeReservationRelease(osData.pecas);
+              if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, true);
+            }
+          }
+          transaction.delete(osRef);
+        });
         try {
           // Uma OS com cartao parcelado grava uma transacao por parcela
           // (osId igual, id diferente) -- excluir so o doc com id == osId

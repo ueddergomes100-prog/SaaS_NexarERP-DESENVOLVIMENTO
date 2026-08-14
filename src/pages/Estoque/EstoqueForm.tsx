@@ -7,7 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
-import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
+import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, CSOSN_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
 import { computeAvailableStock } from '../../utils/estoqueReservaDomain';
 import './Estoque.css';
 
@@ -186,17 +186,6 @@ const cfopOptions = [
   { value: '6102', label: '6102 - Venda interestadual de mercadoria adquirida de terceiros' },
   { value: '6404', label: '6404 - Venda interestadual com substituição tributária' },
   { value: '5933', label: '5933 - Prestação de serviço tributado pelo ISSQN' }
-];
-
-const csosnOptions = [
-  { value: '101', label: '101 - Tributada pelo Simples Nacional com crédito' },
-  { value: '102', label: '102 - Tributada pelo Simples Nacional sem crédito' },
-  { value: '103', label: '103 - Isenção por faixa de receita bruta' },
-  { value: '201', label: '201 - Simples Nacional com ST e crédito' },
-  { value: '202', label: '202 - Simples Nacional com ST sem crédito' },
-  { value: '400', label: '400 - Não tributada pelo Simples Nacional' },
-  { value: '500', label: '500 - ICMS cobrado anteriormente por ST' },
-  { value: '900', label: '900 - Outros' }
 ];
 
 const origemOptions = [
@@ -1391,7 +1380,7 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>{usesCsosn(regimeTributario) ? 'CSOSN *' : 'CST de ICMS *'}</label>
                   <select name="csosn" value={formData.csosn} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
-                    {(usesCsosn(regimeTributario) ? csosnOptions : ICMS_CST_OPTIONS).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    {(usesCsosn(regimeTributario) ? CSOSN_OPTIONS : ICMS_CST_OPTIONS).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
               </div>

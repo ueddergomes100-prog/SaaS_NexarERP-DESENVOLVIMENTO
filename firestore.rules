@@ -108,6 +108,7 @@ service cloud.firestore {
         (collectionName == 'lembretes' && hasPermission('crm.alertas')) ||
         (collectionName == 'agendamentos' && hasPermission('crm.agenda')) ||
         (collectionName == 'notas_fiscais' && hasAnyPermission(['fiscal.emitir', 'fiscal.excluir'])) ||
+        (collectionName == 'notas_fiscais_entrada' && hasPermission('fiscal.entrada')) ||
         (collectionName == 'creditos_cliente' && hasAnyPermission(['vendas.pedidos', 'financeiro.receber'])) ||
         (collectionName == 'transacoes' && hasAnyPermission(['financeiro.caixa', 'financeiro.banco', 'financeiro.receber', 'financeiro.pagar', 'financeiro.estornar', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os'])) ||
         (collectionName == 'caixas_pdv' && hasAnyPermission(['vendas.pedidos', 'financeiro.caixa_registros'])) ||
@@ -132,6 +133,7 @@ service cloud.firestore {
         (collectionName == 'lembretes' && hasPermission('crm.alertas')) ||
         (collectionName == 'agendamentos' && hasPermission('crm.agenda')) ||
         (collectionName == 'notas_fiscais' && hasPermission('fiscal.excluir')) ||
+        (collectionName == 'notas_fiscais_entrada' && hasPermission('fiscal.entrada')) ||
         (collectionName == 'creditos_cliente' && hasAnyPermission(['vendas.pedidos', 'financeiro.receber'])) ||
         (collectionName == 'transacoes' && hasPermission('financeiro.estornar')) ||
         (collectionName == 'caixas_pdv' && hasPermission('financeiro.caixa_registros')) ||
@@ -323,6 +325,7 @@ service cloud.firestore {
         'bancos',
         'lancamentos_bancarios',
         'notas_fiscais',
+        'notas_fiscais_entrada',
         'creditos_cliente',
         'fornecedores',
         'cotacoes_compra',
@@ -362,6 +365,7 @@ service cloud.firestore {
         'bancos',
         'lancamentos_bancarios',
         'notas_fiscais',
+        'notas_fiscais_entrada',
         'creditos_cliente',
         'fornecedores',
         'cotacoes_compra',
@@ -400,6 +404,7 @@ service cloud.firestore {
         'bandeiras_cartao',
         'bancos',
         'notas_fiscais',
+        'notas_fiscais_entrada',
         'creditos_cliente',
         'fornecedores',
         'cotacoes_compra',
@@ -441,6 +446,7 @@ service cloud.firestore {
         'bandeiras_cartao',
         'bancos',
         'notas_fiscais',
+        'notas_fiscais_entrada',
         'creditos_cliente',
         'fornecedores',
         'cotacoes_compra',

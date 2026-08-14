@@ -13,6 +13,21 @@ export const DEFAULT_REGIME_TRIBUTARIO: RegimeTributario = 'simples_nacional';
  * seguintes do modulo fiscal (cadastro de produto e emissao de NF-e). */
 export const usesCsosn = (regime: RegimeTributario): boolean => regime === 'simples_nacional';
 
+/** CSOSN (Simples Nacional) -- distinto do CST de ICMS (ICMS_CST_OPTIONS,
+ * Lucro Presumido/Real). Centralizado aqui (antes vivia so como const
+ * privada em EstoqueForm.tsx) pra Entrada de NF-e (F22) reusar a mesma
+ * lista sem duplicar. */
+export const CSOSN_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '101', label: '101 - Tributada pelo Simples Nacional com crédito' },
+  { value: '102', label: '102 - Tributada pelo Simples Nacional sem crédito' },
+  { value: '103', label: '103 - Isenção por faixa de receita bruta' },
+  { value: '201', label: '201 - Simples Nacional com ST e crédito' },
+  { value: '202', label: '202 - Simples Nacional com ST sem crédito' },
+  { value: '400', label: '400 - Não tributada pelo Simples Nacional' },
+  { value: '500', label: '500 - ICMS cobrado anteriormente por ST' },
+  { value: '900', label: '900 - Outros' },
+];
+
 /** CST de ICMS (tabela real, usada por Lucro Presumido/Real) -- distinta
  * do CSOSN (exclusivo do Simples Nacional). Mesmo formato de
  * csosnOptions/cstOptions em EstoqueForm.tsx. */
@@ -93,6 +108,40 @@ export const matchProdutoFromXmlItem = <T extends EstoqueItemForMatch>(
   }
 
   return { produto: null, layer: null };
+};
+
+/** Materia-prima do cadastro (`materias_primas`), campos usados pelo
+ * matching na Entrada de NF-e (Fatia 2 do F22). O cadastro de
+ * materia-prima e deliberadamente mais simples que o de estoque (sem
+ * codigoBarras/NCM/codigosFornecedor por fornecedor -- ver Modulo 4
+ * Fatia 0), entao o reconhecimento tem so 2 camadas, nao 3. */
+export interface MateriaPrimaItemForMatch {
+  id: string;
+  codigo: string;
+  nome: string;
+}
+
+/** Reconhecimento de materia-prima na importacao de XML: codigo exato
+ * (o que o XML traz em cProd, comparado contra o campo texto-livre
+ * `codigo` do cadastro) -> nome exato como ultimo recurso. Pura e
+ * testavel sem Firestore, mesmo espirito de matchProdutoFromXmlItem. */
+export const matchMateriaPrimaFromXmlItem = <T extends MateriaPrimaItemForMatch>(
+  item: XmlItemForMatch,
+  materiasPrimasAtuais: T[],
+): T | null => {
+  const codigo = (item.codigo || '').trim().toLowerCase();
+  if (codigo) {
+    const porCodigo = materiasPrimasAtuais.find((m) => (m.codigo || '').trim().toLowerCase() === codigo);
+    if (porCodigo) return porCodigo;
+  }
+
+  const nome = (item.descricao || '').trim().toLowerCase();
+  if (nome) {
+    const porNome = materiasPrimasAtuais.find((m) => (m.nome || '').trim().toLowerCase() === nome);
+    if (porNome) return porNome;
+  }
+
+  return null;
 };
 
 /** Dados fiscais de um produto/item de venda usados pra montar o bloco

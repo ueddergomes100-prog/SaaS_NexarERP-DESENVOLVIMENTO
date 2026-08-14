@@ -1,13 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2, AlertTriangle, Truck, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2, AlertTriangle, Truck, Loader2, History } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useTabs } from '../../contexts/TabsContext';
 import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { addDaysToDateInput } from '../../utils/dateTime';
-import { DEFAULT_REGIME_TRIBUTARIO, matchProdutoFromXmlItem, usesCsosn, type EstoqueItemForMatch, type RegimeTributario } from '../../utils/fiscalDomain';
+import {
+  DEFAULT_REGIME_TRIBUTARIO,
+  matchProdutoFromXmlItem,
+  matchMateriaPrimaFromXmlItem,
+  usesCsosn,
+  CSOSN_OPTIONS,
+  ICMS_CST_OPTIONS,
+  type EstoqueItemForMatch,
+  type MateriaPrimaItemForMatch,
+  type RegimeTributario,
+} from '../../utils/fiscalDomain';
+import {
+  buildNotaFiscalEntradaRecord,
+  buildInitialItemEntradaConfig,
+  type NotaFiscalEntradaItemRecord,
+  type ItemEntradaConfig,
+} from '../../utils/entradaNfeDomain';
 import Swal from 'sweetalert2';
 
 interface ParsedItem {
@@ -40,12 +57,30 @@ interface ParsedXML {
 
 interface EstoqueItem extends EstoqueItemForMatch {
   quantidade: number;
+  precoVenda?: number;
+  csosn?: string;
+  aliquotaIcms?: number;
+  reducaoBaseIcms?: number;
+  cstPis?: string;
+  aliquotaPis?: number;
+  cstCofins?: string;
+  aliquotaCofins?: number;
+}
+
+interface MateriaPrimaItem extends MateriaPrimaItemForMatch {
+  quantidade: number;
 }
 
 type FornecedorStatus = 'idle' | 'checking' | 'found' | 'missing';
 
+const currencyFormat = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+const campoLabelStyle: React.CSSProperties = { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' };
+const campoInputStyle: React.CSSProperties = { padding: '8px 10px', fontSize: '13px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', width: '100%' };
+
 const EntradaNFE: React.FC = () => {
   const navigate = useNavigate();
+  const { openTab } = useTabs();
   const { tenantId, currentUser } = useAuth();
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -54,8 +89,16 @@ const EntradaNFE: React.FC = () => {
   const [parsedData, setParsedData] = useState<ParsedXML | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Estoque atual para busca rápida local
+  // Estoque e materia-prima atuais para busca rápida local
   const [estoqueAtual, setEstoqueAtual] = useState<EstoqueItem[]>([]);
+  const [materiasPrimasAtuais, setMateriasPrimasAtuais] = useState<MateriaPrimaItem[]>([]);
+
+  // Classificacao (Revenda/Materia-Prima) + precificacao/tributacao por
+  // item da nota (Fatia 2/N) -- array paralelo a parsedData.items,
+  // inicializado so depois que o fornecedor resolve (ver efeito abaixo),
+  // pra nao classificar errado um item que so seria reconhecido pelo
+  // codigo que ESSE fornecedor usa (camada 2 do matching).
+  const [itemConfigs, setItemConfigs] = useState<ItemEntradaConfig[]>([]);
 
   // Reconciliação do fornecedor do XML com o cadastro de Fornecedores --
   // a confirmação da entrada fica bloqueada até haver um fornecedor
@@ -89,12 +132,40 @@ const EntradaNFE: React.FC = () => {
             codigoBarras: data.codigoBarras || '',
             ncm: data.ncm || data.fiscal?.ncm || '',
             codigosFornecedor: data.codigosFornecedor || {},
-            quantidade: Number(data.quantidade || 0)
+            quantidade: Number(data.quantidade || 0),
+            precoVenda: data.precoVenda !== undefined ? Number(data.precoVenda) : undefined,
+            csosn: data.csosn || undefined,
+            aliquotaIcms: data.aliquotaIcms !== undefined ? Number(data.aliquotaIcms) : undefined,
+            reducaoBaseIcms: data.reducaoBaseIcms !== undefined ? Number(data.reducaoBaseIcms) : undefined,
+            cstPis: data.cstPis || undefined,
+            aliquotaPis: data.aliquotaPis !== undefined ? Number(data.aliquotaPis) : undefined,
+            cstCofins: data.cstCofins || undefined,
+            aliquotaCofins: data.aliquotaCofins !== undefined ? Number(data.aliquotaCofins) : undefined,
           });
         });
         setEstoqueAtual(list);
       } catch (err) {
         console.error("Erro ao carregar estoque para reconciliação:", err);
+      }
+    };
+    const fetchMateriasPrimas = async () => {
+      if (!tenantId) return;
+      try {
+        const q = query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId));
+        const snap = await getDocs(q);
+        const list: MateriaPrimaItem[] = [];
+        snap.forEach(d => {
+          const data = d.data();
+          list.push({
+            id: d.id,
+            codigo: data.codigo || '',
+            nome: data.nome || '',
+            quantidade: Number(data.quantidade || 0),
+          });
+        });
+        setMateriasPrimasAtuais(list);
+      } catch (err) {
+        console.error("Erro ao carregar matérias-primas para reconciliação:", err);
       }
     };
     const fetchRegimeTributario = async () => {
@@ -107,6 +178,7 @@ const EntradaNFE: React.FC = () => {
       }
     };
     fetchEstoque();
+    fetchMateriasPrimas();
     fetchRegimeTributario();
   }, [tenantId]);
 
@@ -150,6 +222,42 @@ const EntradaNFE: React.FC = () => {
 
     checkFornecedor();
   }, [parsedData, tenantId]);
+
+  // Classificacao (Revenda/Materia-Prima) + precificacao inicial por item
+  // (Fatia 2/N) -- so roda depois que o fornecedor resolve (ver comentario
+  // no state de itemConfigs). Recalcula so uma vez por arquivo importado
+  // (nao reseta o que o usuario ja editou se o fornecedor for confirmado
+  // de novo por algum motivo).
+  const itemConfigsInitializedForRef = useRef<ParsedXML | null>(null);
+  useEffect(() => {
+    if (!parsedData) {
+      setItemConfigs([]);
+      itemConfigsInitializedForRef.current = null;
+      return;
+    }
+    if (fornecedorStatus !== 'found' || !fornecedorMatch) return;
+    if (itemConfigsInitializedForRef.current === parsedData) return;
+
+    itemConfigsInitializedForRef.current = parsedData;
+    const usaCsosn = usesCsosn(regimeTributario);
+    const configs = parsedData.items.map((item) => {
+      const { produto: pecaExistente } = matchProdutoFromXmlItem(item, estoqueAtual, fornecedorMatch.id);
+      if (pecaExistente) {
+        return buildInitialItemEntradaConfig(item.valorUnitario, pecaExistente, null, usaCsosn);
+      }
+      const materiaPrimaExistente = matchMateriaPrimaFromXmlItem(item, materiasPrimasAtuais);
+      return buildInitialItemEntradaConfig(item.valorUnitario, null, materiaPrimaExistente?.id || null, usaCsosn);
+    });
+    setItemConfigs(configs);
+  }, [parsedData, fornecedorStatus, fornecedorMatch, estoqueAtual, materiasPrimasAtuais, regimeTributario]);
+
+  const handleAlterarTipoItem = (idx: number, tipo: ItemEntradaConfig['tipo']) => {
+    setItemConfigs((prev) => prev.map((config, i) => (i === idx ? { ...config, tipo } : config)));
+  };
+
+  const handleAlterarCampoItem = (idx: number, campo: keyof ItemEntradaConfig, valor: string) => {
+    setItemConfigs((prev) => prev.map((config, i) => (i === idx ? { ...config, [campo]: valor } : config)));
+  };
 
   const handleSalvarFornecedor = async () => {
     if (!fornecedorForm.nome.trim()) {
@@ -328,6 +436,19 @@ const EntradaNFE: React.FC = () => {
   // Salva dados no Firestore
   const handleConfirmarEntrada = async () => {
     if (!parsedData || !tenantId || !currentUser || !fornecedorMatch) return;
+    if (itemConfigs.length !== parsedData.items.length) return;
+
+    // Todo item de Revenda precisa de preco de venda valido antes de
+    // gravar -- e o pedido central desta fatia, nao da pra deixar passar
+    // em branco/zero silenciosamente como o markup automatico fazia antes.
+    const itemSemPreco = parsedData.items.find((item, idx) => {
+      const config = itemConfigs[idx];
+      return config.tipo === 'revenda' && !(Number(config.precoVenda) > 0);
+    });
+    if (itemSemPreco) {
+      showError('Preço de venda obrigatório', `Informe um preço de venda válido para "${itemSemPreco.descricao}" antes de confirmar.`);
+      return;
+    }
 
     setIsProcessing(true);
 
@@ -341,41 +462,122 @@ const EntradaNFE: React.FC = () => {
     try {
       let pecasAtualizadas = 0;
       let pecasCriadas = 0;
+      let materiasPrimasAtualizadas = 0;
+      let materiasPrimasCriadas = 0;
+      // Historico da nota de entrada (Fatia 0/N) -- so acumula os dados
+      // aqui, a gravacao acontece depois dos dois loops (itens + titulos).
+      const notaItens: NotaFiscalEntradaItemRecord[] = [];
 
-      for (const item of parsedData.items) {
-        // Reconhecimento em camadas: EAN -> codigo que esse fornecedor
-        // usa pra esse item (aprendido de importacoes anteriores dele) ->
-        // NCM+nome como ultimo recurso (ver fiscalDomain.ts).
-        const { produto: pecaExistente } = matchProdutoFromXmlItem(item, estoqueAtual, fornecedorMatch.id);
+      for (let idx = 0; idx < parsedData.items.length; idx++) {
+        const item = parsedData.items[idx];
+        const config = itemConfigs[idx];
 
-        if (pecaExistente) {
+        if (config.tipo === 'materia_prima') {
+          if (config.classificacao === 'materia_prima' && config.matchId) {
+            const materiaPrimaExistente = materiasPrimasAtuais.find((m) => m.id === config.matchId);
+            const novaQuantidade = (materiaPrimaExistente?.quantidade || 0) + item.quantidade;
+            await updateDoc(doc(db, 'materias_primas', config.matchId), {
+              quantidade: novaQuantidade,
+              precoCusto: item.valorUnitario,
+              fornecedor: fornecedorMatch.nome,
+              updatedAt: serverTimestamp(),
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Entrada de NF ${parsedData.numeroNF}`),
+            });
+            materiasPrimasAtualizadas++;
+            notaItens.push({
+              itemId: config.matchId,
+              tipo: 'materia_prima',
+              codigoXml: item.codigo,
+              descricaoXml: item.descricao,
+              quantidade: item.quantidade,
+              valorUnitario: item.valorUnitario,
+              novo: false,
+            });
+          } else {
+            // Simplificacao deliberada, mesma do cadastro manual de
+            // Materia-Prima (Modulo 4 Fatia 0): unidade e fornecedor ficam
+            // como texto livre, sem linkar a Unidades de Medida/Fornecedores.
+            const novaMateriaPrimaRef = await addDoc(collection(db, 'materias_primas'), {
+              codigo: item.codigo,
+              nome: item.descricao.toUpperCase(),
+              categoria: 'DIVERSOS',
+              unidade: item.unidade.toUpperCase() || 'UN',
+              quantidade: item.quantidade,
+              estoqueMinimo: 0,
+              precoCusto: item.valorUnitario,
+              fornecedor: fornecedorMatch.nome,
+              tenantId,
+              createdAt: serverTimestamp(),
+              ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+            });
+            materiasPrimasCriadas++;
+            notaItens.push({
+              itemId: novaMateriaPrimaRef.id,
+              tipo: 'materia_prima',
+              codigoXml: item.codigo,
+              descricaoXml: item.descricao,
+              quantidade: item.quantidade,
+              valorUnitario: item.valorUnitario,
+              novo: true,
+            });
+          }
+          continue;
+        }
+
+        // tipo === 'revenda' -- precificacao/tributacao vem do que o
+        // usuario preencheu na tela (itemConfigs), nao mais de um markup
+        // fixo. Fora do Simples Nacional, os campos extra de ICMS/PIS/
+        // COFINS tambem sao gravados; dentro do Simples, so CSOSN/origem
+        // importam (usesCsosn), entao os demais nem sao enviados.
+        const camposFiscais: Record<string, unknown> = {
+          precoVenda: Number(config.precoVenda) || 0,
+          csosn: config.csosn,
+        };
+        if (!usesCsosn(regimeTributario)) {
+          camposFiscais.aliquotaIcms = Number(config.aliquotaIcms) || 0;
+          camposFiscais.reducaoBaseIcms = Number(config.reducaoBaseIcms) || 0;
+          camposFiscais.cstPis = config.cstPis;
+          camposFiscais.aliquotaPis = Number(config.aliquotaPis) || 0;
+          camposFiscais.cstCofins = config.cstCofins;
+          camposFiscais.aliquotaCofins = Number(config.aliquotaCofins) || 0;
+        }
+
+        if (config.classificacao === 'estoque' && config.matchId) {
           // Incrementa quantidade e memoriza o codigo que este fornecedor
           // usa pra este item, pra a proxima importacao dele cair direto
           // na camada 2 (mais rapida e confiavel que NCM+nome).
-          const novaQuantidade = pecaExistente.quantidade + item.quantidade;
-          await updateDoc(doc(db, 'estoque', pecaExistente.id), {
+          const pecaExistente = estoqueAtual.find((p) => p.id === config.matchId);
+          const novaQuantidade = (pecaExistente?.quantidade || 0) + item.quantidade;
+          await updateDoc(doc(db, 'estoque', config.matchId), {
             quantidade: novaQuantidade,
             precoCusto: item.valorUnitario,
             fornecedor: fornecedorMatch.nome,
             fornecedorId: fornecedorMatch.id,
             [`codigosFornecedor.${fornecedorMatch.id}`]: item.codigo,
+            ...camposFiscais,
             updatedAt: serverTimestamp(),
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Entrada de NF ${parsedData.numeroNF}`),
           });
           pecasAtualizadas++;
+          notaItens.push({
+            itemId: config.matchId,
+            tipo: 'revenda',
+            codigoXml: item.codigo,
+            descricaoXml: item.descricao,
+            quantidade: item.quantidade,
+            valorUnitario: item.valorUnitario,
+            novo: false,
+          });
         } else {
-          // Cria novo produto com markup padrao de 50% -- ja gravando NCM,
-          // CFOP, EAN e um CSOSN/CST default seguro (nunca deixa o produto
-          // sem dado fiscal, como acontecia antes). Pra Presumido/Real nao
-          // da pra chutar CST de ICMS com seguranca -- fica em branco,
-          // exigindo edicao manual no cadastro do produto.
-          await addDoc(collection(db, 'estoque'), {
+          // Cria novo produto ja gravando NCM, CFOP, EAN e a precificacao/
+          // tributacao que o usuario preencheu na tela (antes era um
+          // markup de 50% + CSOSN default fixo, sem input do usuario).
+          const novoProdutoRef = await addDoc(collection(db, 'estoque'), {
             codigo: item.codigo,
             nome: item.descricao.toUpperCase(),
             quantidade: item.quantidade,
             estoqueMinimo: 0,
             precoCusto: item.valorUnitario,
-            precoVenda: item.valorUnitario * 1.5, // 50% Margem padrão
             fornecedor: fornecedorMatch.nome,
             fornecedorId: fornecedorMatch.id,
             codigosFornecedor: { [fornecedorMatch.id]: item.codigo },
@@ -386,13 +588,22 @@ const EntradaNFE: React.FC = () => {
             ncm: item.ncm.replace(/\D/g, ''),
             cfop: item.cfop,
             codigoBarras: item.ean,
-            csosn: usesCsosn(regimeTributario) ? '102' : '',
             origem: '0',
+            ...camposFiscais,
             tenantId,
             createdAt: serverTimestamp(),
             ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
           pecasCriadas++;
+          notaItens.push({
+            itemId: novoProdutoRef.id,
+            tipo: 'revenda',
+            codigoXml: item.codigo,
+            descricaoXml: item.descricao,
+            quantidade: item.quantidade,
+            valorUnitario: item.valorUnitario,
+            novo: true,
+          });
         }
       }
 
@@ -403,13 +614,15 @@ const EntradaNFE: React.FC = () => {
         ? parsedData.duplicatas
         : [{ numero: '1', vencimento: addDaysToDateInput(parsedData.dataEmissao, 30), valor: parsedData.valorTotal }];
 
+      const titulosPagarIds: string[] = [];
+
       for (let i = 0; i < duplicatasParaLancar.length; i++) {
         const parcela = duplicatasParaLancar[i];
         const descricaoParcela = duplicatasParaLancar.length > 1
           ? `COMPRA NF ${parsedData.numeroNF} - ${fornecedorMatch.nome} (Parcela ${i + 1}/${duplicatasParaLancar.length})`
           : `COMPRA NF ${parsedData.numeroNF} - ${fornecedorMatch.nome}`;
 
-        await addDoc(collection(db, 'transacoes'), {
+        const tituloRef = await addDoc(collection(db, 'transacoes'), {
           descricao: descricaoParcela,
           data: parcela.vencimento,
           valor: parcela.valor,
@@ -422,7 +635,27 @@ const EntradaNFE: React.FC = () => {
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
+        titulosPagarIds.push(tituloRef.id);
       }
+
+      // Historico da nota de entrada (Fatia 0/N -- fundacao). So grava o
+      // registro pra habilitar listagem/exclusao nas fatias seguintes;
+      // nao muda nada do que ja acontecia em estoque/transacoes acima.
+      await addDoc(collection(db, 'notas_fiscais_entrada'), {
+        ...buildNotaFiscalEntradaRecord({
+          numeroNF: parsedData.numeroNF,
+          dataEmissao: parsedData.dataEmissao,
+          valorTotal: parsedData.valorTotal,
+          fornecedorId: fornecedorMatch.id,
+          fornecedorNome: fornecedorMatch.nome,
+          fornecedorCnpj: parsedData.fornecedorCnpj,
+          itens: notaItens,
+          titulosPagarIds,
+        }),
+        tenantId,
+        createdAt: serverTimestamp(),
+        ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+      });
 
       // Cria log de auditoria
       try {
@@ -433,7 +666,7 @@ const EntradaNFE: React.FC = () => {
           usuarioEmail: currentUser?.email || '',
           modulo: 'estoque',
           acao: 'criacao',
-          descricao: `Importação de XML NF ${parsedData.numeroNF} (${fornecedorMatch.nome}) realizada. ${pecasAtualizadas} itens atualizados, ${pecasCriadas} novos itens cadastrados. ${duplicatasParaLancar.length} título(s) lançado(s) em Contas a Pagar totalizando R$ ${parsedData.valorTotal.toFixed(2)}.`,
+          descricao: `Importação de XML NF ${parsedData.numeroNF} (${fornecedorMatch.nome}) realizada. ${pecasAtualizadas} produtos atualizados, ${pecasCriadas} novos produtos cadastrados, ${materiasPrimasAtualizadas} matérias-primas atualizadas, ${materiasPrimasCriadas} novas matérias-primas cadastradas. ${duplicatasParaLancar.length} título(s) lançado(s) em Contas a Pagar totalizando R$ ${parsedData.valorTotal.toFixed(2)}.`,
           status: 'sucesso'
         });
       } catch {
@@ -441,7 +674,10 @@ const EntradaNFE: React.FC = () => {
       }
 
       Swal.close();
-      showSuccess(`Sucesso! ${pecasAtualizadas} produtos incrementados e ${pecasCriadas} novos itens criados no estoque.`);
+      const resumoMateriaPrima = (materiasPrimasAtualizadas + materiasPrimasCriadas) > 0
+        ? ` e ${materiasPrimasAtualizadas} matéria(s)-prima(s) atualizada(s) + ${materiasPrimasCriadas} nova(s)`
+        : '';
+      showSuccess(`Sucesso! ${pecasAtualizadas} produtos incrementados e ${pecasCriadas} novos itens criados no estoque${resumoMateriaPrima}.`);
 
       // Reseta tela
       handleRemoverFile();
@@ -462,6 +698,8 @@ const EntradaNFE: React.FC = () => {
     setFornecedorMatch(null);
     setFornecedorStatus('idle');
     setShowFornecedorModal(false);
+    setItemConfigs([]);
+    itemConfigsInitializedForRef.current = null;
   };
 
   return (
@@ -481,6 +719,14 @@ const EntradaNFE: React.FC = () => {
             </p>
           </div>
         </div>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => openTab('/fiscal/entrada-nfe/historico')}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+        >
+          <History size={16} /> Ver Histórico
+        </button>
       </div>
 
       {!selectedFile ? (
@@ -619,62 +865,125 @@ const EntradaNFE: React.FC = () => {
                 </div>
               </div>
 
-              {/* Tabela de Produtos */}
+              {/* Itens da nota: classificacao Revenda/Materia-Prima +
+                  precificacao/tributacao (Fatia 2/N do F22) */}
               <div className="card" style={{ padding: '0', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
                 <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Package size={20} color="var(--accent-purple)" />
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Itens Encontrados no XML ({parsedData.items.length})</h3>
                 </div>
 
-                <div className="table-wrapper" style={{ overflowX: 'auto' }}>
-                  <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)', fontSize: '13px' }}>
-                        <th style={{ padding: '16px' }}>Código XML</th>
-                        <th style={{ padding: '16px' }}>Descrição da Peça</th>
-                        <th style={{ padding: '16px' }}>NCM</th>
-                        <th style={{ padding: '16px', textAlign: 'center' }}>Qtd.</th>
-                        <th style={{ padding: '16px', textAlign: 'right' }}>Custo Unitário</th>
-                        <th style={{ padding: '16px', textAlign: 'right' }}>Custo Total</th>
-                        <th style={{ padding: '16px', textAlign: 'center' }}>Reconciliação</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {parsedData.items.map((item, idx) => {
-                        const { produto: correspondente, layer } = matchProdutoFromXmlItem(item, estoqueAtual, fornecedorMatch?.id || '');
-                        const layerLabel = layer === 'ean' ? 'por código de barras' : layer === 'codigo_fornecedor' ? 'pelo código deste fornecedor' : layer === 'ncm_nome' ? 'por NCM + nome' : '';
+                {parsedData.items.map((item, idx) => {
+                  const config = itemConfigs[idx];
+                  if (!config) return null;
 
-                        return (
-                          <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '14px' }}>
-                            <td style={{ padding: '16px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{item.codigo}</td>
-                            <td style={{ padding: '16px', fontWeight: 500 }}>{item.descricao}</td>
-                            <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{item.ncm}</td>
-                            <td style={{ padding: '16px', textAlign: 'center', fontWeight: 600 }}>
-                              {item.quantidade} <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{item.unidade}</span>
-                            </td>
-                            <td style={{ padding: '16px', textAlign: 'right', fontWeight: 500 }}>
-                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.valorUnitario)}
-                            </td>
-                            <td style={{ padding: '16px', textAlign: 'right', fontWeight: 600 }}>
-                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.valorTotal)}
-                            </td>
-                            <td style={{ padding: '16px', textAlign: 'center' }}>
-                              {correspondente ? (
-                                <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }} title={`Reconhecido ${layerLabel}`}>
-                                  Mesclar Estoque (+{correspondente.quantidade} cadastrados)
-                                </span>
-                              ) : (
-                                <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6' }}>
-                                  Criar Nova Peça no Estoque
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                  const correspondenteEstoque = config.classificacao === 'estoque'
+                    ? estoqueAtual.find((p) => p.id === config.matchId)
+                    : undefined;
+                  const correspondenteMateriaPrima = config.classificacao === 'materia_prima'
+                    ? materiasPrimasAtuais.find((m) => m.id === config.matchId)
+                    : undefined;
+                  const usaCsosn = usesCsosn(regimeTributario);
+
+                  return (
+                    <div key={idx} style={{ padding: '18px 24px', borderBottom: idx < parsedData.items.length - 1 ? '1px solid var(--border-color)' : 'none' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+                        <div>
+                          <strong style={{ fontSize: '14px' }}>{item.descricao}</strong>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            Código XML: {item.codigo} · NCM: {item.ncm} · {item.quantidade} {item.unidade} × {currencyFormat.format(item.valorUnitario)} = <strong>{currencyFormat.format(item.valorTotal)}</strong>
+                          </div>
+                        </div>
+
+                        {config.classificacao === 'estoque' && (
+                          <span style={{ padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', whiteSpace: 'nowrap' }}>
+                            Mesclar Estoque (Revenda){correspondenteEstoque ? ` — +${correspondenteEstoque.quantidade} cadastrados` : ''}
+                          </span>
+                        )}
+                        {config.classificacao === 'materia_prima' && (
+                          <span style={{ padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', whiteSpace: 'nowrap' }}>
+                            Mesclar Matéria-Prima{correspondenteMateriaPrima ? ` — +${correspondenteMateriaPrima.quantidade} cadastrados` : ''}
+                          </span>
+                        )}
+                        {config.classificacao === 'novo' && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Item novo — classificar como:</span>
+                            <select
+                              value={config.tipo}
+                              onChange={(e) => handleAlterarTipoItem(idx, e.target.value as ItemEntradaConfig['tipo'])}
+                              className="form-select"
+                              style={{ padding: '6px 10px', fontSize: '13px' }}
+                            >
+                              <option value="revenda">Produto de Revenda</option>
+                              <option value="materia_prima">Matéria-Prima</option>
+                            </select>
+                          </div>
+                        )}
+                      </div>
+
+                      {config.tipo === 'revenda' ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', padding: '14px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+                          <div className="input-group">
+                            <label style={campoLabelStyle}>Preço de Venda *</label>
+                            <input
+                              type="number" step="0.01" min="0"
+                              value={config.precoVenda}
+                              onChange={(e) => handleAlterarCampoItem(idx, 'precoVenda', e.target.value)}
+                              style={campoInputStyle}
+                            />
+                          </div>
+                          <div className="input-group">
+                            <label style={campoLabelStyle}>{usaCsosn ? 'CSOSN' : 'CST ICMS'}</label>
+                            <select
+                              value={config.csosn}
+                              onChange={(e) => handleAlterarCampoItem(idx, 'csosn', e.target.value)}
+                              className="form-select"
+                              style={campoInputStyle}
+                            >
+                              <option value="">Selecione...</option>
+                              {(usaCsosn ? CSOSN_OPTIONS : ICMS_CST_OPTIONS).map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {!usaCsosn && (
+                            <>
+                              <div className="input-group">
+                                <label style={campoLabelStyle}>Alíquota ICMS (%)</label>
+                                <input type="number" step="0.01" min="0" value={config.aliquotaIcms} onChange={(e) => handleAlterarCampoItem(idx, 'aliquotaIcms', e.target.value)} style={campoInputStyle} />
+                              </div>
+                              <div className="input-group">
+                                <label style={campoLabelStyle}>Redução Base ICMS (%)</label>
+                                <input type="number" step="0.01" min="0" value={config.reducaoBaseIcms} onChange={(e) => handleAlterarCampoItem(idx, 'reducaoBaseIcms', e.target.value)} style={campoInputStyle} />
+                              </div>
+                              <div className="input-group">
+                                <label style={campoLabelStyle}>CST PIS</label>
+                                <input type="text" value={config.cstPis} onChange={(e) => handleAlterarCampoItem(idx, 'cstPis', e.target.value)} style={campoInputStyle} />
+                              </div>
+                              <div className="input-group">
+                                <label style={campoLabelStyle}>Alíquota PIS (%)</label>
+                                <input type="number" step="0.01" min="0" value={config.aliquotaPis} onChange={(e) => handleAlterarCampoItem(idx, 'aliquotaPis', e.target.value)} style={campoInputStyle} />
+                              </div>
+                              <div className="input-group">
+                                <label style={campoLabelStyle}>CST COFINS</label>
+                                <input type="text" value={config.cstCofins} onChange={(e) => handleAlterarCampoItem(idx, 'cstCofins', e.target.value)} style={campoInputStyle} />
+                              </div>
+                              <div className="input-group">
+                                <label style={campoLabelStyle}>Alíquota COFINS (%)</label>
+                                <input type="number" step="0.01" min="0" value={config.aliquotaCofins} onChange={(e) => handleAlterarCampoItem(idx, 'aliquotaCofins', e.target.value)} style={campoInputStyle} />
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                          Matéria-prima: sem preço de venda nem tributação — entra no estoque de produção pelo custo de {currencyFormat.format(item.valorUnitario)}.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Ações */}
@@ -692,8 +1001,8 @@ const EntradaNFE: React.FC = () => {
                 <button
                   className="btn-primary"
                   onClick={handleConfirmarEntrada}
-                  disabled={isProcessing || fornecedorStatus !== 'found'}
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', backgroundColor: '#10b981', borderColor: '#10b981', boxShadow: '0 0 15px rgba(16, 185, 129, 0.3)', opacity: (isProcessing || fornecedorStatus !== 'found') ? 0.5 : 1, cursor: (isProcessing || fornecedorStatus !== 'found') ? 'not-allowed' : 'pointer' }}
+                  disabled={isProcessing || fornecedorStatus !== 'found' || itemConfigs.length !== parsedData.items.length}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', backgroundColor: '#10b981', borderColor: '#10b981', boxShadow: '0 0 15px rgba(16, 185, 129, 0.3)', opacity: (isProcessing || fornecedorStatus !== 'found' || itemConfigs.length !== parsedData.items.length) ? 0.5 : 1, cursor: (isProcessing || fornecedorStatus !== 'found' || itemConfigs.length !== parsedData.items.length) ? 'not-allowed' : 'pointer' }}
                 >
                   <Save size={18} />
                   {isProcessing ? 'Gravando dados...' : 'Confirmar Importação no Estoque'}

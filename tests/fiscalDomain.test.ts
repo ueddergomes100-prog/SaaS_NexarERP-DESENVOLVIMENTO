@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { usesCsosn, ICMS_CST_OPTIONS, matchProdutoFromXmlItem, buildTaxesPayload, type EstoqueItemForMatch } from '../src/utils/fiscalDomain';
+import { usesCsosn, ICMS_CST_OPTIONS, matchProdutoFromXmlItem, matchMateriaPrimaFromXmlItem, buildTaxesPayload, type EstoqueItemForMatch, type MateriaPrimaItemForMatch } from '../src/utils/fiscalDomain';
 
 test('Simples Nacional usa CSOSN', () => {
   assert.equal(usesCsosn('simples_nacional'), true);
@@ -83,6 +83,43 @@ test('matchProdutoFromXmlItem retorna null quando nada bate em nenhuma camada', 
   );
   assert.equal(result.produto, null);
   assert.equal(result.layer, null);
+});
+
+const materiasPrimas: MateriaPrimaItemForMatch[] = [
+  { id: 'mp-codigo', codigo: 'MP-001', nome: 'CHAPA DE ACO 2MM' },
+  { id: 'mp-nome', codigo: '', nome: 'RESINA EPOXI' },
+];
+
+test('matchMateriaPrimaFromXmlItem casa por codigo exato primeiro', () => {
+  const result = matchMateriaPrimaFromXmlItem(
+    { codigo: 'MP-001', descricao: 'DESCRICAO DIFERENTE DO XML', ncm: '00000000' },
+    materiasPrimas,
+  );
+  assert.equal(result?.id, 'mp-codigo');
+});
+
+test('matchMateriaPrimaFromXmlItem cai pra nome exato quando o codigo nao bate', () => {
+  const result = matchMateriaPrimaFromXmlItem(
+    { codigo: 'COD-XML-QUALQUER', descricao: 'Resina Epoxi', ncm: '00000000' },
+    materiasPrimas,
+  );
+  assert.equal(result?.id, 'mp-nome');
+});
+
+test('matchMateriaPrimaFromXmlItem nao deixa codigo/nome vazio darem match falso positivo', () => {
+  const result = matchMateriaPrimaFromXmlItem(
+    { codigo: '', descricao: '', ncm: '00000000' },
+    materiasPrimas,
+  );
+  assert.equal(result, null);
+});
+
+test('matchMateriaPrimaFromXmlItem retorna null quando nada bate', () => {
+  const result = matchMateriaPrimaFromXmlItem(
+    { codigo: 'INEXISTENTE', descricao: 'MATERIAL NUNCA VISTO', ncm: '99999999' },
+    materiasPrimas,
+  );
+  assert.equal(result, null);
 });
 
 test('buildTaxesPayload no Simples Nacional manda so csosn/origem no ICMS e cst 7 fixo em PIS/COFINS', () => {

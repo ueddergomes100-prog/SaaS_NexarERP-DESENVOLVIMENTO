@@ -9,8 +9,7 @@ import PageLoader from './components/layout/PageLoader';
 // PDV e as rotas publicas ficam fora do sistema de abas (Sistema de
 // Abas, F19) -- continuam com import direto aqui. Todo o resto do "miolo"
 // do app vive em src/routes/appRoutesConfig.tsx, montado uma vez por aba.
-const Login = lazy(() => import('./pages/Auth/Login'));
-const Register = lazy(() => import('./pages/Auth/Register'));
+const AuthPage = lazy(() => import('./pages/Auth/AuthPage'));
 const PDV = lazy(() => import('./pages/PDV/PDV'));
 
 function App() {
@@ -22,8 +21,8 @@ function App() {
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 {/* Rotas Públicas */}
-                <Route path="/login" element={<Login />} />
-                <Route path="/cadastro" element={<Register />} />
+                <Route path="/login" element={<AuthPage />} />
+                <Route path="/cadastro" element={<AuthPage />} />
 
                 {/* Rotas Protegidas (Exigem Login) */}
                 <Route element={<ProtectedRoute />}>

@@ -513,6 +513,207 @@
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Auth Switch -- card dividido com painel de destaque deslizante      */
+/* (Login <-> passo "Empresa" do Cadastro)                             */
+/* ------------------------------------------------------------------ */
+
+.auth-switch-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-primary);
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-switch-container::before {
+  content: '';
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, var(--accent-purple-glow) 0%, rgba(0,0,0,0) 70%);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.auth-switch-card {
+  position: relative;
+  width: 100%;
+  max-width: 880px;
+  min-height: 580px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  display: flex;
+  z-index: 1;
+}
+
+.auth-switch-form-panel {
+  position: relative;
+  width: 50%;
+  padding: 44px 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  background-color: var(--bg-secondary);
+  z-index: 2;
+  transition: margin-left 0.6s cubic-bezier(0.65, 0, 0.35, 1), padding 0.6s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* Login: curva fica a esquerda do formulario -- mais respiro do lado
+   esquerdo pro texto nunca ficar embaixo do ponto mais largo da curva. */
+.auth-switch-card.mode-login .auth-switch-form-panel {
+  margin-left: 50%;
+  padding: 44px 40px 44px 100px;
+}
+
+/* Cadastro: curva fica a direita do formulario -- espelha o padding. */
+.auth-switch-card.mode-signup .auth-switch-form-panel {
+  margin-left: 0;
+  padding: 44px 100px 44px 40px;
+}
+
+.auth-switch-header {
+  margin-bottom: 4px;
+}
+
+.auth-switch-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  margin-bottom: 12px;
+  filter: drop-shadow(var(--shadow-neon));
+}
+
+.auth-switch-header h1 {
+  font-size: 26px;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.auth-switch-accent-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 58%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 14px;
+  padding: 48px 36px;
+  color: #fff;
+  background: linear-gradient(160deg, var(--accent-purple), var(--accent-blue));
+  transition: left 0.6s cubic-bezier(0.65, 0, 0.35, 1), border-radius 0.6s cubic-bezier(0.65, 0, 0.35, 1);
+  z-index: 3;
+}
+
+.auth-switch-card.mode-login .auth-switch-accent-panel {
+  left: 0;
+  border-radius: 0 45% 45% 0 / 0 55% 55% 0;
+}
+
+.auth-switch-card.mode-signup .auth-switch-accent-panel {
+  left: 42%;
+  border-radius: 45% 0 0 45% / 55% 0 0 55%;
+}
+
+.auth-switch-accent-panel h2 {
+  font-size: 26px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.auth-switch-accent-panel p {
+  font-size: 14px;
+  line-height: 1.5;
+  opacity: 0.92;
+  max-width: 260px;
+}
+
+.auth-switch-ghost-button {
+  margin-top: 6px;
+  padding: 12px 32px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: transparent;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.auth-switch-ghost-button:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+.auth-switch-social-label {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.auth-switch-social-row {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.auth-switch-social-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  cursor: default;
+}
+
+@media (max-width: 760px) {
+  .auth-switch-card {
+    flex-direction: column;
+    max-width: 420px;
+    min-height: 0;
+  }
+
+  .auth-switch-card.mode-login .auth-switch-form-panel,
+  .auth-switch-card.mode-signup .auth-switch-form-panel {
+    width: 100%;
+    margin-left: 0;
+    order: 2;
+    padding: 28px 24px;
+  }
+
+  .auth-switch-card.mode-login .auth-switch-accent-panel,
+  .auth-switch-card.mode-signup .auth-switch-accent-panel {
+    position: relative;
+    width: 100%;
+    left: 0;
+    top: 0;
+    bottom: auto;
+    border-radius: 0;
+    padding: 24px 20px;
+    order: 1;
+  }
+}
+
 @media (max-width: 520px) {
   .auth-card {
     padding: 28px;

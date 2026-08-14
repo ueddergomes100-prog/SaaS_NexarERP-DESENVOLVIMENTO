@@ -11,6 +11,7 @@ import { isPlatformAdminRole } from '../../utils/roles';
 import { normalizeCreditCardFeeSchedule, parseCreditTerms } from '../../utils/financeDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
+import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 const toStringArray = (value: unknown): string[] => {
@@ -78,6 +79,7 @@ const Configuracoes: React.FC = () => {
     venderSemEstoque: false,
     validarCadastroProduto: false,
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
+    momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     emiteNFe: false,
     emiteNFCe: false,
     emiteNFSe: false,
@@ -123,6 +125,7 @@ const Configuracoes: React.FC = () => {
             venderSemEstoque: data.venderSemEstoque ?? false,
             validarCadastroProduto: data.validarCadastroProduto ?? false,
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
+            momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             emiteNFe: data.emiteNFe ?? false,
             emiteNFCe: data.emiteNFCe ?? false,
             emiteNFSe: data.emiteNFSe ?? false,
@@ -1108,6 +1111,22 @@ const Configuracoes: React.FC = () => {
                   </label>
                 </div>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Afeta a busca por nome no PDV, Pedido de Venda e OS. "Completa" encontra o termo em qualquer posição do nome; "Exata" só encontra nomes que começam com o termo digitado. Código, código de barras e referência sempre buscam por prefixo, nos dois modos.</p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Momento da Baixa de Estoque</label>
+                <select
+                  name="momentoBaixaEstoque"
+                  value={formData.momentoBaixaEstoque}
+                  onChange={(e) => setFormData({ ...formData, momentoBaixaEstoque: e.target.value as MomentoBaixaEstoque })}
+                  disabled={!isEditingMode}
+                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+                >
+                  {MOMENTO_BAIXA_ESTOQUE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Define quando o estoque será debitado. Por enquanto é só um registro informativo — nenhum fluxo de venda, PDV ou OS lê essa configuração ainda; a baixa continua acontecendo imediatamente no fechamento, como hoje.</p>
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', gridColumn: '1 / -1' }}>

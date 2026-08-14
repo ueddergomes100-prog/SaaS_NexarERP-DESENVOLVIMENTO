@@ -803,6 +803,10 @@ Ordem obrigatória: **13 → 12 → 4 → 16**. Cada um depende do anterior.
 
 **Não faça:** não alterar o comportamento padrão; não permitir reserva órfã (cancelamento sempre libera).
 
+**Decisão de fatiamento (2026-08-14):** dado o tamanho e o risco (mexe em 7 pontos de transação em 5 telas diferentes — PDV, OS, Orçamento, Pedido de Venda, Devolução), o usuário pediu para fatiar o módulo e começar só pela fundação. Investigação prévia mostrou que `Reservar no Pedido` não tem hoje um encaixe natural em Vendas/PDV (esses fluxos nascem `Finalizada` direto, sem estado de rascunho) — só a OS tem uma janela natural (criada → peças → Finalizada). Fatias seguintes (fora deste registro) vão ligar um fluxo real de cada vez.
+
+**Fatia 0/N concluída em 2026-08-14 — Fundação (config + funções puras, zero mudança de comportamento):** novo `src/utils/estoqueReservaDomain.ts` com `MomentoBaixaEstoque` (`'imediato' | 'pedido' | 'caixa' | 'nf'`, default `'imediato'`) e `computeAvailableStock(quantidade, quantidadeReservada)`. Novo setting "Momento da Baixa de Estoque" em Configurações Avançadas (`Configuracoes.tsx`), mesmo padrão do `regimeTributario` (fallback `??` na leitura, então tenants existentes caem no default sem migração). **Deliberadamente não tocado nesta fatia:** `EstoqueForm.tsx` (o campo `quantidadeReservada` não é escrito em lugar nenhum ainda — colocá-lo no formulário do produto abriria risco de um `updateDoc` do cadastro sobrescrever com `0` uma reserva real que uma fatia futura venha a gravar por transação), `firestoreAtomic.ts` e nenhuma tela de venda/OS/PDV/Devolução. 10 testes novos em `tests/estoqueReservaDomain.test.ts` (registrados nas duas listas de `scripts/run-finance-domain-tests.mjs`), incluindo um guard-rail que quebra se alguém trocar o default de `'imediato'` por engano. Validado ao vivo: tenant novo abre o select já em "Baixar imediatamente (padrão)" sem salvar nada; trocado para "Reservar no Pedido" e salvo, uma venda completa (Pedido de Venda) com esse valor não-padrão selecionado decrementou o estoque exatamente como antes (50 → 49 unidades) e **nenhum campo `quantidadeReservada` foi escrito no documento** — confirma que a config ainda não é lida em lugar nenhum. Typecheck/lint (0 erros, 66 warnings pré-existentes)/build/102 testes passando. `git diff --stat` restrito aos arquivos esperados (`Configuracoes.tsx`, `run-finance-domain-tests.mjs`, os 2 arquivos novos) — nenhuma linha tocada em `firestoreAtomic.ts` ou nas telas de venda/OS/PDV.
+
 ### Módulo 12 — Conferência de mercadoria
 
 **Estado atual:** não existe. Coleções `expedicoes` e `entregas` já estão liberadas nas `firestore.rules`.
@@ -922,7 +926,7 @@ Atualizar ao concluir cada item.
 | M18 Cancelamentos (auditoria) | 2 | 🟨 Código pronto (5/5 fatias, achou e corrigiu bugs reais além do checklist) — falta validação manual | 2026-08-13 |
 | M6 Central de Notas Fiscais (listagem) | 2 | ⬜ Pendente — adiado, depois de M4 | |
 | M15 Relatórios padronizados | 2 | ⬜ Pendente — adiado, depois de M4 | |
-| M13 Reserva de estoque | 3 | ⬜ Pendente | |
+| M13 Reserva de estoque — Fatia 0/N Fundação | 3 | ✅ Concluído — config + funções puras, zero mudança de comportamento; falta ligar um fluxo real (fatias seguintes) | 2026-08-14 |
 | M12 Conferência de mercadoria | 3 | ⬜ Pendente | |
 | M4 Produção — fatia 0/N Matéria-Prima | 3 | 🟨 Código pronto, regra implantada — falta validação manual | 2026-08-02 |
 | M4 Produção — fatia 1/N Composição de produto | 3 | 🟨 Código pronto (regra já existia) — falta validação manual | 2026-08-02 |

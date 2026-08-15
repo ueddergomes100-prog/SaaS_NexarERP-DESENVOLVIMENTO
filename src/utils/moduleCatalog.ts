@@ -61,7 +61,7 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'financeiro.comissoes', label: 'Controle de Comissões' }
   ]},
   { group: 'Fiscal', items: [
-    { id: 'fiscal.nfe', label: 'Emitir Nota Fiscal (NF-e)' },
+    { id: 'fiscal.nfe', label: 'Notas Fiscais' },
     { id: 'fiscal.entrada_nfe', label: 'Entrada de XML' }
   ]},
   { group: 'Compras & Fornecedores', items: [

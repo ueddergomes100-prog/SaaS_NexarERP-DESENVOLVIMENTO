@@ -193,7 +193,7 @@ const Sidebar: React.FC = () => {
       icon: Receipt,
       tone: '#22d3ee',
       items: [
-        { label: 'Emitir Nota Fiscal', to: '/fiscal/nfe', icon: Receipt, module: 'fiscal.nfe', permission: 'fiscal.emitir' },
+        { label: 'Notas Fiscais', to: '/fiscal/nfe', icon: Receipt, module: 'fiscal.nfe', permission: 'fiscal.emitir' },
         { label: 'Entrada de XML', to: '/fiscal/entrada-nfe', icon: Inbox, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' },
         { label: 'Histórico de Entradas', to: '/fiscal/entrada-nfe/historico', icon: History, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' }
       ]

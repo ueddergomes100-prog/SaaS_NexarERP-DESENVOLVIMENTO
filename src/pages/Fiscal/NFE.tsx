@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Receipt, Plus, Search, CheckCircle,
-  XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings, Trash2
+  XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings, Trash2,
+  ChevronLeft, ChevronRight, MessageCircle
 } from 'lucide-react';
 import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -33,6 +34,7 @@ interface LocalInvoice {
   processingCode?: string | null;
   accessKey?: string | null;
   pedidoId?: string | null;
+  clienteId?: string | null;
 }
 
 interface ClienteOption {
@@ -47,6 +49,7 @@ interface ClienteOption {
   cidade?: string;
   estado?: string;
   codigoIbge?: string;
+  telefone?: string;
 }
 
 interface PedidoVendaItem {
@@ -88,6 +91,8 @@ const NFE: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
 
   const canDeleteInvoice = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.excluir'));
+  const canEmitirNota = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.emitir'));
+  const canCancelarNota = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.excluir'));
 
   // Configurações
   const [config, setConfig] = useState<FiscalConfig | null>(null);
@@ -101,6 +106,8 @@ const NFE: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTab, setSelectedTab] = useState<'Todas' | 'NFC-e' | 'NF-e'>('Todas');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   // Modal de Emissão
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -122,6 +129,9 @@ const NFE: React.FC = () => {
   const [activeModalTab, setActiveModalTab] = useState<'cliente' | 'produtos'>('cliente');
   const [referencedAccessKey, setReferencedAccessKey] = useState<string>('');
   const [retransmittingInvoiceId, setRetransmittingInvoiceId] = useState<string | null>(null);
+
+  // Volta pra primeira página sempre que o filtro/busca/aba mudar
+  useEffect(() => { setPage(1); }, [searchTerm, selectedTab]);
 
   // Limpa estados temporários ao fechar o modal
   const handleCloseModal = () => {
@@ -205,7 +215,8 @@ const NFE: React.FC = () => {
             cep: dData.cep || '',
             cidade: dData.cidade || '',
             estado: dData.estado || '',
-            codigoIbge: dData.codigoIbge || ''
+            codigoIbge: dData.codigoIbge || '',
+            telefone: dData.telefone || ''
           });
         });
         setClients(clientList);
@@ -522,7 +533,8 @@ const NFE: React.FC = () => {
           processingMessage: data.processingMessage || null,
           processingCode: data.processingCode || null,
           accessKey: data.accessKey || null,
-          pedidoId: data.pedidoId || null
+          pedidoId: data.pedidoId || null,
+          clienteId: data.clienteId || null
         });
       });
 
@@ -607,6 +619,23 @@ const NFE: React.FC = () => {
     }
   };
 
+  const handleOpenWhatsApp = (note: LocalInvoice) => {
+    const telefone = clients.find(c => c.id === note.clienteId)?.telefone;
+    if (!telefone) {
+      showError('Telefone indisponível', 'Este cliente não tem telefone cadastrado, ou a nota foi emitida antes desta função existir.');
+      return;
+    }
+    const telLimpado = telefone.replace(/\D/g, '');
+    if (telLimpado.length < 10) {
+      showError('Telefone inválido', 'Número de telefone do cliente é inválido.');
+      return;
+    }
+    const numeroFinal = telLimpado.length <= 11 ? `55${telLimpado}` : telLimpado;
+    const valorFormatado = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(note.valor);
+    const mensagem = encodeURIComponent(`Olá, ${note.clienteNome}! Sua nota fiscal ${note.tipo} nº ${note.number ? String(note.number).padStart(6, '0') : ''}, no valor de ${valorFormatado}, foi emitida com sucesso.`);
+    window.open(`https://wa.me/${numeroFinal}?text=${mensagem}`, '_blank');
+  };
+
   // Solicita cancelamento
   const handleCancel = async (note: LocalInvoice) => {
     if (!currentUser) return;
@@ -648,6 +677,23 @@ const NFE: React.FC = () => {
           processingMessage: 'Solicitação de cancelamento enviada.',
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Cancelamento solicitado: ${justification}`),
         });
+
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser?.uid || '',
+            usuarioEmail: currentUser?.email || '',
+            modulo: 'fiscal',
+            acao: 'cancelamento',
+            descricao: `Nota Fiscal #${note.number || note.spedyId.substring(0, 6)} (${note.tipo}) cancelada. Motivo: ${justification}`,
+            registroRelacionadoId: note.id,
+            status: 'sucesso',
+            critical: true
+          });
+        } catch {
+          // ignore audit log error
+        }
 
         Swal.close();
         showSuccess('Cancelamento solicitado com sucesso!');
@@ -892,6 +938,7 @@ const NFE: React.FC = () => {
           pedidoId: importedPedidoId || null,
           tipo: formData.tipo,
           clienteNome: formData.clienteNome,
+          clienteId: formData.clienteId || null,
           valor: valorNumerico,
           status: spedyNote.status,
           processingMessage: spedyNote.processingDetail?.message || null,
@@ -909,6 +956,7 @@ const NFE: React.FC = () => {
           pedidoId: importedPedidoId || null,
           tipo: formData.tipo,
           clienteNome: formData.clienteNome,
+          clienteId: formData.clienteId || null,
           valor: valorNumerico,
           status: spedyNote.status,
           processingMessage: spedyNote.processingDetail?.message || null,
@@ -1042,6 +1090,9 @@ const NFE: React.FC = () => {
     return matchesSearch && matchesTab;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / pageSize));
+  const pagedInvoices = filteredInvoices.slice((page - 1) * pageSize, page * pageSize);
+
   if (isConfigLoading) {
     return <div style={{ padding: '40px', color: 'var(--text-primary)', textAlign: 'center' }}>Carregando dados do módulo fiscal...</div>;
   }
@@ -1082,7 +1133,7 @@ const NFE: React.FC = () => {
         <div>
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Receipt size={28} color="var(--accent-purple)" />
-            Módulo Fiscal Real (Spedy API)
+            Notas Fiscais
           </h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>
             Gerenciamento de emissão fiscal ativa em modo: <strong style={{ color: config.spedyEnvironment === 'sandbox' ? '#f59e0b' : '#10b981' }}>{config.spedyEnvironment === 'sandbox' ? 'Homologação' : 'Produção'}</strong>
@@ -1098,19 +1149,21 @@ const NFE: React.FC = () => {
             <RefreshCw size={18} className={syncing ? 'spin-icon' : ''} />
             {syncing ? 'Sincronizando...' : 'Sincronizar Notas'}
           </button>
-          <button
-            className="btn-primary"
-            onClick={() => {
-              setReferencedAccessKey('');
-              setImportedPedidoId('');
-              setImportedPedidoItens([]);
-              setActiveModalTab('cliente');
-              setIsModalOpen(true);
-            }}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <Plus size={18} /> Emitir Nota Fiscal
-          </button>
+          {canEmitirNota && (
+            <button
+              className="btn-primary"
+              onClick={() => {
+                setReferencedAccessKey('');
+                setImportedPedidoId('');
+                setImportedPedidoItens([]);
+                setActiveModalTab('cliente');
+                setIsModalOpen(true);
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <Plus size={18} /> Emitir Nota Fiscal
+            </button>
+          )}
         </div>
       </div>
 
@@ -1203,7 +1256,7 @@ const NFE: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredInvoices.map((note) => (
+                pagedInvoices.map((note) => (
                   <tr key={note.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '14px' }}>
                     <td style={{ padding: '16px', fontWeight: 600 }}>
                       {note.number ? String(note.number).padStart(6, '0') : (
@@ -1236,7 +1289,7 @@ const NFE: React.FC = () => {
                         )}
 
                         {/* Transformar em NF-e (Nota Cuponada) */}
-                        {note.tipo === 'NFC-e' && note.status === 'authorized' && note.pedidoId && !invoices.some(inv => inv.pedidoId === note.pedidoId && inv.tipo === 'NF-e' && inv.status === 'authorized') && (
+                        {canEmitirNota && note.tipo === 'NFC-e' && note.status === 'authorized' && note.pedidoId && !invoices.some(inv => inv.pedidoId === note.pedidoId && inv.tipo === 'NF-e' && inv.status === 'authorized') && (
                           <button
                             className="icon-btn"
                             title="Transformar em NF-e (Nota Cuponada)"
@@ -1248,7 +1301,7 @@ const NFE: React.FC = () => {
                         )}
 
                         {/* Retransmitir / Corrigir Nota Rejeitada */}
-                        {(note.status === 'rejected' || note.status === 'denied') && (
+                        {canEmitirNota && (note.status === 'rejected' || note.status === 'denied') && (
                           <button
                             className="icon-btn"
                             title="Corrigir e Transmitir Novamente"
@@ -1276,6 +1329,19 @@ const NFE: React.FC = () => {
                           </button>
                         )}
 
+                        {/* Enviar por WhatsApp */}
+                        {note.status === 'authorized' && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenWhatsApp(note)}
+                            className="icon-btn"
+                            title="Enviar por WhatsApp"
+                            style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: '#25d366', cursor: 'pointer', display: 'inline-flex' }}
+                          >
+                            <MessageCircle size={18} />
+                          </button>
+                        )}
+
                         {/* Baixar XML */}
                         {note.status === 'authorized' && (
                           <button
@@ -1294,7 +1360,7 @@ const NFE: React.FC = () => {
                         )}
 
                         {/* Cancelar Nota */}
-                        {note.status === 'authorized' && (
+                        {canCancelarNota && note.status === 'authorized' && (
                           <button
                             className="icon-btn"
                             title="Cancelar Nota Fiscal"
@@ -1324,6 +1390,32 @@ const NFE: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {filteredInvoices.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', borderTop: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '12px' }}>
+            <label style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+              Linhas por página
+              <select
+                value={pageSize}
+                onChange={(event) => setPageSize(Number(event.target.value))}
+                style={{ marginLeft: '8px', padding: '6px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button className="icon-btn" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
+                <ChevronLeft size={18} />
+              </button>
+              <span style={{ fontSize: '13px' }}>Página {Math.min(page, totalPages)} de {totalPages}</span>
+              <button className="icon-btn" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modal de Emissão Real de Nota */}

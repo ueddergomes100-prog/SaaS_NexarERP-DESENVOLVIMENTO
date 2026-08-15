@@ -584,7 +584,9 @@ Ordem: **1 → 19 → 20 → 18 → 6 → 15**.
 - **Decisão deliberada — fora de escopo:** `AuthContext.tsx` (heartbeat de sessão a cada 30s + fechamento de sessão no logout) e o `updateDoc` de `Login.tsx` (registro da sessão ativa no login) **não** ganharam metadados de responsabilidade — são telemetria de sistema (o próprio usuário atualizando o rastro da sua sessão), não edição de um documento de negócio por um terceiro; aplicar `alteradoPor` ali só adicionaria ruído (o mesmo uid do dono do documento, a cada 30 segundos).
 - Typecheck, lint (0 erros, 66 warnings pré-existentes) e build passando. Suíte de testes (66) passando.
 
-**Módulo 20 (Responsabilidade) está com todo o código pronto**, cobrindo as 5 fatias (Cadastros simples, Vendas/PDV/OS/Orçamentos, Financeiro, Cadastros com form próprio, Fiscal/Admin/Auth) — só falta validação manual (mesma limitação de login de sempre).
+**Módulo 20 (Responsabilidade) está com todo o código pronto**, cobrindo as 5 fatias (Cadastros simples, Vendas/PDV/OS/Orçamentos, Financeiro, Cadastros com form próprio, Fiscal/Admin/Auth).
+
+**Validado ao vivo em 2026-08-15** (usuário logou no navegador interno, Claude só navegou/consultou o Firestore via SDK já autenticado na página — nunca tocou em credencial): editada a categoria "ANTIPULGAS" (documento antigo, criado antes do F5/M20) — consulta direta no Firestore confirmou `alteradoPor`/`alteradoEm` gravados com o uid e timestamp corretos, sem `criadoPor` (documento antigo não migrado, exatamente como documentado — "documento antigo simplesmente não tem o campo"). Criada uma categoria nova de teste — confirmado `criadoPor`/`criadoEm`/`alteradoPor`/`alteradoEm` todos presentes e corretos. Categoria de teste excluída ao final. Módulo 20 fechado, código e comportamento batendo 100% com o desenho.
 
 ### F19 — Sistema de Abas: múltiplas telas abertas ao mesmo tempo (feature, 2026-07-31)
 
@@ -847,7 +849,7 @@ Typecheck, lint e build passando limpos; suíte de 66 testes sem mudança (nenhu
 
 **Achados fora do escopo do Módulo 18, resolvidos na mesma sessão a pedido do usuário:** coluna de saldo removida da listagem de Cadastros > Bancos (duplicava Financeiro > Banco).
 
-**Falta validação manual de ponta a ponta** (mesma limitação de sempre — login é ação do usuário).
+**Validado ao vivo em 2026-08-15:** criada uma venda de teste real no PDV (ARROZ INTEGRAL 1KG, 1 un., Dinheiro — estoque 34→33 confirmado no próprio dropdown de busca do PDV) e excluída em seguida via Pedidos de Venda ("Sim, retornar estoque"). Confirmado por consulta direta no Firestore: estoque voltou exatamente a 34, e o log de auditoria (`empresas/{tenantId}/logs`) registrou os três eventos em sequência — `criar_pdv` ("Venda PDV #0016 finalizada no valor de 14.90"), `abrir_caixa`, e `exclusao` ("Pedido de Venda #0016 excluído permanentemente... Valor: R$ 14.90", `critical: true`) — com usuário e valores corretos em todos. Cobre o núcleo do módulo (exclusão com reversão de estoque + auditoria); o caso específico de reversão de crédito bancário da Fatia 1 (pagamento digital) não foi re-testado nesta rodada.
 
 **Não faça:** não reescrever a lógica de estorno existente.
 
@@ -1016,9 +1018,9 @@ Atualizar ao concluir cada item.
 | F22 Entrada NF-e — Fatia 2/N Classificação MP/Revenda + Precificação | - | ✅ Concluído — núcleo do pedido do usuário; falta validação manual | 2026-08-14 |
 | F22 Entrada NF-e — Fatia 3/N Excluir com reversão (fecha o F22) | - | ✅ Concluído — falta validação manual | 2026-08-14 |
 | F23 Animação de carregamento no login | - | ✅ Concluído — validado ao vivo (painel, botão, tela cheia, 2 temas) | 2026-08-15 |
-| M20 Responsabilidade | 2 | 🟨 Código 100% pronto (5/5 fatias) — falta validação manual | 2026-07-31 |
+| M20 Responsabilidade | 2 | ✅ Validado ao vivo em 2026-08-15 — prova direta no Firestore (criadoPor/criadoEm/alteradoPor/alteradoEm gravados corretamente em documento novo e em edição de documento antigo) | 2026-07-31 |
 | M6 fatia Entrada de XML (Fornecedores + Contas a Pagar + Estoque) | 2 | 🟨 Código pronto — falta validação manual (priorizada fora de ordem a pedido do usuário) | 2026-08-02 |
-| M18 Cancelamentos (auditoria) | 2 | 🟨 Código pronto (5/5 fatias, achou e corrigiu bugs reais além do checklist) — falta validação manual | 2026-08-13 |
+| M18 Cancelamentos (auditoria) | 2 | ✅ Validado ao vivo em 2026-08-15 — venda de teste no PDV → excluída → estoque revertido exato + log de auditoria completo (criação, abertura de caixa, exclusão) | 2026-08-13 |
 | M6 Central de Notas Fiscais (listagem) | 2 | ⬜ Pendente — adiado, depois de M4 | |
 | M15 Relatórios padronizados | 2 | ⬜ Pendente — adiado, depois de M4 | |
 | M13 Reserva de estoque — Fatia 0/N Fundação | 3 | ✅ Concluído — config + funções puras, zero mudança de comportamento | 2026-08-14 |

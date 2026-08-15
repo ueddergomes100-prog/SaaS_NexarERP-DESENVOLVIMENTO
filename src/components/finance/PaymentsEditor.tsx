@@ -179,6 +179,11 @@ const PaymentMethodSelect: React.FC<PaymentMethodSelectProps> = ({
     if (event.key === 'Escape') {
       if (isOpen) {
         event.preventDefault();
+        // Consome o Esc aqui -- sem isso, o mesmo Esc que fecha este
+        // dropdown tambem borbulharia ate o listener global (useGlobalEscapeKey)
+        // e fecharia a camada seguinte da pilha (ex: o modal que contem
+        // este seletor), fechando dois niveis de uma vez.
+        event.stopPropagation();
         setIsOpen(false);
         triggerRef.current?.focus();
       }

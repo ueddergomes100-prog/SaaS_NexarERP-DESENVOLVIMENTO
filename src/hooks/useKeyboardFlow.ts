@@ -85,6 +85,29 @@ export function closeTopEscapeLayer(): boolean {
   return globalEscapeStack.closeTop();
 }
 
+/**
+ * Conecta a pilha de Esc (globalEscapeStack/useEscapeLayer) a tecla Esc de
+ * verdade. Achado em validacao manual (2026-08-15): useEscapeLayer sempre
+ * empilhou as camadas corretamente, mas nenhuma tela registrava um binding
+ * de 'Escape' chamando closeTopEscapeLayer() -- a pilha nunca era fechada
+ * por Esc em lugar nenhum do sistema (Bandeiras de Cartao, Bancos,
+ * Unidades de Medida, ClientAutocomplete, ProductSearchModal, dropdowns
+ * internos de OSForm). Chamar uma unica vez, no componente raiz da area
+ * autenticada (AppLayout), corrige todas as telas de uma vez -- nao repete
+ * o erro de exigir que cada tela lembre de registrar o binding sozinha.
+ */
+export function useGlobalEscapeKey(): void {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (closeTopEscapeLayer()) event.preventDefault();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+}
+
 /** Leva o foco para o proximo campo logico apos concluir uma acao. */
 export function focusField(ref: RefObject<HTMLElement | null> | null | undefined): void {
   ref?.current?.focus();

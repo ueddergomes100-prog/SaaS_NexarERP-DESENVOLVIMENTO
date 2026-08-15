@@ -4,6 +4,7 @@ import { db } from '../../services/firebase';
 import { Building2, Megaphone, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { TabsProvider } from '../../contexts/TabsContext';
+import { useGlobalEscapeKey } from '../../hooks/useKeyboardFlow';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import TabBar from './TabBar';
@@ -14,6 +15,8 @@ const AppLayout: React.FC = () => {
   const [globalAlert, setGlobalAlert] = useState<{message: string} | null>(null);
   const [hideAlert, setHideAlert] = useState(false);
   const { tenantOptions, setActiveTenantId, needsTenantSelection } = useAuth();
+
+  useGlobalEscapeKey();
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'system_alerts', 'global'), (snap) => {

@@ -758,6 +758,22 @@ Typecheck, lint (0 erros, warnings pré-existentes) e build passando. Validado a
 - **Escopo deliberadamente restrito ao login** — os spinners de cadastro/verificação de código (`signupLoading`, `verifying`) continuam com o `Loader2`/`spin-icon` de sempre, que já funcionava e não foi alvo da reclamação.
 
 **Validado ao vivo** (sem precisar de login real — nunca digitamos credencial, nem de teste): confirmado via `getComputedStyle` que a animação está de fato rodando (`animationName: authRingSpin`), e visualmente por injeção de debug temporária (removida em seguida) mostrando o painel de status, o botão e a tela cheia nos dois temas (claro e escuro) — anel com contraste bom nos dois. Typecheck/lint/build/133 testes (sem lógica pura nova, é só CSS/JSX) passando.
+
+### F24 — Bugfix crítico: Esc nunca fechava nenhum modal em lugar nenhum do sistema (2026-08-15)
+
+**Achado durante a validação manual do M1** (usuário logou no navegador interno e pediu pra validar o que estava pendente — ver Seção 8). Ao testar o modal de Taxas por bandeira (F14) em Bandeiras de Cartão, Esc não fechava, só o X funcionava. Investigação revelou que era sistêmico, não isolado dessa tela.
+
+**Causa raiz:** `useEscapeLayer`/`globalEscapeStack` (F3, base do Módulo 1) sempre empilhou as camadas fecháveis corretamente, mas **nenhuma tela em todo o sistema registrava um binding `{ key: 'Escape', handler: () => closeTopEscapeLayer() }`** no `useKeyboardShortcuts` — confirmado por grep: `closeTopEscapeLayer` nunca era chamado em nenhum arquivo além de onde foi definida (`useKeyboardFlow.ts`). A pilha existia, era testada (`createEscapeStack` tem cobertura de teste desde o F3), mas nunca era conectada a um evento de tecla real. Afetava toda tela que dependesse só de `useEscapeLayer` sem lógica própria de Esc: `BandeirasCartaoList`, `BancosList`, `UnidadesMedidaList`, os dropdowns internos de `OSForm` (serviço/veículo), `ClientAutocomplete` e `ProductSearchModal` ("Ver Mais").
+
+**Corrigido:**
+- Nova `useGlobalEscapeKey()` em [`useKeyboardFlow.ts`](../src/hooks/useKeyboardFlow.ts) — um único listener `window.addEventListener('keydown', ...)` que chama `closeTopEscapeLayer()`. Chamada uma única vez em [`AppLayout.tsx`](../src/components/layout/AppLayout.tsx) (raiz da área autenticada, fora do `TabsProvider`) — corrige todas as telas de uma vez, sem depender de cada tela lembrar de registrar o binding sozinha (que é exatamente o que causou o bug: nenhuma lembrou).
+- **Risco avaliado antes de aplicar:** três arquivos (`ProductAutocomplete.tsx`, `PaymentsEditor.tsx`, `PDV.tsx`) já tratavam Esc localmente, fora do `globalEscapeStack`. `ProductAutocomplete.tsx` já chamava `stopPropagation()` — sem risco. `PDV.tsx` não usa `useEscapeLayer` em nada (o bug conhecido dele, "Esc fecha os 3 modais juntos", é independente e permanece fora de escopo, não piorou nem melhorou). `PaymentsEditor.tsx` (dropdown de forma de pagamento, compartilhado por PDV/Pedido/OS) fechava o próprio dropdown sem `stopPropagation()` — corrigido com uma linha, pra Esc não fechar o dropdown E a camada seguinte da pilha (ex: o modal que o contém) na mesma tecla.
+- Sem lógica pura nova (é wiring de infraestrutura já testada) — nenhum teste novo necessário; os 133 testes existentes continuaram passando.
+
+**Validado ao vivo, em múltiplos componentes diferentes:** modal de Taxas (F14) e modal "Nova Bandeira" em Bandeiras de Cartão, dropdown do `ClientAutocomplete` numa OS, modal "Ver Mais" (`ProductSearchModal`) numa OS, e o dropdown inline do `ProductAutocomplete` — todos fecham com Esc agora, e só fecham **um nível por vez** (testado explicitamente: abrir peça → Esc → só o dropdown fecha, a OS inteira continua aberta e intacta).
+
+Typecheck/lint/build passando. Commit próprio, antes do restante da rodada de validação manual.
+
 ### F22 — Histórico, precificação e exclusão na Entrada de NF-e (feature, 2026-08-14)
 
 **Não estava no prompt original.** Pedido direto do usuário: (1) visualizar/ter histórico das notas de entrada já importadas; (2) poder precificar o produto (preço de venda + tributação) direto na tela de lançamento da nota, antes de gravar no estoque; (3) botão de excluir na tela fiscal que reverte a quantidade de estoque e apaga os títulos de Contas a Pagar gerados, mas mantém o cadastro do produto; (4) identificar, item a item, se é Matéria-Prima ou Revenda.
@@ -983,16 +999,17 @@ Atualizar ao concluir cada item.
 | F4 Padrão de catálogo | 0 | ✅ Concluido — hook de coleção + seed dedup + hasModuleAccess; forms continuam por tela | 2026-07-27 |
 | F5 Sequências e metadados | 0 | ✅ Concluido — SequenceKey alargada, buildDocumentMetadata criado; documentos existentes nao migrados | 2026-07-27 |
 | F6 Índices versionados | 0 | 🟨 Arquivo criado — falta `firebase deploy --only firestore:indexes` (CLI não instalado aqui) | 2026-07-27 |
-| M2 Bandeiras de cartão | 1 | 🟨 Código pronto — falta `firebase deploy --only firestore:rules` (CLI não instalado aqui) | 2026-07-28 |
-| M10 Limite de autocomplete | 1 | ✅ Concluído — modal "Ver Mais" criado; teste visual com >6 produtos pendente (catálogo dev pequeno) | 2026-07-28 |
-| M9 Busca exata/completa | 1 | 🟨 Código pronto — falta validação manual roteirizada | 2026-07-28 |
+| M2 Bandeiras de cartão | 1 | ✅ Validado ao vivo em 2026-08-15 — lista, F14 (painel de taxas), CRUD | 2026-07-28 |
+| M10 Limite de autocomplete | 1 | ✅ Validado ao vivo em 2026-08-15 — 6 itens + "Ver Mais" confirmado numa OS | 2026-07-28 |
+| M9 Busca exata/completa | 1 | ✅ Validado ao vivo em 2026-08-15 — teste A/B real (Exata bloqueia "integral", aceita prefixo "arroz") | 2026-07-28 |
 | M11 Consulta por CDP | 1 | ✅ Concluído — absorvido por F1, confirmado por leitura de código | 2026-07-28 |
-| M14 Buscas do sistema | 1 | 🟨 Código pronto — falta validação manual; risco de performance da TopBar segue aberto (Seção 9) | 2026-07-28 |
-| M3 Impressão múltipla | 1 | 🟨 Código pronto — falta validação manual (quebra de página real) | 2026-07-28 |
-| M5 Flags fiscais | 1 | 🟨 Código pronto — falta validação manual | 2026-07-28 |
-| M1 Navegação por teclado | 2 | 🟨 Código pronto (PDV + Pedido + OS + Cadastros) — falta validação manual | 2026-07-31 |
+| M14 Buscas do sistema | 1 | ✅ Validado ao vivo em 2026-08-15 — busca de cliente/OS e produto na TopBar; risco de performance segue aberto (Seção 9) | 2026-07-28 |
+| M3 Impressão múltipla | 1 | ✅ Validado ao vivo em 2026-08-15 — quebra de página real confirmada (2 pedidos, folhas separadas) | 2026-07-28 |
+| M5 Flags fiscais | 1 | ✅ Validado ao vivo em 2026-08-15 — 3 checkboxes persistem após reload | 2026-07-28 |
+| M1 Navegação por teclado | 2 | ✅ Validado ao vivo em 2026-08-15 (Bandeiras, OS) — achou e corrigiu o F24 (Esc não fechava nada); Pedido/PDV não re-testados nesta rodada | 2026-07-31 |
 | M19 Numeração | 2 | ✅ Concluído — sem código novo, nada implementável hoje (ver seção do módulo) | 2026-07-31 |
-| F20 Trilha do menu compacto vira atalho | 2 | 🟨 Código pronto — falta validação manual | 2026-08-02 |
+| F20 Trilha do menu compacto vira atalho | 2 | ✅ Validado ao vivo em 2026-08-15 — atalhos diretos + recolher/expandir nos dois sentidos | 2026-08-02 |
+| F24 Bugfix: Esc não fechava nenhum modal (globalEscapeStack nunca conectado) | - | ✅ Concluído — validado em 4 componentes diferentes | 2026-08-15 |
 | F21 Redesign Login/Cadastro (auth switch) | - | ✅ Concluído — validado ao vivo (animação, cadastro completo, login, tema claro, mobile) | 2026-08-14 |
 | F22 Entrada NF-e: histórico/precificação/exclusão — Fatia 0/N Fundação | - | ✅ Concluído — coleção `notas_fiscais_entrada` criada e gravada; falta validação manual | 2026-08-14 |
 | F22 Entrada NF-e — Fatia 1/N Histórico (listagem) | - | ✅ Concluído — tela `/fiscal/entrada-nfe/historico`; falta validação manual | 2026-08-14 |

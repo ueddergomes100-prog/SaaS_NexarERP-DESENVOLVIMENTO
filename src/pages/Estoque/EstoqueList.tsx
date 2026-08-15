@@ -23,6 +23,7 @@ const EstoqueList: React.FC = () => {
   const { openTab } = useTabs();
   const [pecasList, setPecasList] = useState<PecaData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const { currentUser, tenantId } = useAuth();
 
@@ -106,6 +107,16 @@ const EstoqueList: React.FC = () => {
       }
     }
   };
+
+  const filteredPecas = pecasList.filter((peca) => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      peca.nome.toLowerCase().includes(term) ||
+      peca.codigo.toLowerCase().includes(term) ||
+      peca.categoria.toLowerCase().includes(term)
+    );
+  });
 
   const getStatusBadge = (quantidade: number) => {
     if (quantidade <= 0) {
@@ -193,7 +204,12 @@ const EstoqueList: React.FC = () => {
         <div className="list-toolbar">
           <div className="search-box">
             <Search size={18} className="search-icon" />
-            <input type="text" placeholder="Buscar por código, nome ou categoria..." />
+            <input
+              type="text"
+              placeholder="Buscar por código, nome ou categoria..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
           <button className="btn-secondary filter-btn">
             <Filter size={18} style={{ marginRight: 8 }} />
@@ -219,12 +235,14 @@ const EstoqueList: React.FC = () => {
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>Carregando Estoque...</td>
                 </tr>
-              ) : pecasList.length === 0 ? (
+              ) : filteredPecas.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>Nenhuma peça cadastrada no estoque.</td>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>
+                    {searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhuma peça cadastrada no estoque.'}
+                  </td>
                 </tr>
               ) : (
-                pecasList.map((peca) => (
+                filteredPecas.map((peca) => (
                   <tr key={peca.id}>
                     <td className="font-medium" style={{ color: 'var(--text-muted)' }}>{peca.codigo}</td>
                     <td>{peca.nome}</td>

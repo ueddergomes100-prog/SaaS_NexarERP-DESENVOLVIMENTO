@@ -830,7 +830,16 @@ Typecheck/lint/build passando. Commit próprio, antes do restante da rodada de v
 
 Typecheck, lint e build passando limpos; suíte de 66 testes sem mudança (nenhuma lógica financeira nova além de `addDaysToDateInput`, que já tinha teste). Publicado em `dev`.
 
-**Continua pendente:** validação manual de ponta a ponta (mesma limitação de sempre — a Claude não pode logar). Roteiro sugerido: importar um XML de nota real (com e sem duplicata), conferir que o popup de fornecedor abre quando o CNPJ não bate com nada cadastrado, que a importação fica bloqueada até cadastrar, e que o(s) título(s) aparecem corretos em Contas a Pagar com o vencimento certo.
+**Validado ao vivo em 2026-08-15 (ponta a ponta, junto com o F22 inteiro):** sem um XML real da SEFAZ disponível, construído um XML de nota sintético (mesma estrutura de tags que o parser exige — `emit`/`ide`/`det`/`prod`/`ICMSTot`/`cobr`/`dup`) e injetado no input de arquivo via JS (o navegador interno não tem mecanismo de upload de arquivo real; nenhuma credencial foi digitada, só simulada a seleção de um arquivo local já preparado). Nota com fornecedor novo, 2 itens novos (um pra virar Revenda, outro Matéria-Prima) e 2 duplicatas. Confirmado, cada etapa checada por consulta direta ao Firestore após a ação na tela:
+- Popup de cadastro de fornecedor abriu bloqueante, pré-preenchido, confirmação ficou desabilitada até cadastrar — exatamente como documentado.
+- Após confirmar: título por duplicata criado com vencimento correto (não a data de emissão), fornecedorId vinculado no produto e na matéria-prima criados, categoria "FORNECEDORES DE PEÇAS" correta.
+- F22 Fatia 0 (`notas_fiscais_entrada`) gravada com itens/status/metadados corretos (de quebra, confirma o M20 nesse documento também).
+- F22 Fatia 2: item novo pediu classificação (Revenda escolhida pro item 1, Matéria-Prima pro item 2); preço de venda pré-preenchido com margem de 50% (37,50 sobre custo 25,00); ao trocar pra Matéria-Prima, o painel de preço/tributação sumiu e mostrou só o aviso de custo — produto criado em `estoque` com `precoVenda`/`csosn` corretos, matéria-prima criada em `materias_primas` só com `precoCusto` (sem `precoVenda`).
+- F22 Fatia 1: nota apareceu no Histórico de Entradas, ao lado de notas reais já existentes; modal de detalhe mostrou os 2 itens e os 2 títulos corretamente.
+- F22 Fatia 3: excluída a nota de teste — `status` virou `'excluida'` com `motivoExclusao` gravado, quantidade do produto e da matéria-prima voltou a 0 (cadastros mantidos, não apagados), os 2 títulos foram removidos de verdade de `transacoes`.
+- Dados de teste (produto, matéria-prima, fornecedor, nota) apagados do banco de dev ao final.
+
+**M6 (Entrada de XML) e F22 (as 4 fatias) fechados — validação de ponta a ponta sem nenhum bug encontrado.**
 
 **Deliberadamente fora do escopo desta fatia:** a listagem central de Notas Fiscais (a parte "Módulo 6" original, ver mais abaixo) não foi tocada — fica pra depois de Produção, conforme combinado.
 
@@ -1013,13 +1022,13 @@ Atualizar ao concluir cada item.
 | F20 Trilha do menu compacto vira atalho | 2 | ✅ Validado ao vivo em 2026-08-15 — atalhos diretos + recolher/expandir nos dois sentidos | 2026-08-02 |
 | F24 Bugfix: Esc não fechava nenhum modal (globalEscapeStack nunca conectado) | - | ✅ Concluído — validado em 4 componentes diferentes | 2026-08-15 |
 | F21 Redesign Login/Cadastro (auth switch) | - | ✅ Concluído — validado ao vivo (animação, cadastro completo, login, tema claro, mobile) | 2026-08-14 |
-| F22 Entrada NF-e: histórico/precificação/exclusão — Fatia 0/N Fundação | - | ✅ Concluído — coleção `notas_fiscais_entrada` criada e gravada; falta validação manual | 2026-08-14 |
-| F22 Entrada NF-e — Fatia 1/N Histórico (listagem) | - | ✅ Concluído — tela `/fiscal/entrada-nfe/historico`; falta validação manual | 2026-08-14 |
-| F22 Entrada NF-e — Fatia 2/N Classificação MP/Revenda + Precificação | - | ✅ Concluído — núcleo do pedido do usuário; falta validação manual | 2026-08-14 |
-| F22 Entrada NF-e — Fatia 3/N Excluir com reversão (fecha o F22) | - | ✅ Concluído — falta validação manual | 2026-08-14 |
+| F22 Entrada NF-e: histórico/precificação/exclusão — Fatia 0/N Fundação | - | ✅ Validado ao vivo em 2026-08-15 (XML de teste, ponta a ponta) | 2026-08-14 |
+| F22 Entrada NF-e — Fatia 1/N Histórico (listagem) | - | ✅ Validado ao vivo em 2026-08-15 | 2026-08-14 |
+| F22 Entrada NF-e — Fatia 2/N Classificação MP/Revenda + Precificação | - | ✅ Validado ao vivo em 2026-08-15 — núcleo do pedido do usuário | 2026-08-14 |
+| F22 Entrada NF-e — Fatia 3/N Excluir com reversão (fecha o F22) | - | ✅ Validado ao vivo em 2026-08-15 | 2026-08-14 |
 | F23 Animação de carregamento no login | - | ✅ Concluído — validado ao vivo (painel, botão, tela cheia, 2 temas) | 2026-08-15 |
 | M20 Responsabilidade | 2 | ✅ Validado ao vivo em 2026-08-15 — prova direta no Firestore (criadoPor/criadoEm/alteradoPor/alteradoEm gravados corretamente em documento novo e em edição de documento antigo) | 2026-07-31 |
-| M6 fatia Entrada de XML (Fornecedores + Contas a Pagar + Estoque) | 2 | 🟨 Código pronto — falta validação manual (priorizada fora de ordem a pedido do usuário) | 2026-08-02 |
+| M6 fatia Entrada de XML (Fornecedores + Contas a Pagar + Estoque) | 2 | ✅ Validado ao vivo em 2026-08-15 (priorizada fora de ordem a pedido do usuário) | 2026-08-02 |
 | M18 Cancelamentos (auditoria) | 2 | ✅ Validado ao vivo em 2026-08-15 — venda de teste no PDV → excluída → estoque revertido exato + log de auditoria completo (criação, abertura de caixa, exclusão) | 2026-08-13 |
 | M6 Central de Notas Fiscais (listagem) | 2 | ⬜ Pendente — adiado, depois de M4 | |
 | M15 Relatórios padronizados | 2 | ⬜ Pendente — adiado, depois de M4 | |

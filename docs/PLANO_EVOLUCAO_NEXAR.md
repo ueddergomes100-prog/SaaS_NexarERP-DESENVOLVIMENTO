@@ -771,9 +771,18 @@ Typecheck, lint (0 erros, warnings pré-existentes) e build passando. Validado a
 - Classificação só é recalculada depois que o fornecedor termina de resolver (`fornecedorStatus === 'found'`) — evita classificar um item como "novo" por engano antes de saber o código que aquele fornecedor específico usa pra ele (camada 2 do matching de `estoque`), o que criaria um produto duplicado em vez de mesclar.
 - 9 testes novos (2 em `fiscalDomain.test.ts` cobrindo `matchMateriaPrimaFromXmlItem` + guard de string vazia, 5 em `entradaNfeDomain.test.ts` cobrindo `buildInitialItemEntradaConfig` nos 4 cenários — 118→127). Typecheck/lint (0 erros, 0 warnings novos)/build passando.
 
-**Falta validação manual das 3 fatias** (mesma limitação de sempre): importar uma nota real com item novo, item já em estoque e item já em matéria-prima; confirmar que só o item novo pede classificação; testar o bloqueio de preço de venda vazio; conferir que a nota criada em `materias_primas` não grava preço de venda; testar num tenant Lucro Presumido/Real que os campos extra de ICMS/PIS/COFINS aparecem e são gravados.
+**Falta validação manual das fatias 0-2** (mesma limitação de sempre): importar uma nota real com item novo, item já em estoque e item já em matéria-prima; confirmar que só o item novo pede classificação; testar o bloqueio de preço de venda vazio; conferir que a nota criada em `materias_primas` não grava preço de venda; testar num tenant Lucro Presumido/Real que os campos extra de ICMS/PIS/COFINS aparecem e são gravados.
 
-**Ainda não implementado desta feature (F22):** Fatia 3 — botão de excluir com reversão de estoque + remoção dos títulos de Contas a Pagar (bloqueando se algum já estiver pago).
+**Fatia 3/N concluída em 2026-08-14 — Excluir com reversão, fechando o F22:** botão "Excluir" na tela de Histórico (linha da lista e rodapé do modal de detalhe), só visível em notas com `status: 'ativa'`. Fluxo inteiro dentro de uma `runTransaction` (todas as leituras — nota, títulos, itens de estoque/matéria-prima — antes de qualquer escrita, mesma exigência do Firestore já documentada em outras transações do sistema):
+- Pede motivo (mínimo 12 caracteres, mesmo padrão de `ContasPagar.handleExcluir`).
+- **Bloqueia** se qualquer título de Contas a Pagar gerado pela nota não estiver `'Pendente'` (`findTituloBloqueandoExclusao`, pura, testada) — decisão já travada com o usuário antes de implementar.
+- **Bloqueia** se o estoque atual de qualquer item (revenda ou matéria-prima) for menor que a quantidade que a nota somou — ou seja, parte já foi vendida/consumida por outro caminho (`findItemSemEstoqueParaReverter`, pura, testada; mesmo princípio de segurança já usado no estorno de Produção: "recusa se parte já saiu do estoque").
+- Passando nos dois checks: reverte `quantidade` (subtrai, sem apagar o cadastro do produto/matéria-prima), apaga os documentos de `transacoes` dos títulos, e marca a nota como `status: 'excluida'` + `motivoExclusao` (soft-delete — continua aparecendo no histórico, não some da listagem).
+- Log de auditoria após a transação, mesmo padrão do resto do sistema.
+- **Sem mudança nenhuma em `firestore.rules`:** as escritas em `estoque`/`materias_primas`/`transacoes`/`notas_fiscais_entrada` já caem nas permissões existentes (`cadastros.estoque`, `cadastros.materia_prima`, `financeiro.estornar`, `fiscal.entrada` respectivamente) — mesma característica que a própria importação já tinha desde 2026-08-02 (quem importa NF já precisa dessas permissões além de `fiscal.entrada`; não é uma lacuna nova desta fatia).
+- 6 testes novos (127→133). Typecheck/lint (0 erros, 0 warnings novos)/build passando.
+
+**F22 fechado no código com isso** — as 4 fatias completas (0-Fundação, 1-Histórico, 2-Classificação+Precificação, 3-Exclusão). Falta só validação manual de ponta a ponta em todas.
 
 ### Módulo 6 — fatia Entrada de XML (priorizada em 2026-08-02 a pedido do usuário)
 
@@ -975,7 +984,7 @@ Atualizar ao concluir cada item.
 | F22 Entrada NF-e: histórico/precificação/exclusão — Fatia 0/N Fundação | - | ✅ Concluído — coleção `notas_fiscais_entrada` criada e gravada; falta validação manual | 2026-08-14 |
 | F22 Entrada NF-e — Fatia 1/N Histórico (listagem) | - | ✅ Concluído — tela `/fiscal/entrada-nfe/historico`; falta validação manual | 2026-08-14 |
 | F22 Entrada NF-e — Fatia 2/N Classificação MP/Revenda + Precificação | - | ✅ Concluído — núcleo do pedido do usuário; falta validação manual | 2026-08-14 |
-| F22 Entrada NF-e — Fatia 3/N Excluir com reversão | - | ⬜ Pendente | |
+| F22 Entrada NF-e — Fatia 3/N Excluir com reversão (fecha o F22) | - | ✅ Concluído — falta validação manual | 2026-08-14 |
 | M20 Responsabilidade | 2 | 🟨 Código 100% pronto (5/5 fatias) — falta validação manual | 2026-07-31 |
 | M6 fatia Entrada de XML (Fornecedores + Contas a Pagar + Estoque) | 2 | 🟨 Código pronto — falta validação manual (priorizada fora de ordem a pedido do usuário) | 2026-08-02 |
 | M18 Cancelamentos (auditoria) | 2 | 🟨 Código pronto (5/5 fatias, achou e corrigiu bugs reais além do checklist) — falta validação manual | 2026-08-13 |

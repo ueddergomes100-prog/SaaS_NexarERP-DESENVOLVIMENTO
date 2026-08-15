@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildNotaFiscalEntradaRecord, buildInitialItemEntradaConfig, type NotaFiscalEntradaItemRecord } from '../src/utils/entradaNfeDomain';
+import {
+  buildNotaFiscalEntradaRecord,
+  buildInitialItemEntradaConfig,
+  findTituloBloqueandoExclusao,
+  findItemSemEstoqueParaReverter,
+  type NotaFiscalEntradaItemRecord,
+} from '../src/utils/entradaNfeDomain';
 
 const baseItens: NotaFiscalEntradaItemRecord[] = [
   { itemId: 'estoque-1', tipo: 'revenda', codigoXml: 'COD1', descricaoXml: 'PARAFUSO', quantidade: 10, valorUnitario: 2.5, novo: false },
@@ -108,4 +114,50 @@ test('buildInitialItemEntradaConfig: item novo fora do Simples Nacional nasce se
 
   assert.equal(result.csosn, '');
   assert.equal(result.aliquotaIcms, '');
+});
+
+test('findTituloBloqueandoExclusao retorna null quando todos os titulos estao Pendente', () => {
+  const result = findTituloBloqueandoExclusao([
+    { id: 't1', status: 'Pendente', descricao: 'Parcela 1/2' },
+    { id: 't2', status: 'Pendente', descricao: 'Parcela 2/2' },
+  ]);
+  assert.equal(result, null);
+});
+
+test('findTituloBloqueandoExclusao encontra o primeiro titulo que nao esta Pendente', () => {
+  const result = findTituloBloqueandoExclusao([
+    { id: 't1', status: 'Pendente', descricao: 'Parcela 1/2' },
+    { id: 't2', status: 'Pago', descricao: 'Parcela 2/2' },
+  ]);
+  assert.equal(result?.id, 't2');
+});
+
+test('findTituloBloqueandoExclusao lista vazia nunca bloqueia', () => {
+  assert.equal(findTituloBloqueandoExclusao([]), null);
+});
+
+test('findItemSemEstoqueParaReverter permite reverter quando o estoque atual cobre a quantidade da nota', () => {
+  const estoqueAtualPorId = new Map([['item-1', 10]]);
+  const result = findItemSemEstoqueParaReverter(
+    [{ itemId: 'item-1', descricaoXml: 'PARAFUSO', quantidade: 5 }],
+    estoqueAtualPorId,
+  );
+  assert.equal(result, null);
+});
+
+test('findItemSemEstoqueParaReverter bloqueia quando parte do estoque ja foi consumida', () => {
+  const estoqueAtualPorId = new Map([['item-1', 3]]);
+  const result = findItemSemEstoqueParaReverter(
+    [{ itemId: 'item-1', descricaoXml: 'PARAFUSO', quantidade: 5 }],
+    estoqueAtualPorId,
+  );
+  assert.equal(result?.itemId, 'item-1');
+});
+
+test('findItemSemEstoqueParaReverter trata item sem documento no mapa como estoque zero', () => {
+  const result = findItemSemEstoqueParaReverter(
+    [{ itemId: 'item-inexistente', descricaoXml: 'PORCA', quantidade: 1 }],
+    new Map(),
+  );
+  assert.equal(result?.itemId, 'item-inexistente');
 });

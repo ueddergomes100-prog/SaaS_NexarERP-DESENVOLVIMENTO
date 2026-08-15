@@ -141,3 +141,44 @@ export const buildInitialItemEntradaConfig = (
     aliquotaCofins: '',
   };
 };
+
+// Fatia 3/N -- excluir uma nota ja confirmada, revertendo a quantidade
+// somada ao estoque/materia-prima e removendo os titulos de Contas a
+// Pagar gerados por ela (mantendo o cadastro do produto/materia-prima).
+// Decisoes confirmadas com o usuario: bloqueia se algum titulo ja estiver
+// pago; e (mesmo principio ja usado no estorno de Producao) bloqueia se
+// parte do que entrou por essa nota ja tiver sido vendida/consumida, pra
+// nao deixar o estoque negativo silenciosamente.
+
+export interface TituloParaExclusao {
+  id: string;
+  status: string;
+  descricao: string;
+}
+
+// Retorna o primeiro titulo que impede a exclusao (qualquer status
+// diferente de 'Pendente'), ou null se todos podem ser removidos.
+export const findTituloBloqueandoExclusao = (titulos: TituloParaExclusao[]): TituloParaExclusao | null =>
+  titulos.find((t) => t.status !== 'Pendente') || null;
+
+export interface ItemParaReverterEstoque {
+  itemId: string;
+  descricaoXml: string;
+  quantidade: number;
+}
+
+// Descobre, entre os itens de um tipo (revenda OU materia-prima, chamador
+// separa antes), o primeiro cujo estoque atual nao comporta reverter a
+// quantidade inteira que essa nota somou -- ja foi vendido/consumido parte
+// dela por outro caminho. `estoqueAtualPorId` mapeia itemId -> quantidade
+// atual (0 quando o documento nao existe mais).
+export const findItemSemEstoqueParaReverter = (
+  itens: ItemParaReverterEstoque[],
+  estoqueAtualPorId: Map<string, number>,
+): ItemParaReverterEstoque | null => {
+  for (const item of itens) {
+    const atual = estoqueAtualPorId.get(item.itemId) ?? 0;
+    if (atual < item.quantidade) return item;
+  }
+  return null;
+};

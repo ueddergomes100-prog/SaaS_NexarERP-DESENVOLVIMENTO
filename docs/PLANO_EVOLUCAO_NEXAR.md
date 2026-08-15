@@ -745,6 +745,19 @@ Typecheck, lint, build e suíte de 66 testes passando. **Falta validação manua
 
 Typecheck, lint (0 erros, warnings pré-existentes) e build passando. Validado ao vivo: animação de slide nos dois sentidos, cadastro completo de ponta a ponta (CNPJ real → códigos → senha → login automático → Dashboard, reaproveitando o fluxo do F-anterior), login normal (`handleLogin` intacto), tema claro, fallback responsivo mobile (painel de destaque vira faixa horizontal compacta acima do formulário). Conta de teste apagada do banco de dev ao final. Commit `b743a92`, publicado em `dev`.
 
+### F23 — Animação de carregamento no login (polish, 2026-08-15)
+
+**Não estava no prompt original.** Pedido do usuário ao clicar em "Entrar": a animação de carregamento não estava chamando atenção — pediu algo "intuitivo", nas cores do sistema, sugerindo um Lottie como referência (lottiefiles.com). Decisão confirmada com o usuário (via AskUserQuestion): construir a animação em CSS/SVG puro nas cores do sistema, em vez de adicionar a dependência `lottie-react` + baixar um arquivo externo — evita aumentar o bundle e questão de licença de asset de terceiro, sem perder o efeito "luxo".
+
+**Investigação:** o código já tinha um spinner (`Loader2` com `spin-icon`) no botão "Entrar" e no painel de status, com a keyframe `authSpin` corretamente definida e escopada em `Auth.css` — tecnicamente já animava. O problema real era de percepção/qualidade: um ícone pequeno girando não lê como "carregando" com destaque, muito abaixo do padrão visual do resto do redesign (F21).
+
+**Implementado em [`AuthPage.tsx`](../src/pages/Auth/AuthPage.tsx) + [`Auth.css`](../src/pages/Auth/Auth.css):**
+- Novo anel giratório em `conic-gradient` (`--accent-blue` → `--accent-purple` → `--accent-blue`), com um círculo interno "furando" o centro pra criar o efeito de anel (donut) — usado no painel de status do login (`.auth-loading-ring`, 26px) e, maior e com glow, na tela cheia "Iniciando Ambiente" pós-login (110px, ao redor do logo, que ganhou um pulso suave próprio via `splashLogoPulse`).
+- Botão "Entrar": substituído o ícone `Loader2` por um spinner de borda branca simples (`.auth-btn-spinner`) — mais legível em cima do fundo roxo sólido do botão do que um anel gradiente (que precisa de contraste de fundo pra aparecer).
+- Removida a keyframe antiga `spinPulse` (quadrado rotacionando 45°/scale) da tela cheia, substituída por `splashRingSpin` (rotação simples do anel) + `splashLogoPulse` (pulso do logo).
+- **Escopo deliberadamente restrito ao login** — os spinners de cadastro/verificação de código (`signupLoading`, `verifying`) continuam com o `Loader2`/`spin-icon` de sempre, que já funcionava e não foi alvo da reclamação.
+
+**Validado ao vivo** (sem precisar de login real — nunca digitamos credencial, nem de teste): confirmado via `getComputedStyle` que a animação está de fato rodando (`animationName: authRingSpin`), e visualmente por injeção de debug temporária (removida em seguida) mostrando o painel de status, o botão e a tela cheia nos dois temas (claro e escuro) — anel com contraste bom nos dois. Typecheck/lint/build/133 testes (sem lógica pura nova, é só CSS/JSX) passando.
 ### F22 — Histórico, precificação e exclusão na Entrada de NF-e (feature, 2026-08-14)
 
 **Não estava no prompt original.** Pedido direto do usuário: (1) visualizar/ter histórico das notas de entrada já importadas; (2) poder precificar o produto (preço de venda + tributação) direto na tela de lançamento da nota, antes de gravar no estoque; (3) botão de excluir na tela fiscal que reverte a quantidade de estoque e apaga os títulos de Contas a Pagar gerados, mas mantém o cadastro do produto; (4) identificar, item a item, se é Matéria-Prima ou Revenda.
@@ -985,6 +998,7 @@ Atualizar ao concluir cada item.
 | F22 Entrada NF-e — Fatia 1/N Histórico (listagem) | - | ✅ Concluído — tela `/fiscal/entrada-nfe/historico`; falta validação manual | 2026-08-14 |
 | F22 Entrada NF-e — Fatia 2/N Classificação MP/Revenda + Precificação | - | ✅ Concluído — núcleo do pedido do usuário; falta validação manual | 2026-08-14 |
 | F22 Entrada NF-e — Fatia 3/N Excluir com reversão (fecha o F22) | - | ✅ Concluído — falta validação manual | 2026-08-14 |
+| F23 Animação de carregamento no login | - | ✅ Concluído — validado ao vivo (painel, botão, tela cheia, 2 temas) | 2026-08-15 |
 | M20 Responsabilidade | 2 | 🟨 Código 100% pronto (5/5 fatias) — falta validação manual | 2026-07-31 |
 | M6 fatia Entrada de XML (Fornecedores + Contas a Pagar + Estoque) | 2 | 🟨 Código pronto — falta validação manual (priorizada fora de ordem a pedido do usuário) | 2026-08-02 |
 | M18 Cancelamentos (auditoria) | 2 | 🟨 Código pronto (5/5 fatias, achou e corrigiu bugs reais além do checklist) — falta validação manual | 2026-08-13 |

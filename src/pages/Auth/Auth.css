@@ -163,6 +163,35 @@
   box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.35);
 }
 
+/* Anel giratorio nas cores do sistema (roxo->azul) -- substitui o icone
+   generico de loading no botao "Entrar" e no painel de status, pedido do
+   usuario apos notar que a animacao anterior nao chamava atencao. */
+.auth-loading-ring {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--accent-blue), var(--accent-purple), var(--accent-blue));
+  animation: authRingSpin 0.85s linear infinite;
+}
+
+.auth-loading-ring::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+}
+
+.auth-btn-spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: authRingSpin 0.7s linear infinite;
+}
+
 .auth-loading-copy {
   min-width: 0;
   display: flex;
@@ -474,6 +503,11 @@
 }
 
 @keyframes authSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes authRingSpin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }

@@ -784,7 +784,7 @@ const AuthPage: React.FC = () => {
       {loginLoading && (
         <div className="auth-loading-panel" aria-live="polite">
           <div className="auth-loading-orbit">
-            <Loader2 size={20} className="spin-icon" />
+            <span className="auth-loading-ring" aria-hidden="true" />
           </div>
           <div className="auth-loading-copy">
             <strong>{loadingMessage}</strong>
@@ -855,7 +855,7 @@ const AuthPage: React.FC = () => {
         </div>
 
         <button type="submit" className={`auth-button ${loginLoading ? 'auth-button-loading' : ''}`} disabled={loginLoading}>
-          {loginLoading ? <Loader2 size={18} className="spin-icon" /> : <LogIn size={18} />}
+          {loginLoading ? <span className="auth-btn-spinner" aria-hidden="true" /> : <LogIn size={18} />}
           {loginLoading ? loadingMessage : 'Entrar no Sistema'}
         </button>
       </form>
@@ -1013,14 +1013,14 @@ const AuthPage: React.FC = () => {
           backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.14) 0%, transparent 52%)',
           animation: 'fadeIn 0.3s ease-out'
         }}>
-          <div style={{ position: 'relative', width: '100px', height: '100px', marginBottom: '40px' }}>
+          <div style={{ position: 'relative', width: '110px', height: '110px', marginBottom: '40px' }}>
             <div style={{
-              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-              backgroundColor: 'var(--bg-secondary)', borderRadius: '24px',
-              border: '1px solid var(--border-color)',
-              transform: 'rotate(45deg)',
-              animation: 'spinPulse 2s cubic-bezier(0.4, 0, 0.2, 1) infinite'
+              position: 'absolute', inset: 0, borderRadius: '50%',
+              background: 'conic-gradient(from 0deg, var(--accent-blue), var(--accent-purple), var(--accent-blue))',
+              boxShadow: '0 0 30px 2px rgba(139, 92, 246, 0.35)',
+              animation: 'splashRingSpin 1.1s linear infinite'
             }}></div>
+            <div style={{ position: 'absolute', inset: '8px', borderRadius: '50%', backgroundColor: 'var(--bg-primary)' }}></div>
             <div style={{
               position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1029,8 +1029,9 @@ const AuthPage: React.FC = () => {
                 src={hennderIcon}
                 alt="Hennder ERP"
                 style={{
-                  width: '64px', height: '64px', objectFit: 'contain',
-                  filter: 'drop-shadow(0 0 10px rgba(139, 92, 246, 0.35))'
+                  width: '56px', height: '56px', objectFit: 'contain',
+                  filter: 'drop-shadow(0 0 10px rgba(139, 92, 246, 0.35))',
+                  animation: 'splashLogoPulse 2s ease-in-out infinite'
                 }}
               />
             </div>
@@ -1069,10 +1070,13 @@ const AuthPage: React.FC = () => {
                 from { opacity: 0; transform: translateY(20px); }
                 to { opacity: 1; transform: translateY(0); }
               }
-              @keyframes spinPulse {
-                0% { transform: rotate(45deg) scale(0.9); box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
-                50% { transform: rotate(225deg) scale(1.1); box-shadow: 0 0 30px 5px rgba(139, 92, 246, 0.3); border-color: rgba(139, 92, 246, 0.5); }
-                100% { transform: rotate(405deg) scale(0.9); box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+              @keyframes splashRingSpin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+              }
+              @keyframes splashLogoPulse {
+                0%, 100% { transform: scale(1); opacity: 0.92; }
+                50% { transform: scale(1.08); opacity: 1; }
               }
               @keyframes loadingBar {
                 0% { width: 0%; }

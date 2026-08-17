@@ -4,7 +4,7 @@ import {
   XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings, Trash2,
   ChevronLeft, ChevronRight, MessageCircle
 } from 'lucide-react';
-import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { spedyService } from '../../services/spedyService';
@@ -564,6 +564,47 @@ const NFE: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [config, loadLocalInvoices]);
+
+  // Mantem a lista sincronizada ao vivo -- sem isso, uma nota criada em
+  // outra aba (ex: venda com emissao automatica de NFC-e) so aparecia
+  // aqui depois de fechar e reabrir esta aba. So atualiza a lista, nao
+  // dispara sincronizacao com a Spedy (isso continua so no mount/acoes,
+  // via loadLocalInvoices, pra nao bater na API a cada mudanca alheia).
+  useEffect(() => {
+    if (!tenantId) return;
+    const q = query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId));
+    const unsubscribe = onSnapshot(q, (qSnap) => {
+      const list: LocalInvoice[] = [];
+      qSnap.forEach(d => {
+        const data = d.data();
+        let dateStr = '';
+        if (data.data) {
+          const dt = data.data.toDate ? data.data.toDate() : new Date(data.data);
+          dateStr = dt.toLocaleDateString('pt-BR');
+        }
+        list.push({
+          id: d.id,
+          spedyId: data.spedyId || '',
+          number: data.number || null,
+          tipo: data.tipo || 'NFS-e',
+          clienteNome: data.clienteNome || '',
+          valor: data.valor || 0,
+          data: dateStr,
+          status: data.status || 'enqueued',
+          processingMessage: data.processingMessage || null,
+          processingCode: data.processingCode || null,
+          accessKey: data.accessKey || null,
+          pedidoId: data.pedidoId || null,
+          clienteId: data.clienteId || null
+        });
+      });
+      list.sort((a, b) => b.id.localeCompare(a.id));
+      setInvoices(list);
+    }, (err) => {
+      console.error('Erro ao observar notas fiscais em tempo real:', err);
+    });
+    return () => unsubscribe();
+  }, [tenantId]);
 
   const handleManualSyncAll = async () => {
     if (!config?.spedyApiKey) return;

@@ -64,6 +64,9 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'fiscal.nfe', label: 'Notas Fiscais' },
     { id: 'fiscal.entrada_nfe', label: 'Entrada de XML' }
   ]},
+  { group: 'Utilitários', items: [
+    { id: 'utilitarios.sintegra', label: 'SINTEGRA' }
+  ]},
   { group: 'Compras & Fornecedores', items: [
     { id: 'compras.pedidos', label: 'Pedidos de Compra' },
     { id: 'compras.cotacoes', label: 'Cotação de Compra' }

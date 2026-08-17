@@ -43,6 +43,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/financeiro/comissoes') || path.startsWith('/financeiro')) routeModule = 'financeiro.comissoes';
   else if (path.startsWith('/fiscal/nfe')) routeModule = 'fiscal.nfe';
   else if (path.startsWith('/fiscal/entrada-nfe') || path.startsWith('/fiscal')) routeModule = 'fiscal.entrada_nfe';
+  else if (path.startsWith('/utilitarios/sintegra')) routeModule = 'utilitarios.sintegra';
   else if (path.startsWith('/relatorios-diversos')) routeModule = 'logs.relatorios_diversos';
   else if (path.startsWith('/logs-sistema')) routeModule = 'logs.sistema';
   else if (path.startsWith('/configuracoes')) routeModule = 'admin.config';
@@ -75,6 +76,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/financeiro/comissoes') || path.startsWith('/financeiro')) routePermission = 'financeiro.comissoes';
   else if (path.startsWith('/fiscal/nfe')) routePermission = 'fiscal.emitir';
   else if (path.startsWith('/fiscal/entrada-nfe') || path.startsWith('/fiscal')) routePermission = 'fiscal.entrada';
+  else if (path.startsWith('/utilitarios/sintegra')) routePermission = 'utilitarios.sintegra';
   else if (path.startsWith('/relatorios-diversos')) routePermission = 'administrativo.relatorios';
   else if (path.startsWith('/logs-sistema')) routePermission = 'administrativo.logs';
   else if (path.startsWith('/configuracoes')) routePermission = 'administrativo.config';

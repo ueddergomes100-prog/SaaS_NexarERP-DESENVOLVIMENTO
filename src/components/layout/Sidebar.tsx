@@ -38,7 +38,8 @@ import {
   UserCog,
   Users,
   Wallet,
-  Clock
+  Clock,
+  Wrench
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
@@ -196,6 +197,15 @@ const Sidebar: React.FC = () => {
         { label: 'Notas Fiscais', to: '/fiscal/nfe', icon: Receipt, module: 'fiscal.nfe', permission: 'fiscal.emitir' },
         { label: 'Entrada de XML', to: '/fiscal/entrada-nfe', icon: Inbox, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' },
         { label: 'Histórico de Entradas', to: '/fiscal/entrada-nfe/historico', icon: History, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' }
+      ]
+    },
+    {
+      id: 'utilitarios',
+      label: 'Utilitários',
+      icon: Wrench,
+      tone: '#94a3b8',
+      items: [
+        { label: 'SINTEGRA', to: '/utilitarios/sintegra', icon: FileText, module: 'utilitarios.sintegra', permission: 'utilitarios.sintegra' },
       ]
     },
     {

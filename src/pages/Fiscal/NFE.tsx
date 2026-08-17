@@ -945,6 +945,12 @@ const NFE: React.FC = () => {
       const valorNumerico = Number(formData.valor);
 
       let spedyNote: SpedyInvoice;
+      // Snapshot fiscal (Fatia 0 do plano de Utilitarios/SINTEGRA) --
+      // guarda exatamente o que foi mandado pra Spedy (codigo, NCM, CFOP,
+      // taxes com base/aliquota/valor), pra poder gerar o SINTEGRA depois
+      // sem depender do dado ATUAL do produto (que pode ja ter mudado).
+      // So faz sentido pra NF-e/NFC-e -- SINTEGRA e so mercadoria.
+      let itensFiscaisParaSalvar: Record<string, unknown>[] | null = null;
 
       if (formData.tipo === 'NFS-e') {
         // Servicos importados da OS (nunca pecas) -- se for reemissao de
@@ -1098,6 +1104,7 @@ const NFE: React.FC = () => {
         };
 
         spedyNote = await spedyService.emitProductInvoice(config.spedyApiKey, config.spedyEnvironment, payload);
+        itensFiscaisParaSalvar = itemsPayload;
       }
 
       if (targetInvoiceId) {
@@ -1112,6 +1119,7 @@ const NFE: React.FC = () => {
           clienteNome: formData.clienteNome,
           clienteId: formData.clienteId || null,
           valor: valorNumerico,
+          itensFiscais: itensFiscaisParaSalvar,
           status: spedyNote.status,
           processingMessage: spedyNote.processingDetail?.message || null,
           processingCode: spedyNote.processingDetail?.code || null,
@@ -1131,6 +1139,7 @@ const NFE: React.FC = () => {
           clienteNome: formData.clienteNome,
           clienteId: formData.clienteId || null,
           valor: valorNumerico,
+          itensFiscais: itensFiscaisParaSalvar,
           status: spedyNote.status,
           processingMessage: spedyNote.processingDetail?.message || null,
           processingCode: spedyNote.processingDetail?.code || null,

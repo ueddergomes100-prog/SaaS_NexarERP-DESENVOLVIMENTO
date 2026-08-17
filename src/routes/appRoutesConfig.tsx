@@ -41,6 +41,7 @@ const Agenda = lazy(() => import('../pages/CRM/Agenda'));
 const NFE = lazy(() => import('../pages/Fiscal/NFE'));
 const EntradaNFE = lazy(() => import('../pages/Fiscal/EntradaNFE'));
 const NotasFiscaisEntradaList = lazy(() => import('../pages/Fiscal/NotasFiscaisEntradaList'));
+const Sintegra = lazy(() => import('../pages/Utilitarios/Sintegra'));
 const UsuarioForm = lazy(() => import('../pages/Usuarios/UsuarioForm'));
 const VeiculosList = lazy(() => import('../pages/Veiculos/VeiculosList'));
 const VeiculoForm = lazy(() => import('../pages/Veiculos/VeiculoForm'));
@@ -107,6 +108,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'fiscal/nfe', element: <NFE /> },
   { path: 'fiscal/entrada-nfe', element: <EntradaNFE /> },
   { path: 'fiscal/entrada-nfe/historico', element: <NotasFiscaisEntradaList /> },
+  { path: 'utilitarios/sintegra', element: <Sintegra /> },
 
   { path: 'clientes', element: <ClientesList /> },
   { path: 'clientes/novo', element: <ClienteForm /> },

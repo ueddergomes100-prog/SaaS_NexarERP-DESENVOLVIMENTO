@@ -66,6 +66,7 @@ const Configuracoes: React.FC = () => {
     nomeOficina: '',
     nomeUsuario: '',
     cnpj: '',
+    inscricaoEstadual: '',
     regimeTributario: DEFAULT_REGIME_TRIBUTARIO as RegimeTributario,
     telefone: '',
     whatsapp: '',
@@ -73,6 +74,7 @@ const Configuracoes: React.FC = () => {
     rua: '',
     numero: '',
     bairro: '',
+    cep: '',
     endereco: '',
     email: '',
     garantiaPadrao: '',
@@ -145,9 +147,11 @@ const Configuracoes: React.FC = () => {
             regimeTributario: (data.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario,
             whatsapp: data.whatsapp ?? '',
             instagram: data.instagram ?? '',
+            inscricaoEstadual: data.inscricaoEstadual ?? '',
             rua: data.rua ?? data.endereco ?? '',
             numero: data.numero ?? '',
             bairro: data.bairro ?? '',
+            cep: data.cep ?? '',
             diasCrediario: data.diasCrediario ?? '30',
             maxParcelasCartao: String(Math.min(12, Math.max(1, Number(data.maxParcelasCartao ?? 12) || 12))),
             taxasCartaoCreditoPorParcela: toCreditCardRateInputs(
@@ -783,6 +787,33 @@ const Configuracoes: React.FC = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Inscrição Estadual</label>
+              <input
+                type="text"
+                name="inscricaoEstadual"
+                placeholder="Isento, se aplicável"
+                value={formData.inscricaoEstadual}
+                onChange={handleChange}
+                disabled={!isEditingMode}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>CEP</label>
+              <input
+                type="text"
+                name="cep"
+                placeholder="00000-000"
+                value={formData.cep}
+                onChange={handleChange}
+                disabled={!isEditingMode}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Telefone / WhatsApp</label>
               <input
                 type="text"
@@ -876,6 +907,45 @@ const Configuracoes: React.FC = () => {
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
             </div>
+          </div>
+
+          <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
+            <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Cidade da Empresa</label>
+            {formData.nfseCidadeNome && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)' }}>
+                <CheckCircle size={16} style={{ color: '#10b981' }} />
+                {formData.nfseCidadeNome} / {formData.nfseCidadeEstado} (IBGE {formData.nfseCidadeCodigo})
+              </div>
+            )}
+            <input
+              type="text"
+              placeholder="Digite o nome da cidade pra buscar (ex: Manhuaçu)"
+              value={cidadeSearchTerm}
+              onChange={(e) => { setCidadeSearchTerm(e.target.value); setShowCidadeDropdown(true); }}
+              onFocus={() => setShowCidadeDropdown(true)}
+              onBlur={() => setTimeout(() => setShowCidadeDropdown(false), 150)}
+              disabled={!isEditingMode}
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+            />
+            {isCidadeSearching && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Buscando...</p>}
+            {showCidadeDropdown && cidadeSearchResults.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.25)' }}>
+                {cidadeSearchResults.map((cidade, index) => (
+                  <button
+                    key={`${cidade.code}-${index}`}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); handleSelectCidade(cidade); }}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 16px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px' }}
+                  >
+                    {cidade.name} / {cidade.state}
+                  </button>
+                ))}
+              </div>
+            )}
+            {showCidadeDropdown && !isCidadeSearching && cidadeSearchTerm.trim().length >= 3 && cidadeSearchResults.length === 0 && (
+              <p style={{ fontSize: '12px', color: '#ef4444', margin: 0 }}>Nenhuma cidade integrada encontrada com esse nome — a busca depende da chave da Spedy estar salva (mais abaixo), mesmo que essa empresa só use SINTEGRA/SPED e não emita NFS-e.</p>
+            )}
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Usada na emissão de NFS-e e nos utilitários fiscais (SINTEGRA, SPED).</p>
           </div>
             </>
           )}
@@ -1233,45 +1303,7 @@ const Configuracoes: React.FC = () => {
               {formData.emiteNFSe && (
                 <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
                   <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Configuração de NFS-e (Nota de Serviço)</h4>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Esses dados variam por cidade e por empresa — cada cliente do Hennder configura o próprio código de serviço e alíquota aqui. A busca de cidade confirma, na hora, se a Spedy tem integração com a prefeitura (exige a chave da Spedy salva acima).</p>
-
-                  <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
-                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Cidade do Prestador</label>
-                    {formData.nfseCidadeNome && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)' }}>
-                        <CheckCircle size={16} style={{ color: '#10b981' }} />
-                        {formData.nfseCidadeNome} / {formData.nfseCidadeEstado} (IBGE {formData.nfseCidadeCodigo})
-                      </div>
-                    )}
-                    <input
-                      type="text"
-                      placeholder="Digite o nome da cidade pra buscar (ex: Manhuaçu)"
-                      value={cidadeSearchTerm}
-                      onChange={(e) => { setCidadeSearchTerm(e.target.value); setShowCidadeDropdown(true); }}
-                      onFocus={() => setShowCidadeDropdown(true)}
-                      onBlur={() => setTimeout(() => setShowCidadeDropdown(false), 150)}
-                      disabled={!isEditingMode}
-                      style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
-                    />
-                    {isCidadeSearching && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Buscando...</p>}
-                    {showCidadeDropdown && cidadeSearchResults.length > 0 && (
-                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.25)' }}>
-                        {cidadeSearchResults.map((cidade, index) => (
-                          <button
-                            key={`${cidade.code}-${index}`}
-                            type="button"
-                            onMouseDown={(e) => { e.preventDefault(); handleSelectCidade(cidade); }}
-                            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 16px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px' }}
-                          >
-                            {cidade.name} / {cidade.state}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {showCidadeDropdown && !isCidadeSearching && cidadeSearchTerm.trim().length >= 3 && cidadeSearchResults.length === 0 && (
-                      <p style={{ fontSize: '12px', color: '#ef4444', margin: 0 }}>Nenhuma cidade integrada encontrada com esse nome — confirme a chave da Spedy acima ou tente outro termo.</p>
-                    )}
-                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Esses dados variam por cidade e por empresa — cada cliente do Hennder configura o próprio código de serviço e alíquota aqui. A cidade da empresa (acima, em Dados da Empresa) é usada aqui também.</p>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1590,6 +1622,7 @@ const Configuracoes: React.FC = () => {
                       { id: 'fiscal.emitir', label: 'Fiscal: Emitir Nota Fiscal', color: '#f59e0b' },
                       { id: 'fiscal.entrada', label: 'Fiscal: Entrada de XML', color: '#f59e0b' },
                       { id: 'fiscal.excluir', label: 'Fiscal: Excluir/Cancelar Nota Fiscal', color: '#ef4444' },
+                      { id: 'utilitarios.sintegra', label: 'Utilitários: SINTEGRA', color: '#94a3b8' },
                       { id: 'financeiro.caixa', label: 'Financeiro: Fluxo de Caixa', color: '#10b981' },
                       { id: 'financeiro.caixa_registros', label: 'Financeiro: Caixa (Sessões PDV)', color: '#10b981' },
                       { id: 'financeiro.banco', label: 'Financeiro: Banco (Conciliação de Cartão)', color: '#10b981' },

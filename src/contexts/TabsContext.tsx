@@ -101,6 +101,7 @@ const SECTION_LABELS: Array<[string, string]> = [
   ['/financeiro/comissoes', 'Comissões'],
   ['/fiscal/nfe', 'Notas Fiscais'],
   ['/fiscal/entrada-nfe', 'Entrada de XML'],
+  ['/utilitarios/sintegra', 'SINTEGRA'],
   ['/relatorios-diversos', 'Relatórios Diversos'],
   ['/logs-sistema', 'Logs do Sistema'],
   ['/configuracoes', 'Configurações'],

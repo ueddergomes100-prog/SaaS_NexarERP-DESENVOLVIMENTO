@@ -108,7 +108,7 @@ const toSpedyPaymentMethod = (method: string) => {
   if (method === 'Pix') return 'pix';
   if (method.includes('Crédito')) return 'creditCard';
   if (method.includes('Débito')) return 'debitCard';
-  if (method === 'Dinheiro') return 'cash';
+  if (method === 'Dinheiro') return 'money';
   return 'other';
 };
 

@@ -48,6 +48,7 @@ try {
     'src/utils/saleQuantity.ts',
     'src/utils/producaoDomain.ts',
     'src/utils/fiscalDomain.ts',
+    'src/utils/osServicePricing.ts',
     'src/utils/estoqueReservaDomain.ts',
     'src/utils/entradaNfeDomain.ts',
     '--ignoreConfig',

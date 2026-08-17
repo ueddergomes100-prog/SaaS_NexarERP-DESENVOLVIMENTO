@@ -130,6 +130,18 @@ router.get('/:type', (req, res) => handleSpedyRequest(req, res, 'GET', ({ apiKey
   });
 }));
 
+// Precisa vir ANTES de GET /:type/:id -- senao essa rota generica captura
+// "cities" como se fosse um id de nota.
+router.get('/:type/cities', (req, res) => handleSpedyRequest(req, res, 'GET', ({ apiKey, baseUrl, typePath }) => {
+  const params = new URLSearchParams();
+  if (req.query.filterText) params.set('filterText', String(req.query.filterText));
+  if (req.query.state) params.set('state', String(req.query.state));
+  return fetch(`${baseUrl}/${typePath}/cities?${params.toString()}`, {
+    method: 'GET',
+    headers: { 'X-Api-Key': apiKey }
+  });
+}));
+
 router.get('/:type/:id', (req, res) => handleSpedyRequest(req, res, 'GET', ({ apiKey, baseUrl, typePath }) => {
   return fetch(`${baseUrl}/${typePath}/${req.params.id}`, {
     method: 'GET',

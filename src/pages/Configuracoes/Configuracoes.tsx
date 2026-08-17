@@ -11,6 +11,7 @@ import { isPlatformAdminRole } from '../../utils/roles';
 import { normalizeCreditCardFeeSchedule, parseCreditTerms } from '../../utils/financeDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
+import { spedyService, type SpedyCity } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
@@ -94,8 +95,20 @@ const Configuracoes: React.FC = () => {
     modeloImpressaoOS: DEFAULT_OS_PRINT_MODEL,
     spedyEnabled: false,
     spedyApiKey: '',
-    spedyEnvironment: 'sandbox'
+    spedyEnvironment: 'sandbox',
+    nfseCidadeCodigo: '',
+    nfseCidadeNome: '',
+    nfseCidadeEstado: '',
+    nfseInscricaoMunicipal: '',
+    nfseCodigoServicoMunicipal: '',
+    nfseCodigoServicoFederal: '',
+    nfseAliquotaIssPadrao: '0'
   });
+
+  const [cidadeSearchTerm, setCidadeSearchTerm] = useState('');
+  const [cidadeSearchResults, setCidadeSearchResults] = useState<SpedyCity[]>([]);
+  const [isCidadeSearching, setIsCidadeSearching] = useState(false);
+  const [showCidadeDropdown, setShowCidadeDropdown] = useState(false);
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -149,7 +162,14 @@ const Configuracoes: React.FC = () => {
             modeloImpressaoOS: data.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL,
             spedyEnabled: data.spedyEnabled ?? false,
             spedyApiKey: privateSpedyApiKey,
-            spedyEnvironment: data.spedyEnvironment ?? 'sandbox'
+            spedyEnvironment: data.spedyEnvironment ?? 'sandbox',
+            nfseCidadeCodigo: data.nfseCidadeCodigo ?? '',
+            nfseCidadeNome: data.nfseCidadeNome ?? '',
+            nfseCidadeEstado: data.nfseCidadeEstado ?? '',
+            nfseInscricaoMunicipal: data.nfseInscricaoMunicipal ?? '',
+            nfseCodigoServicoMunicipal: data.nfseCodigoServicoMunicipal ?? '',
+            nfseCodigoServicoFederal: data.nfseCodigoServicoFederal ?? '',
+            nfseAliquotaIssPadrao: String(data.nfseAliquotaIssPadrao ?? 0)
           } as any);
           setIsEditingMode(false);
         } else {
@@ -202,6 +222,42 @@ const Configuracoes: React.FC = () => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  // Busca ao vivo de cidades integradas a Spedy pra NFS-e -- exige a
+  // chave da Spedy ja salva no banco (o backend le de la, nao do
+  // formData em memoria), entao so funciona depois que a config da
+  // Spedy acima foi salva pelo menos uma vez.
+  useEffect(() => {
+    if (cidadeSearchTerm.trim().length < 3) {
+      setCidadeSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsCidadeSearching(true);
+      try {
+        const result = await spedyService.searchServiceInvoiceCities('', 'sandbox', cidadeSearchTerm.trim());
+        setCidadeSearchResults(result.items || []);
+      } catch (error) {
+        console.error('Erro ao buscar cidades da Spedy:', error);
+        setCidadeSearchResults([]);
+      } finally {
+        setIsCidadeSearching(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [cidadeSearchTerm]);
+
+  const handleSelectCidade = (cidade: SpedyCity) => {
+    setFormData(prev => ({
+      ...prev,
+      nfseCidadeCodigo: cidade.code || '',
+      nfseCidadeNome: cidade.name || '',
+      nfseCidadeEstado: cidade.state || ''
+    }));
+    setCidadeSearchTerm('');
+    setCidadeSearchResults([]);
+    setShowCidadeDropdown(false);
   };
 
   const handleAddReceita = () => {
@@ -278,6 +334,12 @@ const Configuracoes: React.FC = () => {
       return;
     }
 
+    const nfseAliquotaIssPadrao = toConfigurationNumber(formData.nfseAliquotaIssPadrao);
+    if (!Number.isFinite(nfseAliquotaIssPadrao) || nfseAliquotaIssPadrao < 0 || nfseAliquotaIssPadrao > 100) {
+      showError('Configuração de NFS-e inválida', 'A alíquota de ISS padrão deve estar entre 0% e 100%.');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const docRef = doc(db, 'configuracoes', tenantId);
@@ -303,6 +365,7 @@ const Configuracoes: React.FC = () => {
         prazoRecebimentoCartaoCreditoDias: creditCardSettlementDays,
         prazoRecebimentoCartaoDebitoDias: debitCardSettlementDays,
         endereco: enderecoCompleto,
+        nfseAliquotaIssPadrao,
         spedyApiKey: deleteField(),
         spedyApiKeyConfigured: Boolean(trimmedSpedyApiKey),
         tenantId,
@@ -320,6 +383,7 @@ const Configuracoes: React.FC = () => {
         taxaCartaoDebitoPercentual: String(debitCardFee),
         prazoRecebimentoCartaoCreditoDias: String(creditCardSettlementDays),
         prazoRecebimentoCartaoDebitoDias: String(debitCardSettlementDays),
+        nfseAliquotaIssPadrao: String(nfseAliquotaIssPadrao),
       }));
       setIsEditingMode(false);
       setShowSuccessAnim(true);
@@ -1163,8 +1227,104 @@ const Configuracoes: React.FC = () => {
                     Emite NFS-e
                   </label>
                 </div>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Identifica quais documentos fiscais esta empresa emite. Por enquanto é só um registro informativo — nenhuma tela do sistema é bloqueada por essas flags ainda.</p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Identifica quais documentos fiscais esta empresa emite. "Emite NF-e"/"Emite NFC-e" continuam só informativos; "Emite NFS-e" já libera a configuração abaixo, usada de verdade na emissão.</p>
               </div>
+
+              {formData.emiteNFSe && (
+                <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Configuração de NFS-e (Nota de Serviço)</h4>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Esses dados variam por cidade e por empresa — cada cliente do Hennder configura o próprio código de serviço e alíquota aqui. A busca de cidade confirma, na hora, se a Spedy tem integração com a prefeitura (exige a chave da Spedy salva acima).</p>
+
+                  <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Cidade do Prestador</label>
+                    {formData.nfseCidadeNome && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)' }}>
+                        <CheckCircle size={16} style={{ color: '#10b981' }} />
+                        {formData.nfseCidadeNome} / {formData.nfseCidadeEstado} (IBGE {formData.nfseCidadeCodigo})
+                      </div>
+                    )}
+                    <input
+                      type="text"
+                      placeholder="Digite o nome da cidade pra buscar (ex: Manhuaçu)"
+                      value={cidadeSearchTerm}
+                      onChange={(e) => { setCidadeSearchTerm(e.target.value); setShowCidadeDropdown(true); }}
+                      onFocus={() => setShowCidadeDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowCidadeDropdown(false), 150)}
+                      disabled={!isEditingMode}
+                      style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+                    />
+                    {isCidadeSearching && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Buscando...</p>}
+                    {showCidadeDropdown && cidadeSearchResults.length > 0 && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.25)' }}>
+                        {cidadeSearchResults.map((cidade, index) => (
+                          <button
+                            key={`${cidade.code}-${index}`}
+                            type="button"
+                            onMouseDown={(e) => { e.preventDefault(); handleSelectCidade(cidade); }}
+                            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 16px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px' }}
+                          >
+                            {cidade.name} / {cidade.state}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {showCidadeDropdown && !isCidadeSearching && cidadeSearchTerm.trim().length >= 3 && cidadeSearchResults.length === 0 && (
+                      <p style={{ fontSize: '12px', color: '#ef4444', margin: 0 }}>Nenhuma cidade integrada encontrada com esse nome — confirme a chave da Spedy acima ou tente outro termo.</p>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Inscrição Municipal</label>
+                      <input
+                        type="text"
+                        name="nfseInscricaoMunicipal"
+                        value={formData.nfseInscricaoMunicipal}
+                        onChange={handleChange}
+                        disabled={!isEditingMode}
+                        style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+                      />
+                    </div>
+                    <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Alíquota de ISS Padrão (%)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        name="nfseAliquotaIssPadrao"
+                        value={formData.nfseAliquotaIssPadrao}
+                        onChange={handleChange}
+                        disabled={!isEditingMode}
+                        style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+                      />
+                    </div>
+                    <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Código de Serviço Municipal</label>
+                      <input
+                        type="text"
+                        name="nfseCodigoServicoMunicipal"
+                        value={formData.nfseCodigoServicoMunicipal}
+                        onChange={handleChange}
+                        disabled={!isEditingMode}
+                        style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+                      />
+                    </div>
+                    <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Código de Serviço Federal (LC 116/03)</label>
+                      <input
+                        type="text"
+                        name="nfseCodigoServicoFederal"
+                        placeholder="Ex: 14.01"
+                        value={formData.nfseCodigoServicoFederal}
+                        onChange={handleChange}
+                        disabled={!isEditingMode}
+                        style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
                 <CalendarClock size={19} style={{ color: '#f59e0b' }} />

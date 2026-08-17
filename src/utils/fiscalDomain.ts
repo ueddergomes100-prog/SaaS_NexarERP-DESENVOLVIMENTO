@@ -1,3 +1,5 @@
+import { getServiceTotal } from './osServicePricing';
+
 export type RegimeTributario = 'simples_nacional' | 'lucro_presumido' | 'lucro_real';
 
 export const REGIME_TRIBUTARIO_OPTIONS: Array<{ value: RegimeTributario; label: string }> = [
@@ -289,4 +291,148 @@ export const buildTaxesPayload = (
   }
 
   return payload;
+};
+
+/** Item de servico de uma OS (`os.servicos[]`) usado pra montar a NFS-e.
+ * Nunca inclui pecas (`os.pecas[]`) -- exclusao estrutural, nao so
+ * convencao: quem chama simplesmente nao tem como passar pecas aqui. */
+export interface OsServicoParaFatura {
+  nome: string;
+  preco?: number;
+  quantidade?: number;
+  tempoHoras?: number | string | null;
+  detalhamento?: string;
+}
+
+/** Dados do cliente/destinatario usados no bloco `receiver` da Spedy --
+ * mesmo formato de endereco ja usado em NFE.tsx pra NF-e (rua/numero/
+ * bairro/cep/cidade/estado/codigoIbge), aqui com nomes de campo
+ * genericos porque tanto `clientes` quanto o `ClienteOption` de NFE.tsx
+ * podem alimentar isso. */
+export interface ClienteParaFatura {
+  nome: string;
+  documento?: string;
+  email?: string;
+  endereco?: string;
+  numero?: string;
+  bairro?: string;
+  cep?: string;
+  cidade?: string;
+  estado?: string;
+  codigoIbge?: string;
+}
+
+/** Config fiscal de NFS-e por tenant (Configuracoes > Dados da Empresa).
+ * `habilitada` decide se a secao aparece habilitada pro usuario editar --
+ * nem todo tenant do Hennder emite nota de servico. Cidade/codigos vem da
+ * busca ao vivo contra `GET /v1/service-invoices/cities` da Spedy (ver
+ * spedyService.searchServiceInvoiceCities), nao sao fixos no codigo --
+ * o SaaS atende tenants de qualquer cidade do Brasil. */
+export interface NfseConfig {
+  habilitada: boolean;
+  cidadeCodigo?: string;
+  cidadeNome?: string;
+  cidadeEstado?: string;
+  inscricaoMunicipal?: string;
+  codigoServicoMunicipal?: string;
+  codigoServicoFederal?: string;
+  aliquotaIssPadrao?: number;
+}
+
+export interface SpedyServiceInvoicePayload {
+  integrationId: string;
+  effectiveDate: string;
+  sendEmailToCustomer: boolean;
+  description: string;
+  federalServiceCode?: string;
+  cityServiceCode?: string;
+  taxationType: 'taxationInMunicipality';
+  location?: { code: string; name: string; state: string };
+  receiver: {
+    name: string;
+    federalTaxNumber: string;
+    email?: string;
+    address: {
+      street: string;
+      number: string;
+      district: string;
+      postalCode: string;
+      city: { code: string; name: string; state: string };
+    };
+  };
+  total: {
+    invoiceAmount: number;
+    issRate: number;
+    issAmount: number;
+    issWithheld: boolean;
+  };
+}
+
+/** Descricao da NFS-e a partir dos servicos da OS -- concatena nome (+
+ * detalhamento, quando preenchido) de cada servico. Pura, sem Firestore. */
+export const buildServiceInvoiceDescription = (servicos: OsServicoParaFatura[]): string =>
+  servicos
+    .map((s) => (s.detalhamento ? `${s.nome} - ${s.detalhamento}` : s.nome))
+    .filter(Boolean)
+    .join('; ');
+
+/** Soma o valor dos servicos da OS, reaproveitando a mesma logica de
+ * preco x horas (`getServiceTotal`) que a propria OSForm.tsx usa pra
+ * calcular `totalServicos` -- garante que o valor da nota bate com o que
+ * a OS mostrou pro cliente, sem duplicar a regra de calculo. */
+export const sumServiceInvoiceAmount = (servicos: OsServicoParaFatura[]): number =>
+  servicos.reduce((total, s) => total + getServiceTotal(s), 0);
+
+/** Monta o payload de NFS-e no formato da Spedy (`CreateServiceInvoiceDto`),
+ * so com servicos da OS -- nunca pecas. `taxationType` fixo em
+ * "tributado no municipio" e `issWithheld` fixo em `false` sao
+ * simplificacoes deliberadas de MVP (mesmo espirito do MVP de IBS/CBS):
+ * outros regimes (isencao, imunidade, suspensao judicial, ISS retido na
+ * fonte) sao casos de contador, fora de escopo por ora. `location` vem da
+ * cidade configurada pelo tenant -- necessario porque uma unica conta
+ * Spedy atende tenants de cidades diferentes, nao da pra confiar num
+ * default implicito de conta. */
+export const buildServiceInvoicePayload = (
+  servicos: OsServicoParaFatura[],
+  cliente: ClienteParaFatura,
+  config: NfseConfig,
+  integrationId: string,
+): SpedyServiceInvoicePayload => {
+  const invoiceAmount = sumServiceInvoiceAmount(servicos);
+  const issRate = Number(config.aliquotaIssPadrao || 0) / 100;
+
+  return {
+    integrationId,
+    effectiveDate: new Date().toISOString(),
+    sendEmailToCustomer: !!cliente.email,
+    description: buildServiceInvoiceDescription(servicos),
+    federalServiceCode: config.codigoServicoFederal || undefined,
+    cityServiceCode: config.codigoServicoMunicipal || undefined,
+    taxationType: 'taxationInMunicipality',
+    location: config.cidadeCodigo
+      ? { code: config.cidadeCodigo, name: config.cidadeNome || '', state: config.cidadeEstado || '' }
+      : undefined,
+    receiver: {
+      name: cliente.nome,
+      federalTaxNumber: (cliente.documento || '').replace(/\D/g, ''),
+      email: cliente.email || undefined,
+      address: {
+        street: cliente.endereco || '',
+        number: cliente.numero || '',
+        district: cliente.bairro || '',
+        postalCode: (cliente.cep || '').replace(/\D/g, ''),
+        city: {
+          code: cliente.codigoIbge || '',
+          name: cliente.cidade || '',
+          state: cliente.estado || '',
+        },
+      },
+    },
+    total: {
+      invoiceAmount,
+      issRate,
+      issAmount: invoiceAmount * issRate,
+      issWithheld: false,
+    },
+  };
 };

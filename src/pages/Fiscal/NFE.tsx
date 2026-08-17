@@ -12,7 +12,11 @@ import type { SpedyInvoice } from '../../services/spedyService';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
-import { DEFAULT_REGIME_TRIBUTARIO, buildTaxesPayload, type RegimeTributario } from '../../utils/fiscalDomain';
+import {
+  DEFAULT_REGIME_TRIBUTARIO, buildTaxesPayload, buildServiceInvoicePayload,
+  buildServiceInvoiceDescription, sumServiceInvoiceAmount,
+  type RegimeTributario, type NfseConfig, type OsServicoParaFatura, type ClienteParaFatura,
+} from '../../utils/fiscalDomain';
 import Swal from 'sweetalert2';
 
 interface FiscalConfig {
@@ -34,6 +38,7 @@ interface LocalInvoice {
   processingCode?: string | null;
   accessKey?: string | null;
   pedidoId?: string | null;
+  osId?: string | null;
   clienteId?: string | null;
 }
 
@@ -87,6 +92,17 @@ interface PedidoVenda {
   createdAt?: unknown;
 }
 
+/** Ordem de Servico finalizada, so os campos usados pra importar como
+ * NFS-e -- nunca le `pecas`, so `servicos` (exclusao estrutural, peca de
+ * OS nao tem caminho de nota fiscal nesta entrega). */
+interface OrdemServicoParaImportar {
+  id: string;
+  numeroOS: string;
+  clienteId: string;
+  clienteNome: string;
+  servicos: OsServicoParaFatura[];
+}
+
 const NFE: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
 
@@ -98,6 +114,7 @@ const NFE: React.FC = () => {
   const [config, setConfig] = useState<FiscalConfig | null>(null);
   const [isConfigLoading, setIsConfigLoading] = useState(true);
   const [regimeTributario, setRegimeTributario] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
+  const [nfseConfig, setNfseConfig] = useState<NfseConfig>({ habilitada: false });
 
   // Estado de dados
   const [invoices, setInvoices] = useState<LocalInvoice[]>([]);
@@ -105,7 +122,7 @@ const NFE: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedTab, setSelectedTab] = useState<'Todas' | 'NFC-e' | 'NF-e'>('Todas');
+  const [selectedTab, setSelectedTab] = useState<'Todas' | 'NFC-e' | 'NF-e' | 'NFS-e'>('Todas');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
@@ -124,6 +141,11 @@ const NFE: React.FC = () => {
   const [pedidosVenda, setPedidosVenda] = useState<PedidoVenda[]>([]);
   const [importedPedidoItens, setImportedPedidoItens] = useState<PedidoVendaItem[]>([]);
   const [importedPedidoId, setImportedPedidoId] = useState<string>('');
+
+  // Importação de Ordens de Serviço (NFS-e) -- so servicos, nunca pecas
+  const [ordensServico, setOrdensServico] = useState<OrdemServicoParaImportar[]>([]);
+  const [importedOsServicos, setImportedOsServicos] = useState<OsServicoParaFatura[]>([]);
+  const [importedOsId, setImportedOsId] = useState<string>('');
 
   // Estados adicionados para a aba de produtos e Nota Cuponada
   const [activeModalTab, setActiveModalTab] = useState<'cliente' | 'produtos'>('cliente');
@@ -157,8 +179,9 @@ const NFE: React.FC = () => {
     estado: 'SP',
     codigoIbge: '3550308',
     // Específico NFS-e
-    federalServiceCode: '14.01',
-    issRate: '5',
+    federalServiceCode: '',
+    cityServiceCode: '',
+    issRate: '0',
     // Específico NF-e
     ncm: '87082999', // Peças de veículos
     cfop: '5102', // Venda
@@ -195,7 +218,22 @@ const NFE: React.FC = () => {
         // enviado a Spedy usa CSOSN (Simples Nacional) ou CST real com
         // base/alíquota (Presumido/Real).
         const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
-        setRegimeTributario((configSnap.data()?.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
+        const configData = configSnap.data();
+        setRegimeTributario((configData?.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
+
+        // 1c. Config de NFS-e do tenant (Configuracoes > Emissao Fiscal
+        // Habilitada > Emite NFS-e) -- so preenche os defaults do modal
+        // quando uma OS e importada, continua editavel antes de emitir.
+        setNfseConfig({
+          habilitada: configData?.emiteNFSe === true,
+          cidadeCodigo: configData?.nfseCidadeCodigo || '',
+          cidadeNome: configData?.nfseCidadeNome || '',
+          cidadeEstado: configData?.nfseCidadeEstado || '',
+          inscricaoMunicipal: configData?.nfseInscricaoMunicipal || '',
+          codigoServicoMunicipal: configData?.nfseCodigoServicoMunicipal || '',
+          codigoServicoFederal: configData?.nfseCodigoServicoFederal || '',
+          aliquotaIssPadrao: Number(configData?.nfseAliquotaIssPadrao || 0),
+        });
 
         // 2. Busca lista de clientes locais
         const clientsRef = collection(db, 'clientes');
@@ -249,6 +287,29 @@ const NFE: React.FC = () => {
         });
         setPedidosVenda(pedidosList);
 
+        // 4. Busca lista de Ordens de Servico finalizadas, pra importar
+        // como NFS-e -- so os campos usados, nunca `pecas`.
+        const osRef = collection(db, 'ordens_de_servico');
+        const qOs = query(
+          osRef,
+          where('tenantId', '==', tenantId),
+          where('status', '==', 'Finalizada')
+        );
+        const qOsSnap = await getDocs(qOs);
+        const osList: OrdemServicoParaImportar[] = [];
+        qOsSnap.forEach(d => {
+          const dData = d.data();
+          osList.push({
+            id: d.id,
+            numeroOS: dData.numeroOS || '',
+            clienteId: dData.clienteId || '',
+            clienteNome: dData.clienteNome || '',
+            servicos: dData.servicos || []
+          });
+        });
+        osList.sort((a, b) => (Number(b.numeroOS) || 0) - (Number(a.numeroOS) || 0));
+        setOrdensServico(osList);
+
       } catch (err) {
         console.error("Erro ao carregar dados iniciais do módulo fiscal", err);
       } finally {
@@ -258,9 +319,9 @@ const NFE: React.FC = () => {
     loadConfigAndClients();
   }, [tenantId]);
 
-  // Sincroniza campos avulsos/manuais com importedPedidoItens quando não há pedido selecionado
+  // Sincroniza campos avulsos/manuais com importedPedidoItens quando não há pedido nem OS selecionado
   useEffect(() => {
-    if (!importedPedidoId && isModalOpen) {
+    if (!importedPedidoId && !importedOsId && isModalOpen) {
       const timer = setTimeout(() => {
         setImportedPedidoItens(prev => {
           const currentAvulso = prev[0];
@@ -298,7 +359,7 @@ const NFE: React.FC = () => {
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [formData.descricao, formData.valor, formData.ncm, formData.cfop, formData.csosn, importedPedidoId, isModalOpen]);
+  }, [formData.descricao, formData.valor, formData.ncm, formData.cfop, formData.csosn, importedPedidoId, importedOsId, isModalOpen]);
 
   const handleItemTaxChange = (index: number, field: string, value: string) => {
     const updated = [...importedPedidoItens];
@@ -369,11 +430,16 @@ const NFE: React.FC = () => {
   // Ação ao selecionar pedido para importação
   const handleSelectPedido = async (pedidoId: string) => {
     setImportedPedidoId(pedidoId);
+    // Mutuamente exclusivo com a importação de OS -- importar um pedido
+    // sempre desfaz uma OS importada antes.
+    setImportedOsId('');
+    setImportedOsServicos([]);
     if (!pedidoId) {
       setImportedPedidoItens([]);
       setReferencedAccessKey('');
       setFormData(prev => ({
         ...prev,
+        tipo: 'NF-e',
         clienteId: '',
         clienteNome: '',
         documento: '',
@@ -440,6 +506,7 @@ const NFE: React.FC = () => {
 
       setFormData(prev => ({
         ...prev,
+        tipo: 'NF-e',
         clienteId: foundClient?.id || '',
         clienteNome: pedido.clienteNome,
         documento: foundClient?.documento || '',
@@ -463,6 +530,68 @@ const NFE: React.FC = () => {
       Swal.close();
       showError('Erro ao importar', 'Não foi possível carregar os dados fiscais dos produtos.');
     }
+  };
+
+  // Importa uma Ordem de Servico finalizada como NFS-e -- so os
+  // `servicos[]` da OS entram na nota, `pecas[]` nunca e lido aqui (se a
+  // OS tiver peca, ela fica de fora desta nota; nao ha fluxo de nota
+  // pra peca de OS ainda). Mutuamente exclusivo com importar um Pedido.
+  const handleSelectOS = (osId: string) => {
+    setImportedOsId(osId);
+    setImportedPedidoId('');
+    setImportedPedidoItens([]);
+    setReferencedAccessKey('');
+
+    if (!osId) {
+      setImportedOsServicos([]);
+      setFormData(prev => ({
+        ...prev,
+        tipo: 'NF-e',
+        clienteId: '',
+        clienteNome: '',
+        documento: '',
+        email: '',
+        valor: '',
+        descricao: '',
+        cep: '01001-000',
+        rua: 'Rua Principal',
+        numero: '123',
+        bairro: 'Centro',
+        cidade: 'São Paulo',
+        estado: 'SP',
+        codigoIbge: '3550308',
+      }));
+      return;
+    }
+
+    const os = ordensServico.find(o => o.id === osId);
+    if (!os) return;
+
+    const foundClient = clients.find(c => c.id === os.clienteId)
+      || clients.find(c => c.nome.toUpperCase() === os.clienteNome.toUpperCase());
+
+    setImportedOsServicos(os.servicos);
+
+    setFormData(prev => ({
+      ...prev,
+      tipo: 'NFS-e',
+      clienteId: foundClient?.id || '',
+      clienteNome: os.clienteNome,
+      documento: foundClient?.documento || '',
+      email: foundClient?.email || '',
+      valor: String(sumServiceInvoiceAmount(os.servicos)),
+      descricao: buildServiceInvoiceDescription(os.servicos) || `Serviços Ref. OS #${os.numeroOS}`,
+      federalServiceCode: nfseConfig.codigoServicoFederal || prev.federalServiceCode,
+      cityServiceCode: nfseConfig.codigoServicoMunicipal || prev.cityServiceCode,
+      issRate: nfseConfig.aliquotaIssPadrao !== undefined ? String(nfseConfig.aliquotaIssPadrao) : prev.issRate,
+      cep: foundClient?.cep || prev.cep,
+      rua: foundClient?.endereco || prev.rua,
+      numero: foundClient?.numero || prev.numero,
+      bairro: foundClient?.bairro || prev.bairro,
+      cidade: foundClient?.cidade || prev.cidade,
+      estado: foundClient?.estado || prev.estado,
+      codigoIbge: foundClient?.codigoIbge || prev.codigoIbge,
+    }));
   };
 
   // Sincroniza notas pendentes com a Spedy
@@ -818,39 +947,40 @@ const NFE: React.FC = () => {
       let spedyNote: SpedyInvoice;
 
       if (formData.tipo === 'NFS-e') {
-        const payload = {
-          integrationId,
-          effectiveDate: new Date().toISOString(),
-          sendEmailToCustomer: !!formData.email,
-          description: formData.descricao,
-          federalServiceCode: formData.federalServiceCode,
-          cityServiceCode: formData.cfop, // Usa CFOP temporário para o código municipal
-          taxationType: 'taxationInMunicipality',
-          receiver: {
-            name: formData.clienteNome,
-            federalTaxNumber: cleanDoc,
-            email: formData.email || undefined,
-            address: {
-              street: formData.rua,
-              number: formData.numero,
-              district: formData.bairro,
-              postalCode: cleanCep,
-              city: {
-                code: formData.codigoIbge,
-                name: formData.cidade,
-                state: formData.estado
-              }
-            }
-          },
-          total: {
-            invoiceAmount: valorNumerico,
-            issRate: Number(formData.issRate) / 100,
-            issAmount: valorNumerico * (Number(formData.issRate) / 100),
-            issWithheld: false
-          }
+        // Servicos importados da OS (nunca pecas) -- se for reemissao de
+        // uma nota ja salva sem OS ainda em memoria (retransmissao),
+        // cai num item avulso com a descricao/valor do formData.
+        const servicosParaFatura: OsServicoParaFatura[] = importedOsServicos.length > 0
+          ? importedOsServicos
+          : [{ nome: formData.descricao, preco: valorNumerico, quantidade: 1 }];
+
+        const clienteParaFatura: ClienteParaFatura = {
+          nome: formData.clienteNome,
+          documento: formData.documento,
+          email: formData.email,
+          endereco: formData.rua,
+          numero: formData.numero,
+          bairro: formData.bairro,
+          cep: formData.cep,
+          cidade: formData.cidade,
+          estado: formData.estado,
+          codigoIbge: formData.codigoIbge,
         };
 
-        spedyNote = await spedyService.emitServiceInvoice(config.spedyApiKey, config.spedyEnvironment, payload);
+        const effectiveNfseConfig: NfseConfig = {
+          habilitada: true,
+          cidadeCodigo: nfseConfig.cidadeCodigo,
+          cidadeNome: nfseConfig.cidadeNome,
+          cidadeEstado: nfseConfig.cidadeEstado,
+          inscricaoMunicipal: nfseConfig.inscricaoMunicipal,
+          codigoServicoMunicipal: formData.cityServiceCode,
+          codigoServicoFederal: formData.federalServiceCode,
+          aliquotaIssPadrao: Number(formData.issRate) || 0,
+        };
+
+        const payload = buildServiceInvoicePayload(servicosParaFatura, clienteParaFatura, effectiveNfseConfig, integrationId);
+
+        spedyNote = await spedyService.emitServiceInvoice(config.spedyApiKey, config.spedyEnvironment, payload as unknown as Record<string, unknown>);
 
       } else {
         const itemsPayload = importedPedidoId && importedPedidoItens.length > 0
@@ -977,6 +1107,7 @@ const NFE: React.FC = () => {
           number: spedyNote.number,
           accessKey: spedyNote.accessKey || null,
           pedidoId: importedPedidoId || null,
+          osId: importedOsId || null,
           tipo: formData.tipo,
           clienteNome: formData.clienteNome,
           clienteId: formData.clienteId || null,
@@ -995,6 +1126,7 @@ const NFE: React.FC = () => {
           number: spedyNote.number,
           accessKey: spedyNote.accessKey || null,
           pedidoId: importedPedidoId || null,
+          osId: importedOsId || null,
           tipo: formData.tipo,
           clienteNome: formData.clienteNome,
           clienteId: formData.clienteId || null,
@@ -1237,11 +1369,12 @@ const NFE: React.FC = () => {
             {[
               { id: 'Todas', label: 'Todas as Notas' },
               { id: 'NF-e', label: 'NF-e (Produtos)' },
-              { id: 'NFC-e', label: 'NFC-e (Cupons)' }
+              { id: 'NFC-e', label: 'NFC-e (Cupons)' },
+              { id: 'NFS-e', label: 'NFS-e (Serviços)' }
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setSelectedTab(tab.id as 'Todas' | 'NFC-e' | 'NF-e')}
+                onClick={() => setSelectedTab(tab.id as 'Todas' | 'NFC-e' | 'NF-e' | 'NFS-e')}
                 style={{
                   background: 'none', border: 'none',
                   padding: '8px 16px', cursor: 'pointer',
@@ -1526,6 +1659,7 @@ const NFE: React.FC = () => {
                     <select
                       value={importedPedidoId}
                       onChange={(e) => handleSelectPedido(e.target.value)}
+                      disabled={!!importedOsId}
                       style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                     >
                       <option value="">-- Selecione um pedido finalizado para importar (opcional) --</option>
@@ -1537,6 +1671,28 @@ const NFE: React.FC = () => {
                     </select>
                   </div>
 
+                  {/* Importar Ordem de Servico (NFS-e) -- so os servicos, peca fica de fora */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', gridColumn: '1 / -1', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '8px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--accent-purple)' }}>Importar da Ordem de Serviço (NFS-e)</label>
+                    <select
+                      value={importedOsId}
+                      onChange={(e) => handleSelectOS(e.target.value)}
+                      disabled={!!importedPedidoId || !nfseConfig.habilitada}
+                      style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                    >
+                      <option value="">-- Selecione uma OS finalizada para importar (opcional) --</option>
+                      {ordensServico.map(o => (
+                        <option key={o.id} value={o.id}>
+                          OS #{o.numeroOS} - {o.clienteNome} ({new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sumServiceInvoiceAmount(o.servicos))})
+                        </option>
+                      ))}
+                    </select>
+                    {!nfseConfig.habilitada && (
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Habilite "Emite NFS-e" em Configurações para liberar esta importação.</p>
+                    )}
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Só os serviços da OS entram nesta nota — peças ficam de fora (precisam de um lançamento à parte).</p>
+                  </div>
+
                   {/* Tipo de Nota */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Tipo de Nota</label>
@@ -1546,6 +1702,7 @@ const NFE: React.FC = () => {
                       style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', opacity: 0.8 }}
                     >
                       <option value="NF-e">NF-e (Produtos / Peças)</option>
+                      <option value="NFS-e">NFS-e (Serviço)</option>
                     </select>
                   </div>
 
@@ -1559,10 +1716,45 @@ const NFE: React.FC = () => {
                       value={formData.valor}
                       onChange={(e) => setFormData({...formData, valor: e.target.value})}
                       required
-                      disabled={!!importedPedidoId}
-                      style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', opacity: importedPedidoId ? 0.7 : 1 }}
+                      disabled={!!importedPedidoId || !!importedOsId}
+                      style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', opacity: (importedPedidoId || importedOsId) ? 0.7 : 1 }}
                     />
                   </div>
+
+                  {formData.tipo === 'NFS-e' && (
+                    <>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Código de Serviço Municipal</label>
+                        <input
+                          type="text"
+                          value={formData.cityServiceCode}
+                          onChange={(e) => setFormData({ ...formData, cityServiceCode: e.target.value })}
+                          style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Código de Serviço Federal (LC 116/03)</label>
+                        <input
+                          type="text"
+                          value={formData.federalServiceCode}
+                          onChange={(e) => setFormData({ ...formData, federalServiceCode: e.target.value })}
+                          style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Alíquota de ISS (%)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          value={formData.issRate}
+                          onChange={(e) => setFormData({ ...formData, issRate: e.target.value })}
+                          style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                        />
+                      </div>
+                    </>
+                  )}
 
                   {/* Cliente Selector (Dropdown Autocomplete) */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', gridColumn: '1 / -1', position: 'relative' }} ref={clientDropdownRef}>

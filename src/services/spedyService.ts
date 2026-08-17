@@ -115,6 +115,20 @@ export interface SpedyInvoiceListResponse {
   hasNext: boolean;
 }
 
+export interface SpedyCity {
+  code: string | null;
+  name: string | null;
+  state: string | null;
+}
+
+export interface SpedyCityListResponse {
+  items: SpedyCity[];
+  totalCount: number;
+  pageCount: number;
+  pageSize: number;
+  hasNext: boolean;
+}
+
 export interface SpedyRuntimeConfig {
   spedyEnabled: boolean;
   spedyApiKeyConfigured: boolean;
@@ -134,6 +148,14 @@ export const spedyService = {
   async getServiceInvoice(apiKey: string, env: SpedyEnv, id: string): Promise<SpedyInvoice> {
     legacyArgsNotice(apiKey, env);
     return requestJson<SpedyInvoice>(`/api/spedy/service/${id}`, { method: 'GET' }, 'Erro ao consultar nota de servico.');
+  },
+
+  async searchServiceInvoiceCities(apiKey: string, env: SpedyEnv, filterText: string, state?: string): Promise<SpedyCityListResponse> {
+    legacyArgsNotice(apiKey, env);
+    const params = new URLSearchParams();
+    if (filterText) params.set('filterText', filterText);
+    if (state) params.set('state', state);
+    return requestJson<SpedyCityListResponse>(`/api/spedy/service/cities?${params.toString()}`, { method: 'GET' }, 'Erro ao buscar cidades integradas.');
   },
 
   async fetchProductInvoices(apiKey: string, env: SpedyEnv, page = 1, pageSize = 20): Promise<SpedyInvoiceListResponse> {

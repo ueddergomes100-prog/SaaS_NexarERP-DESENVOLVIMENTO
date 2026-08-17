@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { usesCsosn, ICMS_CST_OPTIONS, matchProdutoFromXmlItem, matchMateriaPrimaFromXmlItem, buildTaxesPayload, type EstoqueItemForMatch, type MateriaPrimaItemForMatch } from '../src/utils/fiscalDomain';
+import {
+  usesCsosn, ICMS_CST_OPTIONS, matchProdutoFromXmlItem, matchMateriaPrimaFromXmlItem, buildTaxesPayload,
+  buildServiceInvoiceDescription, sumServiceInvoiceAmount, buildServiceInvoicePayload,
+  type EstoqueItemForMatch, type MateriaPrimaItemForMatch, type OsServicoParaFatura, type NfseConfig,
+} from '../src/utils/fiscalDomain';
 
 test('Simples Nacional usa CSOSN', () => {
   assert.equal(usesCsosn('simples_nacional'), true);
@@ -169,4 +173,74 @@ test('buildTaxesPayload so inclui IBS/CBS quando o produto tem CST configurado (
 
   const com = buildTaxesPayload({ origem: '0', csosn: '00', cstIbs: '01', cstCbs: '01', aliquotaCbs: 1 }, 'lucro_real', 1000);
   assert.deepEqual(com.ibsCbs, { cst: 1, baseTax: 1000, cbsRate: 1, cbsAmount: 10 });
+});
+
+const servicosOS: OsServicoParaFatura[] = [
+  { nome: 'Troca de óleo', preco: 50, tempoHoras: 1 },
+  { nome: 'Alinhamento', preco: 80, tempoHoras: 0.5, detalhamento: 'Dianteiro e traseiro' },
+];
+
+test('buildServiceInvoiceDescription junta nome e detalhamento de cada servico', () => {
+  assert.equal(
+    buildServiceInvoiceDescription(servicosOS),
+    'Troca de óleo; Alinhamento - Dianteiro e traseiro',
+  );
+});
+
+test('buildServiceInvoiceDescription ignora servico sem nome', () => {
+  assert.equal(buildServiceInvoiceDescription([{ nome: '', preco: 10 }]), '');
+});
+
+test('sumServiceInvoiceAmount soma preco x horas de cada servico (mesma regra de OSForm)', () => {
+  assert.equal(sumServiceInvoiceAmount(servicosOS), 50 * 1 + 80 * 0.5);
+});
+
+test('sumServiceInvoiceAmount cai pra quantidade quando tempoHoras nao esta definido', () => {
+  assert.equal(sumServiceInvoiceAmount([{ nome: 'Diagnóstico', preco: 100, quantidade: 2 }]), 200);
+});
+
+const clienteFatura = {
+  nome: 'CLIENTE TESTE',
+  documento: '123.456.789-00',
+  email: 'cliente@teste.com',
+  endereco: 'Rua Principal',
+  numero: '100',
+  bairro: 'Centro',
+  cep: '36970-000',
+  cidade: 'Manhuaçu',
+  estado: 'MG',
+  codigoIbge: '3138906',
+};
+
+const nfseConfig: NfseConfig = {
+  habilitada: true,
+  cidadeCodigo: '3138906',
+  cidadeNome: 'Manhuaçu',
+  cidadeEstado: 'MG',
+  inscricaoMunicipal: '12345',
+  codigoServicoMunicipal: '101',
+  codigoServicoFederal: '14.01',
+  aliquotaIssPadrao: 5,
+};
+
+test('buildServiceInvoicePayload monta o total, ISS e descricao a partir dos servicos', () => {
+  const payload = buildServiceInvoicePayload(servicosOS, clienteFatura, nfseConfig, 'integration-123');
+  assert.equal(payload.integrationId, 'integration-123');
+  assert.equal(payload.description, 'Troca de óleo; Alinhamento - Dianteiro e traseiro');
+  assert.equal(payload.taxationType, 'taxationInMunicipality');
+  assert.equal(payload.federalServiceCode, '14.01');
+  assert.equal(payload.cityServiceCode, '101');
+  assert.deepEqual(payload.location, { code: '3138906', name: 'Manhuaçu', state: 'MG' });
+  assert.equal(payload.total.invoiceAmount, 90);
+  assert.equal(payload.total.issRate, 0.05);
+  assert.equal(payload.total.issAmount, 4.5);
+  assert.equal(payload.total.issWithheld, false);
+  assert.equal(payload.receiver.federalTaxNumber, '12345678900');
+  assert.equal(payload.receiver.address.city.code, '3138906');
+});
+
+test('buildServiceInvoicePayload nao inclui location quando o tenant nao configurou cidade', () => {
+  const payload = buildServiceInvoicePayload(servicosOS, clienteFatura, { habilitada: false }, 'id-2');
+  assert.equal(payload.location, undefined);
+  assert.equal(payload.total.issRate, 0);
 });

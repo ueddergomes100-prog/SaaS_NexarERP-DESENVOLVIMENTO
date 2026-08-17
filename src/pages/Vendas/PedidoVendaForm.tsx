@@ -146,7 +146,6 @@ const PedidoVendaForm: React.FC = () => {
   const [devolucoes, setDevolucoes] = useState<DevolucaoVenda[]>([]);
   const [estornandoDevolucaoId, setEstornandoDevolucaoId] = useState<string | null>(null);
 
-  const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
   const [vendedoresDisponiveis, setVendedoresDisponiveis] = useState<VendedorBasico[]>([]);
   const [vendedorId, setVendedorId] = useState('');
   const [produtosCatalogo, setProdutosCatalogo] = useState<ProdutoEstoque[]>([]);
@@ -172,6 +171,7 @@ const PedidoVendaForm: React.FC = () => {
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
   const canReturnVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao'));
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
+  const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
 
   useEffect(() => {
@@ -213,13 +213,6 @@ const PedidoVendaForm: React.FC = () => {
   useEffect(() => {
     const fetchInitialData = async () => {
       if (!currentUser || !tenantId) return;
-
-      // Fetch Clientes
-      const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
-      const snapC = await getDocs(qC);
-      const dataC: ClienteBasico[] = [];
-      snapC.forEach((doc) => dataC.push({ id: doc.id, nome: doc.data().nome, telefone: doc.data().telefone }));
-      setClientesDisponiveis(dataC);
 
       const qU = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
       const snapU = await getDocs(qU);

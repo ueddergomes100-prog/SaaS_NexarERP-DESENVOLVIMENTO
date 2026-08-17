@@ -156,7 +156,6 @@ const OSForm: React.FC = () => {
   // assincrona), pra so entao capturar o snapshot que decide se a aba
   // esta "suja".
   const [formReady, setFormReady] = useState(false);
-  const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
   const [veiculosDisponiveis, setVeiculosDisponiveis] = useState<VeiculoBasico[]>([]);
   const [veiculosDoCliente, setVeiculosDoCliente] = useState<VeiculoBasico[]>([]);
   const [isVeiculoDropdownOpen, setIsVeiculoDropdownOpen] = useState(false);
@@ -177,6 +176,7 @@ const OSForm: React.FC = () => {
 
   const { currentUser, tenantId, userRole } = useAuth();
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
+  const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
 
   const [isServicoDropdownOpen, setIsServicoDropdownOpen] = useState(false);
@@ -210,12 +210,6 @@ const OSForm: React.FC = () => {
     const fetchInitialData = async () => {
       if (!currentUser || !tenantId) return;
 
-      // Fetch Clientes
-      const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
-      const snapC = await getDocs(qC);
-      const dataC: ClienteBasico[] = [];
-      snapC.forEach((doc) => dataC.push({ id: doc.id, nome: doc.data().nome, telefone: doc.data().telefone }));
-      setClientesDisponiveis(dataC);
 
       // Fetch Veículos
       const qV = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId));

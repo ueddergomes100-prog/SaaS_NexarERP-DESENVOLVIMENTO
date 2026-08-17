@@ -14,6 +14,7 @@ import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, reserveTenantSequence, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
@@ -77,7 +78,6 @@ const OrcamentoForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
-  const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
   const [veiculosDisponiveis, setVeiculosDisponiveis] = useState<VeiculoBasico[]>([]);
   const [veiculosDoCliente, setVeiculosDoCliente] = useState<VeiculoBasico[]>([]);
   const [isVeiculoDropdownOpen, setIsVeiculoDropdownOpen] = useState(false);
@@ -95,6 +95,7 @@ const OrcamentoForm: React.FC = () => {
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
 
   const { currentUser, tenantId } = useAuth();
+  const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
 
   const [isServicoDropdownOpen, setIsServicoDropdownOpen] = useState(false);
 
@@ -115,12 +116,6 @@ const OrcamentoForm: React.FC = () => {
       if (!currentUser || !tenantId) return;
 
       try {
-        const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
-        const snapC = await getDocs(qC);
-        const dataC: ClienteBasico[] = [];
-        snapC.forEach((doc) => dataC.push({ id: doc.id, nome: doc.data().nome, telefone: doc.data().telefone }));
-        setClientesDisponiveis(dataC);
-
         const qV = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId));
         const snapV = await getDocs(qV);
         const dataV: VeiculoBasico[] = [];

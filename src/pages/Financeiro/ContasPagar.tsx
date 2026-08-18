@@ -5,7 +5,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { toCents } from '../../utils/financeDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
-import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, Trash2 } from 'lucide-react';
+import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, Trash2, ChevronDown, ChevronRight, Search, Truck, Tag } from 'lucide-react';
+import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import './Financeiro.css';
 
 interface TransacaoData {
@@ -23,6 +24,25 @@ interface TransacaoData {
   createdAt?: any;
   bancoId?: string;
   bancoNome?: string;
+  fornecedorId?: string | null;
+  fornecedorNome?: string;
+}
+
+// Espelha GrupoCliente de ContasReceber.tsx. Diferenca deliberada: uma
+// despesa nem sempre tem fornecedor -- compras importadas de XML gravam
+// fornecedorId/fornecedorNome (ver EntradaNFE.tsx), mas despesa lancada a
+// mao (aluguel, luz, salario) so tem categoria. Por isso o grupo cai pra
+// categoria quando nao ha fornecedor, em vez de jogar tudo num balde
+// "sem fornecedor" -- `porFornecedor` diz qual dos dois foi usado.
+interface GrupoDespesa {
+  chave: string;
+  fornecedorId: string | null;
+  titulo: string;
+  porFornecedor: boolean;
+  transacoes: TransacaoData[];
+  totalPendente: number;
+  vencimentoMaisAntigo: string | null;
+  diasAtrasoMax: number;
 }
 
 const ContasPagar: React.FC = () => {
@@ -31,6 +51,8 @@ const ContasPagar: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [gruposExpandidos, setGruposExpandidos] = useState<Set<string>>(new Set());
+  const [buscaGrupo, setBuscaGrupo] = useState('');
   const { currentUser, tenantId } = useAuth();
 
   // Categorias de despesa do plano de contas
@@ -297,12 +319,69 @@ const ContasPagar: React.FC = () => {
     }
   };
 
-  const hojeStr = new Date().toISOString().split('T')[0];
+  // Usa o helper de fuso do projeto (America/Sao_Paulo, Secao 1.4 do plano)
+  // em vez de new Date().toISOString(), que e' UTC -- de madrugada o UTC ja
+  // virou o dia seguinte e "Pago Hoje"/dias de atraso saiam errados.
+  const hojeStr = getDateInputInTimeZone();
   const contasPendentes = transacoes.filter(t => t.status === 'Pendente');
   const pagamentosHoje = transacoes.filter(t => t.status === 'Paga' && t.dataPagamento === hojeStr);
 
   const totalPendente = contasPendentes.reduce((acc, curr) => acc + curr.valor, 0);
   const totalPagoHoje = pagamentosHoje.reduce((acc, curr) => acc + curr.valor, 0);
+
+  // Agrupa as contas pendentes por fornecedor (compras de XML) ou, na falta
+  // dele, pela categoria da despesa. Mesmo padrao de gruposPorCliente em
+  // ContasReceber.tsx.
+  const gruposPorFornecedor: GrupoDespesa[] = (() => {
+    const mapa = new Map<string, GrupoDespesa>();
+    contasPendentes.forEach((t) => {
+      const nomeFornecedor = t.fornecedorNome?.trim();
+      const porFornecedor = Boolean(t.fornecedorId || nomeFornecedor);
+      const titulo = porFornecedor
+        ? (nomeFornecedor || 'Fornecedor não identificado')
+        : (t.categoria?.trim() || 'Sem categoria');
+      const chave = t.fornecedorId
+        ? `forn:${t.fornecedorId}`
+        : porFornecedor
+          ? `forn-nome:${titulo.toUpperCase()}`
+          : `cat:${titulo.toUpperCase()}`;
+      const diasAtraso = t.data ? (differenceInCalendarDays(t.data, hojeStr) ?? 0) : 0;
+
+      let grupo = mapa.get(chave);
+      if (!grupo) {
+        grupo = {
+          chave,
+          fornecedorId: t.fornecedorId || null,
+          titulo,
+          porFornecedor,
+          transacoes: [],
+          totalPendente: 0,
+          vencimentoMaisAntigo: null,
+          diasAtrasoMax: 0,
+        };
+        mapa.set(chave, grupo);
+      }
+      grupo.transacoes.push(t);
+      grupo.totalPendente += Number(t.valor || 0);
+      if (t.data && (!grupo.vencimentoMaisAntigo || t.data < grupo.vencimentoMaisAntigo)) {
+        grupo.vencimentoMaisAntigo = t.data;
+      }
+      grupo.diasAtrasoMax = Math.max(grupo.diasAtrasoMax, diasAtraso);
+    });
+
+    return Array.from(mapa.values())
+      .filter((g) => !buscaGrupo.trim() || g.titulo.toLowerCase().includes(buscaGrupo.trim().toLowerCase()))
+      .sort((a, b) => b.totalPendente - a.totalPendente);
+  })();
+
+  const toggleGrupoExpandido = (chave: string) => {
+    setGruposExpandidos((current) => {
+      const next = new Set(current);
+      if (next.has(chave)) next.delete(chave);
+      else next.add(chave);
+      return next;
+    });
+  };
 
   return (
     <div className="financeiro-page" style={{ padding: '24px' }}>
@@ -337,91 +416,152 @@ const ContasPagar: React.FC = () => {
         </div>
       </div>
 
+      <div className="search-bar" style={{ position: 'relative', maxWidth: '360px', marginBottom: '16px' }}>
+        <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+        <input
+          type="text"
+          placeholder="Buscar fornecedor ou categoria..."
+          value={buscaGrupo}
+          onChange={(e) => setBuscaGrupo(e.target.value)}
+          style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+        />
+      </div>
+
       <div className="card" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
         <div className="table-wrapper">
           <table className="data-table financeiro-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <th style={{ padding: '16px' }}>Vencimento</th>
-                <th style={{ padding: '16px' }}>Descrição</th>
-                <th style={{ padding: '16px' }}>Categoria</th>
-                <th style={{ padding: '16px' }}>Status</th>
-                <th style={{ padding: '16px', textAlign: 'right' }}>Valor (R$)</th>
-                <th style={{ padding: '16px', textAlign: 'center' }}>Ação</th>
+                <th style={{ padding: '16px', width: '32px' }}></th>
+                <th style={{ padding: '16px' }}>Fornecedor / Categoria</th>
+                <th style={{ padding: '16px', textAlign: 'center' }}>Títulos em aberto</th>
+                <th style={{ padding: '16px' }}>Vencimento mais antigo</th>
+                <th style={{ padding: '16px', textAlign: 'right' }}>Valor pendente (R$)</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando contas a pagar...</td>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>Carregando contas a pagar...</td>
                 </tr>
-              ) : contasPendentes.length === 0 ? (
+              ) : gruposPorFornecedor.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     <CheckCircle size={48} color="#10b981" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
-                    <div>Tudo em dia! Nenhuma conta pendente para pagamento.</div>
+                    <div>{buscaGrupo.trim() ? 'Nenhum fornecedor ou categoria encontrado para essa busca.' : 'Tudo em dia! Nenhuma conta pendente para pagamento.'}</div>
                   </td>
                 </tr>
               ) : (
-                contasPendentes.map((t) => (
-                  <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    <td style={{ padding: '16px', color: 'var(--text-muted)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Calendar size={14} />
-                        {t.data ? t.data.split('-').reverse().join('/') : '-'}
-                      </div>
-                    </td>
-                    <td style={{ padding: '16px', fontWeight: 500 }}>{t.descricao}</td>
-                    <td style={{ padding: '16px' }}>
-                      <span style={{ fontSize: '12px', backgroundColor: 'var(--bg-tertiary)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
-                        {t.categoria}
-                      </span>
-                    </td>
-                    <td style={{ padding: '16px' }}>
-                      <span className="status-badge" style={{ backgroundColor: '#ef444420', color: '#ef4444', whiteSpace: 'nowrap', padding: '4px 8px', borderRadius: '12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                        <span className="status-dot" style={{ backgroundColor: '#ef4444', width: '6px', height: '6px', borderRadius: '50%' }}></span>
-                        Pendente
-                      </span>
-                    </td>
-                    <td style={{ padding: '16px', textAlign: 'right', fontWeight: '600', color: '#ef4444' }}>
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor))}
-                    </td>
-                    <td style={{ padding: '16px', textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                        {(!t.osId && !t.vendaId) && (
-                          <>
-                            <button 
-                              onClick={() => handleEdit(t)}
-                              style={{ backgroundColor: '#f59e0b', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
-                              title="Editar Despesa"
-                              onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
-                              onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
-                            >
-                              <Edit size={14} />
-                            </button>
-                            <button 
-                              onClick={() => handleExcluir(t)}
-                              style={{ backgroundColor: '#ef4444', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
-                              title="Excluir Despesa"
-                              onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
-                              onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </>
-                        )}
-                        <button 
-                          onClick={() => handleConciliar(t)}
-                          style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
-                          onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
-                          onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
-                        >
-                          <CheckCircle size={14} /> Dar Baixa
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                gruposPorFornecedor.map((grupo) => {
+                  const expandido = gruposExpandidos.has(grupo.chave);
+                  const emAtraso = grupo.diasAtrasoMax > 0;
+                  return (
+                    <React.Fragment key={grupo.chave}>
+                      <tr
+                        onClick={() => toggleGrupoExpandido(grupo.chave)}
+                        style={{ borderBottom: expandido ? 'none' : '1px solid var(--border-color)', cursor: 'pointer', backgroundColor: expandido ? 'var(--bg-tertiary)' : 'transparent' }}
+                      >
+                        <td style={{ padding: '16px 0 16px 16px', color: 'var(--text-muted)' }}>
+                          {expandido ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                        </td>
+                        <td style={{ padding: '16px', fontWeight: 600 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {grupo.porFornecedor
+                              ? <Truck size={16} style={{ color: 'var(--text-muted)' }} />
+                              : <Tag size={16} style={{ color: 'var(--text-muted)' }} />}
+                            {grupo.titulo}
+                          </div>
+                        </td>
+                        <td style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)' }}>{grupo.transacoes.length}</td>
+                        <td style={{ padding: '16px' }}>
+                          {grupo.vencimentoMaisAntigo ? (
+                            <span style={{ color: emAtraso ? '#ef4444' : 'var(--text-secondary)', fontWeight: emAtraso ? 700 : 400 }}>
+                              {grupo.vencimentoMaisAntigo.split('-').reverse().join('/')}
+                              {emAtraso && ` (${grupo.diasAtrasoMax} ${grupo.diasAtrasoMax === 1 ? 'dia' : 'dias'} em atraso)`}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)' }}>-</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700, color: '#ef4444' }}>
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.totalPendente)}
+                        </td>
+                      </tr>
+                      {expandido && (
+                        <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                          <td colSpan={5} style={{ padding: '0 16px 16px 48px', backgroundColor: 'var(--bg-tertiary)' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                              <thead>
+                                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                  <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Vencimento</th>
+                                  <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Descrição</th>
+                                  <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Categoria</th>
+                                  <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'right' }}>Valor (R$)</th>
+                                  <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center' }}>Ação</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {grupo.transacoes.map((t) => (
+                                  <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                    <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <Calendar size={14} />
+                                        {t.data ? t.data.split('-').reverse().join('/') : '-'}
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>{t.descricao}</td>
+                                    <td style={{ padding: '10px 8px' }}>
+                                      <span style={{ fontSize: '12px', backgroundColor: 'var(--bg-secondary)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
+                                        {t.categoria}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#ef4444' }}>
+                                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor))}
+                                    </td>
+                                    <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                        {(!t.osId && !t.vendaId) && (
+                                          <>
+                                            <button
+                                              onClick={() => handleEdit(t)}
+                                              style={{ backgroundColor: '#f59e0b', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
+                                              title="Editar Despesa"
+                                              onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
+                                              onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
+                                            >
+                                              <Edit size={14} />
+                                            </button>
+                                            <button
+                                              onClick={() => handleExcluir(t)}
+                                              style={{ backgroundColor: '#ef4444', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
+                                              title="Excluir Despesa"
+                                              onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
+                                              onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
+                                            >
+                                              <Trash2 size={14} />
+                                            </button>
+                                          </>
+                                        )}
+                                        <button
+                                          onClick={() => handleConciliar(t)}
+                                          style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
+                                          onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
+                                          onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
+                                        >
+                                          <CheckCircle size={14} /> Dar Baixa
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>

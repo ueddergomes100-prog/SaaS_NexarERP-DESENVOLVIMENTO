@@ -13,6 +13,7 @@ import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
+import type { StatusConferencia } from '../../utils/conferenciaDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
@@ -166,6 +167,7 @@ const PedidoVendaForm: React.FC = () => {
   const [isFetchingData, setIsFetchingData] = useState(true);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
   const [produtoSearchMode, setProdutoSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
+  const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(false);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
@@ -252,6 +254,7 @@ const PedidoVendaForm: React.FC = () => {
           const config = configSnap.data();
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
           setProdutoSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
+          setConferenciaMercadoriaAtiva(config.conferenciaMercadoria === true);
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
           const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
@@ -692,6 +695,12 @@ const PedidoVendaForm: React.FC = () => {
           totalLiquidoFinanceiroCentavos: paymentSummary.financialNetCents,
           dataVenda,
           status: 'Finalizada',
+          // Modulo 12 (Conferencia de mercadoria): so grava o campo quando a
+          // chave-mestra esta ligada -- Firestore rejeita `undefined` como
+          // valor de campo, entao o jeito de "nao gravar" e' nao incluir a
+          // chave no objeto. Tenant com a config desligada continua
+          // gravando exatamente o que gravava antes desta fatia.
+          ...(conferenciaMercadoriaAtiva ? { statusConferencia: 'aguardando' as StatusConferencia } : {}),
           tenantId,
           usuarioResponsavelId: currentUser.uid,
           vendedorId: selectedSellerId,

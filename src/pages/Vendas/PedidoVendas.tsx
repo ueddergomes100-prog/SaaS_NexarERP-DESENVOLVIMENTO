@@ -29,7 +29,24 @@ interface PedidoVendaData {
   valorTotal: number;
   itens?: ItemVenda[];
   tenantId: string;
+  statusConferencia?: string;
 }
+
+// Modulo 12 (Conferencia de mercadoria) -- rotulos/cores da coluna opcional.
+// Fatia 1/4 so grava 'aguardando'; os demais estados existem desde ja pra
+// nao precisar voltar neste arquivo nas fatias 3/4.
+const CONFERENCIA_STATUS_LABELS: Record<string, string> = {
+  aguardando: 'Aguardando Conferência',
+  em_conferencia: 'Em Conferência',
+  conferido: 'Conferido',
+  divergente: 'Divergente',
+};
+const CONFERENCIA_STATUS_COLORS: Record<string, string> = {
+  aguardando: '#f59e0b',
+  em_conferencia: '#3b82f6',
+  conferido: '#10b981',
+  divergente: '#ef4444',
+};
 
 const PedidoVendas: React.FC = () => {
   const navigate = useNavigate();
@@ -43,6 +60,7 @@ const PedidoVendas: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('Ativos');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(false);
 
   // Estado para armazenar IDs dos cupons autorizados
   const [authorizedCupons, setAuthorizedCupons] = useState<Record<string, { spedyId: string; status: string }>>({});
@@ -72,6 +90,14 @@ const PedidoVendas: React.FC = () => {
     });
 
     return () => unsubscribeNotas();
+  }, [currentUser, tenantId]);
+
+  useEffect(() => {
+    if (!currentUser || !tenantId) return;
+
+    getDoc(doc(db, 'configuracoes', tenantId))
+      .then((snap) => setConferenciaMercadoriaAtiva(snap.exists() && snap.data().conferenciaMercadoria === true))
+      .catch((err) => console.error('Erro ao verificar configuração de conferência de mercadoria:', err));
   }, [currentUser, tenantId]);
 
   useEffect(() => {
@@ -331,6 +357,7 @@ const PedidoVendas: React.FC = () => {
                 <th style={{ padding: '16px' }}>Cliente</th>
                 <th style={{ padding: '16px' }}>Forma Pgto</th>
                 <th style={{ padding: '16px' }}>Status</th>
+                {conferenciaMercadoriaAtiva && <th style={{ padding: '16px' }}>Conferência</th>}
                 <th style={{ padding: '16px', textAlign: 'right' }}>Total (R$)</th>
                 <th style={{ padding: '16px', textAlign: 'center' }}>Ações</th>
               </tr>
@@ -338,11 +365,11 @@ const PedidoVendas: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '40px' }}>Carregando pedidos...</td>
+                  <td colSpan={conferenciaMercadoriaAtiva ? 9 : 8} style={{ textAlign: 'center', padding: '40px' }}>Carregando pedidos...</td>
                 </tr>
               ) : filteredPedidos.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={conferenciaMercadoriaAtiva ? 9 : 8} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <ShoppingCart size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>Nenhum pedido de venda encontrado.</p>
                   </td>
@@ -375,6 +402,21 @@ const PedidoVendas: React.FC = () => {
                         {p.status}
                       </span>
                     </td>
+                    {conferenciaMercadoriaAtiva && (
+                      <td style={{ padding: '16px' }}>
+                        {p.statusConferencia ? (
+                          <span style={{
+                            backgroundColor: `${CONFERENCIA_STATUS_COLORS[p.statusConferencia] || '#6b7280'}20`,
+                            color: CONFERENCIA_STATUS_COLORS[p.statusConferencia] || '#6b7280',
+                            padding: '4px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600
+                          }}>
+                            {CONFERENCIA_STATUS_LABELS[p.statusConferencia] || p.statusConferencia}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>—</span>
+                        )}
+                      </td>
+                    )}
                     <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700 }}>
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valorTotal)}
                     </td>

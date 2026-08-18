@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, Receipt, LifeBuoy } from 'lucide-react';
+import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, Receipt, LifeBuoy, ShieldCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
 import { collection, query, where, onSnapshot, doc, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -12,6 +13,10 @@ import './Layout.css';
 const TopBar: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId } = useAuth();
   const { openTab } = useTabs();
+  // Navegacao real (nao openTab): o painel da plataforma vive FORA do sistema
+  // de abas, com shell proprio -- abrir como aba o colocaria dentro do ERP de
+  // tenant, que e' justamente o que ele nao deve ser.
+  const navigate = useNavigate();
   const SUPPORT_DESK_URL = import.meta.env.VITE_SUPPORT_DESK_URL || '';
   const [notifications, setNotifications] = useState<any[]>([]);
   const [configData, setConfigData] = useState<any>(null);
@@ -400,6 +405,17 @@ const TopBar: React.FC = () => {
       </div>
       
       <div className="topbar-actions">
+        {isPlatformAdmin && (
+          <button
+            className="action-btn"
+            onClick={() => navigate('/superadmin')}
+            title="Abrir o Painel da Plataforma"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent-purple)' }}
+          >
+            <ShieldCheck size={20} />
+          </button>
+        )}
+
         {isPlatformAdmin && (
           <div className="tenant-switcher">
             <span>Empresa ativa</span>

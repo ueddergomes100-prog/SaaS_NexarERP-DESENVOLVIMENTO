@@ -1227,6 +1227,27 @@ Atualizar ao concluir cada item.
 
 ---
 
+## 8.1 Painel da Plataforma (`/superadmin`) — Fatia 1, 2026-08-18
+
+**Origem:** o usuário questionou que "acessar o super admin e ele ser igual ao sistema dos outros é estranho demais". Estava certo, e a investigação achou algo maior: **`SuperAdmin.tsx` (750 linhas) e `SuperAdminBackup.tsx` (726) estavam os dois órfãos** — zero imports, zero rotas, `/superadmin` não existia. O platform admin entrava e caía no ERP normal de tenant, administrando via seletor de "empresa ativa" no TopBar + Configurações (com o risco, já registrado na Seção 9, de editar o tenant errado).
+
+**Correção importante de premissa, registrada porque tende a reaparecer:** o usuário sugeriu `dominio.com/superadmin` como forma de deixar "tudo 100% seguro". **A URL não protege nada** — qualquer um digita, e o guard roda no navegador do próprio usuário. Quem protege é a custom claim (`superAdmin`/`NexarAdmin`) + `isSuperAdmin()` nas `firestore.rules`. Rota separada é decisão de **clareza e experiência de uso**, não de segurança. Não tratar `PlatformAdminRoute` como barreira.
+
+**O que foi feito (Fatia 1 — ligar o que já existia; refino visual combinado para uma fatia posterior):**
+
+- `src/components/layout/PlatformAdminRoute.tsx` — guard de navegação (espelha `ProtectedRoute`, mas exige `isPlatformAdmin`; sem sessão → `/login`, com sessão mas sem perfil de plataforma → `/dashboard`).
+- `src/components/layout/PlatformAdminLayout.tsx` — shell próprio: cabeçalho com abas Empresas/Backups, e-mail do usuário, botão "Ir para o ERP" e sair. **Deliberadamente sem sidebar de módulos e sem o sistema de abas (F19)** — são conceitos de tenant e não fazem sentido na administração da plataforma. Mesmo precedente do PDV, que já vive fora do `AppLayout`.
+- `App.tsx`: rotas `/superadmin` (index → `SuperAdmin`) e `/superadmin/backups` → `SuperAdminBackup`, declaradas **antes** do coringa `/*` do `AppLayout` — senão cairiam no ERP normal.
+- `TopBar.tsx`: botão de escudo, visível só para `isPlatformAdmin`, com `useNavigate` e **não** `openTab` — abrir o painel como aba o colocaria dentro do ERP de tenant, exatamente o que ele não deve ser.
+
+**Observações levantadas, não resolvidas nesta fatia:**
+- O status de inadimplência do painel **não vem de gateway de pagamento** — é campo mantido à mão. O MRR soma `valorMensalidade` real de cada tenant, mas "quem está devendo" depende de alguém marcar.
+- `SuperAdmin.tsx:340` tem `if (!isPlatformAdminRole(userRole)) return null` (guarda própria de UI); `SuperAdminBackup.tsx` **não tem** equivalente — renderiza a UI e depende só do guard de rota, das rules e da autenticação do backend. Assimetria conhecida, sem risco real de dados, mas vale uniformizar.
+- A aba Backups depende do **backend Express** (`VITE_BACKEND_API_URL`, porta 3001 em dev) — sem ele a tela abre mas não lista nada.
+- Login de platform admin **continua caindo em `/dashboard`**, não em `/superadmin`. Mudar isso é decisão de produto, não foi feita.
+
+---
+
 ## 9. Pendências a esclarecer com o usuário
 
 1. ~~**Módulo 4:** trecho corrompido no PDF original — confirmar se falta requisito de Produção.~~ Resolvido em 2026-08-02: faltava Cadastro de Matéria-Prima (pool de estoque separado, mesma lógica do cadastro de produtos) — ver seção do Módulo 4.
@@ -1238,7 +1259,7 @@ Atualizar ao concluir cada item.
 7. **Módulo 14 / TopBar:** busca global (OS, clientes e agora produtos) usa `limit(80)` + filtro no cliente nas três coleções — não escala para catálogo grande. Resolver exige índice dedicado ou campo de busca normalizado, afetando as três buscas juntas; não implementado ainda, fora do escopo deste módulo.
 8. ~~**Repositórios git:** `git push dev main` ficou pendente...~~ Resolvido em 2026-07-29: usuário deu autorização permanente pra `dev` receber push automático após cada lote de trabalho (ver [[project-nexar-git-repos]] na memória). `production` continua exigindo pedido explícito a cada vez — nunca mudou.
 9. **Auditoria de permissões/módulos (2026-08-05):** levantamento completo dos dois catálogos de acesso do sistema — o de módulo bloqueável por plano SaaS (`src/utils/moduleCatalog.ts`, controlado pelo SuperAdmin) e o de permissão granular do Funcionário (lista embutida em `Configuracoes.tsx`). Corrigido no código: 4 ids que existiam num catálogo mas não no outro (`cadastros.bandeiras_cartao`, `cadastros.bancos`, `financeiro.banco`, `financeiro.caixa_registros`), 3 rotas sem nenhum gate real (`/bandeiras-cartao`, `/bancos`, `/dashboard` — qualquer Funcionario acessava por URL direta independente de bloqueio/permissão), um bug onde `/financeiro/banco` herdava por engano o módulo/permissão de `financeiro.comissoes` (fallthrough do `else if` genérico em `routeAccess.ts`), e o PDV (que vive fora do sistema de abas) não respeitava `blockedModules` do SuperAdmin. **Decisão pendente do usuário, não corrigida ainda:**
-   - `admin.backup` está no catálogo de módulos bloqueáveis mas não tem nenhuma tela roteada — existe um `SuperAdminBackup.tsx` completo (726 linhas) só que nunca importado em lugar nenhum. Religar a rota (feature real de restauração de backup) ou remover o item do catálogo (evitar expor um controle que não faz nada)?
+   - ~~`admin.backup` está no catálogo de módulos bloqueáveis mas não tem nenhuma tela roteada — existe um `SuperAdminBackup.tsx` completo (726 linhas) só que nunca importado em lugar nenhum.~~ **Resolvido em 2026-08-18:** religado como aba do novo Painel da Plataforma (`/superadmin/backups`). Descoberto na mesma investigação que o **`SuperAdmin.tsx` (750 linhas) também estava órfão** — nem rota `/superadmin` existia; o platform admin usava o ERP normal de tenant com um seletor de "empresa ativa" no TopBar. Ver seção do Painel da Plataforma abaixo.
    - `compras.*`, `integracoes.*`, `operacoes.lotes` continuam no catálogo com telas só placeholder "Em breve" (`RoadmapModule`) — bloquear/desbloquear esses módulos hoje não muda nada na prática. Sem ação necessária até essas telas virarem reais. **`operacoes.expedicao` deixou de ser placeholder em 2026-08-18** — Módulo 12 completo no código (fila real + tela de conferência), a permissão agora controla algo de verdade.
    - O SuperAdmin não tem um botão "gerenciar módulos" direto na lista de empresas — pra bloquear um módulo de um tenant específico é preciso trocar a "empresa ativa" no seletor e editar em Configurações. Funciona, mas é fácil editar o tenant errado por engano. Vale um botão dedicado por linha da tabela?
 10. **Roadmap de Boleto bancário (remessa/retorno CNAB, Banco do Brasil + Sicoob), pedido em 2026-08-05:** greenfield total, sem nenhuma linha de código hoje. Fatiado em 4 fases (convênio bancário → emissão/impressão de boleto → arquivo remessa → arquivo retorno/conciliação), plano detalhado salvo em `C:\Users\uedde\.claude\plans\enchanted-whistling-planet.md`. Nenhuma fase implementada ainda — aguardando o usuário priorizar quando quiser começar.

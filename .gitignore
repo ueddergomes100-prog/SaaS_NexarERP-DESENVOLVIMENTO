@@ -19,7 +19,10 @@ server/.env.*
 !server/.env.example
 
 # Deploy artifacts / backups
-nexar_deploy-backup-*.zip
+# O build e' reproduzivel com `npm run build` e a Hostinger publica direto do
+# GitHub -- zip de deploy nao precisa ser versionado (o nexar_deploy.zip antigo
+# ficou 3 meses no repo desatualizado, sem ninguem usar).
+*.zip
 
 # AI coding session logs
 .codex-logs/

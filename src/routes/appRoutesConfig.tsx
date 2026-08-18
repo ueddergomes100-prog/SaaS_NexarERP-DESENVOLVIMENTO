@@ -63,6 +63,7 @@ const OrdensProducaoList = lazy(() => import('../pages/Producao/OrdensProducaoLi
 const OrdemProducaoForm = lazy(() => import('../pages/Producao/OrdemProducaoForm'));
 const RelatorioProducao = lazy(() => import('../pages/Producao/RelatorioProducao'));
 const MinutaPrint = lazy(() => import('../pages/Expedicao/MinutaPrint'));
+const FilaExpedicao = lazy(() => import('../pages/Expedicao/FilaExpedicao'));
 
 export const appRoutesConfig: RouteObject[] = [
   { index: true, element: <Navigate to="/dashboard" replace /> },
@@ -146,6 +147,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'configuracoes', element: <Configuracoes /> },
   { path: 'logs-sistema', element: <LogsSistema /> },
 
+  { path: 'operacoes/expedicao', element: <FilaExpedicao /> },
   { path: 'operacoes/expedicao/minuta/:pedidoId', element: <MinutaPrint /> },
 
   { path: 'compras/:moduleId', element: <RoadmapModule /> },

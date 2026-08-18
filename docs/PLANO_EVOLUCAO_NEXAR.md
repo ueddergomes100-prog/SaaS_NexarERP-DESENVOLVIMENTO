@@ -1070,6 +1070,12 @@ Alterados: `Configuracoes.tsx` (flags + catálogo de permissão), `routeAccess.t
 - `git diff --stat`: `PedidoVendaForm.tsx`, `appRoutesConfig.tsx`, `conferenciaDomain.ts`, `tests/conferenciaDomain.test.ts` alterados; `src/pages/Expedicao/` novo. Nenhuma regra do Firestore mudou.
 - Typecheck/lint (0 erros, 66 warnings, nenhum novo)/build (chunk `MinutaPrint` gerado)/182 testes passando. **Falta validação manual** (mesma limitação de sempre).
 
+**Fatia 3/4 concluída em 2026-08-18 — Fila de Expedição:** `src/pages/Expedicao/FilaExpedicao.tsx` (mesmo padrão visual de `OrdensProducaoList.tsx` — filtro por status em botões, busca por número/cliente, tabela). Lê `pedidos_venda` por `tenantId` (mesmo padrão de `PedidoVendas.tsx`) e filtra no cliente por `statusConferencia` truthy — pedido sem o campo (tenant sem a chave, ou venda anterior ao módulo) nunca aparece na fila; nenhum índice novo do Firestore necessário. Botão "Reimprimir Minuta" por linha, navega pra rota da Fatia 2. **Deliberadamente sem abrir a tela de conferência ao clicar na linha** — essa tela é a Fatia 4, ainda não existe; abrir algo inexistente cairia no `RoadmapModule` e confundiria mais que ajudaria.
+
+Rota `operacoes/expedicao` registrada em `appRoutesConfig.tsx` (antes do curinga `operacoes/:moduleId`), substituindo o mockup `RoadmapModule` que respondia por ali. `Sidebar.tsx`: item "Expedição e Entregas" saiu do grupo roadmap `operacoesDev` (que agora só tem "Lotes e Validades") e virou grupo real "Expedição" → "Conferência de Mercadoria", com `module`/`permission` `operacoes.expedicao` — mesmo movimento que a Fatia 2 do M4 fez com "Produção Interna" em 2026-08-02.
+
+`git diff --stat`: `Sidebar.tsx`, `appRoutesConfig.tsx` alterados; `FilaExpedicao.tsx` novo. Nenhuma regra do Firestore mudou. Typecheck/lint (0 erros, 66 warnings, nenhum novo)/build (chunk `FilaExpedicao` gerado)/182 testes passando. **Falta validação manual** (mesma limitação de sempre).
+
 ### Módulo 4 — Produção
 
 **Estado atual:** iniciado em 2026-08-02. Já há esqueleto nas `firestore.rules` (`ordens_producao`, `produtos_composicao`, `estoque_lotes`) e placeholder de rota (`/operacoes/:moduleId` → `RoadmapModule`), com a permissão `operacoes.producao` já catalogada (essa fica reservada pra fatia de Ordem de Produção — a de Matéria-Prima abaixo usa uma permissão própria, `cadastros.materia_prima`).
@@ -1193,7 +1199,7 @@ Atualizar ao concluir cada item.
 | M12 Conferência — Fatia 0/4 Fundação (domain + config + permissão + rules) | 3 | ✅ Concluído — código + regra implantada em `sistema-nexus-dev`; falta validação manual | 2026-08-18 |
 | M12 Conferência — Fatia 1/4 Status nasce na venda | 3 | ✅ Concluído — falta validação manual (conferir no Firestore que a chave desligada não grava o campo) | 2026-08-18 |
 | M12 Conferência — Fatia 2/4 Minuta de entrega | 3 | ✅ Concluído — rota corrigida p/ `operacoes/expedicao/minuta/:id`; código de barras do nº do pedido adiado (ver nota); falta validação manual | 2026-08-18 |
-| M12 Conferência — Fatia 3/4 Fila de Expedição | 3 | ⬜ Pendente | |
+| M12 Conferência — Fatia 3/4 Fila de Expedição | 3 | ✅ Concluído — falta validação manual | 2026-08-18 |
 | M12 Conferência — Fatia 4/4 Tela de conferência (fecha o módulo) | 3 | ⬜ Pendente | |
 | M4 Produção — fatia 0/N Matéria-Prima | 3 | ✅ Validado ao vivo em 2026-08-15 — cadastro real ("Chapa de Aço Teste M4", 100 UN) | 2026-08-02 |
 | M4 Produção — fatia 1/N Composição de produto | 3 | ✅ Validado ao vivo em 2026-08-15 — composição salva, custo total calculado certo (2 UN × R$20 = R$40) | 2026-08-02 |

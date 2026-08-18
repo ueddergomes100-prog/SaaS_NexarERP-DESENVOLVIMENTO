@@ -182,6 +182,15 @@ const Sidebar: React.FC = () => {
       ]
     },
     {
+      id: 'expedicao',
+      label: 'Expedição',
+      icon: Truck,
+      tone: '#14b8a6',
+      items: [
+        { label: 'Conferência de Mercadoria', to: '/operacoes/expedicao', icon: Truck, module: 'operacoes.expedicao', permission: 'operacoes.expedicao' }
+      ]
+    },
+    {
       id: 'financeiro',
       label: 'Financeiro',
       icon: Wallet,
@@ -276,7 +285,6 @@ const Sidebar: React.FC = () => {
       tone: '#14b8a6',
       roadmap: true,
       items: [
-        { label: 'Expedição e Entregas', to: '/operacoes/expedicao', icon: Truck, module: 'operacoes.expedicao' },
         { label: 'Lotes e Validades', to: '/operacoes/lotes-validades', icon: Package, module: 'operacoes.lotes' }
       ]
     }

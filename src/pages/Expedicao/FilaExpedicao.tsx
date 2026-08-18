@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Printer, Truck } from 'lucide-react';
+import { Search, Printer, Truck, ClipboardCheck } from 'lucide-react';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -177,7 +177,15 @@ const FilaExpedicao: React.FC = () => {
                         {STATUS_LABELS[p.statusConferencia]}
                       </span>
                     </td>
-                    <td style={{ textAlign: 'center' }}>
+                    <td style={{ textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                      <button
+                        onClick={() => navigate(`/operacoes/conferencia/${p.id}`)}
+                        className="icon-btn"
+                        title={p.statusConferencia === 'aguardando' ? 'Abrir Conferência' : 'Continuar/Reabrir Conferência'}
+                        style={{ color: '#3b82f6' }}
+                      >
+                        <ClipboardCheck size={18} />
+                      </button>
                       <button
                         onClick={() => navigate(`/operacoes/expedicao/minuta/${p.id}`)}
                         className="icon-btn"

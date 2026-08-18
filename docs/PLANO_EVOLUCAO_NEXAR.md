@@ -897,7 +897,7 @@ Validação com 23 notas fiscais sintéticas criadas direto no Firestore (mesma 
 
 ## 5. Fase 3 — Estrutural (risco alto, exige modelagem)
 
-Ordem obrigatória: **13 → 12 → 4 → 16**. Cada um depende do anterior.
+Ordem obrigatória original: **13 → 12 → 4 → 16**. **Duas exceções já registradas, com justificativa na seção de cada módulo:** o Módulo 4 foi desbloqueado em 2026-08-02 (matéria-prima é pool separado) e o Módulo 12 em 2026-08-18 (conferência é checagem física pós-venda, não operação de estoque). O 16 continua dependendo de 4 e 12.
 
 ### Módulo 13 — Reserva de estoque
 
@@ -923,13 +923,138 @@ Ordem obrigatória: **13 → 12 → 4 → 16**. Cada um depende do anterior.
 
 ### Módulo 12 — Conferência de mercadoria
 
-**Estado atual:** não existe. Coleções `expedicoes` e `entregas` já estão liberadas nas `firestore.rules`.
+**Especificado em detalhe em 2026-08-18**, a partir de três áudios do usuário (transcritos na sessão). O desenho visual do fluxo, com a justificativa de cada decisão, está publicado em <https://claude.ai/code/artifact/93d76503-0c06-417c-87b8-93e963939c76>. Esta seção é a fonte da verdade para a implementação; o artefato é o material de apoio.
 
-**Fluxo:** Pedido → Separação → Conferência → Aguardando Expedição → Entrega → Finalizado.
+**Estado atual (confirmado por leitura em 2026-08-18):**
 
-**Como implementar:** máquina de estados explícita e testada (função pura de transição), registrando divergências (falta/sobra) sem apagar histórico. Cada transição gera log de auditoria com status anterior e novo.
+- Não existe nenhuma tela de conferência. `operacoes.expedicao` já está catalogado em [`moduleCatalog.ts:82`](../src/utils/moduleCatalog.ts) e o menu lateral já tem o item ([`Sidebar.tsx:279`](../src/components/layout/Sidebar.tsx)), mas apontando para o grupo roadmap `operacoesDev` → `/operacoes/expedicao` → `RoadmapModule` (mockup "Em breve", [`RoadmapModule.tsx:197`](../src/pages/Roadmap/RoadmapModule.tsx)).
+- **Não existe** branch de `operacoes.expedicao` em [`routeAccess.ts`](../src/utils/routeAccess.ts) — nem `routeModule` nem `routePermission`. Sem isso a tela fica acessível por URL direta (mesma armadilha da auditoria 2026-08-05).
+- Coleções `expedicoes` e `entregas` já estão nas quatro listas das `firestore.rules` (read/create/update/delete), mas penduradas em `cadastros.estoque` — exatamente o que a orientação abaixo manda corrigir.
+- **Peças que já existem e devem ser reaproveitadas, não recriadas:** `codigoBarras` e `localizacaoEstoque` ("Corredor, prateleira, gaveta") já são campos reais do produto ([`EstoqueForm.tsx:1120` e `:1301`](../src/pages/Estoque/EstoqueForm.tsx)); a busca por código de barras já está pronta em [`productSearch.ts:32`](../src/utils/productSearch.ts) (`CODE_FIELDS`); o popup de finalização da venda já é um `NexusSwal` de três botões em [`PedidoVendaForm.tsx:783`](../src/pages/Vendas/PedidoVendaForm.tsx); o padrão de documento de impressão é [`PedidoPrintDocument.tsx`](../src/pages/Vendas/PedidoPrintDocument.tsx).
 
-**Atenção de permissão:** as coleções hoje estão todas atrás de `cadastros.estoque`. Módulos novos precisam de **permissões próprias** em [`moduleCatalog.ts`](../src/utils/moduleCatalog.ts) e nas `firestore.rules` — não pendurar em `cadastros.estoque`.
+**Decisão de desbloqueio (2026-08-18): o Módulo 12 NÃO depende do Módulo 13.** A "ordem obrigatória 13 → 12" do início da Seção 5 foi pensada quando se imaginava conferência sobre estoque reservado. O fluxo que o usuário descreveu é **pós-venda**: a venda já foi finalizada e o estoque já foi debitado (`applyStockAdjustments`, default `'imediato'`). A conferência aqui é uma **checagem física de separação**, não uma operação de estoque — não lê nem escreve `quantidade`/`quantidadeReservada` em lugar nenhum. Mesmo raciocínio que desbloqueou o Módulo 4 em 2026-08-02.
+
+**Escopo desta rodada:** só a conferência (`Pedido → Aguardando → Em conferência → Conferido | Divergente`). **Fora de escopo, adiado:** "Aguardando Expedição → Entrega → Finalizado", rastreio, romaneio de carga e a coleção `entregas` — o usuário não pediu isso nos áudios, e o fluxo de conferência entrega valor sozinho.
+
+#### Decisões de arquitetura (não reabrir)
+
+1. **O status nasce com a venda, não com o pop-up de impressão.** Este é o ponto central e o único lugar onde o desenho diverge do que o usuário descreveu nos áudios (divergência intencional, já explicada a ele). Se o status dependesse do clique em "imprimir minuta", um "não" acidental deixaria o pedido fora da conferência para sempre, silenciosamente. Com a chave ligada, `pedidoData` nasce com `statusConferencia: 'aguardando'` e o pedido aparece na fila com papel ou sem papel.
+2. **Custo zero na transação da venda.** A única mudança em [`PedidoVendaForm.tsx:669`](../src/pages/Vendas/PedidoVendaForm.tsx) é **um campo a mais** no objeto `pedidoData` que já está sendo escrito. Nenhuma leitura nova, nenhum documento novo, nenhuma escrita nova dentro da `runTransaction`. O documento de conferência é criado depois, preguiçosamente, quando alguém abre o pedido na tela.
+3. **`expedicoes/{pedidoId}` — id determinístico.** O documento de conferência usa o próprio id do pedido como id do documento. Idempotência natural (dois funcionários abrindo ao mesmo tempo não criam dois documentos), no mesmo espírito do `idempotencyKey` da Seção 1.4.
+4. **Não mexer no formato de `itens` do pedido.** `item.id` já é o `produtoId` (é o que `applyStockAdjustments` usa em [`PedidoVendaForm.tsx:650`](../src/pages/Vendas/PedidoVendaForm.tsx)). A minuta e a tela de conferência buscam `estoque/{item.id}` para obter `localizacaoEstoque` e `codigoBarras`. Não snapshotar esses campos dentro do item na hora da venda — seria mexer no núcleo transacional para ganhar nada.
+5. **Multiplicador é comportamento de tela, não configuração.** O usuário sugeriu uma config "bipar 1 conta os 10". Recusado, e o motivo está registrado: um bipe acidental fecharia a linha inteira e a conferência deixaria de conferir. O padrão implementado é digitar a quantidade **antes** de bipar (teclar `10`, depois bipar → lança 10), com o multiplicador zerando a cada leitura.
+6. **A trava de bipagem tem válvula de escape.** `exigirBipagem` bloqueia lançamento manual **apenas em produtos que têm `codigoBarras` preenchido**. Produto sem EAN sempre aceita manual. Sem isso, o funcionário fica preso num item que tem na mão, e a saída dele vai ser desligar a trava para todo mundo.
+7. **`divergente` é desfecho legítimo, não erro.** Guardar quantidade pedida × conferida por item, sem apagar histórico, e permitir reabrir.
+
+#### Modelo de dados
+
+Campos **novos e opcionais** em `pedidos_venda/{id}` (documentos existentes não migram; leitura sempre com fallback `??`):
+
+| Campo | Tipo | Observação |
+|---|---|---|
+| `statusConferencia` | `'aguardando' \| 'em_conferencia' \| 'conferido' \| 'divergente'` | Ausente = tenant não usa conferência, ou venda anterior ao módulo |
+| `conferidoPor` / `conferidoPorNome` | `string` | Auditoria — quem fechou |
+| `conferidoEm` | `Timestamp` | Auditoria — quando |
+
+Documento `expedicoes/{pedidoId}` (criado no primeiro "abrir conferência"):
+
+```
+tenantId, pedidoId, numeroPedido, clienteNome,
+status: 'em_conferencia' | 'conferido' | 'divergente',
+itens: [{ produtoId, codigo, codigoBarras, nome, localizacaoEstoque,
+          quantidadePedida, quantidadeConferida }],
+abertoPor, abertoPorNome, abertoEm,
+conferidoPor, conferidoPorNome, conferidoEm,
+observacao,
+historico: [{ de, para, em, usuarioId, usuarioNome }],
+createdAt, ...buildDocumentMetadata(...)
+```
+
+A **fila** é uma query direta em `pedidos_venda` por `tenantId` + `statusConferencia` — não depende de `expedicoes` existir.
+
+#### Configurações (em `configuracoes/{tenantId}`, via `Configuracoes.tsx`)
+
+Mesmo padrão de leitura com fallback `??` já usado em `regimeTributario` e `momentoBaixaEstoque` — tenants existentes caem no default sem migração.
+
+| Flag | Default | O que faz |
+|---|---|---|
+| `conferenciaMercadoria` | `false` | Chave-mestra. Desligada, nenhuma venda ganha `statusConferencia` e nada do módulo aparece. **Default desligado é obrigatório** — ligar por padrão criaria status pendente em todo tenant que não usa separação |
+| `imprimirMinutaAposVenda` | `true` | Mostra o pop-up da minuta depois do pop-up de recibo/NFC-e |
+| `exigirBipagem` | `true` | Bloqueia manual **só** em produto com `codigoBarras` (ver decisão 6) |
+| `bloquearExcedente` | `true` | Recusa conferir acima do pedido e item fora do pedido |
+| `ordenarMinutaPorLocal` | `true` | Ordena a minuta por `localizacaoEstoque` — vira rota de separação |
+
+#### Permissão e regras do Firestore
+
+Permissão nova `operacoes.expedicao` (não pendurar em `cadastros.estoque`). Precisa entrar nos **quatro** lugares, senão o gate não existe de verdade:
+
+1. [`moduleCatalog.ts`](../src/utils/moduleCatalog.ts) — já está lá (`operacoes.expedicao`), nada a fazer.
+2. Catálogo granular embutido em [`Configuracoes.tsx:1597`](../src/pages/Configuracoes/Configuracoes.tsx) — **falta**, adicionar `{ id: 'operacoes.expedicao', label: 'Expedição: Conferência de Mercadoria', color: '#14b8a6' }`.
+3. [`routeAccess.ts`](../src/utils/routeAccess.ts) — **falta**, adicionar branch nos **dois** blocos (`routeModule` e `routePermission`) para `/operacoes/expedicao` e `/operacoes/conferencia`. Cuidado com a ordem: o `else if` genérico de `/operacoes` não pode engolir o específico (mesmo bug de fallthrough que atingiu `/financeiro/banco` na auditoria de 2026-08-05).
+4. `firestore.rules` — tirar `'expedicoes'` do balaio de `cadastros.estoque` em `canWriteTenantCollection` **e** `canDeleteTenantCollection`, e dar cláusula própria: `(collectionName == 'expedicoes' && hasPermission('operacoes.expedicao'))`. As quatro listas de allow (read/create/update/delete) já contêm `'expedicoes'` — não precisa mexer nelas.
+
+**⚠ Armadilha que só aparece em runtime:** a tela de conferência escreve `statusConferencia` em `pedidos_venda`, e essa coleção exige `vendas.pedidos`/`vendas.alterar`. Um separador de estoque que só tenha `operacoes.expedicao` vai tomar `permission-denied` ao fechar a conferência. Resolver na regra, liberando **apenas os campos da conferência** — não dar `vendas.alterar` ao estoque:
+
+```
+(collectionName == 'pedidos_venda' && hasPermission('operacoes.expedicao') &&
+ request.resource.data.diff(resource.data).affectedKeys()
+   .hasOnly(['statusConferencia','conferidoPor','conferidoPorNome','conferidoEm','alteradoPor','alteradoEm']))
+```
+
+Toda regra nova precisa de `firebase deploy --only firestore:rules --project sistema-nexus-dev` (CLI via `npx`, ver memória do projeto) — sem isso a tela funciona no código e falha no banco.
+
+#### Fatiamento
+
+Quatro fatias, commit próprio cada uma, na ordem. Cada fatia entrega valor sozinha.
+
+**Fatia 0/4 — Fundação (zero mudança de comportamento visível).**
+Novo `src/utils/conferenciaDomain.ts` com as funções puras, todas testadas em `tests/conferenciaDomain.test.ts` (registrar nas duas listas de `scripts/run-finance-domain-tests.mjs`):
+- `StatusConferencia` + `canTransition(de, para)` — máquina de estados explícita.
+- `aplicarBipagem(itens, codigo, multiplicador, opts)` → `{ itens, resultado }` com `resultado` em `'ok' | 'nao_encontrado' | 'excedente' | 'bloqueado_manual'`.
+- `computeStatusFinal(itens)` → `'conferido'` se toda `quantidadeConferida === quantidadePedida`, senão `'divergente'`.
+- `ordenarPorLocalizacao(itens)` — itens sem localização vão para o fim, não para o começo.
+- `podeLancarManual(item, exigirBipagem)` — encapsula a decisão 6.
+As cinco flags em `Configuracoes.tsx`, a permissão nos itens 2/3/4 acima, e o deploy da regra. **Guard-rail obrigatório no teste:** um caso que quebra se alguém trocar o default de `conferenciaMercadoria` para `true` (mesmo padrão do teste de `momentoBaixaEstoque` na Fatia 0 do M13).
+
+**Fatia 1/4 — Status nasce na venda.**
+Um campo a mais em `pedidoData` ([`PedidoVendaForm.tsx:669`](../src/pages/Vendas/PedidoVendaForm.tsx)), condicionado à chave-mestra. Coluna/badge de conferência em [`PedidoVendas.tsx`](../src/pages/Vendas/PedidoVendas.tsx), visível só com a chave ligada. Nada de tela nova ainda — o objetivo é provar que o dado nasce certo e que tenant sem a chave não vê diferença nenhuma. **Verificar no Firestore** que uma venda com a chave desligada não grava o campo.
+
+**Fatia 2/4 — Minuta de entrega.**
+`src/pages/Expedicao/MinutaPrint.tsx` + `MinutaPrintDocument.tsx`, clonando o padrão de `PedidoPrintDocument.tsx`. Rota `expedicao/minuta/:pedidoId`. Busca `estoque/{item.id}` para `localizacaoEstoque`/`codigoBarras`, ordena conforme `ordenarMinutaPorLocal`. **Sem valores, sem preço, sem total em dinheiro** — só local, código, produto e quantidade, mais rodapé de assinatura ("Separado por" / "Conferido por"). Número do pedido impresso **também como código de barras** (o conferente bipa a própria folha para abrir o pedido na Fatia 4). Pop-up novo em `PedidoVendaForm.tsx`, encadeado **depois** do fluxo de recibo/NFC-e já existente — não substituir nem reorganizar o `NexusSwal` atual, só acrescentar uma etapa.
+
+**Fatia 3/4 — Fila de Expedição.**
+`src/pages/Expedicao/FilaExpedicao.tsx`, rota real `operacoes/expedicao` (declarada **antes** do curinga `operacoes/:moduleId` em [`appRoutesConfig.tsx:150`](../src/routes/appRoutesConfig.tsx), senão cai no `RoadmapModule`). Lista pedidos por `statusConferencia`, com filtro por status e busca por número/cliente. Botão de reimprimir minuta. Mover o item "Expedição e Entregas" do grupo roadmap `operacoesDev` para um grupo real no `Sidebar.tsx` — mesmo movimento que a Fatia 2 do M4 fez com "Produção Interna".
+
+**Fatia 4/4 — Tela de conferência (fecha o módulo).**
+`src/pages/Expedicao/ConferenciaForm.tsx`, rota `operacoes/conferencia/:pedidoId`. Abre (ou cria) `expedicoes/{pedidoId}`, marca `em_conferencia`, mostra os itens com pedido × conferido. Campo único de leitura que aceita EAN bipado ou digitado, com multiplicador prefixado (decisão 5). Feedback imediato e distinto para `nao_encontrado` e `excedente` — visual **e** sonoro (o separador não está olhando para a tela). Lançamento manual respeitando `podeLancarManual`. Fechar chama `computeStatusFinal`, grava nas duas pontas (`expedicoes` + os campos de auditoria em `pedidos_venda`) e emite o relatório final **destacando as divergências**. `createAuditLog` em cada transição com `valorAnterior`/`valorNovo` (Seção 1.4).
+
+#### Arquivos afetados
+
+Criados: `src/utils/conferenciaDomain.ts`, `tests/conferenciaDomain.test.ts`, `src/pages/Expedicao/` (`FilaExpedicao.tsx`, `ConferenciaForm.tsx`, `MinutaPrint.tsx`, `MinutaPrintDocument.tsx`).
+Alterados: `Configuracoes.tsx` (flags + catálogo de permissão), `routeAccess.ts`, `appRoutesConfig.tsx`, `Sidebar.tsx`, `PedidoVendaForm.tsx` (um campo + um pop-up), `PedidoVendas.tsx` (coluna), `firestore.rules`, `scripts/run-finance-domain-tests.mjs`.
+**Risco de regressão concentrado em `PedidoVendaForm.tsx`** — é o arquivo mais crítico do sistema e o único ponto onde este módulo toca código transacional existente. Conferir `git diff` desse arquivo linha a linha antes de commitar.
+
+#### Critério de aceite
+
+1. Tenant com `conferenciaMercadoria` desligado: nenhuma diferença visível em lugar nenhum, e venda finalizada **não** grava `statusConferencia` (conferir no Firestore).
+2. Com a chave ligada: venda finalizada nasce `aguardando` e aparece na fila sem ninguém imprimir nada.
+3. Minuta imprime sem nenhum valor monetário, ordenada por localização.
+4. Bipar item fora do pedido é recusado com aviso; bipar além da quantidade é recusado com `bloquearExcedente` ligado.
+5. Produto sem `codigoBarras` aceita lançamento manual mesmo com `exigirBipagem` ligado.
+6. Conferência parcial fecha como `divergente`, com pedido × conferido preservado por item, e pode ser reaberta.
+7. Usuário só com `operacoes.expedicao` consegue fechar uma conferência (prova real da regra de `affectedKeys`) e **não** consegue editar o resto do pedido.
+8. Typecheck, lint (sem warnings novos), build e a suíte de testes passando.
+
+#### Não faça
+
+- Não ligar a chave-mestra por padrão.
+- Não criar dashboard separado de expedição (Módulo 16 estende o `Dashboard.tsx` existente).
+- Não mexer em `quantidade`/`quantidadeReservada` — conferência não é operação de estoque (decisão de desbloqueio acima).
+- Não dar `vendas.alterar` ao separador para resolver o `permission-denied`; usar a regra por campo.
+- Não trocar o nome "minuta" por outro termo — o cliente do usuário já usa essa palavra no dia a dia.
+- Não implementar entrega/rastreio/`entregas` nesta rodada.
+
+**Atenção de permissão (orientação geral, mantida):** as coleções hoje estão todas atrás de `cadastros.estoque`. Módulos novos precisam de **permissões próprias** em [`moduleCatalog.ts`](../src/utils/moduleCatalog.ts) e nas `firestore.rules` — não pendurar em `cadastros.estoque`.
 
 ### Módulo 4 — Produção
 
@@ -1051,7 +1176,11 @@ Atualizar ao concluir cada item.
 | M15 Relatórios padronizados | 2 | ⬜ Pendente — adiado, depois de M4 | |
 | M13 Reserva de estoque — Fatia 0/N Fundação | 3 | ✅ Concluído — config + funções puras, zero mudança de comportamento | 2026-08-14 |
 | M13 Reserva de estoque — Fatia 1/N Reserva na OS | 3 | ✅ Concluído — validado ao vivo (8 cenários); reserva ainda não protegida contra PDV/Pedido/Orçamento/Devolução (fatias futuras) | 2026-08-14 |
-| M12 Conferência de mercadoria | 3 | ⬜ Pendente | |
+| M12 Conferência — Fatia 0/4 Fundação (domain + config + permissão + rules) | 3 | ⬜ Pendente — especificado em 2026-08-18, pronto para implementar | |
+| M12 Conferência — Fatia 1/4 Status nasce na venda | 3 | ⬜ Pendente | |
+| M12 Conferência — Fatia 2/4 Minuta de entrega | 3 | ⬜ Pendente | |
+| M12 Conferência — Fatia 3/4 Fila de Expedição | 3 | ⬜ Pendente | |
+| M12 Conferência — Fatia 4/4 Tela de conferência (fecha o módulo) | 3 | ⬜ Pendente | |
 | M4 Produção — fatia 0/N Matéria-Prima | 3 | ✅ Validado ao vivo em 2026-08-15 — cadastro real ("Chapa de Aço Teste M4", 100 UN) | 2026-08-02 |
 | M4 Produção — fatia 1/N Composição de produto | 3 | ✅ Validado ao vivo em 2026-08-15 — composição salva, custo total calculado certo (2 UN × R$20 = R$40) | 2026-08-02 |
 | M4 Produção — fatia 2/N Ordem de Produção + máquina de estados | 3 | ✅ Validado ao vivo em 2026-08-15 — Criada→Em Produção⇄Pausada→Finalizada e Estornada, todas as transições testadas | 2026-08-02 |
@@ -1076,7 +1205,7 @@ Atualizar ao concluir cada item.
 8. ~~**Repositórios git:** `git push dev main` ficou pendente...~~ Resolvido em 2026-07-29: usuário deu autorização permanente pra `dev` receber push automático após cada lote de trabalho (ver [[project-nexar-git-repos]] na memória). `production` continua exigindo pedido explícito a cada vez — nunca mudou.
 9. **Auditoria de permissões/módulos (2026-08-05):** levantamento completo dos dois catálogos de acesso do sistema — o de módulo bloqueável por plano SaaS (`src/utils/moduleCatalog.ts`, controlado pelo SuperAdmin) e o de permissão granular do Funcionário (lista embutida em `Configuracoes.tsx`). Corrigido no código: 4 ids que existiam num catálogo mas não no outro (`cadastros.bandeiras_cartao`, `cadastros.bancos`, `financeiro.banco`, `financeiro.caixa_registros`), 3 rotas sem nenhum gate real (`/bandeiras-cartao`, `/bancos`, `/dashboard` — qualquer Funcionario acessava por URL direta independente de bloqueio/permissão), um bug onde `/financeiro/banco` herdava por engano o módulo/permissão de `financeiro.comissoes` (fallthrough do `else if` genérico em `routeAccess.ts`), e o PDV (que vive fora do sistema de abas) não respeitava `blockedModules` do SuperAdmin. **Decisão pendente do usuário, não corrigida ainda:**
    - `admin.backup` está no catálogo de módulos bloqueáveis mas não tem nenhuma tela roteada — existe um `SuperAdminBackup.tsx` completo (726 linhas) só que nunca importado em lugar nenhum. Religar a rota (feature real de restauração de backup) ou remover o item do catálogo (evitar expor um controle que não faz nada)?
-   - `compras.*`, `integracoes.*`, `operacoes.expedicao`/`operacoes.lotes` estão no catálogo mas as telas correspondentes são só placeholder "Em breve" (`RoadmapModule`) — bloquear/desbloquear esses módulos hoje não muda nada na prática. Sem ação necessária até essas telas virarem reais.
+   - `compras.*`, `integracoes.*`, `operacoes.expedicao`/`operacoes.lotes` estão no catálogo mas as telas correspondentes são só placeholder "Em breve" (`RoadmapModule`) — bloquear/desbloquear esses módulos hoje não muda nada na prática. Sem ação necessária até essas telas virarem reais. **Atualização 2026-08-18:** `operacoes.expedicao` deixa de ser placeholder no Módulo 12 (Fatia 0 já prevê criar as branches faltantes em `routeAccess.ts` e a permissão granular em `Configuracoes.tsx`) — os demais continuam pendentes.
    - O SuperAdmin não tem um botão "gerenciar módulos" direto na lista de empresas — pra bloquear um módulo de um tenant específico é preciso trocar a "empresa ativa" no seletor e editar em Configurações. Funciona, mas é fácil editar o tenant errado por engano. Vale um botão dedicado por linha da tabela?
 10. **Roadmap de Boleto bancário (remessa/retorno CNAB, Banco do Brasil + Sicoob), pedido em 2026-08-05:** greenfield total, sem nenhuma linha de código hoje. Fatiado em 4 fases (convênio bancário → emissão/impressão de boleto → arquivo remessa → arquivo retorno/conciliação), plano detalhado salvo em `C:\Users\uedde\.claude\plans\enchanted-whistling-planet.md`. Nenhuma fase implementada ainda — aguardando o usuário priorizar quando quiser começar.
 11. **Notas Recebidas automática via Spedy (achado em 2026-08-06, auditando a documentação da Spedy pedida pelo usuário):** a Spedy tem uma API que já busca automaticamente, via SEFAZ, as notas que fornecedores emitem contra o CNPJ da empresa (com manifestação e XML completo) — poderia substituir ou complementar o fluxo 100% manual do `EntradaNFE.tsx` de hoje (usuário baixa o XML e arrasta pro sistema). **Usuário pediu explicitamente pra ser lembrado desse item em toda continuação do trabalho até decidir** — sempre mencionar como pendência em aberto ao retomar o módulo fiscal ou o plano de evolução, não deixar cair.

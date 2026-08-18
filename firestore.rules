@@ -92,9 +92,10 @@ service cloud.firestore {
     function canWriteTenantCollection(collectionName) {
       return canManageTenantData() ||
         (collectionName in ['clientes', 'veiculos'] && hasAnyPermission(['cadastros.clientes', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'crm.agenda', 'crm.alertas'])) ||
-        (collectionName in ['produtos', 'estoque', 'fornecedores', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'expedicoes', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        (collectionName in ['produtos', 'estoque', 'fornecedores', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'entregas'] && hasPermission('cadastros.estoque')) ||
         (collectionName == 'materias_primas' && hasPermission('cadastros.materia_prima')) ||
         (collectionName == 'ordens_producao' && hasPermission('operacoes.producao')) ||
+        (collectionName == 'expedicoes' && hasPermission('operacoes.expedicao')) ||
         (collectionName == 'categorias' && hasPermission('cadastros.categorias')) ||
         (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
         (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
@@ -118,9 +119,10 @@ service cloud.firestore {
     function canDeleteTenantCollection(collectionName) {
       return canManageTenantData() ||
         (collectionName in ['clientes', 'veiculos'] && hasPermission('cadastros.clientes')) ||
-        (collectionName in ['produtos', 'estoque', 'fornecedores', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'expedicoes', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        (collectionName in ['produtos', 'estoque', 'fornecedores', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'entregas'] && hasPermission('cadastros.estoque')) ||
         (collectionName == 'materias_primas' && hasPermission('cadastros.materia_prima')) ||
         (collectionName == 'ordens_producao' && hasPermission('operacoes.producao')) ||
+        (collectionName == 'expedicoes' && hasPermission('operacoes.expedicao')) ||
         (collectionName == 'categorias' && hasPermission('cadastros.categorias')) ||
         (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
         (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
@@ -174,6 +176,21 @@ service cloud.firestore {
         request.resource.data.tenantId == resource.data.tenantId &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'updatedAt']) &&
         hasAnyPermission(['vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar']);
+    }
+
+    // Modulo 12 (Conferencia de mercadoria): quem so tem operacoes.expedicao
+    // NAO tem vendas.alterar, entao nao pode editar o pedido de venda em
+    // geral -- mas precisa fechar/reabrir a conferencia, que grava campos
+    // proprios em pedidos_venda (ver docs/PLANO_EVOLUCAO_NEXAR.md, Modulo
+    // 12). Restrito exatamente aos campos da conferencia, nunca aos campos
+    // de negocio da venda (itens, valores, status de pagamento etc).
+    function canCloseConferenciaOnPedido() {
+      return hasProfile() &&
+        resource.data.tenantId == currentTenantId() &&
+        request.resource.data.tenantId == resource.data.tenantId &&
+        request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly(['statusConferencia', 'conferidoPor', 'conferidoPorNome', 'conferidoEm', 'alteradoPor', 'alteradoEm']) &&
+        hasPermission('operacoes.expedicao');
     }
 
     function canDeleteTenantDocument() {
@@ -424,7 +441,8 @@ service cloud.firestore {
         'caixas_pdv'
       ] && canUpdateTenantDocument() && (
         canWriteTenantCollection(collectionName) ||
-        (collectionName == 'estoque' && canAdjustStockQuantity())
+        (collectionName == 'estoque' && canAdjustStockQuantity()) ||
+        (collectionName == 'pedidos_venda' && canCloseConferenciaOnPedido())
       );
 
       allow delete: if collectionName in [

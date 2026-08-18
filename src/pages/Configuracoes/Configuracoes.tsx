@@ -13,6 +13,13 @@ import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
 import { spedyService, type SpedyCity } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
+import {
+  DEFAULT_BLOQUEAR_EXCEDENTE,
+  DEFAULT_CONFERENCIA_MERCADORIA,
+  DEFAULT_EXIGIR_BIPAGEM,
+  DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
+  DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
+} from '../../utils/conferenciaDomain';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 const toStringArray = (value: unknown): string[] => {
@@ -83,6 +90,11 @@ const Configuracoes: React.FC = () => {
     validarCadastroProduto: false,
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
+    conferenciaMercadoria: DEFAULT_CONFERENCIA_MERCADORIA,
+    imprimirMinutaAposVenda: DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
+    exigirBipagem: DEFAULT_EXIGIR_BIPAGEM,
+    bloquearExcedente: DEFAULT_BLOQUEAR_EXCEDENTE,
+    ordenarMinutaPorLocal: DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
     emiteNFe: false,
     emiteNFCe: false,
     emiteNFSe: false,
@@ -141,6 +153,11 @@ const Configuracoes: React.FC = () => {
             validarCadastroProduto: data.validarCadastroProduto ?? false,
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
+            conferenciaMercadoria: data.conferenciaMercadoria ?? DEFAULT_CONFERENCIA_MERCADORIA,
+            imprimirMinutaAposVenda: data.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
+            exigirBipagem: data.exigirBipagem ?? DEFAULT_EXIGIR_BIPAGEM,
+            bloquearExcedente: data.bloquearExcedente ?? DEFAULT_BLOQUEAR_EXCEDENTE,
+            ordenarMinutaPorLocal: data.ordenarMinutaPorLocal ?? DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
             emiteNFe: data.emiteNFe ?? false,
             emiteNFCe: data.emiteNFCe ?? false,
             emiteNFSe: data.emiteNFSe ?? false,
@@ -1263,6 +1280,73 @@ const Configuracoes: React.FC = () => {
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Define quando o estoque será debitado. Por enquanto é só um registro informativo — nenhum fluxo de venda, PDV ou OS lê essa configuração ainda; a baixa continua acontecendo imediatamente no fechamento, como hoje.</p>
               </div>
 
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Conferência de Mercadoria (Expedição)</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.conferenciaMercadoria === true}
+                    onChange={(e) => setFormData({ ...formData, conferenciaMercadoria: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Trabalha com conferência de mercadoria antes da expedição
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Quando marcado, toda venda finalizada nasce com um status de conferência e passa a ser exigida a separação/bipagem antes de considerar o pedido pronto. Desligado (padrão), nenhuma venda ganha esse status e nada muda no fluxo atual.</p>
+              </div>
+
+              {formData.conferenciaMercadoria && (
+                <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Opções da Conferência</h4>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.imprimirMinutaAposVenda === true}
+                      onChange={(e) => setFormData({ ...formData, imprimirMinutaAposVenda: e.target.checked })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Perguntar se imprime a minuta de entrega ao finalizar a venda
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.exigirBipagem === true}
+                      onChange={(e) => setFormData({ ...formData, exigirBipagem: e.target.checked })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Exigir bipagem do código de barras (produto sem EAN cadastrado sempre aceita lançamento manual)
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.bloquearExcedente === true}
+                      onChange={(e) => setFormData({ ...formData, bloquearExcedente: e.target.checked })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Bloquear conferência acima da quantidade pedida ou de item fora do pedido
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.ordenarMinutaPorLocal === true}
+                      onChange={(e) => setFormData({ ...formData, ordenarMinutaPorLocal: e.target.checked })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Ordenar a minuta por localização do produto no estoque
+                  </label>
+
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Fundação do módulo (Fatia 0/4) — estas opções ainda não são lidas por nenhuma tela de venda, minuta ou conferência; entram em uso nas fatias seguintes.</p>
+                </div>
+              )}
+
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', gridColumn: '1 / -1' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Emissão Fiscal Habilitada</label>
                 <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
@@ -1600,6 +1684,7 @@ const Configuracoes: React.FC = () => {
                       { id: 'cadastros.estoque', label: 'Cadastros: Estoque / Produtos', color: '#8b5cf6' },
                       { id: 'cadastros.materia_prima', label: 'Cadastros: Matéria-Prima', color: '#8b5cf6' },
                       { id: 'operacoes.producao', label: 'Produção: Ordens de Produção', color: '#f97316' },
+                      { id: 'operacoes.expedicao', label: 'Expedição: Conferência de Mercadoria', color: '#14b8a6' },
                       { id: 'cadastros.servicos', label: 'Cadastros: Serviços', color: '#8b5cf6' },
                       { id: 'cadastros.categorias', label: 'Cadastros: Categorias', color: '#8b5cf6' },
                       { id: 'cadastros.unidades_medida', label: 'Cadastros: Unidades de Medida', color: '#8b5cf6' },

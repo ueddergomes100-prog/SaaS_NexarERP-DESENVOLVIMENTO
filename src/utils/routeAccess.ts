@@ -27,6 +27,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/fornecedores')) routeModule = 'cadastros.fornecedores';
   else if (path.startsWith('/materias-primas')) routeModule = 'cadastros.materia_prima';
   else if (path.startsWith('/producao/ordens') || path.startsWith('/producao/relatorios')) routeModule = 'operacoes.producao';
+  else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routeModule = 'operacoes.expedicao';
   else if (path.startsWith('/pedidos-venda')) routeModule = 'comercial.pedidos';
   else if (path.startsWith('/orcamentos')) routeModule = 'comercial.orcamentos';
   else if (path.startsWith('/relatorios-vendas')) routeModule = 'comercial.relatorios';
@@ -60,6 +61,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/fornecedores')) routePermission = 'cadastros.estoque';
   else if (path.startsWith('/materias-primas')) routePermission = 'cadastros.materia_prima';
   else if (path.startsWith('/producao/ordens') || path.startsWith('/producao/relatorios')) routePermission = 'operacoes.producao';
+  else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routePermission = 'operacoes.expedicao';
   else if (path.startsWith('/pedidos-venda')) routePermission = 'vendas.pedidos';
   else if (path.startsWith('/orcamentos')) routePermission = 'vendas.orcamentos';
   else if (path.startsWith('/relatorios-vendas')) routePermission = 'vendas.relatorios';

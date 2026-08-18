@@ -48,10 +48,10 @@ const EstoqueList: React.FC = () => {
   }, [currentUser]);
 
   const handleDelete = async (id: string) => {
-    const isConfirmed = await confirmDelete('esta peça do estoque');
+    const isConfirmed = await confirmDelete('este produto do estoque');
     if (isConfirmed) {
       try {
-        const nomePeca = pecasList.find(p => p.id === id)?.nome || 'Desconhecida';
+        const nomePeca = pecasList.find(p => p.id === id)?.nome || 'Desconhecido';
         await deleteDoc(doc(db, 'estoque', id));
         try {
           const { createAuditLog } = await import('../../services/logService');
@@ -61,15 +61,15 @@ const EstoqueList: React.FC = () => {
             usuarioEmail: currentUser?.email || '',
             modulo: 'estoque',
             acao: 'exclusao',
-            descricao: `Peça ${nomePeca} excluída do estoque.`,
+            descricao: `Produto ${nomePeca} excluído do estoque.`,
             registroRelacionadoId: id,
             status: 'sucesso',
             critical: true
           });
         } catch (logErr) {}
-        showSuccess('Peça excluída!');
+        showSuccess('Produto excluído!');
       } catch (error) {
-        console.error("Erro ao excluir peça:", error);
+        console.error("Erro ao excluir produto:", error);
         showError('Erro ao excluir', 'Tente novamente mais tarde.');
       }
     }
@@ -79,7 +79,7 @@ const EstoqueList: React.FC = () => {
     if (!currentUser) return;
     const isConfirmed = await NexusSwal.fire({
       title: 'Padronizar Nomes?',
-      text: 'Isto converterá o nome de TODAS as peças do estoque para MAIÚSCULAS.',
+      text: 'Isto converterá o nome de TODOS os produtos do estoque para MAIÚSCULAS.',
       icon: 'question',
       showCancelButton: true,
       confirmButtonText: 'Sim, padronizar agora'
@@ -99,7 +99,7 @@ const EstoqueList: React.FC = () => {
             count++;
           }
         }
-        showSuccess(`Pronto! ${count} peças foram atualizadas.`);
+        showSuccess(`Pronto! ${count} produtos foram atualizados.`);
       } catch(err) {
         showError('Erro', 'Ocorreu um erro na migração.');
       } finally {
@@ -159,7 +159,7 @@ const EstoqueList: React.FC = () => {
             onClick={() => openTab('/estoque/nova')}
           >
             <Plus size={18} style={{ marginRight: 8 }} />
-            Nova Peça
+            Novo Produto
           </button>
         </div>
       </div>
@@ -222,7 +222,7 @@ const EstoqueList: React.FC = () => {
             <thead>
               <tr>
                 <th>Código / SKU</th>
-                <th>Nome da Peça</th>
+                <th>Nome do Produto</th>
                 <th>Categoria</th>
                 <th>Qtd.</th>
                 <th>Preço (Venda)</th>
@@ -238,7 +238,7 @@ const EstoqueList: React.FC = () => {
               ) : filteredPecas.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>
-                    {searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhuma peça cadastrada no estoque.'}
+                    {searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhum produto cadastrado no estoque.'}
                   </td>
                 </tr>
               ) : (

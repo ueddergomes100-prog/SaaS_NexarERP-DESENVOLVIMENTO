@@ -680,7 +680,7 @@ const OrcamentoForm: React.FC = () => {
           <div className="card form-section">
             <div className="section-header">
               <Wrench size={20} className="section-icon" />
-              <h3>Peças e Serviços</h3>
+              <h3>Produtos e Serviços</h3>
             </div>
             
             <div className="item-add-container">
@@ -736,7 +736,7 @@ const OrcamentoForm: React.FC = () => {
 
               <div className="item-add-row">
                 <div style={{ position: 'relative' }}>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Peça / Produto</label>
+                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Produto</label>
                   <ProductAutocomplete
                     value={pecaNomeInput}
                     products={pecasEstoque}
@@ -751,8 +751,8 @@ const OrcamentoForm: React.FC = () => {
                       setPecaPrecoInput(p.precoVenda.toString());
                       setPecaSelecionada(p);
                     }}
-                    placeholder="Nome da Peça..."
-                    ariaLabel="Buscar peça"
+                    placeholder="Nome do Produto..."
+                    ariaLabel="Buscar produto"
                     className="has-clear-btn"
                     onViewMore={() => setIsPecaSearchModalOpen(true)}
                     renderItem={renderPecaRow}
@@ -779,14 +779,14 @@ const OrcamentoForm: React.FC = () => {
                     }}
                     renderItem={renderPecaRow}
                     initialQuery={pecaNomeInput}
-                    title="Buscar peça"
+                    title="Buscar produto"
                   />
                 </div>
                 <div>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Preço</label>
                   <input type="text" placeholder="R$ 0,00" value={pecaPrecoInput} onChange={(e) => setPecaPrecoInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('peca'); } }} />
                 </div>
-                <button className="add-item-btn" onClick={() => handleAddItem('peca')} title="Adicionar Peça">
+                <button className="add-item-btn" onClick={() => handleAddItem('peca')} title="Adicionar Produto">
                   <Plus size={20} />
                 </button>
               </div>
@@ -797,7 +797,7 @@ const OrcamentoForm: React.FC = () => {
                 <div key={index} className="item-row">
                   <div className="item-info">
                     <div className="item-name">{item.nome}</div>
-                    <div className="item-type">{item.tipo === 'servico' ? 'Mão de Obra' : 'Peça/Produto'}</div>
+                    <div className="item-type">{item.tipo === 'servico' ? 'Mão de Obra' : 'Produto'}</div>
                   </div>
                   <div className="item-actions">
                     <input
@@ -832,7 +832,7 @@ const OrcamentoForm: React.FC = () => {
               <span style={{ fontWeight: 600 }}>R$ {totalServicos.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '14px' }}>
-              <span>Peças:</span>
+              <span>Produtos:</span>
               <span style={{ fontWeight: 600 }}>R$ {totalPecas.toFixed(2)}</span>
             </div>
             <div className="grand-total-row">

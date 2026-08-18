@@ -376,8 +376,17 @@ const PedidoVendas: React.FC = () => {
                 </tr>
               ) : (
                 filteredPedidos.map(p => (
-                  <tr key={p.id} style={{ borderBottom: '1px solid var(--border-color)', opacity: p.status === 'Cancelada' ? 0.6 : 1 }}>
-                    <td style={{ padding: '16px' }}>
+                  // Linha inteira abre o pedido (mesmo padrao de ContasReceber.tsx
+                  // e OrdensProducaoList.tsx). As celulas de checkbox e de acoes
+                  // param a propagacao pra continuarem com o comportamento delas.
+                  <tr
+                    key={p.id}
+                    className="clickable-row"
+                    onClick={() => openTab(`/pedidos-venda/visualizar/${p.id}`)}
+                    title="Clique para visualizar o pedido"
+                    style={{ borderBottom: '1px solid var(--border-color)', opacity: p.status === 'Cancelada' ? 0.6 : 1, cursor: 'pointer' }}
+                  >
+                    <td style={{ padding: '16px' }} onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selectedIds.has(p.id)}
@@ -420,7 +429,7 @@ const PedidoVendas: React.FC = () => {
                     <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700 }}>
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valorTotal)}
                     </td>
-                    <td style={{ padding: '16px', display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                    <td style={{ padding: '16px', display: 'flex', justifyContent: 'center', gap: '8px' }} onClick={(e) => e.stopPropagation()}>
                       <button onClick={() => openTab(`/pedidos-venda/visualizar/${p.id}`)} className="icon-btn" title="Visualizar Pedido" style={{ color: '#3b82f6' }}>
                         <FileText size={18} />
                       </button>

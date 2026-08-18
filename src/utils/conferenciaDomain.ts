@@ -110,10 +110,12 @@ export const computeStatusFinal = (itens: ConferenciaItem[]): 'conferido' | 'div
 // Ordena a minuta/tela por localizacaoEstoque (vira rota de separacao).
 // Itens sem localizacao cadastrada vao pro FIM, nao pro comeco -- senao um
 // produto sem local cadastrado empurraria toda a rota real pra depois dele.
-// Nao muta o array recebido.
-export const ordenarPorLocalizacao = (itens: ConferenciaItem[]): ConferenciaItem[] => {
-  const comLocal: ConferenciaItem[] = [];
-  const semLocal: ConferenciaItem[] = [];
+// Nao muta o array recebido. Generico (nao preso a ConferenciaItem) porque
+// a minuta (Fatia 2) usa um shape de item mais enxuto que a tela de
+// conferencia (Fatia 4) -- os dois so precisam do campo localizacaoEstoque.
+export const ordenarPorLocalizacao = <T extends { localizacaoEstoque?: string }>(itens: T[]): T[] => {
+  const comLocal: T[] = [];
+  const semLocal: T[] = [];
 
   for (const item of itens) {
     if (item.localizacaoEstoque && item.localizacaoEstoque.trim()) comLocal.push(item);

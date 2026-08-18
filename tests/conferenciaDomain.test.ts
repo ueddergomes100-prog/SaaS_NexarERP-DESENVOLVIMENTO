@@ -248,3 +248,12 @@ test('ordenarPorLocalizacao: nao muta o array recebido', () => {
 test('ordenarPorLocalizacao: lista vazia retorna lista vazia', () => {
   assert.deepEqual(ordenarPorLocalizacao([]), []);
 });
+
+test('ordenarPorLocalizacao: e generica -- funciona com qualquer shape que tenha localizacaoEstoque (ex: item da minuta, Fatia 2, que nao tem produtoId nem quantidadePedida)', () => {
+  const itensMinuta = [
+    { nome: 'Sem local', localizacaoEstoque: undefined },
+    { nome: 'Com local', localizacaoEstoque: 'A-01-03' },
+  ];
+  const ordenado = ordenarPorLocalizacao(itensMinuta);
+  assert.deepEqual(ordenado.map((i) => i.nome), ['Com local', 'Sem local']);
+});

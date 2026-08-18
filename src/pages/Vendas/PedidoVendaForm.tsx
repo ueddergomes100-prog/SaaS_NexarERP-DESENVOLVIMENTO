@@ -13,7 +13,7 @@ import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
-import type { StatusConferencia } from '../../utils/conferenciaDomain';
+import { DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA, type StatusConferencia } from '../../utils/conferenciaDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
@@ -168,6 +168,7 @@ const PedidoVendaForm: React.FC = () => {
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
   const [produtoSearchMode, setProdutoSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(false);
+  const [imprimirMinutaAposVendaAtiva, setImprimirMinutaAposVendaAtiva] = useState(false);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
@@ -255,6 +256,7 @@ const PedidoVendaForm: React.FC = () => {
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
           setProdutoSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           setConferenciaMercadoriaAtiva(config.conferenciaMercadoria === true);
+          setImprimirMinutaAposVendaAtiva(config.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA);
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
           const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
@@ -788,6 +790,29 @@ const PedidoVendaForm: React.FC = () => {
       initialSnapshotRef.current = buildDirtySnapshot();
       setIsDirty(false);
 
+      // Modulo 12 (Conferencia de mercadoria), Fatia 2/4: acrescenta UMA
+      // etapa ao final do fluxo de recibo/NFC-e existente abaixo, sem
+      // reorganiza-lo -- os 5 pontos de saida desse fluxo (sucesso NFC-e,
+      // erro NFC-e com/sem fallback de recibo, Imprimir Recibo, Apenas
+      // Concluir) passam a chamar isto em vez de `navigate` direto.
+      const askMinutaAndNavigate = async (destino: string) => {
+        if (conferenciaMercadoriaAtiva && imprimirMinutaAposVendaAtiva) {
+          const minutaResult = await NexusSwal.fire({
+            title: 'Imprimir minuta de entrega?',
+            text: 'A minuta lista os itens do pedido, sem valores, para a separação no estoque.',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Sim, imprimir minuta',
+            cancelButtonText: 'Não'
+          });
+          if (minutaResult.isConfirmed) {
+            navigate(`/operacoes/expedicao/minuta/${newPedidoId}`);
+            return;
+          }
+        }
+        navigate(destino);
+      };
+
       // 5. Perguntar o que fazer
       const result = await NexusSwal.fire({
         title: 'Venda Finalizada com Sucesso!',
@@ -1007,7 +1032,7 @@ const PedidoVendaForm: React.FC = () => {
             });
           }
 
-          navigate('/pedidos-venda');
+          await askMinutaAndNavigate('/pedidos-venda');
 
         } catch (err) {
           Swal.close();
@@ -1022,15 +1047,15 @@ const PedidoVendaForm: React.FC = () => {
             cancelButtonText: 'Não, Apenas Sair'
           });
           if (fallbackResult.isConfirmed) {
-            navigate(`/pedidos-venda/print/${newPedidoId}`);
+            await askMinutaAndNavigate(`/pedidos-venda/print/${newPedidoId}`);
           } else {
-            navigate('/pedidos-venda');
+            await askMinutaAndNavigate('/pedidos-venda');
           }
         }
       } else if (result.isDenied) {
-        navigate(`/pedidos-venda/print/${newPedidoId}`);
+        await askMinutaAndNavigate(`/pedidos-venda/print/${newPedidoId}`);
       } else {
-        navigate('/pedidos-venda');
+        await askMinutaAndNavigate('/pedidos-venda');
       }
 
     } catch (error) {

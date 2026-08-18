@@ -27,10 +27,11 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
   ]},
   { group: 'Cadastros', items: [
     { id: 'cadastros.clientes', label: 'Clientes' },
-    { id: 'cadastros.usuarios', label: 'Usuários' },
     { id: 'cadastros.veiculos', label: 'Veículos' },
     { id: 'cadastros.estoque', label: 'Estoque / Produtos' },
-    { id: 'cadastros.servicos', label: 'Cadastro de Serviços' },
+    { id: 'cadastros.servicos', label: 'Cadastro de Serviços' }
+  ]},
+  { group: 'Cadastros Auxiliares', items: [
     { id: 'cadastros.categorias', label: 'Categorias' },
     { id: 'cadastros.unidades_medida', label: 'Unidades de Medida' },
     { id: 'cadastros.bandeiras_cartao', label: 'Bandeiras de Cartão' },
@@ -82,6 +83,7 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'operacoes.lotes', label: 'Lotes e Validades' }
   ]},
   { group: 'Administrativo & Logs', items: [
+    { id: 'cadastros.usuarios', label: 'Usuários' },
     { id: 'admin.config', label: 'Configurações Gerais' },
     { id: 'admin.backup', label: 'Backup e Restauração' },
     { id: 'logs.relatorios_diversos', label: 'Relatórios Diversos' },

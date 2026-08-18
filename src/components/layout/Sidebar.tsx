@@ -92,6 +92,7 @@ const Sidebar: React.FC = () => {
       comercial: true,
       mecanica: true,
       cadastros: false,
+      cadastrosAuxiliares: false,
       financeiro: false,
       fiscal: false,
       relacionamento: false,
@@ -153,14 +154,21 @@ const Sidebar: React.FC = () => {
         { label: 'Clientes', to: '/clientes', icon: Users, module: 'cadastros.clientes', permission: 'cadastros.clientes' },
         { label: 'Veículos', to: '/veiculos', icon: Car, module: 'cadastros.veiculos', permission: 'cadastros.clientes' },
         { label: 'Estoque / Produtos', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
-        { label: 'Serviços', to: '/servicos', icon: Briefcase, module: 'cadastros.servicos', permission: 'cadastros.servicos' },
+        { label: 'Serviços', to: '/servicos', icon: Briefcase, module: 'cadastros.servicos', permission: 'cadastros.servicos' }
+      ]
+    },
+    {
+      id: 'cadastrosAuxiliares',
+      label: 'Cadastros Auxiliares',
+      icon: Tags,
+      tone: '#64748b',
+      items: [
         { label: 'Categorias', to: '/categorias', icon: Tags, module: 'cadastros.categorias', permission: 'cadastros.categorias' },
         { label: 'Unidades de Medida', to: '/unidades-medida', icon: Scale, module: 'cadastros.unidades_medida', permission: 'cadastros.unidades_medida' },
         { label: 'Bandeiras de Cartão', to: '/bandeiras-cartao', icon: CreditCard, module: 'cadastros.bandeiras_cartao', permission: 'cadastros.bandeiras_cartao' },
         { label: 'Bancos', to: '/bancos', icon: Building2, module: 'cadastros.bancos', permission: 'cadastros.bancos' },
         { label: 'Fornecedores', to: '/fornecedores', icon: Truck, module: 'cadastros.fornecedores', permission: 'cadastros.estoque' },
-        { label: 'Matéria-Prima', to: '/materias-primas', icon: Factory, module: 'cadastros.materia_prima', permission: 'cadastros.materia_prima' },
-        { label: 'Usuários', to: '/usuarios', icon: UserCog, module: 'cadastros.usuarios', permission: 'administrativo.equipe' }
+        { label: 'Matéria-Prima', to: '/materias-primas', icon: Factory, module: 'cadastros.materia_prima', permission: 'cadastros.materia_prima' }
       ]
     },
     {
@@ -224,6 +232,7 @@ const Sidebar: React.FC = () => {
       icon: ShieldAlert,
       tone: '#94a3b8',
       items: [
+        { label: 'Usuários', to: '/usuarios', icon: UserCog, module: 'cadastros.usuarios', permission: 'administrativo.equipe' },
         { label: 'Relatórios Diversos', to: '/relatorios-diversos', icon: FileText, module: 'logs.relatorios_diversos', permission: 'administrativo.relatorios' },
         { label: 'Logs do Sistema', to: '/logs-sistema', icon: ShieldAlert, module: 'logs.sistema', permission: 'administrativo.logs' }
       ]

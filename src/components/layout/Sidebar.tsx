@@ -44,6 +44,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
 import hennderIcon from '../../assets/hennder-icon.svg';
+import BootSplash from './BootSplash';
 import './Layout.css';
 
 type NavItem = {
@@ -554,21 +555,18 @@ const Sidebar: React.FC = () => {
           </div>
         </div>
 
+        {/* Saida do sistema: mesmo componente do splash de entrada, so com
+            outro texto. Alem de dar simetria entrada/saida, resolve de vez a
+            borda quadrada em volta da logo -- o overlay antigo usava
+            box-shadow num <img>, e box-shadow segue a CAIXA do elemento, nao
+            o contorno transparente do SVG, o que desenhava um halo quadrado.
+            O BootSplash usa filter: drop-shadow(), que acompanha a arte. */}
         {isLoggingOut && (
-          <div className="logout-overlay">
-            <div className="logout-logo-container">
-              <img src={hennderIcon} alt="Hennder ERP" className="logo-icon animate-pulse-logo" />
-              <h2 className="animate-fade-in-up">Até logo!</h2>
-            </div>
-          </div>
+          <BootSplash titulo="Até logo!" legenda="ENCERRANDO SESSÃO..." />
         )}
 
         {isNavigatingHome && (
-          <div className="logout-overlay" style={{ animationDuration: '0.2s', backgroundColor: 'rgba(10, 10, 11, 0.95)' }}>
-            <div className="logout-logo-container">
-              <img src={hennderIcon} alt="Hennder ERP" className="logo-icon animate-pulse-logo" style={{ animationDuration: '0.8s', width: '60px', height: '60px' }} />
-            </div>
-          </div>
+          <BootSplash titulo="Dashboard" legenda="CARREGANDO..." />
         )}
       </aside>
     </>

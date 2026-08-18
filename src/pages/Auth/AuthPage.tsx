@@ -34,6 +34,7 @@ import {
   type StartOnboardingResponse
 } from '../../services/onboardingService';
 import hennderIcon from '../../assets/hennder-icon.svg';
+import BootSplash from '../../components/layout/BootSplash';
 import './Auth.css';
 
 const LOGIN_LOADING_STEPS = [
@@ -382,10 +383,21 @@ const AuthPage: React.FC = () => {
         localStorage.setItem('nexus_login_cnpj', empresa);
       }
 
+      // Splash de transicao. Antes daqui saia um setTimeout fixo de 2s --
+      // tempo morto que nao media nada e, pior, ficava invisivel no login
+      // (o splash so era renderizado no return do fluxo de cadastro, nunca
+      // no early return do painel dividido). Agora: dispara o carregamento
+      // do chunk do Dashboard em paralelo e navega assim que ele estiver
+      // pronto, com um piso curto pra animacao nao dar um flash. O
+      // ProtectedRoute continua exibindo o MESMO splash enquanto o
+      // AuthContext resolve perfil/tenant, entao a tela nao pisca no meio.
       setShowSplash(true);
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 2000);
+      const splashFloor = new Promise((resolve) => window.setTimeout(resolve, 600));
+      const dashboardChunk = import('../Dashboard/Dashboard').catch(() => {
+        // Falha de preload nao bloqueia o login -- o Suspense do App cobre.
+      });
+      await Promise.all([splashFloor, dashboardChunk]);
+      navigate('/dashboard', { replace: true });
 
     } catch (err: any) {
       console.error(err);
@@ -968,9 +980,14 @@ const AuthPage: React.FC = () => {
 
   const isSplitView = mode === 'login' || (mode === 'signup' && signupStep === 'company');
 
+  // O splash precisa ser renderizado nos DOIS returns: o login sai por este
+  // early return, e antes ele nao mostrava splash nenhum -- ficava 2s parado
+  // no formulario, que era a "travada" relatada.
   if (isSplitView) {
     return (
-      <div className="auth-switch-container">
+      <>
+        {showSplash && <BootSplash />}
+        <div className="auth-switch-container" style={{ display: showSplash ? 'none' : undefined }}>
         <div className={`auth-switch-card mode-${mode}`}>
           <div className="auth-switch-form-panel">
             {mode === 'login' ? renderLoginFormPanel() : renderCompanyFormPanel()}
@@ -996,7 +1013,8 @@ const AuthPage: React.FC = () => {
             )}
           </div>
         </div>
-      </div>
+        </div>
+      </>
     );
   }
 
@@ -1004,98 +1022,7 @@ const AuthPage: React.FC = () => {
   // continuam no layout de card unico (identico ao Register.tsx de antes).
   return (
     <>
-      {showSplash && (
-        <div style={{
-          height: '100vh', width: '100vw',
-          backgroundColor: 'var(--bg-primary)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          position: 'fixed', top: 0, left: 0, zIndex: 9999,
-          backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.14) 0%, transparent 52%)',
-          animation: 'fadeIn 0.3s ease-out'
-        }}>
-          <div style={{ position: 'relative', width: '110px', height: '110px', marginBottom: '40px' }}>
-            <div style={{
-              position: 'absolute', inset: 0, borderRadius: '50%',
-              background: 'conic-gradient(from 0deg, var(--accent-blue), var(--accent-purple), var(--accent-blue))',
-              boxShadow: '0 0 30px 2px rgba(139, 92, 246, 0.35)',
-              animation: 'splashRingSpin 1.1s linear infinite'
-            }}></div>
-            <div style={{ position: 'absolute', inset: '8px', borderRadius: '50%', backgroundColor: 'var(--bg-primary)' }}></div>
-            <div style={{
-              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <img
-                src={hennderIcon}
-                alt="Hennder ERP"
-                style={{
-                  width: '56px', height: '56px', objectFit: 'contain',
-                  filter: 'drop-shadow(0 0 10px rgba(139, 92, 246, 0.35))',
-                  animation: 'splashLogoPulse 2s ease-in-out infinite'
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px',
-            opacity: 0, animation: 'slideUpFade 0.6s ease-out 0.2s forwards'
-          }}>
-            <h2 style={{ color: 'var(--text-primary)', fontSize: '24px', fontWeight: 600, letterSpacing: '1px' }}>
-              Iniciando Ambiente
-            </h2>
-
-            <div style={{ width: '240px', height: '4px', backgroundColor: 'var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
-              <div style={{
-                height: '100%',
-                background: 'linear-gradient(90deg, #3b82f6, #8b5cf6, #3b82f6)',
-                backgroundSize: '200% 100%',
-                borderRadius: '4px',
-                animation: 'loadingBar 1.8s ease-in-out forwards, shimmer 2s linear infinite'
-              }}></div>
-            </div>
-
-            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', fontFamily: 'monospace', letterSpacing: '2px', animation: 'blinkText 1.5s infinite' }}>
-              CARREGANDO MÓDULOS...
-            </p>
-          </div>
-
-          <style>
-            {`
-              @keyframes fadeIn {
-                from { opacity: 0; backdrop-filter: blur(0px); }
-                to { opacity: 1; backdrop-filter: blur(10px); }
-              }
-              @keyframes slideUpFade {
-                from { opacity: 0; transform: translateY(20px); }
-                to { opacity: 1; transform: translateY(0); }
-              }
-              @keyframes splashRingSpin {
-                from { transform: rotate(0deg); }
-                to { transform: rotate(360deg); }
-              }
-              @keyframes splashLogoPulse {
-                0%, 100% { transform: scale(1); opacity: 0.92; }
-                50% { transform: scale(1.08); opacity: 1; }
-              }
-              @keyframes loadingBar {
-                0% { width: 0%; }
-                40% { width: 45%; }
-                70% { width: 80%; }
-                100% { width: 100%; }
-              }
-              @keyframes shimmer {
-                0% { background-position: 200% 0; }
-                100% { background-position: -200% 0; }
-              }
-              @keyframes blinkText {
-                0%, 100% { opacity: 1; }
-                50% { opacity: 0.4; }
-              }
-            `}
-          </style>
-        </div>
-      )}
+      {showSplash && <BootSplash />}
 
       <div className="auth-container" style={{ display: showSplash ? 'none' : 'flex' }}>
         <div className={`auth-card auth-register-card ${signupLoading ? 'auth-card-loading' : ''}`}>

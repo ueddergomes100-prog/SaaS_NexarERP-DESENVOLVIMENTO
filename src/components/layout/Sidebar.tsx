@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
 import {
@@ -39,7 +39,8 @@ import {
   Users,
   Wallet,
   Clock,
-  Wrench
+  Wrench,
+  X
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
@@ -63,7 +64,6 @@ type NavGroup = {
   id: string;
   label: string;
   icon: React.ElementType;
-  tone: string;
   items: NavItem[];
   roadmap?: boolean;
 };
@@ -82,6 +82,9 @@ const Sidebar: React.FC = () => {
   const navigate = useNavigate();
   const { tabs, activeTabId, openTab } = useTabs();
   const currentPath = tabs.find((tab) => tab.id === activeTabId)?.path || '';
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const actionBlockRef = useRef<HTMLDivElement>(null);
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isNavigatingHome, setIsNavigatingHome] = useState(false);
@@ -120,7 +123,6 @@ const Sidebar: React.FC = () => {
       id: 'principal',
       label: 'Principal',
       icon: LayoutDashboard,
-      tone: '#2d8cff',
       items: [
         { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, module: 'dashboard.empresa' }
       ]
@@ -129,7 +131,6 @@ const Sidebar: React.FC = () => {
       id: 'comercial',
       label: 'Comercial',
       icon: ShoppingCart,
-      tone: '#8b5cf6',
       items: [
         { label: 'Frente de Caixa', to: '/pdv', icon: Store, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
         { label: 'Pedidos de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
@@ -141,7 +142,6 @@ const Sidebar: React.FC = () => {
       id: 'mecanica',
       label: 'Gestão de Serviços',
       icon: Briefcase,
-      tone: '#3b82f6',
       items: [
         { label: 'Ordens de Serviço', to: '/os', icon: ClipboardList, module: 'mecanica.os', permission: 'mecanica.os' },
         { label: 'Agendamentos', to: '/crm/agenda', icon: Calendar, module: 'crm.agenda', permission: 'crm.agenda', badge: 'Agenda' },
@@ -152,7 +152,6 @@ const Sidebar: React.FC = () => {
       id: 'cadastros',
       label: 'Cadastros',
       icon: Users,
-      tone: '#22c55e',
       items: [
         { label: 'Clientes', to: '/clientes', icon: Users, module: 'cadastros.clientes', permission: 'cadastros.clientes' },
         { label: 'Veículos', to: '/veiculos', icon: Car, module: 'cadastros.veiculos', permission: 'cadastros.clientes' },
@@ -164,7 +163,6 @@ const Sidebar: React.FC = () => {
       id: 'cadastrosAuxiliares',
       label: 'Cadastros Auxiliares',
       icon: Tags,
-      tone: '#64748b',
       items: [
         { label: 'Categorias', to: '/categorias', icon: Tags, module: 'cadastros.categorias', permission: 'cadastros.categorias' },
         { label: 'Unidades de Medida', to: '/unidades-medida', icon: Scale, module: 'cadastros.unidades_medida', permission: 'cadastros.unidades_medida' },
@@ -178,7 +176,6 @@ const Sidebar: React.FC = () => {
       id: 'producao',
       label: 'Produção',
       icon: Factory,
-      tone: '#f97316',
       items: [
         { label: 'Ordens de Produção', to: '/producao/ordens', icon: ClipboardList, module: 'operacoes.producao', permission: 'operacoes.producao' },
         { label: 'Relatório de Produção', to: '/producao/relatorios', icon: PieChart, module: 'operacoes.producao', permission: 'operacoes.producao' },
@@ -188,7 +185,6 @@ const Sidebar: React.FC = () => {
       id: 'expedicao',
       label: 'Expedição',
       icon: Truck,
-      tone: '#14b8a6',
       items: [
         { label: 'Conferência de Mercadoria', to: '/operacoes/expedicao', icon: Truck, module: 'operacoes.expedicao', permission: 'operacoes.expedicao' }
       ]
@@ -197,7 +193,6 @@ const Sidebar: React.FC = () => {
       id: 'financeiro',
       label: 'Financeiro',
       icon: Wallet,
-      tone: '#facc15',
       items: [
         { label: 'Fluxo de Caixa', to: '/financeiro/caixa', icon: Wallet, module: 'financeiro.caixa', permission: 'financeiro.caixa' },
         { label: 'Caixa (Sessões PDV)', to: '/financeiro/caixa-registros', icon: Wallet, module: 'financeiro.caixa_registros', permission: 'financeiro.caixa_registros' },
@@ -212,7 +207,6 @@ const Sidebar: React.FC = () => {
       id: 'fiscal',
       label: 'Fiscal',
       icon: Receipt,
-      tone: '#22d3ee',
       items: [
         { label: 'Notas Fiscais', to: '/fiscal/nfe', icon: Receipt, module: 'fiscal.nfe', permission: 'fiscal.emitir' },
         { label: 'Entrada de XML', to: '/fiscal/entrada-nfe', icon: Inbox, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' },
@@ -223,7 +217,6 @@ const Sidebar: React.FC = () => {
       id: 'utilitarios',
       label: 'Utilitários',
       icon: Wrench,
-      tone: '#94a3b8',
       items: [
         { label: 'SINTEGRA', to: '/utilitarios/sintegra', icon: FileText, module: 'utilitarios.sintegra', permission: 'utilitarios.sintegra' },
       ]
@@ -232,7 +225,6 @@ const Sidebar: React.FC = () => {
       id: 'relacionamento',
       label: 'Relacionamento',
       icon: Bell,
-      tone: '#fb7185',
       items: [
         { label: 'Alertas de Retorno', to: '/crm/lembretes', icon: Bell, module: 'crm.lembretes', permission: 'crm.alertas' },
         { label: 'Agenda', to: '/crm/agenda', icon: Calendar, module: 'crm.agenda', permission: 'crm.agenda' }
@@ -242,7 +234,6 @@ const Sidebar: React.FC = () => {
       id: 'administrativo',
       label: 'Administração',
       icon: ShieldAlert,
-      tone: '#94a3b8',
       items: [
         { label: 'Usuários', to: '/usuarios', icon: UserCog, module: 'cadastros.usuarios', permission: 'administrativo.equipe' },
         { label: 'Relatórios Diversos', to: '/relatorios-diversos', icon: FileText, module: 'logs.relatorios_diversos', permission: 'administrativo.relatorios' },
@@ -253,7 +244,6 @@ const Sidebar: React.FC = () => {
       id: 'configuracoes',
       label: 'Configurações',
       icon: Settings,
-      tone: '#a78bfa',
       items: [
         { label: 'Configurações Gerais', to: '/configuracoes', icon: Settings, module: 'admin.config', permission: 'administrativo.config' }
       ]
@@ -262,7 +252,6 @@ const Sidebar: React.FC = () => {
       id: 'comprasDev',
       label: 'Compras',
       icon: ClipboardList,
-      tone: '#fb923c',
       roadmap: true,
       items: [
         { label: 'Pedidos de Compra', to: '/compras/pedidos-compra', icon: ClipboardList, module: 'compras.pedidos', permission: 'compras.pedidos' },
@@ -273,7 +262,6 @@ const Sidebar: React.FC = () => {
       id: 'ecommerceDev',
       label: 'E-commerce',
       icon: Store,
-      tone: '#38bdf8',
       roadmap: true,
       items: [
         { label: 'Nuvemshop', to: '/integracoes/nuvemshop', icon: Store, module: 'integracoes.nuvemshop', permission: 'integracoes.nuvemshop' },
@@ -285,7 +273,6 @@ const Sidebar: React.FC = () => {
       id: 'operacoesDev',
       label: 'Operações',
       icon: Factory,
-      tone: '#14b8a6',
       roadmap: true,
       items: [
         { label: 'Lotes e Validades', to: '/operacoes/lotes-validades', icon: Package, module: 'operacoes.lotes', permission: 'operacoes.lotes' }
@@ -391,6 +378,43 @@ const Sidebar: React.FC = () => {
     document.body.classList.toggle('mini-sidebar', miniSidebar);
   }, [miniSidebar]);
 
+  // Ctrl/Cmd+K foca a busca do menu -- o atalho ja era anunciado no <kbd>
+  // da caixa de busca, entao aqui ele passa a existir de fato. Com o menu
+  // recolhido a busca nao esta montada, entao expandimos antes de focar.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'k') return;
+      event.preventDefault();
+      if (miniSidebar) {
+        setMiniSidebar(false);
+        localStorage.setItem('nexus_mini_sidebar', 'false');
+      }
+      requestAnimationFrame(() => {
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      });
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [miniSidebar]);
+
+  // Menu "Nova acao": fecha com Esc ou clique fora, como qualquer popover.
+  useEffect(() => {
+    if (!actionMenuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!actionBlockRef.current?.contains(event.target as Node)) setActionMenuOpen(false);
+    };
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setActionMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onEscape);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onEscape);
+    };
+  }, [actionMenuOpen]);
+
   const tenantName = selectedTenant?.nomeOficina || 'Hennder Company';
   const userName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Usuário';
   const userInitial = userName.trim().charAt(0).toUpperCase() || 'N';
@@ -421,15 +445,20 @@ const Sidebar: React.FC = () => {
                     title={item.label}
                     aria-pressed={active}
                   >
-                    <Icon size={20} />
+                    <Icon size={19} />
                   </button>
                 );
               })}
             </div>
 
             <div className="nexus-rail-bottom">
-              <button className="nexus-rail-item" onClick={toggleMiniSidebar} title="Expandir menu">
-                <ChevronsRight size={19} />
+              <button
+                className="nexus-rail-item"
+                onClick={toggleMiniSidebar}
+                title="Expandir menu"
+                aria-label="Expandir menu"
+              >
+                <ChevronsRight size={18} />
               </button>
             </div>
           </div>
@@ -437,49 +466,80 @@ const Sidebar: React.FC = () => {
 
         <div className="nexus-sidebar-pane">
           <div className="nexus-sidebar-header">
-            <button
-              className="nexus-brand"
-              onClick={handleGoHome}
-              title="Ir para o Dashboard"
-              aria-label="Hennder Company - ir para o Dashboard"
-            >
-              <img className="nexus-brand-mark is-dark" src={wordmarkDark} alt="" />
-              <img className="nexus-brand-mark is-light" src={wordmarkLight} alt="" />
-            </button>
+            <div className="nexus-brand-row">
+              <button
+                className="nexus-brand"
+                onClick={handleGoHome}
+                title="Ir para o Dashboard"
+                aria-label="Hennder Company - ir para o Dashboard"
+              >
+                <img className="nexus-brand-mark is-dark" src={wordmarkDark} alt="" />
+                <img className="nexus-brand-mark is-light" src={wordmarkLight} alt="" />
+              </button>
 
-            <button className="icon-btn" onClick={toggleMiniSidebar} title="Recolher menu">
-              <ChevronsLeft size={16} />
-            </button>
-
-            <div className="nexus-sidebar-search">
-              <Search size={16} />
-              <input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Buscar no menu..."
-                aria-label="Buscar no menu"
-              />
-              <kbd>Ctrl K</kbd>
+              <button
+                className="nexus-collapse-btn"
+                onClick={toggleMiniSidebar}
+                title="Recolher menu"
+                aria-label="Recolher menu"
+              >
+                <ChevronsLeft size={16} />
+              </button>
             </div>
 
-            <div className="nexus-action-block">
+            <div className="nexus-sidebar-search">
+              <Search size={14} aria-hidden="true" />
+              <input
+                ref={searchInputRef}
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Buscar no menu"
+                aria-label="Buscar no menu"
+              />
+              {searchTerm ? (
+                <button
+                  type="button"
+                  className="nexus-search-clear"
+                  onClick={() => setSearchTerm('')}
+                  title="Limpar busca"
+                  aria-label="Limpar busca"
+                >
+                  <X size={13} />
+                </button>
+              ) : (
+                <kbd>Ctrl K</kbd>
+              )}
+            </div>
+
+            <div className="nexus-action-block" ref={actionBlockRef}>
               <button
                 className="nexus-new-action"
                 type="button"
                 onClick={() => setActionMenuOpen((open) => !open)}
+                aria-expanded={actionMenuOpen}
+                aria-haspopup="menu"
               >
-                <Plus size={17} />
-                Nova Ação
-                <ChevronDown size={16} />
+                <Plus size={15} aria-hidden="true" />
+                Nova ação
+                <ChevronDown
+                  className={actionMenuOpen ? 'nexus-chevron open' : 'nexus-chevron'}
+                  size={14}
+                  aria-hidden="true"
+                />
               </button>
 
               {actionMenuOpen && (
-                <div className="nexus-new-action-menu">
+                <div className="nexus-new-action-menu" role="menu">
                   {quickActions.map((action) => {
                     const Icon = action.icon;
                     return (
-                      <button key={action.to} type="button" onClick={() => navigateTo(action.to, action.label)}>
-                        <Icon size={17} />
+                      <button
+                        key={action.to}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => navigateTo(action.to, action.label)}
+                      >
+                        <Icon size={15} aria-hidden="true" />
                         <span>{action.label}</span>
                       </button>
                     );
@@ -490,8 +550,6 @@ const Sidebar: React.FC = () => {
           </div>
 
           <nav className="nexus-sidebar-nav" aria-label="Menu principal">
-            <div className="nexus-nav-caption">Navegação</div>
-
             {visibleGroups.map((group) => {
               const Icon = group.icon;
               const expanded = isExpanded(group);
@@ -502,16 +560,21 @@ const Sidebar: React.FC = () => {
                     type="button"
                     className={active ? 'nexus-nav-group-trigger active' : 'nexus-nav-group-trigger'}
                     onClick={() => toggleGroup(group)}
-                    style={{ '--module-color': group.tone } as React.CSSProperties}
+                    title={group.label}
+                    aria-expanded={expanded}
                   >
-                    <span className="nexus-module-dot" />
-                    <Icon size={17} />
-                    <span>{group.label}</span>
+                    <Icon size={16} aria-hidden="true" />
+                    <span className="nexus-nav-group-label">{group.label}</span>
                     {group.roadmap && <small>Em breve</small>}
-                    <ChevronRight className={expanded ? 'open' : ''} size={15} />
+                    <ChevronRight
+                      className={expanded ? 'nexus-chevron open' : 'nexus-chevron'}
+                      size={14}
+                      aria-hidden="true"
+                    />
                   </button>
 
                   <div className={expanded ? 'nexus-nav-items open' : 'nexus-nav-items'}>
+                    <div className="nexus-nav-items-inner">
                     {group.items.map((item) => {
                       const ItemIcon = item.icon;
                       const itemActive = currentPath === item.to || currentPath.startsWith(`${item.to}/`);
@@ -521,13 +584,16 @@ const Sidebar: React.FC = () => {
                           type="button"
                           className={itemActive ? 'nexus-nav-link active' : 'nexus-nav-link'}
                           onClick={() => navigateTo(item.to, item.label)}
+                          title={item.label}
+                          aria-current={itemActive ? 'page' : undefined}
                         >
-                          <ItemIcon size={16} />
+                          <ItemIcon size={15} aria-hidden="true" />
                           <span>{item.label}</span>
                           {item.badge && <small>{item.badge}</small>}
                         </button>
                       );
                     })}
+                    </div>
                   </div>
                 </div>
               );
@@ -535,29 +601,22 @@ const Sidebar: React.FC = () => {
 
             {visibleGroups.length === 0 && (
               <div className="nexus-nav-empty">
-                Nenhum item encontrado.
+                <strong>Nenhum item encontrado</strong>
+                <span>Revise o termo buscado ou limpe a busca.</span>
               </div>
             )}
           </nav>
 
           <div className="nexus-sidebar-footer">
             <div className="nexus-user-card">
-              <div className="nexus-user-avatar">{userInitial}</div>
-              <div>
+              <span className="nexus-user-avatar" aria-hidden="true">{userInitial}</span>
+              <div className="nexus-user-meta">
                 <strong>{userName}</strong>
-                <span>{userRole || 'Operador'}</span>
+                <span title={tenantName}>{userRole || 'Operador'} · {tenantName}</span>
               </div>
-              <button type="button" onClick={handleLogout} title="Sair do Sistema">
-                <LogOut size={17} />
+              <button type="button" onClick={handleLogout} title="Sair do sistema" aria-label="Sair do sistema">
+                <LogOut size={15} />
               </button>
-            </div>
-
-            <div className="nexus-tenant-card">
-              <Building2 size={17} />
-              <div>
-                <strong>{tenantName}</strong>
-                <span>Ambiente ativo</span>
-              </div>
             </div>
           </div>
         </div>

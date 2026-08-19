@@ -7,6 +7,7 @@ import { showSuccess, showError } from '../../utils/alerts';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { MODULE_GROUPS } from '../../utils/moduleCatalog';
+import { PERMISSION_CATALOG } from '../../utils/permissionCatalog';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { normalizeCreditCardFeeSchedule, parseCreditTerms } from '../../utils/financeDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
@@ -1669,58 +1670,14 @@ const Configuracoes: React.FC = () => {
                     </h4>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px', marginTop: '16px' }}>
-                    {/* Catalogo de permissao GRANULAR do Funcionario (id no formato dominio.acao,
-                        gravado em usuarios/{id}.permissoes e checado em firestore.rules +
-                        routeAccess.ts `routePermission` + .includes() espalhados pelas telas).
-                        Deliberadamente um vocabulario DIFERENTE do MODULE_GROUPS de
-                        src/utils/moduleCatalog.ts (esse aqui e usado pro bloqueio de modulo por
-                        plano SaaS do SuperAdmin, `routeModule`). Toda vez que uma tela/permissao
-                        nova for implantada, adicionar tanto aqui quanto em MODULE_GROUPS -- e
-                        garantir que exista uma branch correspondente em routeAccess.ts, senao a
-                        tela fica acessivel por URL mesmo sem a permissao (auditoria 2026-08-05). */}
-                    {[
-                      { id: 'dashboard.valores', label: 'Dashboard: Visão Financeira', color: '#10b981' },
-                      { id: 'cadastros.clientes', label: 'Cadastros: Clientes', color: '#8b5cf6' },
-                      { id: 'cadastros.estoque', label: 'Cadastros: Estoque / Produtos', color: '#8b5cf6' },
-                      { id: 'cadastros.materia_prima', label: 'Cadastros: Matéria-Prima', color: '#8b5cf6' },
-                      { id: 'operacoes.producao', label: 'Produção: Ordens de Produção', color: '#f97316' },
-                      { id: 'operacoes.expedicao', label: 'Expedição: Conferência de Mercadoria', color: '#14b8a6' },
-                      { id: 'cadastros.servicos', label: 'Cadastros: Serviços', color: '#8b5cf6' },
-                      { id: 'cadastros.categorias', label: 'Cadastros: Categorias', color: '#8b5cf6' },
-                      { id: 'cadastros.unidades_medida', label: 'Cadastros: Unidades de Medida', color: '#8b5cf6' },
-                      { id: 'cadastros.bandeiras_cartao', label: 'Cadastros: Bandeiras de Cartão', color: '#8b5cf6' },
-                      { id: 'cadastros.bancos', label: 'Cadastros: Bancos', color: '#8b5cf6' },
-                      { id: 'vendas.pedidos', label: 'Vendas: Pedidos de Venda', color: '#f59e0b' },
-                      { id: 'vendas.alterar', label: 'Vendas: Alterar Pedidos', color: '#f59e0b' },
-                      { id: 'vendas.excluir', label: 'Vendas: Excluir Pedidos', color: '#ef4444' },
-                      { id: 'vendas.devolucao', label: 'Vendas: Devolução de Venda', color: '#ef4444' },
-                      { id: 'vendas.orcamentos', label: 'Vendas: Orçamentos', color: '#f59e0b' },
-                      { id: 'vendas.orcamentos_alterar', label: 'Vendas: Alterar Orçamentos', color: '#f59e0b' },
-                      { id: 'vendas.orcamentos_excluir', label: 'Vendas: Excluir Orçamentos', color: '#ef4444' },
-                      { id: 'vendas.relatorios', label: 'Vendas: Relatórios', color: '#f59e0b' },
-                      { id: 'mecanica.os', label: 'Serviços: Ordens de Serviço', color: '#3b82f6' },
-                      { id: 'mecanica.os_alterar', label: 'Serviços: Alterar OS', color: '#3b82f6' },
-                      { id: 'mecanica.os_excluir', label: 'Serviços: Excluir OS', color: '#ef4444' },
-                      { id: 'mecanica.relatorios', label: 'Serviços: Relatórios', color: '#3b82f6' },
-                      { id: 'crm.agenda', label: 'CRM: Agendamentos', color: '#ec4899' },
-                      { id: 'crm.alertas', label: 'CRM: Alertas de Retorno', color: '#ec4899' },
-                      { id: 'fiscal.emitir', label: 'Fiscal: Emitir Nota Fiscal', color: '#f59e0b' },
-                      { id: 'fiscal.entrada', label: 'Fiscal: Entrada de XML', color: '#f59e0b' },
-                      { id: 'fiscal.excluir', label: 'Fiscal: Excluir/Cancelar Nota Fiscal', color: '#ef4444' },
-                      { id: 'utilitarios.sintegra', label: 'Utilitários: SINTEGRA', color: '#94a3b8' },
-                      { id: 'financeiro.caixa', label: 'Financeiro: Fluxo de Caixa', color: '#10b981' },
-                      { id: 'financeiro.caixa_registros', label: 'Financeiro: Caixa (Sessões PDV)', color: '#10b981' },
-                      { id: 'financeiro.banco', label: 'Financeiro: Banco (Conciliação de Cartão)', color: '#10b981' },
-                      { id: 'financeiro.receber', label: 'Financeiro: Contas a Receber', color: '#10b981' },
-                      { id: 'financeiro.pagar', label: 'Financeiro: Contas a Pagar', color: '#10b981' },
-                      { id: 'financeiro.faturamento', label: 'Financeiro: Faturamento', color: '#10b981' },
-                      { id: 'financeiro.comissoes', label: 'Financeiro: Comissões', color: '#10b981' },
-                      { id: 'financeiro.estornar', label: 'Financeiro: Estornar Pagamento/Recebimento', color: '#10b981' },
-                      { id: 'administrativo.config', label: 'Admin: Configurações', color: '#6b7280' },
-                      { id: 'administrativo.equipe', label: 'Admin: Equipe e Acessos', color: '#6b7280' },
-                      { id: 'administrativo.logs', label: 'Admin: Logs do Sistema', color: '#6b7280' },
-                      { id: 'administrativo.relatorios', label: 'Admin: Relatórios Diversos', color: '#6b7280' }
-                    ].map(mod => {
+                    {/* O catalogo saiu daqui em 2026-08-18 e virou
+                        src/utils/permissionCatalog.ts, compartilhado com o popup de
+                        permissoes da tela de Usuarios -- a lista duplicada em dois
+                        componentes era garantia de divergencia. Para adicionar uma
+                        permissao nova, edite AQUELE arquivo (as regras de sempre
+                        continuam la: entrar tambem em MODULE_GROUPS e ter branch em
+                        routeAccess.ts). */}
+                    {PERMISSION_CATALOG.map(mod => {
                       const isChecked = selectedUserPermissions.includes(mod.id);
                       return (
                         <label key={mod.id} style={{

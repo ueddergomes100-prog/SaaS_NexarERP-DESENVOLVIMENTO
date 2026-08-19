@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { UserCog, Plus, Search, Edit2, Trash2 } from 'lucide-react';
+import { UserCog, Plus, Search, Edit2, Trash2, Shield } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, deleteDoc, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
 import { isTenantManagerRole } from '../../utils/roles';
+import PermissoesUsuarioModal from '../../components/common/PermissoesUsuarioModal';
 
 interface UsuarioData {
   id: string;
@@ -22,6 +23,10 @@ const UsuariosList: React.FC = () => {
   const { openTab } = useTabs();
   const [usuarios, setUsuarios] = useState<UsuarioData[]>([]);
   const [loading, setLoading] = useState(true);
+  // Define permissoes sem sair da tela. Popup em vez de link pra Configuracoes
+  // porque as duas telas exigem permissoes diferentes (administrativo.equipe
+  // vs administrativo.config) -- ver comentario em PermissoesUsuarioModal.
+  const [usuarioPermissoes, setUsuarioPermissoes] = useState<UsuarioData | null>(null);
   const canManageUsers = isTenantManagerRole(userRole);
 
   useEffect(() => {
@@ -153,6 +158,14 @@ const UsuariosList: React.FC = () => {
                       <td style={{ padding: '16px', textAlign: 'right' }}>
                         {!isTenantManagerRole(user.role) && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                            <button
+                              className="icon-btn"
+                              style={{ color: '#8b5cf6' }}
+                              onClick={() => setUsuarioPermissoes(user)}
+                              title="Definir Permissões de Acesso"
+                            >
+                              <Shield size={18} />
+                            </button>
                             <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => openTab(`/usuarios/editar/${user.id}`)} title="Editar Usuário">
                               <Edit2 size={18} />
                             </button>
@@ -170,6 +183,14 @@ const UsuariosList: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {usuarioPermissoes && (
+        <PermissoesUsuarioModal
+          usuarioId={usuarioPermissoes.id}
+          usuarioNome={usuarioPermissoes.nome || usuarioPermissoes.nomeResponsavel || usuarioPermissoes.username || 'Funcionário'}
+          onClose={() => setUsuarioPermissoes(null)}
+        />
+      )}
     </div>
   );
 };

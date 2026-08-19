@@ -1294,6 +1294,14 @@ Atualizar ao concluir cada item.
 
 **Lição:** ao adicionar campo novo a escritas existentes, conferir se alguma regra usa `hasOnly()`/`affectedKeys()` sobre aquela coleção. O `hasOnly` falha fechado e sem mensagem útil no cliente.
 
+**Complemento — atalho de permissões na tela de Usuários (2026-08-18):** o usuário pediu um caminho direto para definir permissões a partir do cadastro de usuários, deixando a escolha entre "levar para Configurações" ou "abrir popup".
+
+**Escolhido popup, por um motivo concreto:** as duas telas exigem permissões **diferentes** — `/usuarios` pede `administrativo.equipe` e `/configuracoes` pede `administrativo.config` ([routeAccess.ts](../src/utils/routeAccess.ts)). Um gerente que administra a equipe sem ter acesso a Configurações clicaria num link e bateria numa parede. O popup funciona para quem já está na tela, e mantém o contexto de quem acabou de criar o usuário.
+
+- Novo `src/components/common/PermissoesUsuarioModal.tsx` — carrega as permissões atuais do funcionário, salva só o campo `permissoes` (+ metadados), com busca e contador.
+- **Catálogo extraído** de um literal dentro do `Configuracoes.tsx` (1.700 linhas) para `src/utils/permissionCatalog.ts`, agora **agrupado por área** (41 permissões numa lista plana não cabem bem num popup). `Configuracoes.tsx` passou a importar a mesma constante — a lista duplicada em dois componentes seria garantia de divergência, exatamente o risco que os comentários do próprio código já alertavam. Conferido por diff que os 41 ids são idênticos aos de antes, sem duplicata.
+- Validado ao vivo: popup abre pela tela de Usuários, marca permissões, salva, e o Firestore recebe `["vendas.pedidos","mecanica.os"]` com `alteradoPor` correto — o mesmo fluxo que estava quebrado antes da correção da regra.
+
 ---
 
 ## 9. Pendências a esclarecer com o usuário

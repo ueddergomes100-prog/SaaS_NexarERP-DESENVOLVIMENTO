@@ -1210,11 +1210,11 @@ Atualizar ao concluir cada item.
 | M15 Relatórios padronizados | 2 | ⬜ Pendente — adiado, depois de M4 | |
 | M13 Reserva de estoque — Fatia 0/N Fundação | 3 | ✅ Concluído — config + funções puras, zero mudança de comportamento | 2026-08-14 |
 | M13 Reserva de estoque — Fatia 1/N Reserva na OS | 3 | ✅ Concluído — validado ao vivo (8 cenários); reserva ainda não protegida contra PDV/Pedido/Orçamento/Devolução (fatias futuras) | 2026-08-14 |
-| M12 Conferência — Fatia 0/4 Fundação (domain + config + permissão + rules) | 3 | ✅ Concluído — código + regra implantada em `sistema-nexus-dev`; falta validação manual | 2026-08-18 |
-| M12 Conferência — Fatia 1/4 Status nasce na venda | 3 | ✅ Concluído — falta validação manual (conferir no Firestore que a chave desligada não grava o campo) | 2026-08-18 |
-| M12 Conferência — Fatia 2/4 Minuta de entrega | 3 | ✅ Concluído — rota corrigida p/ `operacoes/expedicao/minuta/:id`; código de barras do nº do pedido adiado (ver nota); falta validação manual | 2026-08-18 |
-| M12 Conferência — Fatia 3/4 Fila de Expedição | 3 | ✅ Concluído — falta validação manual | 2026-08-18 |
-| M12 Conferência — Fatia 4/4 Tela de conferência (fecha o módulo) | 3 | ✅ Concluído no código — módulo fechado; falta validação manual | 2026-08-18 |
+| M12 Conferência — Fatia 0/4 Fundação (domain + config + permissão + rules) | 3 | ✅ Validado ao vivo em 2026-08-19 — chave-mestra liga/desliga o módulo corretamente | 2026-08-18 |
+| M12 Conferência — Fatia 1/4 Status nasce na venda | 3 | ✅ Validado ao vivo em 2026-08-19 — Pedido de Venda real nasceu com `statusConferencia: aguardando` | 2026-08-18 |
+| M12 Conferência — Fatia 2/4 Minuta de entrega | 3 | ✅ Validado ao vivo em 2026-08-19 — prompt "Imprimir minuta?" + documento sem valores renderizado certo | 2026-08-18 |
+| M12 Conferência — Fatia 3/4 Fila de Expedição | 3 | ✅ Validado ao vivo em 2026-08-19 — pedido apareceu em "Aguardando Conferência" e depois "Conferido" | 2026-08-18 |
+| M12 Conferência — Fatia 4/4 Tela de conferência (fecha o módulo) | 3 | ✅ Validado ao vivo em 2026-08-19 — bipagem manual (código certo e errado), fechamento como Conferido, refletido também na lista de Pedidos de Venda | 2026-08-18 |
 | M4 Produção — fatia 0/N Matéria-Prima | 3 | ✅ Validado ao vivo em 2026-08-15 — cadastro real ("Chapa de Aço Teste M4", 100 UN) | 2026-08-02 |
 | M4 Produção — fatia 1/N Composição de produto | 3 | ✅ Validado ao vivo em 2026-08-15 — composição salva, custo total calculado certo (2 UN × R$20 = R$40) | 2026-08-02 |
 | M4 Produção — fatia 2/N Ordem de Produção + máquina de estados | 3 | ✅ Validado ao vivo em 2026-08-15 — Criada→Em Produção⇄Pausada→Finalizada e Estornada, todas as transições testadas | 2026-08-02 |
@@ -1290,7 +1290,7 @@ Atualizar ao concluir cada item.
 
 **Segunda tela quebrada pela mesma causa, não reportada:** o `PerfilModal.tsx` (usuário alterando o próprio nome) grava `nome` + metadados, e a branch de auto-edição também não os permitia.
 
-**Correção:** novo helper `documentAuditFields()` nas rules, concatenado nas duas listas (`tenantUserEditableFields()` e a branch de auto-edição). Implantado em `sistema-nexus-dev`. **Falta implantar em produção** — a regra lá tem o mesmo defeito.
+**Correção:** novo helper `documentAuditFields()` nas rules, concatenado nas duas listas (`tenantUserEditableFields()` e a branch de auto-edição). Implantado em `sistema-nexus-dev` em 2026-08-18 e **em produção (`nexus-erp-2026`) em 2026-08-19**, a pedido explícito do usuário.
 
 **Lição:** ao adicionar campo novo a escritas existentes, conferir se alguma regra usa `hasOnly()`/`affectedKeys()` sobre aquela coleção. O `hasOnly` falha fechado e sem mensagem útil no cliente.
 

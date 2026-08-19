@@ -1244,7 +1244,12 @@ Atualizar ao concluir cada item.
 - O status de inadimplência do painel **não vem de gateway de pagamento** — é campo mantido à mão. O MRR soma `valorMensalidade` real de cada tenant, mas "quem está devendo" depende de alguém marcar.
 - `SuperAdmin.tsx:340` tem `if (!isPlatformAdminRole(userRole)) return null` (guarda própria de UI); `SuperAdminBackup.tsx` **não tem** equivalente — renderiza a UI e depende só do guard de rota, das rules e da autenticação do backend. Assimetria conhecida, sem risco real de dados, mas vale uniformizar.
 - A aba Backups depende do **backend Express** (`VITE_BACKEND_API_URL`, porta 3001 em dev) — sem ele a tela abre mas não lista nada.
-- Login de platform admin **continua caindo em `/dashboard`**, não em `/superadmin`. Mudar isso é decisão de produto, não foi feita.
+**Fatia 2 (mesma data) — o login de plataforma deixou de passar pelo ERP:**
+
+- **Login de platform admin agora cai em `/superadmin`**, não mais em `/dashboard` (o chunk pré-carregado durante o splash também mudou para o do painel). O usuário testou a Fatia 1, entrou e caiu no ERP completo — "caiu no mesmo painel do sistema" — que era exatamente a confusão original. O ERP continua a um clique, pelo botão "Ir para o ERP" do painel.
+- **Removido o popup "Qual empresa deseja acessar?"** (`selectPlatformTenant`, ~45 linhas em `AuthPage.tsx`). Ele fazia sentido quando o platform admin caía direto no ERP e precisava de uma base antes de abrir a tela. Com o painel listando todas as empresas, virou pergunta sem propósito. Dois efeitos colaterais ruins que sumiram junto: ele **apagava** o tenant salvo no `localStorage` para forçar a escolha a cada login, e **deslogava** quem cancelasse.
+- **Não precisou de fallback novo:** `AuthContext` já reaproveita a última empresa do `localStorage`, e quem nunca escolheu nenhuma encontra o card "Selecionar empresa ativa" que o `AppLayout` já renderizava quando `needsTenantSelection` é verdadeiro ([AppLayout.tsx:68](../src/components/layout/AppLayout.tsx)) — fluxo que já existia e é mais suave que um modal bloqueante. O PDV também já tratava esse estado.
+- `userTenantId` do log de auditoria segue `'geral'` no login de plataforma, que é o correto: é acesso de plataforma, não de uma empresa específica.
 
 ---
 

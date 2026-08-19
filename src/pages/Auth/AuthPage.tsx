@@ -26,7 +26,6 @@ import {
   type ActiveSessionInfo
 } from '../../utils/sessionInfo';
 import { isPlatformAdminRole } from '../../utils/roles';
-import { activeTenantStorageKey, loadTenantOptions } from '../../utils/platformTenants';
 import {
   onboardingService,
   type OnboardingCodeType,
@@ -64,51 +63,16 @@ const hasIncompleteOnboarding = (data: Record<string, unknown>) => {
     data.telefoneVerificado !== true;
 };
 
-const selectPlatformTenant = async (uid: string) => {
-  localStorage.removeItem(activeTenantStorageKey(uid));
-  const tenants = await loadTenantOptions();
-
-  if (tenants.length === 0) {
-    await Swal.fire({
-      title: 'Nenhuma empresa encontrada',
-      text: 'Nao encontramos empresas clientes para este ambiente.',
-      icon: 'warning',
-      confirmButtonColor: '#8b5cf6'
-    });
-    return null;
-  }
-
-  const inputOptions = tenants.reduce<Record<string, string>>((acc, tenant) => {
-    acc[tenant.id] = tenant.email ? `${tenant.nomeOficina} - ${tenant.email}` : tenant.nomeOficina;
-    return acc;
-  }, {});
-
-  const result = await Swal.fire({
-    title: 'Qual empresa deseja acessar?',
-    text: 'Escolha a base do cliente antes de abrir o sistema.',
-    input: 'select',
-    inputOptions,
-    inputPlaceholder: 'Selecione uma empresa',
-    showCancelButton: true,
-    confirmButtonColor: '#8b5cf6',
-    cancelButtonColor: '#6b7280',
-    confirmButtonText: 'Acessar empresa',
-    cancelButtonText: 'Cancelar',
-    allowOutsideClick: false,
-    allowEscapeKey: false,
-    inputValidator: (value) => {
-      return value ? null : 'Selecione uma empresa para continuar.';
-    }
-  });
-
-  if (!result.isConfirmed || typeof result.value !== 'string') {
-    return null;
-  }
-
-  localStorage.setItem(activeTenantStorageKey(uid), result.value);
-  window.dispatchEvent(new CustomEvent('nexus-active-tenant-selected', { detail: result.value }));
-  return tenants.find(tenant => tenant.id === result.value) || null;
-};
+// O popup "Qual empresa deseja acessar?" que existia aqui foi removido em
+// 2026-08-18. Ele fazia sentido quando o platform admin caia direto no ERP e
+// precisava de uma base antes de abrir a tela -- e, pior, ele APAGAVA o
+// tenant salvo no localStorage pra forcar a escolha a cada login, e deslogava
+// quem cancelasse. Agora o platform admin cai no Painel da Plataforma
+// (/superadmin), que ja lista todas as empresas, entao escolher uma no login
+// virou uma pergunta sem proposito. Sem o popup: o AuthContext passa a
+// reaproveitar a ultima empresa usada (localStorage), e quem nunca escolheu
+// nenhuma encontra o card "Selecionar empresa ativa" do AppLayout ao entrar
+// no ERP -- fluxo que ja existia e e' mais suave que um modal bloqueante.
 
 type AuthMode = 'login' | 'signup';
 type RegisterStep = 'company' | 'codes' | 'password';
@@ -301,16 +265,9 @@ const AuthPage: React.FC = () => {
         return;
       }
 
-      if (isPlatformLogin) {
-        const selectedTenant = await selectPlatformTenant(user.uid);
-        if (!selectedTenant) {
-          clearStoredSessionId();
-          await signOut(auth);
-          setLoginLoading(false);
-          return;
-        }
-        userTenantId = selectedTenant.id;
-      }
+      // Login de plataforma nao escolhe empresa aqui (ver comentario no topo
+      // do arquivo). userTenantId segue 'geral' pro log de auditoria, que e' o
+      // certo: e' um acesso de plataforma, nao de uma empresa especifica.
 
       if (hasUserProfile && isSessionRecentlyActive(activeSessionId, activeSession)) {
         const result = await Swal.fire({
@@ -391,13 +348,21 @@ const AuthPage: React.FC = () => {
       // pronto, com um piso curto pra animacao nao dar um flash. O
       // ProtectedRoute continua exibindo o MESMO splash enquanto o
       // AuthContext resolve perfil/tenant, entao a tela nao pisca no meio.
+      // Quem e' da plataforma cai no Painel da Plataforma, nao no ERP de um
+      // tenant: entrar e ver o sistema de um cliente qualquer era justamente
+      // a confusao relatada pelo usuario. O ERP continua a um clique, pelo
+      // botao "Ir para o ERP" do painel.
+      const destino = isPlatformLogin ? '/superadmin' : '/dashboard';
       setShowSplash(true);
       const splashFloor = new Promise((resolve) => window.setTimeout(resolve, 600));
-      const dashboardChunk = import('../Dashboard/Dashboard').catch(() => {
+      const telaChunk = (isPlatformLogin
+        ? import('../Admin/SuperAdmin')
+        : import('../Dashboard/Dashboard')
+      ).catch(() => {
         // Falha de preload nao bloqueia o login -- o Suspense do App cobre.
       });
-      await Promise.all([splashFloor, dashboardChunk]);
-      navigate('/dashboard', { replace: true });
+      await Promise.all([splashFloor, telaChunk]);
+      navigate(destino, { replace: true });
 
     } catch (err: any) {
       console.error(err);

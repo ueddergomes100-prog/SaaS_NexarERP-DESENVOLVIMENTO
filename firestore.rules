@@ -72,6 +72,16 @@ service cloud.firestore {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(platformManagedFields());
     }
 
+    // Metadados de responsabilidade do Modulo 20 (documentMetadata.ts). TODA
+    // escrita do app passou a envia-los em 2026-07-31, mas esta regra nao foi
+    // atualizada junto -- o hasOnly() abaixo passou a recusar silenciosamente
+    // qualquer edicao de usuario feita por Admin de empresa (SuperAdmin nao
+    // sentia, porque isSuperAdmin() curto-circuita antes). Sintoma: "Nao foi
+    // possivel salvar as permissoes" e o perfil nao salvar o proprio nome.
+    function documentAuditFields() {
+      return ['alteradoPor', 'alteradoEm', 'ultimaAlteracao'];
+    }
+
     function tenantUserEditableFields() {
       return [
         'nome',
@@ -82,7 +92,7 @@ service cloud.firestore {
         'recebeComissaoPecas',
         'comissaoPercentualPecas',
         'status'
-      ];
+      ].concat(documentAuditFields());
     }
 
     function canManageTenantData() {
@@ -227,7 +237,8 @@ service cloud.firestore {
           request.auth.uid == userId &&
           request.resource.data.tenantId == resource.data.tenantId &&
           request.resource.data.role == resource.data.role &&
-          request.resource.data.diff(resource.data).changedKeys().hasOnly(['activeSessionId', 'activeSession', 'lastSessionEndedAt', 'nome'])
+          request.resource.data.diff(resource.data).changedKeys()
+            .hasOnly(['activeSessionId', 'activeSession', 'lastSessionEndedAt', 'nome'].concat(documentAuditFields()))
         );
 
       allow delete: if isSuperAdmin() ||

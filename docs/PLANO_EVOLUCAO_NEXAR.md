@@ -1251,6 +1251,13 @@ Atualizar ao concluir cada item.
 - **Não precisou de fallback novo:** `AuthContext` já reaproveita a última empresa do `localStorage`, e quem nunca escolheu nenhuma encontra o card "Selecionar empresa ativa" que o `AppLayout` já renderizava quando `needsTenantSelection` é verdadeiro ([AppLayout.tsx:68](../src/components/layout/AppLayout.tsx)) — fluxo que já existia e é mais suave que um modal bloqueante. O PDV também já tratava esse estado.
 - `userTenantId` do log de auditoria segue `'geral'` no login de plataforma, que é o correto: é acesso de plataforma, não de uma empresa específica.
 
+**Fatia 3 (mesma data) — entrada no ERP virou explícita, por empresa:**
+
+- **Achado:** o botão "Acessar Dados" de cada empresa **não tinha `onClick` nenhum** — era decorativo (o "Suspender" também é, e continua sendo). Agora ele define aquele tenant e abre o ERP.
+- **Removido o botão genérico "Ir para o ERP"** do cabeçalho do painel. Ele abria a última empresa usada **sem dizer qual era** — a mesma ambiguidade que a Seção 9 já registrava como risco de mexer no cliente errado. A entrada agora parte da linha da empresa, onde o nome está à vista.
+- **O usuário sugeriu que "Ir para o ERP" fosse para a tela de login. Recusado, com motivo:** desde a Fatia 2 o login de platform admin cai em `/superadmin` — então ir pro login e reautenticar como SuperAdmin **voltaria pro painel**, um loop. E não dá pra entrar como o usuário do cliente, cuja senha o platform admin não tem.
+- **`setActiveTenantId` (AuthContext) passou a retornar `boolean`.** Ele busca o id em `tenantOptions` e, se não achar, falhava **em silêncio** — o clique navegaria pro ERP com o tenant **anterior** ainda ativo, exatamente o acidente que se quer evitar. `SuperAdmin.tsx` checa o retorno e, em caso de falha, avisa e **não navega**. Os dois filtram `usuarios` por caminhos parecidos mas não idênticos (`loadTenantOptions` vs. o filtro próprio do painel), então a divergência é possível.
+
 ---
 
 ## 9. Pendências a esclarecer com o usuário

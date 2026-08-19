@@ -26,7 +26,10 @@ interface AuthContextType {
   isPlatformAdmin: boolean;
   tenantOptions: TenantOption[];
   selectedTenant: TenantOption | null;
-  setActiveTenantId: (tenantId: string) => void;
+  /** Retorna false quando o tenant pedido nao existe nas opcoes carregadas
+   *  -- quem chama PRECISA checar antes de navegar pro ERP, senao o usuario
+   *  cai na empresa anterior sem perceber (risco de mexer no cliente errado). */
+  setActiveTenantId: (tenantId: string) => boolean;
   needsTenantSelection: boolean;
 }
 
@@ -87,10 +90,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const sessionCloseTokenRef = useRef('');
 
-  const setActiveTenantId = useCallback((nextTenantId: string) => {
+  const setActiveTenantId = useCallback((nextTenantId: string): boolean => {
     const nextTenant = tenantOptions.find(option => option.id === nextTenantId) || null;
     if (!currentUser || !nextTenant) {
-      return;
+      return false;
     }
 
     localStorage.setItem(activeTenantStorageKey(currentUser.uid), nextTenant.id);
@@ -98,6 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setTenantId(nextTenant.id);
     setBlockedModules([]);
     setIsOwner(false);
+    return true;
   }, [currentUser, tenantOptions]);
 
   useEffect(() => {

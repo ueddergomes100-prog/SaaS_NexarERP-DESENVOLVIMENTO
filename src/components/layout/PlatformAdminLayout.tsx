@@ -1,6 +1,6 @@
 import React from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Building2, Database, LogOut, ArrowLeftRight, ShieldCheck } from 'lucide-react';
+import { NavLink, Outlet } from 'react-router-dom';
+import { Building2, Database, LogOut, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import hennderIcon from '../../assets/hennder-icon.svg';
 
@@ -12,7 +12,6 @@ import hennderIcon from '../../assets/hennder-icon.svg';
  * do AppLayout desde sempre.
  */
 const PlatformAdminLayout: React.FC = () => {
-  const navigate = useNavigate();
   const { currentUser, logout } = useAuth();
 
   const linkStyle = ({ isActive }: { isActive: boolean }): React.CSSProperties => ({
@@ -66,15 +65,10 @@ const PlatformAdminLayout: React.FC = () => {
           <span style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {currentUser?.email}
           </span>
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => navigate('/dashboard')}
-            title="Voltar para o sistema de uma empresa"
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}
-          >
-            <ArrowLeftRight size={16} /> Ir para o ERP
-          </button>
+          {/* Nao existe botao generico "Ir para o ERP" aqui de proposito: ele
+              abria a ultima empresa usada sem dizer qual era. A entrada no
+              sistema de um cliente e' pelo "Acessar Dados" da linha dele, na
+              aba Empresas, onde fica explicito de quem e' a base. */}
           <button
             type="button"
             className="icon-btn"

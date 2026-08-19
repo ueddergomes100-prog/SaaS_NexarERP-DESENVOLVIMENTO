@@ -34,8 +34,33 @@ const toDate = (value?: any): Date | null => {
 const normalizeDeleteConfirmation = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
 
 const SuperAdmin: React.FC = () => {
-  const { userRole, currentUser } = useAuth();
+  const { userRole, currentUser, setActiveTenantId } = useAuth();
   const navigate = useNavigate();
+
+  /**
+   * Entrada no ERP de um cliente. E' o UNICO caminho do painel pro sistema,
+   * de proposito: partindo da linha da empresa, fica explicito em qual base
+   * se esta entrando. Antes havia um botao generico "Ir para o ERP" que abria
+   * a ultima empresa usada sem dizer qual era -- ambiguidade que e' justamente
+   * o risco de mexer no cliente errado.
+   *
+   * setActiveTenantId retorna false quando o id nao esta nas opcoes que o
+   * AuthContext carregou (os dois filtram `usuarios` por caminhos parecidos,
+   * mas nao identicos). Nesse caso NAO navega: cair no ERP com o tenant
+   * anterior ainda ativo seria pior que nao abrir.
+   */
+  const handleAcessarDados = (tenantId: string, nomeOficina: string) => {
+    if (!setActiveTenantId(tenantId)) {
+      Swal.fire({
+        title: 'Não foi possível abrir esta empresa',
+        text: `A base de "${nomeOficina}" não está disponível para acesso agora. Recarregue o painel e tente de novo.`,
+        icon: 'error',
+        confirmButtonColor: '#8b5cf6'
+      });
+      return;
+    }
+    navigate('/dashboard');
+  };
   const [tenants, setTenants] = useState<TenantInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -711,8 +736,10 @@ const SuperAdmin: React.FC = () => {
                             <Ban size={14} /> Suspender
                           </button>
                         ) : (
-                          <button 
-                            className="btn-secondary" 
+                          <button
+                            className="btn-secondary"
+                            onClick={() => handleAcessarDados(tenant.id, tenant.nomeOficina)}
+                            title={`Abrir o sistema de ${tenant.nomeOficina}`}
                             style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: 'var(--radius-md)' }}
                           >
                             Acessar Dados <ExternalLink size={14} />

@@ -121,6 +121,22 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'administrativo.relatorios', label: 'Admin: Relatórios Diversos', color: '#6b7280' },
     ],
   },
+  {
+    // Modulos ainda em roadmap: as telas sao o mockup "Em breve"
+    // (RoadmapModule). Antes de 2026-08-18 nao tinham permissao NEM branch em
+    // routeAccess.ts -- ou seja, todo funcionario via esses itens no menu e
+    // ninguem conseguia esconde-los. Agora a permissao existe e o gate e'
+    // real: desmarcada, o item some do menu e a rota redireciona.
+    grupo: 'Módulos em Breve',
+    itens: [
+      { id: 'compras.pedidos', label: 'Compras: Pedidos de Compra (em breve)', color: '#64748b' },
+      { id: 'compras.cotacoes', label: 'Compras: Cotação de Compra (em breve)', color: '#64748b' },
+      { id: 'integracoes.nuvemshop', label: 'E-commerce: Nuvemshop (em breve)', color: '#64748b' },
+      { id: 'integracoes.marketplaces', label: 'E-commerce: Marketplaces (em breve)', color: '#64748b' },
+      { id: 'integracoes.sincronizacoes', label: 'E-commerce: Sincronizações (em breve)', color: '#64748b' },
+      { id: 'operacoes.lotes', label: 'Operações: Lotes e Validades (em breve)', color: '#64748b' },
+    ],
+  },
 ];
 
 /** Lista plana, na ordem dos grupos. */

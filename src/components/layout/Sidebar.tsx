@@ -263,8 +263,8 @@ const Sidebar: React.FC = () => {
       tone: '#fb923c',
       roadmap: true,
       items: [
-        { label: 'Pedidos de Compra', to: '/compras/pedidos-compra', icon: ClipboardList, module: 'compras.pedidos' },
-        { label: 'Cotação de Compra', to: '/compras/cotacoes', icon: Inbox, module: 'compras.cotacoes' }
+        { label: 'Pedidos de Compra', to: '/compras/pedidos-compra', icon: ClipboardList, module: 'compras.pedidos', permission: 'compras.pedidos' },
+        { label: 'Cotação de Compra', to: '/compras/cotacoes', icon: Inbox, module: 'compras.cotacoes', permission: 'compras.cotacoes' }
       ]
     },
     {
@@ -274,9 +274,9 @@ const Sidebar: React.FC = () => {
       tone: '#38bdf8',
       roadmap: true,
       items: [
-        { label: 'Nuvemshop', to: '/integracoes/nuvemshop', icon: Store, module: 'integracoes.nuvemshop' },
-        { label: 'Marketplaces', to: '/integracoes/marketplaces', icon: ShoppingCart, module: 'integracoes.marketplaces' },
-        { label: 'Sincronizações', to: '/integracoes/sincronizacoes', icon: Link2, module: 'integracoes.sincronizacoes' }
+        { label: 'Nuvemshop', to: '/integracoes/nuvemshop', icon: Store, module: 'integracoes.nuvemshop', permission: 'integracoes.nuvemshop' },
+        { label: 'Marketplaces', to: '/integracoes/marketplaces', icon: ShoppingCart, module: 'integracoes.marketplaces', permission: 'integracoes.marketplaces' },
+        { label: 'Sincronizações', to: '/integracoes/sincronizacoes', icon: Link2, module: 'integracoes.sincronizacoes', permission: 'integracoes.sincronizacoes' }
       ]
     },
     {
@@ -286,7 +286,7 @@ const Sidebar: React.FC = () => {
       tone: '#14b8a6',
       roadmap: true,
       items: [
-        { label: 'Lotes e Validades', to: '/operacoes/lotes-validades', icon: Package, module: 'operacoes.lotes' }
+        { label: 'Lotes e Validades', to: '/operacoes/lotes-validades', icon: Package, module: 'operacoes.lotes', permission: 'operacoes.lotes' }
       ]
     }
   ], []);

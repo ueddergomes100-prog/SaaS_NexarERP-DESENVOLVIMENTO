@@ -48,6 +48,15 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/relatorios-diversos')) routeModule = 'logs.relatorios_diversos';
   else if (path.startsWith('/logs-sistema')) routeModule = 'logs.sistema';
   else if (path.startsWith('/configuracoes')) routeModule = 'admin.config';
+  // Modulos de roadmap (telas ainda no mockup RoadmapModule). Precisam vir
+  // DEPOIS das rotas reais de /operacoes -- /operacoes/expedicao ja foi
+  // resolvido acima; aqui sobra so /operacoes/lotes-validades.
+  else if (path.startsWith('/compras/pedidos-compra')) routeModule = 'compras.pedidos';
+  else if (path.startsWith('/compras/cotacoes')) routeModule = 'compras.cotacoes';
+  else if (path.startsWith('/integracoes/nuvemshop')) routeModule = 'integracoes.nuvemshop';
+  else if (path.startsWith('/integracoes/marketplaces')) routeModule = 'integracoes.marketplaces';
+  else if (path.startsWith('/integracoes/sincronizacoes')) routeModule = 'integracoes.sincronizacoes';
+  else if (path.startsWith('/operacoes/lotes-validades')) routeModule = 'operacoes.lotes';
 
   let routePermission = '';
   if (path.startsWith('/clientes') || path.startsWith('/veiculos')) routePermission = 'cadastros.clientes';
@@ -82,6 +91,14 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/relatorios-diversos')) routePermission = 'administrativo.relatorios';
   else if (path.startsWith('/logs-sistema')) routePermission = 'administrativo.logs';
   else if (path.startsWith('/configuracoes')) routePermission = 'administrativo.config';
+  // Roadmap: mesma permissao do modulo, pra o toggle da tela de permissoes
+  // ter efeito real em vez de ser decorativo.
+  else if (path.startsWith('/compras/pedidos-compra')) routePermission = 'compras.pedidos';
+  else if (path.startsWith('/compras/cotacoes')) routePermission = 'compras.cotacoes';
+  else if (path.startsWith('/integracoes/nuvemshop')) routePermission = 'integracoes.nuvemshop';
+  else if (path.startsWith('/integracoes/marketplaces')) routePermission = 'integracoes.marketplaces';
+  else if (path.startsWith('/integracoes/sincronizacoes')) routePermission = 'integracoes.sincronizacoes';
+  else if (path.startsWith('/operacoes/lotes-validades')) routePermission = 'operacoes.lotes';
 
   return { routeModule, routePermission };
 };

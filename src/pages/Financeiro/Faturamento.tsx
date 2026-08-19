@@ -3,7 +3,7 @@ import { TrendingUp, Download, PieChart, Calendar, Loader2 } from 'lucide-react'
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { transactionFeeAmount, transactionGrossAmount, transactionNetAmount } from '../../utils/financeDomain';
+import { isRevenueReversal, transactionFeeAmount, transactionGrossAmount, transactionNetAmount } from '../../utils/financeDomain';
 
 interface TransacaoData {
   id: string;
@@ -65,10 +65,20 @@ const Faturamento: React.FC = () => {
   const receitaPecas = receitasFiltradas.filter(t => t.categoria === 'Venda de Peças').reduce((acc, curr) => acc + transactionGrossAmount(curr), 0);
   const receitaOutros = receitasFiltradas.filter(t => t.categoria !== 'Serviços' && t.categoria !== 'Serviços Automotivos' && t.categoria !== 'Venda de Peças').reduce((acc, curr) => acc + transactionGrossAmount(curr), 0);
 
+  // Estorno (OS/venda cancelada, devolucao) ANULA receita -- nao e' despesa.
+  // Antes ele inflava receita E despesa ao mesmo tempo, distorcendo a margem
+  // nas duas pontas. Vira uma LINHA PROPRIA do DRE, e nao um desconto mudo no
+  // total: assim a quebra por categoria (Pecas/Servicos/Outros) continua
+  // somando exatamente a receita bruta, como o usuario ve na tela.
+  const estornosAno = transacoesAno.filter(isRevenueReversal);
+  const totalEstornos = estornosAno.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+
   const receitaBruta = receitaServicos + receitaPecas + receitaOutros;
   const taxasCartao = receitasFiltradas.reduce((acc, curr) => acc + transactionFeeAmount(curr), 0);
-  const receitaLiquida = receitaBruta - taxasCartao;
-  const totalDespesas = transacoesAno.filter(t => t.tipo === 'saida').reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+  const receitaLiquida = receitaBruta - taxasCartao - totalEstornos;
+  const totalDespesas = transacoesAno
+    .filter(t => t.tipo === 'saida' && !isRevenueReversal(t))
+    .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
   const lucroLiquido = receitaLiquida - totalDespesas;
   const margemLucro = receitaBruta > 0 ? (lucroLiquido / receitaBruta) * 100 : 0;
 
@@ -95,10 +105,18 @@ const Faturamento: React.FC = () => {
     });
     
     const monthRevenueTransactions = transacoesMes.filter(t => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução');
-    const receitasBrutas = monthRevenueTransactions.reduce((acc, curr) => acc + transactionGrossAmount(curr), 0);
-    const taxas = monthRevenueTransactions.reduce((acc, curr) => acc + transactionFeeAmount(curr), 0);
-    const receitas = monthRevenueTransactions.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
-    const despesas = transacoesMes.filter(t => t.tipo === 'saida').reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+    // Mesmo criterio do DRE acima: estorno abate receita, nao vira despesa.
+    const estornosMes = transacoesMes.filter(isRevenueReversal);
+    const totalEstornosMes = estornosMes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+
+    const receitasBrutas = monthRevenueTransactions.reduce((acc, curr) => acc + transactionGrossAmount(curr), 0)
+      - estornosMes.reduce((acc, curr) => acc + transactionGrossAmount(curr), 0);
+    const taxas = monthRevenueTransactions.reduce((acc, curr) => acc + transactionFeeAmount(curr), 0)
+      - estornosMes.reduce((acc, curr) => acc + transactionFeeAmount(curr), 0);
+    const receitas = monthRevenueTransactions.reduce((acc, curr) => acc + transactionNetAmount(curr), 0) - totalEstornosMes;
+    const despesas = transacoesMes
+      .filter(t => t.tipo === 'saida' && !isRevenueReversal(t))
+      .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
     const saldo = receitas - despesas;
     
     return { nomeMes, receitasBrutas, taxas, receitas, despesas, saldo };
@@ -173,13 +191,23 @@ const Faturamento: React.FC = () => {
               <span style={{ fontWeight: 600, color: '#f59e0b' }}>{formatCurrency(taxasCartao)}</span>
             </div>
 
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                3. (-) Cancelamentos e Devoluções
+                <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Receita estornada por OS/venda cancelada ou devolução
+                </span>
+              </span>
+              <span style={{ fontWeight: 600, color: '#f59e0b' }}>{formatCurrency(totalEstornos)}</span>
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'rgba(16, 185, 129, 0.08)', borderRadius: 'var(--radius-md)' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>3. (=) Receita Líquida Financeira</span>
+              <span style={{ color: 'var(--text-secondary)' }}>4. (=) Receita Líquida Financeira</span>
               <span style={{ fontWeight: 600, color: '#10b981' }}>{formatCurrency(receitaLiquida)}</span>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>4. (-) Despesas / Custos Totais</span>
+              <span style={{ color: 'var(--text-secondary)' }}>5. (-) Despesas / Custos Totais</span>
               <span style={{ fontWeight: 600, color: '#ef4444' }}>{formatCurrency(totalDespesas)}</span>
             </div>
 

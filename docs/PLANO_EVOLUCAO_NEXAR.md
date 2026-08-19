@@ -1260,6 +1260,28 @@ Atualizar ao concluir cada item.
 
 ---
 
+## 8.2 Estornos deixaram de inflar receita e despesa (bugfix, 2026-08-18)
+
+**Como apareceu:** o usuário estranhou o Dashboard mostrar R$ 93,70 no filtro "Mês" e disse ser "de uma venda que eu excluí". Investigado com consulta direta ao Firestore (REST, com o token da sessão do próprio usuário).
+
+**Diagnóstico — não era dessincronização nem registro órfão.** Os dois documentos de origem existiam. O valor era: R$ 44,70 do PDV #0014 (venda real, `Finalizada`) + R$ 49,00 da **OS #05, que estava `Cancelada`** (parcela de R$ 50 no cartão, líquido R$ 49 após taxa).
+
+**Causa raiz:** ao cancelar uma OS/venda, o sistema **não apaga** a entrada original — grava um lançamento de **saída** compensatório (`estorno_cancelamento_*`, categoria "Cancelamento de OS"/"Cancelamento de Venda"/"Devolução de Venda"). Isso é correto e preserva histórico. Mas nenhuma tela distinguia essa saída de uma despesa operacional: a entrada seguia somando na receita **e** o estorno entrava como despesa. O saldo fechava, mas **as duas parcelas mentiam**.
+
+**Correção:** nova função pura `isRevenueReversal` em `financeDomain.ts` (+ `REVENUE_REVERSAL_CATEGORIES`), com 9 testes (182→191). Receita passa a ser `entradas − estornos`; despesas contam só saídas que **não** são estorno. Saldo e lucro não mudam de valor — são matematicamente idênticos.
+
+**Detalhe que quase virou bug novo:** o `estorno_devolucao_*` (`PedidoVendaForm.tsx`) usa a **mesma categoria** "Devolução de Venda" mas com `tipo: 'entrada'` — é a devolução sendo desfeita, então a receita volta. Por isso `isRevenueReversal` exige `tipo === 'saida'`; sem essa guarda, receita legítima seria anulada. Há teste cobrindo exatamente esse caso.
+
+**Telas corrigidas:** `Dashboard.tsx` (métricas, gráfico de fluxo de caixa e curva de performance), `Faturamento.tsx` (DRE anual e balancete mensal). No DRE o estorno virou **linha própria** ("3. (−) Cancelamentos e Devoluções") em vez de desconto mudo no total — assim a quebra por categoria (Peças/Serviços/Outros) continua somando exatamente a Receita Bruta que aparece na tela.
+
+**Deliberadamente não alterados:** `Caixa.tsx` (Fluxo de Caixa) e `Banco.tsx` são extratos linha a linha — ali o estorno é saída real de dinheiro e está certo aparecer como tal.
+
+**Validado ao vivo:** Dashboard de agosto passou de "Receita R$ 93,70 / Despesas R$ 49,00" para "R$ 44,70 / R$ 0,00", com saldo inalterado em R$ 44,70. DRE fechando em todas as linhas.
+
+**Pendência conhecida, não corrigida:** o `PrintRelatorioFinanceiro.tsx` ("Relatório de Recebimentos (Pagos)") filtra por `tipo` isolado, então lista e soma entradas estornadas sem mostrar a contrapartida (que é `saida` e fica fora do filtro). Como é relatório de auditoria linha a linha, mudar exige decidir se o estorno deve sumir da lista ou aparecer marcado — não decidido.
+
+---
+
 ## 9. Pendências a esclarecer com o usuário
 
 1. ~~**Módulo 4:** trecho corrompido no PDF original — confirmar se falta requisito de Produção.~~ Resolvido em 2026-08-02: faltava Cadastro de Matéria-Prima (pool de estoque separado, mesma lógica do cadastro de produtos) — ver seção do Módulo 4.

@@ -43,7 +43,7 @@ import {
   isWithinDateRange,
   type DashboardPeriod,
 } from '../../utils/dateTime';
-import { transactionNetAmount } from '../../utils/financeDomain';
+import { isRevenueReversal, transactionNetAmount } from '../../utils/financeDomain';
 import './Dashboard.css';
 
 interface OSData {
@@ -373,15 +373,27 @@ const Dashboard: React.FC = () => {
     const transacoesPagasMes = transacoes.filter((t) => (
       t.status === 'Paga' && isWithinDateRange(transactionDate(t), selectedPeriodRange.start, selectedPeriodRange.end)
     ));
+    // Estorno (OS/venda cancelada, devolucao) ANULA receita -- nao e' despesa.
+    // Antes, uma OS cancelada inflava as duas pontas ao mesmo tempo: a entrada
+    // original seguia somando na receita e o lancamento compensatorio entrava
+    // como despesa operacional. O saldo fechava, mas os dois numeros mentiam.
+    const estornosMes = transacoesPagasMes.filter(isRevenueReversal);
+    const totalEstornosMes = estornosMes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+
     const faturamentoMes = transacoesPagasMes
       .filter((t) => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução')
-      .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+      .reduce((acc, curr) => acc + transactionNetAmount(curr), 0) - totalEstornosMes;
     const faturamentoHoje = transacoesPagasMes
       .filter((t) => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução' && sameDay(transactionDate(t), hoje))
-      .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+      .reduce((acc, curr) => acc + transactionNetAmount(curr), 0)
+      - estornosMes
+        .filter((t) => sameDay(transactionDate(t), hoje))
+        .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
     const despesasMes = transacoesPagasMes
-      .filter((t) => t.tipo === 'saida')
+      .filter((t) => t.tipo === 'saida' && !isRevenueReversal(t))
       .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+    // Continua identico ao valor antigo: o que saiu da receita entrou de volta
+    // ao sair da despesa. So as duas parcelas ficaram honestas.
     const lucroLiquidoMes = faturamentoMes - despesasMes;
     const contasReceberPeriodo = transacoes.filter((t) => (
       t.tipo === 'entrada' &&
@@ -463,7 +475,12 @@ const Dashboard: React.FC = () => {
         if (!date) return;
         const bucket = periodBucket(date, dashboardPeriod);
         const current = buckets.get(bucket.key) || { name: bucket.name, order: bucket.order, entradas: 0, saidas: 0, saldo: 0 };
-        if (transaction.tipo === 'entrada' && transaction.formaPagamento !== 'Crédito de Devolução') {
+        // Mesmo criterio do bloco de metricas: estorno abate a entrada, nao
+        // engorda a saida (senao o grafico mostra pico de receita e de despesa
+        // no mesmo dia por causa de um cancelamento).
+        if (isRevenueReversal(transaction)) {
+          current.entradas -= transactionNetAmount(transaction);
+        } else if (transaction.tipo === 'entrada' && transaction.formaPagamento !== 'Crédito de Devolução') {
           current.entradas += transactionNetAmount(transaction);
         } else if (transaction.tipo === 'saida') {
           current.saidas += transactionNetAmount(transaction);
@@ -499,11 +516,18 @@ const Dashboard: React.FC = () => {
       const date = transactionDate(transaction);
       if (
         transaction.status !== 'Paga' ||
-        transaction.tipo !== 'entrada' ||
-        transaction.formaPagamento === 'Crédito de Devolução' ||
         !isWithinDateRange(date, selectedPeriodRange.start, selectedPeriodRange.end) ||
         !date
       ) return;
+
+      // Estorno abate a receita da curva de performance, em vez de ser
+      // ignorado -- senao o grafico continua mostrando o pico da venda que
+      // foi cancelada.
+      if (isRevenueReversal(transaction)) {
+        ensureBucket(date).receita -= transactionNetAmount(transaction);
+        return;
+      }
+      if (transaction.tipo !== 'entrada' || transaction.formaPagamento === 'Crédito de Devolução') return;
       ensureBucket(date).receita += transactionNetAmount(transaction);
     });
 

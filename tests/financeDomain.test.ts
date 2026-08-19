@@ -8,8 +8,10 @@ import {
   computeBankCreditsMap,
   createEmptyPaymentDraft,
   explodeInstallmentPaymentRecords,
+  isRevenueReversal,
   normalizeCreditCardFeeSchedule,
   normalizePayments,
+  REVENUE_REVERSAL_CATEGORIES,
   paymentRequiresBankAccount,
   recalculateCommissionAfterReturn,
   summarizePayments,
@@ -497,4 +499,53 @@ test('computeBankCreditsMap usa o valor liquido do cartao, nao o bruto -- achado
   // Credita/reverte o liquido (9700), nao o bruto (10000) -- a taxa da
   // administradora nunca chega a entrar no banco.
   assert.equal(map.get('banco-1'), 9_700);
+});
+
+// --- isRevenueReversal (estornos nao sao despesa, sao receita anulada) ---
+
+test('isRevenueReversal: saida de Cancelamento de OS e estorno de receita', () => {
+  assert.equal(isRevenueReversal({ tipo: 'saida', categoria: 'Cancelamento de OS' }), true);
+});
+
+test('isRevenueReversal: saida de Cancelamento de Venda e estorno de receita', () => {
+  assert.equal(isRevenueReversal({ tipo: 'saida', categoria: 'Cancelamento de Venda' }), true);
+});
+
+test('isRevenueReversal: saida de Devolucao de Venda e estorno de receita', () => {
+  assert.equal(isRevenueReversal({ tipo: 'saida', categoria: 'Devolução de Venda' }), true);
+});
+
+test('isRevenueReversal: ENTRADA com categoria de devolucao NAO e estorno -- e o "estorno da devolucao", que traz a receita de volta', () => {
+  // PedidoVendaForm grava estorno_devolucao_* com tipo 'entrada' e a MESMA
+  // categoria 'Devolução de Venda'. Tratar como estorno anularia receita real.
+  assert.equal(isRevenueReversal({ tipo: 'entrada', categoria: 'Devolução de Venda' }), false);
+});
+
+test('isRevenueReversal: despesa operacional comum nao e estorno', () => {
+  assert.equal(isRevenueReversal({ tipo: 'saida', categoria: 'Aluguel' }), false);
+  assert.equal(isRevenueReversal({ tipo: 'saida', categoria: 'FORNECEDORES DE PEÇAS' }), false);
+});
+
+test('isRevenueReversal: reconhece pelo sourceType quando a categoria vem vazia', () => {
+  assert.equal(isRevenueReversal({ tipo: 'saida', sourceType: 'cancelamento_ordem_servico' }), true);
+  assert.equal(isRevenueReversal({ tipo: 'saida', sourceType: 'cancelamento_pedido_venda' }), true);
+});
+
+test('isRevenueReversal: sourceType de origem normal nao e estorno', () => {
+  assert.equal(isRevenueReversal({ tipo: 'saida', sourceType: 'pedido_venda' }), false);
+});
+
+test('isRevenueReversal: tolera campos ausentes, nulos e espacos em volta', () => {
+  assert.equal(isRevenueReversal({}), false);
+  assert.equal(isRevenueReversal({ tipo: 'saida' }), false);
+  assert.equal(isRevenueReversal({ tipo: 'saida', categoria: '  Cancelamento de OS  ' }), true);
+});
+
+test('REVENUE_REVERSAL_CATEGORIES cobre as 3 categorias que o sistema grava, sem duplicata', () => {
+  assert.deepEqual([...REVENUE_REVERSAL_CATEGORIES], [
+    'Cancelamento de OS',
+    'Cancelamento de Venda',
+    'Devolução de Venda',
+  ]);
+  assert.equal(new Set(REVENUE_REVERSAL_CATEGORIES).size, REVENUE_REVERSAL_CATEGORIES.length);
 });

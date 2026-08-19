@@ -905,3 +905,45 @@ export const validateBankTransfer = (args: {
 export const transactionGrossAmount = (transaction: FinancialTransactionValue) => fromCents(transactionGrossCents(transaction));
 export const transactionFeeAmount = (transaction: FinancialTransactionValue) => fromCents(transactionFeeCents(transaction));
 export const transactionNetAmount = (transaction: FinancialTransactionValue) => fromCents(transactionNetCents(transaction));
+
+/**
+ * Categorias que o sistema grava quando ANULA uma receita ja lancada. O
+ * cancelamento nao apaga a entrada original (isso preservaria o historico):
+ * grava um lancamento de saida compensatorio -- ver OSForm.tsx
+ * ("Cancelamento de OS"), PedidoVendaForm.tsx ("Cancelamento de Venda") e
+ * DevolucaoVendaModal.tsx ("Devolucao de Venda").
+ */
+export const REVENUE_REVERSAL_CATEGORIES = [
+  'Cancelamento de OS',
+  'Cancelamento de Venda',
+  'Devolução de Venda',
+] as const;
+
+export interface ReversibleTransaction {
+  tipo?: string;
+  categoria?: string;
+  sourceType?: string;
+}
+
+/**
+ * Identifica lancamentos que ANULAM receita, em vez de serem despesa real.
+ *
+ * Sem isso, uma OS cancelada aparecia duas vezes errada no mesmo painel: a
+ * entrada original continuava somando na receita, e o estorno entrava como
+ * "despesa" -- o saldo fechava, mas receita e despesa ficavam infladas.
+ *
+ * O `tipo === 'saida'` NAO e' redundante e nao pode ser removido: o
+ * "estorno da devolucao" (PedidoVendaForm.tsx, `estorno_devolucao_*`) usa a
+ * MESMA categoria 'Devolução de Venda' com `tipo: 'entrada'`, porque desfaz
+ * a devolucao e traz a receita de volta. Sem essa guarda, essa receita
+ * legitima seria anulada por engano.
+ */
+export const isRevenueReversal = (transaction: ReversibleTransaction): boolean => {
+  if (transaction.tipo !== 'saida') return false;
+
+  const categoria = String(transaction.categoria || '').trim();
+  if ((REVENUE_REVERSAL_CATEGORIES as readonly string[]).includes(categoria)) return true;
+
+  // Rede de seguranca pra estornos que venham sem categoria preenchida.
+  return String(transaction.sourceType || '').startsWith('cancelamento_');
+};

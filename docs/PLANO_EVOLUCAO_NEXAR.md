@@ -1278,7 +1278,21 @@ Atualizar ao concluir cada item.
 
 **Validado ao vivo:** Dashboard de agosto passou de "Receita R$ 93,70 / Despesas R$ 49,00" para "R$ 44,70 / R$ 0,00", com saldo inalterado em R$ 44,70. DRE fechando em todas as linhas.
 
-**Pendência conhecida, não corrigida:** o `PrintRelatorioFinanceiro.tsx` ("Relatório de Recebimentos (Pagos)") filtra por `tipo` isolado, então lista e soma entradas estornadas sem mostrar a contrapartida (que é `saida` e fica fora do filtro). Como é relatório de auditoria linha a linha, mudar exige decidir se o estorno deve sumir da lista ou aparecer marcado — não decidido.
+**Complemento (mesma data) — Relatório de Recebimentos:** o usuário escolheu **marcar** em vez de esconder. A linha estornada continua visível (tachada, com selo "ESTORNADO"), mas sai do total — esconder o lançamento apagaria o rastro num relatório de auditoria; somar dinheiro que voltou ao cliente é que estaria errado. A ligação é exata, pelo id: o estorno de cancelamento é gravado como `estorno_cancelamento_{idDaTransacaoOriginal}`. Estornos que não casam com nenhuma linha listada — devolução (aponta pro pedido, não pra uma parcela) ou cancelamento de recebimento de fora do período — entram como abatimento no rodapé, que passou a mostrar "Subtotal listado / (−) Estornado / TOTAL".
+
+## 8.3 Bugfix: Admin de empresa não conseguia salvar permissões (2026-08-18)
+
+**Sintoma reportado:** "Não foi possível salvar as permissões" ao editar um funcionário recém-criado.
+
+**Causa raiz — regressão do Módulo 20.** Em 2026-07-31 toda escrita do app passou a enviar os metadados de responsabilidade (`alteradoPor`/`alteradoEm`/`ultimaAlteracao`, de `documentMetadata.ts`), mas a regra de `/usuarios` nas `firestore.rules` não foi atualizada junto. Ela usa `affectedKeys().hasOnly(tenantUserEditableFields())`, e essa lista não incluía os metadados — então **toda** edição de usuário feita por Admin de empresa passou a ser recusada silenciosamente.
+
+**Por que ninguém tinha notado:** `isSuperAdmin()` curto-circuita antes na mesma regra, então o SuperAdmin nunca sentiu. Só Admin de empresa era afetado.
+
+**Segunda tela quebrada pela mesma causa, não reportada:** o `PerfilModal.tsx` (usuário alterando o próprio nome) grava `nome` + metadados, e a branch de auto-edição também não os permitia.
+
+**Correção:** novo helper `documentAuditFields()` nas rules, concatenado nas duas listas (`tenantUserEditableFields()` e a branch de auto-edição). Implantado em `sistema-nexus-dev`. **Falta implantar em produção** — a regra lá tem o mesmo defeito.
+
+**Lição:** ao adicionar campo novo a escritas existentes, conferir se alguma regra usa `hasOnly()`/`affectedKeys()` sobre aquela coleção. O `hasOnly` falha fechado e sem mensagem útil no cliente.
 
 ---
 

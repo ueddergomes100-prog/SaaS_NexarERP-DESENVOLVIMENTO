@@ -4,8 +4,19 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Printer, ArrowLeft } from 'lucide-react';
-import { transactionNetAmount } from '../../utils/financeDomain';
+import { isRevenueReversal, transactionNetAmount } from '../../utils/financeDomain';
 import '../OS/OsPrint.css'; // Usando os estilos de impressão
+
+/**
+ * Ao cancelar uma OS/venda o sistema grava a saida compensatoria com id
+ * `estorno_cancelamento_{idDaTransacaoOriginal}` (ver OSForm.tsx e
+ * PedidoVendaForm.tsx). Isso da ligacao EXATA de volta ao recebimento que
+ * foi estornado, sem depender de casar por valor/data.
+ */
+const ESTORNO_ID_PREFIX = 'estorno_cancelamento_';
+const originalTransactionIdFromReversal = (reversalId: string): string | null => (
+  reversalId.startsWith(ESTORNO_ID_PREFIX) ? reversalId.slice(ESTORNO_ID_PREFIX.length) : null
+);
 
 const PrintRelatorioFinanceiro: React.FC = () => {
   const { search } = useLocation();
@@ -19,6 +30,8 @@ const PrintRelatorioFinanceiro: React.FC = () => {
   const fim = queryParams.get('fim') || '';
 
   const [transacoes, setTransacoes] = useState<any[]>([]);
+  const [estornadosIds, setEstornadosIds] = useState<Set<string>>(new Set());
+  const [outrosEstornos, setOutrosEstornos] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -72,6 +85,44 @@ const PrintRelatorioFinanceiro: React.FC = () => {
         });
 
         setTransacoes(filteredResults);
+
+        // Marca no relatorio de RECEBIMENTOS quais entradas foram estornadas
+        // depois (OS/venda cancelada, devolucao). O estorno e' uma SAIDA,
+        // entao nunca apareceria neste relatorio, que filtra tipo='entrada'
+        // -- sem isso o total soma dinheiro que voltou pro cliente.
+        if (tipo === 'entrada' && status === 'Paga') {
+          const estornoSnap = await getDocs(query(
+            collection(db, 'transacoes'),
+            where('tenantId', '==', tenantId),
+            where('tipo', '==', 'saida'),
+            where('status', '==', 'Paga'),
+          ));
+
+          const listadosPorId = new Map(filteredResults.map((t) => [t.id, t]));
+          const idsEstornados = new Set<string>();
+          let naoCasados = 0;
+
+          estornoSnap.forEach((docSnap) => {
+            const estorno = { id: docSnap.id, ...docSnap.data() } as any;
+            if (!isRevenueReversal(estorno)) return;
+
+            const dataEstorno = estorno.dataPagamento || estorno.data || '';
+            if (!dataEstorno || dataEstorno < inicio || dataEstorno > fim) return;
+
+            const originalId = originalTransactionIdFromReversal(estorno.id);
+            if (originalId && listadosPorId.has(originalId)) {
+              idsEstornados.add(originalId);
+            } else {
+              // Devolucao (que aponta pro pedido, nao pra uma parcela) ou
+              // estorno de recebimento fora do periodo do relatorio: nao da
+              // pra marcar uma linha, entao entra como abatimento no rodape.
+              naoCasados += transactionNetAmount(estorno);
+            }
+          });
+
+          setEstornadosIds(idsEstornados);
+          setOutrosEstornos(naoCasados);
+        }
       } catch (error) {
         console.error("Erro ao buscar relatório financeiro:", error);
       } finally {
@@ -86,7 +137,15 @@ const PrintRelatorioFinanceiro: React.FC = () => {
     window.print();
   };
 
-  const totalRelatorio = transacoes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+  // Linhas estornadas continuam VISIVEIS (marcadas), mas fora do total: o
+  // relatorio e' de auditoria, entao esconder o lancamento apagaria o
+  // rastro -- somar dinheiro que voltou pro cliente e' que estaria errado.
+  const totalBruto = transacoes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+  const totalEstornadoListado = transacoes
+    .filter((t) => estornadosIds.has(t.id))
+    .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+  const totalEstornos = totalEstornadoListado + outrosEstornos;
+  const totalRelatorio = totalBruto - totalEstornos;
 
   const tituloRelatorio = tipo === 'entrada' 
     ? (status === 'Pendente' ? 'Relatório de Débitos de Clientes (A Receber)' : 'Relatório de Recebimentos (Pagos)')
@@ -141,15 +200,23 @@ const PrintRelatorioFinanceiro: React.FC = () => {
               {transacoes.map((t, index) => {
                 const dataExibicao = status === 'Paga' ? (t.dataPagamento || t.data || '') : (t.data || '');
                 const dataFormatada = dataExibicao ? dataExibicao.split('-').reverse().join('/') : '-';
+                const estornado = estornadosIds.has(t.id);
 
                 return (
-                  <tr key={t.id} style={{ borderBottom: '1px solid #eee', backgroundColor: index % 2 === 0 ? '#fff' : '#fafafa' }}>
+                  <tr key={t.id} style={{ borderBottom: '1px solid #eee', backgroundColor: index % 2 === 0 ? '#fff' : '#fafafa', color: estornado ? '#999' : 'inherit' }}>
                     <td style={{ padding: '10px 8px' }}>{dataFormatada}</td>
-                    <td style={{ padding: '10px 8px', fontWeight: 'bold' }}>{t.descricao}</td>
-                    <td style={{ padding: '10px 8px', color: '#555' }}>{t.categoria || '-'}</td>
+                    <td style={{ padding: '10px 8px', fontWeight: 'bold' }}>
+                      <span style={{ textDecoration: estornado ? 'line-through' : 'none' }}>{t.descricao}</span>
+                      {estornado && (
+                        <span style={{ marginLeft: '8px', fontSize: '10px', fontWeight: 'bold', color: '#b45309', border: '1px solid #b45309', borderRadius: '3px', padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                          ESTORNADO
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ padding: '10px 8px', color: estornado ? '#999' : '#555' }}>{t.categoria || '-'}</td>
                     {tipo === 'entrada' && <td style={{ padding: '10px 8px' }}>{t.clienteNome || '-'}</td>}
                     {status === 'Paga' && <td style={{ padding: '10px 8px' }}>{t.formaPagamento || '-'}</td>}
-                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 'bold', color: tipo === 'entrada' ? '#10b981' : '#ef4444' }}>
+                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 'bold', textDecoration: estornado ? 'line-through' : 'none', color: estornado ? '#999' : (tipo === 'entrada' ? '#10b981' : '#ef4444') }}>
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t))}
                     </td>
                   </tr>
@@ -157,11 +224,31 @@ const PrintRelatorioFinanceiro: React.FC = () => {
               })}
             </tbody>
             <tfoot>
+              {totalEstornos > 0 && (
+                <>
+                  <tr>
+                    <td colSpan={tipo === 'entrada' ? (status === 'Paga' ? 5 : 4) : (status === 'Paga' ? 4 : 3)} style={{ padding: '12px 8px', textAlign: 'right', color: '#555', borderTop: '2px solid #333' }}>
+                      Subtotal listado:
+                    </td>
+                    <td style={{ padding: '12px 8px', textAlign: 'right', color: '#555', borderTop: '2px solid #333' }}>
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalBruto)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colSpan={tipo === 'entrada' ? (status === 'Paga' ? 5 : 4) : (status === 'Paga' ? 4 : 3)} style={{ padding: '4px 8px', textAlign: 'right', color: '#b45309' }}>
+                      (-) Estornado (cancelamentos e devoluções):
+                    </td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', color: '#b45309' }}>
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalEstornos)}
+                    </td>
+                  </tr>
+                </>
+              )}
               <tr>
-                <td colSpan={tipo === 'entrada' ? (status === 'Paga' ? 5 : 4) : (status === 'Paga' ? 4 : 3)} style={{ padding: '20px 8px', textAlign: 'right', fontWeight: 'bold', fontSize: '16px', color: '#111', borderTop: '2px solid #333' }}>
+                <td colSpan={tipo === 'entrada' ? (status === 'Paga' ? 5 : 4) : (status === 'Paga' ? 4 : 3)} style={{ padding: '20px 8px', textAlign: 'right', fontWeight: 'bold', fontSize: '16px', color: '#111', borderTop: totalEstornos > 0 ? '1px solid #999' : '2px solid #333' }}>
                   TOTAL {status === 'Paga' ? 'PAGO/RECEBIDO' : 'EM ABERTO'}:
                 </td>
-                <td style={{ padding: '20px 8px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#111', borderTop: '2px solid #333' }}>
+                <td style={{ padding: '20px 8px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#111', borderTop: totalEstornos > 0 ? '1px solid #999' : '2px solid #333' }}>
                   {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalRelatorio)}
                 </td>
               </tr>

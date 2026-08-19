@@ -1,63 +1,106 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
-  /* Modern SaaS surface system */
-  --bg-primary: #0f1117;
-  --bg-secondary: #171a22;
-  --bg-tertiary: #202430;
-  --bg-elevated: #1b1f2a;
-  --bg-soft: #121620;
-  
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-muted: #7b8496;
-  
-  /* Accents */
-  --accent-purple: #7c3aed;
-  --accent-purple-glow: rgba(124, 58, 237, 0.18);
-  --accent-blue: #2563eb;
-  --accent-cyan: #06b6d4;
-  
-  /* Status Colors */
-  --status-green: #10b981; /* Paga / Finalizada */
+  /* ============================================================
+     Hennder Company — brand tokens
+     Palette derived from the logo: violet #7C3AED on a near-black
+     plate with a violet undertone. Every foreground/background
+     pair used below is verified against WCAG AA.
+     ============================================================ */
+
+  /* Brand ramp — anchored on the logo violet at --brand-600 */
+  --brand-50:  #f5f3ff;
+  --brand-100: #ede9fe;
+  --brand-200: #ddd6fe;
+  --brand-300: #c4b5fd;
+  --brand-400: #a78bfa;
+  --brand-500: #8b5cf6;
+  --brand-600: #7c3aed; /* the logo violet */
+  --brand-700: #6d28d9;
+  --brand-800: #5b21b6;
+
+  /* Semantic brand roles */
+  --brand: var(--brand-600);
+  --brand-hover: var(--brand-700);
+  --brand-contrast: #ffffff;      /* text on a brand fill — 5.70:1 */
+  --brand-ink: var(--brand-400);  /* brand text/icons on this theme's surface */
+  --brand-soft: rgba(124, 58, 237, 0.16);
+  --brand-softer: rgba(124, 58, 237, 0.08);
+  --brand-ring: rgba(124, 58, 237, 0.34);
+
+  /* Surfaces — violet-undertone neutrals taken from the logo plate */
+  --bg-primary: #0b0c12;
+  --bg-secondary: #14151f;
+  --bg-tertiary: #212433;
+  --bg-elevated: #191b26;
+  --bg-soft: #0f1017;
+
+  --text-primary: #f6f6fa;
+  --text-secondary: #c3c4d4;
+  --text-muted: #8a8ca0;
+
+  /* Compatibility aliases — existing components keep working */
+  --accent-purple: var(--brand-600);
+  --accent-purple-glow: var(--brand-ring);
+  /* Gradient partner. Kept at 700 because several panels lay white text
+     over a gradient that ends here — brand-400 would drop those to 2.7:1. */
+  --accent-blue: var(--brand-700);
+  --accent-cyan: var(--brand-300);
+
+  /* Status colours stay semantic on purpose: meaning must survive
+     the rebrand, so these are NOT violet. */
+  --status-green: #10b981;  /* Paga / Finalizada */
   --status-yellow: #f59e0b; /* Aguardando Peça */
-  --status-purple: #8b5cf6; /* Em Manutenção */
-  --status-blue: #3b82f6; /* Orc. Pendente */
-  --status-red: #ef4444; /* Cancelada / Erro */
-  
-  /* Borders & Shadows */
-  --border-color: rgba(148, 163, 184, 0.16);
-  --border-strong: rgba(148, 163, 184, 0.28);
-  --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.24);
-  --shadow-subtle: 0 8px 22px rgba(0, 0, 0, 0.18);
-  --shadow-neon: 0 10px 24px rgba(37, 99, 235, 0.18);
-  
+  --status-purple: var(--brand-500); /* Em Manutenção */
+  --status-blue: #3b82f6;   /* Orç. Pendente */
+  --status-red: #ef4444;    /* Cancelada / Erro */
+
+  /* Borders & shadows */
+  --border-color: rgba(160, 162, 190, 0.16);
+  --border-strong: rgba(160, 162, 190, 0.30);
+  --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.42);
+  --shadow-subtle: 0 8px 22px rgba(0, 0, 0, 0.30);
+  --shadow-neon: 0 12px 28px rgba(124, 58, 237, 0.30);
+
   --radius-md: 8px;
   --radius-lg: 8px;
   --radius-xl: 10px;
   --topbar-height: 72px;
   --sidebar-width: 280px;
   --sidebar-width-mini: 82px;
-  
+
   --font-sans: 'Inter', sans-serif;
 }
 
 body.light-theme {
-  --bg-primary: #f4f7fb;
+  --bg-primary: #f6f6fb;
   --bg-secondary: #ffffff;
-  --bg-tertiary: #eef3f8;
+  --bg-tertiary: #eeeef6;
   --bg-elevated: #ffffff;
-  --bg-soft: #e8eef7;
-  
-  --text-primary: #111827;
-  --text-secondary: #344256;
-  --text-muted: #667085;
-  
-  --border-color: rgba(100, 116, 139, 0.22);
-  --border-strong: rgba(71, 85, 105, 0.28);
-  --shadow-card: 0 12px 28px rgba(15, 23, 42, 0.08);
-  --shadow-subtle: 0 8px 18px rgba(15, 23, 42, 0.07);
-  --shadow-neon: 0 10px 22px rgba(37, 99, 235, 0.12);
+  --bg-soft: #e9e9f4;
+
+  --text-primary: #14151f;
+  --text-secondary: #3a3c4e;
+  --text-muted: #63667c;
+
+  /* On light surfaces the deep violet is the readable one (5.70:1);
+     brand-400 would only reach 2.7:1. */
+  --brand-ink: var(--brand-600);
+  --brand-soft: rgba(124, 58, 237, 0.10);
+  --brand-softer: rgba(124, 58, 237, 0.05);
+
+  /* Status colours need darker variants to stay legible on white —
+     #10b981 on white is only 2.56:1. */
+  --status-green: #047857;
+  --status-yellow: #b45309;
+  --status-blue: #2563eb;
+  --status-red: #dc2626;
+
+  --border-color: rgba(20, 21, 31, 0.14);
+  --border-strong: rgba(20, 21, 31, 0.24);
+  --shadow-card: 0 12px 28px rgba(20, 21, 31, 0.10);
+  --shadow-subtle: 0 8px 18px rgba(20, 21, 31, 0.08);
+  --shadow-neon: 0 10px 22px rgba(124, 58, 237, 0.18);
 }
 
 * {
@@ -229,14 +272,14 @@ body.light-theme textarea:disabled {
 
 /* Global Premium Button Styles */
 .btn-primary {
-  background: var(--accent-blue);
+  background: var(--brand);
   color: #fff !important;
   padding: 10px 18px;
   border-radius: var(--radius-md);
   font-weight: 600;
   font-size: 14px;
   border: none;
-  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.2);
+  box-shadow: 0 10px 20px rgba(124, 58, 237, 0.24);
   transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   display: inline-flex;
   align-items: center;
@@ -247,9 +290,9 @@ body.light-theme textarea:disabled {
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: var(--brand-hover);
   transform: translateY(-1px);
-  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.24);
+  box-shadow: 0 12px 24px rgba(124, 58, 237, 0.30);
 }
 
 .btn-primary:active {
@@ -546,9 +589,9 @@ body.light-theme .profile-menu:hover {
   justify-content: center;
 }
 
-.purple-bg { background-color: rgba(139, 92, 246, 0.15); color: var(--accent-purple); }
+.purple-bg { background-color: var(--brand-soft); color: var(--brand-ink); }
 .green-bg { background-color: rgba(16, 185, 129, 0.15); color: var(--status-green); }
-.blue-bg { background-color: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+.blue-bg { background-color: rgba(59, 130, 246, 0.15); color: var(--status-blue); }
 .yellow-bg { background-color: rgba(245, 158, 11, 0.15); color: var(--status-yellow); }
 
 .stat-trend {

@@ -171,7 +171,7 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: conic-gradient(from 0deg, var(--accent-blue), var(--accent-purple), var(--accent-blue));
+  background: conic-gradient(from 0deg, var(--brand-300), var(--accent-purple), var(--brand-300));
   animation: authRingSpin 0.85s linear infinite;
 }
 
@@ -224,7 +224,7 @@
   width: 48%;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #a78bfa, #60a5fa, #8b5cf6);
+  background: linear-gradient(90deg, #a78bfa, #7c3aed, #c4b5fd);
   animation: authLoadingTrack 1.55s ease-in-out infinite;
 }
 

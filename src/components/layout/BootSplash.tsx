@@ -44,7 +44,7 @@ const BootSplash: React.FC<BootSplashProps> = ({
     <div style={{ position: 'relative', width: '110px', height: '110px', marginBottom: '40px' }}>
       <div style={{
         position: 'absolute', inset: 0, borderRadius: '50%',
-        background: 'conic-gradient(from 0deg, var(--accent-blue), var(--accent-purple), var(--accent-blue))',
+        background: 'conic-gradient(from 0deg, var(--brand-300), var(--accent-purple), var(--brand-300))',
         boxShadow: '0 0 30px 2px rgba(139, 92, 246, 0.35)',
         animation: 'bootSplashRingSpin 1.1s linear infinite',
       }} />

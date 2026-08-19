@@ -9,6 +9,7 @@
   --dashboard-muted: #8a94ab;
   --dashboard-text: #f8fbff;
   --dashboard-cyan: #37d7ff;
+  --dashboard-accent: var(--brand); /* interactive accent: buttons, active states, rings */
   --dashboard-magenta: #ff4fb3;
   --dashboard-violet: #9f7aea;
   --dashboard-green: #2ee6a6;
@@ -31,6 +32,7 @@ body.light-theme .dashboard-model-two {
   --dashboard-text: var(--text-primary);
   /* Tons mais escuros que o padrão do tema escuro, para manter contraste legivel sobre fundo branco */
   --dashboard-cyan: #0e7490;
+  --dashboard-accent: var(--brand);
   --dashboard-magenta: #db2777;
   --dashboard-violet: #7c3aed;
   --dashboard-green: #059669;
@@ -118,7 +120,7 @@ body.light-theme .dashboard-model-two {
 }
 
 .dashboard-clock svg {
-  color: var(--dashboard-cyan);
+  color: var(--dashboard-accent);
 }
 
 .dashboard-model-two .icon-btn,
@@ -144,9 +146,9 @@ body.light-theme .dashboard-model-two {
   min-height: 42px;
   border: 0;
   border-radius: 8px;
-  background: var(--dashboard-cyan);
+  background: var(--dashboard-accent);
   color: #fff;
-  box-shadow: 0 14px 32px rgba(55, 215, 255, 0.22);
+  box-shadow: 0 14px 32px var(--brand-ring);
   font-size: 12px;
   font-weight: 900;
   text-transform: uppercase;
@@ -212,7 +214,7 @@ body.light-theme .dashboard-model-two {
 }
 
 .dashboard-action-dropdown button:hover {
-  background: rgba(55, 215, 255, 0.1);
+  background: var(--brand-soft);
 }
 
 .dashboard-action-option-icon {
@@ -223,8 +225,8 @@ body.light-theme .dashboard-model-two {
   align-items: center;
   justify-content: center;
   flex: 0 0 34px;
-  background: rgba(55, 215, 255, 0.12);
-  color: var(--dashboard-cyan);
+  background: var(--brand-soft);
+  color: var(--dashboard-accent);
 }
 
 .dashboard-action-dropdown strong,
@@ -247,9 +249,9 @@ body.light-theme .dashboard-model-two {
 
 .dashboard-model-two .btn-primary:hover,
 .dashboard-cta:hover {
-  background: #2cc5eb;
+  background: var(--brand-hover);
   transform: translateY(-1px);
-  box-shadow: 0 18px 36px rgba(55, 215, 255, 0.26);
+  box-shadow: 0 18px 36px var(--brand-ring);
 }
 
 .dashboard-hero-grid {
@@ -309,9 +311,9 @@ body.light-theme .dashboard-model-two {
 .dashboard-segmented button.active,
 .dashboard-pipeline-tabs button.active {
   border-color: transparent;
-  background: var(--dashboard-cyan);
+  background: var(--dashboard-accent);
   color: #fff;
-  box-shadow: 0 10px 24px rgba(55, 215, 255, 0.24);
+  box-shadow: 0 10px 24px var(--brand-ring);
 }
 
 .dashboard-pipeline-tabs button.active.success {
@@ -421,7 +423,7 @@ body.light-theme .dashboard-model-two {
 
 .dashboard-ring {
   --progress: 0%;
-  --ring-color: var(--dashboard-cyan);
+  --ring-color: var(--dashboard-accent);
   width: 48px;
   height: 48px;
   flex: 0 0 48px;
@@ -568,15 +570,15 @@ body.light-theme .dashboard-model-two {
 }
 
 .dashboard-task-item:hover strong {
-  color: var(--dashboard-cyan);
+  color: var(--dashboard-accent);
 }
 
 .dashboard-task-check {
   width: 22px;
   height: 22px;
-  border: 2px solid var(--dashboard-cyan);
+  border: 2px solid var(--dashboard-accent);
   border-radius: 6px;
-  color: var(--dashboard-cyan);
+  color: var(--dashboard-accent);
   display: flex;
   align-items: center;
   justify-content: center;

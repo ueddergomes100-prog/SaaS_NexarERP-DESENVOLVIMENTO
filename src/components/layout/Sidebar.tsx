@@ -44,6 +44,8 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
 import hennderIcon from '../../assets/hennder-icon.svg';
+import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
+import wordmarkLight from '../../assets/hennder-wordmark-light.png';
 import BootSplash from './BootSplash';
 import './Layout.css';
 
@@ -435,9 +437,14 @@ const Sidebar: React.FC = () => {
 
         <div className="nexus-sidebar-pane">
           <div className="nexus-sidebar-header">
-            <button className="nexus-workspace" onClick={handleGoHome} title={tenantName}>
-              <span>{tenantName}</span>
-              <ChevronDown size={16} />
+            <button
+              className="nexus-brand"
+              onClick={handleGoHome}
+              title="Ir para o Dashboard"
+              aria-label="Hennder Company - ir para o Dashboard"
+            >
+              <img className="nexus-brand-mark is-dark" src={wordmarkDark} alt="" />
+              <img className="nexus-brand-mark is-light" src={wordmarkLight} alt="" />
             </button>
 
             <button className="icon-btn" onClick={toggleMiniSidebar} title="Recolher menu">

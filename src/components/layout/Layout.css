@@ -43,7 +43,7 @@
   width: 38px;
   height: 38px;
   object-fit: contain;
-  filter: drop-shadow(0 10px 22px rgba(37, 99, 235, 0.22));
+  filter: drop-shadow(0 10px 22px rgba(124, 58, 237, 0.28));
 }
 
 .sidebar-logo h2 {
@@ -170,14 +170,14 @@
 }
 
 .nav-item.active {
-  background-color: rgba(37, 99, 235, 0.13);
-  border-color: rgba(37, 99, 235, 0.24);
+  background-color: var(--brand-soft);
+  border-color: var(--brand-ring);
   color: var(--text-primary);
   font-weight: 700;
 }
 
 .nav-item.active svg {
-  color: #60a5fa;
+  color: var(--brand-ink);
 }
 
 .nav-item.active::before {
@@ -187,7 +187,7 @@
   top: 9px;
   bottom: 9px;
   width: 2px;
-  background-color: #60a5fa;
+  background-color: var(--brand-ink);
   border-radius: 999px;
 }
 
@@ -243,16 +243,16 @@
 
 /* Nexus Two-Layer Sidebar */
 .nexus-sidebar {
-  --nexus-bg: #071426;
-  --nexus-rail-bg: #081528;
-  --nexus-pane-bg-top: #0b1d34;
-  --nexus-pane-bg-bottom: #071426;
-  --nexus-text: #f8fbff;
-  --nexus-text-secondary: #d5e1f1;
-  --nexus-text-muted: #9fb0c7;
-  --nexus-border: rgba(148, 163, 184, 0.18);
-  --nexus-card-bg: rgba(15, 34, 58, 0.74);
-  --nexus-search-bg: rgba(15, 34, 58, 0.82);
+  --nexus-bg: #0a0b11;
+  --nexus-rail-bg: #07080d;
+  --nexus-pane-bg-top: #171826;
+  --nexus-pane-bg-bottom: #0d0e15;
+  --nexus-text: #f7f7fb;
+  --nexus-text-secondary: #c6c7d6;
+  --nexus-text-muted: #8b8da1;
+  --nexus-border: rgba(160, 162, 190, 0.16);
+  --nexus-card-bg: rgba(36, 30, 62, 0.62);
+  --nexus-search-bg: rgba(30, 26, 50, 0.78);
   width: 354px;
   flex-direction: row;
   background: var(--nexus-bg);
@@ -293,7 +293,7 @@ body.light-theme .nexus-sidebar {
   background: transparent;
   padding: 0;
   cursor: pointer;
-  filter: drop-shadow(0 16px 34px rgba(37, 99, 235, 0.28));
+  filter: drop-shadow(0 16px 34px rgba(124, 58, 237, 0.34));
 }
 
 .nexus-rail-logo img {
@@ -314,7 +314,7 @@ body.light-theme .nexus-sidebar {
 }
 
 .nexus-rail-item {
-  --module-color: #38bdf8;
+  --module-color: var(--brand-400);
   width: 42px;
   height: 42px;
   border: 1px solid transparent;
@@ -346,6 +346,58 @@ body.light-theme .nexus-sidebar {
 .nexus-sidebar-header {
   padding: 18px 16px 12px;
   border-bottom: 1px solid var(--nexus-border);
+}
+
+/* Brand lockup in the sidebar header. Two raster variants swap on
+   theme so the wordmark keeps its ink colour (white on dark, charcoal
+   on light) while the violet stays constant in both. */
+.nexus-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  transition: opacity 0.18s ease;
+}
+
+.nexus-brand:hover {
+  opacity: 0.82;
+}
+
+.nexus-brand:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+}
+
+.nexus-brand-mark {
+  display: block;
+  height: 32px;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.nexus-brand-mark.is-light {
+  display: none;
+}
+
+body.light-theme .nexus-brand-mark.is-dark {
+  display: none;
+}
+
+body.light-theme .nexus-brand-mark.is-light {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nexus-brand {
+    transition: none;
+  }
 }
 
 .nexus-workspace {
@@ -418,12 +470,12 @@ body.light-theme .nexus-sidebar {
   gap: 8px;
   border: 0;
   border-radius: 8px;
-  background: #1d8fff;
+  background: var(--brand);
   color: #fff;
   font-size: 13px;
   font-weight: 850;
   cursor: pointer;
-  box-shadow: 0 16px 32px rgba(29, 143, 255, 0.26);
+  box-shadow: 0 16px 32px rgba(124, 58, 237, 0.34);
 }
 
 .nexus-new-action-menu {
@@ -457,7 +509,7 @@ body.light-theme .nexus-sidebar {
 }
 
 .nexus-new-action-menu button:hover {
-  background: rgba(29, 143, 255, 0.12);
+  background: var(--brand-soft);
   color: var(--nexus-text);
 }
 
@@ -491,7 +543,7 @@ body.light-theme .nexus-sidebar {
 }
 
 .nexus-nav-group-trigger {
-  --module-color: #38bdf8;
+  --module-color: var(--brand-400);
   width: 100%;
   min-height: 42px;
   display: grid;
@@ -587,7 +639,7 @@ body.light-theme .nexus-nav-group-trigger small {
 
 .nexus-nav-link:hover,
 .nexus-nav-link.active {
-  background: rgba(29, 143, 255, 0.1);
+  background: var(--brand-softer);
   color: var(--nexus-text);
 }
 
@@ -599,7 +651,7 @@ body.light-theme .nexus-nav-group-trigger small {
   bottom: 10px;
   width: 2px;
   border-radius: 999px;
-  background: #1d8fff;
+  background: var(--brand);
 }
 
 .nexus-nav-link span {
@@ -786,8 +838,8 @@ body.light-theme .nexus-nav-group-trigger small {
 .search-input:focus {
   outline: none;
   background-color: var(--bg-elevated);
-  border-color: rgba(37, 99, 235, 0.72);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-ring);
 }
 
 .topbar-actions {
@@ -884,7 +936,7 @@ body.light-theme .nexus-nav-group-trigger small {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #60a5fa;
+  color: var(--brand-ink);
 }
 
 .profile-info {
@@ -1024,7 +1076,7 @@ body.light-theme .animate-fade-in-up {
 }
 
 @keyframes pulseBadgeAnim {
-  0% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.7); }
+  0% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.7); }
   70% { box-shadow: 0 0 0 6px rgba(139, 92, 246, 0); }
   100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
 }

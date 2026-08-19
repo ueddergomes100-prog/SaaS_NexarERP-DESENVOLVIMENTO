@@ -102,7 +102,12 @@ service cloud.firestore {
     function canWriteTenantCollection(collectionName) {
       return canManageTenantData() ||
         (collectionName in ['clientes', 'veiculos'] && hasAnyPermission(['cadastros.clientes', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'crm.agenda', 'crm.alertas'])) ||
-        (collectionName in ['produtos', 'estoque', 'fornecedores', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        (collectionName in ['produtos', 'estoque', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        // Fornecedores ganhou permissao propria (antes vinha no balaio de
+        // cadastros.estoque). Aceita tambem fiscal.entrada porque a Entrada de
+        // XML CRIA fornecedor durante a importacao (EntradaNFE.tsx) -- sem
+        // isso, importar nota de fornecedor novo quebraria.
+        (collectionName == 'fornecedores' && hasAnyPermission(['cadastros.fornecedores', 'fiscal.entrada'])) ||
         (collectionName == 'materias_primas' && hasPermission('cadastros.materia_prima')) ||
         (collectionName == 'ordens_producao' && hasPermission('operacoes.producao')) ||
         (collectionName == 'expedicoes' && hasPermission('operacoes.expedicao')) ||
@@ -129,7 +134,10 @@ service cloud.firestore {
     function canDeleteTenantCollection(collectionName) {
       return canManageTenantData() ||
         (collectionName in ['clientes', 'veiculos'] && hasPermission('cadastros.clientes')) ||
-        (collectionName in ['produtos', 'estoque', 'fornecedores', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        (collectionName in ['produtos', 'estoque', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        // Excluir fornecedor exige a permissao propria -- quem so tem
+        // fiscal.entrada pode CRIAR pela importacao de XML, mas nao apagar.
+        (collectionName == 'fornecedores' && hasPermission('cadastros.fornecedores')) ||
         (collectionName == 'materias_primas' && hasPermission('cadastros.materia_prima')) ||
         (collectionName == 'ordens_producao' && hasPermission('operacoes.producao')) ||
         (collectionName == 'expedicoes' && hasPermission('operacoes.expedicao')) ||

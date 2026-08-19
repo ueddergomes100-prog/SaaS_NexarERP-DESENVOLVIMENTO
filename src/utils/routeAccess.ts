@@ -67,7 +67,10 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/unidades-medida')) routePermission = 'cadastros.unidades_medida';
   else if (path.startsWith('/bandeiras-cartao')) routePermission = 'cadastros.bandeiras_cartao';
   else if (path.startsWith('/bancos')) routePermission = 'cadastros.bancos';
-  else if (path.startsWith('/fornecedores')) routePermission = 'cadastros.estoque';
+  // Fornecedores ganhou permissao propria em 2026-08-18 (antes usava
+  // cadastros.estoque emprestado). Decisao consciente do usuario: quem hoje
+  // acessa via Estoque perde o acesso ate receber a permissao nova.
+  else if (path.startsWith('/fornecedores')) routePermission = 'cadastros.fornecedores';
   else if (path.startsWith('/materias-primas')) routePermission = 'cadastros.materia_prima';
   else if (path.startsWith('/producao/ordens') || path.startsWith('/producao/relatorios')) routePermission = 'operacoes.producao';
   else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routePermission = 'operacoes.expedicao';

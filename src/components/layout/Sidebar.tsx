@@ -168,7 +168,7 @@ const Sidebar: React.FC = () => {
         { label: 'Unidades de Medida', to: '/unidades-medida', icon: Scale, module: 'cadastros.unidades_medida', permission: 'cadastros.unidades_medida' },
         { label: 'Bandeiras de Cartão', to: '/bandeiras-cartao', icon: CreditCard, module: 'cadastros.bandeiras_cartao', permission: 'cadastros.bandeiras_cartao' },
         { label: 'Bancos', to: '/bancos', icon: Building2, module: 'cadastros.bancos', permission: 'cadastros.bancos' },
-        { label: 'Fornecedores', to: '/fornecedores', icon: Truck, module: 'cadastros.fornecedores', permission: 'cadastros.estoque' },
+        { label: 'Fornecedores', to: '/fornecedores', icon: Truck, module: 'cadastros.fornecedores', permission: 'cadastros.fornecedores' },
         { label: 'Matéria-Prima', to: '/materias-primas', icon: Factory, module: 'cadastros.materia_prima', permission: 'cadastros.materia_prima' }
       ]
     },

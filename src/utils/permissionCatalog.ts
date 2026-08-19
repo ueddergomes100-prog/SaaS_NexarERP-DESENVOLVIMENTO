@@ -73,6 +73,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'cadastros.unidades_medida', label: 'Cadastros: Unidades de Medida', color: '#8b5cf6' },
       { id: 'cadastros.bandeiras_cartao', label: 'Cadastros: Bandeiras de Cartão', color: '#8b5cf6' },
       { id: 'cadastros.bancos', label: 'Cadastros: Bancos', color: '#8b5cf6' },
+      { id: 'cadastros.fornecedores', label: 'Cadastros: Fornecedores', color: '#8b5cf6' },
       { id: 'cadastros.materia_prima', label: 'Cadastros: Matéria-Prima', color: '#8b5cf6' },
     ],
   },

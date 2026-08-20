@@ -15,6 +15,7 @@ import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/
 import {
   DEFAULT_REGIME_TRIBUTARIO, buildTaxesPayload, buildServiceInvoicePayload,
   buildServiceInvoiceDescription, sumServiceInvoiceAmount,
+  isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields,
   type RegimeTributario, type NfseConfig, type OsServicoParaFatura, type ClienteParaFatura,
 } from '../../utils/fiscalDomain';
 import Swal from 'sweetalert2';
@@ -80,6 +81,10 @@ interface PedidoVendaItem {
   aliquotaIbs?: number;
   cstCbs?: string;
   aliquotaCbs?: number;
+  /** Peso liquido POR UNIDADE (kg) do produto -- so usado quando o CFOP
+   * do item e de exportacao (7101/7102), pra converter a quantidade
+   * comercial pra quilo antes de emitir (ver fiscalDomain.ts). */
+  pesoLiquidoUnitarioKg?: number;
 }
 
 interface PedidoVenda {
@@ -408,7 +413,8 @@ const NFE: React.FC = () => {
               cstIbs: pData.cstIbs || '',
               aliquotaIbs: Number(pData.aliquotaIbs || 0),
               cstCbs: pData.cstCbs || '',
-              aliquotaCbs: Number(pData.aliquotaCbs || 0)
+              aliquotaCbs: Number(pData.aliquotaCbs || 0),
+              pesoLiquidoUnitarioKg: Number(pData.pesoLiquidoUnitarioKg || 0)
             });
             continue;
           }
@@ -993,18 +999,24 @@ const NFE: React.FC = () => {
           ? importedPedidoItens.map((item, index) => {
               const itemTotal = Number(item.valorTotal || (item.quantidade * item.precoUnitario) || 0);
               const unitAmount = Number(item.precoUnitario || 0);
+              const cfop = Number(item.cfop || '5102');
+              const unitFields = resolveInvoiceUnitFields({
+                cfop,
+                unidadeComercial: 'UN',
+                quantidadeComercial: Number(item.quantidade || 1),
+                valorUnitarioComercial: unitAmount,
+                pesoLiquidoUnitarioKg: item.pesoLiquidoUnitarioKg,
+              });
+              if (!unitFields.ok) {
+                throw new Error(`${item.nome}: ${unitFields.error}`);
+              }
               return {
                 code: item.id || `PROD-${index}`,
                 description: item.nome,
                 ncm: item.ncm || '87082999',
-                cfop: Number(item.cfop || '5102'),
-                unit: 'UN',
-                quantity: Number(item.quantidade || 1),
-                unitAmount: unitAmount,
+                cfop,
+                ...unitFields.fields!,
                 totalAmount: itemTotal,
-                unitTax: 'UN',
-                quantityTax: Number(item.quantidade || 1),
-                unitTaxAmount: unitAmount,
                 makeupTotal: true,
                 // Regime Simples Nacional mantem o payload minimo (so
                 // csosn/origem, sem base/aliquota -- ja funcionava assim);
@@ -1059,7 +1071,8 @@ const NFE: React.FC = () => {
         }
 
         const clientState = formData.estado || 'SP';
-        const destination = clientState.toUpperCase() === companyState.toUpperCase() ? 'internal' : 'interstate';
+        const destinationByState = clientState.toUpperCase() === companyState.toUpperCase() ? 'internal' : 'interstate';
+        const destination = resolveInvoiceDestination(itemsPayload.find((pi) => isExportCfop(pi.cfop))?.cfop, destinationByState);
 
         const payload = {
           integrationId,
@@ -1957,6 +1970,24 @@ const NFE: React.FC = () => {
                                   placeholder="5102"
                                   style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px' }}
                                 />
+                                {isExportCfop(item.cfop) && (
+                                  (() => {
+                                    const preview = resolveInvoiceUnitFields({
+                                      cfop: item.cfop,
+                                      unidadeComercial: 'UN',
+                                      quantidadeComercial: Number(item.quantidade || 1),
+                                      valorUnitarioComercial: Number(item.precoUnitario || 0),
+                                      pesoLiquidoUnitarioKg: item.pesoLiquidoUnitarioKg,
+                                    });
+                                    return (
+                                      <span style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: preview.ok ? '#10b981' : '#ef4444' }}>
+                                        {preview.ok
+                                          ? `Exportação: ${preview.fields!.quantityTax.toFixed(3)} kg`
+                                          : 'Peso do produto não configurado'}
+                                      </span>
+                                    );
+                                  })()
+                                )}
                               </td>
                               <td style={{ padding: '8px' }}>
                                 <input

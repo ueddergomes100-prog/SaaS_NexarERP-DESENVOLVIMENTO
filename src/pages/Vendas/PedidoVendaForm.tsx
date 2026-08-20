@@ -772,12 +772,16 @@ const PedidoVendaForm: React.FC = () => {
           comissao: commissionSnapshot,
           // Pedido pendente do agente preserva createdAt/criadoPor/criadoEm
           // originais (quando o cliente pediu de verdade) -- so grava quem
-          // finalizou, nao quem "criou" (ja existia).
+          // finalizou, nao quem "criou" (ja existia). Firestore rejeita
+          // campo com valor undefined (quebraria a transacao inteira), entao
+          // cai num fallback seguro se o agente nao tiver gravado esses
+          // campos -- nao pode depender de uma integracao externa manter
+          // um contrato de metadados a risca.
           ...(isPendingFromAgent
             ? {
-                createdAt: existingPedidoSnap!.data()!.createdAt,
-                criadoPor: existingPedidoSnap!.data()!.criadoPor,
-                criadoEm: existingPedidoSnap!.data()!.criadoEm,
+                createdAt: existingPedidoSnap!.data()!.createdAt ?? serverTimestamp(),
+                criadoPor: existingPedidoSnap!.data()!.criadoPor ?? currentUser.uid,
+                criadoEm: existingPedidoSnap!.data()!.criadoEm ?? serverTimestamp(),
                 ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Pedido pendente do agente finalizado'),
               }
             : {

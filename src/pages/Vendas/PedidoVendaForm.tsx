@@ -173,6 +173,17 @@ const PedidoVendaForm: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
   const canReturnVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao'));
+  // Pedido pendente do agente de WhatsApp: nasce com status "Em Analise"
+  // (nenhuma tela deste sistema grava esse texto). Fica editavel/finalizavel
+  // atras da permissao mestre; as 4 granulares abaixo so controlam campos
+  // especificos -- nao existem em firestore.rules (decisao deliberada, ver
+  // docs/PLANO_EVOLUCAO_NEXAR.md).
+  const isPendingFromAgent = isViewing && status === 'Em Análise';
+  const canEditPendingOrder = isPendingFromAgent && (isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_editar')));
+  const canEditPendingCliente = canEditPendingOrder && (isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_editar_cliente')));
+  const canEditPendingQtd = canEditPendingOrder && (isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_alterar_qtd')));
+  const canAddPendingItem = canEditPendingOrder && (isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_adicionar_item')));
+  const canDeletePendingItem = canEditPendingOrder && (isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_excluir_item')));
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
@@ -508,12 +519,12 @@ const PedidoVendaForm: React.FC = () => {
   };
 
   useKeyboardShortcuts([
-    { key: 'F2', when: !isViewing, handler: () => clienteInputRef.current?.focus() },
-    { key: 'F3', when: !isViewing, handler: () => produtoBuscaInputRef.current?.focus() },
-    { key: 'F4', when: !isViewing, handler: () => produtoDescontoInputRef.current?.focus() },
-    { key: 'F5', when: !isViewing && selectedItemIndex !== null, handler: () => { void askSelectedItemQuantity(); } },
-    { key: 'F6', when: !isViewing, handler: focusPagamentoSection },
-    { key: 'F7', when: !isViewing, handler: focusPagamentoSection },
+    { key: 'F2', when: !isViewing || canEditPendingCliente, handler: () => clienteInputRef.current?.focus() },
+    { key: 'F3', when: !isViewing || canAddPendingItem, handler: () => produtoBuscaInputRef.current?.focus() },
+    { key: 'F4', when: !isViewing || canAddPendingItem, handler: () => produtoDescontoInputRef.current?.focus() },
+    { key: 'F5', when: (!isViewing || canEditPendingQtd) && selectedItemIndex !== null, handler: () => { void askSelectedItemQuantity(); } },
+    { key: 'F6', when: !isViewing || canEditPendingOrder, handler: focusPagamentoSection },
+    { key: 'F7', when: !isViewing || canEditPendingOrder, handler: focusPagamentoSection },
   ]);
 
   const valorTotalItens = itens.reduce((acc, curr) => acc + (curr.precoUnitario * curr.quantidade), 0);
@@ -522,14 +533,14 @@ const PedidoVendaForm: React.FC = () => {
   const valorTotalPedidoCentavos = toCents(valorTotalPedido);
 
   useEffect(() => {
-    if (isViewing || paymentDrafts.length !== 1) return;
+    if ((isViewing && !canEditPendingOrder) || paymentDrafts.length !== 1) return;
     const expectedValue = fromCents(valorTotalPedidoCentavos).toFixed(2);
     setPaymentDrafts((current) => (
       current.length === 1 && current[0].valor !== expectedValue
         ? [{ ...current[0], valor: expectedValue }]
         : current
     ));
-  }, [isViewing, paymentDrafts.length, valorTotalPedidoCentavos]);
+  }, [isViewing, canEditPendingOrder, paymentDrafts.length, valorTotalPedidoCentavos]);
 
   const updatePaymentDraft = (id: string, updates: Partial<PaymentDraft>) => {
     setPaymentDrafts((current) => current.map((payment) => (
@@ -617,7 +628,11 @@ const PedidoVendaForm: React.FC = () => {
         clienteIdParaSalvar = novoClienteRef.id;
       }
 
-      const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
+      // Pedido pendente do agente ja tem numero -- nao aloca sequencia nova
+      // (senao numeros ficariam pulados/duplicados em espirito).
+      const currentMaxPedido = isPendingFromAgent
+        ? 0
+        : await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
       let newPedidoId = '';
       let finalNumeroPedido = numeroPedido;
 
@@ -629,7 +644,9 @@ const PedidoVendaForm: React.FC = () => {
       });
 
       await runTransaction(db, async (transaction) => {
-        const nextPedido = await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
+        const nextPedido = isPendingFromAgent
+          ? 0
+          : await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
         const selectedSellerId = vendedorId || currentUser.uid;
         const sellerSnap = await transaction.get(doc(db, 'usuarios', selectedSellerId));
         const sellerProfile = sellerSnap.exists() ? sellerSnap.data() : {};
@@ -645,9 +662,22 @@ const PedidoVendaForm: React.FC = () => {
           bankBalancesById.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
         }
 
-        finalNumeroPedido = formatSequenceValue(nextPedido, 4);
-        const newPedidoRef = doc(collection(db, 'pedidos_venda'));
+        const newPedidoRef = isPendingFromAgent ? doc(db, 'pedidos_venda', id!) : doc(collection(db, 'pedidos_venda'));
         newPedidoId = newPedidoRef.id;
+
+        // Le o documento pendente ANTES de qualquer escrita da transacao
+        // (regra do Firestore: toda leitura vem antes de qualquer escrita)
+        // pra preservar createdAt/criadoPor/criadoEm originais -- finalizar
+        // um pedido do agente nao deve apagar quando ele foi criado de
+        // verdade, so registrar quem finalizou.
+        const existingPedidoSnap = isPendingFromAgent ? await transaction.get(newPedidoRef) : null;
+        if (isPendingFromAgent && !existingPedidoSnap?.exists()) {
+          throw new Error('Este pedido pendente não existe mais.');
+        }
+
+        if (!isPendingFromAgent) {
+          finalNumeroPedido = formatSequenceValue(nextPedido, 4);
+        }
 
         await applyStockAdjustments(
           transaction,
@@ -657,7 +687,9 @@ const PedidoVendaForm: React.FC = () => {
           permitirVendaSemEstoque
         );
 
-        writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
+        if (!isPendingFromAgent) {
+          writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
+        }
 
         const persistedPayments = paymentRecords.map((payment, index) => ({
           ...payment,
@@ -708,8 +740,20 @@ const PedidoVendaForm: React.FC = () => {
           vendedorId: selectedSellerId,
           vendedorNome: sellerName,
           comissao: commissionSnapshot,
-          createdAt: serverTimestamp(),
-          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          // Pedido pendente do agente preserva createdAt/criadoPor/criadoEm
+          // originais (quando o cliente pediu de verdade) -- so grava quem
+          // finalizou, nao quem "criou" (ja existia).
+          ...(isPendingFromAgent
+            ? {
+                createdAt: existingPedidoSnap!.data()!.createdAt,
+                criadoPor: existingPedidoSnap!.data()!.criadoPor,
+                criadoEm: existingPedidoSnap!.data()!.criadoEm,
+                ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Pedido pendente do agente finalizado'),
+              }
+            : {
+                createdAt: serverTimestamp(),
+                ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+              }),
         };
 
         transaction.set(newPedidoRef, pedidoData);
@@ -1067,6 +1111,47 @@ const PedidoVendaForm: React.FC = () => {
       submitLockRef.current = false;
     }
     return saveSucceeded;
+  };
+
+  // Recusar um pedido pendente do agente -- so grava status: 'Cancelada' +
+  // motivo, sem reverter estoque/financeiro (nada foi aplicado ainda pra um
+  // pedido que nunca passou por handleFinalizarVenda). Mesmo padrao de
+  // PedidoVendas.tsx (fila), so que a partir da tela de detalhe.
+  const handleRecusarPendente = async () => {
+    if (!currentUser || !tenantId || !id) return;
+
+    const result = await NexusSwal.fire({
+      title: 'Recusar Pedido Pendente?',
+      html: `O pedido <strong>#${numeroPedido}</strong> veio de uma integração externa e ainda não gerou baixa de estoque nem lançamento financeiro — recusar só marca como cancelado, não reverte nada.<br/><br/>Digite o motivo (mínimo 8 caracteres):`,
+      input: 'text',
+      inputAttributes: { minlength: '8', required: 'true', placeholder: 'Motivo da recusa...' },
+      showCancelButton: true,
+      confirmButtonText: 'Confirmar Recusa',
+      cancelButtonText: 'Voltar',
+      confirmButtonColor: '#ef4444',
+      preConfirm: (motivo) => {
+        if (!motivo || motivo.trim().length < 8) {
+          NexusSwal.showValidationMessage('O motivo deve ter pelo menos 8 caracteres.');
+          return false;
+        }
+        return motivo;
+      },
+    });
+
+    if (!result.isConfirmed) return;
+    const motivo = (result.value as string).trim();
+
+    try {
+      await updateDoc(doc(db, 'pedidos_venda', id), {
+        status: 'Cancelada',
+        motivoRecusa: motivo,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Pedido pendente recusado: ${motivo}`),
+      });
+      showSuccess('Pedido recusado.');
+      navigate('/pedidos-venda');
+    } catch {
+      showError('Erro', 'Não foi possível recusar o pedido.');
+    }
   };
 
   useUnsavedChangesGuard(isDirty, handleFinalizarVenda);
@@ -1683,7 +1768,11 @@ const PedidoVendaForm: React.FC = () => {
             <h1 className="page-title">{isViewing ? `Pedido de Venda #${numeroPedido}` : 'Frente de Caixa (PDV)'}</h1>
             <p className="page-subtitle">
               {isViewing
-                ? (status === 'Cancelada' ? 'Esta venda foi CANCELADA' : 'Detalhes do Pedido e Impressão')
+                ? (status === 'Cancelada'
+                  ? 'Esta venda foi CANCELADA'
+                  : isPendingFromAgent
+                    ? (canEditPendingOrder ? 'Pedido pendente — edite e finalize a venda' : 'Pedido pendente de confirmação (fora de uma integração externa)')
+                    : 'Detalhes do Pedido e Impressão')
                 : 'Ponto de venda rápido para itens e produtos'}
             </p>
           </div>
@@ -1752,7 +1841,12 @@ const PedidoVendaForm: React.FC = () => {
               )}
             </>
           )}
-          {!isViewing && (
+          {isPendingFromAgent && canEditPendingOrder && (
+            <button className="btn-secondary" onClick={handleRecusarPendente} disabled={isLoading} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>
+              <XCircle size={18} /> Recusar Pedido
+            </button>
+          )}
+          {(!isViewing || (isPendingFromAgent && canEditPendingOrder)) && (
             <button className="btn-primary" onClick={handleFinalizarVenda} disabled={isLoading} style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981' }}>
               <ShoppingCart size={18} />
               {isLoading ? 'Finalizando...' : 'Finalizar Venda'}
@@ -1835,7 +1929,7 @@ const PedidoVendaForm: React.FC = () => {
                 onChange={setClienteNome}
                 clients={clientesDisponiveis}
                 onSelect={(c) => setClienteNome(c.nome)}
-                disabled={isViewing}
+                disabled={isViewing && !canEditPendingCliente}
                 inputRef={clienteInputRef}
                 placeholder="Busque ou digite o nome do cliente..."
                 ariaLabel="Buscar cliente"
@@ -1852,7 +1946,7 @@ const PedidoVendaForm: React.FC = () => {
               <select
                 value={vendedorId}
                 onChange={(event) => setVendedorId(event.target.value)}
-                disabled={isViewing}
+                disabled={isViewing && !canEditPendingOrder}
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
               >
                 {vendedoresDisponiveis.map((seller) => (
@@ -1866,7 +1960,7 @@ const PedidoVendaForm: React.FC = () => {
           </div>
 
           {/* Seção Adicionar Produto */}
-          {!isViewing && (
+          {(!isViewing || canAddPendingItem) && (
             <div className="card form-section" style={{ padding: '24px' }}>
               <div className="section-header" style={{ marginBottom: '16px' }}>
                 <Package size={20} className="section-icon" />
@@ -1984,13 +2078,13 @@ const PedidoVendaForm: React.FC = () => {
                     <th style={{ padding: '12px 8px', textAlign: 'right' }}>V. Unit</th>
                     <th style={{ padding: '12px 8px', textAlign: 'right' }}>Desc.</th>
                     <th style={{ padding: '12px 8px', textAlign: 'right' }}>Subtotal</th>
-                    {!isViewing && <th style={{ padding: '12px 8px', textAlign: 'center' }}>Ação</th>}
+                    {(!isViewing || canDeletePendingItem) && <th style={{ padding: '12px 8px', textAlign: 'center' }}>Ação</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {itens.length === 0 ? (
                     <tr>
-                      <td colSpan={isViewing ? 5 : 6} style={{ padding: '32px 8px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      <td colSpan={(!isViewing || canDeletePendingItem) ? 6 : 5} style={{ padding: '32px 8px', textAlign: 'center', color: 'var(--text-muted)' }}>
                         Nenhum produto adicionado à venda.
                       </td>
                     </tr>
@@ -2009,7 +2103,7 @@ const PedidoVendaForm: React.FC = () => {
                         <td style={{ padding: '12px 8px', textAlign: 'right' }}>R$ {item.precoUnitario.toFixed(2)}</td>
                         <td style={{ padding: '12px 8px', textAlign: 'right', color: '#ef4444' }}>{item.desconto > 0 ? `-R$ ${item.desconto.toFixed(2)}` : '-'}</td>
                         <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>R$ {item.subtotal.toFixed(2)}</td>
-                        {!isViewing && (
+                        {(!isViewing || canDeletePendingItem) && (
                           <td style={{ padding: '12px 8px', textAlign: 'center' }}>
                             <button onClick={(e) => { e.stopPropagation(); handleRemoveItem(index); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
                               <Trash2 size={16} />
@@ -2047,7 +2141,7 @@ const PedidoVendaForm: React.FC = () => {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Frete (+)</span>
-                {isViewing ? (
+                {isViewing && !canEditPendingOrder ? (
                   <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>R$ {frete.toFixed(0)}</span>
                 ) : (
                   <input
@@ -2065,7 +2159,7 @@ const PedidoVendaForm: React.FC = () => {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Encargos (+)</span>
-                {isViewing ? (
+                {isViewing && !canEditPendingOrder ? (
                   <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>R$ {encargos.toFixed(0)}</span>
                 ) : (
                   <input
@@ -2141,7 +2235,7 @@ const PedidoVendaForm: React.FC = () => {
           <div ref={pagamentoSectionRef}>
             <PaymentsEditor
               customerName={clienteNome}
-              disabled={isViewing}
+              disabled={isViewing && !canEditPendingOrder}
               drafts={paymentDrafts}
               financeConfig={financeConfig}
               idPrefix="sale-payment"
@@ -2157,7 +2251,7 @@ const PedidoVendaForm: React.FC = () => {
             />
           </div>
 
-          {!isViewing && (
+          {(!isViewing || (isPendingFromAgent && canEditPendingOrder)) && (
             <button className="btn-primary" onClick={handleFinalizarVenda} disabled={isLoading} style={{ width: '100%', padding: '16px', fontSize: '16px', fontWeight: 700, backgroundColor: '#10b981', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}>
               <ShoppingCart size={24} />
               FINALIZAR VENDA

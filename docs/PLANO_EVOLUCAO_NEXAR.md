@@ -1229,6 +1229,10 @@ Atualizar ao concluir cada item.
 | F25 Pedidos Pendentes do Agente — Fatia 3/4 Editar e Finalizar | - | ✅ Validado ao vivo em 2026-08-19 (pedido #0029 real) | 2026-08-19 |
 | F25 Pedidos Pendentes do Agente — Fatia 4/4 Aviso de estoque/preço desatualizado | - | ✅ Validado ao vivo em 2026-08-19 — fecha o F25 por completo | 2026-08-19 |
 | F26 Bugfix: quantidade fracionada ignorava o checkbox do produto | - | ✅ Validado ao vivo em 2026-08-19 | 2026-08-19 |
+| F27 Nota de exportação — Fatia 1/4 CFOP 7101/7102 + peso no produto | - | ✅ Validado ao vivo em 2026-08-20 | 2026-08-20 |
+| F27 Nota de exportação — Fatia 2/4 Conversão em fiscalDomain.ts | - | ✅ 5 testes novos | 2026-08-20 |
+| F27 Nota de exportação — Fatia 3/4 Aplicado em PedidoVendaForm.tsx | - | ✅ Concluído no código | 2026-08-20 |
+| F27 Nota de exportação — Fatia 4/4 Aplicado em NFE.tsx + revisão visual | - | ✅ Validado ao vivo em 2026-08-20 — aviso "Exportação: 5,000 kg" conferido | 2026-08-20 |
 
 ---
 
@@ -1325,6 +1329,22 @@ Atualizar ao concluir cada item.
 
 ---
 
+## 8.5 Nota fiscal de exportação — conversão de unidade pra quilo (F27, 2026-08-20)
+
+**Origem:** cliente que vende pra Alemanha e emite nota de exportação — estoque/venda continuam em unidade, mas a nota fiscal de exportação precisa declarar a quantidade em quilo. Não é preferência do sistema: é exigência real da SEFAZ (Nota Técnica 2016.001, Tabela de Unidades de Medida Tributáveis no Comércio Exterior) — toda operação de exportação declara `uTrib`/`qTrib` (unidade/quantidade tributável) separado da unidade comercial.
+
+**Achado que simplificou a solução:** os dois pontos que já emitem nota pela Spedy (`PedidoVendaForm.tsx` para NFC-e, `NFE.tsx` para NF-e) já mandavam os dois campos pra API (`unit`/`quantity`/`unitAmount` comercial e `unitTax`/`quantityTax`/`unitTaxAmount` tributável) — só duplicavam o mesmo valor nos dois. Não precisou de mecanismo novo, só passar a preencher de verdade quando o CFOP é de exportação.
+
+- **Fatia 1** — `EstoqueForm.tsx`: dois CFOPs novos no cadastro do produto (`7101` produção própria, `7102` mercadoria de terceiros) e campo novo "Peso líquido por unidade (kg)" — distinto do campo "Peso" que já existia (esse é só frete/e-commerce, nunca usado em nota fiscal).
+- **Fatia 2** — `fiscalDomain.ts`: funções puras compartilhadas `isExportCfop`, `resolveInvoiceUnitFields` (a conversão em si, com bloqueio se o peso não estiver configurado — subfaturamento seria pior que travar a emissão) e `resolveInvoiceDestination` (achado extra pesquisando a doc da Spedy: o payload tem um campo `destination` que devia virar `'international'` em CFOP de exportação, hoje sempre `'internal'`/`'interstate'`). 5 testes novos.
+- **Fatias 3 e 4** — aplicado nos dois pontos de emissão (`PedidoVendaForm.tsx` e `NFE.tsx`), incluindo a UI de revisão em `NFE.tsx`: quando o item tem CFOP de exportação, aparece um aviso automático com o peso convertido antes de transmitir (ex: "Exportação: 5,000 kg").
+
+**Achado à parte, fora do escopo, registrado como pendência (item 12 da Seção 9):** o cadastro de cliente não tem campo de estado nem de país — só endereço/bairro/número. O código de CFOP por estado em `NFE.tsx`/`PedidoVendaForm.tsx` já lê `cliente.estado` como se existisse, caindo silenciosamente pra São Paulo. Não corrigido aqui — o usuário optou por CFOP manual no produto, que não depende disso.
+
+**Validado ao vivo, ponta a ponta:** produto de teste com CFOP 7102 + peso 0,5kg/unidade, pedido de 10 UN finalizado, importado em Notas Fiscais — o aviso "Exportação: 5,000 kg" apareceu exatamente como esperado (10 × 0,5 = 5kg, conferido). **Transmissão real não testada** — sandbox da Spedy sem certificado digital A1 configurado, pendência já conhecida (item 11 da Seção 9). Publicado em `dev`; produção pendente de autorização.
+
+---
+
 ## 9. Pendências a esclarecer com o usuário
 
 1. ~~**Módulo 4:** trecho corrompido no PDF original — confirmar se falta requisito de Produção.~~ Resolvido em 2026-08-02: faltava Cadastro de Matéria-Prima (pool de estoque separado, mesma lógica do cadastro de produtos) — ver seção do Módulo 4.
@@ -1351,3 +1371,4 @@ Atualizar ao concluir cada item.
     - **Produção real** — hospedada num domínio próprio na **Hostinger** (não na Vercel). Presumivelmente essa é a que usa o banco `nexus-erp-2026`. Não investigada nesta sessão.
     - **Bloqueio real na Vercel, achado ao vivo:** a tela de Notas Fiscais lá mostra "Módulo Fiscal Desativado" mesmo com o código do M6 já publicado — causa confirmada no console: `Error: Backend nao configurado. Configure VITE_BACKEND_API_URL para usar o modulo fiscal.` Essa variável é fixada **no build**, não dá pra corrigir reconfigurando a chave da Spedy (mesmo que ela já esteja salva certa no banco, o que é provável se a Vercel realmente compartilha o banco de dev). **É a mesma pendência já registrada em 14/08** (erro "Backend não configurado" no cadastro) — o backend Express (`server/`) nunca foi hospedado publicamente em lugar nenhum. Resolver exige: decidir onde hospedar o backend (Render/Railway/etc.) e apontar `VITE_BACKEND_API_URL` da Vercel pra lá, depois redeploy.
 14. **Bug achado ao vivo em 2026-08-15, não corrigido:** o botão "Ir para Configurações" da tela de bloqueio do módulo fiscal (`src/pages/Fiscal/NFE.tsx`, `<a href="/configuracoes">` simples, linha ~1117) **não navega** — reproduzido com clique real (via automação de mouse, não só JS sintético) tanto no ambiente local quanto na Vercel, nenhuma requisição de navegação disparada, URL não muda. Não é um problema introduzido pelo M6 (código pré-existente, não tocado). Causa raiz não identificada (não é `preventDefault`, não é CSP) — suspeita de interação com o sistema de abas F19 (`useRoutes(appRoutesConfig, tab.path)` em `TabPane.tsx`, que desacopla o conteúdo renderizado da URL real do navegador), mas não confirmada. **Workaround:** usar o menu lateral "Configurações → Configurações Gerais" (esse já usa `openTab()` corretamente). Vale conferir se outros links soltos (`<a href>` sem `openTab()`) espalhados pelo sistema têm o mesmo problema — este pode não ser o único.
+15. **Achado durante o F27 (nota de exportação, 2026-08-20), não corrigido:** o cadastro de cliente (`ClienteForm.tsx`) não tem campo de estado/UF nem de país — só endereço/bairro/número. Apesar disso, `NFE.tsx` e `PedidoVendaForm.tsx` já leem `cliente.estado`/`cliente.cidade`/`cliente.codigoIbge` em vários pontos (cálculo de CFOP por comparação de estado, endereço do destinatário na nota) com fallback silencioso pra São Paulo (`'SP'`, `'3550308'`) quando ausente. Ou seja, hoje qualquer cliente sem esses dados preenchidos manualmente em algum lugar (não há onde preencher pela UI) é tratado como paulista pra fins fiscais. Não bloqueou o F27 porque o usuário optou por CFOP manual no produto (não depende do estado do cliente), mas vale decidir se o cadastro de cliente ganha esses campos numa fatia futura — mexe em pelo menos 2 telas (NFE.tsx e PedidoVendaForm.tsx) que já esperam esses dados.

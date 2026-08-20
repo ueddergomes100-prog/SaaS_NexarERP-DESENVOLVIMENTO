@@ -40,6 +40,7 @@ import {
   type PaymentMethod,
   type PaymentRecord,
 } from '../../utils/financeDomain';
+import { isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields } from '../../utils/fiscalDomain';
 import Swal from 'sweetalert2';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
@@ -929,6 +930,8 @@ const PedidoVendaForm: React.FC = () => {
             let csosn = 400;      // Isento Simples Nacional
             let origem = 0;       // Nacional
 
+            let pesoLiquidoUnitarioKg = 0;
+
             if (item.id !== 'avulso') {
               const pRef = doc(db, 'estoque', item.id);
               const pSnap = await getDoc(pRef);
@@ -938,7 +941,19 @@ const PedidoVendaForm: React.FC = () => {
                 cfop = Number(pData.cfop) || cfop;
                 csosn = Number(pData.csosn) || csosn;
                 origem = Number(pData.origem) || origem;
+                pesoLiquidoUnitarioKg = Number(pData.pesoLiquidoUnitarioKg) || 0;
               }
+            }
+
+            const unitFields = resolveInvoiceUnitFields({
+              cfop,
+              unidadeComercial: item.unidadeMedidaSigla || 'UN',
+              quantidadeComercial: item.quantidade,
+              valorUnitarioComercial: item.precoUnitario,
+              pesoLiquidoUnitarioKg,
+            });
+            if (!unitFields.ok) {
+              throw new Error(`${item.nome}: ${unitFields.error}`);
             }
 
             payloadItems.push({
@@ -946,13 +961,8 @@ const PedidoVendaForm: React.FC = () => {
               description: item.nome,
               ncm,
               cfop,
-              unit: item.unidadeMedidaSigla || 'UN',
-              quantity: item.quantidade,
-              unitAmount: item.precoUnitario,
+              ...unitFields.fields!,
               totalAmount: item.precoUnitario * item.quantidade,
-              unitTax: item.unidadeMedidaSigla || 'UN',
-              quantityTax: item.quantidade,
-              unitTaxAmount: item.precoUnitario,
               makeupTotal: true,
               taxes: {
                 icms: {
@@ -1018,7 +1028,7 @@ const PedidoVendaForm: React.FC = () => {
           const spedyPayload = {
             isFinalCustomer: true,
             operationType: 'outgoing',
-            destination: 'internal',
+            destination: resolveInvoiceDestination(payloadItems.find((pi) => isExportCfop(pi.cfop))?.cfop, 'internal'),
             presenceType: 'presence',
             operationNature: 'Venda de Mercadoria',
             sendEmailToCustomer: false,
@@ -1216,6 +1226,8 @@ const PedidoVendaForm: React.FC = () => {
         let csosn = 400;
         let origem = 0;
 
+        let pesoLiquidoUnitarioKg = 0;
+
         if (item.id && item.id !== 'avulso') {
           try {
             const docRef = doc(db, 'estoque', item.id);
@@ -1226,10 +1238,22 @@ const PedidoVendaForm: React.FC = () => {
               cfop = Number(pData.cfop) || cfop;
               csosn = Number(pData.csosn) || csosn;
               origem = Number(pData.origem) || origem;
+              pesoLiquidoUnitarioKg = Number(pData.pesoLiquidoUnitarioKg) || 0;
             }
           } catch (err) {
             console.error("Erro ao buscar dados fiscais do produto no estoque:", err);
           }
+        }
+
+        const unitFields = resolveInvoiceUnitFields({
+          cfop,
+          unidadeComercial: item.unidadeMedidaSigla || 'UN',
+          quantidadeComercial: item.quantidade,
+          valorUnitarioComercial: item.precoUnitario,
+          pesoLiquidoUnitarioKg,
+        });
+        if (!unitFields.ok) {
+          throw new Error(`${item.nome}: ${unitFields.error}`);
         }
 
         payloadItems.push({
@@ -1237,13 +1261,8 @@ const PedidoVendaForm: React.FC = () => {
           description: item.nome,
           ncm,
           cfop,
-          unit: item.unidadeMedidaSigla || 'UN',
-          quantity: item.quantidade,
-          unitAmount: item.precoUnitario,
+          ...unitFields.fields!,
           totalAmount: item.precoUnitario * item.quantidade,
-          unitTax: item.unidadeMedidaSigla || 'UN',
-          quantityTax: item.quantidade,
-          unitTaxAmount: item.precoUnitario,
           makeupTotal: true,
           taxes: {
             icms: {
@@ -1309,7 +1328,7 @@ const PedidoVendaForm: React.FC = () => {
       const spedyPayload = {
         isFinalCustomer: true,
         operationType: 'outgoing',
-        destination: 'internal',
+        destination: resolveInvoiceDestination(payloadItems.find((pi) => isExportCfop(pi.cfop))?.cfop, 'internal'),
         presenceType: 'presence',
         operationNature: 'Venda de Mercadoria',
         sendEmailToCustomer: false,

@@ -95,6 +95,7 @@ interface ProdutoFormData {
   ncm: string;
   cfop: string;
   csosn: string;
+  pesoLiquidoUnitarioKg: string;
   origem: string;
   perfilFiscal: string;
   cest: string;
@@ -185,7 +186,9 @@ const cfopOptions = [
   { value: '5405', label: '5405 - Venda de mercadoria sujeita a substituição tributária' },
   { value: '6102', label: '6102 - Venda interestadual de mercadoria adquirida de terceiros' },
   { value: '6404', label: '6404 - Venda interestadual com substituição tributária' },
-  { value: '5933', label: '5933 - Prestação de serviço tributado pelo ISSQN' }
+  { value: '5933', label: '5933 - Prestação de serviço tributado pelo ISSQN' },
+  { value: '7101', label: '7101 - Venda de produção do estabelecimento, destinada ao exterior' },
+  { value: '7102', label: '7102 - Venda de mercadoria adquirida ou recebida de terceiros, destinada ao exterior' }
 ];
 
 const origemOptions = [
@@ -243,6 +246,7 @@ const emptyFormData: ProdutoFormData = {
   ncm: '',
   cfop: '5102',
   csosn: '400',
+  pesoLiquidoUnitarioKg: '',
   origem: '0',
   perfilFiscal: '',
   cest: '',
@@ -480,6 +484,7 @@ const EstoqueForm: React.FC = () => {
               ncm: data.ncm || data.fiscal?.ncm || '',
               cfop: data.cfop || data.fiscal?.cfopPadraoSaida || '5102',
               csosn: data.csosn || data.fiscal?.csosnCst || '400',
+              pesoLiquidoUnitarioKg: String(data.pesoLiquidoUnitarioKg ?? ''),
               origem: data.origem || data.fiscal?.origem || '0',
               perfilFiscal: data.perfilFiscal || data.fiscal?.perfilFiscal || '',
               cest: data.cest || data.fiscal?.cest || '',
@@ -846,6 +851,12 @@ const EstoqueForm: React.FC = () => {
         ncm: formData.ncm.replace(/\D/g, ''),
         cfop: formData.cfop,
         csosn: formData.csosn,
+        // Peso liquido POR UNIDADE (kg), usado so pra converter a
+        // quantidade comercial (unidade) pra tributavel (quilo) na hora
+        // de emitir nota de CFOP de exportacao -- ver fiscalDomain.ts.
+        // Distinto do campo "peso" (frete/e-commerce), nunca usado em
+        // nota fiscal.
+        pesoLiquidoUnitarioKg: toNumber(formData.pesoLiquidoUnitarioKg),
         cstIpi: formData.cstIpi,
         origem: formData.origem,
         skuSistema: skuFinal,
@@ -1380,6 +1391,11 @@ const EstoqueForm: React.FC = () => {
                   <select name="origem" value={formData.origem} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
                     {origemOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
+                </div>
+                <div className="input-group">
+                  <label>Peso líquido por unidade (kg)</label>
+                  <input type="number" name="pesoLiquidoUnitarioKg" step="0.001" min="0" placeholder="Ex: 0.500" value={formData.pesoLiquidoUnitarioKg} onChange={handleChange} />
+                  <span className="field-hint">Obrigatório só para CFOP de exportação (7101/7102) — usado pra converter a quantidade vendida em unidade pra quilo na nota fiscal, exigência da SEFAZ para operações de exportação.</span>
                 </div>
                 <div className="input-group">
                   <label>{usesCsosn(regimeTributario) ? 'CSOSN *' : 'CST de ICMS *'}</label>

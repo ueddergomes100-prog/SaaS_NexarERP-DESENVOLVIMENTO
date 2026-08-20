@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   usesCsosn, ICMS_CST_OPTIONS, matchProdutoFromXmlItem, matchMateriaPrimaFromXmlItem, buildTaxesPayload,
   buildServiceInvoiceDescription, sumServiceInvoiceAmount, buildServiceInvoicePayload,
+  isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields,
   type EstoqueItemForMatch, type MateriaPrimaItemForMatch, type OsServicoParaFatura, type NfseConfig,
 } from '../src/utils/fiscalDomain';
 
@@ -243,4 +244,64 @@ test('buildServiceInvoicePayload nao inclui location quando o tenant nao configu
   const payload = buildServiceInvoicePayload(servicosOS, clienteFatura, { habilitada: false }, 'id-2');
   assert.equal(payload.location, undefined);
   assert.equal(payload.total.issRate, 0);
+});
+
+test('isExportCfop reconhece 7101/7102 (string ou number) e rejeita CFOPs domesticos', () => {
+  assert.equal(isExportCfop(7101), true);
+  assert.equal(isExportCfop('7102'), true);
+  assert.equal(isExportCfop(5102), false);
+  assert.equal(isExportCfop('6102'), false);
+  assert.equal(isExportCfop(undefined), false);
+  assert.equal(isExportCfop(null), false);
+});
+
+test('resolveInvoiceDestination usa international so pra CFOP de exportacao', () => {
+  assert.equal(resolveInvoiceDestination(7101, 'internal'), 'international');
+  assert.equal(resolveInvoiceDestination('7102', 'interstate'), 'international');
+  assert.equal(resolveInvoiceDestination(5102, 'internal'), 'internal');
+  assert.equal(resolveInvoiceDestination(6102, 'interstate'), 'interstate');
+});
+
+test('resolveInvoiceUnitFields mantem comercial=tributavel fora de CFOP de exportacao', () => {
+  const result = resolveInvoiceUnitFields({
+    cfop: 5102,
+    unidadeComercial: 'UN',
+    quantidadeComercial: 10,
+    valorUnitarioComercial: 25,
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.fields, {
+    unit: 'UN', quantity: 10, unitAmount: 25,
+    unitTax: 'UN', quantityTax: 10, unitTaxAmount: 25,
+  });
+});
+
+test('resolveInvoiceUnitFields converte pra quilo em CFOP de exportacao com peso configurado', () => {
+  const result = resolveInvoiceUnitFields({
+    cfop: 7101,
+    unidadeComercial: 'UN',
+    quantidadeComercial: 30,
+    valorUnitarioComercial: 20,
+    pesoLiquidoUnitarioKg: 0.5,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.fields?.unit, 'UN');
+  assert.equal(result.fields?.quantity, 30);
+  assert.equal(result.fields?.unitAmount, 20);
+  assert.equal(result.fields?.unitTax, 'KG');
+  assert.equal(result.fields?.quantityTax, 15); // 0.5kg * 30un
+  assert.equal(result.fields?.unitTaxAmount, 40); // (20*30) / 15kg
+});
+
+test('resolveInvoiceUnitFields bloqueia CFOP de exportacao sem peso configurado', () => {
+  const semPeso = resolveInvoiceUnitFields({
+    cfop: '7102', unidadeComercial: 'UN', quantidadeComercial: 5, valorUnitarioComercial: 10,
+  });
+  assert.equal(semPeso.ok, false);
+  assert.ok(semPeso.error);
+
+  const pesoZero = resolveInvoiceUnitFields({
+    cfop: '7102', unidadeComercial: 'UN', quantidadeComercial: 5, valorUnitarioComercial: 10, pesoLiquidoUnitarioKg: 0,
+  });
+  assert.equal(pesoZero.ok, false);
 });

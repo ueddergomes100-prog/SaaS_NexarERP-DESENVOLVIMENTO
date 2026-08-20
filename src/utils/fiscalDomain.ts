@@ -436,3 +436,105 @@ export const buildServiceInvoicePayload = (
     },
   };
 };
+
+/** CFOPs de venda destinada ao mercado externo (exportacao) --
+ * 7101 = producao propria do estabelecimento, 7102 = mercadoria
+ * adquirida/recebida de terceiros. Aceita string ou number porque o
+ * CFOP do produto circula como string (EstoqueForm.tsx) mas chega como
+ * number nos dois pontos de montagem de payload (PedidoVendaForm.tsx,
+ * NFE.tsx: `Number(pData.cfop)`). */
+export const EXPORT_CFOPS = [7101, 7102] as const;
+
+export const isExportCfop = (cfop: string | number | undefined | null): boolean => {
+  const parsed = Number(cfop);
+  return (EXPORT_CFOPS as readonly number[]).includes(parsed);
+};
+
+/** `destination` no payload da Spedy: 'international' pra CFOP de
+ * exportacao, senao mantem o valor ja calculado pelo chamador (hoje
+ * sempre 'internal' em PedidoVendaForm.tsx, ou 'internal'/'interstate'
+ * calculado por comparacao de estado em NFE.tsx). */
+export const resolveInvoiceDestination = (
+  cfop: string | number | undefined | null,
+  fallbackDestination: string,
+): string => (isExportCfop(cfop) ? 'international' : fallbackDestination);
+
+export interface InvoiceUnitFieldsInput {
+  cfop: string | number | undefined | null;
+  unidadeComercial: string;
+  quantidadeComercial: number;
+  valorUnitarioComercial: number;
+  /** Peso liquido POR UNIDADE comercial, em kg -- so obrigatorio quando
+   * cfop e de exportacao (ver EstoqueForm.tsx, campo
+   * pesoLiquidoUnitarioKg). */
+  pesoLiquidoUnitarioKg?: number;
+}
+
+export interface InvoiceUnitFieldsResult {
+  ok: boolean;
+  /** Preenchido so quando ok === true. */
+  fields?: {
+    unit: string;
+    quantity: number;
+    unitAmount: number;
+    unitTax: string;
+    quantityTax: number;
+    unitTaxAmount: number;
+  };
+  /** Preenchido so quando ok === false -- mensagem pronta pra exibir. */
+  error?: string;
+}
+
+/** Resolve os campos de unidade comercial (uCom/qCom/vUnCom) e
+ * tributavel (uTrib/qTrib/vUnTrib, nomeados unitTax/quantityTax/
+ * unitTaxAmount no payload da Spedy) de um item de nota fiscal.
+ *
+ * Fora de CFOP de exportacao, tributavel = comercial (comportamento
+ * historico do sistema, os dois pontos de emissao ja mandavam os
+ * valores duplicados). Em CFOP de exportacao (7101/7102), a Nota
+ * Tecnica 2016.001 exige declarar a quantidade na unidade tributavel
+ * real do NCM -- aqui sempre convertida pra quilo (kg), unica unidade
+ * tributavel de exportacao que este sistema suporta hoje. Sem peso
+ * liquido configurado no produto, nao ha como converter -- devolve erro
+ * em vez de mandar um qTrib inventado (subfaturamento/nota incorreta e
+ * risco fiscal maior que bloquear a emissao). */
+export const resolveInvoiceUnitFields = (input: InvoiceUnitFieldsInput): InvoiceUnitFieldsResult => {
+  const { cfop, unidadeComercial, quantidadeComercial, valorUnitarioComercial, pesoLiquidoUnitarioKg } = input;
+
+  if (!isExportCfop(cfop)) {
+    return {
+      ok: true,
+      fields: {
+        unit: unidadeComercial,
+        quantity: quantidadeComercial,
+        unitAmount: valorUnitarioComercial,
+        unitTax: unidadeComercial,
+        quantityTax: quantidadeComercial,
+        unitTaxAmount: valorUnitarioComercial,
+      },
+    };
+  }
+
+  const peso = Number(pesoLiquidoUnitarioKg || 0);
+  if (peso <= 0) {
+    return {
+      ok: false,
+      error: 'Configure o peso líquido por unidade (kg) do produto antes de emitir nota com CFOP de exportação.',
+    };
+  }
+
+  const quantityTax = peso * quantidadeComercial;
+  const valorTotalComercial = valorUnitarioComercial * quantidadeComercial;
+
+  return {
+    ok: true,
+    fields: {
+      unit: unidadeComercial,
+      quantity: quantidadeComercial,
+      unitAmount: valorUnitarioComercial,
+      unitTax: 'KG',
+      quantityTax,
+      unitTaxAmount: valorTotalComercial / quantityTax,
+    },
+  };
+};

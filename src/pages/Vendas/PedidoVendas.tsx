@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, Plus, Search, FileText, Printer, Trash2 } from 'lucide-react';
+import { ShoppingCart, Plus, Search, FileText, Printer, Trash2, XCircle } from 'lucide-react';
 import { collection, query, where, onSnapshot, deleteDoc, doc, getDoc, updateDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -54,6 +54,9 @@ const PedidoVendas: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
 
   const canDeleteVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.excluir'));
+  // Mesma permissao cobre editar/finalizar E recusar um pedido pendente do
+  // agente -- nao criar uma permissao a mais so pra recusar.
+  const canEditPendenteVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_editar'));
 
   const [pedidos, setPedidos] = useState<PedidoVendaData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -237,8 +240,69 @@ const PedidoVendas: React.FC = () => {
     }
   };
 
+  // Pedido "Em Analise" so e gravado por integracao externa (agente de
+  // WhatsApp) -- nenhuma tela deste sistema grava esse status (ver
+  // handleFinalizarVenda em PedidoVendaForm.tsx, sempre grava 'Finalizada').
+  // Fatia 3/4 do recurso de pedidos pendentes vai deixar editar/finalizar.
+  const handleRecusar = async (pedido: PedidoVendaData) => {
+    if (!currentUser || !tenantId) return;
+
+    const result = await NexusSwal.fire({
+      title: 'Recusar Pedido Pendente?',
+      html: `O pedido <strong>#${pedido.numeroPedido}</strong> (${pedido.clienteNome || 'sem cliente'}) veio de uma integração externa e ainda não gerou baixa de estoque nem lançamento financeiro — recusar só marca como cancelado, não reverte nada.<br/><br/>Digite o motivo (mínimo 8 caracteres):`,
+      input: 'text',
+      inputAttributes: { minlength: '8', required: 'true', placeholder: 'Motivo da recusa...' },
+      showCancelButton: true,
+      confirmButtonText: 'Confirmar Recusa',
+      cancelButtonText: 'Voltar',
+      confirmButtonColor: '#ef4444',
+      preConfirm: (motivo) => {
+        if (!motivo || motivo.trim().length < 8) {
+          NexusSwal.showValidationMessage('O motivo deve ter pelo menos 8 caracteres.');
+          return false;
+        }
+        return motivo;
+      },
+    });
+
+    if (!result.isConfirmed) return;
+    const motivo = (result.value as string).trim();
+
+    try {
+      await updateDoc(doc(db, 'pedidos_venda', pedido.id), {
+        status: 'Cancelada',
+        motivoRecusa: motivo,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Pedido pendente recusado: ${motivo}`),
+      });
+
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || '',
+          modulo: 'vendas',
+          acao: 'recusa_pedido_pendente',
+          descricao: `Pedido pendente #${pedido.numeroPedido} recusado. Motivo: ${motivo}`,
+          registroRelacionadoId: pedido.id,
+          status: 'sucesso',
+        });
+      } catch {
+        // ignore audit log error
+      }
+
+      showSuccess('Pedido recusado.');
+    } catch {
+      showError('Erro', 'Não foi possível recusar o pedido.');
+    }
+  };
+
   const filteredPedidos = pedidos.filter(p => {
-    const matchStatus = activeTab === 'Ativos' ? p.status !== 'Cancelada' : p.status === 'Cancelada';
+    const matchStatus = activeTab === 'Ativos'
+      ? (p.status !== 'Cancelada' && p.status !== 'Em Análise')
+      : activeTab === 'Pendentes'
+        ? p.status === 'Em Análise'
+        : p.status === 'Cancelada';
     if (!matchStatus) return false;
     if (!searchTerm) return true;
     return p.clienteNome?.toLowerCase().includes(searchTerm.toLowerCase()) || p.numeroPedido?.includes(searchTerm);
@@ -318,6 +382,12 @@ const PedidoVendas: React.FC = () => {
               style={{ padding: '8px 16px', backgroundColor: activeTab === 'Ativos' ? 'var(--accent-purple)' : 'transparent', color: activeTab === 'Ativos' ? 'white' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
             >
               Ativos / Faturados
+            </button>
+            <button
+              onClick={() => setActiveTab('Pendentes')}
+              style={{ padding: '8px 16px', backgroundColor: activeTab === 'Pendentes' ? 'rgba(245, 158, 11, 0.2)' : 'transparent', color: activeTab === 'Pendentes' ? '#f59e0b' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
+            >
+              Pendentes
             </button>
             <button
               onClick={() => setActiveTab('Cancelados')}
@@ -404,8 +474,8 @@ const PedidoVendas: React.FC = () => {
                     </td>
                     <td style={{ padding: '16px' }}>
                       <span style={{
-                        backgroundColor: p.status === 'Cancelada' ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)',
-                        color: p.status === 'Cancelada' ? '#ef4444' : '#10b981',
+                        backgroundColor: p.status === 'Cancelada' ? 'rgba(239,68,68,0.2)' : p.status === 'Em Análise' ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)',
+                        color: p.status === 'Cancelada' ? '#ef4444' : p.status === 'Em Análise' ? '#f59e0b' : '#10b981',
                         padding: '4px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600
                       }}>
                         {p.status}
@@ -449,6 +519,11 @@ const PedidoVendas: React.FC = () => {
                       ) : (
                         <button onClick={() => navigate(`/pedidos-venda/print/${p.id}`)} className="icon-btn" title="Imprimir Recibo" style={{ color: '#10b981' }}>
                           <Printer size={18} />
+                        </button>
+                      )}
+                      {p.status === 'Em Análise' && canEditPendenteVenda && (
+                        <button onClick={() => handleRecusar(p)} className="icon-btn" title="Recusar Pedido Pendente" style={{ color: '#ef4444' }}>
+                          <XCircle size={18} />
                         </button>
                       )}
                       {canDeleteVenda && (

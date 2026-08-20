@@ -1224,6 +1224,11 @@ Atualizar ao concluir cada item.
 | M16 Dashboard integrado | 3 | ⬜ Pendente | |
 | M7 Novo fluxo de vendas | 4 | 🔒 Travado — aguarda decisão | |
 | M8 Nota com valor diferente | 4 | 🔒 Travado — aguarda contador | |
+| F25 Pedidos Pendentes do Agente — Fatia 1/4 Permissões | - | ✅ Validado ao vivo em 2026-08-19 | 2026-08-19 |
+| F25 Pedidos Pendentes do Agente — Fatia 2/4 Fila + Recusar | - | ✅ Validado ao vivo em 2026-08-19 | 2026-08-19 |
+| F25 Pedidos Pendentes do Agente — Fatia 3/4 Editar e Finalizar | - | ✅ Validado ao vivo em 2026-08-19 (pedido #0029 real) | 2026-08-19 |
+| F25 Pedidos Pendentes do Agente — Fatia 4/4 Aviso de estoque/preço desatualizado | - | ⬜ Pendente | |
+| F26 Bugfix: quantidade fracionada ignorava o checkbox do produto | - | ✅ Validado ao vivo em 2026-08-19 | 2026-08-19 |
 
 ---
 
@@ -1301,6 +1306,22 @@ Atualizar ao concluir cada item.
 - Novo `src/components/common/PermissoesUsuarioModal.tsx` — carrega as permissões atuais do funcionário, salva só o campo `permissoes` (+ metadados), com busca e contador.
 - **Catálogo extraído** de um literal dentro do `Configuracoes.tsx` (1.700 linhas) para `src/utils/permissionCatalog.ts`, agora **agrupado por área** (41 permissões numa lista plana não cabem bem num popup). `Configuracoes.tsx` passou a importar a mesma constante — a lista duplicada em dois componentes seria garantia de divergência, exatamente o risco que os comentários do próprio código já alertavam. Conferido por diff que os 41 ids são idênticos aos de antes, sem duplicata.
 - Validado ao vivo: popup abre pela tela de Usuários, marca permissões, salva, e o Firestore recebe `["vendas.pedidos","mecanica.os"]` com `alteradoPor` correto — o mesmo fluxo que estava quebrado antes da correção da regra.
+
+---
+
+## 8.4 Pedidos Pendentes do Agente de WhatsApp (F25, 2026-08-19)
+
+**Origem:** um agente de WhatsApp em desenvolvimento por um colaborador (Henrique) grava pedidos direto em `pedidos_venda` com `status: "Em Análise"` e `formaPagamento: "A definir"` — o cliente escolhe os produtos, mas o pagamento só é definido quando a equipe confirma. `PedidoVendaForm.tsx` tratava qualquer pedido existente como somente-leitura, então esses pedidos viravam um beco sem saída (nem editar, nem finalizar, nem recusar). Um deles (#0029) chegou a quebrar a tela por completo — bug à parte, já corrigido em `PaymentsEditor.tsx` (commit `ba55301`, ícone da forma de pagamento sem fallback).
+
+**Fatia 1 — Permissões:** 5 ids novos em `vendas.*` (`permissionCatalog.ts`): uma mestre (`pedidos_pendentes_editar`) + 4 granulares de UI (editar cliente, alterar quantidade, adicionar item, excluir item — sem regra própria no Firestore, decisão deliberada por não haver precedente de regra por campo no projeto). `firestore.rules` só checa a mestre.
+
+**Fatia 2 — Fila "Pendentes" + Recusar:** `PedidoVendas.tsx` ganhou uma terceira aba (`Ativos`/`Pendentes`/`Cancelados`), reaproveitando o `onSnapshot` já existente (só filtro no cliente). Recusar pede motivo por escrito (mín. 8 caracteres) e só grava `status: 'Cancelada'` + `motivoRecusa` — sem reverter estoque/financeiro, porque nada foi aplicado ainda pra um pedido que nunca passou por `handleFinalizarVenda`.
+
+**Fatia 3 — Editar e Finalizar (a maior):** `PedidoVendaForm.tsx` libera cliente/vendedor/itens/frete/pagamento quando `status === 'Em Análise'` e a permissão mestre está concedida — ~14 pontos de `isViewing` viraram condições derivadas (`canEditPendingCliente`, `canEditPendingQtd`, `canAddPendingItem`, `canDeletePendingItem`, `canEditPendingOrder`). `handleFinalizarVenda` ganhou um branch pra reaproveitar o documento existente (`transaction.update` em vez de criar outro via `transaction.set`+`addDoc`-style ref) — pula a alocação de `numeroPedido` novo (mantém o que já existia) e preserva `createdAt`/`criadoPor`/`criadoEm` originais, só registrando quem finalizou. Todo o resto (baixa de estoque, `transacoes`, comissão, fluxo de NFC-e/recibo/minuta) é o mesmo caminho de uma venda nova — nenhuma lógica duplicada. **Validado ao vivo no pedido #0029 de verdade**: trocou forma de pagamento, adicionou e excluiu item, editou cliente, finalizou — número preservado, sem duplicar documento, estoque e financeiro corretos, saiu da fila Pendentes e apareceu em Ativos como Finalizada.
+
+**Fatia 4 (aviso de estoque/preço desatualizado) — pendente**, não implementada nesta sessão.
+
+**Achado incidental durante a validação (F26, bugfix à parte):** editar a quantidade de um item pendente expôs dois bugs reais e pré-existentes na regra de venda fracionada, corrigidos na mesma sessão — ver commit `2f5ede1`. (1) `EstoqueForm.tsx` só olhava a flag da Unidade de Medida (`permiteFracionado`) ao gravar `unidadeMedidaFracionado` do produto — o checkbox "Produto fracionado" do próprio cadastro existia na tela mas nunca era combinado (AND) com o da unidade. (2) Os prompts de "Alterar quantidade" (PDV e Pedido de Venda) fixavam `step: '0.001'`, causando um bug de precisão de ponto flutuante do `<input type=number>` nativo que rejeitava valores válidos como "3" — trocado para `step: 'any'`, com `isValidSaleQuantity` (agora aceitando um `casasDecimais` opcional) fazendo a validação de verdade em JS.
 
 ---
 

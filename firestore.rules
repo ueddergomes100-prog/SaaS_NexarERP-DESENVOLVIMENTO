@@ -118,7 +118,12 @@ service cloud.firestore {
         (collectionName == 'bancos' && hasAnyPermission(['cadastros.bancos', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'financeiro.banco', 'financeiro.receber', 'financeiro.pagar'])) ||
         (collectionName == 'lancamentos_bancarios' && hasPermission('cadastros.bancos')) ||
         (collectionName == 'ordens_de_servico' && hasAnyPermission(['mecanica.os', 'mecanica.os_alterar'])) ||
-        (collectionName == 'pedidos_venda' && hasAnyPermission(['vendas.pedidos', 'vendas.alterar'])) ||
+        // vendas.pedidos_pendentes_editar cobre tanto editar/finalizar quanto
+        // recusar um pedido "Em Analise" vindo de integracao externa (agente
+        // de WhatsApp) -- as 4 permissoes granulares de cliente/qtd/adicionar/
+        // excluir item so existem no lado da UI, nao aqui (decisao deliberada,
+        // sem precedente de regra por campo neste projeto).
+        (collectionName == 'pedidos_venda' && hasAnyPermission(['vendas.pedidos', 'vendas.alterar', 'vendas.pedidos_pendentes_editar'])) ||
         (collectionName == 'orcamentos' && hasAnyPermission(['vendas.orcamentos', 'vendas.orcamentos_alterar'])) ||
         (collectionName == 'devolucoes_venda' && hasPermission('vendas.devolucao')) ||
         (collectionName == 'lembretes' && hasPermission('crm.alertas')) ||

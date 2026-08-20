@@ -481,8 +481,10 @@ const PDV: React.FC = () => {
 
   const validateQuantity = useCallback((product: PdvProduct, nextQuantity: number) => {
     if (nextQuantity <= 0) return false;
-    if (!isValidSaleQuantity(nextQuantity, product.unidadeMedidaFracionado)) {
-      showError('Operação bloqueada', `O produto ${product.nome} não permite quantidade fracionada.`);
+    if (!isValidSaleQuantity(nextQuantity, product.unidadeMedidaFracionado, product.unidadeMedidaCasasDecimais)) {
+      showError('Operação bloqueada', product.unidadeMedidaFracionado
+        ? `A quantidade de ${product.nome} aceita no máximo ${product.unidadeMedidaCasasDecimais ?? 0} casa(s) decimal(is).`
+        : `O produto ${product.nome} não permite quantidade fracionada.`);
       return false;
     }
     if (!allowNegativeStock && nextQuantity > Number(product.quantidade || 0)) {
@@ -560,7 +562,7 @@ const PDV: React.FC = () => {
       text: selectedItem.nome,
       input: 'number',
       inputValue: String(selectedItem.quantidade),
-      inputAttributes: { min: '0.001', step: selectedItem.unidadeMedidaFracionado === true ? '0.001' : '1' },
+      inputAttributes: { min: '0', step: selectedItem.unidadeMedidaFracionado === true ? 'any' : '1' },
       showCancelButton: true,
       confirmButtonText: 'Aplicar',
       cancelButtonText: 'Cancelar',

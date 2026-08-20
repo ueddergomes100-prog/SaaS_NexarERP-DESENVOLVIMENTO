@@ -596,8 +596,10 @@ const OSForm: React.FC = () => {
     const novas = [...pecasSelecionadas];
     const peca = novas[index];
 
-    if (!isValidSaleQuantity(qtd, peca.unidadeMedidaFracionado)) {
-      showError('Operação Bloqueada', `A peça ${peca.nome} está configurada na unidade ${peca.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
+    if (!isValidSaleQuantity(qtd, peca.unidadeMedidaFracionado, peca.unidadeMedidaCasasDecimais)) {
+      showError('Operação Bloqueada', peca.unidadeMedidaFracionado
+        ? `A quantidade de ${peca.nome} aceita no máximo ${peca.unidadeMedidaCasasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${peca.unidadeMedidaSigla || 'UN'}.`
+        : `A peça ${peca.nome} está configurada na unidade ${peca.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
       return;
     }
 

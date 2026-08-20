@@ -26,3 +26,20 @@ test('quantidade nao finita (NaN/Infinity) e invalida', () => {
   assert.equal(isValidSaleQuantity(NaN, true), false);
   assert.equal(isValidSaleQuantity(Infinity, true), false);
 });
+
+test('casasDecimais bloqueia quantidade com mais casas do que a unidade permite', () => {
+  assert.equal(isValidSaleQuantity(1.234, true, 3), true);
+  assert.equal(isValidSaleQuantity(1.2345, true, 3), false);
+  assert.equal(isValidSaleQuantity(1.5, true, 2), true);
+  assert.equal(isValidSaleQuantity(1.567, true, 2), false);
+});
+
+test('casasDecimais omitido ou zero nao restringe quantidade fracionada', () => {
+  assert.equal(isValidSaleQuantity(1.23456, true), true);
+  assert.equal(isValidSaleQuantity(1.23456, true, 0), true);
+});
+
+test('casasDecimais nao afeta quantidade nao fracionada (continua exigindo inteiro)', () => {
+  assert.equal(isValidSaleQuantity(1.5, false, 3), false);
+  assert.equal(isValidSaleQuantity(3, false, 3), true);
+});

@@ -854,7 +854,11 @@ const EstoqueForm: React.FC = () => {
         unidadeMedidaId: selectedUnit?.id || 'un',
         unidadeMedidaSigla: selectedUnit?.sigla || 'UN',
         unidadeMedidaCasasDecimais: selectedUnit ? Number(selectedUnit.casasDecimais) : 0,
-        unidadeMedidaFracionado: selectedUnit ? Boolean(selectedUnit.permiteFracionado) : false,
+        // So permite venda fracionada quando as DUAS coisas estao marcadas:
+        // a Unidade de Medida (permiteFracionado) E o produto em si
+        // ("Produto fracionado", formData.produtoFracionado) -- uma unidade
+        // fracionavel como KG nao obriga todo produto nela a vender fracionado.
+        unidadeMedidaFracionado: selectedUnit ? Boolean(selectedUnit.permiteFracionado) && formData.produtoFracionado : false,
         ultimaAlteracaoPreco: mudouPreco ? new Date().toISOString() : produtoOriginal?.ultimaAlteracaoPreco || null,
         historicoPrecos: ultimoHistorico,
         precos: {

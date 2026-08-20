@@ -277,8 +277,10 @@ const OrcamentoForm: React.FC = () => {
     const item = novos[index];
 
     if (item.tipo === 'peca') {
-      if (!isValidSaleQuantity(qtd, item.unidadeMedidaFracionado)) {
-        showError('Operação Bloqueada', `A peça ${item.nome} está configurada na unidade ${item.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
+      if (!isValidSaleQuantity(qtd, item.unidadeMedidaFracionado, item.unidadeMedidaCasasDecimais)) {
+        showError('Operação Bloqueada', item.unidadeMedidaFracionado
+          ? `A quantidade de ${item.nome} aceita no máximo ${item.unidadeMedidaCasasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${item.unidadeMedidaSigla || 'UN'}.`
+          : `A peça ${item.nome} está configurada na unidade ${item.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
         return;
       }
 

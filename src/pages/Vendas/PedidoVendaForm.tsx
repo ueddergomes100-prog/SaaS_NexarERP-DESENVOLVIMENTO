@@ -433,8 +433,10 @@ const PedidoVendaForm: React.FC = () => {
       }
 
       // Validação de Venda Fracionada
-      if (!isValidSaleQuantity(qtdNum, produtoEncontrado.unidadeMedidaFracionado)) {
-        showError('Operação Bloqueada', `O produto ${produtoEncontrado.nome} está configurado na unidade ${produtoEncontrado.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
+      if (!isValidSaleQuantity(qtdNum, produtoEncontrado.unidadeMedidaFracionado, produtoEncontrado.unidadeMedidaCasasDecimais)) {
+        showError('Operação Bloqueada', produtoEncontrado.unidadeMedidaFracionado
+          ? `A quantidade de ${produtoEncontrado.nome} aceita no máximo ${produtoEncontrado.unidadeMedidaCasasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${produtoEncontrado.unidadeMedidaSigla || 'UN'}.`
+          : `O produto ${produtoEncontrado.nome} está configurado na unidade ${produtoEncontrado.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
         return;
       }
     }
@@ -480,12 +482,16 @@ const PedidoVendaForm: React.FC = () => {
 
     const produtoCatalogo = produtosCatalogo.find((p) => p.id === item.id);
 
+    // step: 'any' evita o bug de precisao de ponto flutuante do <input
+    // type=number> nativo com step fracionario fixo (ex: '0.001' rejeitava
+    // "3" como invalido) -- a validacao de casas decimais de verdade fica
+    // por conta de isValidSaleQuantity logo abaixo, com a mensagem de erro.
     const result = await NexusSwal.fire({
       title: 'Alterar quantidade',
       text: item.nome,
       input: 'number',
       inputValue: String(item.quantidade),
-      inputAttributes: { min: '0.001', step: produtoCatalogo?.unidadeMedidaFracionado ? '0.001' : '1' },
+      inputAttributes: { min: '0', step: produtoCatalogo?.unidadeMedidaFracionado ? 'any' : '1' },
       showCancelButton: true,
       confirmButtonText: 'Aplicar',
       cancelButtonText: 'Cancelar',
@@ -497,8 +503,10 @@ const PedidoVendaForm: React.FC = () => {
       showError('Atenção', 'A quantidade deve ser maior que zero.');
       return;
     }
-    if (!isValidSaleQuantity(novaQtd, produtoCatalogo?.unidadeMedidaFracionado)) {
-      showError('Operação Bloqueada', `O produto ${item.nome} está configurado na unidade ${item.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
+    if (!isValidSaleQuantity(novaQtd, produtoCatalogo?.unidadeMedidaFracionado, produtoCatalogo?.unidadeMedidaCasasDecimais)) {
+      showError('Operação Bloqueada', produtoCatalogo?.unidadeMedidaFracionado
+        ? `A quantidade de ${item.nome} aceita no máximo ${produtoCatalogo.unidadeMedidaCasasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${item.unidadeMedidaSigla || 'UN'}.`
+        : `O produto ${item.nome} está configurado na unidade ${item.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
       return;
     }
     if (produtoCatalogo && !permitirVendaSemEstoque && novaQtd > (produtoCatalogo.quantidade || 0)) {

@@ -1227,7 +1227,7 @@ Atualizar ao concluir cada item.
 | F25 Pedidos Pendentes do Agente — Fatia 1/4 Permissões | - | ✅ Validado ao vivo em 2026-08-19 | 2026-08-19 |
 | F25 Pedidos Pendentes do Agente — Fatia 2/4 Fila + Recusar | - | ✅ Validado ao vivo em 2026-08-19 | 2026-08-19 |
 | F25 Pedidos Pendentes do Agente — Fatia 3/4 Editar e Finalizar | - | ✅ Validado ao vivo em 2026-08-19 (pedido #0029 real) | 2026-08-19 |
-| F25 Pedidos Pendentes do Agente — Fatia 4/4 Aviso de estoque/preço desatualizado | - | ⬜ Pendente | |
+| F25 Pedidos Pendentes do Agente — Fatia 4/4 Aviso de estoque/preço desatualizado | - | ✅ Validado ao vivo em 2026-08-19 — fecha o F25 por completo | 2026-08-19 |
 | F26 Bugfix: quantidade fracionada ignorava o checkbox do produto | - | ✅ Validado ao vivo em 2026-08-19 | 2026-08-19 |
 
 ---
@@ -1319,7 +1319,7 @@ Atualizar ao concluir cada item.
 
 **Fatia 3 — Editar e Finalizar (a maior):** `PedidoVendaForm.tsx` libera cliente/vendedor/itens/frete/pagamento quando `status === 'Em Análise'` e a permissão mestre está concedida — ~14 pontos de `isViewing` viraram condições derivadas (`canEditPendingCliente`, `canEditPendingQtd`, `canAddPendingItem`, `canDeletePendingItem`, `canEditPendingOrder`). `handleFinalizarVenda` ganhou um branch pra reaproveitar o documento existente (`transaction.update` em vez de criar outro via `transaction.set`+`addDoc`-style ref) — pula a alocação de `numeroPedido` novo (mantém o que já existia) e preserva `createdAt`/`criadoPor`/`criadoEm` originais, só registrando quem finalizou. Todo o resto (baixa de estoque, `transacoes`, comissão, fluxo de NFC-e/recibo/minuta) é o mesmo caminho de uma venda nova — nenhuma lógica duplicada. **Validado ao vivo no pedido #0029 de verdade**: trocou forma de pagamento, adicionou e excluiu item, editou cliente, finalizou — número preservado, sem duplicar documento, estoque e financeiro corretos, saiu da fila Pendentes e apareceu em Ativos como Finalizada.
 
-**Fatia 4 (aviso de estoque/preço desatualizado) — pendente**, não implementada nesta sessão.
+**Fatia 4 — Aviso de estoque/preço desatualizado:** ao abrir um pendente com permissão de edição, compara cada item contra `produtosCatalogo` (já carregado no form) e mostra um banner (não bloqueia) listando itens com estoque insuficiente ou preço mudado desde a criação. **Validado ao vivo**: mudou o preço do CAFÉ VERDE de R$18,80 pra R$25,00 direto no cadastro, reabriu o #0027, o aviso apareceu com a mensagem exata. **F25 fechado por completo com isso.**
 
 **Achado incidental durante a validação (F26, bugfix à parte):** editar a quantidade de um item pendente expôs dois bugs reais e pré-existentes na regra de venda fracionada, corrigidos na mesma sessão — ver commit `2f5ede1`. (1) `EstoqueForm.tsx` só olhava a flag da Unidade de Medida (`permiteFracionado`) ao gravar `unidadeMedidaFracionado` do produto — o checkbox "Produto fracionado" do próprio cadastro existia na tela mas nunca era combinado (AND) com o da unidade. (2) Os prompts de "Alterar quantidade" (PDV e Pedido de Venda) fixavam `step: '0.001'`, causando um bug de precisão de ponto flutuante do `<input type=number>` nativo que rejeitava valores válidos como "3" — trocado para `step: 'any'`, com `isValidSaleQuantity` (agora aceitando um `casasDecimais` opcional) fazendo a validação de verdade em JS.
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2 } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -534,6 +534,28 @@ const PedidoVendaForm: React.FC = () => {
     { key: 'F6', when: !isViewing || canEditPendingOrder, handler: focusPagamentoSection },
     { key: 'F7', when: !isViewing || canEditPendingOrder, handler: focusPagamentoSection },
   ]);
+
+  // Fatia 4/4 de Pedidos Pendentes: um pedido do agente pode ficar dias
+  // parado ate a equipe revisar -- avisa (sem bloquear, a validacao de
+  // estoque real ja acontece em handleFinalizarVenda/handleAddItem) se
+  // estoque ou preco mudaram desde que o agente gravou o item.
+  const pendingOrderStockWarnings = canEditPendingOrder
+    ? itens.reduce<string[]>((warnings, item) => {
+        if (item.id === 'avulso') return warnings;
+        const produtoAtual = produtosCatalogo.find((p) => p.id === item.id);
+        if (!produtoAtual) {
+          warnings.push(`${item.nome}: produto não encontrado mais no catálogo.`);
+          return warnings;
+        }
+        if (!permitirVendaSemEstoque && produtoAtual.quantidade < item.quantidade) {
+          warnings.push(`${item.nome}: estoque atual (${produtoAtual.quantidade}) é menor que a quantidade do pedido (${item.quantidade}).`);
+        }
+        if (Math.abs(produtoAtual.precoVenda - item.precoUnitario) > 0.001) {
+          warnings.push(`${item.nome}: preço mudou de R$ ${item.precoUnitario.toFixed(2)} para R$ ${produtoAtual.precoVenda.toFixed(2)}.`);
+        }
+        return warnings;
+      }, [])
+    : [];
 
   const valorTotalItens = itens.reduce((acc, curr) => acc + (curr.precoUnitario * curr.quantidade), 0);
   const valorTotalDescontos = itens.reduce((acc, curr) => acc + curr.desconto, 0);
@@ -1862,6 +1884,20 @@ const PedidoVendaForm: React.FC = () => {
           )}
         </div>
       </div>
+
+      {pendingOrderStockWarnings.length > 0 && (
+        <div className="card form-section" style={{ padding: '16px 24px', marginBottom: '24px', backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#f59e0b', fontWeight: 700 }}>
+            <AlertTriangle size={18} />
+            Estoque ou preço mudaram desde que este pedido foi criado
+          </div>
+          <ul style={{ margin: 0, paddingLeft: '20px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+            {pendingOrderStockWarnings.map((warning, index) => (
+              <li key={index}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {isViewing && devolucoes.length > 0 && (
         <div className="card form-section" style={{ padding: '24px', marginBottom: '24px' }}>

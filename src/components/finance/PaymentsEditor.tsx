@@ -146,7 +146,10 @@ const PaymentMethodSelect: React.FC<PaymentMethodSelectProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(() => Math.max(0, options.indexOf(value)));
   const listboxId = `${id}-options`;
-  const selectedPresentation = PAYMENT_METHOD_PRESENTATION[value];
+  // value pode vir de um documento gravado fora das telas do sistema (ex:
+  // integracao externa) com um texto que nao bate com nenhuma das formas
+  // de pagamento validas -- cai em "Outros" em vez de quebrar a tela.
+  const selectedPresentation = PAYMENT_METHOD_PRESENTATION[value] ?? PAYMENT_METHOD_PRESENTATION.Outros;
   const SelectedIcon = selectedPresentation.icon;
 
   useEffect(() => {

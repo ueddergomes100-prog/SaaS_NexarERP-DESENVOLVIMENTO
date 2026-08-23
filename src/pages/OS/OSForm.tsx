@@ -16,6 +16,16 @@ import {
   type MomentoBaixaEstoque,
 } from '../../utils/estoqueReservaDomain';
 import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
+import {
+  calcularDescontoCents,
+  checarLimiteTotal,
+  parseLimiteDescontoConfig,
+  parseModoLimiteDesconto,
+  type LimiteDescontoConfig,
+  type ModoLimiteDesconto,
+} from '../../utils/descontoDomain';
+import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
+import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
@@ -173,6 +183,11 @@ const OSForm: React.FC = () => {
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
   const [pecaSearchMode, setPecaSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
   const [momentoBaixaEstoque, setMomentoBaixaEstoque] = useState<MomentoBaixaEstoque>(DEFAULT_MOMENTO_BAIXA_ESTOQUE);
+  const [descontoInput, setDescontoInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
+  const [limiteDescontoOS, setLimiteDescontoOS] = useState<LimiteDescontoConfig | null>(null);
+  const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>('avisar');
+  const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
+  const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
 
   const { currentUser, tenantId, userRole } = useAuth();
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
@@ -262,6 +277,8 @@ const OSForm: React.FC = () => {
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
           setPecaSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           setMomentoBaixaEstoque((config.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque);
+          setLimiteDescontoOS(parseLimiteDescontoConfig(config.limiteDescontoOS));
+          setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
           const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
@@ -641,9 +658,25 @@ const OSForm: React.FC = () => {
 
   const totalServicos = servicosSelecionados.reduce((acc, curr) => acc + getServiceTotal(curr), 0);
   const totalPecas = pecasSelecionadas.reduce((acc, curr) => acc + (curr.preco * curr.quantidade), 0);
-  const totalOS = totalServicos + totalPecas;
+  const subtotalOS = totalServicos + totalPecas;
+  const subtotalOSCentavos = toCents(subtotalOS);
+  const descontoCents = calcularDescontoCents(descontoInput.tipo, descontoInput.valor, subtotalOSCentavos);
+  const desconto = fromCents(descontoCents);
+  const totalOS = Math.max(0, subtotalOS - desconto);
   const totalOSCentavos = toCents(totalOS);
+  const checagemLimiteDesconto = checarLimiteTotal(limiteDescontoOS, subtotalOSCentavos, descontoCents);
   const paymentDate = formData.dataSaida || getDateInputInTimeZone();
+
+  // Uma aprovacao de senha so vale pro estado do momento -- mudar servico,
+  // peca ou desconto depois invalida.
+  const primeiraRenderAprovacaoRef = useRef(true);
+  useEffect(() => {
+    if (primeiraRenderAprovacaoRef.current) {
+      primeiraRenderAprovacaoRef.current = false;
+      return;
+    }
+    setAprovacaoDesconto(null);
+  }, [servicosSelecionados, pecasSelecionadas, descontoInput]);
 
   useEffect(() => {
     if (paymentDrafts.length !== 1) return;
@@ -700,6 +733,31 @@ const OSForm: React.FC = () => {
     if (!formData.clienteNome || !formData.placa) {
       showError('Campos incompletos', 'Por favor, preencha o Nome do Cliente e a Placa.');
       return false;
+    }
+
+    // Nivel 2 (sistema): so faz sentido checar o desconto no momento em que
+    // a OS vira receita de verdade -- mesmo gate que ja existe pra validar
+    // pagamento logo abaixo.
+    if (formData.status === 'Finalizada' && checagemLimiteDesconto.excedeu) {
+      if (modoLimiteDesconto === 'bloquear') {
+        showError('Desconto acima do limite', `O desconto desta OS (${checagemLimiteDesconto.percentualAplicado.toFixed(1)}%) excede o limite configurado. Reduza o desconto para continuar.`);
+        return false;
+      }
+      if (modoLimiteDesconto === 'senha' && !aprovacaoDesconto) {
+        setShowAprovacaoDesconto(true);
+        return false;
+      }
+      if (modoLimiteDesconto === 'avisar') {
+        const confirm = await NexusSwal.fire({
+          title: 'Desconto acima do limite',
+          text: `O desconto desta OS (${checagemLimiteDesconto.percentualAplicado.toFixed(1)}%) excede o limite configurado. Deseja finalizar mesmo assim?`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Finalizar mesmo assim',
+          cancelButtonText: 'Revisar desconto',
+        });
+        if (!confirm.isConfirmed) return false;
+      }
     }
 
     let paymentRecords: PaymentRecord[] = [];
@@ -907,6 +965,18 @@ const OSForm: React.FC = () => {
           pecas: pecasSelecionadas,
           valorTotal: totalOS,
           valorTotalCentavos: totalOSCentavos,
+          // Snapshot do desconto geral -- consumido pelo relatorio de
+          // descontos concedidos (Fatia 6). OS nao tem desconto por item,
+          // so esse (nao existia nenhum campo de desconto antes desta feature).
+          desconto: {
+            tipo: descontoInput.tipo,
+            valorInformado: Number(descontoInput.valor.replace(',', '.')) || 0,
+            valorAplicadoCentavos: descontoCents,
+            excedeuLimite: checagemLimiteDesconto.excedeu,
+            ...(checagemLimiteDesconto.excedeu && aprovacaoDesconto
+              ? { aprovacao: { modo: 'senha' as const, ...aprovacaoDesconto, aprovadoEm: new Date().toISOString() } }
+              : {}),
+          },
           statusColor: getStatusColor(formData.status),
           estoqueBaixado: estoqueFoiBaixado,
           estoqueReservado: novoEstoqueReservado,
@@ -1681,6 +1751,25 @@ const OSForm: React.FC = () => {
             )}
           </div>
           
+          <div className="card form-section">
+            <div className="section-header">
+              <ClipboardList size={20} className="section-icon" />
+              <h3>Desconto</h3>
+            </div>
+            <div style={{ maxWidth: '260px' }}>
+              <DescontoInput
+                idPrefix="os-desconto"
+                value={descontoInput}
+                onChange={setDescontoInput}
+              />
+            </div>
+            {checagemLimiteDesconto.excedeu && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', fontSize: '12px' }}>
+                Desconto de {checagemLimiteDesconto.percentualAplicado.toFixed(1)}% acima do limite configurado para OS.
+              </div>
+            )}
+          </div>
+
           <div className="card form-section" style={{ backgroundColor: '#10b98115', border: '1px solid #10b98150' }}>
             <div className="total-os-container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: 0, fontSize: '18px' }}>VALOR TOTAL DA OS</h3>
@@ -1690,6 +1779,14 @@ const OSForm: React.FC = () => {
             </div>
           </div>
         </div>
+
+        <SolicitarAprovacaoDescontoModal
+          open={showAprovacaoDesconto}
+          tenantId={tenantId}
+          motivo={`Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% nesta OS, acima do limite configurado. Confirme com a senha de um aprovador para finalizar.`}
+          onClose={() => setShowAprovacaoDesconto(false)}
+          onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
+        />
 
         <div className="form-column">
           <div className="card form-section fill-height">

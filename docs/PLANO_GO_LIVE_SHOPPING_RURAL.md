@@ -283,9 +283,26 @@ venda; separá-los significaria reabrir `PedidoVendaForm.tsx` quatro vezes.
   usuário, "pode deixar como plano futuro". Não é para começar sem novo pedido.
   Continua registrado aqui com o diagnóstico pronto (inclusive o achado de que
   `descontoMaximoPercentual` já existe no cadastro do produto e nunca é lido).
-- **Item 5 (embalagem): prioridade em aberto** — o usuário pediu para tratar disso
-  "amanhã com calma" (2026-08-22). Até essa conversa, a Onda 4 não começa e a
-  posição dela na fila fica indefinida.
+- **Item 5 (embalagem): CONCLUÍDO em 2026-08-23**, 5 fatias, todas validadas ao
+  vivo e publicadas em `dev` (`9d374e8`, `4cb30dc`, `4790524`, `3be30e4`,
+  `9475202`). Plano da feature em
+  `C:\Users\uedde\.claude\plans\tender-tinkering-sedgewick.md`.
+  - Fatia 1: `src/utils/embalagemDomain.ts` (puro, testado) + aba "Embalagens" no
+    cadastro do produto + flag `venderPorEmbalagem`.
+  - Fatia 2: seletor de unidade no Pedido de Venda, com preço próprio por
+    embalagem e baixa de estoque convertida.
+  - Fatia 3: mesma coisa no PDV — a linha do carrinho passou a ser
+    `productId::embalagemId`, para o mesmo produto em quilo e em saco ocupar
+    duas linhas com preços diferentes.
+  - Fatia 4: código de barras próprio da embalagem (bipar o saco lança 1 SC).
+  - Fatia 5: conferência de mercadoria passa a bipar o EAN do saco.
+  - **Fora do escopo desta leva, decidido com o usuário:** Orçamento e OS
+    continuam vendendo só na unidade base (item sem `fatorConversao` cai em
+    fator 1, sem risco). E `uTrib` continua igual a `uCom` na nota — declarar
+    `uTrib = KG` numa venda em saco é mais correto perante a SEFAZ, mas muda o
+    comportamento fiscal de todos os tenants e merece decisão à parte.
+  - **Pré-requisito operacional para o cliente:** cadastrar a unidade **"SC"** em
+    Cadastros → Unidades de Medida. Hoje o tenant de dev só tem KG, UN, MT e LTS.
 
 **Linha de corte enquanto a decisão do item 5 não vem:** ondas 1 a 3 (cliente,
 financeiro da venda, acesso). Nenhuma delas depende de embalagem nem de desconto

@@ -860,6 +860,12 @@ const PDV: React.FC = () => {
 
         transaction.set(newPedidoRef, {
           numeroPedido: finalNumeroPedido,
+          // O 'pdv' ja era gravado em cada TRANSACOES de pagamento (F16),
+          // mas nunca no documento da venda em si -- sem isso, nao ha como
+          // distinguir uma venda de balcao de um Pedido de Venda comum so
+          // olhando pedidos_venda/{id}. Achado montando o relatorio da
+          // Fatia 6 (Descontos Concedidos), que precisa separar as origens.
+          sourceOrigin: 'pdv',
           clienteId: selectedClient?.id || null,
           clienteNome,
           itens,

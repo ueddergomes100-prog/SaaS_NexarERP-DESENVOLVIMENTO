@@ -50,6 +50,7 @@ const PrintRelatorioVeiculos = lazy(() => import('../pages/RelatoriosDiversos/Pr
 const PrintRelatorioFinanceiro = lazy(() => import('../pages/RelatoriosDiversos/PrintRelatorioFinanceiro'));
 const PrintRelatorioVendas = lazy(() => import('../pages/RelatoriosDiversos/PrintRelatorioVendas'));
 const PrintRelatorioTaxasCartao = lazy(() => import('../pages/RelatoriosDiversos/PrintRelatorioTaxasCartao'));
+const PrintRelatorioDescontos = lazy(() => import('../pages/RelatoriosDiversos/PrintRelatorioDescontos'));
 const UnidadesMedidaList = lazy(() => import('../pages/UnidadesMedida/UnidadesMedidaList'));
 const BandeirasCartaoList = lazy(() => import('../pages/BandeirasCartao/BandeirasCartaoList'));
 const BancosList = lazy(() => import('../pages/Bancos/BancosList'));
@@ -161,6 +162,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'relatorios-diversos/print/financeiro', element: <PrintRelatorioFinanceiro /> },
   { path: 'relatorios-diversos/print/vendas', element: <PrintRelatorioVendas /> },
   { path: 'relatorios-diversos/print/taxas-cartao', element: <PrintRelatorioTaxasCartao /> },
+  { path: 'relatorios-diversos/print/descontos', element: <PrintRelatorioDescontos /> },
 
   { path: '*', element: <Navigate to="/dashboard" replace /> },
 ];

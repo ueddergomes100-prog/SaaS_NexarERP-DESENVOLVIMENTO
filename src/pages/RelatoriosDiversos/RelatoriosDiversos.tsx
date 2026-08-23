@@ -76,6 +76,14 @@ const RelatoriosDiversos: React.FC = () => {
     () => getInitialState('taxasCartaoDataFim', getEndOfMonth())
   );
 
+  const [descontosDataInicio, setDescontosDataInicio] = useState<string>(
+    () => getInitialState('descontosDataInicio', getStartOfMonth())
+  );
+
+  const [descontosDataFim, setDescontosDataFim] = useState<string>(
+    () => getInitialState('descontosDataFim', getEndOfMonth())
+  );
+
   useEffect(() => {
     sessionStorage.setItem('relatorios_activeReport', JSON.stringify(activeReport));
   }, [activeReport]);
@@ -115,6 +123,14 @@ const RelatoriosDiversos: React.FC = () => {
   useEffect(() => {
     sessionStorage.setItem('relatorios_taxasCartaoDataFim', JSON.stringify(taxasCartaoDataFim));
   }, [taxasCartaoDataFim]);
+
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_descontosDataInicio', JSON.stringify(descontosDataInicio));
+  }, [descontosDataInicio]);
+
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_descontosDataFim', JSON.stringify(descontosDataFim));
+  }, [descontosDataFim]);
 
   const reports = [
     {
@@ -160,6 +176,13 @@ const RelatoriosDiversos: React.FC = () => {
       color: '#06b6d4'
     },
     {
+      id: 'descontos',
+      title: 'Descontos Concedidos',
+      description: 'Total de desconto dado em vendas, OS e orçamentos no período, com quem aprovou acima do limite.',
+      icon: <Percent size={24} color="#ef4444" />,
+      color: '#ef4444'
+    },
+    {
       id: 'placeholder',
       title: 'Outros Relatórios (Em Breve)',
       description: 'Novos relatórios gerenciais serão adicionados aqui em atualizações futuras.',
@@ -182,6 +205,10 @@ const RelatoriosDiversos: React.FC = () => {
 
   const handlePrintTaxasCartao = () => {
     navigate(`/relatorios-diversos/print/taxas-cartao?inicio=${taxasCartaoDataInicio}&fim=${taxasCartaoDataFim}`);
+  };
+
+  const handlePrintDescontos = () => {
+    navigate(`/relatorios-diversos/print/descontos?inicio=${descontosDataInicio}&fim=${descontosDataFim}`);
   };
 
   const handleVendasPeriodoChange = (value: string) => {
@@ -497,6 +524,46 @@ const RelatoriosDiversos: React.FC = () => {
                     gap: '8px',
                     fontWeight: 'bold',
                     boxShadow: '0 4px 12px rgba(6, 182, 212, 0.3)'
+                  }}
+                >
+                  <Printer size={18} />
+                  GERAR PDF
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeReport === 'descontos' && (
+            <div className="card form-section animate-fade-in-up" style={{ padding: '24px', border: '1px solid #ef444450', backgroundColor: '#ef44440a' }}>
+              <div className="section-header" style={{ marginBottom: '24px' }}>
+                <Percent size={20} color="#ef4444" />
+                <h3 style={{ color: '#ef4444' }}>Filtros: Descontos Concedidos</h3>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                <div className="input-group">
+                  <label>Data Inicial</label>
+                  <input type="date" value={descontosDataInicio} onChange={(e) => setDescontosDataInicio(e.target.value)} style={{ width: '100%', padding: '12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
+                </div>
+                <div className="input-group">
+                  <label>Data Final</label>
+                  <input type="date" value={descontosDataFim} onChange={(e) => setDescontosDataFim(e.target.value)} style={{ width: '100%', padding: '12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn-primary"
+                  onClick={handlePrintDescontos}
+                  style={{
+                    backgroundColor: '#ef4444',
+                    borderColor: '#ef4444',
+                    padding: '12px 24px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontWeight: 'bold',
+                    boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
                   }}
                 >
                   <Printer size={18} />

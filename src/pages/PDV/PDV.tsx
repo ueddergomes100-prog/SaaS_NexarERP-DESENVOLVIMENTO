@@ -40,7 +40,7 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
-import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
+import { DEFAULT_PRODUCT_SEARCH_MODE, findEmbalagemIdByExactCode, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -515,6 +515,17 @@ const PDV: React.FC = () => {
     }
     return true;
   }, [allowNegativeStock]);
+
+  /** Quando o termo pesquisado e' o codigo de barras de uma embalagem, o item
+   * entra ja naquela unidade -- bipar o saco lanca 1 SC (e baixa 20 kg), nao
+   * 1 kg. Termo que nao bate com EAN de embalagem devolve undefined e o
+   * produto cai na unidade base, como sempre. */
+  const resolveScannedUnit = useCallback((product: PdvProduct): OpcaoUnidadeVenda | undefined => {
+    if (!venderPorEmbalagem) return undefined;
+    const embalagemId = findEmbalagemIdByExactCode(product, search);
+    if (!embalagemId) return undefined;
+    return findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(product), embalagemId);
+  }, [search, venderPorEmbalagem]);
 
   const addProductToCart = useCallback((product: PdvProduct, quantity = 1, opcao?: OpcaoUnidadeVenda) => {
     if (!session) {
@@ -1008,7 +1019,7 @@ const PDV: React.FC = () => {
               mode={productSearchMode}
               disabled={!session}
               onChange={setSearch}
-              onSelect={(product) => addProductToCart(product, 1)}
+              onSelect={(product) => addProductToCart(product, 1, resolveScannedUnit(product))}
             />
 
             {!session && (

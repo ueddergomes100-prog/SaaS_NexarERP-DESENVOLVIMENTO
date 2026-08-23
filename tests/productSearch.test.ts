@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  findEmbalagemIdByExactCode,
   productMatchesExactCode,
   productMatchesSearch,
   searchProducts,
@@ -124,4 +125,62 @@ test('busca por marca, categoria e fornecedor funciona no modo completa', () => 
   assert.equal(productMatchesSearch(item, 'bosch', 'completa'), true);
   assert.equal(productMatchesSearch(item, 'eletrica', 'completa'), true);
   assert.equal(productMatchesSearch(item, 'distribuidora', 'completa'), true);
+});
+
+const produtoComEmbalagem = (overrides: Partial<FakeProduct> = {}): FakeProduct => product({
+  id: 'racao',
+  nome: 'RACAO GATOS',
+  codigo: '7375',
+  codigoBarras: '7890000000001',
+  embalagens: [{
+    id: 'emb-saco',
+    unidadeMedidaSigla: 'SC',
+    fatorConversao: 20,
+    precoVenda: 195.5,
+    codigoBarras: '7890000000018',
+    ativo: true,
+  }],
+  ...overrides,
+});
+
+test('EAN da embalagem encontra o produto (bipar o saco)', () => {
+  const result = searchProducts([produtoComEmbalagem()], '7890000000018');
+
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0].id, 'racao');
+});
+
+test('findEmbalagemIdByExactCode devolve a embalagem bipada', () => {
+  assert.equal(findEmbalagemIdByExactCode(produtoComEmbalagem(), '7890000000018'), 'emb-saco');
+});
+
+test('EAN da unidade base nao devolve embalagem nenhuma', () => {
+  assert.equal(findEmbalagemIdByExactCode(produtoComEmbalagem(), '7890000000001'), null);
+});
+
+test('embalagem inativa nao e encontrada pelo EAN dela', () => {
+  const inativa = produtoComEmbalagem({
+    embalagens: [{
+      id: 'emb-saco',
+      unidadeMedidaSigla: 'SC',
+      fatorConversao: 20,
+      codigoBarras: '7890000000018',
+      ativo: false,
+    }],
+  });
+
+  assert.equal(findEmbalagemIdByExactCode(inativa, '7890000000018'), null);
+  assert.equal(productMatchesExactCode(inativa, '7890000000018'), false);
+});
+
+test('so casa EAN de embalagem exato, nunca por prefixo', () => {
+  assert.equal(findEmbalagemIdByExactCode(produtoComEmbalagem(), '789000000001'), null);
+});
+
+test('produto sem embalagem nao muda de comportamento', () => {
+  const semEmbalagem = product({ id: 'x', nome: 'ITEM', codigo: '55', codigoBarras: '111' });
+
+  assert.equal(findEmbalagemIdByExactCode(semEmbalagem, '111'), null);
+  assert.equal(productMatchesExactCode(semEmbalagem, '111'), true);
+  assert.equal(productMatchesExactCode(semEmbalagem, '999'), false);
 });

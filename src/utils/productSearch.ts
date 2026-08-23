@@ -1,4 +1,5 @@
 import { normalizeSearchText } from './textSearch';
+import { normalizeEmbalagens } from './embalagemDomain';
 
 export type ProductSearchMode = 'exata' | 'completa';
 
@@ -11,6 +12,9 @@ export interface SearchableProduct {
   marca?: string | null;
   categoria?: string | null;
   fornecedor?: string | null;
+  /** Array cru de embalagens do documento de estoque. Cada embalagem pode ter
+   * codigo de barras proprio (o EAN do saco, diferente do EAN da unidade). */
+  embalagens?: unknown;
 }
 
 export interface ProductSearchOptions {
@@ -39,10 +43,36 @@ const matchesByMode = (haystack: string, term: string, mode: ProductSearchMode):
   return mode === 'exata' ? haystack.startsWith(term) : haystack.includes(term);
 };
 
+/**
+ * Devolve o id da embalagem cujo codigo de barras bate EXATAMENTE com o
+ * termo, ou null. So exato: leitor de codigo de barras sempre manda o EAN
+ * inteiro, e casar por prefixo aqui faria o saco competir com a unidade
+ * enquanto o operador ainda esta digitando.
+ *
+ * Usado pelo PDV para lancar direto na unidade bipada -- bipar o saco tem
+ * que lancar 1 SC (e baixar 20 kg), nao 1 kg.
+ */
+export const findEmbalagemIdByExactCode = <T extends SearchableProduct>(
+  product: T,
+  term: string,
+): string | null => {
+  const normalizedTerm = normalize(term);
+  if (!normalizedTerm) return null;
+
+  const match = normalizeEmbalagens(product.embalagens)
+    .filter((embalagem) => embalagem.ativo)
+    .find((embalagem) => normalize(embalagem.codigoBarras) === normalizedTerm);
+
+  return match ? match.id : null;
+};
+
 export const productMatchesExactCode = <T extends SearchableProduct>(product: T, term: string): boolean => {
   const normalizedTerm = normalize(term);
   if (!normalizedTerm) return false;
-  return CODE_FIELDS.some((field) => normalize(product[field]) === normalizedTerm);
+  if (CODE_FIELDS.some((field) => normalize(product[field]) === normalizedTerm)) return true;
+  // O EAN da embalagem tambem identifica o produto -- sem isso, bipar o saco
+  // nao encontraria nada. Produto sem embalagem nao muda em nada.
+  return findEmbalagemIdByExactCode(product, term) !== null;
 };
 
 const productMatchesCodePrefix = <T extends SearchableProduct>(product: T, normalizedTerm: string): boolean => (

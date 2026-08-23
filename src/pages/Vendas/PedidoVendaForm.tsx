@@ -48,6 +48,17 @@ import {
   toBaseQuantity,
   toStockAdjustmentItems,
 } from '../../utils/embalagemDomain';
+import {
+  calcularDescontoCents,
+  checarLimiteTotal,
+  excedeLimiteItem,
+  parseLimiteDescontoConfig,
+  parseModoLimiteDesconto,
+  type LimiteDescontoConfig,
+  type ModoLimiteDesconto,
+} from '../../utils/descontoDomain';
+import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
+import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import Swal from 'sweetalert2';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
@@ -71,6 +82,7 @@ interface ProdutoEstoque {
   unidadeMedidaCasasDecimais?: number;
   unidadeMedidaFracionado?: boolean;
   embalagens?: unknown;
+  descontoMaximoPercentual?: number;
 }
 interface ItemVenda {
   id: string;
@@ -171,7 +183,7 @@ const PedidoVendaForm: React.FC = () => {
 
   const [produtoBusca, setProdutoBusca] = useState('');
   const [produtoQtd, setProdutoQtd] = useState<number | string>(1);
-  const [produtoDesconto, setProdutoDesconto] = useState<number>(0);
+  const [produtoDescontoInput, setProdutoDescontoInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
   const [produtoPreco, setProdutoPreco] = useState<number>(0);
   const [produtoSelecionado, setProdutoSelecionado] = useState<ProdutoEstoque | null>(null);
   /** Embalagem escolhida para o proximo item. Vazio = unidade base. */
@@ -189,6 +201,11 @@ const PedidoVendaForm: React.FC = () => {
   const [produtoSearchMode, setProdutoSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(false);
   const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
+  const [descontoGeralInput, setDescontoGeralInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
+  const [limiteDescontoPedido, setLimiteDescontoPedido] = useState<LimiteDescontoConfig | null>(null);
+  const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>('avisar');
+  const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
+  const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
   const [imprimirMinutaAposVendaAtiva, setImprimirMinutaAposVendaAtiva] = useState(false);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
@@ -276,7 +293,8 @@ const PedidoVendaForm: React.FC = () => {
         unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
         unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
         unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
-        embalagens: doc.data().embalagens
+        embalagens: doc.data().embalagens,
+        descontoMaximoPercentual: doc.data().descontoMaximoPercentual
       }));
       setProdutosCatalogo(dataE);
 
@@ -290,6 +308,8 @@ const PedidoVendaForm: React.FC = () => {
           setProdutoSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           setConferenciaMercadoriaAtiva(config.conferenciaMercadoria === true);
           setVenderPorEmbalagem(config.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
+          setLimiteDescontoPedido(parseLimiteDescontoConfig(config.limiteDescontoPedido));
+          setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
           setImprimirMinutaAposVendaAtiva(config.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA);
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
@@ -496,6 +516,22 @@ const PedidoVendaForm: React.FC = () => {
     }
 
     const precoFinal = produtoPreco > 0 ? produtoPreco : (opcaoUnidade?.precoVenda || produtoEncontrado?.precoVenda || 0);
+    const precoCheioCents = toCents(precoFinal * qtdNum);
+    const descontoItemCents = calcularDescontoCents(produtoDescontoInput.tipo, produtoDescontoInput.valor, precoCheioCents);
+
+    // Nivel 1 (produto): se o PRODUTO define seu proprio limite de desconto,
+    // ele e' o piso -- sempre bloqueia, independente do modo configurado no
+    // sistema. Sem esse campo no produto, nao ha checagem aqui (so o total
+    // da venda e' checado, no finalizar).
+    if (produtoEncontrado && excedeLimiteItem(produtoEncontrado, descontoItemCents, precoCheioCents)) {
+      showError(
+        'Desconto acima do limite do produto',
+        `${produtoEncontrado.nome} aceita no máximo ${produtoEncontrado.descontoMaximoPercentual}% de desconto, definido no próprio cadastro.`,
+      );
+      return;
+    }
+
+    const produtoDesconto = fromCents(descontoItemCents);
     const subtotal = (precoFinal * qtdNum) - produtoDesconto;
 
     const novoItem: ItemVenda = {
@@ -517,7 +553,7 @@ const PedidoVendaForm: React.FC = () => {
     setItens([...itens, novoItem]);
     setProdutoBusca('');
     setProdutoQtd(1);
-    setProdutoDesconto(0);
+    setProdutoDescontoInput({ tipo: 'valor', valor: '' });
     setProdutoPreco(0);
     setProdutoSelecionado(null);
     setEmbalagemSelecionadaId('');
@@ -633,9 +669,17 @@ const PedidoVendaForm: React.FC = () => {
     : [];
 
   const valorTotalItens = itens.reduce((acc, curr) => acc + (curr.precoUnitario * curr.quantidade), 0);
-  const valorTotalDescontos = itens.reduce((acc, curr) => acc + curr.desconto, 0);
+  const valorTotalDescontosItens = itens.reduce((acc, curr) => acc + curr.desconto, 0);
+  // Desconto geral incide sobre o subtotal JA COM os descontos de item
+  // aplicados (mesma base que o PDV usa pro desconto do cupom) -- nao sobre
+  // frete/encargos, que sao acrescimos, nao parte do preco da mercadoria.
+  const subtotalAposDescontosItensCents = toCents(Math.max(0, valorTotalItens - valorTotalDescontosItens));
+  const descontoGeralCents = calcularDescontoCents(descontoGeralInput.tipo, descontoGeralInput.valor, subtotalAposDescontosItensCents);
+  const descontoGeral = fromCents(descontoGeralCents);
+  const valorTotalDescontos = valorTotalDescontosItens + descontoGeral;
   const valorTotalPedido = Math.max(0, valorTotalItens - valorTotalDescontos + Number(frete || 0) + Number(encargos || 0));
   const valorTotalPedidoCentavos = toCents(valorTotalPedido);
+  const checagemLimiteDesconto = checarLimiteTotal(limiteDescontoPedido, toCents(valorTotalItens), toCents(valorTotalDescontos));
 
   useEffect(() => {
     if ((isViewing && !canEditPendingOrder) || paymentDrafts.length !== 1) return;
@@ -646,6 +690,18 @@ const PedidoVendaForm: React.FC = () => {
         : current
     ));
   }, [isViewing, canEditPendingOrder, paymentDrafts.length, valorTotalPedidoCentavos]);
+
+  // Uma aprovacao de senha vale so pro estado do carrinho no momento em que
+  // foi dada -- mudar item ou desconto depois invalida, senao um desconto
+  // maior poderia se aproveitar de uma aprovacao de um valor menor.
+  const primeiraRenderAprovacaoRef = useRef(true);
+  useEffect(() => {
+    if (primeiraRenderAprovacaoRef.current) {
+      primeiraRenderAprovacaoRef.current = false;
+      return;
+    }
+    setAprovacaoDesconto(null);
+  }, [itens, descontoGeralInput]);
 
   const updatePaymentDraft = (id: string, updates: Partial<PaymentDraft>) => {
     setPaymentDrafts((current) => current.map((payment) => (
@@ -685,6 +741,30 @@ const PedidoVendaForm: React.FC = () => {
     if (itens.length === 0) {
       showError('Atenção', 'Adicione pelo menos um item à venda.');
       return false;
+    }
+
+    // Nivel 2 (sistema): desconto TOTAL da venda contra o limite configurado
+    // pra esta tela, reagindo conforme o modo escolhido em Configuracoes.
+    if (checagemLimiteDesconto.excedeu) {
+      if (modoLimiteDesconto === 'bloquear') {
+        showError('Desconto acima do limite', `O desconto desta venda (${checagemLimiteDesconto.percentualAplicado.toFixed(1)}%) excede o limite configurado para Pedido de Venda. Reduza o desconto para continuar.`);
+        return false;
+      }
+      if (modoLimiteDesconto === 'senha' && !aprovacaoDesconto) {
+        setShowAprovacaoDesconto(true);
+        return false;
+      }
+      if (modoLimiteDesconto === 'avisar') {
+        const confirm = await NexusSwal.fire({
+          title: 'Desconto acima do limite',
+          text: `O desconto desta venda (${checagemLimiteDesconto.percentualAplicado.toFixed(1)}%) excede o limite configurado para Pedido de Venda. Deseja finalizar mesmo assim?`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Finalizar mesmo assim',
+          cancelButtonText: 'Revisar desconto',
+        });
+        if (!confirm.isConfirmed) return false;
+      }
     }
 
     let paymentRecords: PaymentRecord[];
@@ -817,6 +897,18 @@ const PedidoVendaForm: React.FC = () => {
           valorTotalItensCentavos: toCents(valorTotalItens),
           valorTotalDescontos,
           valorTotalDescontosCentavos: toCents(valorTotalDescontos),
+          // Snapshot do desconto GERAL (nao dos descontos de item, ja
+          // embutidos em cada item de `itens`) -- usado pelo relatorio de
+          // descontos concedidos (Fatia 6).
+          descontoGeral: {
+            tipo: descontoGeralInput.tipo,
+            valorInformado: Number(descontoGeralInput.valor.replace(',', '.')) || 0,
+            valorAplicadoCentavos: descontoGeralCents,
+            excedeuLimite: checagemLimiteDesconto.excedeu,
+            ...(checagemLimiteDesconto.excedeu && aprovacaoDesconto
+              ? { aprovacao: { modo: 'senha' as const, ...aprovacaoDesconto, aprovadoEm: new Date().toISOString() } }
+              : {}),
+          },
           frete: Number(frete || 0),
           encargos: Number(encargos || 0),
           valorTotal: valorTotalPedido,
@@ -2045,6 +2137,14 @@ const PedidoVendaForm: React.FC = () => {
         </div>
       )}
 
+      <SolicitarAprovacaoDescontoModal
+        open={showAprovacaoDesconto}
+        tenantId={tenantId}
+        motivo={`Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% neste pedido, acima do limite configurado. Confirme com a senha de um aprovador para finalizar.`}
+        onClose={() => setShowAprovacaoDesconto(false)}
+        onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
+      />
+
       {showDevolucaoModal && (
         <DevolucaoVendaModal
           pedidoId={id!}
@@ -2231,9 +2331,15 @@ const PedidoVendaForm: React.FC = () => {
                   <input type="number" step="0.01" value={produtoPreco} onChange={(e) => setProdutoPreco(Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
                 </div>
 
-                <div style={{ flex: '0.8', minWidth: '100px' }}>
-                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Desc. (R$)</label>
-                  <input ref={produtoDescontoInputRef} type="number" step="0.01" value={produtoDesconto} onChange={(e) => setProdutoDesconto(Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                <div style={{ flex: '0.9', minWidth: '130px' }}>
+                  <DescontoInput
+                    label="Desconto"
+                    idPrefix="item-desconto"
+                    value={produtoDescontoInput}
+                    onChange={setProdutoDescontoInput}
+                    inputRef={produtoDescontoInputRef}
+                    onEnterKey={handleAddItem}
+                  />
                 </div>
 
                 <button type="button" onClick={handleAddItem} className="btn-primary" style={{ padding: '12px 24px', whiteSpace: 'nowrap' }}>
@@ -2311,6 +2417,25 @@ const PedidoVendaForm: React.FC = () => {
               <span>Descontos:</span>
               <span>- R$ {valorTotalDescontos.toFixed(2)}</span>
             </div>
+
+            {(!isViewing || canEditPendingOrder) && (
+              <div style={{ marginBottom: '16px' }}>
+                <DescontoInput
+                  label="Desconto geral da venda"
+                  idPrefix="desconto-geral"
+                  value={descontoGeralInput}
+                  onChange={setDescontoGeralInput}
+                />
+              </div>
+            )}
+
+            {checagemLimiteDesconto.excedeu && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', fontSize: '12px' }}>
+                <AlertTriangle size={16} />
+                Desconto de {checagemLimiteDesconto.percentualAplicado.toFixed(1)}% acima do limite configurado para Pedido de Venda.
+              </div>
+            )}
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px 16px', margin: '4px 0 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                 <Truck size={14} />

@@ -1,12 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, Scale, Edit, Trash2, X, Loader2, AlertTriangle } from 'lucide-react';
+import { Search, Plus, Scale, Edit, Trash2, X, Loader2, AlertTriangle, Lock } from 'lucide-react';
 import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc, addDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { pickMissingDefaults } from '../../utils/catalogDefaults';
+import {
+  UNIDADES_MEDIDA_PADRAO,
+  findUnidadeEmUso,
+  isSiglaPadrao,
+} from '../../utils/unidadeMedidaDomain';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
 
@@ -16,6 +22,8 @@ interface UnidadeData {
   nome: string;
   casasDecimais: number;
   permiteFracionado: boolean;
+  /** Unidade do catalogo padrao do sistema -- nao pode ser excluida. */
+  isPadrao?: boolean;
 }
 
 const UnidadesMedidaList: React.FC = () => {
@@ -62,11 +70,89 @@ const UnidadesMedidaList: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser, tenantId]);
 
-  const handleDelete = async (id: string, sigla: string) => {
-    const isConfirmed = await confirmDelete(`a unidade de medida (${sigla})`);
+  // Semeadura do catalogo padrao. Roda uma vez por abertura da tela, depois
+  // que a lista real chegou: cria as unidades padrao que faltam e promove a
+  // isPadrao as que o tenant ja tinha com a mesma sigla (em vez de duplicar
+  // -- tenants antigos criaram UN/KG/LTS/MT a mao, com nomes proprios como
+  // "QUILO" em vez de "QUILOGRAMA", que NAO sao sobrescritos aqui).
+  const seedExecutadoRef = useRef(false);
+  useEffect(() => {
+    if (loading || seedExecutadoRef.current) return;
+    if (!currentUser || !tenantId || !canAccess) return;
+    seedExecutadoRef.current = true;
+
+    const semearPadroes = async () => {
+      try {
+        const faltando = pickMissingDefaults(UNIDADES_MEDIDA_PADRAO, unidades, 'sigla');
+        const promover = unidades.filter((u) => !u.isPadrao && isSiglaPadrao(u.sigla));
+        if (faltando.length === 0 && promover.length === 0) return;
+
+        await Promise.all([
+          ...faltando.map((padrao) => addDoc(collection(db, 'unidades_medida'), {
+            ...padrao,
+            isPadrao: true,
+            tenantId,
+            createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          })),
+          ...promover.map((u) => updateDoc(doc(db, 'unidades_medida', u.id), {
+            isPadrao: true,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+          })),
+        ]);
+      } catch (error) {
+        // Falha aqui nao pode quebrar a tela: o cadastro continua utilizavel
+        // com o que ja existe, e a proxima abertura tenta de novo.
+        console.error('Erro ao semear as unidades de medida padrão:', error);
+      }
+    };
+
+    void semearPadroes();
+  }, [loading, unidades, currentUser, tenantId, canAccess]);
+
+  const handleDelete = async (unidade: UnidadeData) => {
+    // 1) Padrao do sistema nunca sai. A checagem e' por sigla, nao pela flag:
+    // tenants antigos criaram UN/KG/LTS/MT a mao, antes da flag existir.
+    if (unidade.isPadrao || isSiglaPadrao(unidade.sigla)) {
+      showError(
+        'Unidade padrão',
+        `${unidade.sigla} faz parte do catálogo padrão do sistema e não pode ser excluída. Se não usa esta unidade, basta ignorá-la.`,
+      );
+      return;
+    }
+
+    // 2) Unidade em uso nunca sai. Sem isso, todo produto que a referenciava
+    // fica orfao e cai no fallback 'UN'/0 casas -- o que quebra em silencio a
+    // venda fracionada de um produto vendido em quilo.
+    setLoading(true);
+    try {
+      const produtosSnap = await getDocs(
+        query(collection(db, 'estoque'), where('tenantId', '==', tenantId)),
+      );
+      const produtos = produtosSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const emUso = findUnidadeEmUso(unidade.id, produtos);
+      if (emUso) {
+        showError(
+          'Unidade em uso',
+          emUso.origem === 'base'
+            ? `A unidade ${unidade.sigla} está em uso pelo produto ${emUso.produtoNome}${produtos.length > 1 ? ' (entre outros)' : ''}. Troque a unidade desses produtos antes de excluir.`
+            : `A unidade ${unidade.sigla} está em uso como embalagem do produto ${emUso.produtoNome}. Remova essa embalagem antes de excluir.`,
+        );
+        return;
+      }
+    } catch (error) {
+      console.error('Erro ao verificar uso da unidade de medida:', error);
+      showError('Erro', 'Não foi possível verificar se a unidade está em uso. Tente novamente.');
+      return;
+    } finally {
+      setLoading(false);
+    }
+
+    const isConfirmed = await confirmDelete(`a unidade de medida (${unidade.sigla})`);
     if (isConfirmed) {
       try {
-        await deleteDoc(doc(db, 'unidades_medida', id));
+        await deleteDoc(doc(db, 'unidades_medida', unidade.id));
         showSuccess('Unidade de medida excluída!');
       } catch (error) {
         showError('Erro', 'Não foi possível excluir a unidade.');
@@ -74,11 +160,20 @@ const UnidadesMedidaList: React.FC = () => {
     }
   };
 
+  /** Escape hatch manual da semeadura automatica: ela engole erros de
+   * proposito (nao pode quebrar a tela), entao continua existindo um botao
+   * pra recriar o que faltar. Idempotente -- so cria sigla ausente. */
   const handleLoadDefaults = async () => {
     if (!currentUser) return;
+    const faltando = pickMissingDefaults(UNIDADES_MEDIDA_PADRAO, unidades, 'sigla');
+    if (faltando.length === 0) {
+      showSuccess('As 10 unidades padrão já estão cadastradas.');
+      return;
+    }
+
     const isConfirmed = await NexusSwal.fire({
-      title: 'Carregar Padrões?',
-      text: 'Isso criará automaticamente as unidades básicas (UN, KG, LTS, MT).',
+      title: 'Restaurar padrões?',
+      text: `Isso criará ${faltando.length} unidade(s) que estão faltando: ${faltando.map(u => u.sigla).join(', ')}.`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonText: 'Sim, criar agora'
@@ -87,25 +182,13 @@ const UnidadesMedidaList: React.FC = () => {
     if (isConfirmed.isConfirmed) {
       setLoading(true);
       try {
-        const defaults = [
-          { sigla: 'UN', nome: 'UNIDADE', casasDecimais: 0, permiteFracionado: false },
-          { sigla: 'KG', nome: 'QUILOGRAMA', casasDecimais: 3, permiteFracionado: true },
-          { sigla: 'LTS', nome: 'LITRO', casasDecimais: 2, permiteFracionado: true },
-          { sigla: 'MT', nome: 'METRO', casasDecimais: 2, permiteFracionado: true }
-        ];
-
-        for (const item of defaults) {
-          // Evita duplicar se a sigla já existir
-          const jaExiste = unidades.some(u => u.sigla.toUpperCase() === item.sigla);
-          if (!jaExiste) {
-            await addDoc(collection(db, 'unidades_medida'), {
-              ...item,
-              tenantId,
-              createdAt: serverTimestamp(),
-              ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-            });
-          }
-        }
+        await Promise.all(faltando.map((item) => addDoc(collection(db, 'unidades_medida'), {
+          ...item,
+          isPadrao: true,
+          tenantId,
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        })));
         showSuccess('Unidades de medida padrão adicionadas!');
       } catch (err) {
         showError('Erro', 'Ocorreu um erro ao carregar padrões.');
@@ -222,11 +305,9 @@ const UnidadesMedidaList: React.FC = () => {
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Configuração de unidades para os produtos do estoque</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          {unidades.length === 0 && (
-            <button className="btn-secondary" onClick={handleLoadDefaults} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-              Carregar Padrões
-            </button>
-          )}
+          <button className="btn-secondary" onClick={handleLoadDefaults} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+            Restaurar Padrões
+          </button>
           <button className="btn-primary" onClick={openNewModal} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Nova Unidade
           </button>
@@ -278,7 +359,14 @@ const UnidadesMedidaList: React.FC = () => {
                 filteredUnidades.map((unidade) => (
                   <tr key={unidade.id}>
                     <td className="font-medium" style={{ color: 'var(--accent-purple)', fontWeight: 700 }}>{unidade.sigla}</td>
-                    <td className="font-medium">{unidade.nome}</td>
+                    <td className="font-medium">
+                      {unidade.nome}
+                      {(unidade.isPadrao || isSiglaPadrao(unidade.sigla)) && (
+                        <span style={{ marginLeft: '8px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1px 7px' }}>
+                          Padrão
+                        </span>
+                      )}
+                    </td>
                     <td>{unidade.casasDecimais} {unidade.casasDecimais === 1 ? 'casa' : 'casas'}</td>
                     <td>
                       <span className="status-badge" style={{ 
@@ -293,9 +381,19 @@ const UnidadesMedidaList: React.FC = () => {
                         <button className="icon-btn" title="Editar" onClick={() => openEditModal(unidade)}>
                           <Edit size={16} />
                         </button>
-                        <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(unidade.id, unidade.sigla)}>
-                          <Trash2 size={16} />
-                        </button>
+                        {(unidade.isPadrao || isSiglaPadrao(unidade.sigla)) ? (
+                          <span
+                            className="icon-btn"
+                            title="Unidade padrão do sistema — não pode ser excluída"
+                            style={{ color: 'var(--text-muted)', cursor: 'not-allowed', opacity: 0.5 }}
+                          >
+                            <Lock size={16} />
+                          </span>
+                        ) : (
+                          <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(unidade)}>
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -9,6 +9,7 @@ import {
   productMatchesExactCode as sharedProductMatchesExactCode,
   productMatchesSearch as sharedProductMatchesSearch,
 } from '../../utils/productSearch';
+import { toBaseQuantity, type OpcaoUnidadeVenda } from '../../utils/embalagemDomain';
 import type { PdvCartItem, PdvProduct, PdvTotals } from './types';
 
 export const currency = new Intl.NumberFormat('pt-BR', {
@@ -101,8 +102,19 @@ export const makePdvSessionStorageKey = (tenantId: string | null | undefined, us
   `nexus_pdv_session_${tenantId || 'tenant'}_${userId || 'user'}`
 );
 
-export const makeCartItemFromProduct = (product: PdvProduct, quantity = 1): PdvCartItem => ({
-  id: product.id,
+/** Chave da linha do carrinho. O mesmo produto vendido em unidades
+ * diferentes (quilo e saco) vira duas linhas, cada uma com seu preco --
+ * fundir tudo por productId aplicaria um preco so aos dois. */
+export const makeCartLineId = (productId: string, embalagemId?: string) => (
+  embalagemId ? `${productId}::${embalagemId}` : productId
+);
+
+export const makeCartItemFromProduct = (
+  product: PdvProduct,
+  quantity = 1,
+  opcao?: OpcaoUnidadeVenda,
+): PdvCartItem => ({
+  id: makeCartLineId(product.id, opcao?.embalagemId),
   productId: product.id,
   nome: product.nome,
   codigo: product.codigo,
@@ -110,10 +122,18 @@ export const makeCartItemFromProduct = (product: PdvProduct, quantity = 1): PdvC
   categoria: product.categoria,
   imagemProduto: product.imagemProduto,
   estoqueDisponivel: Number(product.quantidade || 0),
-  precoUnitarioCentavos: toCents(product.precoVenda || 0),
+  precoUnitarioCentavos: toCents(opcao ? opcao.precoVenda : (product.precoVenda || 0)),
   quantidade: quantity,
   descontoCentavos: 0,
-  unidadeMedidaSigla: product.unidadeMedidaSigla || 'UN',
-  unidadeMedidaCasasDecimais: product.unidadeMedidaCasasDecimais ?? 0,
-  unidadeMedidaFracionado: product.unidadeMedidaFracionado,
+  unidadeMedidaSigla: opcao?.sigla || product.unidadeMedidaSigla || 'UN',
+  unidadeMedidaCasasDecimais: opcao?.casasDecimais ?? product.unidadeMedidaCasasDecimais ?? 0,
+  unidadeMedidaFracionado: opcao ? opcao.permiteFracionado : product.unidadeMedidaFracionado,
+  // Linha na unidade base nao ganha campo de embalagem nenhum.
+  ...(opcao?.embalagemId
+    ? {
+        embalagemId: opcao.embalagemId,
+        fatorConversao: opcao.fatorConversao,
+        quantidadeBase: toBaseQuantity(quantity, opcao.fatorConversao),
+      }
+    : {}),
 });

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react';
 import type { PdvCartItem } from '../types';
+import type { OpcaoUnidadeVenda } from '../../../utils/embalagemDomain';
 import { cartLineGrossCents, cartLineNetCents, currency, fromCurrencyInput, toCurrencyInput } from '../pdvHelpers';
 import { fromCents } from '../../../utils/financeDomain';
 
@@ -11,6 +12,10 @@ interface CartPanelProps {
   onQuantityChange: (id: string, quantity: number) => void;
   onDiscountChange: (id: string, discountCents: number) => void;
   onRemoveItem: (id: string) => void;
+  /** Opcoes de unidade de cada linha, indexadas pelo id da linha. So vem
+   * preenchido quando a chave venderPorEmbalagem esta ligada. */
+  unitOptionsByItemId?: Record<string, OpcaoUnidadeVenda[]>;
+  onUnitChange?: (id: string, embalagemId: string) => void;
 }
 
 const CartPanel: React.FC<CartPanelProps> = ({
@@ -20,6 +25,8 @@ const CartPanel: React.FC<CartPanelProps> = ({
   onQuantityChange,
   onDiscountChange,
   onRemoveItem,
+  unitOptionsByItemId,
+  onUnitChange,
 }) => (
   <section className="pdv-panel pdv-cart-panel">
     <div className="pdv-section-title">
@@ -46,6 +53,10 @@ const CartPanel: React.FC<CartPanelProps> = ({
         const selected = selectedItemId === item.id;
         const lineGrossCents = cartLineGrossCents(item);
         const lineNetCents = cartLineNetCents(item);
+        // Produto com uma unidade so nao ganha seletor -- seria um select
+        // de uma opcao, ocupando espaco no cupom sem servir pra nada.
+        const unitOptions = unitOptionsByItemId?.[item.id];
+        const showUnitSelect = Boolean(onUnitChange) && (unitOptions?.length ?? 0) > 1;
 
         return (
           <div
@@ -57,7 +68,23 @@ const CartPanel: React.FC<CartPanelProps> = ({
               <small>{String(index + 1).padStart(3, '0')}</small>
               <div>
                 <strong>{item.nome}</strong>
-                <span>{currency.format(fromCents(item.precoUnitarioCentavos))} · {item.unidadeMedidaSigla || 'UN'}</span>
+                {showUnitSelect ? (
+                  <span className="pdv-cart-unit">
+                    {currency.format(fromCents(item.precoUnitarioCentavos))} ·{' '}
+                    <select
+                      value={item.embalagemId || ''}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => onUnitChange?.(item.id, event.target.value)}
+                      aria-label={`Unidade de venda de ${item.nome}`}
+                    >
+                      {unitOptions!.map((opcao) => (
+                        <option key={opcao.embalagemId || 'base'} value={opcao.embalagemId}>{opcao.label}</option>
+                      ))}
+                    </select>
+                  </span>
+                ) : (
+                  <span>{currency.format(fromCents(item.precoUnitarioCentavos))} · {item.unidadeMedidaSigla || 'UN'}</span>
+                )}
               </div>
             </div>
 

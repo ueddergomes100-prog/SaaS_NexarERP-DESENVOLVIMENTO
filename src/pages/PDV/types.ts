@@ -15,6 +15,8 @@ export interface PdvProduct {
   unidadeMedidaCasasDecimais?: number;
   unidadeMedidaFracionado?: boolean;
   statusAtivo?: boolean;
+  /** Array cru do documento de estoque -- normalizado por embalagemDomain. */
+  embalagens?: unknown;
 }
 
 export interface PdvClient {
@@ -27,6 +29,9 @@ export interface PdvClient {
 }
 
 export interface PdvCartItem {
+  /** `productId` quando vendido na unidade base, `productId::embalagemId`
+   * quando vendido em embalagem -- o mesmo produto em KG e em SC precisa
+   * ocupar DUAS linhas do carrinho, com precos diferentes. */
   id: string;
   productId: string;
   nome: string;
@@ -34,6 +39,7 @@ export interface PdvCartItem {
   codigoBarras: string;
   categoria: string;
   imagemProduto: string;
+  /** Sempre na unidade BASE do produto (o saldo real do estoque). */
   estoqueDisponivel: number;
   precoUnitarioCentavos: number;
   quantidade: number;
@@ -41,6 +47,11 @@ export interface PdvCartItem {
   unidadeMedidaSigla?: string;
   unidadeMedidaCasasDecimais?: number;
   unidadeMedidaFracionado?: boolean;
+  /** Vazio/ausente = unidade base. */
+  embalagemId?: string;
+  /** Quantas unidades base cada unidade vendida consome. */
+  fatorConversao?: number;
+  quantidadeBase?: number;
 }
 
 export interface PdvTotals {

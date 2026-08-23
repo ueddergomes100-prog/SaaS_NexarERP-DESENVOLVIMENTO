@@ -59,9 +59,18 @@ import {
   defaultPdvFinanceConfig,
   fromCurrencyInput,
   makeCartItemFromProduct,
+  makeCartLineId,
   makePdvSessionStorageKey,
   toCurrencyInput,
 } from './pdvHelpers';
+import {
+  DEFAULT_VENDER_POR_EMBALAGEM,
+  buildOpcoesUnidadeVenda,
+  findOpcaoUnidadeVenda,
+  toBaseQuantity,
+  toStockAdjustmentItems,
+  type OpcaoUnidadeVenda,
+} from '../../utils/embalagemDomain';
 import type { CaixaSangria, PdvCartItem, PdvClient, PdvProduct, PdvSession } from './types';
 import hennderIcon from '../../assets/hennder-icon.svg';
 import './PDV.css';
@@ -99,6 +108,7 @@ const PDV: React.FC = () => {
   const [products, setProducts] = useState<PdvProduct[]>([]);
   const [clients, setClients] = useState<PdvClient[]>([]);
   const [allowNegativeStock, setAllowNegativeStock] = useState(false);
+  const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [productSearchMode, setProductSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
   const [financeConfig, setFinanceConfig] = useState(defaultPdvFinanceConfig);
   const [session, setSession] = useState<PdvSession | null>(null);
@@ -173,6 +183,7 @@ const PDV: React.FC = () => {
               unidadeMedidaCasasDecimais: Number(data.unidadeMedidaCasasDecimais ?? 0),
               unidadeMedidaFracionado: data.unidadeMedidaFracionado,
               statusAtivo: data.statusAtivo ?? data.ativo ?? true,
+              embalagens: data.embalagens,
             } as PdvProduct;
           })
           .filter((product) => product.nome && product.statusAtivo !== false)
@@ -197,6 +208,7 @@ const PDV: React.FC = () => {
         setProducts(nextProducts);
         setClients(nextClients);
         setAllowNegativeStock(configData?.venderSemEstoque === true);
+        setVenderPorEmbalagem(configData?.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
         setProductSearchMode(configData?.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
         setFinanceConfig(buildPdvFinanceConfig(configData));
       } catch (error) {
@@ -479,38 +491,59 @@ const PDV: React.FC = () => {
     }
   }, [currentUser, operatorName, session, sessionStorageKey, tenantId]);
 
-  const validateQuantity = useCallback((product: PdvProduct, nextQuantity: number) => {
+  /** Valida contra a unidade REALMENTE vendida: um saco continua indivisivel
+   * mesmo num produto fracionavel em quilo, e o estoque e sempre comparado
+   * na unidade base (2 sacos de 20kg exigem 40kg de saldo). */
+  const validateQuantity = useCallback((product: PdvProduct, nextQuantity: number, opcao?: OpcaoUnidadeVenda) => {
     if (nextQuantity <= 0) return false;
-    if (!isValidSaleQuantity(nextQuantity, product.unidadeMedidaFracionado, product.unidadeMedidaCasasDecimais)) {
-      showError('Operação bloqueada', product.unidadeMedidaFracionado
-        ? `A quantidade de ${product.nome} aceita no máximo ${product.unidadeMedidaCasasDecimais ?? 0} casa(s) decimal(is).`
-        : `O produto ${product.nome} não permite quantidade fracionada.`);
+    const permiteFracionado = opcao ? opcao.permiteFracionado : product.unidadeMedidaFracionado;
+    const casasDecimais = opcao?.casasDecimais ?? product.unidadeMedidaCasasDecimais;
+    const sigla = opcao?.sigla || product.unidadeMedidaSigla || 'UN';
+    if (!isValidSaleQuantity(nextQuantity, permiteFracionado, casasDecimais)) {
+      showError('Operação bloqueada', permiteFracionado
+        ? `A quantidade de ${product.nome} aceita no máximo ${casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${sigla}.`
+        : `${product.nome} está sendo vendido na unidade ${sigla}, que não permite quantidade fracionada.`);
       return false;
     }
-    if (!allowNegativeStock && nextQuantity > Number(product.quantidade || 0)) {
-      showError('Estoque insuficiente', `Disponível: ${Number(product.quantidade || 0).toLocaleString('pt-BR')}.`);
+    const quantidadeBase = toBaseQuantity(nextQuantity, opcao?.fatorConversao);
+    if (!allowNegativeStock && quantidadeBase > Number(product.quantidade || 0)) {
+      const siglaBase = product.unidadeMedidaSigla || 'UN';
+      showError('Estoque insuficiente', (opcao?.fatorConversao ?? 1) === 1
+        ? `Disponível: ${Number(product.quantidade || 0).toLocaleString('pt-BR')}.`
+        : `${nextQuantity} ${sigla} consome ${quantidadeBase} ${siglaBase}, mas há apenas ${Number(product.quantidade || 0).toLocaleString('pt-BR')} ${siglaBase}.`);
       return false;
     }
     return true;
   }, [allowNegativeStock]);
 
-  const addProductToCart = useCallback((product: PdvProduct, quantity = 1) => {
+  const addProductToCart = useCallback((product: PdvProduct, quantity = 1, opcao?: OpcaoUnidadeVenda) => {
     if (!session) {
       void openSession();
       return;
     }
 
+    const opcaoFinal = opcao || buildOpcoesUnidadeVenda(product)[0];
+    const lineId = makeCartLineId(product.id, opcaoFinal.embalagemId);
+
     setCartItems((current) => {
-      const existing = current.find((item) => item.productId === product.id);
+      // Funde por LINHA (produto + embalagem), nao por produto: bipar o saco
+      // depois de ja ter vendido a granel nao pode somar na linha do quilo.
+      const existing = current.find((item) => item.id === lineId);
       const nextQuantity = (existing?.quantidade || 0) + quantity;
-      if (!validateQuantity(product, nextQuantity)) return current;
+      if (!validateQuantity(product, nextQuantity, opcaoFinal)) return current;
 
       if (existing) {
         setSelectedItemId(existing.id);
-        return current.map((item) => item.id === existing.id ? { ...item, quantidade: nextQuantity } : item);
+        return current.map((item) => item.id === existing.id
+          ? {
+              ...item,
+              quantidade: nextQuantity,
+              ...(item.embalagemId ? { quantidadeBase: toBaseQuantity(nextQuantity, item.fatorConversao) } : {}),
+            }
+          : item);
       }
 
-      const nextItem = makeCartItemFromProduct(product, quantity);
+      const nextItem = makeCartItemFromProduct(product, quantity, opcaoFinal);
       setSelectedItemId(nextItem.id);
       return [...current, nextItem];
     });
@@ -524,9 +557,65 @@ const PDV: React.FC = () => {
       if (item.id !== itemId) return [item];
       if (quantity <= 0) return [];
       const product = products.find((entry) => entry.id === item.productId);
-      if (product && !validateQuantity(product, quantity)) return [item];
-      return [{ ...item, quantidade: quantity }];
+      const opcao = product
+        ? findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(product), item.embalagemId)
+        : undefined;
+      if (product && !validateQuantity(product, quantity, opcao)) return [item];
+      return [{
+        ...item,
+        quantidade: quantity,
+        ...(item.embalagemId ? { quantidadeBase: toBaseQuantity(quantity, item.fatorConversao) } : {}),
+      }];
     }));
+  }, [products, validateQuantity]);
+
+  /** Opcoes de unidade por linha do carrinho, so quando a chave esta ligada.
+   * Desligada = mapa vazio, e o CartPanel nem renderiza o seletor. */
+  const unitOptionsByItemId = useMemo(() => {
+    if (!venderPorEmbalagem) return {};
+    return cartItems.reduce<Record<string, OpcaoUnidadeVenda[]>>((mapa, item) => {
+      const product = products.find((entry) => entry.id === item.productId);
+      if (product) mapa[item.id] = buildOpcoesUnidadeVenda(product);
+      return mapa;
+    }, {});
+  }, [cartItems, products, venderPorEmbalagem]);
+
+  /** Troca a unidade de uma linha ja lancada. Se ja existir outra linha na
+   * unidade de destino, as duas seriam a mesma coisa -- em vez de criar id
+   * duplicado, recusa e explica. */
+  const changeItemUnit = useCallback((itemId: string, embalagemId: string) => {
+    setCartItems((current) => {
+      const item = current.find((entry) => entry.id === itemId);
+      if (!item) return current;
+      const product = products.find((entry) => entry.id === item.productId);
+      if (!product) return current;
+
+      const opcao = findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(product), embalagemId);
+      const novoId = makeCartLineId(item.productId, opcao.embalagemId);
+      if (novoId === item.id) return current;
+      if (current.some((entry) => entry.id === novoId)) {
+        showError('Unidade já lançada', `${product.nome} já está no cupom em ${opcao.sigla}. Altere a quantidade daquela linha.`);
+        return current;
+      }
+      if (!validateQuantity(product, item.quantidade, opcao)) return current;
+
+      setSelectedItemId(novoId);
+      return current.map((entry) => entry.id !== itemId ? entry : {
+        ...entry,
+        id: novoId,
+        // O preco acompanha a unidade -- o saco nao custa o mesmo que o quilo.
+        precoUnitarioCentavos: toCents(opcao.precoVenda),
+        // Desconto em reais foi calculado sobre o preco antigo; mante-lo aqui
+        // aplicaria um abatimento sem relacao com o novo valor da linha.
+        descontoCentavos: 0,
+        unidadeMedidaSigla: opcao.sigla,
+        unidadeMedidaCasasDecimais: opcao.casasDecimais,
+        unidadeMedidaFracionado: opcao.permiteFracionado,
+        embalagemId: opcao.embalagemId || undefined,
+        fatorConversao: opcao.embalagemId ? opcao.fatorConversao : undefined,
+        quantidadeBase: opcao.embalagemId ? toBaseQuantity(entry.quantidade, opcao.fatorConversao) : undefined,
+      });
+    });
   }, [products, validateQuantity]);
 
   const updateItemDiscount = useCallback((itemId: string, discountCents: number) => {
@@ -635,7 +724,12 @@ const PDV: React.FC = () => {
         await applyStockAdjustments(
           transaction,
           db,
-          cartItems.map((item) => ({ id: item.productId, nome: item.nome, quantidade: item.quantidade })),
+          toStockAdjustmentItems(cartItems.map((item) => ({
+            id: item.productId,
+            nome: item.nome,
+            quantidade: item.quantidade,
+            fatorConversao: item.fatorConversao,
+          }))),
           'decrement',
           allowNegativeStock,
         );
@@ -665,6 +759,15 @@ const PDV: React.FC = () => {
             subtotalCentavos: subtotalCents,
             unidadeMedidaSigla: item.unidadeMedidaSigla,
             unidadeMedidaCasasDecimais: item.unidadeMedidaCasasDecimais,
+            // Mesmo contrato do Pedido de Venda: item na unidade base nao
+            // ganha campo de embalagem, para nao mudar o formato historico.
+            ...(item.embalagemId
+              ? {
+                  embalagemId: item.embalagemId,
+                  fatorConversao: item.fatorConversao,
+                  quantidadeBase: item.quantidadeBase,
+                }
+              : {}),
           };
         });
 
@@ -782,9 +885,16 @@ const PDV: React.FC = () => {
       });
 
       showSuccess(`Venda PDV #${finalNumeroPedido} finalizada`);
+      // Espelha localmente a baixa que a transacao acabou de fazer. Soma TODAS
+      // as linhas do mesmo produto (ele pode aparecer em quilo e em saco ao
+      // mesmo tempo) e sempre na unidade base.
       setProducts((current) => current.map((product) => {
-        const soldItem = cartItems.find((item) => item.productId === product.id);
-        return soldItem ? { ...product, quantidade: Math.max(0, product.quantidade - soldItem.quantidade) } : product;
+        const vendidoBase = cartItems
+          .filter((item) => item.productId === product.id)
+          .reduce((soma, item) => soma + toBaseQuantity(item.quantidade, item.fatorConversao), 0);
+        return vendidoBase > 0
+          ? { ...product, quantidade: Math.max(0, product.quantidade - vendidoBase) }
+          : product;
       }));
       resetSale();
       setPaymentModalOpen(false);
@@ -917,6 +1027,8 @@ const PDV: React.FC = () => {
             onQuantityChange={updateItemQuantity}
             onDiscountChange={updateItemDiscount}
             onRemoveItem={removeItem}
+            unitOptionsByItemId={unitOptionsByItemId}
+            onUnitChange={venderPorEmbalagem ? changeItemUnit : undefined}
           />
 
           <PdvSummary

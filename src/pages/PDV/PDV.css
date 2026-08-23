@@ -378,6 +378,25 @@
   font-size: 12px;
 }
 
+/* Seletor de unidade da linha do cupom (venda por embalagem). Fica na mesma
+   linha do preco unitario, discreto, sem quebrar a altura da linha. */
+.pdv-cart-unit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pdv-cart-unit select {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 1px 4px;
+  max-width: 130px;
+  cursor: pointer;
+}
+
 .pdv-quantity-control {
   display: grid;
   grid-template-columns: 30px 1fr 30px;

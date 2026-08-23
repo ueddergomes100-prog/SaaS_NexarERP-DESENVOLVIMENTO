@@ -71,6 +71,16 @@ import {
   toStockAdjustmentItems,
   type OpcaoUnidadeVenda,
 } from '../../utils/embalagemDomain';
+import {
+  DEFAULT_MODO_LIMITE_DESCONTO,
+  checarLimiteTotal,
+  excedeLimiteItem,
+  parseLimiteDescontoConfig,
+  parseModoLimiteDesconto,
+  type LimiteDescontoConfig,
+  type ModoLimiteDesconto,
+} from '../../utils/descontoDomain';
+import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import type { CaixaSangria, PdvCartItem, PdvClient, PdvProduct, PdvSession } from './types';
 import hennderIcon from '../../assets/hennder-icon.svg';
 import './PDV.css';
@@ -109,6 +119,10 @@ const PDV: React.FC = () => {
   const [clients, setClients] = useState<PdvClient[]>([]);
   const [allowNegativeStock, setAllowNegativeStock] = useState(false);
   const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
+  const [limiteDescontoPdv, setLimiteDescontoPdv] = useState<LimiteDescontoConfig | null>(null);
+  const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>(DEFAULT_MODO_LIMITE_DESCONTO);
+  const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
+  const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
   const [productSearchMode, setProductSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
   const [financeConfig, setFinanceConfig] = useState(defaultPdvFinanceConfig);
   const [session, setSession] = useState<PdvSession | null>(null);
@@ -144,6 +158,24 @@ const PDV: React.FC = () => {
     () => calculatePdvTotals(cartItems, saleDiscountCents),
     [cartItems, saleDiscountCents],
   );
+
+  // Nivel 2 (sistema): desconto TOTAL do cupom (itens + desconto geral)
+  // contra o limite configurado pro PDV.
+  const checagemLimiteDesconto = useMemo(
+    () => checarLimiteTotal(limiteDescontoPdv, totals.subtotalCentavos, totals.descontoTotalCentavos),
+    [limiteDescontoPdv, totals.subtotalCentavos, totals.descontoTotalCentavos],
+  );
+
+  // Uma aprovacao de senha so vale pro carrinho do momento -- mudar item ou
+  // desconto depois invalida.
+  const primeiraRenderAprovacaoRef = useRef(true);
+  useEffect(() => {
+    if (primeiraRenderAprovacaoRef.current) {
+      primeiraRenderAprovacaoRef.current = false;
+      return;
+    }
+    setAprovacaoDesconto(null);
+  }, [cartItems, saleDiscountCents]);
 
   const selectedItem = useMemo(
     () => cartItems.find((item) => item.id === selectedItemId) || cartItems[cartItems.length - 1] || null,
@@ -184,6 +216,7 @@ const PDV: React.FC = () => {
               unidadeMedidaFracionado: data.unidadeMedidaFracionado,
               statusAtivo: data.statusAtivo ?? data.ativo ?? true,
               embalagens: data.embalagens,
+              descontoMaximoPercentual: data.descontoMaximoPercentual,
             } as PdvProduct;
           })
           .filter((product) => product.nome && product.statusAtivo !== false)
@@ -209,6 +242,8 @@ const PDV: React.FC = () => {
         setClients(nextClients);
         setAllowNegativeStock(configData?.venderSemEstoque === true);
         setVenderPorEmbalagem(configData?.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
+        setLimiteDescontoPdv(parseLimiteDescontoConfig(configData?.limiteDescontoPdv));
+        setModoLimiteDesconto(parseModoLimiteDesconto(configData?.modoLimiteDesconto));
         setProductSearchMode(configData?.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
         setFinanceConfig(buildPdvFinanceConfig(configData));
       } catch (error) {
@@ -633,9 +668,20 @@ const PDV: React.FC = () => {
     setCartItems((current) => current.map((item) => {
       if (item.id !== itemId) return item;
       const lineGross = Math.round(item.precoUnitarioCentavos * item.quantidade);
-      return { ...item, descontoCentavos: clampDiscountCents(discountCents, lineGross) };
+      const clamped = clampDiscountCents(discountCents, lineGross);
+      // Nivel 1 (produto): se o PRODUTO define seu proprio limite, ele e' o
+      // piso -- sempre bloqueia, independente do modo configurado.
+      const produto = products.find((p) => p.id === item.productId);
+      if (produto && excedeLimiteItem(produto, clamped, lineGross)) {
+        showError(
+          'Desconto acima do limite do produto',
+          `${item.nome} aceita no máximo ${produto.descontoMaximoPercentual}% de desconto, definido no próprio cadastro.`,
+        );
+        return item;
+      }
+      return { ...item, descontoCentavos: clamped };
     }));
-  }, []);
+  }, [products]);
 
   const removeItem = useCallback((itemId: string) => {
     setCartItems((current) => current.filter((item) => item.id !== itemId));
@@ -677,6 +723,28 @@ const PDV: React.FC = () => {
     if (cartItems.length === 0) {
       showError('Venda vazia', 'Adicione pelo menos um produto.');
       return;
+    }
+
+    if (checagemLimiteDesconto.excedeu) {
+      if (modoLimiteDesconto === 'bloquear') {
+        showError('Desconto acima do limite', `O desconto deste cupom (${checagemLimiteDesconto.percentualAplicado.toFixed(1)}%) excede o limite configurado. Reduza o desconto para continuar.`);
+        return;
+      }
+      if (modoLimiteDesconto === 'senha' && !aprovacaoDesconto) {
+        setShowAprovacaoDesconto(true);
+        return;
+      }
+      if (modoLimiteDesconto === 'avisar') {
+        const confirm = await NexusSwal.fire({
+          title: 'Desconto acima do limite',
+          text: `O desconto deste cupom (${checagemLimiteDesconto.percentualAplicado.toFixed(1)}%) excede o limite configurado. Deseja finalizar mesmo assim?`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Finalizar mesmo assim',
+          cancelButtonText: 'Revisar desconto',
+        });
+        if (!confirm.isConfirmed) return;
+      }
     }
 
     let paymentRecords: PaymentRecord[];
@@ -801,6 +869,21 @@ const PDV: React.FC = () => {
           valorTotalDescontosCentavos: totals.descontoTotalCentavos,
           descontoItensCentavos: totals.itensDescontoCentavos,
           descontoVendaCentavos: totals.vendaDescontoCentavos,
+          // Snapshot no mesmo formato usado por Pedido/OS/Orcamento, pro
+          // relatorio de descontos concedidos (Fatia 6) ler os 4 de igual
+          // pra igual. DiscountModal so devolve o valor final em centavos
+          // (nao guarda se o operador escolheu % ou R$), entao aqui sempre
+          // registra como 'valor' -- o total concedido fica certo mesmo
+          // assim, so o "tipo" nao reflete a escolha original do operador.
+          descontoGeral: {
+            tipo: 'valor' as const,
+            valorInformado: fromCents(totals.descontoTotalCentavos),
+            valorAplicadoCentavos: totals.descontoTotalCentavos,
+            excedeuLimite: checagemLimiteDesconto.excedeu,
+            ...(checagemLimiteDesconto.excedeu && aprovacaoDesconto
+              ? { aprovacao: { modo: 'senha' as const, ...aprovacaoDesconto, aprovadoEm: new Date().toISOString() } }
+              : {}),
+          },
           frete: 0,
           encargos: 0,
           valorTotal: fromCents(totals.totalCentavos),
@@ -1047,6 +1130,7 @@ const PDV: React.FC = () => {
             client={selectedClient}
             session={session}
             disabled={cartItems.length === 0}
+            discountWarning={checagemLimiteDesconto.excedeu ? `Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% acima do limite configurado.` : undefined}
             onOpenClient={() => setClientModalOpen(true)}
             onOpenDiscount={() => setDiscountModalOpen(true)}
             onOpenPayment={() => setPaymentModalOpen(true)}
@@ -1070,6 +1154,14 @@ const PDV: React.FC = () => {
         open={sangriaModalOpen}
         onClose={() => setSangriaModalOpen(false)}
         onConfirm={registrarSangria}
+      />
+
+      <SolicitarAprovacaoDescontoModal
+        open={showAprovacaoDesconto}
+        tenantId={tenantId}
+        motivo={`Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% neste cupom, acima do limite configurado. Confirme com a senha de um aprovador para finalizar.`}
+        onClose={() => setShowAprovacaoDesconto(false)}
+        onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
       />
 
       <DiscountModal

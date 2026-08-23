@@ -9,6 +9,8 @@ interface PdvSummaryProps {
   client: PdvClient | null;
   session: PdvSession | null;
   disabled?: boolean;
+  /** Aviso de desconto acima do limite configurado (nivel 2). */
+  discountWarning?: string;
   onOpenClient: () => void;
   onOpenDiscount: () => void;
   onOpenPayment: () => void;
@@ -23,6 +25,7 @@ const PdvSummary: React.FC<PdvSummaryProps> = ({
   client,
   session,
   disabled,
+  discountWarning,
   onOpenClient,
   onOpenDiscount,
   onOpenPayment,
@@ -68,6 +71,12 @@ const PdvSummary: React.FC<PdvSummaryProps> = ({
         <b>{currency.format(fromCents(totals.totalCentavos))}</b>
       </div>
     </div>
+
+    {discountWarning && (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', fontSize: '12px' }}>
+        {discountWarning}
+      </div>
+    )}
 
     <div className="pdv-actions">
       <button type="button" className="btn-secondary" onClick={onOpenDiscount} disabled={disabled}>

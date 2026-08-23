@@ -17,6 +17,7 @@ export interface PdvProduct {
   statusAtivo?: boolean;
   /** Array cru do documento de estoque -- normalizado por embalagemDomain. */
   embalagens?: unknown;
+  descontoMaximoPercentual?: number;
 }
 
 export interface PdvClient {

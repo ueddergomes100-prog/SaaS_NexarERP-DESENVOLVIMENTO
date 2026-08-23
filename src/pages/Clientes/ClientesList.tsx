@@ -23,6 +23,9 @@ const ClientesList: React.FC = () => {
   const [clientes, setClientes] = useState<ClienteData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  /** Linha destacada por um clique simples. Abrir exige duplo clique (ou
+   * Enter), pra um clique de leitura nao abrir uma aba sem querer. */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { currentUser, tenantId } = useAuth();
 
@@ -163,7 +166,19 @@ const ClientesList: React.FC = () => {
                 </tr>
               ) : (
                 filteredClientes.map((cliente) => (
-                  <tr key={cliente.id}>
+                  <tr
+                    key={cliente.id}
+                    // Consumidor Final e' registro do sistema e nao abre pra
+                    // edicao (ClienteForm redireciona) -- por isso nem seleciona.
+                    className={cliente.isPadrao ? undefined : (selectedId === cliente.id ? 'row-selectable is-selected' : 'row-selectable')}
+                    onClick={cliente.isPadrao ? undefined : () => setSelectedId(cliente.id)}
+                    onDoubleClick={cliente.isPadrao ? undefined : () => openTab(`/clientes/editar/${cliente.id}`)}
+                    onKeyDown={cliente.isPadrao ? undefined : (event) => {
+                      if (event.key === 'Enter') openTab(`/clientes/editar/${cliente.id}`);
+                    }}
+                    tabIndex={cliente.isPadrao ? undefined : 0}
+                    title={cliente.isPadrao ? undefined : 'Clique para selecionar, duplo clique para editar'}
+                  >
                     <td style={{ color: 'var(--text-muted)' }}>{cliente.codigo || '-'}</td>
                     <td className="font-medium">{cliente.nome}</td>
                     <td>{cliente.telefone || '-'}</td>
@@ -173,7 +188,7 @@ const ClientesList: React.FC = () => {
                       {cliente.isPadrao ? (
                         <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Sistema Padrão</span>
                       ) : (
-                        <div style={{ display: 'flex', gap: '8px' }}>
+                        <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                           <button className="icon-btn" title="Editar" onClick={() => openTab(`/clientes/editar/${cliente.id}`)}>
                             <Edit size={16} />
                           </button>

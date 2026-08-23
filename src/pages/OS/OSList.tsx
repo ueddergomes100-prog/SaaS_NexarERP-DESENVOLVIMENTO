@@ -31,6 +31,8 @@ const OSList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'Ativas' | 'Finalizadas' | 'Canceladas'>('Ativas');
   const [searchTerm, setSearchTerm] = useState('');
+  /** Linha destacada por um clique simples. Abrir exige duplo clique (ou Enter). */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
 
   const canEditOS = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('mecanica.os_alterar'));
@@ -272,7 +274,19 @@ const OSList: React.FC = () => {
                 </tr>
               ) : (
                 filteredOsList.map((os) => (
-                  <tr key={os.id}>
+                  <tr
+                    key={os.id}
+                    // Sem permissao de alterar OS a linha nao abre nada -- seria
+                    // um duplo clique que so devolve erro.
+                    className={canEditOS ? (selectedId === os.id ? 'row-selectable is-selected' : 'row-selectable') : undefined}
+                    onClick={canEditOS ? () => setSelectedId(os.id) : undefined}
+                    onDoubleClick={canEditOS ? () => openTab(`/os/editar/${os.id}`) : undefined}
+                    onKeyDown={canEditOS ? (event) => {
+                      if (event.key === 'Enter') openTab(`/os/editar/${os.id}`);
+                    } : undefined}
+                    tabIndex={canEditOS ? 0 : undefined}
+                    title={canEditOS ? 'Clique para selecionar, duplo clique para editar' : undefined}
+                  >
                     <td className="font-medium" style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
                       #{os.numeroOS || os.id.substring(0, 8).toUpperCase()}
                     </td>
@@ -286,9 +300,9 @@ const OSList: React.FC = () => {
                       </span>
                     </td>
                     <td>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button 
-                          className="icon-btn" 
+                      <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                        <button
+                          className="icon-btn"
                           onClick={() => handleOpenWhatsApp(os)}
                           title="Enviar por WhatsApp"
                           style={{ color: '#10b981' }}

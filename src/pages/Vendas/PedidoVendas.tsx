@@ -63,6 +63,9 @@ const PedidoVendas: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('Ativos');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  /** Linha destacada por um clique simples (distinta de selectedIds, que sao
+   * os checkboxes de impressao em lote). Abrir exige duplo clique ou Enter. */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(false);
 
   // Estado para armazenar IDs dos cupons autorizados
@@ -446,17 +449,25 @@ const PedidoVendas: React.FC = () => {
                 </tr>
               ) : (
                 filteredPedidos.map(p => (
-                  // Linha inteira abre o pedido (mesmo padrao de ContasReceber.tsx
-                  // e OrdensProducaoList.tsx). As celulas de checkbox e de acoes
-                  // param a propagacao pra continuarem com o comportamento delas.
+                  // 1 clique seleciona, 2 cliques abrem o pedido -- mesmo padrao
+                  // de Estoque/Clientes/OS/Orcamentos. Esta tela abria com 1
+                  // clique so; passou a exigir 2 pra ficar consistente com as
+                  // outras e nao abrir aba a cada clique de leitura (o limite de
+                  // abas e 8). As celulas de checkbox e de acoes param a
+                  // propagacao pra continuarem com o comportamento delas.
                   <tr
                     key={p.id}
-                    className="clickable-row"
-                    onClick={() => openTab(`/pedidos-venda/visualizar/${p.id}`)}
-                    title="Clique para visualizar o pedido"
-                    style={{ borderBottom: '1px solid var(--border-color)', opacity: p.status === 'Cancelada' ? 0.6 : 1, cursor: 'pointer' }}
+                    className={selectedId === p.id ? 'row-selectable is-selected' : 'row-selectable'}
+                    onClick={() => setSelectedId(p.id)}
+                    onDoubleClick={() => openTab(`/pedidos-venda/visualizar/${p.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') openTab(`/pedidos-venda/visualizar/${p.id}`);
+                    }}
+                    tabIndex={0}
+                    title="Clique para selecionar, duplo clique para visualizar"
+                    style={{ borderBottom: '1px solid var(--border-color)', opacity: p.status === 'Cancelada' ? 0.6 : 1 }}
                   >
-                    <td style={{ padding: '16px' }} onClick={(e) => e.stopPropagation()}>
+                    <td style={{ padding: '16px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selectedIds.has(p.id)}
@@ -499,7 +510,7 @@ const PedidoVendas: React.FC = () => {
                     <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700 }}>
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valorTotal)}
                     </td>
-                    <td style={{ padding: '16px', display: 'flex', justifyContent: 'center', gap: '8px' }} onClick={(e) => e.stopPropagation()}>
+                    <td style={{ padding: '16px', display: 'flex', justifyContent: 'center', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                       <button onClick={() => openTab(`/pedidos-venda/visualizar/${p.id}`)} className="icon-btn" title="Visualizar Pedido" style={{ color: '#3b82f6' }}>
                         <FileText size={18} />
                       </button>

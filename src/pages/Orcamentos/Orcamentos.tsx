@@ -35,6 +35,8 @@ const Orcamentos: React.FC = () => {
   const canDeleteOrcamento = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.orcamentos_excluir'));
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  /** Linha destacada por um clique simples. Abrir exige duplo clique (ou Enter). */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const fetchOrcamentos = async () => {
     if (!tenantId) return;
@@ -189,7 +191,19 @@ const Orcamentos: React.FC = () => {
                 filteredOrcamentos.map((orc) => {
                   const style = getStatusStyle(orc.status);
                   return (
-                    <tr key={orc.id} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s' }}>
+                    <tr
+                      key={orc.id}
+                      // Sem permissao de alterar orcamento a linha nao abre nada.
+                      className={canEditOrcamento ? (selectedId === orc.id ? 'row-selectable is-selected' : 'row-selectable') : undefined}
+                      onClick={canEditOrcamento ? () => setSelectedId(orc.id) : undefined}
+                      onDoubleClick={canEditOrcamento ? () => openTab(`/orcamentos/editar/${orc.id}`) : undefined}
+                      onKeyDown={canEditOrcamento ? (event) => {
+                        if (event.key === 'Enter') openTab(`/orcamentos/editar/${orc.id}`);
+                      } : undefined}
+                      tabIndex={canEditOrcamento ? 0 : undefined}
+                      title={canEditOrcamento ? 'Clique para selecionar, duplo clique para editar' : undefined}
+                      style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s' }}
+                    >
                       <td style={{ padding: '16px', fontWeight: 600 }}>#{orc.numeroOrcamento}</td>
                       <td style={{ padding: '16px' }}>
                         <div style={{ fontWeight: 600 }}>{orc.clienteNome}</div>
@@ -214,8 +228,8 @@ const Orcamentos: React.FC = () => {
                         </span>
                       </td>
                       <td style={{ padding: '16px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                          <button 
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                          <button
                             title="Compartilhar WhatsApp"
                             onClick={() => handleShareWhatsApp(orc)}
                             style={{ padding: '8px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: 'none', cursor: 'pointer' }}

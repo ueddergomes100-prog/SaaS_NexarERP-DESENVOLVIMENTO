@@ -24,6 +24,9 @@ const EstoqueList: React.FC = () => {
   const [pecasList, setPecasList] = useState<PecaData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  /** Linha destacada por um clique simples. Editar exige duplo clique (ou
+   * Enter), pra um clique de leitura nao abrir uma aba sem querer. */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { currentUser, tenantId } = useAuth();
 
@@ -243,7 +246,19 @@ const EstoqueList: React.FC = () => {
                 </tr>
               ) : (
                 filteredPecas.map((peca) => (
-                  <tr key={peca.id}>
+                  <tr
+                    key={peca.id}
+                    className={selectedId === peca.id ? 'row-selectable is-selected' : 'row-selectable'}
+                    onClick={() => setSelectedId(peca.id)}
+                    onDoubleClick={() => openTab(`/estoque/editar/${peca.id}`)}
+                    // Enter abre o produto selecionado -- o duplo clique sozinho
+                    // deixaria a linha inacessivel por teclado.
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') openTab(`/estoque/editar/${peca.id}`);
+                    }}
+                    tabIndex={0}
+                    title="Clique para selecionar, duplo clique para editar"
+                  >
                     <td className="font-medium" style={{ color: 'var(--text-muted)' }}>{peca.codigo}</td>
                     <td>{peca.nome}</td>
                     <td>{peca.categoria}</td>
@@ -255,7 +270,9 @@ const EstoqueList: React.FC = () => {
                     </td>
                     <td>{getStatusBadge(Number(peca.quantidade))}</td>
                     <td>
-                      <div style={{ display: 'flex', gap: '8px' }}>
+                      {/* stopPropagation: sem isso, um duplo clique acidental
+                          em cima da lixeira tambem abriria a tela de edicao. */}
+                      <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                         <button className="icon-btn" title="Editar" onClick={() => openTab(`/estoque/editar/${peca.id}`)}>
                           <Edit size={16} />
                         </button>

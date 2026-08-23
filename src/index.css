@@ -508,6 +508,25 @@ body.light-theme textarea:disabled {
   background-color: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
 }
 
+/* Linha em que um clique SELECIONA e o duplo clique abre o registro. Distinta
+   de .clickable-row (onde um clique so ja abre): aqui a selecao precisa ficar
+   visivel, senao o usuario nao tem como saber sobre qual linha o duplo clique
+   vai agir. Ancorada no accent do tema, igual ao destaque do carrinho do PDV. */
+.row-selectable {
+  cursor: pointer;
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+.row-selectable.is-selected {
+  background-color: color-mix(in srgb, var(--accent-purple, #8b5cf6) 14%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent-purple, #8b5cf6);
+}
+
+.row-selectable:focus-visible {
+  outline: 2px solid var(--accent-purple, #8b5cf6);
+  outline-offset: -2px;
+}
+
 body.light-theme .card,
 body.light-theme .auth-card,
 body.light-theme .sidebar,

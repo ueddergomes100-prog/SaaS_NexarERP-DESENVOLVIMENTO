@@ -16,6 +16,12 @@ import { spedyService, type SpedyCity } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import {
+  DEFAULT_MODO_LIMITE_DESCONTO,
+  parseLimiteDescontoConfig,
+  parseModoLimiteDesconto,
+  type DescontoTipo,
+} from '../../utils/descontoDomain';
+import {
   DEFAULT_BLOQUEAR_EXCEDENTE,
   DEFAULT_CONFERENCIA_MERCADORIA,
   DEFAULT_EXIGIR_BIPAGEM,
@@ -31,6 +37,14 @@ const toStringArray = (value: unknown): string[] => {
 const toConfigurationNumber = (value: unknown) => {
   const parsed = Number(String(value ?? '').trim().replace(',', '.'));
   return Number.isFinite(parsed) ? parsed : Number.NaN;
+};
+
+/** Le um limite de desconto salvo pro formato do formulario (valor como
+ * string, vazio quando nao configurado -- mesmo padrao das taxas de cartao
+ * neste arquivo). */
+const toLimiteDescontoFormValue = (raw: unknown) => {
+  const parsed = parseLimiteDescontoConfig(raw);
+  return { tipo: parsed.tipo, valor: parsed.valor > 0 ? String(parsed.valor) : '' };
 };
 
 const toCreditCardRateInputs = (value: unknown, fallbackFeePercent = 0) => (
@@ -91,6 +105,11 @@ const Configuracoes: React.FC = () => {
     venderSemEstoque: false,
     validarCadastroProduto: false,
     venderPorEmbalagem: DEFAULT_VENDER_POR_EMBALAGEM,
+    modoLimiteDesconto: DEFAULT_MODO_LIMITE_DESCONTO,
+    limiteDescontoOS: { tipo: 'percentual' as DescontoTipo, valor: '' },
+    limiteDescontoPedido: { tipo: 'percentual' as DescontoTipo, valor: '' },
+    limiteDescontoOrcamento: { tipo: 'percentual' as DescontoTipo, valor: '' },
+    limiteDescontoPdv: { tipo: 'percentual' as DescontoTipo, valor: '' },
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     conferenciaMercadoria: DEFAULT_CONFERENCIA_MERCADORIA,
@@ -155,6 +174,11 @@ const Configuracoes: React.FC = () => {
             venderSemEstoque: data.venderSemEstoque ?? false,
             validarCadastroProduto: data.validarCadastroProduto ?? false,
             venderPorEmbalagem: data.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM,
+            modoLimiteDesconto: parseModoLimiteDesconto(data.modoLimiteDesconto),
+            limiteDescontoOS: toLimiteDescontoFormValue(data.limiteDescontoOS),
+            limiteDescontoPedido: toLimiteDescontoFormValue(data.limiteDescontoPedido),
+            limiteDescontoOrcamento: toLimiteDescontoFormValue(data.limiteDescontoOrcamento),
+            limiteDescontoPdv: toLimiteDescontoFormValue(data.limiteDescontoPdv),
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             conferenciaMercadoria: data.conferenciaMercadoria ?? DEFAULT_CONFERENCIA_MERCADORIA,
@@ -365,6 +389,26 @@ const Configuracoes: React.FC = () => {
       return;
     }
 
+    // Limite de desconto: campo vazio = sem limite (0), valido em qualquer
+    // tela. Percentual tem teto de 100; valor (R$) so nao pode ser negativo.
+    const buildLimiteDesconto = (raw: { tipo: DescontoTipo; valor: string }) => {
+      const valor = raw.valor.trim() === '' ? 0 : toConfigurationNumber(raw.valor);
+      return { tipo: raw.tipo, valor: Number.isFinite(valor) ? Math.max(0, valor) : NaN };
+    };
+    const limitesDesconto = {
+      limiteDescontoOS: buildLimiteDesconto(formData.limiteDescontoOS),
+      limiteDescontoPedido: buildLimiteDesconto(formData.limiteDescontoPedido),
+      limiteDescontoOrcamento: buildLimiteDesconto(formData.limiteDescontoOrcamento),
+      limiteDescontoPdv: buildLimiteDesconto(formData.limiteDescontoPdv),
+    };
+    const limiteInvalido = Object.values(limitesDesconto).some(({ tipo, valor }) => (
+      !Number.isFinite(valor) || (tipo === 'percentual' && valor > 100)
+    ));
+    if (limiteInvalido) {
+      showError('Limite de desconto inválido', 'O limite percentual deve estar entre 0% e 100%. Deixe em branco para não limitar.');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const docRef = doc(db, 'configuracoes', tenantId);
@@ -391,6 +435,8 @@ const Configuracoes: React.FC = () => {
         prazoRecebimentoCartaoDebitoDias: debitCardSettlementDays,
         endereco: enderecoCompleto,
         nfseAliquotaIssPadrao,
+        ...limitesDesconto,
+        modoLimiteDesconto: formData.modoLimiteDesconto,
         spedyApiKey: deleteField(),
         spedyApiKeyConfigured: Boolean(trimmedSpedyApiKey),
         tenantId,
@@ -409,6 +455,10 @@ const Configuracoes: React.FC = () => {
         prazoRecebimentoCartaoCreditoDias: String(creditCardSettlementDays),
         prazoRecebimentoCartaoDebitoDias: String(debitCardSettlementDays),
         nfseAliquotaIssPadrao: String(nfseAliquotaIssPadrao),
+        limiteDescontoOS: { tipo: limitesDesconto.limiteDescontoOS.tipo, valor: limitesDesconto.limiteDescontoOS.valor > 0 ? String(limitesDesconto.limiteDescontoOS.valor) : '' },
+        limiteDescontoPedido: { tipo: limitesDesconto.limiteDescontoPedido.tipo, valor: limitesDesconto.limiteDescontoPedido.valor > 0 ? String(limitesDesconto.limiteDescontoPedido.valor) : '' },
+        limiteDescontoOrcamento: { tipo: limitesDesconto.limiteDescontoOrcamento.tipo, valor: limitesDesconto.limiteDescontoOrcamento.valor > 0 ? String(limitesDesconto.limiteDescontoOrcamento.valor) : '' },
+        limiteDescontoPdv: { tipo: limitesDesconto.limiteDescontoPdv.tipo, valor: limitesDesconto.limiteDescontoPdv.valor > 0 ? String(limitesDesconto.limiteDescontoPdv.valor) : '' },
       }));
       setIsEditingMode(false);
       setShowSuccessAnim(true);
@@ -1370,6 +1420,78 @@ const Configuracoes: React.FC = () => {
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Fundação do módulo (Fatia 0/4) — estas opções ainda não são lidas por nenhuma tela de venda, minuta ou conferência; entram em uso nas fatias seguintes.</p>
                 </div>
               )}
+
+              <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Limites de Desconto</h4>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                    Deixe o campo em branco para não limitar aquela tela. Um produto com "Desconto máximo" preenchido no
+                    próprio cadastro sempre prevalece sobre o limite daqui, item a item.
+                  </p>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                  {([
+                    { key: 'limiteDescontoOS' as const, label: 'Ordem de Serviço' },
+                    { key: 'limiteDescontoPedido' as const, label: 'Pedido de Venda' },
+                    { key: 'limiteDescontoOrcamento' as const, label: 'Orçamento' },
+                    { key: 'limiteDescontoPdv' as const, label: 'Frente de Caixa (PDV)' },
+                  ]).map(({ key, label }) => (
+                    <div key={key} className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>{label}</label>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <select
+                          value={formData[key].tipo}
+                          onChange={(e) => setFormData({ ...formData, [key]: { ...formData[key], tipo: e.target.value as DescontoTipo } })}
+                          disabled={!isEditingMode}
+                          style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 8px', color: 'var(--text-primary)', width: '92px' }}
+                        >
+                          <option value="percentual">%</option>
+                          <option value="valor">R$</option>
+                        </select>
+                        <input
+                          type="number"
+                          min="0"
+                          max={formData[key].tipo === 'percentual' ? 100 : undefined}
+                          step="0.01"
+                          placeholder="Sem limite"
+                          value={formData[key].valor}
+                          onChange={(e) => setFormData({ ...formData, [key]: { ...formData[key], valor: e.target.value } })}
+                          disabled={!isEditingMode}
+                          style={{ flex: 1, backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Ao exceder o limite configurado</label>
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    {([
+                      { value: 'bloquear' as const, label: 'Bloquear' },
+                      { value: 'avisar' as const, label: 'Avisar mas não bloquear' },
+                      { value: 'senha' as const, label: 'Solicitar senha de aprovador' },
+                    ]).map((opcao) => (
+                      <label key={opcao.value} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                        <input
+                          type="radio"
+                          name="modoLimiteDesconto"
+                          checked={formData.modoLimiteDesconto === opcao.value}
+                          onChange={() => setFormData({ ...formData, modoLimiteDesconto: opcao.value })}
+                          disabled={!isEditingMode}
+                          style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                        />
+                        {opcao.label}
+                      </label>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                    Vale para as 4 telas acima. "Solicitar senha" exige a permissão "Vendas: Aprovar Desconto Acima do
+                    Limite" (ou ser Admin/Master) de quem for digitar a senha.
+                  </p>
+                </div>
+              </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', gridColumn: '1 / -1' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Emissão Fiscal Habilitada</label>

@@ -57,6 +57,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'vendas.orcamentos_alterar', label: 'Vendas: Alterar Orçamentos', color: '#f59e0b' },
       { id: 'vendas.orcamentos_excluir', label: 'Vendas: Excluir Orçamentos', color: '#ef4444' },
       { id: 'vendas.relatorios', label: 'Vendas: Relatórios', color: '#f59e0b' },
+      { id: 'vendas.liberar_desconto', label: 'Vendas: Aprovar Desconto Acima do Limite', color: '#ef4444' },
     ],
   },
   {

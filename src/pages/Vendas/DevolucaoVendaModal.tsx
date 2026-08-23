@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { applyStockAdjustments } from '../../utils/firestoreAtomic';
+import { toStockAdjustmentItems } from '../../utils/embalagemDomain';
 import { recalculateCommissionAfterReturn, toCents } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -18,13 +19,17 @@ interface DevolucaoItem {
   quantidadeJaDevolvida?: number;
   selecionado: boolean;
   quantidadeSelecionada: number;
+  /** Fator da embalagem em que o item foi vendido -- devolver 1 saco tem que
+   * repor 20kg no estoque, nao 1. Ausente = venda na unidade base (fator 1). */
+  fatorConversao?: number;
+  unidadeMedidaSigla?: string;
 }
 
 interface DevolucaoVendaModalProps {
   pedidoId: string;
   numeroPedido: string;
   clienteNome: string;
-  itens: Array<{ id: string; nome: string; precoUnitario: number; quantidade: number; desconto: number; quantidadeJaDevolvida?: number }>;
+  itens: Array<{ id: string; nome: string; precoUnitario: number; quantidade: number; desconto: number; quantidadeJaDevolvida?: number; fatorConversao?: number; unidadeMedidaSigla?: string }>;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -106,6 +111,10 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
         quantidadeDevolvida: item.quantidadeSelecionada,
         descontoProporcional: item.desconto * (item.quantidadeSelecionada / item.quantidade),
         subtotal: (item.quantidadeSelecionada * item.precoUnitario) - (item.desconto * (item.quantidadeSelecionada / item.quantidade)),
+        // Preservado no documento da devolucao para o estorno saber reverter
+        // na mesma unidade -- sem isso, estornar devolveria a quantidade em
+        // embalagem como se fosse unidade base.
+        ...(item.fatorConversao ? { fatorConversao: item.fatorConversao } : {}),
       }));
 
       await runTransaction(db, async (transaction) => {
@@ -129,7 +138,12 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
         await applyStockAdjustments(
           transaction,
           db,
-          itensFiltrados.map((item) => ({ id: item.id, nome: item.nome, quantidade: item.quantidadeSelecionada })),
+          toStockAdjustmentItems(itensFiltrados.map((item) => ({
+            id: item.id,
+            nome: item.nome,
+            quantidade: item.quantidadeSelecionada,
+            fatorConversao: item.fatorConversao,
+          }))),
           'increment',
           true,
         );
@@ -276,7 +290,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
                     <div style={{ flex: 1 }}>
                       <strong style={{ fontSize: '14px', display: 'block' }}>{item.nome}</strong>
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Preço Un: R$ {item.precoUnitario.toFixed(2)} | Vendido: {item.quantidade} un. {(item.quantidadeJaDevolvida || 0) > 0 && `(Já devolvido: ${item.quantidadeJaDevolvida})`}
+                        Preço Un: R$ {item.precoUnitario.toFixed(2)} | Vendido: {item.quantidade} {item.unidadeMedidaSigla || 'un.'} {(item.quantidadeJaDevolvida || 0) > 0 && `(Já devolvido: ${item.quantidadeJaDevolvida})`}
                       </span>
                     </div>
                     {!esgotado && item.selecionado && (

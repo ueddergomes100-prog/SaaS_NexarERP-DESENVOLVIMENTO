@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
@@ -41,6 +41,13 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields } from '../../utils/fiscalDomain';
+import {
+  DEFAULT_VENDER_POR_EMBALAGEM,
+  buildOpcoesUnidadeVenda,
+  findOpcaoUnidadeVenda,
+  toBaseQuantity,
+  toStockAdjustmentItems,
+} from '../../utils/embalagemDomain';
 import Swal from 'sweetalert2';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
@@ -63,6 +70,7 @@ interface ProdutoEstoque {
   unidadeMedidaSigla?: string;
   unidadeMedidaCasasDecimais?: number;
   unidadeMedidaFracionado?: boolean;
+  embalagens?: unknown;
 }
 interface ItemVenda {
   id: string;
@@ -74,6 +82,15 @@ interface ItemVenda {
   quantidadeJaDevolvida?: number;
   unidadeMedidaSigla?: string;
   unidadeMedidaCasasDecimais?: number;
+  /** Embalagem escolhida na venda. Ausente = vendido na unidade base do
+   * produto, que e o comportamento de todo item gravado antes desta feature. */
+  embalagemId?: string;
+  /** Quantas unidades base cada unidade vendida consome (20 = saco de 20kg).
+   * E' o que converte `quantidade` em baixa de estoque. */
+  fatorConversao?: number;
+  /** quantidade x fatorConversao, gravado so para auditoria/conferencia --
+   * a baixa de estoque recalcula pelo fator, nao confia neste campo. */
+  quantidadeBase?: number;
 }
 
 interface LinkedNfe {
@@ -91,7 +108,7 @@ interface DevolucaoVenda {
   motivo: string;
   status: 'concluida' | 'estornada';
   createdAt?: { seconds?: number };
-  itensDevolvidos: Array<{ id: string; nome: string; quantidadeDevolvida: number }>;
+  itensDevolvidos: Array<{ id: string; nome: string; quantidadeDevolvida: number; fatorConversao?: number }>;
 }
 
 const renderProdutoRow = (p: ProdutoEstoque) => (
@@ -157,6 +174,8 @@ const PedidoVendaForm: React.FC = () => {
   const [produtoDesconto, setProdutoDesconto] = useState<number>(0);
   const [produtoPreco, setProdutoPreco] = useState<number>(0);
   const [produtoSelecionado, setProdutoSelecionado] = useState<ProdutoEstoque | null>(null);
+  /** Embalagem escolhida para o proximo item. Vazio = unidade base. */
+  const [embalagemSelecionadaId, setEmbalagemSelecionadaId] = useState('');
   const [isProdutoSearchModalOpen, setIsProdutoSearchModalOpen] = useState(false);
   const [selectedItemIndex, setSelectedItemIndex] = useState<number | null>(null);
 
@@ -169,6 +188,7 @@ const PedidoVendaForm: React.FC = () => {
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
   const [produtoSearchMode, setProdutoSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(false);
+  const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [imprimirMinutaAposVendaAtiva, setImprimirMinutaAposVendaAtiva] = useState(false);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
@@ -255,7 +275,8 @@ const PedidoVendaForm: React.FC = () => {
         codigo: doc.data().codigo || '',
         unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
         unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
-        unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado
+        unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
+        embalagens: doc.data().embalagens
       }));
       setProdutosCatalogo(dataE);
 
@@ -268,6 +289,7 @@ const PedidoVendaForm: React.FC = () => {
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
           setProdutoSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           setConferenciaMercadoriaAtiva(config.conferenciaMercadoria === true);
+          setVenderPorEmbalagem(config.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
           setImprimirMinutaAposVendaAtiva(config.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA);
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
@@ -413,6 +435,23 @@ const PedidoVendaForm: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFetchingData, clienteNome, formaPagamento, dataVenda, itens, orcamentoId, vendedorId, frete, encargos, paymentDrafts]);
 
+  /** Opcoes do seletor "Unidade": a base do produto sempre, mais as
+   * embalagens ativas quando a chave venderPorEmbalagem esta ligada. Com a
+   * chave desligada so existe a base -- exatamente o comportamento antigo. */
+  const opcoesUnidadeVenda = useMemo(() => {
+    const opcoes = buildOpcoesUnidadeVenda(produtoSelecionado);
+    return venderPorEmbalagem ? opcoes : opcoes.slice(0, 1);
+  }, [produtoSelecionado, venderPorEmbalagem]);
+  const opcaoUnidadeSelecionada = findOpcaoUnidadeVenda(opcoesUnidadeVenda, embalagemSelecionadaId);
+
+  /** Trocar de embalagem repoe o preco da opcao escolhida. Nao preserva um
+   * preco digitado a mao de proposito: o preco do saco nao tem relacao com o
+   * preco do quilo que o operador possa ter ajustado antes. */
+  const handleSelecionarEmbalagem = (embalagemId: string) => {
+    setEmbalagemSelecionadaId(embalagemId);
+    setProdutoPreco(findOpcaoUnidadeVenda(opcoesUnidadeVenda, embalagemId).precoVenda);
+  };
+
   const handleAddItem = () => {
     if (!produtoBusca) {
       showError('Atenção', 'Selecione ou digite o nome de um produto.');
@@ -427,22 +466,36 @@ const PedidoVendaForm: React.FC = () => {
     // Tenta achar o produto no catálogo para pegar o ID real
     const produtoEncontrado = produtoSelecionado || produtosCatalogo.find(p => p.nome.toLowerCase() === produtoBusca.toLowerCase() || p.codigo === produtoBusca);
 
+    // Produto achado por texto (sem passar pelo autocomplete) nao tem opcao de
+    // embalagem selecionada -- cai na unidade base dele, nao na do produto que
+    // por acaso estivesse selecionado antes.
+    const opcaoUnidade = produtoEncontrado === produtoSelecionado
+      ? opcaoUnidadeSelecionada
+      : buildOpcoesUnidadeVenda(produtoEncontrado)[0];
+    const fatorConversao = opcaoUnidade?.fatorConversao ?? 1;
+    // Estoque e sempre debitado na unidade base: 2 sacos de 20kg = 40kg.
+    const quantidadeBase = toBaseQuantity(qtdNum, fatorConversao);
+
     if (produtoEncontrado) {
-      if (!permitirVendaSemEstoque && qtdNum > (produtoEncontrado.quantidade || 0)) {
-        showError('Estoque Insuficiente', `Você tem apenas ${produtoEncontrado.quantidade || 0} de ${produtoEncontrado.nome} em estoque. Venda sem estoque desativada.`);
+      if (!permitirVendaSemEstoque && quantidadeBase > (produtoEncontrado.quantidade || 0)) {
+        const sigla = produtoEncontrado.unidadeMedidaSigla || 'UN';
+        showError('Estoque Insuficiente', fatorConversao === 1
+          ? `Você tem apenas ${produtoEncontrado.quantidade || 0} de ${produtoEncontrado.nome} em estoque. Venda sem estoque desativada.`
+          : `${qtdNum} ${opcaoUnidade.sigla} consome ${quantidadeBase} ${sigla}, mas você tem apenas ${produtoEncontrado.quantidade || 0} ${sigla} de ${produtoEncontrado.nome} em estoque.`);
         return;
       }
 
-      // Validação de Venda Fracionada
-      if (!isValidSaleQuantity(qtdNum, produtoEncontrado.unidadeMedidaFracionado, produtoEncontrado.unidadeMedidaCasasDecimais)) {
-        showError('Operação Bloqueada', produtoEncontrado.unidadeMedidaFracionado
-          ? `A quantidade de ${produtoEncontrado.nome} aceita no máximo ${produtoEncontrado.unidadeMedidaCasasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${produtoEncontrado.unidadeMedidaSigla || 'UN'}.`
-          : `O produto ${produtoEncontrado.nome} está configurado na unidade ${produtoEncontrado.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
+      // Validação de Venda Fracionada -- contra a unidade REALMENTE vendida.
+      // Um saco continua indivisível mesmo num produto fracionável em quilo.
+      if (!isValidSaleQuantity(qtdNum, opcaoUnidade.permiteFracionado, opcaoUnidade.casasDecimais)) {
+        showError('Operação Bloqueada', opcaoUnidade.permiteFracionado
+          ? `A quantidade de ${produtoEncontrado.nome} aceita no máximo ${opcaoUnidade.casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${opcaoUnidade.sigla}.`
+          : `${produtoEncontrado.nome} está sendo vendido na unidade ${opcaoUnidade.sigla}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
         return;
       }
     }
 
-    const precoFinal = produtoPreco > 0 ? produtoPreco : (produtoEncontrado?.precoVenda || 0);
+    const precoFinal = produtoPreco > 0 ? produtoPreco : (opcaoUnidade?.precoVenda || produtoEncontrado?.precoVenda || 0);
     const subtotal = (precoFinal * qtdNum) - produtoDesconto;
 
     const novoItem: ItemVenda = {
@@ -452,8 +505,13 @@ const PedidoVendaForm: React.FC = () => {
       quantidade: qtdNum,
       desconto: produtoDesconto,
       subtotal: Math.max(0, subtotal),
-      unidadeMedidaSigla: produtoEncontrado?.unidadeMedidaSigla || 'UN',
-      unidadeMedidaCasasDecimais: produtoEncontrado?.unidadeMedidaCasasDecimais ?? 0
+      unidadeMedidaSigla: opcaoUnidade?.sigla || produtoEncontrado?.unidadeMedidaSigla || 'UN',
+      unidadeMedidaCasasDecimais: opcaoUnidade?.casasDecimais ?? produtoEncontrado?.unidadeMedidaCasasDecimais ?? 0,
+      // Item vendido na unidade base nao ganha campo nenhum de embalagem --
+      // fica byte a byte igual ao que o sistema sempre gravou.
+      ...(opcaoUnidade?.embalagemId
+        ? { embalagemId: opcaoUnidade.embalagemId, fatorConversao, quantidadeBase }
+        : {}),
     };
 
     setItens([...itens, novoItem]);
@@ -462,6 +520,7 @@ const PedidoVendaForm: React.FC = () => {
     setProdutoDesconto(0);
     setProdutoPreco(0);
     setProdutoSelecionado(null);
+    setEmbalagemSelecionadaId('');
     produtoBuscaInputRef.current?.focus();
   };
 
@@ -469,6 +528,7 @@ const PedidoVendaForm: React.FC = () => {
     setProdutoBusca('');
     setProdutoPreco(0);
     setProdutoSelecionado(null);
+    setEmbalagemSelecionadaId('');
   };
 
   const handleRemoveItem = (index: number) => {
@@ -482,6 +542,11 @@ const PedidoVendaForm: React.FC = () => {
     if (!item) return;
 
     const produtoCatalogo = produtosCatalogo.find((p) => p.id === item.id);
+    // A unidade que vale aqui e a do ITEM (a embalagem escolhida quando ele
+    // foi adicionado), nao a unidade base do produto no catalogo.
+    const opcaoItem = findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(produtoCatalogo), item.embalagemId);
+    const fatorItem = item.fatorConversao ?? opcaoItem.fatorConversao ?? 1;
+    const siglaItem = item.unidadeMedidaSigla || opcaoItem.sigla;
 
     // step: 'any' evita o bug de precisao de ponto flutuante do <input
     // type=number> nativo com step fracionario fixo (ex: '0.001' rejeitava
@@ -489,10 +554,10 @@ const PedidoVendaForm: React.FC = () => {
     // por conta de isValidSaleQuantity logo abaixo, com a mensagem de erro.
     const result = await NexusSwal.fire({
       title: 'Alterar quantidade',
-      text: item.nome,
+      text: `${item.nome} (${siglaItem})`,
       input: 'number',
       inputValue: String(item.quantidade),
-      inputAttributes: { min: '0', step: produtoCatalogo?.unidadeMedidaFracionado ? 'any' : '1' },
+      inputAttributes: { min: '0', step: opcaoItem.permiteFracionado ? 'any' : '1' },
       showCancelButton: true,
       confirmButtonText: 'Aplicar',
       cancelButtonText: 'Cancelar',
@@ -504,20 +569,29 @@ const PedidoVendaForm: React.FC = () => {
       showError('Atenção', 'A quantidade deve ser maior que zero.');
       return;
     }
-    if (!isValidSaleQuantity(novaQtd, produtoCatalogo?.unidadeMedidaFracionado, produtoCatalogo?.unidadeMedidaCasasDecimais)) {
-      showError('Operação Bloqueada', produtoCatalogo?.unidadeMedidaFracionado
-        ? `A quantidade de ${item.nome} aceita no máximo ${produtoCatalogo.unidadeMedidaCasasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${item.unidadeMedidaSigla || 'UN'}.`
-        : `O produto ${item.nome} está configurado na unidade ${item.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
+    if (!isValidSaleQuantity(novaQtd, opcaoItem.permiteFracionado, opcaoItem.casasDecimais)) {
+      showError('Operação Bloqueada', opcaoItem.permiteFracionado
+        ? `A quantidade de ${item.nome} aceita no máximo ${opcaoItem.casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${siglaItem}.`
+        : `${item.nome} está sendo vendido na unidade ${siglaItem}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
       return;
     }
-    if (produtoCatalogo && !permitirVendaSemEstoque && novaQtd > (produtoCatalogo.quantidade || 0)) {
-      showError('Estoque Insuficiente', `Você tem apenas ${produtoCatalogo.quantidade || 0} de ${produtoCatalogo.nome} em estoque. Venda sem estoque desativada.`);
+    const novaQtdBase = toBaseQuantity(novaQtd, fatorItem);
+    if (produtoCatalogo && !permitirVendaSemEstoque && novaQtdBase > (produtoCatalogo.quantidade || 0)) {
+      const siglaBase = produtoCatalogo.unidadeMedidaSigla || 'UN';
+      showError('Estoque Insuficiente', fatorItem === 1
+        ? `Você tem apenas ${produtoCatalogo.quantidade || 0} de ${produtoCatalogo.nome} em estoque. Venda sem estoque desativada.`
+        : `${novaQtd} ${siglaItem} consome ${novaQtdBase} ${siglaBase}, mas você tem apenas ${produtoCatalogo.quantidade || 0} ${siglaBase} em estoque.`);
       return;
     }
 
     setItens((current) => current.map((it, idx) => (
       idx === selectedItemIndex
-        ? { ...it, quantidade: novaQtd, subtotal: Math.max(0, it.precoUnitario * novaQtd - it.desconto) }
+        ? {
+            ...it,
+            quantidade: novaQtd,
+            subtotal: Math.max(0, it.precoUnitario * novaQtd - it.desconto),
+            ...(it.embalagemId ? { quantidadeBase: novaQtdBase } : {}),
+          }
         : it
     )));
   };
@@ -713,7 +787,7 @@ const PedidoVendaForm: React.FC = () => {
         await applyStockAdjustments(
           transaction,
           db,
-          itens.map(item => ({ id: item.id, nome: item.nome, quantidade: item.quantidade })),
+          toStockAdjustmentItems(itens),
           'decrement',
           permitirVendaSemEstoque
         );
@@ -950,7 +1024,10 @@ const PedidoVendaForm: React.FC = () => {
               unidadeComercial: item.unidadeMedidaSigla || 'UN',
               quantidadeComercial: item.quantidade,
               valorUnitarioComercial: item.precoUnitario,
-              pesoLiquidoUnitarioKg,
+              // O peso liquido do cadastro e por unidade BASE; quando o item foi
+              // vendido em embalagem, cada unidade comercial pesa o fator vezes
+              // mais (1 saco de 20kg = 20 x o peso do quilo).
+              pesoLiquidoUnitarioKg: pesoLiquidoUnitarioKg * (item.fatorConversao ?? 1),
             });
             if (!unitFields.ok) {
               throw new Error(`${item.nome}: ${unitFields.error}`);
@@ -1250,7 +1327,9 @@ const PedidoVendaForm: React.FC = () => {
           unidadeComercial: item.unidadeMedidaSigla || 'UN',
           quantidadeComercial: item.quantidade,
           valorUnitarioComercial: item.precoUnitario,
-          pesoLiquidoUnitarioKg,
+          // Mesma conversao do outro ponto de emissao: peso por unidade base
+          // x fator da embalagem em que o item foi realmente vendido.
+          pesoLiquidoUnitarioKg: pesoLiquidoUnitarioKg * (item.fatorConversao ?? 1),
         });
         if (!unitFields.ok) {
           throw new Error(`${item.nome}: ${unitFields.error}`);
@@ -1543,7 +1622,7 @@ const PedidoVendaForm: React.FC = () => {
         await applyStockAdjustments(
           transaction,
           db,
-          itens.map(item => ({ id: item.id, nome: item.nome, quantidade: item.quantidade })),
+          toStockAdjustmentItems(itens),
           'increment',
           true
         );
@@ -1690,7 +1769,7 @@ const PedidoVendaForm: React.FC = () => {
         const devolucaoData = devolucaoSnap.data();
         if (devolucaoData.status === 'estornada') throw new Error('Esta devolução já foi estornada.');
 
-        const itensDevolvidos: Array<{ id: string; nome: string; quantidadeDevolvida: number }> = devolucaoData.itensDevolvidos || [];
+        const itensDevolvidos: Array<{ id: string; nome: string; quantidadeDevolvida: number; fatorConversao?: number }> = devolucaoData.itensDevolvidos || [];
 
         // So estorna o destino do valor se ele ainda nao foi usado --
         // credito ja parcialmente gasto em Contas a Receber nao pode ser
@@ -1719,7 +1798,12 @@ const PedidoVendaForm: React.FC = () => {
         await applyStockAdjustments(
           transaction,
           db,
-          itensDevolvidos.map((item) => ({ id: item.id, nome: item.nome, quantidade: item.quantidadeDevolvida })),
+          toStockAdjustmentItems(itensDevolvidos.map((item) => ({
+            id: item.id,
+            nome: item.nome,
+            quantidade: item.quantidadeDevolvida,
+            fatorConversao: item.fatorConversao,
+          }))),
           'decrement',
           true,
         );
@@ -2060,11 +2144,14 @@ const PedidoVendaForm: React.FC = () => {
                         } else {
                           setProdutoSelecionado(null);
                         }
+                        setEmbalagemSelecionadaId('');
                       }}
                       onSelect={(p) => {
                         setProdutoBusca(p.nome);
                         setProdutoPreco(p.precoVenda);
                         setProdutoSelecionado(p);
+                        // Produto novo comeca sempre na unidade base.
+                        setEmbalagemSelecionadaId('');
                       }}
                       mode={produtoSearchMode}
                       placeholder="Nome ou Código..."
@@ -2092,6 +2179,7 @@ const PedidoVendaForm: React.FC = () => {
                       setProdutoBusca(p.nome);
                       setProdutoPreco(p.precoVenda);
                       setProdutoSelecionado(p);
+                      setEmbalagemSelecionadaId('');
                     }}
                     mode={produtoSearchMode}
                     renderItem={renderProdutoRow}
@@ -2100,19 +2188,42 @@ const PedidoVendaForm: React.FC = () => {
                   />
                 </div>
 
+                {/* Seletor de embalagem: so aparece quando a chave esta ligada
+                    E o produto tem mais de uma unidade de venda cadastrada.
+                    Produto sem embalagem nao ganha um select de uma opcao so. */}
+                {opcoesUnidadeVenda.length > 1 && (
+                  <div style={{ flex: '0.7', minWidth: '110px' }}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Unidade</label>
+                    <select
+                      value={embalagemSelecionadaId}
+                      onChange={(e) => handleSelecionarEmbalagem(e.target.value)}
+                      style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+                    >
+                      {opcoesUnidadeVenda.map((opcao) => (
+                        <option key={opcao.embalagemId || 'base'} value={opcao.embalagemId}>{opcao.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div style={{ flex: '0.5', minWidth: '85px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    Qtd {produtoSelecionado?.unidadeMedidaSigla ? `(${produtoSelecionado.unidadeMedidaSigla})` : ''}
+                    Qtd {produtoSelecionado ? `(${opcaoUnidadeSelecionada.sigla})` : ''}
                   </label>
                   <input
                     type="number"
                     min="0.001"
-                    step={produtoSelecionado?.unidadeMedidaFracionado ? "any" : "1"}
+                    step={opcaoUnidadeSelecionada.permiteFracionado ? "any" : "1"}
                     value={produtoQtd}
                     onChange={(e) => setProdutoQtd(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }}
                     style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
                   />
+                  {opcaoUnidadeSelecionada.fatorConversao !== 1 && Number(produtoQtd) > 0 && (
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      Baixa {toBaseQuantity(produtoQtd, opcaoUnidadeSelecionada.fatorConversao)} {produtoSelecionado?.unidadeMedidaSigla || 'UN'}
+                    </span>
+                  )}
                 </div>
 
                 <div style={{ flex: '0.8', minWidth: '100px' }}>

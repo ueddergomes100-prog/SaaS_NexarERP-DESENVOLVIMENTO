@@ -9,6 +9,7 @@ import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, CSOSN_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
 import { computeAvailableStock } from '../../utils/estoqueReservaDomain';
+import { DEFAULT_VENDER_POR_EMBALAGEM, formatFatorConversao, normalizeEmbalagens } from '../../utils/embalagemDomain';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -19,7 +20,32 @@ interface UnidadeMedida {
   permiteFracionado: boolean;
 }
 
-type TabId = 'geral' | 'precos' | 'estoque' | 'fiscal' | 'compras' | 'composicao' | 'atacado' | 'ecommerce' | 'avancado';
+type TabId = 'geral' | 'precos' | 'estoque' | 'fiscal' | 'compras' | 'embalagens' | 'composicao' | 'atacado' | 'ecommerce' | 'avancado';
+
+/** Linha da aba Embalagens no formato do formulario (campos como string, igual
+ * a AtacadoFaixa). Vira Embalagem de verdade so no handleSave, quando a unidade
+ * escolhida e resolvida contra unidadesDB. */
+interface EmbalagemFormRow {
+  id: string;
+  unidadeMedidaId: string;
+  descricao: string;
+  fatorConversao: string;
+  precoVenda: string;
+  codigoBarras: string;
+  ativo: boolean;
+}
+
+const makeEmbalagemRowId = () => `emb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const emptyEmbalagemRow = (): EmbalagemFormRow => ({
+  id: '',
+  unidadeMedidaId: '',
+  descricao: '',
+  fatorConversao: '1',
+  precoVenda: '',
+  codigoBarras: '',
+  ativo: true,
+});
 
 interface MateriaPrimaOption {
   id: string;
@@ -148,6 +174,7 @@ const tabs: Array<{ id: TabId; label: string }> = [
   { id: 'estoque', label: 'Estoque' },
   { id: 'fiscal', label: 'Fiscal (Tributação)' },
   { id: 'compras', label: 'Compras' },
+  { id: 'embalagens', label: 'Embalagens' },
   { id: 'composicao', label: 'Composição (Produção)' },
   { id: 'atacado', label: 'Atacado' },
   { id: 'ecommerce', label: 'E-commerce' },
@@ -344,6 +371,11 @@ const EstoqueForm: React.FC = () => {
     { id: '2', quantidadeInicial: '10', quantidadeFinal: '49', preco: '', ilimitado: false },
     { id: '3', quantidadeInicial: '50', quantidadeFinal: '', preco: '', ilimitado: true }
   ]);
+  // Embalagens (vender o mesmo produto em KG, UN ou SC). O estoque continua
+  // na unidade base; cada embalagem so diz quantas unidades base ela consome.
+  const [embalagens, setEmbalagens] = useState<EmbalagemFormRow[]>([]);
+  const [novaEmbalagem, setNovaEmbalagem] = useState<EmbalagemFormRow>(emptyEmbalagemRow);
+  const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [historicoPrecos, setHistoricoPrecos] = useState<HistoricoPreco[]>([]);
   const [produtoOriginal, setProdutoOriginal] = useState<ProdutoOriginalData | null>(null);
   const [modoCadastro, setModoCadastro] = useState<'rapido' | 'avancado'>('avancado');
@@ -376,6 +408,9 @@ const EstoqueForm: React.FC = () => {
 
   const activeUnidades = unidadesDB.length > 0 ? unidadesDB : fallbackUnidades;
   const isSuperAdmin = isPlatformAdminRole(userRole);
+  /** Sigla da unidade base do produto -- e nela que o estoque e' controlado,
+   * e e' contra ela que o fator de conversao de cada embalagem e' expresso. */
+  const baseUnidadeSigla = activeUnidades.find(u => u.id === formData.unidadeMedidaId)?.sigla || 'UN';
 
   // Produto "produzido internamente" com composicao cadastrada: o custo
   // nao e mais digitado a mao, e a soma de (quantidade x custo unitario)
@@ -409,10 +444,12 @@ const EstoqueForm: React.FC = () => {
           const configData = configSnap.data();
           setValidarCadastroProduto(configData.validarCadastroProduto === true);
           setPermitirVendaSemEstoque(configData.venderSemEstoque === true);
+          setVenderPorEmbalagem(configData.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
           setRegimeTributario((configData.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
         } else {
           setValidarCadastroProduto(false);
           setPermitirVendaSemEstoque(false);
+          setVenderPorEmbalagem(DEFAULT_VENDER_POR_EMBALAGEM);
           setRegimeTributario(DEFAULT_REGIME_TRIBUTARIO);
         }
 
@@ -447,6 +484,15 @@ const EstoqueForm: React.FC = () => {
             setProdutoOriginal(data);
             setHistoricoPrecos(data.historicoPrecos || []);
             setAtacadoFaixas(normalizeAtacadoFaixas(data.atacado?.faixas || data.atacadoFaixas));
+            setEmbalagens(normalizeEmbalagens(data.embalagens).map((embalagem) => ({
+              id: embalagem.id,
+              unidadeMedidaId: embalagem.unidadeMedidaId,
+              descricao: embalagem.descricao,
+              fatorConversao: String(embalagem.fatorConversao),
+              precoVenda: embalagem.precoVenda > 0 ? String(embalagem.precoVenda) : '',
+              codigoBarras: embalagem.codigoBarras,
+              ativo: embalagem.ativo,
+            })));
             setFormData({
               ...emptyFormData,
               codigo: data.codigo || '',
@@ -686,6 +732,39 @@ const EstoqueForm: React.FC = () => {
     }));
   };
 
+  const handleAddEmbalagem = () => {
+    const fator = toNumber(novaEmbalagem.fatorConversao);
+    if (!novaEmbalagem.unidadeMedidaId) {
+      showError('Embalagem incompleta', 'Selecione a unidade de medida da embalagem.');
+      return;
+    }
+    if (fator <= 0) {
+      showError('Embalagem inválida', 'O fator de conversão deve ser maior que zero.');
+      return;
+    }
+    // Duas embalagens na mesma unidade viram duas opcoes com o mesmo rotulo no
+    // seletor da venda -- o operador nao teria como diferenciar.
+    if (embalagens.some(e => e.unidadeMedidaId === novaEmbalagem.unidadeMedidaId)) {
+      showError('Unidade repetida', 'Já existe uma embalagem cadastrada nesta unidade de medida.');
+      return;
+    }
+    if (novaEmbalagem.unidadeMedidaId === formData.unidadeMedidaId) {
+      showError('Unidade repetida', 'Esta já é a unidade base do produto — ela sempre aparece na venda, sem precisar de embalagem.');
+      return;
+    }
+
+    setEmbalagens(prev => [...prev, { ...novaEmbalagem, id: makeEmbalagemRowId() }]);
+    setNovaEmbalagem(emptyEmbalagemRow());
+  };
+
+  const updateEmbalagem = (embalagemId: string, field: keyof EmbalagemFormRow, value: string | boolean) => {
+    setEmbalagens(prev => prev.map(e => e.id === embalagemId ? { ...e, [field]: value } : e));
+  };
+
+  const removeEmbalagem = (embalagemId: string) => {
+    setEmbalagens(prev => prev.filter(e => e.id !== embalagemId));
+  };
+
   const addAtacadoFaixa = () => {
     setAtacadoFaixas(prev => [
       ...prev,
@@ -870,6 +949,29 @@ const EstoqueForm: React.FC = () => {
         // ("Produto fracionado", formData.produtoFracionado) -- uma unidade
         // fracionavel como KG nao obriga todo produto nela a vender fracionado.
         unidadeMedidaFracionado: selectedUnit ? Boolean(selectedUnit.permiteFracionado) && formData.produtoFracionado : false,
+        // Embalagens: cada uma resolve a propria unidade contra unidadesDB e
+        // desnormaliza sigla/casas decimais, mesmo padrao da unidade base
+        // acima. Diferenca deliberada: aqui `unidadeMedidaFracionado` vem so
+        // da unidade, sem o AND com "Produto fracionado" -- quem decide se um
+        // saco pode ser vendido pela metade e a unidade da embalagem, nao o
+        // fato do produto ser fracionavel a granel.
+        embalagens: embalagens
+          .filter(embalagem => toNumber(embalagem.fatorConversao) > 0)
+          .map(embalagem => {
+            const unidadeEmbalagem = activeUnidades.find(u => u.id === embalagem.unidadeMedidaId);
+            return {
+              id: embalagem.id,
+              unidadeMedidaId: embalagem.unidadeMedidaId,
+              unidadeMedidaSigla: unidadeEmbalagem?.sigla || 'UN',
+              unidadeMedidaCasasDecimais: unidadeEmbalagem ? Number(unidadeEmbalagem.casasDecimais) : 0,
+              unidadeMedidaFracionado: Boolean(unidadeEmbalagem?.permiteFracionado),
+              descricao: embalagem.descricao.trim(),
+              fatorConversao: toNumber(embalagem.fatorConversao),
+              precoVenda: toNumber(embalagem.precoVenda),
+              codigoBarras: embalagem.codigoBarras.trim(),
+              ativo: embalagem.ativo,
+            };
+          }),
         ultimaAlteracaoPreco: mudouPreco ? new Date().toISOString() : produtoOriginal?.ultimaAlteracaoPreco || null,
         historicoPrecos: ultimoHistorico,
         precos: {
@@ -1076,6 +1178,10 @@ const EstoqueForm: React.FC = () => {
         <div className="product-tabs">
           {tabs
             .filter(tab => modoCadastro === 'avancado' || ['geral', 'precos', 'estoque', 'fiscal'].includes(tab.id))
+            // A aba Embalagens acompanha a chave "Vender por embalagem" das
+            // Configuracoes. Desligar so esconde: nenhuma embalagem ja
+            // cadastrada e apagada, e religar traz tudo de volta.
+            .filter(tab => tab.id !== 'embalagens' || venderPorEmbalagem)
             .map((tab) => (
               <button
                 key={tab.id}
@@ -1551,6 +1657,170 @@ const EstoqueForm: React.FC = () => {
                   <strong>Média de custo compra</strong>
                   <p>{formatCurrency(toNumber(formData.ultimoCusto) || precoCusto)} será usada como referência gerencial.</p>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'embalagens' && (
+            <div className="card form-section product-card">
+              <div className="section-header">
+                <Package size={20} className="section-icon" />
+                <div>
+                  <h3>Embalagens</h3>
+                  <p>Formas alternativas de vender este produto. O estoque continua sendo controlado em {baseUnidadeSigla} — vender 1 embalagem baixa o fator de conversão dela.</p>
+                </div>
+              </div>
+
+              <div className="form-grid-3" style={{ alignItems: 'flex-end' }}>
+                <div className="input-group">
+                  <label>Unidade de medida</label>
+                  <select
+                    value={novaEmbalagem.unidadeMedidaId}
+                    onChange={(e) => setNovaEmbalagem(prev => ({ ...prev, unidadeMedidaId: e.target.value }))}
+                  >
+                    <option value="">Selecione...</option>
+                    {activeUnidades.map(unidade => (
+                      <option key={unidade.id} value={unidade.id}>{unidade.sigla} — {unidade.nome}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Fator de conversão (em {baseUnidadeSigla})</label>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={novaEmbalagem.fatorConversao}
+                    onChange={(e) => setNovaEmbalagem(prev => ({ ...prev, fatorConversao: e.target.value }))}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Preço de venda</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder={`Vazio = ${formatCurrency(precoVenda)} × fator`}
+                    value={novaEmbalagem.precoVenda}
+                    onChange={(e) => setNovaEmbalagem(prev => ({ ...prev, precoVenda: e.target.value }))}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Código de barras</label>
+                  <input
+                    value={novaEmbalagem.codigoBarras}
+                    onChange={(e) => setNovaEmbalagem(prev => ({ ...prev, codigoBarras: e.target.value }))}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Descrição</label>
+                  <input
+                    placeholder="Ex.: Saco de 20kg"
+                    value={novaEmbalagem.descricao}
+                    onChange={(e) => setNovaEmbalagem(prev => ({ ...prev, descricao: e.target.value }))}
+                  />
+                </div>
+                <button type="button" className="btn-secondary" onClick={handleAddEmbalagem} style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+                  <Plus size={16} /> Adicionar embalagem
+                </button>
+              </div>
+
+              <div className="table-wrapper" style={{ marginTop: '20px' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Unidade</th>
+                      <th>Fator</th>
+                      <th>Preço</th>
+                      <th>Código de barras</th>
+                      <th>Descrição</th>
+                      <th>Ativa</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {embalagens.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
+                          Nenhuma embalagem cadastrada. O produto é vendido apenas em {baseUnidadeSigla}.
+                        </td>
+                      </tr>
+                    ) : (
+                      embalagens.map(embalagem => {
+                        const unidadeEmbalagem = activeUnidades.find(u => u.id === embalagem.unidadeMedidaId);
+                        const fator = toNumber(embalagem.fatorConversao);
+                        const precoEfetivo = toNumber(embalagem.precoVenda) > 0
+                          ? toNumber(embalagem.precoVenda)
+                          : precoVenda * fator;
+                        return (
+                          <tr key={embalagem.id} style={{ opacity: embalagem.ativo ? 1 : 0.5 }}>
+                            <td>
+                              <strong>{unidadeEmbalagem?.sigla || '—'}</strong>
+                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                1 {unidadeEmbalagem?.sigla || '?'} = {formatFatorConversao(fator)} {baseUnidadeSigla}
+                              </div>
+                            </td>
+                            <td style={{ maxWidth: '120px' }}>
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={embalagem.fatorConversao}
+                                onChange={(e) => updateEmbalagem(embalagem.id, 'fatorConversao', e.target.value)}
+                              />
+                            </td>
+                            <td style={{ maxWidth: '140px' }}>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder={formatCurrency(precoEfetivo)}
+                                value={embalagem.precoVenda}
+                                onChange={(e) => updateEmbalagem(embalagem.id, 'precoVenda', e.target.value)}
+                              />
+                            </td>
+                            <td style={{ maxWidth: '180px' }}>
+                              <input
+                                value={embalagem.codigoBarras}
+                                onChange={(e) => updateEmbalagem(embalagem.id, 'codigoBarras', e.target.value)}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                value={embalagem.descricao}
+                                onChange={(e) => updateEmbalagem(embalagem.id, 'descricao', e.target.value)}
+                              />
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <input
+                                type="checkbox"
+                                checked={embalagem.ativo}
+                                onChange={(e) => updateEmbalagem(embalagem.id, 'ativo', e.target.checked)}
+                              />
+                            </td>
+                            <td>
+                              <button type="button" className="icon-btn" style={{ color: '#ef4444' }} title="Remover" onClick={() => removeEmbalagem(embalagem.id)}>
+                                <Trash2 size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="info-panel compact-panel" style={{ marginTop: '16px' }}>
+                <strong>Como isso aparece na venda</strong>
+                <p>
+                  O operador escolhe a unidade ao lado da quantidade: {baseUnidadeSigla}
+                  {embalagens.filter(e => e.ativo).map(e => {
+                    const sigla = activeUnidades.find(u => u.id === e.unidadeMedidaId)?.sigla || 'UN';
+                    return ` ou ${sigla}(${formatFatorConversao(toNumber(e.fatorConversao))})`;
+                  }).join('')}.
+                  Desativar uma embalagem tira ela do seletor sem apagar o cadastro.
+                </p>
               </div>
             </div>
           )}

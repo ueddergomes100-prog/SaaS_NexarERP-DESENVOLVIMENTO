@@ -14,6 +14,7 @@ import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
 import { spedyService, type SpedyCity } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
+import { DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import {
   DEFAULT_BLOQUEAR_EXCEDENTE,
   DEFAULT_CONFERENCIA_MERCADORIA,
@@ -89,6 +90,7 @@ const Configuracoes: React.FC = () => {
     diasNotificacaoLembrete: '15',
     venderSemEstoque: false,
     validarCadastroProduto: false,
+    venderPorEmbalagem: DEFAULT_VENDER_POR_EMBALAGEM,
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     conferenciaMercadoria: DEFAULT_CONFERENCIA_MERCADORIA,
@@ -152,6 +154,7 @@ const Configuracoes: React.FC = () => {
             ...data,
             venderSemEstoque: data.venderSemEstoque ?? false,
             validarCadastroProduto: data.validarCadastroProduto ?? false,
+            venderPorEmbalagem: data.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM,
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             conferenciaMercadoria: data.conferenciaMercadoria ?? DEFAULT_CONFERENCIA_MERCADORIA,
@@ -1234,6 +1237,26 @@ const Configuracoes: React.FC = () => {
                   Permitir cadastrar produto apenas com nome, preço e quantidade
                 </label>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Quando marcado, o cadastro de produtos exige apenas nome, preço de venda e quantidade inicial de estoque.</p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Vender por Embalagem</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    name="venderPorEmbalagem"
+                    checked={formData.venderPorEmbalagem === true}
+                    onChange={(e) => setFormData({ ...formData, venderPorEmbalagem: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Permitir vender o mesmo produto em mais de uma unidade
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Libera a aba "Embalagens" no cadastro do produto e o seletor de unidade na venda — por exemplo,
+                  vender a mesma ração por quilo ou por saco de 20kg, com preços diferentes. O estoque continua sendo
+                  controlado na unidade base. Desmarcar não apaga nenhuma embalagem cadastrada.
+                </p>
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

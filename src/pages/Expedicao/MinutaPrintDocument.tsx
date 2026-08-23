@@ -4,9 +4,13 @@ import { getCompanyAddressRows } from '../../utils/companyAddress';
 export interface MinutaItem {
   id: string;
   nome: string;
+  /** Na unidade em que foi vendido: "2 SC", nao "40 KG". O separador tira 2
+   * sacos da prateleira, e a conversao para quilo nao interessa a ele. */
   quantidade: number;
   unidadeMedidaSigla?: string;
   unidadeMedidaCasasDecimais?: number;
+  /** Presente quando o item foi vendido em embalagem. */
+  embalagemId?: string;
   codigo?: string;
   localizacaoEstoque?: string;
 }

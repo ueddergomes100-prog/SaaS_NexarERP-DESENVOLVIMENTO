@@ -19,6 +19,7 @@ import {
   type ConferenciaItem,
   type StatusConferencia,
 } from '../../utils/conferenciaDomain';
+import { normalizeEmbalagens } from '../../utils/embalagemDomain';
 
 interface HistoricoEntry {
   de: string;
@@ -171,15 +172,29 @@ const ConferenciaForm: React.FC = () => {
             const base: ConferenciaItem = {
               produtoId: item.id,
               nome: item.nome,
+              // Quantidade na unidade VENDIDA: bipar 1 saco fecha 1, nao 20.
               quantidadePedida: item.quantidade,
               quantidadeConferida: 0,
+              unidadeMedidaSigla: item.unidadeMedidaSigla,
             };
             if (!item.id || item.id === 'avulso') return base;
             try {
               const estoqueSnap = await getDoc(doc(db, 'estoque', item.id));
               if (estoqueSnap.exists()) {
                 const produto = estoqueSnap.data();
-                return { ...base, codigo: produto.codigo || '', codigoBarras: produto.codigoBarras || '', localizacaoEstoque: produto.localizacaoEstoque || '' };
+                // Item vendido em embalagem tem que ser conferido pelo EAN DA
+                // EMBALAGEM -- o separador tem um saco na mao, e o EAN da
+                // unidade nao esta impresso nele. Sem isso, bipar o saco
+                // devolveria "Codigo nao encontrado neste pedido".
+                const embalagemDoItem = item.embalagemId
+                  ? normalizeEmbalagens(produto.embalagens).find((e) => e.id === item.embalagemId)
+                  : null;
+                return {
+                  ...base,
+                  codigo: produto.codigo || '',
+                  codigoBarras: (embalagemDoItem?.codigoBarras || produto.codigoBarras || ''),
+                  localizacaoEstoque: produto.localizacaoEstoque || '',
+                };
               }
             } catch (err) {
               console.error('Erro ao buscar dados de estoque do item da conferência:', err);
@@ -520,7 +535,10 @@ const ConferenciaForm: React.FC = () => {
                     <td>{item.localizacaoEstoque || '---'}</td>
                     <td>{item.codigo || '---'}</td>
                     <td>{item.nome}</td>
-                    <td style={{ textAlign: 'center' }}>{item.quantidadePedida}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      {item.quantidadePedida}
+                      {item.unidadeMedidaSigla && <span style={{ color: 'var(--text-muted)' }}> {item.unidadeMedidaSigla}</span>}
+                    </td>
                     <td style={{ textAlign: 'center', fontWeight: 700 }}>{item.quantidadeConferida}</td>
                     <td style={{ textAlign: 'center' }}>
                       <span style={{

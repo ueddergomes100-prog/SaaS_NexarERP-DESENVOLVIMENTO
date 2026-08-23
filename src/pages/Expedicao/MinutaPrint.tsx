@@ -56,6 +56,7 @@ const MinutaPrint: React.FC = () => {
               quantidade: item.quantidade,
               unidadeMedidaSigla: item.unidadeMedidaSigla,
               unidadeMedidaCasasDecimais: item.unidadeMedidaCasasDecimais,
+              embalagemId: item.embalagemId,
             };
             if (!item.id || item.id === 'avulso') return base;
             try {

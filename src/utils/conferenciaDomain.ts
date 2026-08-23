@@ -30,11 +30,16 @@ export const canTransition = (de: StatusConferencia, para: StatusConferencia): b
 export interface ConferenciaItem {
   produtoId: string;
   codigo?: string;
+  /** EAN a ser bipado. Quando o item foi vendido em embalagem, e o EAN da
+   * EMBALAGEM (o que esta impresso no saco), nao o da unidade. */
   codigoBarras?: string;
   nome: string;
   localizacaoEstoque?: string;
+  /** Na unidade em que o item foi vendido -- 2 sacos sao 2, nao 40 quilos. */
   quantidadePedida: number;
   quantidadeConferida: number;
+  /** Sigla da unidade vendida, so para exibicao na tela/minuta. */
+  unidadeMedidaSigla?: string;
 }
 
 export type BipagemResultado = 'ok' | 'nao_encontrado' | 'excedente' | 'bloqueado_manual';

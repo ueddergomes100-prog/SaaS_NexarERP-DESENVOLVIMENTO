@@ -14,6 +14,17 @@ import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, reserveTenantSequence, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { fromCents, toCents } from '../../utils/financeDomain';
+import {
+  calcularDescontoCents,
+  checarLimiteTotal,
+  parseLimiteDescontoConfig,
+  parseModoLimiteDesconto,
+  type LimiteDescontoConfig,
+  type ModoLimiteDesconto,
+} from '../../utils/descontoDomain';
+import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
+import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
@@ -78,6 +89,11 @@ const OrcamentoForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
+  const [descontoInput, setDescontoInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
+  const [limiteDescontoOrcamento, setLimiteDescontoOrcamento] = useState<LimiteDescontoConfig | null>(null);
+  const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>('avisar');
+  const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
+  const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
   const [veiculosDisponiveis, setVeiculosDisponiveis] = useState<VeiculoBasico[]>([]);
   const [veiculosDoCliente, setVeiculosDoCliente] = useState<VeiculoBasico[]>([]);
   const [isVeiculoDropdownOpen, setIsVeiculoDropdownOpen] = useState(false);
@@ -110,6 +126,17 @@ const OrcamentoForm: React.FC = () => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Uma aprovacao de senha so vale pro estado do momento -- mudar item ou
+  // desconto depois invalida.
+  const primeiraRenderAprovacaoRef = useRef(true);
+  useEffect(() => {
+    if (primeiraRenderAprovacaoRef.current) {
+      primeiraRenderAprovacaoRef.current = false;
+      return;
+    }
+    setAprovacaoDesconto(null);
+  }, [itens, descontoInput]);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -157,7 +184,10 @@ const OrcamentoForm: React.FC = () => {
           const configRef = doc(db, 'configuracoes', tenantId);
           const configSnap = await getDoc(configRef);
           if (configSnap.exists()) {
-            setPermitirVendaSemEstoque(configSnap.data().venderSemEstoque === true);
+            const config = configSnap.data();
+            setPermitirVendaSemEstoque(config.venderSemEstoque === true);
+            setLimiteDescontoOrcamento(parseLimiteDescontoConfig(config.limiteDescontoOrcamento));
+            setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
           }
         } catch (err) { console.error(err); }
 
@@ -183,6 +213,12 @@ const OrcamentoForm: React.FC = () => {
             if (data.servicos) data.servicos.forEach((s: any) => loadedItens.push({ ...s, tipo: 'servico' }));
             if (data.pecas) data.pecas.forEach((p: any) => loadedItens.push({ ...p, tipo: 'peca' }));
             setItens(loadedItens);
+            if (data.desconto) {
+              setDescontoInput({
+                tipo: data.desconto.tipo === 'percentual' ? 'percentual' : 'valor',
+                valor: Number(data.desconto.valorInformado) > 0 ? String(data.desconto.valorInformado) : '',
+              });
+            }
           }
         } else {
           const snap = await getCountFromServer(query(collection(db, 'orcamentos'), where('tenantId', '==', tenantId)));
@@ -249,9 +285,14 @@ const OrcamentoForm: React.FC = () => {
       preco: precoNum,
       quantidade: 1,
       tipo,
-      unidadeMedidaSigla,
-      unidadeMedidaFracionado,
-      unidadeMedidaCasasDecimais,
+      // Servico (ou peca avulsa fora do catalogo) nao tem essas 3 --
+      // omitidas em vez de gravadas como undefined, que o Firestore recusa
+      // na hora de salvar ("Unsupported field value: undefined"). Achado
+      // ao testar esta feature com um servico, bug pre-existente e sem
+      // relacao com desconto.
+      ...(unidadeMedidaSigla !== undefined ? { unidadeMedidaSigla } : {}),
+      ...(unidadeMedidaFracionado !== undefined ? { unidadeMedidaFracionado } : {}),
+      ...(unidadeMedidaCasasDecimais !== undefined ? { unidadeMedidaCasasDecimais } : {}),
     };
 
     setItens([...itens, novoItem]);
@@ -303,13 +344,44 @@ const OrcamentoForm: React.FC = () => {
 
   const totalServicos = itens.filter(i => i.tipo === 'servico').reduce((acc, curr) => acc + (curr.preco * curr.quantidade), 0);
   const totalPecas = itens.filter(i => i.tipo === 'peca').reduce((acc, curr) => acc + (curr.preco * curr.quantidade), 0);
-  const totalGeral = totalServicos + totalPecas;
+  const subtotalOrcamento = totalServicos + totalPecas;
+  const subtotalOrcamentoCents = toCents(subtotalOrcamento);
+  const descontoCents = calcularDescontoCents(descontoInput.tipo, descontoInput.valor, subtotalOrcamentoCents);
+  const desconto = fromCents(descontoCents);
+  const totalGeral = Math.max(0, subtotalOrcamento - desconto);
+  const checagemLimiteDesconto = checarLimiteTotal(limiteDescontoOrcamento, subtotalOrcamentoCents, descontoCents);
 
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!formData.clienteNome) {
       showError('Erro', 'Informe o nome do cliente.');
       return;
+    }
+
+    // Nivel 2 (sistema): desconto TOTAL do orcamento contra o limite
+    // configurado pra esta tela. Checado a cada salvamento (o orcamento nao
+    // tem um "finalizar" separado como OS/Pedido -- salvar JA e' o que o
+    // cliente ve).
+    if (checagemLimiteDesconto.excedeu) {
+      if (modoLimiteDesconto === 'bloquear') {
+        showError('Desconto acima do limite', `O desconto deste orçamento (${checagemLimiteDesconto.percentualAplicado.toFixed(1)}%) excede o limite configurado. Reduza o desconto para continuar.`);
+        return;
+      }
+      if (modoLimiteDesconto === 'senha' && !aprovacaoDesconto) {
+        setShowAprovacaoDesconto(true);
+        return;
+      }
+      if (modoLimiteDesconto === 'avisar') {
+        const confirm = await NexusSwal.fire({
+          title: 'Desconto acima do limite',
+          text: `O desconto deste orçamento (${checagemLimiteDesconto.percentualAplicado.toFixed(1)}%) excede o limite configurado. Deseja salvar mesmo assim?`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Salvar mesmo assim',
+          cancelButtonText: 'Revisar desconto',
+        });
+        if (!confirm.isConfirmed) return;
+      }
     }
 
     setIsLoading(true);
@@ -322,6 +394,19 @@ const OrcamentoForm: React.FC = () => {
         servicos: itens.filter(i => i.tipo === 'servico'),
         pecas: itens.filter(i => i.tipo === 'peca'),
         valorTotal: totalGeral,
+        // Snapshot do desconto -- consumido pelo relatorio de descontos
+        // concedidos (Fatia 6). Nao e' herdado por Converter em OS/Venda de
+        // proposito: cada conversao gera um documento novo que passa pela
+        // PROPRIA checagem de limite daquela tela.
+        desconto: {
+          tipo: descontoInput.tipo,
+          valorInformado: Number(descontoInput.valor.replace(',', '.')) || 0,
+          valorAplicadoCentavos: descontoCents,
+          excedeuLimite: checagemLimiteDesconto.excedeu,
+          ...(checagemLimiteDesconto.excedeu && aprovacaoDesconto
+            ? { aprovacao: { modo: 'senha' as const, ...aprovacaoDesconto, aprovadoEm: new Date().toISOString() } }
+            : {}),
+        },
         tenantId,
         updatedAt: serverTimestamp(),
       };
@@ -351,7 +436,10 @@ const OrcamentoForm: React.FC = () => {
 
       showSuccess(`Orçamento ${isEditing ? 'atualizado' : 'criado'}!`);
       navigate('/orcamentos');
-    } catch {
+    } catch (error) {
+      // Bare catch sem log escondia a causa real de qualquer falha aqui --
+      // achado ao diagnosticar esta feature, corrigido de passagem.
+      console.error('Erro ao salvar orçamento:', error);
       showError('Erro', 'Não foi possível salvar o orçamento.');
     } finally {
       setIsLoading(false);
@@ -837,11 +925,41 @@ const OrcamentoForm: React.FC = () => {
               <span>Produtos:</span>
               <span style={{ fontWeight: 600 }}>R$ {totalPecas.toFixed(2)}</span>
             </div>
+            {desconto > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#ef4444', fontSize: '14px' }}>
+                <span>Desconto:</span>
+                <span style={{ fontWeight: 600 }}>- R$ {desconto.toFixed(2)}</span>
+              </div>
+            )}
+
+            <div style={{ margin: '12px 0', maxWidth: '260px' }}>
+              <DescontoInput
+                label="Desconto"
+                idPrefix="orcamento-desconto"
+                value={descontoInput}
+                onChange={setDescontoInput}
+              />
+            </div>
+
+            {checagemLimiteDesconto.excedeu && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 12px', padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', fontSize: '12px' }}>
+                Desconto de {checagemLimiteDesconto.percentualAplicado.toFixed(1)}% acima do limite configurado para Orçamento.
+              </div>
+            )}
+
             <div className="grand-total-row">
               <span className="grand-total-label">TOTAL GERAL</span>
               <span className="grand-total-value">R$ {totalGeral.toFixed(2)}</span>
             </div>
           </div>
+
+          <SolicitarAprovacaoDescontoModal
+            open={showAprovacaoDesconto}
+            tenantId={tenantId}
+            motivo={`Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% neste orçamento, acima do limite configurado. Confirme com a senha de um aprovador para salvar.`}
+            onClose={() => setShowAprovacaoDesconto(false)}
+            onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
+          />
 
           <div className="card form-section">
             <div className="section-header">

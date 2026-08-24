@@ -4,8 +4,8 @@ import {
   ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, 
   Calendar, Package, Wrench, Printer, ShoppingCart, Share2, X
 } from 'lucide-react';
-import { 
-  collection, updateDoc, doc, getDoc, getDocs,
+import {
+  addDoc, collection, updateDoc, doc, getDoc, getDocs,
   getCountFromServer, serverTimestamp, query, where, runTransaction
 } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -23,6 +23,14 @@ import {
   type LimiteDescontoConfig,
   type ModoLimiteDesconto,
 } from '../../utils/descontoDomain';
+import {
+  DEFAULT_MODO_VALIDACAO_CLIENTE,
+  parseModoValidacaoCliente,
+  resolverAcaoValidacaoCliente,
+  type ModoValidacaoCliente,
+} from '../../utils/clienteValidacaoDomain';
+import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
+import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../components/common/CadastroRapidoClienteModal';
 import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -31,7 +39,7 @@ import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
 import '../OS/OS.css';
 
-interface ClienteBasico { id: string; nome: string; telefone: string; }
+interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; }
 interface ServicoData { id: string; nome: string; preco: number; }
 interface ItemOrcamento {
   id: string;
@@ -74,7 +82,8 @@ const OrcamentoForm: React.FC = () => {
   const isEditing = !!id;
   
   const [formData, setFormData] = useState({
-    clienteNome: '', 
+    clienteId: null as string | null,
+    clienteNome: '',
     clienteTelefone: '',
     placa: '', 
     modelo: '', 
@@ -92,6 +101,8 @@ const OrcamentoForm: React.FC = () => {
   const [descontoInput, setDescontoInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
   const [limiteDescontoOrcamento, setLimiteDescontoOrcamento] = useState<LimiteDescontoConfig | null>(null);
   const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>('avisar');
+  const [modoValidacaoCliente, setModoValidacaoCliente] = useState<ModoValidacaoCliente>(DEFAULT_MODO_VALIDACAO_CLIENTE);
+  const [cadastroRapidoAberto, setCadastroRapidoAberto] = useState(false);
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
   const [veiculosDisponiveis, setVeiculosDisponiveis] = useState<VeiculoBasico[]>([]);
@@ -188,6 +199,7 @@ const OrcamentoForm: React.FC = () => {
             setPermitirVendaSemEstoque(config.venderSemEstoque === true);
             setLimiteDescontoOrcamento(parseLimiteDescontoConfig(config.limiteDescontoOrcamento));
             setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
+            setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
           }
         } catch (err) { console.error(err); }
 
@@ -197,6 +209,7 @@ const OrcamentoForm: React.FC = () => {
           if (docSnap.exists()) {
             const data = docSnap.data();
             setFormData({
+              clienteId: data.clienteId || null,
               clienteNome: data.clienteNome || '',
               clienteTelefone: data.clienteTelefone || '',
               placa: data.placa || '',
@@ -384,13 +397,51 @@ const OrcamentoForm: React.FC = () => {
       }
     }
 
+    const nomeClienteFormatado = formData.clienteNome.toUpperCase().trim();
+    const clienteEncontrado = clientesDisponiveis.find(c => c.nome.toUpperCase() === nomeClienteFormatado);
+
+    const acaoValidacaoCliente = resolverAcaoValidacaoCliente(modoValidacaoCliente, !!clienteEncontrado, formData.clienteNome.trim());
+    if (acaoValidacaoCliente.tipo === 'bloquear') {
+      showError('Cliente não cadastrado', acaoValidacaoCliente.motivo);
+      return;
+    }
+    if (acaoValidacaoCliente.tipo === 'perguntar') {
+      const confirmCadastro = await NexusSwal.fire({
+        title: 'Cliente não cadastrado',
+        text: `"${nomeClienteFormatado}" ainda não tem cadastro. Deseja cadastrar agora?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Cadastrar cliente',
+        cancelButtonText: 'Cancelar',
+      });
+      if (confirmCadastro.isConfirmed) setCadastroRapidoAberto(true);
+      return;
+    }
+
     setIsLoading(true);
     try {
       if (!currentUser || !tenantId) return;
 
+      // Cadastrar Cliente (se nao existir) -- ate esta fatia, Orcamento
+      // nunca linkava clienteId, so guardava clienteNome como texto livre.
+      let clienteIdParaSalvar: string | null = clienteEncontrado?.id || null;
+      if (!clienteEncontrado) {
+        const codigoCliente = await getProximoCodigoCliente(tenantId);
+        const novoClienteRef = await addDoc(collection(db, 'clientes'), {
+          codigo: codigoCliente,
+          nome: nomeClienteFormatado,
+          telefone: formData.clienteTelefone,
+          tenantId,
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        clienteIdParaSalvar = novoClienteRef.id;
+      }
+
       const dataToSave = {
         ...formData,
-        clienteNome: formData.clienteNome.toUpperCase().trim(),
+        clienteId: clienteIdParaSalvar,
+        clienteNome: nomeClienteFormatado,
         servicos: itens.filter(i => i.tipo === 'servico'),
         pecas: itens.filter(i => i.tipo === 'peca'),
         valorTotal: totalGeral,
@@ -471,6 +522,7 @@ const OrcamentoForm: React.FC = () => {
 
           transaction.set(newRef, {
             numeroOS: formatSequenceValue(nextOs, 2),
+            clienteId: formData.clienteId,
             clienteNome: formData.clienteNome.toUpperCase(),
             clienteTelefone: formData.clienteTelefone,
             placa: formData.placa,
@@ -666,34 +718,49 @@ const OrcamentoForm: React.FC = () => {
               <label>Cliente</label>
               <ClientAutocomplete
                 value={formData.clienteNome}
-                onChange={(value) => setFormData({ ...formData, clienteNome: value })}
+                onChange={(value) => setFormData({ ...formData, clienteId: null, clienteNome: value })}
                 clients={clientesDisponiveis}
                 onSelect={(cliente) => {
                   const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === cliente.id);
                   if (vDoCliente.length === 1) {
                     const v = vDoCliente[0];
-                    setFormData({ ...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone, placa: v.placa, modelo: v.modelo, ano: v.ano, cor: v.cor });
+                    setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone, placa: v.placa, modelo: v.modelo, ano: v.ano, cor: v.cor });
                     setVeiculosDoCliente([]);
                     setIsVeiculoDropdownOpen(false);
                   } else if (vDoCliente.length > 1) {
-                    setFormData({ ...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone });
+                    setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone });
                     setVeiculosDoCliente(vDoCliente);
                     setIsVeiculoDropdownOpen(true);
                   } else {
-                    setFormData({ ...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone });
+                    setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone });
                     setVeiculosDoCliente([]);
                     setIsVeiculoDropdownOpen(false);
                   }
                 }}
                 placeholder="Busque ou digite o nome"
                 ariaLabel="Buscar cliente"
+                emptyHint={
+                  modoValidacaoCliente === 'bloquear' ? (
+                    <>Cliente não cadastrado. Use o botão "Cadastrar Cliente" abaixo.</>
+                  ) : modoValidacaoCliente === 'perguntar' ? (
+                    <>Cliente não cadastrado. Você será perguntado se quer cadastrar ao salvar.</>
+                  ) : undefined
+                }
                 renderItem={(cliente) => (
                   <>
-                    <span>{cliente.nome}</span>
+                    <span>{cliente.codigo ? `#${cliente.codigo} — ${cliente.nome}` : cliente.nome}</span>
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{cliente.telefone}</span>
                   </>
                 )}
               />
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setCadastroRapidoAberto(true)}
+                style={{ marginTop: '8px', fontSize: '13px', padding: '6px 12px' }}
+              >
+                Cadastrar Cliente
+              </button>
             </div>
             <div className="input-group">
               <label>WhatsApp / Telefone</label>
@@ -959,6 +1026,13 @@ const OrcamentoForm: React.FC = () => {
             motivo={`Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% neste orçamento, acima do limite configurado. Confirme com a senha de um aprovador para salvar.`}
             onClose={() => setShowAprovacaoDesconto(false)}
             onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
+          />
+
+          <CadastroRapidoClienteModal
+            open={cadastroRapidoAberto}
+            nomeInicial={formData.clienteNome}
+            onClose={() => setCadastroRapidoAberto(false)}
+            onCriado={(cliente: ClienteCadastradoRapido) => setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone || formData.clienteTelefone })}
           />
 
           <div className="card form-section">

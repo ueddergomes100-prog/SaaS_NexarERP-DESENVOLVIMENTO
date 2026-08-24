@@ -24,6 +24,16 @@ import {
   type LimiteDescontoConfig,
   type ModoLimiteDesconto,
 } from '../../utils/descontoDomain';
+import {
+  DEFAULT_MODO_VALIDACAO_CLIENTE,
+  parseModoValidacaoCliente,
+  resolverAcaoValidacaoCliente,
+  type ModoValidacaoCliente,
+} from '../../utils/clienteValidacaoDomain';
+import { excedeLimiteCredito, parseTrabalhaComLimiteCredito } from '../../utils/creditoDomain';
+import { calcularSaldoEmAbertoClienteCents } from '../../utils/contasReceberQuery';
+import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
+import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../components/common/CadastroRapidoClienteModal';
 import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
@@ -57,7 +67,7 @@ import {
 } from '../../utils/financeDomain';
 import './OS.css';
 
-interface ClienteBasico { id: string; nome: string; telefone: string; }
+interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
 interface BandeiraCartao {
   id: string;
   nome: string;
@@ -186,6 +196,9 @@ const OSForm: React.FC = () => {
   const [descontoInput, setDescontoInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
   const [limiteDescontoOS, setLimiteDescontoOS] = useState<LimiteDescontoConfig | null>(null);
   const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>('avisar');
+  const [modoValidacaoCliente, setModoValidacaoCliente] = useState<ModoValidacaoCliente>(DEFAULT_MODO_VALIDACAO_CLIENTE);
+  const [trabalhaComLimiteCredito, setTrabalhaComLimiteCredito] = useState(false);
+  const [cadastroRapidoAberto, setCadastroRapidoAberto] = useState(false);
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
 
@@ -279,6 +292,8 @@ const OSForm: React.FC = () => {
           setMomentoBaixaEstoque((config.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque);
           setLimiteDescontoOS(parseLimiteDescontoConfig(config.limiteDescontoOS));
           setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
+          setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
+          setTrabalhaComLimiteCredito(parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito));
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
           const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
@@ -782,27 +797,62 @@ const OSForm: React.FC = () => {
       }
     }
 
+    const nomeClienteFormatado = formData.clienteNome.toUpperCase().trim();
+    const clienteEncontrado = clientesDisponiveis.find(c => c.nome.toUpperCase() === nomeClienteFormatado);
+
+    const acaoValidacaoCliente = resolverAcaoValidacaoCliente(modoValidacaoCliente, !!clienteEncontrado, formData.clienteNome.trim());
+    if (acaoValidacaoCliente.tipo === 'bloquear') {
+      showError('Cliente não cadastrado', acaoValidacaoCliente.motivo);
+      return false;
+    }
+    if (acaoValidacaoCliente.tipo === 'perguntar') {
+      const confirmCadastro = await NexusSwal.fire({
+        title: 'Cliente não cadastrado',
+        text: `"${nomeClienteFormatado}" ainda não tem cadastro. Deseja cadastrar agora?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Cadastrar cliente',
+        cancelButtonText: 'Cancelar',
+      });
+      if (confirmCadastro.isConfirmed) setCadastroRapidoAberto(true);
+      return false;
+    }
+
     submitLockRef.current = true;
     setIsLoading(true);
 
     try {
       // 1. Check and Create Client if new
-      const clienteEncontrado = clientesDisponiveis.find(c => c.nome.toUpperCase() === formData.clienteNome.toUpperCase().trim());
       let clienteIdParaSalvar: string | null = clienteEncontrado?.id || null;
       if (!clienteEncontrado && formData.clienteNome.trim()) {
-        const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
-        const snapC = await getCountFromServer(qC);
-        const nextId = snapC.data().count + 1;
-
+        const codigoCliente = await getProximoCodigoCliente(tenantId);
         const novoClienteRef = await addDoc(collection(db, 'clientes'), {
-          codigo: String(nextId),
-          nome: formData.clienteNome.toUpperCase().trim(),
+          codigo: codigoCliente,
+          nome: nomeClienteFormatado,
           telefone: formData.clienteTelefone,
           tenantId,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         clienteIdParaSalvar = novoClienteRef.id;
+      }
+
+      // Limite de Credito: so entra em jogo quando a OS vira receita
+      // (Finalizada) com condicao a prazo, e a config esta ligada.
+      if (formData.status === 'Finalizada' && trabalhaComLimiteCredito && paymentSummary?.paymentCondition === 'aprazo') {
+        const limiteDeCreditoCents = clienteEncontrado?.limiteDeCredito != null
+          ? Math.round(clienteEncontrado.limiteDeCredito * 100)
+          : null;
+        const saldoEmAbertoCents = clienteIdParaSalvar
+          ? await calcularSaldoEmAbertoClienteCents(tenantId, clienteIdParaSalvar)
+          : 0;
+        const checagemCredito = excedeLimiteCredito(limiteDeCreditoCents, saldoEmAbertoCents, totalOSCentavos);
+        if (checagemCredito.bloqueado) {
+          const motivoTexto = checagemCredito.motivo === 'sem_limite'
+            ? `O cliente "${nomeClienteFormatado}" não tem limite de crédito cadastrado. Não é possível vender a prazo.`
+            : 'Esta OS ultrapassaria o limite de crédito do cliente (saldo em aberto + valor desta OS).';
+          throw new Error(motivoTexto);
+        }
       }
 
       let estoqueFoiBaixado = formData.estoqueBaixado || false;
@@ -1339,18 +1389,32 @@ const OSForm: React.FC = () => {
                 placeholder="Busque ou digite novo..."
                 ariaLabel="Buscar cliente"
                 emptyHint={
-                  <>
-                    <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-                    Cadastrar "{formData.clienteNome}" como novo cliente
-                  </>
+                  modoValidacaoCliente === 'bloquear' ? (
+                    <>Cliente não cadastrado. Use o botão "Cadastrar Cliente" abaixo.</>
+                  ) : modoValidacaoCliente === 'perguntar' ? (
+                    <>Cliente não cadastrado. Você será perguntado se quer cadastrar ao salvar.</>
+                  ) : (
+                    <>
+                      <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                      Cadastrar "{formData.clienteNome}" como novo cliente
+                    </>
+                  )
                 }
                 renderItem={(c) => (
                   <>
-                    <span>{c.nome}</span>
+                    <span>{c.codigo ? `#${c.codigo} — ${c.nome}` : c.nome}</span>
                     <span>{c.telefone}</span>
                   </>
                 )}
               />
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setCadastroRapidoAberto(true)}
+                style={{ marginTop: '8px', fontSize: '13px', padding: '6px 12px' }}
+              >
+                Cadastrar Cliente
+              </button>
             </div>
             <div className="input-group">
               <label>Telefone / WhatsApp</label>
@@ -1786,6 +1850,13 @@ const OSForm: React.FC = () => {
           motivo={`Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% nesta OS, acima do limite configurado. Confirme com a senha de um aprovador para finalizar.`}
           onClose={() => setShowAprovacaoDesconto(false)}
           onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
+        />
+
+        <CadastroRapidoClienteModal
+          open={cadastroRapidoAberto}
+          nomeInicial={formData.clienteNome}
+          onClose={() => setCadastroRapidoAberto(false)}
+          onCriado={(cliente: ClienteCadastradoRapido) => setFormData({ ...formData, clienteNome: cliente.nome, clienteTelefone: cliente.telefone || formData.clienteTelefone })}
         />
 
         <div className="form-column">

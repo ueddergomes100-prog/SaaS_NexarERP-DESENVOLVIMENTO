@@ -152,6 +152,13 @@ const Configuracoes: React.FC = () => {
   const [cidadeSearchResults, setCidadeSearchResults] = useState<SpedyCity[]>([]);
   const [isCidadeSearching, setIsCidadeSearching] = useState(false);
   const [showCidadeDropdown, setShowCidadeDropdown] = useState(false);
+  // true quando a leitura de configuracoes_privadas falhou (ex: erro de
+  // permissao/rede) -- nesse caso o campo spedyApiKey no formData fica vazio
+  // sem sabermos se e' porque o tenant realmente nao tem chave, ou porque so
+  // nao conseguimos ler. Salvar as configuracoes nao pode apagar a chave
+  // real so por causa disso (bug achado ao vivo: salvar com a leitura
+  // falhando zerava a integracao Spedy do tenant).
+  const [spedyPrivateConfigLoadFailed, setSpedyPrivateConfigLoadFailed] = useState(false);
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -168,8 +175,11 @@ const Configuracoes: React.FC = () => {
             if (privateSnap.exists()) {
               privateSpedyApiKey = privateSnap.data().spedyApiKey ?? privateSpedyApiKey;
             }
+            setSpedyPrivateConfigLoadFailed(false);
           } catch (privateError) {
             console.warn('Nao foi possivel carregar configuracoes privadas:', privateError);
+            setSpedyPrivateConfigLoadFailed(true);
+            showError('Aviso', 'Não foi possível carregar a chave da integração fiscal (Spedy) já configurada. Salvar aqui não vai apagá-la, mas o campo abaixo pode aparecer vazio mesmo com uma chave já cadastrada.');
           }
           let receitas = data.planoContasReceitas || [];
           if (typeof receitas === 'string') receitas = receitas.split('\n').filter((c: string) => c.trim() !== '');
@@ -425,13 +435,20 @@ const Configuracoes: React.FC = () => {
       const enderecoCompleto = formatCompanyAddress(formData);
       const { spedyApiKey, ...publicFormData } = formData;
       const trimmedSpedyApiKey = spedyApiKey.trim();
+      // Se a leitura da chave privada falhou no carregamento, o campo pode
+      // estar vazio sem isso significar "remover a chave" -- so mexe na
+      // integracao Spedy aqui se a leitura funcionou, ou se o usuario
+      // digitou uma chave nova (nesse caso a intencao e' explicita).
+      const podeAtualizarSpedyApiKey = !spedyPrivateConfigLoadFailed || trimmedSpedyApiKey !== '';
 
-      await setDoc(privateDocRef, {
-        tenantId,
-        spedyApiKey: trimmedSpedyApiKey,
-        updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
-      }, { merge: true });
+      if (podeAtualizarSpedyApiKey) {
+        await setDoc(privateDocRef, {
+          tenantId,
+          spedyApiKey: trimmedSpedyApiKey,
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+        }, { merge: true });
+      }
 
       await setDoc(docRef, {
         ...publicFormData,
@@ -447,7 +464,7 @@ const Configuracoes: React.FC = () => {
         ...limitesDesconto,
         modoLimiteDesconto: formData.modoLimiteDesconto,
         spedyApiKey: deleteField(),
-        spedyApiKeyConfigured: Boolean(trimmedSpedyApiKey),
+        ...(podeAtualizarSpedyApiKey ? { spedyApiKeyConfigured: Boolean(trimmedSpedyApiKey) } : {}),
         tenantId,
         updatedAt: serverTimestamp(),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),

@@ -57,12 +57,22 @@ import {
   type LimiteDescontoConfig,
   type ModoLimiteDesconto,
 } from '../../utils/descontoDomain';
+import {
+  DEFAULT_MODO_VALIDACAO_CLIENTE,
+  parseModoValidacaoCliente,
+  resolverAcaoValidacaoCliente,
+  type ModoValidacaoCliente,
+} from '../../utils/clienteValidacaoDomain';
+import { excedeLimiteCredito, parseTrabalhaComLimiteCredito } from '../../utils/creditoDomain';
+import { calcularSaldoEmAbertoClienteCents } from '../../utils/contasReceberQuery';
+import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
+import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../components/common/CadastroRapidoClienteModal';
 import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import Swal from 'sweetalert2';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
-interface ClienteBasico { id: string; nome: string; telefone: string; }
+interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
 interface VendedorBasico { id: string; nome: string; email?: string; }
 interface BandeiraCartao {
   id: string;
@@ -204,6 +214,9 @@ const PedidoVendaForm: React.FC = () => {
   const [descontoGeralInput, setDescontoGeralInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
   const [limiteDescontoPedido, setLimiteDescontoPedido] = useState<LimiteDescontoConfig | null>(null);
   const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>('avisar');
+  const [modoValidacaoCliente, setModoValidacaoCliente] = useState<ModoValidacaoCliente>(DEFAULT_MODO_VALIDACAO_CLIENTE);
+  const [trabalhaComLimiteCredito, setTrabalhaComLimiteCredito] = useState(false);
+  const [cadastroRapidoAberto, setCadastroRapidoAberto] = useState(false);
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
   const [imprimirMinutaAposVendaAtiva, setImprimirMinutaAposVendaAtiva] = useState(false);
@@ -310,6 +323,8 @@ const PedidoVendaForm: React.FC = () => {
           setVenderPorEmbalagem(config.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
           setLimiteDescontoPedido(parseLimiteDescontoConfig(config.limiteDescontoPedido));
           setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
+          setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
+          setTrabalhaComLimiteCredito(parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito));
           setImprimirMinutaAposVendaAtiva(config.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA);
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
@@ -786,9 +801,33 @@ const PedidoVendaForm: React.FC = () => {
     const paymentSummary = summarizePayments(paymentRecords);
 
     let finalClienteNome = clienteNome.trim().toUpperCase();
+    const nomeClienteDigitadoOriginal = clienteNome.trim();
     if (!finalClienteNome) {
       finalClienteNome = 'CONSUMIDOR FINAL';
       setClienteNome('CONSUMIDOR FINAL');
+    }
+
+    const clienteEncontrado = clientesDisponiveis.find(c => c.nome.toUpperCase() === finalClienteNome);
+
+    // Validacao de Cliente Cadastrado: decide ANTES de travar o botao se da
+    // pra seguir digitando um nome sem cadastro (permitir), se bloqueia, ou
+    // se pergunta antes de continuar.
+    const acaoValidacaoCliente = resolverAcaoValidacaoCliente(modoValidacaoCliente, !!clienteEncontrado, nomeClienteDigitadoOriginal);
+    if (acaoValidacaoCliente.tipo === 'bloquear') {
+      showError('Cliente não cadastrado', acaoValidacaoCliente.motivo);
+      return false;
+    }
+    if (acaoValidacaoCliente.tipo === 'perguntar') {
+      const confirmCadastro = await NexusSwal.fire({
+        title: 'Cliente não cadastrado',
+        text: `"${finalClienteNome}" ainda não tem cadastro. Deseja cadastrar agora?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Cadastrar cliente',
+        cancelButtonText: 'Cancelar',
+      });
+      if (confirmCadastro.isConfirmed) setCadastroRapidoAberto(true);
+      return false;
     }
 
     submitLockRef.current = true;
@@ -797,13 +836,11 @@ const PedidoVendaForm: React.FC = () => {
 
     try {
       // 1. Cadastrar Cliente (se não existir)
-      const clienteEncontrado = clientesDisponiveis.find(c => c.nome.toUpperCase() === finalClienteNome);
       let clienteIdParaSalvar: string | null = clienteEncontrado?.id || null;
       if (!clienteEncontrado) {
-        const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
-        const snapC = await getCountFromServer(qC);
+        const codigoCliente = await getProximoCodigoCliente(tenantId);
         const novoClienteRef = await addDoc(collection(db, 'clientes'), {
-          codigo: String(snapC.data().count + 1),
+          codigo: codigoCliente,
           nome: finalClienteNome,
           isPadrao: finalClienteNome === 'CONSUMIDOR FINAL',
           tenantId: tenantId || '',
@@ -811,6 +848,26 @@ const PedidoVendaForm: React.FC = () => {
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         clienteIdParaSalvar = novoClienteRef.id;
+      }
+
+      // Limite de Credito: so entra em jogo em venda a prazo, com a config
+      // ligada. Cliente sem limite cadastrado (inclusive um recem-criado
+      // acima, ou "CONSUMIDOR FINAL") bloqueia por "sem_limite" -- nao ha
+      // como fiar pra quem nao tem limite definido.
+      if (trabalhaComLimiteCredito && paymentSummary.paymentCondition === 'aprazo') {
+        const limiteDeCreditoCents = clienteEncontrado?.limiteDeCredito != null
+          ? Math.round(clienteEncontrado.limiteDeCredito * 100)
+          : null;
+        const saldoEmAbertoCents = clienteIdParaSalvar
+          ? await calcularSaldoEmAbertoClienteCents(tenantId, clienteIdParaSalvar)
+          : 0;
+        const checagemCredito = excedeLimiteCredito(limiteDeCreditoCents, saldoEmAbertoCents, valorTotalPedidoCentavos);
+        if (checagemCredito.bloqueado) {
+          const motivoTexto = checagemCredito.motivo === 'sem_limite'
+            ? `O cliente "${finalClienteNome}" não tem limite de crédito cadastrado. Não é possível vender a prazo.`
+            : `Esta venda ultrapassaria o limite de crédito do cliente (saldo em aberto + valor desta venda).`;
+          throw new Error(motivoTexto);
+        }
       }
 
       // Pedido pendente do agente ja tem numero -- nao aloca sequencia nova
@@ -2145,6 +2202,13 @@ const PedidoVendaForm: React.FC = () => {
         onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
       />
 
+      <CadastroRapidoClienteModal
+        open={cadastroRapidoAberto}
+        nomeInicial={clienteNome}
+        onClose={() => setCadastroRapidoAberto(false)}
+        onCriado={(cliente: ClienteCadastradoRapido) => setClienteNome(cliente.nome)}
+      />
+
       {showDevolucaoModal && (
         <DevolucaoVendaModal
           pedidoId={id!}
@@ -2186,11 +2250,21 @@ const PedidoVendaForm: React.FC = () => {
                 ariaLabel="Buscar cliente"
                 renderItem={(c) => (
                   <>
-                    <span>{c.nome}</span>
+                    <span>{c.codigo ? `#${c.codigo} — ${c.nome}` : c.nome}</span>
                     <span style={{ color: 'var(--text-muted)' }}>{c.telefone}</span>
                   </>
                 )}
               />
+              {!(isViewing && !canEditPendingCliente) && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setCadastroRapidoAberto(true)}
+                  style={{ marginTop: '8px', fontSize: '13px', padding: '6px 12px' }}
+                >
+                  Cadastrar Cliente
+                </button>
+              )}
             </div>
             <div className="input-group" style={{ marginTop: '16px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Vendedor responsável *</label>

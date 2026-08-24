@@ -147,7 +147,17 @@ const PedidoVendas: React.FC = () => {
         return;
       }
     } catch (err) {
+      // Falha na checagem NAO pode virar "pode excluir" -- excluir uma venda
+      // com nota fiscal ativa deixaria a nota orfa e sem como cancelar pela
+      // origem. Sem conseguir verificar, recusa.
       console.error("Erro ao verificar notas vinculadas ao pedido:", err);
+      await NexusSwal.fire({
+        title: 'Não foi possível verificar',
+        text: 'Não deu para conferir se este pedido tem nota fiscal emitida. Por segurança a exclusão foi cancelada. Verifique sua conexão e tente de novo.',
+        icon: 'error',
+        confirmButtonText: 'Entendido'
+      });
+      return;
     }
 
     const confirm = await NexusSwal.fire({
@@ -217,6 +227,24 @@ const PedidoVendas: React.FC = () => {
           await Promise.all(transacoesSnap.docs.map((transacaoDoc) => deleteDoc(transacaoDoc.ref)));
         } catch (err) {
           console.error('Erro ao excluir transações vinculadas ao pedido:', err);
+        }
+
+        try {
+          // Notas CANCELADAS do pedido excluido -- as ativas ja barraram a
+          // exclusao la em cima, entao o que sobra aqui e' so nota cancelada.
+          // Sem isso ela ficava orfa no painel fiscal, apontando pra um
+          // pedido que nao existe mais. A sincronizacao com a Spedy so
+          // ATUALIZA nota local existente (NFE.tsx/syncPendingInvoices), nunca
+          // recria -- entao apagar aqui nao volta atras no proximo sync.
+          const qNotasCanceladas = query(
+            collection(db, 'notas_fiscais'),
+            where('tenantId', '==', tenantId),
+            where('pedidoId', '==', pedido.id)
+          );
+          const notasCanceladasSnap = await getDocs(qNotasCanceladas);
+          await Promise.all(notasCanceladasSnap.docs.map((notaDoc) => deleteDoc(notaDoc.ref)));
+        } catch (err) {
+          console.error('Erro ao excluir notas fiscais canceladas vinculadas ao pedido:', err);
         }
 
         try {

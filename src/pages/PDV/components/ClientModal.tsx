@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { Search, UserRound, X } from 'lucide-react';
+import { Search, UserPlus, UserRound, X } from 'lucide-react';
 import type { PdvClient } from '../types';
+import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../../components/common/CadastroRapidoClienteModal';
 
 interface ClientModalProps {
   open: boolean;
@@ -18,12 +19,14 @@ const ClientModal: React.FC<ClientModalProps> = ({
   onSelect,
 }) => {
   const [search, setSearch] = useState('');
+  const [cadastroAberto, setCadastroAberto] = useState(false);
   const filteredClients = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return clients.slice(0, 40);
 
     return clients.filter((client) => [
       client.nome,
+      client.codigo,
       client.documento,
       client.telefone,
       client.email,
@@ -31,6 +34,11 @@ const ClientModal: React.FC<ClientModalProps> = ({
   }, [clients, search]);
 
   if (!open) return null;
+
+  const handleClienteCriado = (cliente: ClienteCadastradoRapido) => {
+    onSelect({ id: cliente.id, codigo: cliente.codigo, nome: cliente.nome, telefone: cliente.telefone, documento: cliente.documento });
+    onClose();
+  };
 
   return (
     <div className="pdv-modal-backdrop" role="presentation">
@@ -62,10 +70,22 @@ const ClientModal: React.FC<ClientModalProps> = ({
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar cliente, CPF/CNPJ, telefone ou e-mail"
+            placeholder="Buscar cliente, código, CPF/CNPJ, telefone ou e-mail"
             autoFocus
           />
         </div>
+
+        <button
+          type="button"
+          className="pdv-customer-option"
+          onClick={() => setCadastroAberto(true)}
+        >
+          <UserPlus size={20} />
+          <span>
+            <strong>Cadastrar Cliente</strong>
+            <small>Novo cadastro rápido, sem sair da venda</small>
+          </span>
+        </button>
 
         <div className="pdv-customer-list">
           {filteredClients.map((client) => (
@@ -77,7 +97,7 @@ const ClientModal: React.FC<ClientModalProps> = ({
             >
               <UserRound size={20} />
               <span>
-                <strong>{client.nome}</strong>
+                <strong>{client.codigo ? `#${client.codigo} — ${client.nome}` : client.nome}</strong>
                 <small>{client.documento || client.telefone || client.email || 'Cliente cadastrado'}</small>
               </span>
             </button>
@@ -88,6 +108,12 @@ const ClientModal: React.FC<ClientModalProps> = ({
           )}
         </div>
       </div>
+
+      <CadastroRapidoClienteModal
+        open={cadastroAberto}
+        onClose={() => setCadastroAberto(false)}
+        onCriado={handleClienteCriado}
+      />
     </div>
   );
 };

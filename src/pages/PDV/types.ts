@@ -23,6 +23,7 @@ export interface PdvProduct {
 export interface PdvClient {
   id: string;
   nome: string;
+  codigo?: string;
   telefone?: string;
   documento?: string;
   email?: string;

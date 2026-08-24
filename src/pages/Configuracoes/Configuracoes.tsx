@@ -22,6 +22,11 @@ import {
   type DescontoTipo,
 } from '../../utils/descontoDomain';
 import {
+  DEFAULT_MODO_VALIDACAO_CLIENTE,
+  parseModoValidacaoCliente,
+} from '../../utils/clienteValidacaoDomain';
+import { parseTrabalhaComLimiteCredito } from '../../utils/creditoDomain';
+import {
   DEFAULT_BLOQUEAR_EXCEDENTE,
   DEFAULT_CONFERENCIA_MERCADORIA,
   DEFAULT_EXIGIR_BIPAGEM,
@@ -110,6 +115,8 @@ const Configuracoes: React.FC = () => {
     limiteDescontoPedido: { tipo: 'percentual' as DescontoTipo, valor: '' },
     limiteDescontoOrcamento: { tipo: 'percentual' as DescontoTipo, valor: '' },
     limiteDescontoPdv: { tipo: 'percentual' as DescontoTipo, valor: '' },
+    modoValidacaoCliente: DEFAULT_MODO_VALIDACAO_CLIENTE,
+    trabalhaComLimiteCredito: false,
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     conferenciaMercadoria: DEFAULT_CONFERENCIA_MERCADORIA,
@@ -179,6 +186,8 @@ const Configuracoes: React.FC = () => {
             limiteDescontoPedido: toLimiteDescontoFormValue(data.limiteDescontoPedido),
             limiteDescontoOrcamento: toLimiteDescontoFormValue(data.limiteDescontoOrcamento),
             limiteDescontoPdv: toLimiteDescontoFormValue(data.limiteDescontoPdv),
+            modoValidacaoCliente: parseModoValidacaoCliente(data.modoValidacaoCliente),
+            trabalhaComLimiteCredito: parseTrabalhaComLimiteCredito(data.trabalhaComLimiteCredito),
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             conferenciaMercadoria: data.conferenciaMercadoria ?? DEFAULT_CONFERENCIA_MERCADORIA,
@@ -1491,6 +1500,57 @@ const Configuracoes: React.FC = () => {
                     Limite" (ou ser Admin/Master) de quem for digitar a senha.
                   </p>
                 </div>
+              </div>
+
+              <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Validação de Cliente Cadastrado</h4>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                    Controla o que acontece em Pedido de Venda, OS e Orçamento quando o nome digitado não bate com
+                    nenhum cliente já cadastrado. No PDV a seleção já é sempre restrita a clientes cadastrados.
+                  </p>
+                </div>
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    {([
+                      { value: 'permitir' as const, label: 'Permitir (cadastra automaticamente)' },
+                      { value: 'bloquear' as const, label: 'Bloquear' },
+                      { value: 'perguntar' as const, label: 'Perguntar se quer cadastrar' },
+                    ]).map((opcao) => (
+                      <label key={opcao.value} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                        <input
+                          type="radio"
+                          name="modoValidacaoCliente"
+                          checked={formData.modoValidacaoCliente === opcao.value}
+                          onChange={() => setFormData({ ...formData, modoValidacaoCliente: opcao.value })}
+                          disabled={!isEditingMode}
+                          style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                        />
+                        {opcao.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Limite de Crédito</h4>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                    Quando ligado, uma venda a prazo só pode ser finalizada se o cliente tiver "Limite de Crédito"
+                    preenchido no cadastro e se o saldo em aberto dele + o valor desta venda não ultrapassar esse limite.
+                  </p>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.trabalhaComLimiteCredito === true}
+                    onChange={(e) => setFormData({ ...formData, trabalhaComLimiteCredito: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Trabalha com limite de crédito
+                </label>
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', gridColumn: '1 / -1' }}>

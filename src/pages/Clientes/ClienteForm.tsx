@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, User, Loader2, MapPin } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, getDoc, getDocs, serverTimestamp, query, where } from 'firebase/firestore';
+import { ArrowLeft, Save, User, Loader2, MapPin, CreditCard } from 'lucide-react';
+import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
 
 const ClienteForm: React.FC = () => {
   const navigate = useNavigate();
@@ -21,6 +22,7 @@ const ClienteForm: React.FC = () => {
     endereco: '',
     bairro: '',
     numero: '',
+    limiteDeCredito: '',
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -43,18 +45,8 @@ const ClienteForm: React.FC = () => {
             setFormData(prev => ({ ...prev, ...data }));
           }
         } else {
-          // Maior codigo numerico ja usado (nao a contagem de clientes --
-          // contagem quebra a sequencia apos qualquer exclusao, reusando
-          // um codigo ja existente). orderBy no Firestore nao serve aqui
-          // porque 'codigo' e string sem padding fixo (ordenacao lexica,
-          // nao numerica), entao o maximo e calculado no cliente.
-          const q = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
-          const snap = await getDocs(q);
-          const maxCodigo = snap.docs.reduce((max, docSnap) => {
-            const parsed = Number.parseInt(String(docSnap.data().codigo || '').replace(/\D/g, ''), 10);
-            return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
-          }, 0);
-          setFormData(prev => ({ ...prev, codigo: String(maxCodigo + 1) }));
+          const proximoCodigo = await getProximoCodigoCliente(tenantId);
+          setFormData(prev => ({ ...prev, codigo: proximoCodigo }));
         }
       } catch (error) {
         console.error("Erro ao carregar dados:", error);
@@ -99,9 +91,14 @@ const ClienteForm: React.FC = () => {
     setIsLoading(true);
 
     try {
+      const limiteDeCreditoParsed = formData.limiteDeCredito.trim() === ''
+        ? null
+        : Number(formData.limiteDeCredito);
+
       const dataToSave = {
         ...formData,
         nome: formData.nome.toUpperCase().trim(),
+        limiteDeCredito: Number.isFinite(limiteDeCreditoParsed) ? limiteDeCreditoParsed : null,
         tenantId
       };
 
@@ -211,6 +208,17 @@ const ClienteForm: React.FC = () => {
           <div className="input-group">
             <label>Bairro</label>
             <input type="text" name="bairro" placeholder="Centro" value={formData.bairro} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)', marginTop: '12px' }}>
+            <CreditCard size={20} style={{ color: 'var(--accent-purple)' }} />
+            <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Financeiro</h3>
+          </div>
+
+          <div className="input-group">
+            <label>Limite de Crédito (R$)</label>
+            <input type="number" min="0" step="0.01" name="limiteDeCredito" placeholder="0,00" value={formData.limiteDeCredito} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            <small style={{ color: 'var(--text-muted)' }}>Só é exigido se o sistema estiver configurado pra trabalhar com limite de crédito (Configurações). Deixe em branco pra não permitir venda a prazo a este cliente.</small>
           </div>
 
         </div>

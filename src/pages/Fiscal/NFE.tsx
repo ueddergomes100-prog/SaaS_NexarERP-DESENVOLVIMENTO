@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Receipt, Plus, Search, CheckCircle,
   XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings, Trash2,
-  ChevronLeft, ChevronRight, MessageCircle
+  ChevronLeft, ChevronRight, MessageCircle, Printer
 } from 'lucide-react';
 import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -19,6 +19,8 @@ import {
   type RegimeTributario, type NfseConfig, type OsServicoParaFatura, type ClienteParaFatura,
 } from '../../utils/fiscalDomain';
 import Swal from 'sweetalert2';
+import DanfePreviewDocument from './DanfePreviewDocument';
+import '../OS/OsPrint.css';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -194,6 +196,11 @@ const NFE: React.FC = () => {
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Emitente + rascunho da DANFE: pre-visualizacao do que sera transmitido,
+  // pra conferir antes de mandar pra SEFAZ (ver DanfePreviewDocument.tsx --
+  // e' rascunho sem valor fiscal, nao a DANFE autorizada).
+  const [empresaConfig, setEmpresaConfig] = useState<any>(null);
+  const [showDanfePreview, setShowDanfePreview] = useState(false);
 
   // Fecha dropdown do cliente ao clicar fora
   useEffect(() => {
@@ -225,6 +232,7 @@ const NFE: React.FC = () => {
         const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
         const configData = configSnap.data();
         setRegimeTributario((configData?.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
+        setEmpresaConfig(configData ?? null);
 
         // 1c. Config de NFS-e do tenant (Configuracoes > Emissao Fiscal
         // Habilitada > Emite NFS-e) -- so preenche os defaults do modal
@@ -916,6 +924,16 @@ const NFE: React.FC = () => {
         showError('Erro', 'Não foi possível excluir o registro da nota.');
       }
     }
+  };
+
+  // Rascunho da DANFE antes de transmitir -- mesma validacao minima do
+  // handleEmitir, pra nao abrir uma previa vazia/enganosa.
+  const handleAbrirPreviewDanfe = () => {
+    if (!formData.clienteNome || !formData.documento || !formData.valor || !formData.descricao) {
+      showError('Campos Incompletos', 'Preencha Nome do Cliente, Documento, Descrição e Valor para pré-visualizar.');
+      return;
+    }
+    setShowDanfePreview(true);
   };
 
   // Emissão de nova nota
@@ -1616,7 +1634,7 @@ const NFE: React.FC = () => {
 
       {/* Modal de Emissão Real de Nota */}
       {isModalOpen && (
-        <div style={{
+        <div className="no-print" style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           backgroundColor: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -2028,6 +2046,16 @@ const NFE: React.FC = () => {
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '32px' }}>
                 <button type="button" className="btn-secondary" onClick={handleCloseModal}>Cancelar</button>
                 <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleAbrirPreviewDanfe}
+                  disabled={isSubmitting}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <Printer size={16} />
+                  Pré-visualizar DANFE
+                </button>
+                <button
                   type="submit"
                   className="btn-primary"
                   disabled={isSubmitting}
@@ -2037,6 +2065,60 @@ const NFE: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Pre-visualizacao (rascunho) da DANFE, antes de transmitir */}
+      {showDanfePreview && (
+        <div
+          className="print-layout-wrapper"
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(15, 15, 20, 0.94)', zIndex: 1100,
+            overflowY: 'auto', padding: '24px',
+          }}
+        >
+          <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', maxWidth: '820px', margin: '0 auto 16px' }}>
+            <button type="button" className="btn-secondary" onClick={() => setShowDanfePreview(false)}>
+              Voltar para a emissão
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => window.print()}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <Printer size={16} />
+              Imprimir rascunho
+            </button>
+          </div>
+
+          <div style={{ maxWidth: '820px', margin: '0 auto', backgroundColor: '#fff' }}>
+            <DanfePreviewDocument
+              configData={empresaConfig}
+              tipo={formData.tipo}
+              clienteNome={formData.clienteNome}
+              documento={formData.documento}
+              email={formData.email}
+              enderecoCliente={{
+                rua: formData.rua,
+                numero: formData.numero,
+                bairro: formData.bairro,
+                cidade: formData.cidade,
+                estado: formData.estado,
+                cep: formData.cep,
+              }}
+              descricao={formData.descricao}
+              valorTotal={Number(String(formData.valor).replace(',', '.')) || 0}
+              itens={importedPedidoItens.map((item) => ({
+                nome: item.nome,
+                quantidade: item.quantidade,
+                precoUnitario: item.precoUnitario,
+              }))}
+              ncm={formData.tipo === 'NFS-e' ? undefined : formData.ncm}
+              cfop={formData.tipo === 'NFS-e' ? undefined : formData.cfop}
+            />
           </div>
         </div>
       )}

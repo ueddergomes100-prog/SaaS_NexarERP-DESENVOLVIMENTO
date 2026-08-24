@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock } from 'lucide-react';
+import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -159,6 +159,7 @@ const Configuracoes: React.FC = () => {
   // real so por causa disso (bug achado ao vivo: salvar com a leitura
   // falhando zerava a integracao Spedy do tenant).
   const [spedyPrivateConfigLoadFailed, setSpedyPrivateConfigLoadFailed] = useState(false);
+  const [mostrarSpedyApiKey, setMostrarSpedyApiKey] = useState(false);
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -1767,15 +1768,26 @@ const Configuracoes: React.FC = () => {
 
                   <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Spedy API Key (Chave da Empresa)</label>
-                    <input
-                      type="password"
-                      name="spedyApiKey"
-                      placeholder="Insira a chave obtida no painel Spedy"
-                      value={formData.spedyApiKey || ''}
-                      onChange={handleChange}
-                      disabled={!isEditingMode}
-                      style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
-                    />
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <input
+                        type={mostrarSpedyApiKey ? 'text' : 'password'}
+                        name="spedyApiKey"
+                        placeholder="Insira a chave obtida no painel Spedy"
+                        value={formData.spedyApiKey || ''}
+                        onChange={handleChange}
+                        disabled={!isEditingMode}
+                        style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 44px 12px 16px', color: 'var(--text-primary)' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setMostrarSpedyApiKey((atual) => !atual)}
+                        title={mostrarSpedyApiKey ? 'Ocultar chave' : 'Mostrar chave'}
+                        aria-label={mostrarSpedyApiKey ? 'Ocultar chave' : 'Mostrar chave'}
+                        style={{ position: 'absolute', right: '12px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 0 }}
+                      >
+                        {mostrarSpedyApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Esta chave é única por empresa (CNPJ) e pode ser encontrada no painel da Spedy.</p>
                   </div>
                 </>

@@ -1371,7 +1371,10 @@ Atualizar ao concluir cada item.
 ## 8.7 PLANEJADO — F29 Backend hospedado + F30 Identificação do vendedor na venda (2026-08-25)
 
 > **NADA DISTO ESTÁ IMPLEMENTADO.** Esta seção é plano aprovado, não trabalho feito.
-> O F30 **depende** do F29: sem backend hospedado, ele não sai como especificado.
+>
+> **O F30 NÃO está mais bloqueado.** A dependência original (backend hospedado) foi
+> escrita antes de descobrirmos que o backend **já está no ar no Render** — ver a
+> correção no início do F29. O PIN de 4 dígitos validado no servidor é possível hoje.
 
 **Origem:** o usuário vai montar, num cliente novo, um fluxo com **10 computadores** com o sistema aberto na tela de Pedido de Venda o dia inteiro. A cada venda, um popup deve pedir **código e senha do vendedor**; ao gravar/imprimir e começar a próxima venda, pede de novo. Mais uma chave em Configurações para ligar/desligar isso por empresa.
 
@@ -1384,7 +1387,26 @@ Atualizar ao concluir cada item.
 
 ---
 
-### F29 — Hospedar o backend (`server/`) na Hostinger
+### F29 — Backend hospedado
+
+> **CORREÇÃO (2026-08-25, mesma sessão):** esta fatia nasceu de uma premissa **errada** — a de que o backend nunca tinha sido hospedado (pendência 13, escrita em 15/08). **Ele já está hospedado e rodando**, no **Render**, e a produção já aponta para ele.
+>
+> Verificado por chamada real: `https://sistema-nexus-company-commit.onrender.com/health` responde **HTTP 200**, com **uptime de ~7,9 dias contínuos** (não está dormindo) e **0,27s** de latência com o serviço quente. O CORS já libera `https://accounts.nexarcompany.com.br` explicitamente, e `/api/spedy/config` responde **401** — ou seja, a rota existe e o middleware de autenticação está funcionando.
+>
+> `VITE_BACKEND_API_URL` **já está** no `.env.production` (que é versionado, e é de onde o build Vite tira a configuração — não do painel da Hostinger, como eu havia afirmado). Foi configurada no commit `bdf85d1`, "backend hospedado no Render".
+>
+> **Consequências:**
+> - **A pendência 13 está resolvida**, não em aberto.
+> - **O F30 está desbloqueado agora**, sem nenhum trabalho de infraestrutura: o PIN de 4 dígitos validado no servidor é possível hoje.
+> - Migrar do Render para a Hostinger vira **decisão de custo, não de viabilidade** — os 2 slots de aplicação web continuam livres lá, e o levantamento do hPanel abaixo segue válido caso se decida migrar.
+>
+> **Verificações manuais que só o usuário pode fazer (no painel do Render):**
+> 1. **Para qual projeto Firebase esse backend aponta** — `sistema-nexus-dev` ou `nexus-erp-2026`? Decisivo antes de acrescentar qualquer rota.
+> 2. **O deploy é automático a partir do GitHub?** De qual repositório e branch?
+> 3. **O plano do Render é pago?** Uptime de 7,9 dias contínuos sugere que sim (instância gratuita hiberna por inatividade). Se for pago, é um custo recorrente já existente — e aí a migração para a Hostinger, onde já há slot livre e pago, passa a economizar dinheiro de verdade.
+> 4. **`BACKUP_ENCRYPTION_KEY` está configurada lá?** Com `NODE_ENV=production` e ela vazia, o serviço de backup lança erro. E sem guardar esse valor, backups já criados ficam irrecuperáveis.
+
+**Levantamento da Hostinger (segue válido para a decisão de migrar):**
 
 **Verificado ao vivo no hPanel em 2026-08-25** (usuário logado por conta própria; Claude só navegou e leu, não alterou nada):
 

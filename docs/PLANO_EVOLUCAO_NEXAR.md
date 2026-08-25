@@ -1368,6 +1368,82 @@ Atualizar ao concluir cada item.
 
 ---
 
+## 8.7 PLANEJADO — F29 Backend hospedado + F30 Identificação do vendedor na venda (2026-08-25)
+
+> **NADA DISTO ESTÁ IMPLEMENTADO.** Esta seção é plano aprovado, não trabalho feito.
+> O F30 **depende** do F29: sem backend hospedado, ele não sai como especificado.
+
+**Origem:** o usuário vai montar, num cliente novo, um fluxo com **10 computadores** com o sistema aberto na tela de Pedido de Venda o dia inteiro. A cada venda, um popup deve pedir **código e senha do vendedor**; ao gravar/imprimir e começar a próxima venda, pede de novo. Mais uma chave em Configurações para ligar/desligar isso por empresa.
+
+### Decisões já tomadas pelo usuário
+
+- **Código do funcionário: 2 dígitos.** Teto de 100 funcionários por empresa, único por empresa.
+- **Senha do popup: 4 dígitos numéricos.**
+- **Uma conta de login por máquina** (`balcao01`, `balcao02`, …), aberta o dia todo. O funcionário **não** troca a sessão: ele só se identifica por venda.
+- Editar itens/valores de venda finalizada continua fora de escopo (decisão anterior, mantida).
+
+---
+
+### F29 — Hospedar o backend (`server/`) na Hostinger
+
+**Verificado ao vivo no hPanel em 2026-08-25** (usuário logado por conta própria; Claude só navegou e leu, não alterou nada):
+
+- Plano **Business Web Hosting**, ativo até 2027-08-05, datacenter **South America (Brazil)** — latência baixa importa aqui, porque o popup bate no servidor a cada venda.
+- **Aplicações web: 3 / 5** — dois slots livres. O backend cabe **sem comprar nada**, o que derruba a premissa antiga de que isso exigiria infraestrutura nova.
+- A plataforma de Web Apps já oferece tudo que o `server/` precisa: **deploy automático do GitHub**, **variáveis de ambiente** (com importação de `.env`), **logs de execução**, **Node 22.x**, SSH, subdomínios e SSL.
+- Limites com folga para um Express pequeno: **3 GB de memória**, **120 processos**, 50 GB de disco (1,63 GB em uso), 600 mil inodes (45 mil em uso). CPU hoje em 0-1%.
+- O `server/` já está no formato certo: Express + `firebase-admin` + `node-cron`, com credencial vinda de **variável de ambiente**, não de arquivo no disco (`server/config/firebase.js`). E já existe middleware que valida ID token do Firebase (`server/middleware/auth.js`).
+
+**Fatias:**
+
+1. Criar o subdomínio `api.nexarcompany.com.br` e apontá-lo para uma nova aplicação web (4ª de 5).
+2. Ligar o deploy ao repositório do backend; configurar `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` / `FIREBASE_PROJECT_ID` nas variáveis de ambiente do painel — **chaves separadas para dev e produção**, nunca cruzadas.
+3. Validar em produção as rotas que já existem (Spedy, sessão, backup, onboarding) antes de acrescentar qualquer rota nova.
+4. **Mata a pendência 13 de quebra:** a página de variáveis de ambiente do `accounts.nexarcompany.com.br` está **vazia** — nenhuma variável cadastrada. Como o front é build Vite, `VITE_BACKEND_API_URL` precisa estar lá **antes** do build. Cadastrar + reimplantar resolve o "Backend não configurado" do módulo fiscal, que arrasta desde 14/08.
+
+**Risco aberto, único que não deu para confirmar no painel:** não há nada no hPanel dizendo se a aplicação Node **dorme por inatividade**. Existe um botão "Parar processos em execução" descrito para processos de execução longa, o que é indício de que processo longo é normal ali — mas não é confirmação. Importa por dois motivos: **cold start na primeira venda do dia** e o **`node-cron`** do backup agendado, que só roda se o processo ficar de pé. Resolver perguntando ao suporte da Hostinger, ou empiricamente (o backend vai existir de qualquer forma). Se dormir, o PIN ainda funciona; o agendamento de backup é que precisaria de outra solução.
+
+**Decisão de segurança que não pode ficar para depois:** a chave de service account do Firebase Admin **ignora todas as `firestore.rules`** — lê e escreve o banco inteiro, de todos os tenants. Hoje ela só existe na máquina do usuário. Hospedá-la é o lugar certo dela, mas **toda rota nova precisa passar pelo middleware de autenticação que já existe**. Uma rota `POST /reset-senha` desprotegida é literalmente "qualquer pessoa na internet assume a conta de qualquer funcionário, em qualquer empresa".
+
+**Achado operacional:** o deploy de produção é **automático a partir do GitHub** (branch `main`). O site está rodando o build do commit `40bfa08f`, de 2026-08-20 — anterior a tudo desta semana. Push para `production` publica sozinho, sem passo manual.
+
+---
+
+### F30 — Identificação do vendedor na venda
+
+**O que já existe e não precisa ser construído:**
+
+- **Funcionário já não entra com email.** `AuthPage.tsx` trata login sem `@` como funcionário e resolve **CNPJ + usuário** via o índice `usernames/{cnpj-usuario}`; o email `@nexar.app` é sintético e invisível ao usuário.
+- **Validar senha sem derrubar a sessão da estação já roda em produção:** `SolicitarAprovacaoDescontoModal.tsx` autentica num **app Firebase secundário** e desloga em seguida. O popup da venda é irmão desse modal.
+- **A venda já sabe quem vendeu:** `vendedorId`/`vendedorNome` já são gravados e já alimentam a comissão. Hoje é dropdown livre, sem senha — o popup não cria o campo, ele passa a **autenticar** o que hoje é confiança.
+
+**Descobertas que moldam o desenho (todas verificadas no código):**
+
+- **Sessão única por usuário** (`AuthContext.tsx`): `activeSessionId` divergente desloga o cliente. Confirma que as 10 máquinas **não podem compartilhar um login** — daí as contas por estação.
+- **`limiteUsuarios` padrão é 3** (`UsuarioForm.tsx`). Dez estações + funcionários estouram. Ajustar no SuperAdmin **antes** de o cliente entrar. Decisão comercial pendente: estação conta como licença?
+- **PIN de 4 dígitos não pode ser a senha do Firebase Auth** — o mínimo é 6, e o próprio `UsuarioForm.tsx` já valida isso. Por isso o F30 depende do F29: o PIN vira segredo próprio, validado **no servidor**. Validar no navegador exigiria expor o hash, e 10.000 combinações caem em milissegundos.
+- **Não existe reset de senha em lugar nenhum do sistema** — zero ocorrências de `updatePassword`/`sendPasswordResetEmail` em `src/` e `server/`. A edição de usuário só altera o nome. E **recriar não resolve**: excluir apaga só o documento e o índice, a conta do Firebase Auth fica órfã, e recriar com o mesmo usuário bate em `auth/email-already-in-use`. Hoje, funcionário que esquece a senha fica travado **para sempre**. Com PIN digitado dezenas de vezes por dia, isso vira chamado na primeira semana — entra como parte obrigatória do F30, não como extra.
+- **`visibilidadeVendasDomain.ts`** (trabalho em andamento de outra sessão, não commitado quando isto foi escrito) decide o dono da venda por `vendedorId` primeiro. Com o popup, a venda passa a ser do **funcionário**, não da estação — então, com a restrição ligada, `balcao01` **deixa de ver a venda que acabou de fazer** e não consegue reimprimir. Não é bug, é interação: ou as estações ficam com nível "Administração", ou a restrição fica desligada nesse cliente. Precisa ser decisão consciente.
+
+**Fatia 0 (bloqueante, antes de tudo) — prefixo divergente.** O prefixo do usuário é montado em dois lugares que só coincidem quando a empresa tem CNPJ cadastrado: `UsuarioForm.tsx` cai para slug do nome ou para os 4 primeiros caracteres do `tenantId`, enquanto `AuthPage.tsx` usa **sempre** o CNPJ digitado. Empresa cadastrada sem CNPJ ⇒ funcionário indexado sob chave que o login nunca gera ⇒ **ninguém entra**, com mensagem que manda procurar no lugar errado. Unificar numa função pura testada, com bloqueio claro em português quando falta CNPJ.
+
+**Fatias seguintes:**
+
+1. **Código do funcionário** — campo `codigoFuncionario` (2 dígitos), único por empresa, no cadastro de usuários.
+2. **PIN + rotas no backend** — definir/alterar PIN, validar PIN, resetar PIN (admin). Todas autenticadas. Controle de tentativas do lado servidor.
+3. **Config + permissão** — "Exigir identificação do vendedor a cada venda" em Configurações, na hierarquia config → permissão que o sistema já usa. Ligado, o dropdown de vendedor vira somente-leitura.
+4. **O popup** — foco automático, Enter avança (balcão é teclado, não mouse).
+5. **Ligar em Pedido de Venda** — pedir antes de finalizar **e** antes de Gravar Pré-venda (a pré-venda já carimba `vendedorId` e a comissão nasce dali); limpar a identificação ao concluir, para a próxima venda pedir de novo. PDV e OS ficam para depois.
+
+**Riscos a tratar explicitamente:**
+
+- **Erro no PIN não pode limpar a venda.** Carrinho de 30 itens refeito na frente do cliente é inaceitável. Requisito explícito, não detalhe de implementação.
+- **Bloqueio por tentativas.** Com validação no servidor, o controle é nosso — mas precisa existir, com mensagem clara em português e caminho de contingência (gerente libera, como no desconto).
+- **Comissão:** cada funcionário precisa do percentual configurado, senão a venda vai carimbada com comissão zero.
+- **Código de 2 dígitos é público por natureza** (todo mundo vê o do colega). Toda a segurança fica no PIN.
+
+---
+
 ## 9. Pendências a esclarecer com o usuário
 
 1. ~~**Módulo 4:** trecho corrompido no PDF original — confirmar se falta requisito de Produção.~~ Resolvido em 2026-08-02: faltava Cadastro de Matéria-Prima (pool de estoque separado, mesma lógica do cadastro de produtos) — ver seção do Módulo 4.

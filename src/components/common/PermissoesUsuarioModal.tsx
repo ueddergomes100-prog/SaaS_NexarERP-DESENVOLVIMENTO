@@ -7,6 +7,12 @@ import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useEscapeLayer } from '../../hooks/useKeyboardFlow';
 import { PERMISSION_GROUPS, PERMISSION_CATALOG } from '../../utils/permissionCatalog';
+import {
+  DEFAULT_NIVEL_ACESSO,
+  NIVEL_ACESSO_LABELS,
+  parseNivelAcesso,
+  type NivelAcesso,
+} from '../../utils/visibilidadeVendasDomain';
 
 interface PermissoesUsuarioModalProps {
   usuarioId: string;
@@ -26,8 +32,9 @@ interface PermissoesUsuarioModalProps {
  * bateria numa parede. O popup funciona pra quem ja esta na tela.
  */
 const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuarioId, usuarioNome, onClose, onSaved }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, restringirVendasPorUsuario } = useAuth();
   const [permissoes, setPermissoes] = useState<string[]>([]);
+  const [nivelAcesso, setNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
   const [busca, setBusca] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -41,6 +48,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
         const snap = await getDoc(doc(db, 'usuarios', usuarioId));
         const atuais = snap.exists() ? snap.data().permissoes : [];
         setPermissoes(Array.isArray(atuais) ? atuais.filter((p): p is string => typeof p === 'string') : []);
+        setNivelAcesso(parseNivelAcesso(snap.exists() ? snap.data().nivelAcesso : undefined));
       } catch (err) {
         console.error('Erro ao carregar permissões do usuário:', err);
         showError('Erro', 'Não foi possível carregar as permissões deste usuário.');
@@ -69,6 +77,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
     try {
       await updateDoc(doc(db, 'usuarios', usuarioId), {
         permissoes,
+        nivelAcesso,
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Permissões atualizadas'),
       });
       showSuccess('Permissões salvas!');
@@ -109,6 +118,31 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
           <button onClick={onClose} className="icon-btn" title="Fechar" style={{ color: 'var(--text-muted)' }}>
             <X size={20} />
           </button>
+        </div>
+
+        <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <label htmlFor="nivel-acesso-usuario" style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+              Nível de acesso
+            </label>
+            <select
+              id="nivel-acesso-usuario"
+              value={nivelAcesso}
+              onChange={(e) => setNivelAcesso(parseNivelAcesso(e.target.value))}
+              disabled={isLoading}
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '13px' }}
+            >
+              <option value="funcionario">{NIVEL_ACESSO_LABELS.funcionario}</option>
+              <option value="administracao">{NIVEL_ACESSO_LABELS.administracao}</option>
+            </select>
+          </div>
+          <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+            {restringirVendasPorUsuario
+              ? (nivelAcesso === 'funcionario'
+                ? 'Sua empresa está com "Não visualizar vendas de outro usuário" ligado: este usuário verá somente as vendas em que ele é o vendedor.'
+                : 'Este usuário verá as vendas de todos os vendedores, mesmo com a restrição ligada.')
+              : 'O nível só decide quais vendas a pessoa enxerga, e hoje ele não muda nada: a opção "Não visualizar vendas de outro usuário" está desligada em Configurações → Configurações Avançadas.'}
+          </p>
         </div>
 
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>

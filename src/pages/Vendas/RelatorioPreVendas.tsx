@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { dateInputToUtcStart, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import { toCents, fromCents } from '../../utils/financeDomain';
 import { isPedidoAberto, resolveOrigemPedido, STATUS_PRE_VENDA, type OrigemPedido } from '../../utils/preVendaDomain';
+import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 
 /**
  * Relatorio de PRE-VENDAS EM ABERTO.
@@ -64,7 +65,7 @@ interface PreVendaLinha {
 
 const RelatorioPreVendas: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, currentUser } = useAuth();
+  const { tenantId, currentUser, vendasVisiveisDeUsuarioId } = useAuth();
   const [linhas, setLinhas] = useState<PreVendaLinha[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -94,8 +95,10 @@ const RelatorioPreVendas: React.FC = () => {
         usuariosSnap.forEach((documento) => { usuarios[documento.id] = documento.data(); });
 
         const hoje = new Date();
-        const dados: PreVendaLinha[] = pedidosSnap.docs
-          .map((documento) => ({ id: documento.id, ...documento.data() } as any))
+        const dados: PreVendaLinha[] = filtrarVendasVisiveis(
+          pedidosSnap.docs.map((documento) => ({ id: documento.id, ...documento.data() } as any)),
+          vendasVisiveisDeUsuarioId,
+        )
           // So o que esta EM ABERTO. Pedido finalizado ja e' faturamento e
           // vive no Relatório de Vendas; cancelado nao interessa aqui.
           .filter((pedido) => isPedidoAberto(pedido.status))
@@ -129,7 +132,7 @@ const RelatorioPreVendas: React.FC = () => {
 
     void carregar();
     return () => { cancelado = true; };
-  }, [currentUser, tenantId]);
+  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
   const linhasFiltradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();

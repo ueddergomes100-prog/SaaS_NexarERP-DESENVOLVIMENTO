@@ -20,6 +20,7 @@ import {
   type StatusConferencia,
 } from '../../utils/conferenciaDomain';
 import { normalizeEmbalagens } from '../../utils/embalagemDomain';
+import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 
 interface HistoricoEntry {
   de: string;
@@ -89,7 +90,7 @@ const playFeedbackSound = (resultado: BipagemResultado) => {
 const ConferenciaForm: React.FC = () => {
   const { pedidoId } = useParams();
   const navigate = useNavigate();
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isClosing, setIsClosing] = useState(false);
@@ -146,6 +147,12 @@ const ConferenciaForm: React.FC = () => {
           return;
         }
         const pedidoData = pedidoSnap.data();
+        // Visibilidade de vendas: sem isto, o link direto da conferencia
+        // abriria a venda do colega com itens, quantidades e cliente.
+        if (vendasVisiveisDeUsuarioId && !isVendaDoUsuario(pedidoData, vendasVisiveisDeUsuarioId)) {
+          setLoadError('Esta venda foi registrada por outro vendedor e sua empresa limitou cada vendedor às próprias vendas. Peça a um usuário com nível Administração para conferir este pedido.');
+          return;
+        }
         if (!pedidoData.statusConferencia) {
           setLoadError('Este pedido não está habilitado para conferência de mercadoria.');
           return;

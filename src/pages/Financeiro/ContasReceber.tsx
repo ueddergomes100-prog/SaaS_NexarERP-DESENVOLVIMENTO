@@ -18,6 +18,7 @@ import {
 } from '../../utils/financeDomain';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
 import './Financeiro.css';
 
 interface TransacaoData {
@@ -41,6 +42,10 @@ interface TransacaoData {
   naturezaFinanceira?: string;
   dataVencimento?: string;
   dataPrevistaRecebimento?: string;
+  sourceType?: string;
+  vendedorId?: string;
+  usuarioResponsavelId?: string;
+  criadoPor?: string;
 }
 
 interface GrupoCliente {
@@ -99,7 +104,7 @@ const legacyPaymentForTransaction = (
 const ContasReceber: React.FC = () => {
   const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
   const [loading, setLoading] = useState(true);
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
   
   const [modalConciliacao, setModalConciliacao] = useState<{ ativo: boolean, transacao: TransacaoData | null, creditos: any[], saldoTotal: number }>({
     ativo: false, transacao: null, creditos: [], saldoTotal: 0
@@ -234,7 +239,10 @@ const ContasReceber: React.FC = () => {
         const dateB = b.createdAt?.seconds || 0;
         return dateB - dateA;
       });
-      setTransacoes(data);
+      // Visibilidade de vendas: some so o que veio de venda de OUTRO
+      // vendedor. Recebimento de OS, credito e lancamento manual continuam
+      // na lista -- ver src/utils/visibilidadeVendasDomain.ts.
+      setTransacoes(filtrarLancamentosVisiveis(data, vendasVisiveisDeUsuarioId));
       setLoading(false);
     }, (error) => {
       console.error("Erro ao buscar contas a receber:", error);
@@ -242,7 +250,7 @@ const ContasReceber: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [currentUser, tenantId]);
+  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
   const solicitarFormaRecebimento = async (t: TransacaoData) => {
     const result = await NexusSwal.fire({

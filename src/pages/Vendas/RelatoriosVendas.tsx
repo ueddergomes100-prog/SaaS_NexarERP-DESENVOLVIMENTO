@@ -21,6 +21,7 @@ import {
   getDateInputInTimeZone,
 } from '../../utils/dateTime';
 import { contaComoFaturamento } from '../../utils/preVendaDomain';
+import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { fromCents, toCents } from '../../utils/financeDomain';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -89,7 +90,7 @@ const inputStyle: React.CSSProperties = {
 
 const RelatoriosVendas: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, currentUser } = useAuth();
+  const { tenantId, currentUser, vendasVisiveisDeUsuarioId } = useAuth();
   const [data, setData] = useState<ReportData>({ sales: [], transactions: [], users: {}, products: {}, returns: [] });
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [loading, setLoading] = useState(true);
@@ -132,9 +133,10 @@ const RelatoriosVendas: React.FC = () => {
           // pedido que nao fosse 'Cancelada' entrava como venda, e pedido
           // 'Em Análise' inflava o faturamento em silencio. Pre-venda em
           // aberto tem tela propria (Relatório de Pré-vendas em Aberto).
-          sales: salesSnap.docs
-            .map((document) => ({ id: document.id, ...document.data() }))
-            .filter((sale: any) => contaComoFaturamento(sale.status)),
+          sales: filtrarVendasVisiveis(
+            salesSnap.docs.map((document) => ({ id: document.id, ...document.data() })) as any[],
+            vendasVisiveisDeUsuarioId,
+          ).filter((sale: any) => contaComoFaturamento(sale.status)),
           transactions: transactionsSnap.docs.map((document) => ({ id: document.id, ...document.data() })),
           users,
           products,
@@ -150,7 +152,7 @@ const RelatoriosVendas: React.FC = () => {
 
     void load();
     return () => { cancelled = true; };
-  }, [currentUser, tenantId]);
+  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
   const options = useMemo(() => {
     const customers = Array.from(new Set(data.sales.map((sale) => String(sale.clienteNome || '')).filter(Boolean))).sort();

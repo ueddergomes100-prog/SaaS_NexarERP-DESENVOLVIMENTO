@@ -44,6 +44,7 @@ import {
   type DashboardPeriod,
 } from '../../utils/dateTime';
 import { contaComoFaturamento } from '../../utils/preVendaDomain';
+import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { isRevenueReversal, transactionNetAmount } from '../../utils/financeDomain';
 import './Dashboard.css';
 
@@ -81,6 +82,7 @@ interface PedidoVendaData {
   vendedorId?: string;
   vendedorNome?: string;
   usuarioResponsavelId?: string;
+  criadoPor?: string;
   comissao?: {
     status?: string;
     valorAtual?: number;
@@ -197,7 +199,7 @@ const Dashboard: React.FC = () => {
   const topActionMenuRef = useRef<HTMLDivElement>(null);
   const quickActionMenuRef = useRef<HTMLDivElement>(null);
 
-  const { currentUser, userPermissions, tenantId, isOwner } = useAuth();
+  const { currentUser, userPermissions, tenantId, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
   const isTabActive = useContext(TabActiveContext);
   const hasFinancialAccess = isOwner || userPermissions?.includes('dashboard.valores');
 
@@ -271,7 +273,10 @@ const Dashboard: React.FC = () => {
         const data: PedidoVendaData[] = [];
         snapshot.forEach((docSnap) => data.push({ id: docSnap.id, ...docSnap.data() } as PedidoVendaData));
         data.sort((a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0));
-        setPedidos(data);
+        // Faturamento, ranking e ticket medio da dashboard passam a contar
+        // so as vendas que este usuario pode ver -- ver
+        // src/utils/visibilidadeVendasDomain.ts.
+        setPedidos(filtrarVendasVisiveis(data, vendasVisiveisDeUsuarioId));
         markLoaded();
       },
       (error) => {
@@ -329,7 +334,7 @@ const Dashboard: React.FC = () => {
     }
 
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [currentUser, tenantId, hasFinancialAccess]);
+  }, [currentUser, tenantId, hasFinancialAccess, vendasVisiveisDeUsuarioId]);
 
   const toggleHideData = () => {
     const newVal = !hideData;

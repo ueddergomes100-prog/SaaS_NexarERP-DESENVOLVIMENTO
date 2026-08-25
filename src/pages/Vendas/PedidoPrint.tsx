@@ -5,12 +5,18 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import PedidoPrintDocument from './PedidoPrintDocument';
+import {
+  isVendaDoUsuario,
+  MENSAGEM_VENDA_DE_OUTRO_USUARIO,
+  TITULO_VENDA_DE_OUTRO_USUARIO,
+} from '../../utils/visibilidadeVendasDomain';
+import { showError } from '../../utils/alerts';
 import '../OS/OsPrint.css'; // Reusing OS print styles
 
 const PedidoPrint: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
   const [pedidoData, setPedidoData] = useState<any>(null);
   const [clientData, setClientData] = useState<any>(null);
   const [configData, setConfigData] = useState<any>(null);
@@ -25,6 +31,13 @@ const PedidoPrint: React.FC = () => {
         
         if (docSnap.exists()) {
           const data = { id: docSnap.id, ...docSnap.data() } as any;
+          // Imprimir e' ver: a mesma trava da tela de visualizacao vale aqui.
+          if (vendasVisiveisDeUsuarioId && !isVendaDoUsuario(data, vendasVisiveisDeUsuarioId)) {
+            showError(TITULO_VENDA_DE_OUTRO_USUARIO, MENSAGEM_VENDA_DE_OUTRO_USUARIO);
+            navigate('/pedidos-venda');
+            setLoading(false);
+            return;
+          }
           setPedidoData(data);
 
           // Buscar dados detalhados do cliente
@@ -56,7 +69,7 @@ const PedidoPrint: React.FC = () => {
       }
     };
     fetchPedido();
-  }, [id, navigate, currentUser, tenantId]);
+  }, [id, navigate, currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
   const handlePrint = () => {
     window.print();

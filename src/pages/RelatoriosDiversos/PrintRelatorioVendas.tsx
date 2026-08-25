@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, Printer } from 'lucide-react';
 import { formatCompanyAddress, getCompanyAddressParts } from '../../utils/companyAddress';
 import { fromCents, toCents } from '../../utils/financeDomain';
+import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import '../OS/OsPrint.css'; // Reusing print layout styles
 
 interface PedidoVenda {
@@ -14,6 +15,8 @@ interface PedidoVenda {
   clienteId: string;
   clienteNome: string;
   usuarioResponsavelId: string;
+  vendedorId?: string;
+  criadoPor?: string;
   vendedorNome?: string;
   itens: any[];
   valorTotal: number;
@@ -36,6 +39,8 @@ interface DevolucaoVenda {
   clienteId: string;
   clienteNome: string;
   usuarioResponsavelId: string;
+  vendedorId?: string;
+  criadoPor?: string;
   vendedorNome?: string;
   itens: any[];
   valorTotalDevolvido: number;
@@ -73,7 +78,7 @@ const saleFinancialNetCents = (sale: PedidoVenda) => {
 const PrintRelatorioVendas: React.FC = () => {
   const { search } = useLocation();
   const navigate = useNavigate();
-  const { tenantId, currentUser } = useAuth();
+  const { tenantId, currentUser, vendasVisiveisDeUsuarioId } = useAuth();
 
   const queryParams = new URLSearchParams(search);
   const tipo = queryParams.get('tipo') as 'geral' | 'vendedor';
@@ -132,7 +137,7 @@ const PrintRelatorioVendas: React.FC = () => {
           const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date();
           return dateA.getTime() - dateB.getTime();
         });
-        setPedidos(listVendas);
+        setPedidos(filtrarVendasVisiveis(listVendas, vendasVisiveisDeUsuarioId));
 
         // 5. Buscar devoluções (devolucoes_venda)
         const qDevolucoes = query(
@@ -164,7 +169,7 @@ const PrintRelatorioVendas: React.FC = () => {
     };
 
     fetchData();
-  }, [currentUser, tenantId, inicio, fim]);
+  }, [currentUser, tenantId, inicio, fim, vendasVisiveisDeUsuarioId]);
 
   // Agrupamento por Vendedor
   const sellerStats = React.useMemo(() => {

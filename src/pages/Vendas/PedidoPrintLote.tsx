@@ -6,13 +6,14 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import PedidoPrintDocument from './PedidoPrintDocument';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from './pedidoPrintLoteConstants';
+import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import '../OS/OsPrint.css'; // Reusing OS print styles
 import './PedidoPrintLote.css';
 
 const PedidoPrintLote: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
   const [pedidos, setPedidos] = useState<any[]>([]);
   const [clientsById, setClientsById] = useState<Record<string, any>>({});
   const [configData, setConfigData] = useState<any>(null);
@@ -35,9 +36,14 @@ const PedidoPrintLote: React.FC = () => {
         const pedidoDocs = await Promise.all(
           idsToLoad.map((id) => getDoc(doc(db, 'pedidos_venda', id))),
         );
-        const loadedPedidos = pedidoDocs
-          .filter((snap) => snap.exists())
-          .map((snap) => ({ id: snap.id, ...snap.data() } as any));
+        // A impressao em lote recebe os ids pela URL -- sem este filtro,
+        // bastaria colar o id do pedido do colega na query string.
+        const loadedPedidos = filtrarVendasVisiveis(
+          pedidoDocs
+            .filter((snap) => snap.exists())
+            .map((snap) => ({ id: snap.id, ...snap.data() } as any)),
+          vendasVisiveisDeUsuarioId,
+        );
         setPedidos(loadedPedidos);
 
         const clienteNomes = Array.from(
@@ -69,7 +75,7 @@ const PedidoPrintLote: React.FC = () => {
     };
     fetchLote();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser, tenantId, location.search]);
+  }, [currentUser, tenantId, location.search, vendasVisiveisDeUsuarioId]);
 
   const handlePrint = () => {
     window.print();

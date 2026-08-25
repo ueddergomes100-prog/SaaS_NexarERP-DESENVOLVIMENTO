@@ -6,6 +6,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
 import { isTenantManagerRole } from '../../utils/roles';
+import {
+  NIVEL_ACESSO_LABELS,
+  parseNivelAcesso,
+} from '../../utils/visibilidadeVendasDomain';
 import PermissoesUsuarioModal from '../../components/common/PermissoesUsuarioModal';
 
 interface UsuarioData {
@@ -16,10 +20,11 @@ interface UsuarioData {
   email: string;
   role: string;
   status: string;
+  nivelAcesso?: string;
 }
 
 const UsuariosList: React.FC = () => {
-  const { tenantId, userRole } = useAuth();
+  const { tenantId, userRole, restringirVendasPorUsuario } = useAuth();
   const { openTab } = useTabs();
   const [usuarios, setUsuarios] = useState<UsuarioData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,6 +96,20 @@ const UsuariosList: React.FC = () => {
     }
   };
 
+  // Nivel de acesso (Funcionario/Administracao) governa SO a visibilidade
+  // de vendas -- e' proposital que ele apareca separado do perfil do
+  // sistema, que continua sendo quem manda nos modulos.
+  const getNivelBadge = (user: UsuarioData) => {
+    const ehDono = user.id === tenantId;
+    const nivel = ehDono || isTenantManagerRole(user.role) ? 'administracao' : parseNivelAcesso(user.nivelAcesso);
+    const cor = nivel === 'administracao' ? '#10b981' : '#6b7280';
+    return (
+      <span style={{ backgroundColor: cor + '1a', color: cor, padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>
+        {NIVEL_ACESSO_LABELS[nivel]}
+      </span>
+    );
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -108,6 +127,16 @@ const UsuariosList: React.FC = () => {
         )}
       </div>
 
+      {restringirVendasPorUsuario && (
+        <div style={{ padding: '14px 18px', backgroundColor: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: 'var(--radius-md)', color: 'var(--text-secondary)', fontSize: '13px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+          <Shield size={18} style={{ color: '#10b981', flexShrink: 0, marginTop: '1px' }} />
+          <span>
+            Esta empresa está com <strong>&quot;Não visualizar vendas de outro usuário&quot;</strong> ligado. Quem está como
+            {' '}<strong>Funcionário</strong> enxerga apenas as próprias vendas; quem está como <strong>Administração</strong> vê todas.
+            {' '}Para mudar o nível de alguém, clique no escudo na linha dele.
+          </span>
+        </div>
+      )}
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
         <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
           <div className="search-bar" style={{ flex: 1, position: 'relative' }}>
@@ -126,7 +155,8 @@ const UsuariosList: React.FC = () => {
               <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '13px', textTransform: 'uppercase' }}>
                 <th style={{ padding: '16px' }}>Nome do Funcionário</th>
                 <th style={{ padding: '16px' }}>Login (Usuário)</th>
-                <th style={{ padding: '16px' }}>Nível de Acesso</th>
+                <th style={{ padding: '16px' }}>Perfil no Sistema</th>
+                <th style={{ padding: '16px' }}>Nível (Vendas)</th>
                 <th style={{ padding: '16px' }}>Status</th>
                 {canManageUsers && <th style={{ padding: '16px', textAlign: 'right' }}>Ações</th>}
               </tr>
@@ -134,11 +164,11 @@ const UsuariosList: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando equipe...</td>
+                  <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando equipe...</td>
                 </tr>
               ) : usuarios.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum funcionário cadastrado.</td>
+                  <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum funcionário cadastrado.</td>
                 </tr>
               ) : (
                 usuarios.map(user => (
@@ -148,6 +178,7 @@ const UsuariosList: React.FC = () => {
                       {user.username ? (user.username.includes('-') ? user.username.split('-').slice(1).join('-') : user.username) : user.email}
                     </td>
                     <td style={{ padding: '16px' }}>{getRoleBadge(user.role)}</td>
+                    <td style={{ padding: '16px' }}>{getNivelBadge(user)}</td>
                     <td style={{ padding: '16px' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '13px' }}>
                         <span style={{ width: '8px', height: '8px', backgroundColor: '#10b981', borderRadius: '50%' }}></span>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Receipt, Plus, Search, CheckCircle,
   XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings, Trash2,
@@ -11,6 +11,7 @@ import { spedyService } from '../../services/spedyService';
 import type { SpedyInvoice } from '../../services/spedyService';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import {
   DEFAULT_REGIME_TRIBUTARIO, buildTaxesPayload, buildServiceInvoicePayload,
@@ -109,7 +110,7 @@ interface OrdemServicoParaImportar {
 }
 
 const NFE: React.FC = () => {
-  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
 
   const canDeleteInvoice = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.excluir'));
   const canEmitirNota = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.emitir'));
@@ -122,7 +123,7 @@ const NFE: React.FC = () => {
   const [nfseConfig, setNfseConfig] = useState<NfseConfig>({ habilitada: false });
 
   // Estado de dados
-  const [invoices, setInvoices] = useState<LocalInvoice[]>([]);
+  const [allInvoices, setInvoices] = useState<LocalInvoice[]>([]);
   const [clients, setClients] = useState<ClienteOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -144,6 +145,16 @@ const NFE: React.FC = () => {
 
   // Importação de Pedidos
   const [pedidosVenda, setPedidosVenda] = useState<PedidoVenda[]>([]);
+  // Visibilidade de vendas: a nota nao guarda vendedor, so pedidoId. Quem
+  // esta restrito ja recebe pedidosVenda filtrado, entao a nota amarrada a
+  // um pedido que sumiu da lista tambem some daqui. Nota sem pedidoId
+  // (NFS-e de OS ou avulsa) nao e' venda de vendedor nenhum e continua
+  // visivel. Ver src/utils/visibilidadeVendasDomain.ts.
+  const invoices = useMemo(() => {
+    if (!vendasVisiveisDeUsuarioId) return allInvoices;
+    const pedidosVisiveis = new Set(pedidosVenda.map((pedido) => pedido.id));
+    return allInvoices.filter((note) => !note.pedidoId || pedidosVisiveis.has(note.pedidoId));
+  }, [allInvoices, pedidosVenda, vendasVisiveisDeUsuarioId]);
   const [importedPedidoItens, setImportedPedidoItens] = useState<PedidoVendaItem[]>([]);
   const [importedPedidoId, setImportedPedidoId] = useState<string>('');
 
@@ -275,6 +286,10 @@ const NFE: React.FC = () => {
         const pedidosList: PedidoVenda[] = [];
         qPedSnap.forEach(d => {
           const dData = d.data();
+          // Visibilidade de vendas: quem so ve as proprias vendas tambem so
+          // pode importar as proprias pra nota -- a lista de pedidos aqui
+          // mostra cliente e valor de cada venda.
+          if (vendasVisiveisDeUsuarioId && !isVendaDoUsuario(dData, vendasVisiveisDeUsuarioId)) return;
           pedidosList.push({
             id: d.id,
             numeroPedido: dData.numeroPedido || '',
@@ -322,7 +337,7 @@ const NFE: React.FC = () => {
       }
     };
     loadConfigAndClients();
-  }, [tenantId]);
+  }, [tenantId, vendasVisiveisDeUsuarioId]);
 
   // Sincroniza campos avulsos/manuais com importedPedidoItens quando não há pedido nem OS selecionado
   useEffect(() => {

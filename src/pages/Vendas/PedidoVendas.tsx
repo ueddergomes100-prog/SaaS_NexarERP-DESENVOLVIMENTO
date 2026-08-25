@@ -10,6 +10,7 @@ import { computeBankCreditsMap } from '../../utils/financeDomain';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { spedyService } from '../../services/spedyService';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from './pedidoPrintLoteConstants';
 import {
   contaComoFaturamento,
@@ -37,6 +38,9 @@ interface PedidoVendaData {
   itens?: ItemVenda[];
   tenantId: string;
   statusConferencia?: string;
+  vendedorId?: string;
+  usuarioResponsavelId?: string;
+  criadoPor?: string;
 }
 
 // Modulo 12 (Conferencia de mercadoria) -- rotulos/cores da coluna opcional.
@@ -58,7 +62,7 @@ const CONFERENCIA_STATUS_COLORS: Record<string, string> = {
 const PedidoVendas: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
-  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
 
   const canDeleteVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.excluir'));
   // Mesma permissao cobre editar/finalizar E recusar um pedido pendente do
@@ -125,12 +129,15 @@ const PedidoVendas: React.FC = () => {
       const p: PedidoVendaData[] = [];
       snapshot.forEach(doc => p.push({ id: doc.id, ...doc.data() } as PedidoVendaData));
       p.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setPedidos(p);
+      // Filtra no cliente, e nao com um where(vendedorId) na query, porque
+      // venda antiga pode ter so usuarioResponsavelId/criadoPor -- um where
+      // num campo so sumiria com pedido que e' do proprio usuario.
+      setPedidos(filtrarVendasVisiveis(p, vendasVisiveisDeUsuarioId));
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [currentUser, tenantId]);
+  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
   const handleDelete = async (pedido: PedidoVendaData) => {
     // Verifica se há nota fiscal ativa vinculada

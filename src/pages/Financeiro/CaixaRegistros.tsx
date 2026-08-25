@@ -4,6 +4,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Wallet, Clock, History, Calendar, ChevronDown, ChevronUp, Banknote } from 'lucide-react';
 import { fromCents } from '../../utils/financeDomain';
+import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import './Financeiro.css';
 
 interface SangriaData {
@@ -36,6 +37,9 @@ interface VendaVinculada {
   valorTotal?: number;
   clienteNome?: string;
   createdAt?: any;
+  vendedorId?: string;
+  usuarioResponsavelId?: string;
+  criadoPor?: string;
 }
 
 const currencyFormat = (value: number) => (
@@ -55,7 +59,7 @@ const formatDateTime = (value: any): string => {
 };
 
 const CaixaRegistros: React.FC = () => {
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
   const [sessoes, setSessoes] = useState<CaixaSessaoData[]>([]);
   const [loading, setLoading] = useState(true);
   const [diasFiltro, setDiasFiltro] = useState<number>(30);
@@ -106,7 +110,12 @@ const CaixaRegistros: React.FC = () => {
     try {
       const q = query(collection(db, 'pedidos_venda'), where('pdvSessionId', '==', sessao.id));
       const snap = await getDocs(q);
-      const vendas: VendaVinculada[] = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as VendaVinculada));
+      // As vendas listadas dentro da sessao de caixa seguem a mesma regra
+      // de visibilidade das demais telas de venda.
+      const vendas: VendaVinculada[] = filtrarVendasVisiveis(
+        snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as VendaVinculada)),
+        vendasVisiveisDeUsuarioId,
+      );
       vendas.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setVendasPorSessao((prev) => ({ ...prev, [sessao.id]: vendas }));
     } catch (error) {

@@ -5,6 +5,7 @@ import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StatusConferencia } from '../../utils/conferenciaDomain';
+import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 
 interface PedidoExpedicaoData {
   id: string;
@@ -13,6 +14,9 @@ interface PedidoExpedicaoData {
   createdAt?: { seconds?: number };
   statusConferencia: StatusConferencia;
   tenantId: string;
+  vendedorId?: string;
+  usuarioResponsavelId?: string;
+  criadoPor?: string;
 }
 
 // Mesmos rotulos/cores de PedidoVendas.tsx (coluna "Conferência") -- mantidos
@@ -37,7 +41,7 @@ const STATUS_FILTER_ORDER: StatusConferencia[] = ['aguardando', 'em_conferencia'
 
 const FilaExpedicao: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
   const [pedidos, setPedidos] = useState<PedidoExpedicaoData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -58,7 +62,11 @@ const FilaExpedicao: React.FC = () => {
         if (item.statusConferencia) data.push(item);
       });
       data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setPedidos(data);
+      // A fila tambem respeita a visibilidade de vendas. ATENCAO ao ligar
+      // as duas configs juntas: se quem separa a mercadoria estiver como
+      // nivel 'funcionario', a fila dele fica vazia -- o separador precisa
+      // ser nivel 'administracao' pra enxergar os pedidos da equipe.
+      setPedidos(filtrarVendasVisiveis(data, vendasVisiveisDeUsuarioId));
       setLoading(false);
     }, (error) => {
       console.error('Erro ao buscar fila de expedição:', error);
@@ -66,7 +74,7 @@ const FilaExpedicao: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [currentUser, tenantId]);
+  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
   const filteredPedidos = pedidos.filter((p) => {
     if (statusFilter !== 'todos' && p.statusConferencia !== statusFilter) return false;

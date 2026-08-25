@@ -87,6 +87,11 @@ service cloud.firestore {
         'nome',
         'updatedAt',
         'permissoes',
+        // Nivel de visibilidade de vendas (funcionario/administracao). Fica
+        // aqui, e nao junto de 'role', de proposito: nao troca o papel do
+        // usuario nem libera modulo, so decide quais vendas ele enxerga.
+        // Ver src/utils/visibilidadeVendasDomain.ts.
+        'nivelAcesso',
         'recebeComissaoServicos',
         'comissaoPercentualServicos',
         'recebeComissaoPecas',

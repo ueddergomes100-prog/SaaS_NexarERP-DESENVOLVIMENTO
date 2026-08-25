@@ -38,7 +38,7 @@ interface CommissionEntry {
 
 const RelatorioComissoes: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, currentUser } = useAuth();
+  const { tenantId, currentUser, vendasVisiveisDeUsuarioId } = useAuth();
   const [entries, setEntries] = useState<CommissionEntry[]>([]);
   const [users, setUsers] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
@@ -137,8 +137,19 @@ const RelatorioComissoes: React.FC = () => {
           });
         });
 
-        setUsers(userMap);
-        setEntries(result.sort((a, b) => (b.generatedAt?.getTime() || 0) - (a.generatedAt?.getTime() || 0)));
+        // O seletor "Vendedor" nao pode listar a equipe inteira pra quem
+        // so ve as proprias comissoes -- a lista de nomes ja e' informacao.
+        setUsers(vendasVisiveisDeUsuarioId
+          ? (userMap[vendasVisiveisDeUsuarioId] ? { [vendasVisiveisDeUsuarioId]: userMap[vendasVisiveisDeUsuarioId] } : {})
+          : userMap);
+        // Visibilidade de vendas: quando o funcionario so pode ver as
+        // proprias vendas, ele tambem so ve a propria comissao -- a linha
+        // de comissao do colega expoe o faturamento que a tela de Vendas
+        // acabou de esconder. Vale pras duas origens (venda e OS).
+        const visiveis = vendasVisiveisDeUsuarioId
+          ? result.filter((entry) => entry.sellerId === vendasVisiveisDeUsuarioId)
+          : result;
+        setEntries(visiveis.sort((a, b) => (b.generatedAt?.getTime() || 0) - (a.generatedAt?.getTime() || 0)));
       } catch (loadError) {
         console.error('Erro ao carregar comissões:', loadError);
         if (!cancelled) setError('Não foi possível carregar as comissões.');
@@ -148,7 +159,7 @@ const RelatorioComissoes: React.FC = () => {
     };
     void load();
     return () => { cancelled = true; };
-  }, [currentUser, tenantId]);
+  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
   const filtered = useMemo(() => {
     const start = dateInputToUtcStart(startDate);

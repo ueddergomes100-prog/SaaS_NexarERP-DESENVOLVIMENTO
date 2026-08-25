@@ -40,6 +40,14 @@ import {
   DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
 } from '../../utils/conferenciaDomain';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import {
+  DEFAULT_NIVEL_ACESSO,
+  DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO,
+  NIVEL_ACESSO_LABELS,
+  parseNivelAcesso,
+  parseRestringirVendasPorUsuario,
+  type NivelAcesso,
+} from '../../utils/visibilidadeVendasDomain';
 
 const toStringArray = (value: unknown): string[] => {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -87,6 +95,7 @@ const Configuracoes: React.FC = () => {
   const [tenantUsers, setTenantUsers] = useState<any[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [selectedUserPermissions, setSelectedUserPermissions] = useState<string[]>([]);
+  const [selectedUserNivelAcesso, setSelectedUserNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
   const [recebeComissaoServicos, setRecebeComissaoServicos] = useState(false);
   const [comissaoPercentualServicos, setComissaoPercentualServicos] = useState(0);
   const [recebeComissaoPecas, setRecebeComissaoPecas] = useState(false);
@@ -127,6 +136,7 @@ const Configuracoes: React.FC = () => {
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     trabalhaComPreVenda: DEFAULT_TRABALHA_COM_PRE_VENDA,
     alterarPagamentoVendaFinalizada: DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
+    restringirVendasPorUsuario: DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO,
     conferenciaMercadoria: DEFAULT_CONFERENCIA_MERCADORIA,
     imprimirMinutaAposVenda: DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
     exigirBipagem: DEFAULT_EXIGIR_BIPAGEM,
@@ -211,6 +221,7 @@ const Configuracoes: React.FC = () => {
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             trabalhaComPreVenda: parseTrabalhaComPreVenda(data.trabalhaComPreVenda),
             alterarPagamentoVendaFinalizada: parseAlterarPagamentoVendaFinalizada(data.alterarPagamentoVendaFinalizada),
+            restringirVendasPorUsuario: parseRestringirVendasPorUsuario(data.restringirVendasPorUsuario),
             conferenciaMercadoria: data.conferenciaMercadoria ?? DEFAULT_CONFERENCIA_MERCADORIA,
             imprimirMinutaAposVenda: data.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
             exigirBipagem: data.exigirBipagem ?? DEFAULT_EXIGIR_BIPAGEM,
@@ -515,12 +526,14 @@ const Configuracoes: React.FC = () => {
     if (uId) {
       const user = tenantUsers.find(u => u.id === uId);
       setSelectedUserPermissions(user?.permissoes || []);
+      setSelectedUserNivelAcesso(parseNivelAcesso(user?.nivelAcesso));
       setRecebeComissaoServicos(user?.recebeComissaoServicos || false);
       setComissaoPercentualServicos(user?.comissaoPercentualServicos || 0);
       setRecebeComissaoPecas(user?.recebeComissaoPecas || false);
       setComissaoPercentualPecas(user?.comissaoPercentualPecas || 0);
     } else {
       setSelectedUserPermissions([]);
+      setSelectedUserNivelAcesso(DEFAULT_NIVEL_ACESSO);
       setRecebeComissaoServicos(false);
       setComissaoPercentualServicos(0);
       setRecebeComissaoPecas(false);
@@ -540,6 +553,7 @@ const Configuracoes: React.FC = () => {
     try {
       await updateDoc(doc(db, 'usuarios', selectedUserId), {
         permissoes: selectedUserPermissions,
+        nivelAcesso: selectedUserNivelAcesso,
         recebeComissaoServicos: recebeComissaoServicos,
         comissaoPercentualServicos: comissaoPercentualServicos,
         recebeComissaoPecas: recebeComissaoPecas,
@@ -550,6 +564,7 @@ const Configuracoes: React.FC = () => {
       setTenantUsers(prev => prev.map(u => u.id === selectedUserId ? {
         ...u,
         permissoes: selectedUserPermissions,
+        nivelAcesso: selectedUserNivelAcesso,
         recebeComissaoServicos: recebeComissaoServicos,
         comissaoPercentualServicos: comissaoPercentualServicos,
         recebeComissaoPecas: recebeComissaoPecas,
@@ -1432,6 +1447,29 @@ const Configuracoes: React.FC = () => {
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Visibilidade de Vendas</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.restringirVendasPorUsuario === true}
+                    onChange={(e) => setFormData({ ...formData, restringirVendasPorUsuario: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Não visualizar vendas de outro usuário
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Quando marcado, quem tem nível <strong>Funcionário</strong> passa a enxergar apenas as vendas em que ele é o vendedor: lista de Pedidos de Venda, Relatório de Vendas, Pré-vendas em Aberto, Descontos Concedidos, Comissões, Contas a Receber, Dashboard, painel fiscal, fila de expedição e impressões. Ele também não consegue abrir nem imprimir a venda de outro pelo link direto. Quem tem nível <strong>Administração</strong> (e o dono da empresa) continua vendo tudo.
+                </p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  <strong>Caixa, Banco e Faturamento (DRE) não são filtrados</strong>, de propósito: são o saldo e o resultado da empresa inteira, e mostrar um valor parcial ali seria mostrar um número errado. Para manter o funcionário fora desses números, não libere esses módulos nas permissões dele.
+                </p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  O nível de cada pessoa é definido logo abaixo, em <strong>Permissão de Usuários</strong>. Desligado (padrão), todo mundo vê todas as vendas, como sempre foi.
+                </p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Conferência de Mercadoria (Expedição)</label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
                   <input
@@ -1883,6 +1921,45 @@ const Configuracoes: React.FC = () => {
 
               {selectedUserId && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+
+                  {/* Bloco de Nivel de Acesso */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>
+                    <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
+                      Nível de Acesso
+                    </h4>
+
+                    {selectedUserId === tenantId ? (
+                      <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                        Este é o <strong>dono da empresa</strong>. Ele é sempre Administração e enxerga todas as vendas — o nível não pode ser alterado.
+                      </p>
+                    ) : (
+                      <>
+                        <select
+                          value={selectedUserNivelAcesso}
+                          onChange={(e) => setSelectedUserNivelAcesso(parseNivelAcesso(e.target.value))}
+                          style={{ width: '100%', maxWidth: '320px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)', fontSize: '14px' }}
+                        >
+                          <option value="funcionario">{NIVEL_ACESSO_LABELS.funcionario}</option>
+                          <option value="administracao">{NIVEL_ACESSO_LABELS.administracao}</option>
+                        </select>
+                        <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                          O nível decide <strong>apenas</strong> quais vendas a pessoa enxerga. Os módulos que ela pode abrir continuam sendo os marcados aqui embaixo, em Módulos Permitidos — mudar o nível não libera módulo nenhum.
+                        </p>
+                        {formData.restringirVendasPorUsuario === true ? (
+                          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                            {selectedUserNivelAcesso === 'funcionario'
+                              ? 'Como a empresa está com "Não visualizar vendas de outro usuário" ligado, este usuário verá somente as vendas em que ele é o vendedor.'
+                              : 'Este usuário verá as vendas de todos os vendedores, mesmo com a restrição ligada.'}
+                          </p>
+                        ) : (
+                          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                            A restrição de visibilidade está <strong>desligada</strong> nas Configurações Avançadas desta empresa, então hoje todo mundo vê todas as vendas independente do nível. Este campo passa a valer quando você marcar "Não visualizar vendas de outro usuário".
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
 
                   {/* Bloco de Comissões */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>

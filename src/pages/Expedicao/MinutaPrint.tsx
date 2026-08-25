@@ -5,13 +5,19 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { DEFAULT_ORDENAR_MINUTA_POR_LOCAL, ordenarPorLocalizacao } from '../../utils/conferenciaDomain';
+import {
+  isVendaDoUsuario,
+  MENSAGEM_VENDA_DE_OUTRO_USUARIO,
+  TITULO_VENDA_DE_OUTRO_USUARIO,
+} from '../../utils/visibilidadeVendasDomain';
+import { showError } from '../../utils/alerts';
 import MinutaPrintDocument, { type MinutaItem } from './MinutaPrintDocument';
 import '../OS/OsPrint.css'; // Reusing OS print styles, mesmo padrao de PedidoPrint.tsx
 
 const MinutaPrint: React.FC = () => {
   const { pedidoId } = useParams();
   const navigate = useNavigate();
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
   const [pedidoData, setPedidoData] = useState<any>(null);
   const [itens, setItens] = useState<MinutaItem[]>([]);
   const [configData, setConfigData] = useState<any>(null);
@@ -31,6 +37,13 @@ const MinutaPrint: React.FC = () => {
         if (pedido.tenantId !== tenantId) {
           alert('Pedido não encontrado!');
           navigate('/pedidos-venda');
+          return;
+        }
+        // Mesma trava do link direto de PedidoPrint: a minuta lista os
+        // itens e o cliente da venda.
+        if (vendasVisiveisDeUsuarioId && !isVendaDoUsuario(pedido, vendasVisiveisDeUsuarioId)) {
+          showError(TITULO_VENDA_DE_OUTRO_USUARIO, MENSAGEM_VENDA_DE_OUTRO_USUARIO);
+          navigate('/expedicao');
           return;
         }
         setPedidoData(pedido);
@@ -81,7 +94,7 @@ const MinutaPrint: React.FC = () => {
       }
     };
     fetchMinuta();
-  }, [pedidoId, navigate, currentUser, tenantId]);
+  }, [pedidoId, navigate, currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
   const handlePrint = () => {
     window.print();

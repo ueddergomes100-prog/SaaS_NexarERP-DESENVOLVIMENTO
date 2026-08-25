@@ -13,6 +13,14 @@ import {
 } from '../utils/sessionInfo';
 import { isPlatformAdminRole, normalizeUserRole, type UserRole } from '../utils/roles';
 import { activeTenantStorageKey, loadTenantOptions, type TenantOption } from '../utils/platformTenants';
+import {
+  DEFAULT_NIVEL_ACESSO,
+  DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO,
+  parseNivelAcesso,
+  parseRestringirVendasPorUsuario,
+  somenteVendasProprias as calcSomenteVendasProprias,
+  type NivelAcesso,
+} from '../utils/visibilidadeVendasDomain';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -31,6 +39,17 @@ interface AuthContextType {
    *  cai na empresa anterior sem perceber (risco de mexer no cliente errado). */
   setActiveTenantId: (tenantId: string) => boolean;
   needsTenantSelection: boolean;
+  /** Nivel de acesso do usuario dentro da empresa (Modulo de visibilidade
+   *  de vendas). Governa SO a visibilidade de venda -- nao substitui as
+   *  permissoes de modulo. Ver src/utils/visibilidadeVendasDomain.ts. */
+  nivelAcesso: NivelAcesso;
+  /** Config da empresa: "nao visualizar vendas de outro usuario". */
+  restringirVendasPorUsuario: boolean;
+  /** true quando ESTE usuario so pode ver as proprias vendas. */
+  somenteVendasProprias: boolean;
+  /** Id pra filtrar vendas, ou null quando o usuario ve todas. Passe
+   *  direto pra filtrarVendasVisiveis() -- ela ja trata o null. */
+  vendasVisiveisDeUsuarioId: string | null;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -87,6 +106,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isOwner, setIsOwner] = useState<boolean>(false);
   const [tenantOptions, setTenantOptions] = useState<TenantOption[]>([]);
   const [selectedTenant, setSelectedTenant] = useState<TenantOption | null>(null);
+  const [nivelAcesso, setNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
+  const [restringirVendasPorUsuario, setRestringirVendasPorUsuario] = useState(DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO);
   const [loading, setLoading] = useState(true);
   const sessionCloseTokenRef = useRef('');
 
@@ -123,6 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCurrentUser(null);
         setUserRole(null);
         setUserPermissions([]);
+        setNivelAcesso(DEFAULT_NIVEL_ACESSO);
         setTenantId(null);
         setBlockedModules([]);
         setIsOwner(false);
@@ -138,6 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setUserRole(role);
         setUserPermissions([]);
+        setNivelAcesso('administracao');
         setTenantOptions(options);
         setSelectedTenant(activeTenant);
         setTenantId(activeTenant?.id || null);
@@ -252,6 +275,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             setUserRole(finalRole);
             setUserPermissions(finalPermissions);
+            setNivelAcesso(parseNivelAcesso(data.nivelAcesso));
             setTenantOptions([]);
             setSelectedTenant(null);
             setTenantId(finalTenant);
@@ -273,6 +297,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         setUserRole(null);
         setUserPermissions([]);
+        setNivelAcesso(DEFAULT_NIVEL_ACESSO);
         setTenantId(null);
         setBlockedModules([]);
         setIsOwner(false);
@@ -289,6 +314,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
   }, []);
+
+  // Config "nao visualizar vendas de outro usuario" da empresa ativa.
+  // Fica aqui, e nao em cada tela, por dois motivos: e' regra de
+  // visibilidade usada por ~15 telas (Vendas, Dashboard, Financeiro,
+  // Fiscal, Expedicao, relatorios), e precisa ser ao vivo -- o dono
+  // desliga a restricao e o funcionario passa a ver tudo sem relogar.
+  useEffect(() => {
+    if (!tenantId) {
+      setRestringirVendasPorUsuario(DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(doc(db, 'configuracoes', tenantId), (snap) => {
+      setRestringirVendasPorUsuario(
+        parseRestringirVendasPorUsuario(snap.exists() ? snap.data().restringirVendasPorUsuario : undefined),
+      );
+    }, (error) => {
+      // Falha de leitura MANTEM o valor atual de proposito. Cair pro
+      // default (false) aqui abriria as vendas de todo mundo pro
+      // funcionario restrito por causa de uma queda de rede.
+      console.error('Erro ao carregar a configuracao de visibilidade de vendas:', error);
+    });
+
+    return () => unsubscribe();
+  }, [tenantId]);
 
   useEffect(() => {
     if (!currentUser) {
@@ -407,8 +457,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isPlatformAdmin = isPlatformAdminRole(userRole);
   const needsTenantSelection = isPlatformAdmin && !tenantId;
 
+  const restrictedToOwnSales = calcSomenteVendasProprias({
+    restricaoAtiva: restringirVendasPorUsuario,
+    nivelAcesso,
+    role: userRole,
+    isOwner,
+  });
+  const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
+
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId }}>
       {children}
     </AuthContext.Provider>
   );

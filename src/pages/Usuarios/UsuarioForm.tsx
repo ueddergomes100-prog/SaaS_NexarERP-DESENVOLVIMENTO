@@ -6,6 +6,7 @@ import { db, firebaseConfig } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { DEFAULT_NIVEL_ACESSO } from '../../utils/visibilidadeVendasDomain';
 
 // Importa app secundário para criar usuário sem deslogar o dono
 import { initializeApp } from 'firebase/app';
@@ -144,6 +145,11 @@ const UsuarioForm: React.FC = () => {
         username: usernameFinal,
         email: fakeEmail,
         role: 'Funcionario',
+        // Nivel de visibilidade de vendas. Nasce no nivel mais restrito; quem
+        // precisa ver as vendas dos colegas e' promovido a 'administracao'
+        // no popup do escudo (tela de Usuarios) ou em Configuracoes >
+        // Permissao de Usuarios. Ver src/utils/visibilidadeVendasDomain.ts.
+        nivelAcesso: DEFAULT_NIVEL_ACESSO,
         permissoes: [], // Sem acesso a princípio
         tenantId: tenantId, // Vincula à oficina do dono
         createdAt: serverTimestamp(),

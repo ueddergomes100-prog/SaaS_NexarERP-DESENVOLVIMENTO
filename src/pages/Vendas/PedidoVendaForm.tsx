@@ -53,6 +53,11 @@ import {
   type OrigemPedido,
 } from '../../utils/preVendaDomain';
 import {
+  isVendaDoUsuario,
+  MENSAGEM_VENDA_DE_OUTRO_USUARIO,
+  TITULO_VENDA_DE_OUTRO_USUARIO,
+} from '../../utils/visibilidadeVendasDomain';
+import {
   computeReservationCommit,
   computeReservationDelta,
   computeReservationRelease,
@@ -250,7 +255,7 @@ const PedidoVendaForm: React.FC = () => {
   // (gravar/finalizar/cancelar). State aqui seria uma segunda copia da
   // verdade, que envelhece se outra aba mexer na mesma pre-venda.
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
   const canReturnVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao'));
   // Pedido pendente do agente de WhatsApp: nasce com status "Em Analise"
@@ -379,7 +384,14 @@ const PedidoVendaForm: React.FC = () => {
         });
       });
       dataU.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-      setVendedoresDisponiveis(dataU);
+      // Funcionario restrito so pode vender em nome dele: lancar a venda
+      // no nome de um colega criaria um pedido que ele mesmo nao
+      // conseguiria mais abrir.
+      setVendedoresDisponiveis(
+        vendasVisiveisDeUsuarioId
+          ? dataU.filter((seller) => seller.id === vendasVisiveisDeUsuarioId)
+          : dataU,
+      );
 
       // Fetch Estoque
       const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
@@ -449,6 +461,15 @@ const PedidoVendaForm: React.FC = () => {
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
             const p = docSnap.data();
+            // Visibilidade de vendas: esconder da lista nao basta, o link
+            // direto continuaria abrindo a venda do colega. Ver
+            // src/utils/visibilidadeVendasDomain.ts.
+            if (vendasVisiveisDeUsuarioId && !isVendaDoUsuario(p, vendasVisiveisDeUsuarioId)) {
+              showError(TITULO_VENDA_DE_OUTRO_USUARIO, MENSAGEM_VENDA_DE_OUTRO_USUARIO);
+              navigate('/pedidos-venda');
+              setIsFetchingData(false);
+              return;
+            }
             setClienteNome(p.clienteNome || '');
             setVendedorId(p.vendedorId || p.usuarioResponsavelId || currentUser.uid);
             setFormaPagamento(p.formaPagamento || 'Dinheiro');
@@ -535,7 +556,7 @@ const PedidoVendaForm: React.FC = () => {
       }
     };
     fetchInitialData();
-  }, [id, isViewing, navigate, currentUser, tenantId]);
+  }, [id, isViewing, navigate, currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
   // Snapshot dos campos de negocio, reaproveitado tanto pro snapshot
   // inicial quanto pro atual (evita falso-positivo de "sujo" por ordem

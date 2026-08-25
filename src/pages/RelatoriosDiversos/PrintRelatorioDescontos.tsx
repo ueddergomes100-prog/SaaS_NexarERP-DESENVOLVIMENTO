@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Printer, ArrowLeft } from 'lucide-react';
 import { fromCents } from '../../utils/financeDomain';
+import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 import '../OS/OsPrint.css'; // Usando os estilos de impressão
 
 interface DescontoSnapshot {
@@ -49,7 +50,7 @@ const extractDateInput = (data: Record<string, unknown>, ...fields: string[]): s
 const PrintRelatorioDescontos: React.FC = () => {
   const { search } = useLocation();
   const navigate = useNavigate();
-  const { tenantId, currentUser } = useAuth();
+  const { tenantId, currentUser, vendasVisiveisDeUsuarioId } = useAuth();
 
   const queryParams = new URLSearchParams(search);
   const inicio = queryParams.get('inicio') || '';
@@ -73,6 +74,9 @@ const PrintRelatorioDescontos: React.FC = () => {
 
         pedidosSnap.forEach((docSnap) => {
           const data = docSnap.data();
+          // Visibilidade de vendas: o desconto concedido revela o valor da
+          // venda do colega, entao segue a mesma regra da tela de Vendas.
+          if (vendasVisiveisDeUsuarioId && !isVendaDoUsuario(data, vendasVisiveisDeUsuarioId)) return;
           const desconto: DescontoSnapshot | undefined = data.descontoGeral;
           if (!desconto || !desconto.valorAplicadoCentavos) return;
           const dataDoc = extractDateInput(data, 'dataVenda');
@@ -135,7 +139,7 @@ const PrintRelatorioDescontos: React.FC = () => {
     };
 
     fetchData();
-  }, [currentUser, tenantId, inicio, fim]);
+  }, [currentUser, tenantId, inicio, fim, vendasVisiveisDeUsuarioId]);
 
   const handlePrint = () => {
     window.print();

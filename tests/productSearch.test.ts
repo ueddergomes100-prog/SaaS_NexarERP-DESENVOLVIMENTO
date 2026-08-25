@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   findEmbalagemIdByExactCode,
+  isListarTudoTerm,
   productMatchesExactCode,
   productMatchesSearch,
   searchProducts,
@@ -183,4 +184,60 @@ test('produto sem embalagem nao muda de comportamento', () => {
   assert.equal(findEmbalagemIdByExactCode(semEmbalagem, '111'), null);
   assert.equal(productMatchesExactCode(semEmbalagem, '111'), true);
   assert.equal(productMatchesExactCode(semEmbalagem, '999'), false);
+});
+
+// --- Curinga "#" (listar catalogo inteiro) ---------------------------------
+
+const catalogo = [
+  product({ id: 'a', nome: 'CAFE VERDE', codigo: '1' }),
+  product({ id: 'b', nome: 'ACUCAR', codigo: '2' }),
+  product({ id: 'c', nome: 'FILTRO DE OLEO', codigo: '3' }),
+];
+
+test('# devolve o catalogo inteiro em vez de filtrar', () => {
+  const resultado = searchProducts(catalogo, '#', { limit: 10 });
+
+  assert.equal(resultado.total, 3);
+  assert.equal(resultado.truncated, false);
+  assert.deepEqual(resultado.items.map((item) => item.id), ['a', 'b', 'c']);
+});
+
+test('# respeita o limite mas informa o total real, pro "Ver mais" aparecer', () => {
+  const resultado = searchProducts(catalogo, '#', { limit: 2 });
+
+  assert.equal(resultado.items.length, 2);
+  assert.equal(resultado.total, 3);
+  assert.equal(resultado.truncated, true);
+});
+
+test('# com espaco em volta continua valendo (usuario digitando)', () => {
+  assert.equal(searchProducts(catalogo, '  #  ', { limit: 10 }).total, 3);
+});
+
+test('# so vale como termo INTEIRO -- nao vira curinga no meio da busca', () => {
+  // "cafe#" e' busca de texto comum: nao lista tudo, e nao acha nada.
+  assert.equal(searchProducts(catalogo, 'cafe#', { limit: 10 }).total, 0);
+  assert.equal(searchProducts(catalogo, '#cafe', { limit: 10 }).total, 0);
+  assert.equal(searchProducts(catalogo, '##', { limit: 10 }).total, 0);
+});
+
+test('# em catalogo vazio nao quebra', () => {
+  const resultado = searchProducts([], '#', { limit: 10 });
+
+  assert.equal(resultado.total, 0);
+  assert.equal(resultado.items.length, 0);
+  assert.equal(resultado.truncated, false);
+});
+
+test('termo vazio continua nao listando nada (comportamento antigo preservado)', () => {
+  assert.equal(searchProducts(catalogo, '', { limit: 10 }).total, 0);
+  assert.equal(searchProducts(catalogo, '   ', { limit: 10 }).total, 0);
+});
+
+test('isListarTudoTerm reconhece so o termo exato', () => {
+  assert.equal(isListarTudoTerm('#'), true);
+  assert.equal(isListarTudoTerm(' # '), true);
+  assert.equal(isListarTudoTerm('#1'), false);
+  assert.equal(isListarTudoTerm(''), false);
+  assert.equal(isListarTudoTerm(undefined), false);
 });

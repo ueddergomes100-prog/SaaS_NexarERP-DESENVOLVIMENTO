@@ -30,6 +30,21 @@ export interface ProductSearchResult<T> {
 
 export const DEFAULT_PRODUCT_SEARCH_MODE: ProductSearchMode = 'completa';
 
+/**
+ * Curinga "listar tudo": digitar so `#` devolve o catalogo inteiro em vez de
+ * filtrar. Serve pra quem nao sabe o nome do produto e quer olhar a lista --
+ * principalmente no popup "Ver mais", que sem termo nenhum nao mostrava nada.
+ *
+ * Escolhido `#` porque nao aparece em codigo de barras (EAN e' so digito) nem
+ * em nome/codigo de produto na pratica, entao nao existe busca legitima que
+ * ele atrapalhe. Vale so quando e' o termo INTEIRO: "#" lista tudo, mas
+ * "cafe#" continua sendo uma busca comum por texto que nao acha nada.
+ */
+export const LISTAR_TUDO_TERM = '#';
+
+export const isListarTudoTerm = (term: unknown): boolean =>
+  String(term ?? '').trim() === LISTAR_TUDO_TERM;
+
 const DEFAULT_MODE: ProductSearchMode = DEFAULT_PRODUCT_SEARCH_MODE;
 const DEFAULT_LIMIT = 6;
 
@@ -108,6 +123,17 @@ export const searchProducts = <T extends SearchableProduct>(
 ): ProductSearchResult<T> => {
   const mode = options.mode ?? DEFAULT_MODE;
   const limit = options.limit ?? DEFAULT_LIMIT;
+  // Curinga antes de qualquer filtro: `#` nao e' termo de busca, e' "me
+  // mostra tudo". `total` traz o catalogo inteiro, entao o "Ver mais" do
+  // autocomplete continua aparecendo e leva pra lista completa no popup.
+  if (isListarTudoTerm(term)) {
+    return {
+      items: products.slice(0, limit),
+      total: products.length,
+      truncated: products.length > limit,
+    };
+  }
+
   const normalizedTerm = normalize(term);
 
   if (!normalizedTerm) {

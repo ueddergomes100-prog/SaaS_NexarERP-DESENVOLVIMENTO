@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, X } from 'lucide-react';
-import { searchProducts, type ProductSearchMode, type SearchableProduct } from '../../utils/productSearch';
+import { isListarTudoTerm, searchProducts, type ProductSearchMode, type SearchableProduct } from '../../utils/productSearch';
 import { useEscapeLayer } from '../../hooks/useKeyboardFlow';
 import './ProductSearchModal.css';
 
@@ -45,6 +45,7 @@ function ProductSearchModalInner<T extends SearchableProduct & { id: string }>({
     () => searchProducts(products, query, { mode, limit: RESULTS_SAFETY_LIMIT }),
     [products, query, mode],
   );
+  const listandoTudo = isListarTudoTerm(query);
 
   if (!open) return null;
 
@@ -63,16 +64,18 @@ function ProductSearchModalInner<T extends SearchableProduct & { id: string }>({
           <input
             autoFocus
             type="text"
-            placeholder="Nome, código, código de barras, referência, marca ou categoria..."
+            placeholder="Nome, código, código de barras, referência, marca ou categoria — ou # para ver todos"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
 
         <div className="product-search-modal__meta">
-          {query.trim()
-            ? `${result.total} resultado${result.total === 1 ? '' : 's'}${result.truncated ? ` (mostrando os primeiros ${RESULTS_SAFETY_LIMIT})` : ''}`
-            : 'Digite para buscar em todo o catálogo.'}
+          {listandoTudo
+            ? `Catálogo completo: ${result.total} produto${result.total === 1 ? '' : 's'}${result.truncated ? ` (mostrando os primeiros ${RESULTS_SAFETY_LIMIT})` : ''}`
+            : query.trim()
+              ? `${result.total} resultado${result.total === 1 ? '' : 's'}${result.truncated ? ` (mostrando os primeiros ${RESULTS_SAFETY_LIMIT})` : ''}`
+              : 'Digite para buscar em todo o catálogo, ou # para ver todos os produtos.'}
         </div>
 
         <div className="product-search-modal__results">
@@ -90,7 +93,11 @@ function ProductSearchModalInner<T extends SearchableProduct & { id: string }>({
             </button>
           ))}
           {query.trim() && result.items.length === 0 && (
-            <div className="product-search-modal__empty">Nenhum produto encontrado para "{query}".</div>
+            <div className="product-search-modal__empty">
+              {listandoTudo
+                ? 'Não há nenhum produto cadastrado no estoque.'
+                : `Nenhum produto encontrado para "${query}".`}
+            </div>
           )}
         </div>
       </div>

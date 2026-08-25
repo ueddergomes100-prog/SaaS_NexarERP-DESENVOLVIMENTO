@@ -20,7 +20,7 @@ interface UnidadeMedida {
   permiteFracionado: boolean;
 }
 
-type TabId = 'geral' | 'precos' | 'estoque' | 'fiscal' | 'compras' | 'embalagens' | 'composicao' | 'atacado' | 'ecommerce' | 'avancado';
+type TabId = 'geral' | 'precos' | 'historico' | 'estoque' | 'fiscal' | 'compras' | 'embalagens' | 'composicao' | 'atacado' | 'ecommerce' | 'avancado';
 
 /** Linha da aba Embalagens no formato do formulario (campos como string, igual
  * a AtacadoFaixa). Vira Embalagem de verdade so no handleSave, quando a unidade
@@ -81,6 +81,10 @@ interface HistoricoPreco {
 interface ProdutoOriginalData {
   precoVenda?: number;
   precoCusto?: number;
+  /** Formato legado: produto antigo guarda preco aqui, nao nos campos
+   * planos acima. A carga do formulario ja lia isso; a deteccao de
+   * alteracao de preco tambem precisa. */
+  precos?: { venda?: number; custo?: number };
   ultimaAlteracaoPreco?: string | null;
   quantidadeReservada?: number;
 }
@@ -171,6 +175,7 @@ interface ProdutoFormData {
 const tabs: Array<{ id: TabId; label: string }> = [
   { id: 'geral', label: 'Geral' },
   { id: 'precos', label: 'Preços e Custos' },
+  { id: 'historico', label: 'Histórico de Preços' },
   { id: 'estoque', label: 'Estoque' },
   { id: 'fiscal', label: 'Fiscal (Tributação)' },
   { id: 'compras', label: 'Compras' },
@@ -377,6 +382,9 @@ const EstoqueForm: React.FC = () => {
   const [novaEmbalagem, setNovaEmbalagem] = useState<EmbalagemFormRow>(emptyEmbalagemRow);
   const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [historicoPrecos, setHistoricoPrecos] = useState<HistoricoPreco[]>([]);
+  /** id -> nome, so pra traduzir o `usuarioId` gravado em cada alteracao de
+   * preco. "Alterado por 8Kx9..." nao serve pra ninguem conferir nada. */
+  const [nomesUsuarios, setNomesUsuarios] = useState<Record<string, string>>({});
   const [produtoOriginal, setProdutoOriginal] = useState<ProdutoOriginalData | null>(null);
   const [modoCadastro, setModoCadastro] = useState<'rapido' | 'avancado'>('avancado');
 
@@ -596,6 +604,32 @@ const EstoqueForm: React.FC = () => {
     };
     fetchInitialData();
   }, [id, isEditing, tenantId, currentUser]);
+
+  // Nomes dos usuarios que alteraram preco, pra aba Historico de Precos.
+  // So busca quando ha historico de verdade -- produto novo ou sem alteracao
+  // nenhuma nao precisa ler a colecao de usuarios.
+  useEffect(() => {
+    if (!tenantId || !currentUser || historicoPrecos.length === 0) return;
+    if (Object.keys(nomesUsuarios).length > 0) return;
+
+    const fetchNomes = async () => {
+      try {
+        const snap = await getDocs(query(collection(db, 'usuarios'), where('tenantId', '==', tenantId)));
+        const mapa: Record<string, string> = {};
+        snap.forEach((documento) => {
+          const data = documento.data();
+          mapa[documento.id] = data.nome || data.nomeResponsavel || data.email || '';
+        });
+        setNomesUsuarios(mapa);
+      } catch (err) {
+        // Sem permissao de ler usuarios o historico ainda vale -- so mostra
+        // o id em vez do nome. Nao e' motivo pra quebrar a aba.
+        console.error('Erro ao carregar nomes de usuários do histórico de preços:', err);
+      }
+    };
+
+    void fetchNomes();
+  }, [tenantId, currentUser, historicoPrecos.length, nomesUsuarios]);
 
   // Composicao: so faz sentido pra um produto ja salvo (precisa do id).
   // Carrega o catalogo de materias-primas do tenant e a composicao ja
@@ -873,8 +907,13 @@ const EstoqueForm: React.FC = () => {
 
       const selectedUnit = activeUnidades.find(u => u.id === formData.unidadeMedidaId) || activeUnidades.find(u => u.sigla === 'UN') || activeUnidades[0];
       const ultimoHistorico = [...historicoPrecos];
-      const originalVenda = Number(produtoOriginal?.precoVenda ?? 0);
-      const originalCusto = Number(produtoOriginal?.precoCusto ?? 0);
+      // Mesmo fallback que a carga do formulario usa (`data.precos?.venda`):
+      // produto legado guarda preco no objeto `precos`, nao nos campos
+      // planos. Sem isso o "preco anterior" vinha 0 e a primeira gravacao
+      // registrava uma alteracao falsa de R$ 0,00 para o preco atual, mesmo
+      // sem ninguem ter mudado nada.
+      const originalVenda = Number(produtoOriginal?.precoVenda ?? produtoOriginal?.precos?.venda ?? 0);
+      const originalCusto = Number(produtoOriginal?.precoCusto ?? produtoOriginal?.precos?.custo ?? 0);
       const mudouPreco = isEditing && (originalVenda !== precoVenda || originalCusto !== precoCusto);
 
       if (mudouPreco) {
@@ -1177,7 +1216,7 @@ const EstoqueForm: React.FC = () => {
       <form className="product-form" onSubmit={handleSave}>
         <div className="product-tabs">
           {tabs
-            .filter(tab => modoCadastro === 'avancado' || ['geral', 'precos', 'estoque', 'fiscal'].includes(tab.id))
+            .filter(tab => modoCadastro === 'avancado' || ['geral', 'precos', 'historico', 'estoque', 'fiscal'].includes(tab.id))
             // A aba Embalagens acompanha a chave "Vender por embalagem" das
             // Configuracoes. Desligar so esconde: nenhuma embalagem ja
             // cadastrada e apagada, e religar traz tudo de volta.
@@ -1356,17 +1395,138 @@ const EstoqueForm: React.FC = () => {
               <div className="info-panel">
                 <strong>Histórico de alteração de preço</strong>
                 {historicoPrecos.length > 0 ? (
-                  <div className="history-list">
-                    {historicoPrecos.slice(0, 4).map((item, index) => (
-                      <span key={index}>
-                        {new Date(item.alteradoEm).toLocaleDateString('pt-BR')} - {formatCurrency(item.precoAnterior)} para {formatCurrency(item.precoNovo)}
-                      </span>
-                    ))}
-                  </div>
+                  <>
+                    <div className="history-list">
+                      {historicoPrecos.slice(0, 3).map((item, index) => (
+                        <span key={index}>
+                          {new Date(item.alteradoEm).toLocaleDateString('pt-BR')} — venda {formatCurrency(item.precoAnterior)} para {formatCurrency(item.precoNovo)}
+                        </span>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setActiveTab('historico')}
+                      style={{ marginTop: '12px' }}
+                    >
+                      Ver histórico completo ({historicoPrecos.length} alteraç{historicoPrecos.length === 1 ? 'ão' : 'ões'})
+                    </button>
+                  </>
                 ) : (
                   <p>Nenhuma alteração registrada ainda. O histórico será criado automaticamente ao mudar preço ou custo.</p>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Historico de Precos: somente leitura. Cada linha e' uma gravacao
+              do produto em que o preco de venda OU o custo mudou -- os dois
+              ficam lado a lado porque a pergunta real de quem abre isso e'
+              "a margem melhorou ou piorou?", que nenhum dos dois responde
+              sozinho. Registro novo entra no topo (o save faz unshift). */}
+          {activeTab === 'historico' && (
+            <div className="card form-section product-card">
+              <div className="section-header">
+                <h3>Histórico de Preços</h3>
+              </div>
+
+              {historicoPrecos.length === 0 ? (
+                <div className="info-panel">
+                  <p style={{ margin: 0 }}>
+                    Nenhuma alteração de preço registrada neste produto ainda.
+                    O registro é criado automaticamente sempre que o preço de venda
+                    ou o preço de custo mudar e o produto for salvo.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="info-panel" style={{ marginBottom: '16px' }}>
+                    <p style={{ margin: 0 }}>
+                      {historicoPrecos.length} alteraç{historicoPrecos.length === 1 ? 'ão registrada' : 'ões registradas'}, da mais recente para a mais antiga.
+                      Cada linha mostra como o preço estava <strong>antes</strong> e como ficou <strong>depois</strong> daquela gravação.
+                    </p>
+                  </div>
+
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: 'var(--bg-tertiary)', textAlign: 'left' }}>
+                          <th style={{ padding: '12px', fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Data</th>
+                          <th style={{ padding: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>Alterado por</th>
+                          <th style={{ padding: '12px', fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Custo</th>
+                          <th style={{ padding: '12px', fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Venda</th>
+                          <th style={{ padding: '12px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'right', whiteSpace: 'nowrap' }}>Margem depois</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {historicoPrecos.map((item, index) => {
+                          const custoMudou = Number(item.custoAnterior) !== Number(item.custoNovo);
+                          const vendaMudou = Number(item.precoAnterior) !== Number(item.precoNovo);
+                          const margemDepois = Number(item.custoNovo) > 0
+                            ? ((Number(item.precoNovo) - Number(item.custoNovo)) / Number(item.custoNovo)) * 100
+                            : null;
+                          const alteradoEm = new Date(item.alteradoEm);
+                          const nomeUsuario = item.usuarioId
+                            ? (nomesUsuarios[item.usuarioId] || item.usuarioId)
+                            : 'Não identificado';
+
+                          return (
+                            <tr key={`${item.alteradoEm}-${index}`} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                              <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>
+                                {Number.isNaN(alteradoEm.getTime())
+                                  ? '—'
+                                  : alteradoEm.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                              </td>
+                              <td style={{ padding: '12px', color: 'var(--text-secondary)' }}>{nomeUsuario}</td>
+                              <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>
+                                {custoMudou ? (
+                                  <>
+                                    <span style={{ color: 'var(--text-muted)', textDecoration: 'line-through' }}>
+                                      {formatCurrency(Number(item.custoAnterior))}
+                                    </span>
+                                    {' → '}
+                                    <strong style={{ color: Number(item.custoNovo) > Number(item.custoAnterior) ? '#ef4444' : '#10b981' }}>
+                                      {formatCurrency(Number(item.custoNovo))}
+                                    </strong>
+                                  </>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)' }}>
+                                    {formatCurrency(Number(item.custoNovo))} (sem mudança)
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>
+                                {vendaMudou ? (
+                                  <>
+                                    <span style={{ color: 'var(--text-muted)', textDecoration: 'line-through' }}>
+                                      {formatCurrency(Number(item.precoAnterior))}
+                                    </span>
+                                    {' → '}
+                                    <strong style={{ color: Number(item.precoNovo) > Number(item.precoAnterior) ? '#10b981' : '#ef4444' }}>
+                                      {formatCurrency(Number(item.precoNovo))}
+                                    </strong>
+                                  </>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)' }}>
+                                    {formatCurrency(Number(item.precoNovo))} (sem mudança)
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                {margemDepois === null
+                                  ? <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                  : <span style={{ color: margemDepois < 0 ? '#ef4444' : 'var(--text-primary)' }}>
+                                      {margemDepois.toFixed(1)}%
+                                    </span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

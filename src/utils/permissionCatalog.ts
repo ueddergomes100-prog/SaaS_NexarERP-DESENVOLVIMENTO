@@ -53,6 +53,21 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'vendas.pedidos_pendentes_alterar_qtd', label: 'Vendas: Pendente — Alterar Quantidade', color: '#f59e0b' },
       { id: 'vendas.pedidos_pendentes_adicionar_item', label: 'Vendas: Pendente — Adicionar Produto', color: '#f59e0b' },
       { id: 'vendas.pedidos_pendentes_excluir_item', label: 'Vendas: Pendente — Excluir Item', color: '#ef4444' },
+      // Pre-venda (balcao). Deliberadamente SEPARADO das permissoes de
+      // "Pendente" acima, que valem so pro pedido vindo do agente de
+      // WhatsApp: quem mexe na pre-venda do balcao nao deve ganhar acesso
+      // ao pedido que chegou pelo WhatsApp de brinde, nem o contrario.
+      // So valem se "Trabalha com pré-venda" estiver ligado nas
+      // Configurações do sistema -- config libera pra empresa, permissao
+      // decide quem.
+      { id: 'vendas.pre_venda_criar', label: 'Vendas: Pré-venda — Gravar', color: '#f59e0b' },
+      { id: 'vendas.pre_venda_editar', label: 'Vendas: Pré-venda — Editar em Aberto', color: '#f59e0b' },
+      { id: 'vendas.pre_venda_finalizar', label: 'Vendas: Pré-venda — Finalizar (vira venda)', color: '#ef4444' },
+      { id: 'vendas.pre_venda_cancelar', label: 'Vendas: Pré-venda — Cancelar', color: '#ef4444' },
+      { id: 'vendas.pre_venda_relatorio', label: 'Vendas: Relatório de Pré-vendas em Aberto', color: '#f59e0b' },
+      // Idem: so vale com "Permitir alterar a forma de pagamento de venda
+      // já finalizada" ligado nas Configurações.
+      { id: 'vendas.alterar_pagamento_finalizada', label: 'Vendas: Alterar Pagamento de Venda Finalizada', color: '#ef4444' },
       { id: 'vendas.orcamentos', label: 'Vendas: Orçamentos', color: '#f59e0b' },
       { id: 'vendas.orcamentos_alterar', label: 'Vendas: Alterar Orçamentos', color: '#f59e0b' },
       { id: 'vendas.orcamentos_excluir', label: 'Vendas: Excluir Orçamentos', color: '#ef4444' },

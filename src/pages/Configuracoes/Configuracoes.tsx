@@ -14,6 +14,12 @@ import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
 import { spedyService, type SpedyCity } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
+import {
+  DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
+  DEFAULT_TRABALHA_COM_PRE_VENDA,
+  parseAlterarPagamentoVendaFinalizada,
+  parseTrabalhaComPreVenda,
+} from '../../utils/preVendaDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import {
   DEFAULT_MODO_LIMITE_DESCONTO,
@@ -119,6 +125,8 @@ const Configuracoes: React.FC = () => {
     trabalhaComLimiteCredito: false,
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
+    trabalhaComPreVenda: DEFAULT_TRABALHA_COM_PRE_VENDA,
+    alterarPagamentoVendaFinalizada: DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
     conferenciaMercadoria: DEFAULT_CONFERENCIA_MERCADORIA,
     imprimirMinutaAposVenda: DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
     exigirBipagem: DEFAULT_EXIGIR_BIPAGEM,
@@ -201,6 +209,8 @@ const Configuracoes: React.FC = () => {
             trabalhaComLimiteCredito: parseTrabalhaComLimiteCredito(data.trabalhaComLimiteCredito),
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
+            trabalhaComPreVenda: parseTrabalhaComPreVenda(data.trabalhaComPreVenda),
+            alterarPagamentoVendaFinalizada: parseAlterarPagamentoVendaFinalizada(data.alterarPagamentoVendaFinalizada),
             conferenciaMercadoria: data.conferenciaMercadoria ?? DEFAULT_CONFERENCIA_MERCADORIA,
             imprimirMinutaAposVenda: data.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
             exigirBipagem: data.exigirBipagem ?? DEFAULT_EXIGIR_BIPAGEM,
@@ -1379,6 +1389,46 @@ const Configuracoes: React.FC = () => {
                   ))}
                 </select>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Define quando o estoque será debitado. Por enquanto é só um registro informativo — nenhum fluxo de venda, PDV ou OS lê essa configuração ainda; a baixa continua acontecendo imediatamente no fechamento, como hoje.</p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Pré-venda</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.trabalhaComPreVenda === true}
+                    onChange={(e) => setFormData({ ...formData, trabalhaComPreVenda: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Trabalha com pré-venda
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Quando marcado, a tela de Pedido de Venda ganha o botão <strong>Gravar Pré-venda</strong> ao lado de Finalizar Venda. A pré-venda fica em aberto, <strong>reserva o estoque sem dar baixa</strong> e não gera nenhum lançamento financeiro — a baixa e o financeiro só acontecem quando alguém finaliza. Pré-venda em aberto não entra em faturamento nem em caixa; ela tem relatório próprio em Vendas → Pré-vendas em Aberto. Desligado (padrão), a tela funciona exatamente como antes.
+                </p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Ligar aqui libera o recurso para a empresa. <strong>Quem pode gravar, editar, finalizar ou cancelar pré-venda é definido usuário a usuário</strong>, nas permissões de cada funcionário.
+                </p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Venda Finalizada</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.alterarPagamentoVendaFinalizada === true}
+                    onChange={(e) => setFormData({ ...formData, alterarPagamentoVendaFinalizada: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Permitir alterar a forma de pagamento de venda já finalizada
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Para corrigir recebimento lançado errado (registrou dinheiro, era cartão). <strong>O valor total da venda não muda</strong> — só a composição do recebimento, e os lançamentos financeiros são refeitos junto. <strong>Venda com cupom fiscal (NFC-e) autorizado nunca pode ser alterada</strong>, mesmo com esta opção ligada: nota transmitida à SEFAZ é imutável.
+                </p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Ligar aqui libera o recurso para a empresa. <strong>Quem pode alterar é definido usuário a usuário</strong>, nas permissões de cada funcionário.
+                </p>
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>

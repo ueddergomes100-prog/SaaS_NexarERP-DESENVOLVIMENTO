@@ -10,9 +10,15 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, reserveTenantSequence, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import {
+  avisoUnidadeMedidaAusente,
+  resolveUnidadeMedidaProduto,
+  temUnidadeMedidaCadastrada,
+  type UnidadeMedidaProduto,
+} from '../../utils/unidadeMedidaDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { fromCents, toCents } from '../../utils/financeDomain';
 import {
@@ -273,20 +279,27 @@ const OrcamentoForm: React.FC = () => {
     const precoNum = parseFloat(preco.replace(',', '.'));
 
     let existingId: string | undefined;
-    let unidadeMedidaSigla: string | undefined;
-    let unidadeMedidaFracionado: boolean | undefined;
-    let unidadeMedidaCasasDecimais: number | undefined;
+    let unidadeMedida: UnidadeMedidaProduto | null = null;
 
     if (tipo === 'peca') {
       const peca = pecaSelecionada || pecasEstoque.find(p => p.nome.toLowerCase() === nome.toLowerCase());
       existingId = peca?.id;
-      unidadeMedidaSigla = peca?.unidadeMedidaSigla;
-      unidadeMedidaFracionado = peca?.unidadeMedidaFracionado;
-      unidadeMedidaCasasDecimais = peca?.unidadeMedidaCasasDecimais;
 
       if (!permitirVendaSemEstoque && peca && 1 > (peca.quantidade || 0)) {
         showError('Estoque Insuficiente', `Você tem apenas ${peca.quantidade || 0} un. no estoque. Venda sem estoque desativada.`);
         return;
+      }
+
+      // Toda peca sai daqui com as 3 unidades preenchidas -- 'UN' quando o
+      // cadastro nao tem. Ver a regra em unidadeMedidaDomain.ts.
+      unidadeMedida = resolveUnidadeMedidaProduto(peca);
+      // O aviso so faz sentido pra peca que EXISTE no estoque sem unidade:
+      // e' o caso que o usuario consegue resolver sozinho, editando o
+      // produto. Peca avulsa (digitada na hora, fora do catalogo) nao tem
+      // cadastro pra corrigir -- recebe o padrao calada.
+      if (peca && !temUnidadeMedidaCadastrada(peca)) {
+        const aviso = avisoUnidadeMedidaAusente(peca.nome);
+        showWarning(aviso.title, aviso.text);
       }
     } else {
       existingId = servicosCatalogo.find(s => s.nome.toLowerCase() === nome.toLowerCase())?.id;
@@ -298,14 +311,12 @@ const OrcamentoForm: React.FC = () => {
       preco: precoNum,
       quantidade: 1,
       tipo,
-      // Servico (ou peca avulsa fora do catalogo) nao tem essas 3 --
-      // omitidas em vez de gravadas como undefined, que o Firestore recusa
-      // na hora de salvar ("Unsupported field value: undefined"). Achado
-      // ao testar esta feature com um servico, bug pre-existente e sem
-      // relacao com desconto.
-      ...(unidadeMedidaSigla !== undefined ? { unidadeMedidaSigla } : {}),
-      ...(unidadeMedidaFracionado !== undefined ? { unidadeMedidaFracionado } : {}),
-      ...(unidadeMedidaCasasDecimais !== undefined ? { unidadeMedidaCasasDecimais } : {}),
+      // Servico continua SEM os 3 campos, de proposito: servico nao tem
+      // unidade de medida, nao existe "UN de servico" -- o fallback vale
+      // pra produto, nao pra mao de obra. Peca sempre traz os 3
+      // preenchidos, entao nenhum `undefined` chega no Firestore (que
+      // recusa: "Unsupported field value: undefined").
+      ...(unidadeMedida ?? {}),
     };
 
     setItens([...itens, novoItem]);

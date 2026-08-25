@@ -30,6 +30,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routeModule = 'operacoes.expedicao';
   else if (path.startsWith('/pedidos-venda')) routeModule = 'comercial.pedidos';
   else if (path.startsWith('/orcamentos')) routeModule = 'comercial.orcamentos';
+  else if (path.startsWith('/pre-vendas')) routeModule = 'comercial.relatorios';
   else if (path.startsWith('/relatorios-vendas')) routeModule = 'comercial.relatorios';
   else if (path.startsWith('/os')) routeModule = 'mecanica.os';
   else if (path.startsWith('/relatorios-mecanica')) routeModule = 'mecanica.relatorios';
@@ -76,6 +77,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routePermission = 'operacoes.expedicao';
   else if (path.startsWith('/pedidos-venda')) routePermission = 'vendas.pedidos';
   else if (path.startsWith('/orcamentos')) routePermission = 'vendas.orcamentos';
+  else if (path.startsWith('/pre-vendas')) routePermission = 'vendas.pre_venda_relatorio';
   else if (path.startsWith('/relatorios-vendas')) routePermission = 'vendas.relatorios';
   else if (path.startsWith('/os')) routePermission = 'mecanica.os';
   else if (path.startsWith('/relatorios-mecanica')) routePermission = 'mecanica.relatorios';

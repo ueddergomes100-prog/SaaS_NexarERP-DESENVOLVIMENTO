@@ -20,6 +20,7 @@ import {
   formatDateInputPtBr,
   getDateInputInTimeZone,
 } from '../../utils/dateTime';
+import { contaComoFaturamento } from '../../utils/preVendaDomain';
 import { fromCents, toCents } from '../../utils/financeDomain';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -125,7 +126,15 @@ const RelatoriosVendas: React.FC = () => {
         productsSnap.forEach((document) => { products[document.id] = { id: document.id, ...document.data() }; });
 
         setData({
-          sales: salesSnap.docs.map((document) => ({ id: document.id, ...document.data() })),
+          // Este relatorio e' de FATURAMENTO -- pedido em aberto (pre-venda
+          // do balcao ou pedido do agente aguardando confirmacao) fica de
+          // fora: nao gerou lancamento financeiro nenhum. Antes disso, todo
+          // pedido que nao fosse 'Cancelada' entrava como venda, e pedido
+          // 'Em Análise' inflava o faturamento em silencio. Pre-venda em
+          // aberto tem tela propria (Relatório de Pré-vendas em Aberto).
+          sales: salesSnap.docs
+            .map((document) => ({ id: document.id, ...document.data() }))
+            .filter((sale: any) => contaComoFaturamento(sale.status)),
           transactions: transactionsSnap.docs.map((document) => ({ id: document.id, ...document.data() })),
           users,
           products,

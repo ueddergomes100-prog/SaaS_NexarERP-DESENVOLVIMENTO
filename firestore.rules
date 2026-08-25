@@ -123,7 +123,12 @@ service cloud.firestore {
         // de WhatsApp) -- as 4 permissoes granulares de cliente/qtd/adicionar/
         // excluir item so existem no lado da UI, nao aqui (decisao deliberada,
         // sem precedente de regra por campo neste projeto).
-        (collectionName == 'pedidos_venda' && hasAnyPermission(['vendas.pedidos', 'vendas.alterar', 'vendas.pedidos_pendentes_editar'])) ||
+        // As permissoes de pre_venda seguem o mesmo criterio: aqui vale so o
+        // nivel "pode escrever em pedidos_venda". A separacao entre gravar,
+        // editar, finalizar e cancelar pre-venda vive na UI, junto com a
+        // config trabalhaComPreVenda -- mesma decisao ja tomada acima pras
+        // granulares do pedido do agente.
+        (collectionName == 'pedidos_venda' && hasAnyPermission(['vendas.pedidos', 'vendas.alterar', 'vendas.pedidos_pendentes_editar', 'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar'])) ||
         (collectionName == 'orcamentos' && hasAnyPermission(['vendas.orcamentos', 'vendas.orcamentos_alterar'])) ||
         (collectionName == 'devolucoes_venda' && hasPermission('vendas.devolucao')) ||
         (collectionName == 'lembretes' && hasPermission('crm.alertas')) ||

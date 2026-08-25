@@ -90,3 +90,110 @@ export const findUnidadeEmUso = (
 
   return null;
 };
+
+// ---------------------------------------------------------------------------
+// Fallback 'UN' para produto com cadastro de unidade incompleto
+// ---------------------------------------------------------------------------
+//
+// REGRA DE NEGOCIO (decisao do dono do produto, 2026-08-24):
+//
+//   Item que chega sem unidade de medida preenchida NAO faz o sistema mudar
+//   de comportamento. Ele e' completado com a unidade padrao 'UN' e o fluxo
+//   segue normal -- venda, OS, orcamento e pedido salvam igual.
+//
+// O que isso NAO e': nao e' o sistema "se adaptando" a um cadastro incompleto,
+// nem contornando validacao. Nenhuma regra de venda, estoque ou fiscal muda
+// por causa disso. O que acontece e' so o preenchimento do campo que faltou,
+// com o mesmo padrao que o cadastro de produto (EstoqueForm.tsx) ja grava
+// quando o usuario nao escolhe unidade nenhuma.
+//
+// De onde vem produto sem unidade (as duas unicas origens):
+//   1. Produto legado, cadastrado antes da feature de unidade de medida;
+//   2. Produto criado pelo cadastro rapido dentro da OS, que grava o produto
+//      sem passar pela tela de Estoque.
+//
+// Motivo tecnico de existir um lugar so pra isso: antes, cada tela copiava
+// `unidadeMedidaSigla: doc.data().unidadeMedidaSigla` cru. Produto sem o
+// campo virava a chave com valor `undefined`, que o Firestore recusa no
+// save -- "Unsupported field value: undefined (found in document
+// ordens_de_servico/...)". Era o erro que estourava ao salvar OS nova com
+// peca legada.
+//
+// ATENCAO ao mexer: 'UN' nao e' neutro. Ele significa produto unitario e
+// NAO fracionavel, e a sigla vai pra nota fiscal. Produto que na vida real
+// e' vendido em KG/LTS e chegar aqui sem cadastro vai ser tratado como
+// unitario ate alguem corrigir o cadastro dele no Estoque. O fallback existe
+// pra nao travar a operacao, nao pra substituir o cadastro correto.
+
+/** Os tres campos de unidade que todo item vendido carrega desnormalizados. */
+export interface UnidadeMedidaProduto {
+  unidadeMedidaSigla: string;
+  unidadeMedidaFracionado: boolean;
+  unidadeMedidaCasasDecimais: number;
+}
+
+/** Unidade atribuida a produto sem cadastro de unidade. Mesmos valores que
+ * EstoqueForm.tsx grava quando nenhuma unidade e' selecionada. */
+export const UNIDADE_MEDIDA_FALLBACK: UnidadeMedidaProduto = {
+  unidadeMedidaSigla: 'UN',
+  unidadeMedidaFracionado: false,
+  unidadeMedidaCasasDecimais: 0,
+};
+
+interface FonteUnidadeMedida {
+  unidadeMedidaSigla?: unknown;
+  unidadeMedidaFracionado?: unknown;
+  unidadeMedidaCasasDecimais?: unknown;
+}
+
+/**
+ * Le os tres campos de unidade de um produto/item e devolve todos preenchidos,
+ * caindo em UNIDADE_MEDIDA_FALLBACK ('UN') no que faltar. Sempre devolve os
+ * tres com valor concreto -- nunca `undefined`, que o Firestore recusa.
+ *
+ * Usar em TODO ponto onde produto do estoque vira item de venda/OS/orcamento
+ * (leitura do catalogo e carga de documento antigo), pra que o item ja nasca
+ * completo em vez de cada tela tratar o buraco do seu jeito.
+ *
+ * `fracionado` so fica true quando o cadastro diz explicitamente `true`:
+ * campo ausente significa "nao fracionavel", mesma leitura que
+ * isValidSaleQuantity() ja faz em saleQuantity.ts.
+ */
+export const resolveUnidadeMedidaProduto = (
+  fonte: FonteUnidadeMedida | null | undefined,
+): UnidadeMedidaProduto => {
+  const sigla = normalizeSigla(fonte?.unidadeMedidaSigla);
+  const casasDecimais = Number(fonte?.unidadeMedidaCasasDecimais);
+  return {
+    unidadeMedidaSigla: sigla || UNIDADE_MEDIDA_FALLBACK.unidadeMedidaSigla,
+    unidadeMedidaFracionado: fonte?.unidadeMedidaFracionado === true,
+    unidadeMedidaCasasDecimais: Number.isFinite(casasDecimais) && casasDecimais > 0
+      ? casasDecimais
+      : UNIDADE_MEDIDA_FALLBACK.unidadeMedidaCasasDecimais,
+  };
+};
+
+/**
+ * True quando o produto TEM unidade de medida cadastrada de verdade.
+ *
+ * Existe pra separar as duas situacoes que resolveUnidadeMedidaProduto()
+ * trata igual: produto cadastrado como 'UN' de propósito e produto que caiu
+ * em 'UN' por falta de cadastro. A tela usa isso pra avisar o usuario --
+ * em portugues, na hora -- que aquele item entrou com a unidade padrao e o
+ * cadastro dele precisa ser corrigido no Estoque.
+ *
+ * So a sigla decide. Um produto com sigla mas sem casasDecimais/fracionado
+ * (cadastro parcial de versao antiga) conta como cadastrado: os outros dois
+ * campos tem padrao natural (0 casas, nao fracionavel) e nao mudam o que o
+ * usuario ve na tela nem o que sai na nota.
+ */
+export const temUnidadeMedidaCadastrada = (
+  fonte: FonteUnidadeMedida | null | undefined,
+): boolean => normalizeSigla(fonte?.unidadeMedidaSigla).length > 0;
+
+/** Texto unico do aviso de unidade ausente, pra mensagem nao divergir entre
+ * OS, Orcamento e demais telas que vendem produto. */
+export const avisoUnidadeMedidaAusente = (nomeProduto: string): { title: string; text: string } => ({
+  title: `"${nomeProduto}" está sem unidade de medida`,
+  text: `Esta peça não tem unidade de medida cadastrada. Ela entrou como ${UNIDADE_MEDIDA_FALLBACK.unidadeMedidaSigla} (unidade, sem venda fracionada). Para corrigir, edite o produto em Estoque e informe a unidade certa.`,
+});

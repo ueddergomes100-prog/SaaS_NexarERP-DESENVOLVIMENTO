@@ -4,7 +4,7 @@ import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, 
 import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { NexusSwal, showSuccess, showError } from '../../utils/alerts';
+import { NexusSwal, showSuccess, showError, showWarning } from '../../utils/alerts';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import { applyStockAdjustments, applyStockFieldDeltas, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import {
@@ -42,6 +42,12 @@ import ProductSearchModal from '../../components/common/ProductSearchModal';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import {
+  avisoUnidadeMedidaAusente,
+  resolveUnidadeMedidaProduto,
+  temUnidadeMedidaCadastrada,
+  UNIDADE_MEDIDA_FALLBACK,
+} from '../../utils/unidadeMedidaDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -275,6 +281,10 @@ const OSForm: React.FC = () => {
         quantidade: doc.data().quantidade || 0,
         codigo: doc.data().codigo || '',
         codigoBarras: doc.data().codigoBarras || '',
+        // De proposito CRU aqui, sem cair no fallback 'UN': e' em
+        // handleAddPeca que o item ganha a unidade padrao, e la ainda
+        // precisamos saber se ela veio do cadastro ou do fallback pra
+        // avisar o usuario. Ver unidadeMedidaDomain.ts.
         unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
         unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
         unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
@@ -365,7 +375,13 @@ const OSForm: React.FC = () => {
               orcamentoId: os.orcamentoId || '',
             });
             setServicosSelecionados(os.servicos || []);
-            setPecasSelecionadas(os.pecas || []);
+            // OS antiga pode ter peca gravada sem unidade (documento salvo
+            // antes da feature existir): completa com 'UN' na carga, pra
+            // ficar consistente com o que o catalogo devolve hoje.
+            setPecasSelecionadas((os.pecas || []).map((peca: PecaSelecionada) => ({
+              ...peca,
+              ...resolveUnidadeMedidaProduto(peca),
+            })));
             if (Array.isArray(os.pagamentos) && os.pagamentos.length > 0) {
               setPaymentDrafts(os.pagamentos.map((payment: PaymentRecord, index: number) => ({
                 id: payment.id || `pagamento-${index + 1}`,
@@ -584,11 +600,18 @@ const OSForm: React.FC = () => {
           precoVenda: precoNum,
           categoria: 'Peças Adicionais',
           quantidade: 10, // Base default para não zerar logo de cara
+          // Cadastro rapido nao pergunta unidade -- grava o padrao 'UN', o
+          // mesmo que EstoqueForm.tsx grava quando nenhuma e' escolhida.
+          // Sem isso o produto nascia sem os campos de unidade.
+          ...UNIDADE_MEDIDA_FALLBACK,
           tenantId,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
-        peca = { id: newRef.id, nome: pecaNomeInput, precoVenda: precoNum };
+        // Nasce ja com 'UN' -- igual ao que acabou de ser gravado no
+        // estoque. Assim nao dispara o aviso de "sem unidade": nao e'
+        // cadastro furado, e' o padrao aplicado na criacao.
+        peca = { id: newRef.id, nome: pecaNomeInput, precoVenda: precoNum, ...UNIDADE_MEDIDA_FALLBACK };
         setPecasEstoque([...pecasEstoque, peca]);
         showSuccess('Peça adicionada ao estoque!');
       } catch {
@@ -603,14 +626,20 @@ const OSForm: React.FC = () => {
         showError('Estoque Insuficiente', `A peça ${peca.nome} está sem estoque. Venda sem estoque desativada.`);
         return;
       }
+      // Peca de cadastro antigo pode nao ter unidade nenhuma. Ela entra com
+      // a unidade padrao 'UN' e o usuario e' avisado na hora, em portugues,
+      // pra conseguir corrigir o cadastro sozinho -- sem ligar pro suporte
+      // e sem a OS travar. Regra completa em unidadeMedidaDomain.ts.
+      if (!temUnidadeMedidaCadastrada(peca)) {
+        const aviso = avisoUnidadeMedidaAusente(peca.nome);
+        showWarning(aviso.title, aviso.text);
+      }
       setPecasSelecionadas([...pecasSelecionadas, {
         id: peca.id,
         nome: peca.nome,
         preco: precoNum,
         quantidade: 1,
-        unidadeMedidaSigla: peca.unidadeMedidaSigla,
-        unidadeMedidaFracionado: peca.unidadeMedidaFracionado,
-        unidadeMedidaCasasDecimais: peca.unidadeMedidaCasasDecimais,
+        ...resolveUnidadeMedidaProduto(peca),
       }]);
       setPecaNomeInput('');
       setPecaPrecoInput('');

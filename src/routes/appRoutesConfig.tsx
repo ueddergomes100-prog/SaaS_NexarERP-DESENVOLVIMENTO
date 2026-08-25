@@ -11,6 +11,7 @@ const OrcamentoForm = lazy(() => import('../pages/Orcamentos/OrcamentoForm'));
 const OrcamentoPrint = lazy(() => import('../pages/Orcamentos/OrcamentoPrint'));
 const PedidoVendas = lazy(() => import('../pages/Vendas/PedidoVendas'));
 const RelatoriosVendas = lazy(() => import('../pages/Vendas/RelatoriosVendas'));
+const RelatorioPreVendas = lazy(() => import('../pages/Vendas/RelatorioPreVendas'));
 const OSList = lazy(() => import('../pages/OS/OSList'));
 const RelatoriosMecanica = lazy(() => import('../pages/OS/RelatoriosMecanica'));
 const OSForm = lazy(() => import('../pages/OS/OSForm'));
@@ -81,6 +82,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'pedidos-venda/print/:id', element: <PedidoPrint /> },
   { path: 'pedidos-venda/print-lote', element: <PedidoPrintLote /> },
   { path: 'relatorios-vendas', element: <RelatoriosVendas /> },
+  { path: 'pre-vendas', element: <RelatorioPreVendas /> },
 
   { path: 'os', element: <OSList /> },
   { path: 'os/nova', element: <OSForm /> },

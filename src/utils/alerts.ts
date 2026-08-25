@@ -30,6 +30,24 @@ export const showError = (title: string, text?: string) => {
   });
 };
 
+// Aviso nao bloqueante: o sistema completou/ajustou alguma coisa sozinho e o
+// usuario precisa ficar sabendo, mas a operacao segue normal. Toast em vez de
+// modal de proposito -- quem adiciona 10 itens seguidos nao pode ser obrigado
+// a dar 10 cliques em "Entendi". Fica 6s na tela (o dobro do showSuccess)
+// porque o texto aqui e' instrucao, nao confirmacao.
+export const showWarning = (title: string, text?: string) => {
+  return NexusSwal.fire({
+    icon: 'warning',
+    title,
+    text,
+    toast: true,
+    position: 'top-end',
+    showConfirmButton: false,
+    timer: 6000,
+    timerProgressBar: true,
+  });
+};
+
 // Pop-up de Confirmação para exclusão
 export const confirmDelete = async (itemName: string) => {
   const result = await NexusSwal.fire({

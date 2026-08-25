@@ -11,6 +11,13 @@ import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { spedyService } from '../../services/spedyService';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from './pedidoPrintLoteConstants';
+import {
+  contaComoFaturamento,
+  isPedidoAberto,
+  STATUS_CANCELADA,
+  STATUS_EM_ANALISE,
+  STATUS_PRE_VENDA,
+} from '../../utils/preVendaDomain';
 
 interface ItemVenda {
   id: string;
@@ -177,7 +184,9 @@ const PedidoVendas: React.FC = () => {
         // aplicou ao ser criada -- excluir sem isso deixava o saldo do banco
         // inflado pra sempre, incondicional as opcoes de estoque acima
         // (excluir sem devolver dinheiro esta sempre errado).
-        if (pedido.status !== 'Cancelada') {
+        // Pedido em aberto nunca creditou banco nenhum (nao gerou
+        // financeiro), entao nao ha credito a estornar aqui.
+        if (pedido.status !== 'Cancelada' && !isPedidoAberto(pedido.status)) {
           try {
             const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', pedido.id));
             const bankDebitsByBanco = computeBankCreditsMap(pedidoSnap.data()?.pagamentos || []);
@@ -196,7 +205,30 @@ const PedidoVendas: React.FC = () => {
           }
         }
 
-        if (confirm.isConfirmed && pedido.status !== 'Cancelada' && pedido.itens) {
+        // Pedido em aberto (pre-venda / pendente do agente) NAO baixou
+        // estoque: ele so RESERVOU. Devolver quantidade aqui criaria
+        // mercadoria do nada -- o certo e' soltar a reserva. Sem esta
+        // separacao, excluir uma pre-venda inflava o estoque real e ainda
+        // deixava a reserva pendurada, tirando o produto do disponivel pra
+        // sempre.
+        if (isPedidoAberto(pedido.status) && pedido.itens) {
+          for (const item of pedido.itens) {
+            if (item.id === 'avulso') continue;
+            try {
+              const pecaRef = doc(db, 'estoque', item.id);
+              const pecaSnap = await getDoc(pecaRef);
+              if (pecaSnap.exists()) {
+                const reservadaAtual = Number(pecaSnap.data().quantidadeReservada || 0);
+                await updateDoc(pecaRef, {
+                  quantidadeReservada: Math.max(0, reservadaAtual - Number(item.quantidade || 0)),
+                  updatedAt: serverTimestamp(),
+                });
+              }
+            } catch (e) {
+              console.error('Erro ao liberar reserva de estoque:', e);
+            }
+          }
+        } else if (confirm.isConfirmed && pedido.status !== 'Cancelada' && pedido.itens) {
           for (const item of pedido.itens) {
             if (item.id !== 'avulso') {
               try {
@@ -329,11 +361,17 @@ const PedidoVendas: React.FC = () => {
   };
 
   const filteredPedidos = pedidos.filter(p => {
+    // "Ativos / Faturados" = so o que virou venda de verdade. Pedido em
+    // aberto (pre-venda do balcao ou pendente do agente) tem aba propria --
+    // misturar os dois faria a aba principal mostrar como venda algo que
+    // ainda nao faturou.
     const matchStatus = activeTab === 'Ativos'
-      ? (p.status !== 'Cancelada' && p.status !== 'Em Análise')
-      : activeTab === 'Pendentes'
-        ? p.status === 'Em Análise'
-        : p.status === 'Cancelada';
+      ? contaComoFaturamento(p.status)
+      : activeTab === 'PreVendas'
+        ? p.status === STATUS_PRE_VENDA
+        : activeTab === 'Pendentes'
+          ? p.status === STATUS_EM_ANALISE
+          : p.status === STATUS_CANCELADA;
     if (!matchStatus) return false;
     if (!searchTerm) return true;
     return p.clienteNome?.toLowerCase().includes(searchTerm.toLowerCase()) || p.numeroPedido?.includes(searchTerm);
@@ -413,6 +451,12 @@ const PedidoVendas: React.FC = () => {
               style={{ padding: '8px 16px', backgroundColor: activeTab === 'Ativos' ? 'var(--accent-purple)' : 'transparent', color: activeTab === 'Ativos' ? 'white' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
             >
               Ativos / Faturados
+            </button>
+            <button
+              onClick={() => setActiveTab('PreVendas')}
+              style={{ padding: '8px 16px', backgroundColor: activeTab === 'PreVendas' ? 'rgba(245, 158, 11, 0.2)' : 'transparent', color: activeTab === 'PreVendas' ? '#f59e0b' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
+            >
+              Pré-vendas
             </button>
             <button
               onClick={() => setActiveTab('Pendentes')}
@@ -513,8 +557,10 @@ const PedidoVendas: React.FC = () => {
                     </td>
                     <td style={{ padding: '16px' }}>
                       <span style={{
-                        backgroundColor: p.status === 'Cancelada' ? 'rgba(239,68,68,0.2)' : p.status === 'Em Análise' ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)',
-                        color: p.status === 'Cancelada' ? '#ef4444' : p.status === 'Em Análise' ? '#f59e0b' : '#10b981',
+                        // Amarelo = em aberto (pre-venda ou pendente do
+                        // agente), verde = faturado, vermelho = cancelado.
+                        backgroundColor: p.status === 'Cancelada' ? 'rgba(239,68,68,0.2)' : isPedidoAberto(p.status) ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)',
+                        color: p.status === 'Cancelada' ? '#ef4444' : isPedidoAberto(p.status) ? '#f59e0b' : '#10b981',
                         padding: '4px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600
                       }}>
                         {p.status}

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { spedyService } from '../../services/spedyService';
-import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
+import { applyStockAdjustments, applyStockFieldDeltas, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
@@ -41,6 +41,22 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields } from '../../utils/fiscalDomain';
+import {
+  DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
+  DEFAULT_TRABALHA_COM_PRE_VENDA,
+  isPedidoAberto,
+  parseAlterarPagamentoVendaFinalizada,
+  parseTrabalhaComPreVenda,
+  resolveOrigemPedido,
+  STATUS_CANCELADA,
+  STATUS_PRE_VENDA,
+  type OrigemPedido,
+} from '../../utils/preVendaDomain';
+import {
+  computeReservationCommit,
+  computeReservationDelta,
+  computeReservationRelease,
+} from '../../utils/estoqueReservaDomain';
 import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   buildOpcoesUnidadeVenda,
@@ -220,6 +236,19 @@ const PedidoVendaForm: React.FC = () => {
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
   const [imprimirMinutaAposVendaAtiva, setImprimirMinutaAposVendaAtiva] = useState(false);
+  const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
+  const [alterarPagamentoAtivo, setAlterarPagamentoAtivo] = useState(DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA);
+  /** Destrava a secao de pagamento numa venda JA finalizada. Fora deste modo
+   * a venda finalizada continua somente-leitura, como sempre foi. */
+  const [editandoPagamento, setEditandoPagamento] = useState(false);
+  // Origem do pedido CARREGADO (so faz sentido em modo visualizacao). Pedido
+  // novo na tela ainda nao tem origem gravada -- nasce 'balcao' quando alguem
+  // grava a pre-venda.
+  const [origemPedido, setOrigemPedido] = useState<OrigemPedido>('balcao');
+  // A reserva ja aplicada no estoque NAO vira state de tela de proposito:
+  // ela e' lida do proprio documento dentro da transacao que a reconcilia
+  // (gravar/finalizar/cancelar). State aqui seria uma segunda copia da
+  // verdade, que envelhece se outra aba mexer na mesma pre-venda.
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
@@ -229,12 +258,71 @@ const PedidoVendaForm: React.FC = () => {
   // atras da permissao mestre; as 4 granulares abaixo so controlam campos
   // especificos -- nao existem em firestore.rules (decisao deliberada, ver
   // docs/PLANO_EVOLUCAO_NEXAR.md).
-  const isPendingFromAgent = isViewing && status === 'Em Análise';
-  const canEditPendingOrder = isPendingFromAgent && (isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_editar')));
-  const canEditPendingCliente = canEditPendingOrder && (isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_editar_cliente')));
-  const canEditPendingQtd = canEditPendingOrder && (isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_alterar_qtd')));
-  const canAddPendingItem = canEditPendingOrder && (isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_adicionar_item')));
-  const canDeletePendingItem = canEditPendingOrder && (isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_excluir_item')));
+  // ESTADO x ORIGEM -- duas coisas diferentes, antes coladas numa flag so.
+  //
+  //   estado  = o pedido esta em aberto (nao faturou, so reservou estoque)
+  //   origem  = quem criou: o agente de WhatsApp ou o balcao (pre-venda)
+  //
+  // O estado governa o COMPORTAMENTO (nao gera financeiro, nao entra em
+  // faturamento, reserva estoque); a origem governa QUAIS PERMISSOES o
+  // usuario precisa ter. Colar os dois faria quem cuida da pre-venda do
+  // balcao herdar acesso aos pedidos do WhatsApp sem ninguem ter decidido.
+  const pedidoEstaAberto = isViewing && isPedidoAberto(status);
+  const isPendingFromAgent = pedidoEstaAberto && origemPedido === 'agente';
+  const isPreVendaAberta = pedidoEstaAberto && origemPedido === 'balcao';
+
+  const temPermissao = (permissao: string) => (
+    isOwner || isPlatformAdminRole(userRole) || Boolean(userPermissions && userPermissions.includes(permissao))
+  );
+
+  // Pedido pendente do agente de WhatsApp: nasce com status "Em Analise".
+  // Fica editavel/finalizavel atras da permissao mestre; as 4 granulares
+  // abaixo so controlam campos especificos -- nao existem em
+  // firestore.rules (decisao deliberada, ver docs/PLANO_EVOLUCAO_NEXAR.md).
+  const canEditAgentOrder = isPendingFromAgent && temPermissao('vendas.pedidos_pendentes_editar');
+
+  // Pre-venda do balcao: uma permissao por acao do ciclo de vida. Gravar e'
+  // criar; editar e' mexer numa ja gravada; finalizar e' o que vira venda
+  // de verdade (baixa estoque + gera financeiro), por isso separado.
+  const canCriarPreVenda = trabalhaComPreVenda && temPermissao('vendas.pre_venda_criar');
+  const canEditarPreVenda = isPreVendaAberta && trabalhaComPreVenda && temPermissao('vendas.pre_venda_editar');
+  const canFinalizarPreVenda = isPreVendaAberta && trabalhaComPreVenda && temPermissao('vendas.pre_venda_finalizar');
+  const canCancelarPreVenda = isPreVendaAberta && trabalhaComPreVenda && temPermissao('vendas.pre_venda_cancelar');
+
+  // Alterar forma de pagamento de venda finalizada. Mesma hierarquia:
+  // config libera pra empresa, permissao decide quem. As duas travas
+  // seguintes NAO passam por permissao nenhuma -- ver o comentario em
+  // handleSalvarPagamentoAlterado.
+  const nfceAutorizada = Boolean(nfeDoc && nfeDoc.status === 'authorized');
+  const vendaTemDevolucao = itens.some((item) => (item.quantidadeJaDevolvida || 0) > 0);
+  const canAlterarPagamentoFinalizada = isViewing
+    && status === 'Finalizada'
+    && alterarPagamentoAtivo
+    && temPermissao('vendas.alterar_pagamento_finalizada');
+  const motivoBloqueioAlterarPagamento = nfceAutorizada
+    ? 'Venda com cupom fiscal (NFC-e) autorizado não pode ser alterada'
+    : vendaTemDevolucao
+      ? 'Venda com itens devolvidos não pode ter o pagamento alterado'
+      : '';
+
+  // Guarda-chuva consumido pela UI de edicao do pedido aberto (os campos
+  // sao os mesmos nos dois casos). Na pre-venda, `vendas.pre_venda_editar`
+  // ja libera o pedido inteiro -- as 4 permissoes granulares de campo valem
+  // so pro pedido do agente, onde a loja quis controle fino sobre o que
+  // pode ser mexido num pedido feito pelo proprio cliente.
+  const canEditPendingOrder = canEditAgentOrder || canEditarPreVenda;
+  const canEditPendingCliente = isPreVendaAberta
+    ? canEditarPreVenda
+    : canEditAgentOrder && temPermissao('vendas.pedidos_pendentes_editar_cliente');
+  const canEditPendingQtd = isPreVendaAberta
+    ? canEditarPreVenda
+    : canEditAgentOrder && temPermissao('vendas.pedidos_pendentes_alterar_qtd');
+  const canAddPendingItem = isPreVendaAberta
+    ? canEditarPreVenda
+    : canEditAgentOrder && temPermissao('vendas.pedidos_pendentes_adicionar_item');
+  const canDeletePendingItem = isPreVendaAberta
+    ? canEditarPreVenda
+    : canEditAgentOrder && temPermissao('vendas.pedidos_pendentes_excluir_item');
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
@@ -320,6 +408,8 @@ const PedidoVendaForm: React.FC = () => {
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
           setProdutoSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           setConferenciaMercadoriaAtiva(config.conferenciaMercadoria === true);
+          setTrabalhaComPreVenda(parseTrabalhaComPreVenda(config.trabalhaComPreVenda));
+          setAlterarPagamentoAtivo(parseAlterarPagamentoVendaFinalizada(config.alterarPagamentoVendaFinalizada));
           setVenderPorEmbalagem(config.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
           setLimiteDescontoPedido(parseLimiteDescontoConfig(config.limiteDescontoPedido));
           setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
@@ -365,6 +455,7 @@ const PedidoVendaForm: React.FC = () => {
             setDataVenda(p.dataVenda || getDateInputInTimeZone(p.createdAt?.toDate?.() || new Date()));
             setNumeroPedido(p.numeroPedido || '');
             setStatus(p.status || 'Finalizada');
+            setOrigemPedido(resolveOrigemPedido(p));
             setItens(p.itens || []);
             setOrcamentoId(p.orcamentoId || '');
             setFrete(p.frete || 0);
@@ -750,6 +841,515 @@ const PedidoVendaForm: React.FC = () => {
    * verdade (fim da transacao); o resto da funcao (perguntar se emite
    * NFC-e/imprime recibo) continua rodando igual ao fluxo normal do
    * botao -- so o valor de retorno no final e novo. */
+  /**
+   * Grava a PRE-VENDA: o pedido passa a existir em aberto, reservando
+   * estoque, sem gerar nada de financeiro.
+   *
+   * O que este fluxo deliberadamente NAO faz, comparado a finalizar a venda:
+   * nao cria transacao em `transacoes`, nao credita banco, nao apura
+   * comissao, nao emite cupom fiscal e nao entra em conferencia. Nada disso
+   * existe ainda -- a venda nao aconteceu, so foi separada. Por isso tambem
+   * nao ha checagem de limite de credito nem de forma de pagamento aqui:
+   * pagamento so e' definido na finalizacao, e e' la que essas travas rodam.
+   *
+   * Serve tanto pra criar quanto pra regravar uma pre-venda ja aberta -- no
+   * segundo caso a reserva de estoque e' RECONCILIADA (delta entre o que ja
+   * estava reservado e o que ficou), nunca somada por cima.
+   */
+  const handleGravarPreVenda = async (): Promise<boolean> => {
+    if (submitLockRef.current) return false;
+    if (!currentUser || !tenantId) return false;
+    if (itens.length === 0) {
+      showError('Atenção', 'Adicione pelo menos um item à pré-venda.');
+      return false;
+    }
+
+    let finalClienteNome = clienteNome.trim().toUpperCase();
+    if (!finalClienteNome) {
+      finalClienteNome = 'CONSUMIDOR FINAL';
+      setClienteNome('CONSUMIDOR FINAL');
+    }
+    const nomeClienteDigitadoOriginal = clienteNome.trim();
+    const clienteEncontrado = clientesDisponiveis.find(c => c.nome.toUpperCase() === finalClienteNome);
+
+    // Mesma validacao de cliente da venda: se a empresa exige cliente
+    // cadastrado, exige na pre-venda tambem -- senao o cadastro furado so
+    // apareceria la na frente, na hora de faturar.
+    const acaoValidacaoCliente = resolverAcaoValidacaoCliente(modoValidacaoCliente, !!clienteEncontrado, nomeClienteDigitadoOriginal);
+    if (acaoValidacaoCliente.tipo === 'bloquear') {
+      showError('Cliente não cadastrado', acaoValidacaoCliente.motivo);
+      return false;
+    }
+    if (acaoValidacaoCliente.tipo === 'perguntar') {
+      const confirmCadastro = await NexusSwal.fire({
+        title: 'Cliente não cadastrado',
+        text: `"${finalClienteNome}" ainda não tem cadastro. Deseja cadastrar agora?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Cadastrar cliente',
+        cancelButtonText: 'Cancelar',
+      });
+      if (confirmCadastro.isConfirmed) setCadastroRapidoAberto(true);
+      return false;
+    }
+
+    submitLockRef.current = true;
+    setIsLoading(true);
+    let gravouComSucesso = false;
+    let numeroGravado = numeroPedido;
+    let preVendaId = id || '';
+
+    try {
+      let clienteIdParaSalvar: string | null = clienteEncontrado?.id || null;
+      if (!clienteEncontrado) {
+        const codigoCliente = await getProximoCodigoCliente(tenantId);
+        const novoClienteRef = await addDoc(collection(db, 'clientes'), {
+          codigo: codigoCliente,
+          nome: finalClienteNome,
+          isPadrao: finalClienteNome === 'CONSUMIDOR FINAL',
+          tenantId: tenantId || '',
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        clienteIdParaSalvar = novoClienteRef.id;
+      }
+
+      // Regravando uma pre-venda que ja existe: mantem documento e numero.
+      const regravando = isPreVendaAberta && Boolean(id);
+      const currentMaxPedido = regravando
+        ? 0
+        : await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
+
+      await runTransaction(db, async (transaction) => {
+        const nextPedido = regravando
+          ? 0
+          : await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
+
+        const selectedSellerId = vendedorId || currentUser.uid;
+        const sellerSnap = await transaction.get(doc(db, 'usuarios', selectedSellerId));
+        const sellerProfile = sellerSnap.exists() ? sellerSnap.data() : {};
+        if (!sellerSnap.exists() || sellerProfile.tenantId !== tenantId) {
+          throw new Error('O vendedor selecionado não pertence à empresa ativa.');
+        }
+        const sellerName = sellerProfile.nome || sellerProfile.nomeResponsavel || currentUser.displayName || currentUser.email || 'Vendedor';
+
+        const preVendaRef = regravando ? doc(db, 'pedidos_venda', id!) : doc(collection(db, 'pedidos_venda'));
+        preVendaId = preVendaRef.id;
+
+        // Toda leitura antes de qualquer escrita (regra do Firestore).
+        const existingSnap = regravando ? await transaction.get(preVendaRef) : null;
+        if (regravando && !existingSnap?.exists()) {
+          throw new Error('Esta pré-venda não existe mais.');
+        }
+        const existingData = existingSnap?.data();
+        if (regravando && !isPedidoAberto(existingData?.status)) {
+          // Alguem finalizou ou cancelou esta pre-venda em outra tela/aba
+          // enquanto ela estava aberta aqui. Regravar por cima
+          // ressuscitaria um pedido ja faturado.
+          throw new Error('Esta pré-venda não está mais em aberto. Recarregue a tela.');
+        }
+
+        const reservaAtual = existingData?.estoqueReservado === true
+          ? toStockAdjustmentItems(existingData.itens || [])
+          : [];
+        const reservaNova = toStockAdjustmentItems(itens);
+
+        if (!regravando) {
+          numeroGravado = formatSequenceValue(nextPedido, 4);
+        } else {
+          numeroGravado = existingData?.numeroPedido || numeroPedido;
+        }
+
+        // Reconciliacao, nao soma: se o item ja estava reservado por esta
+        // mesma pre-venda, so a DIFERENCA e' aplicada. Reservar de novo por
+        // cima duplicaria a reserva a cada regravacao e o produto sumiria
+        // do disponivel sem ninguem ter vendido nada.
+        const deltasReserva = computeReservationDelta(reservaAtual, reservaNova);
+        if (deltasReserva.length > 0) {
+          await applyStockFieldDeltas(transaction, db, deltasReserva, permitirVendaSemEstoque);
+        }
+
+        if (!regravando) {
+          writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
+        }
+
+        const preVendaData = {
+          numeroPedido: numeroGravado,
+          clienteId: clienteIdParaSalvar,
+          clienteNome: finalClienteNome,
+          itens,
+          valorTotalItens,
+          valorTotalItensCentavos: toCents(valorTotalItens),
+          valorTotalDescontos,
+          valorTotalDescontosCentavos: toCents(valorTotalDescontos),
+          descontoGeral: {
+            tipo: descontoGeralInput.tipo,
+            valorInformado: Number(descontoGeralInput.valor.replace(',', '.')) || 0,
+            valorAplicadoCentavos: descontoGeralCents,
+            excedeuLimite: checagemLimiteDesconto.excedeu,
+          },
+          frete: Number(frete || 0),
+          encargos: Number(encargos || 0),
+          valorTotal: valorTotalPedido,
+          valorTotalCentavos: valorTotalPedidoCentavos,
+          dataVenda,
+          status: STATUS_PRE_VENDA,
+          origem: 'balcao' as OrigemPedido,
+          // O que separa pre-venda de venda: o estoque esta SEPARADO, nao
+          // baixado. A baixa real acontece so na finalizacao, que consome
+          // esta reserva.
+          estoqueReservado: itens.length > 0,
+          tenantId,
+          usuarioResponsavelId: currentUser.uid,
+          vendedorId: selectedSellerId,
+          vendedorNome: sellerName,
+          ...(regravando
+            ? {
+                createdAt: existingData?.createdAt ?? serverTimestamp(),
+                criadoPor: existingData?.criadoPor ?? currentUser.uid,
+                criadoEm: existingData?.criadoEm ?? serverTimestamp(),
+                ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Pré-venda alterada'),
+              }
+            : {
+                createdAt: serverTimestamp(),
+                ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+              }),
+        };
+
+        transaction.set(preVendaRef, preVendaData);
+      });
+
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'vendas',
+          acao: isPreVendaAberta ? 'edicao' : 'criacao',
+          descricao: `Pré-venda #${numeroGravado} ${isPreVendaAberta ? 'alterada' : 'gravada'} no valor de R$ ${valorTotalPedido.toFixed(2)}. Cliente: ${finalClienteNome}`,
+          registroRelacionadoId: preVendaId,
+          status: 'sucesso',
+        });
+      } catch (err) {
+        console.error('Erro ao registrar log da pré-venda:', err);
+      }
+
+      setNumeroPedido(numeroGravado);
+      setStatus(STATUS_PRE_VENDA);
+      setOrigemPedido('balcao');
+      initialSnapshotRef.current = buildDirtySnapshot();
+      setIsDirty(false);
+      gravouComSucesso = true;
+
+      await showSuccess(`Pré-venda #${numeroGravado} gravada! O estoque foi reservado.`);
+      if (!isPreVendaAberta) navigate(`/pedidos-venda/visualizar/${preVendaId}`);
+    } catch (error) {
+      console.error('Erro ao gravar pré-venda:', error);
+      showError('Erro ao gravar pré-venda', error instanceof Error ? error.message : 'Tente novamente.');
+    } finally {
+      setIsLoading(false);
+      submitLockRef.current = false;
+    }
+
+    return gravouComSucesso;
+  };
+
+  /**
+   * Cancela uma pre-venda em aberto: libera a reserva de estoque e marca o
+   * documento como Cancelada. Nao mexe em financeiro porque nunca houve --
+   * e' justamente o que diferencia isto de estornar uma venda finalizada.
+   */
+  const handleCancelarPreVenda = async () => {
+    if (!currentUser || !tenantId || !id) return;
+
+    const confirm = await NexusSwal.fire({
+      title: 'Cancelar esta pré-venda?',
+      text: 'O estoque reservado volta a ficar disponível para venda. A pré-venda fica registrada como cancelada.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, cancelar',
+      cancelButtonText: 'Voltar',
+      confirmButtonColor: '#ef4444',
+      reverseButtons: true,
+    });
+    if (!confirm.isConfirmed) return;
+
+    setIsLoading(true);
+    try {
+      await runTransaction(db, async (transaction) => {
+        const preVendaRef = doc(db, 'pedidos_venda', id);
+        const snap = await transaction.get(preVendaRef);
+        if (!snap.exists()) throw new Error('Esta pré-venda não existe mais.');
+        const data = snap.data();
+        if (!isPedidoAberto(data.status)) {
+          throw new Error('Esta pré-venda não está mais em aberto. Recarregue a tela.');
+        }
+
+        if (data.estoqueReservado === true) {
+          // Libera a reserva sem devolver quantidade: nada foi baixado do
+          // estoque, entao nao ha o que devolver -- so soltar o que estava
+          // separado.
+          await applyStockFieldDeltas(
+            transaction,
+            db,
+            computeReservationRelease(toStockAdjustmentItems(data.itens || [])),
+            true
+          );
+        }
+
+        transaction.update(preVendaRef, {
+          status: STATUS_CANCELADA,
+          estoqueReservado: false,
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Pré-venda cancelada'),
+        });
+      });
+
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'vendas',
+          acao: 'exclusao',
+          descricao: `Pré-venda #${numeroPedido} cancelada. Estoque reservado liberado.`,
+          registroRelacionadoId: id,
+          status: 'sucesso',
+        });
+      } catch (err) {
+        console.error('Erro ao registrar log de cancelamento da pré-venda:', err);
+      }
+
+      setIsDirty(false);
+      await showSuccess('Pré-venda cancelada e estoque liberado.');
+      navigate('/pedidos-venda');
+    } catch (error) {
+      console.error('Erro ao cancelar pré-venda:', error);
+      showError('Erro ao cancelar', error instanceof Error ? error.message : 'Tente novamente.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * Corrige a FORMA DE PAGAMENTO de uma venda ja finalizada -- o caso real e'
+   * "registrou dinheiro, era cartao". O valor total da venda NAO muda:
+   * normalizePayments() e' chamado com o mesmo total, entao a soma dos
+   * pagamentos continua batendo com a venda; o que muda e' so a composicao.
+   *
+   * Refaz junto o que a composicao antiga tinha gerado: os lancamentos em
+   * `transacoes` e o credito nos bancos. Corrigir so o rotulo no pedido e
+   * deixar o financeiro velho de pe seria pior que nao ter a funcao.
+   *
+   * TRAVAS (todas obrigatorias, nenhuma contornavel por permissao):
+   *  - cupom fiscal autorizado bloqueia: NFC-e transmitida a SEFAZ e'
+   *    imutavel, e a forma de pagamento vai dentro dela;
+   *  - venda com devolucao bloqueia: o valor ja se moveu por outro caminho;
+   *  - lancamento ja estornado bloqueia: mexer por cima de um estorno
+   *    duplicaria historico. Nesses casos o caminho certo e' Estorno ou
+   *    Devolucao, que preservam o que aconteceu de verdade.
+   */
+  const handleSalvarPagamentoAlterado = async () => {
+    if (submitLockRef.current) return;
+    if (!currentUser || !tenantId || !id) return;
+
+    if (nfceAutorizada) {
+      showError('Operação Bloqueada', 'Esta venda tem cupom fiscal (NFC-e) autorizado. A nota já foi transmitida à SEFAZ e não pode ser alterada. Para corrigir, cancele o cupom fiscal primeiro.');
+      return;
+    }
+    if (vendaTemDevolucao) {
+      showError('Operação Bloqueada', 'Esta venda tem itens devolvidos. Como o valor já se moveu pela devolução, a forma de pagamento não pode mais ser alterada por aqui.');
+      return;
+    }
+
+    let paymentRecords: PaymentRecord[];
+    try {
+      paymentRecords = normalizePayments(valorTotalPedidoCentavos, paymentDrafts, {
+        saleDate: dataVenda,
+        maxCreditInstallments: financeConfig.maxCreditInstallments || undefined,
+        creditFeePercentByInstallment: financeConfig.creditFeePercentByInstallment,
+        debitFeePercent: financeConfig.debitFeePercent,
+        creditSettlementDays: financeConfig.creditSettlementDays,
+        debitSettlementDays: financeConfig.debitSettlementDays,
+        cardFeeSchedulesByBrand,
+      });
+    } catch (error) {
+      showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os dados do pagamento.');
+      return;
+    }
+    paymentRecords = explodeInstallmentPaymentRecords(paymentRecords);
+    const paymentSummary = summarizePayments(paymentRecords);
+
+    const confirm = await NexusSwal.fire({
+      title: 'Alterar forma de pagamento?',
+      html: `O valor da venda continua <strong>${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalPedido)}</strong>.<br/><br/>Os lançamentos financeiros desta venda serão refeitos com a nova forma de pagamento, e o saldo dos bancos será ajustado.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, alterar',
+      cancelButtonText: 'Cancelar',
+      reverseButtons: true,
+    });
+    if (!confirm.isConfirmed) return;
+
+    submitLockRef.current = true;
+    setIsLoading(true);
+    try {
+      const saleRef = doc(db, 'pedidos_venda', id);
+      // Refs dos lancamentos atuais levantados FORA da transacao (query nao
+      // roda dentro dela) -- mesmo padrao do cancelamento de venda.
+      const transacoesSnap = await getDocs(query(
+        collection(db, 'transacoes'),
+        where('tenantId', '==', tenantId),
+        where('pedidoId', '==', id),
+      ));
+      const refsAntigas = transacoesSnap.empty
+        ? [doc(db, 'transacoes', id)]
+        : transacoesSnap.docs.map((documento) => documento.ref);
+
+      const persistedPayments = paymentRecords.map((payment, index) => ({
+        ...payment,
+        transactionId: index === 0 ? id : `${id}_pag_${index + 1}`,
+      }));
+
+      await runTransaction(db, async (transaction) => {
+        const saleSnap = await transaction.get(saleRef);
+        if (!saleSnap.exists()) throw new Error('Esta venda não existe mais.');
+        const saleData = saleSnap.data();
+        if (saleData.status !== 'Finalizada') {
+          throw new Error('Esta venda não está mais finalizada. Recarregue a tela.');
+        }
+
+        const snapshotsAntigos = await Promise.all(refsAntigas.map((ref) => transaction.get(ref)));
+        const jaEstornada = snapshotsAntigos.some((snapshot) => snapshot.exists() && snapshot.data()?.estornada === true);
+        if (jaEstornada) {
+          throw new Error('Esta venda já tem lançamento estornado. Use Estorno ou Devolução em vez de alterar o pagamento.');
+        }
+
+        // Delta por banco: tira o que a composicao ANTIGA creditou e poe o
+        // que a NOVA credita. Bancos que aparecem so de um lado entram com
+        // um dos termos zerado, e o delta resolve sozinho.
+        const creditosAntigos = computeBankCreditsMap(saleData.pagamentos || []);
+        const creditosNovos = computeBankCreditsMap(persistedPayments);
+        const saldosPorBanco = new Map<string, number>();
+        for (const bancoId of new Set([...creditosAntigos.keys(), ...creditosNovos.keys()])) {
+          const bancoSnap = await transaction.get(doc(db, 'bancos', bancoId));
+          if (!bancoSnap.exists()) {
+            if (creditosNovos.has(bancoId)) throw new Error('O banco de destino selecionado não foi encontrado.');
+            continue; // banco do credito antigo nao existe mais: reversao segue sem quebrar
+          }
+          saldosPorBanco.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
+        }
+
+        saldosPorBanco.forEach((saldoAtual, bancoId) => {
+          const delta = (creditosNovos.get(bancoId) || 0) - (creditosAntigos.get(bancoId) || 0);
+          if (delta === 0) return;
+          transaction.update(doc(db, 'bancos', bancoId), {
+            saldoCentavos: saldoAtual + delta,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Ajuste de forma de pagamento da venda #${numeroPedido}`),
+          });
+        });
+
+        const idsNovos = new Set(persistedPayments.map((payment) => payment.transactionId));
+        persistedPayments.forEach((payment) => {
+          const parcelaLabel = payment.cartao?.numero
+            ? ` (Parcela ${payment.cartao.numero}/${payment.cartao.totalParcelas})`
+            : '';
+          transaction.set(doc(db, 'transacoes', payment.transactionId), {
+            descricao: `Venda Direta #${numeroPedido} - ${payment.formaPagamento}${parcelaLabel}`,
+            categoria: 'Venda de Peças',
+            valor: payment.valor,
+            valorCentavos: payment.valorCentavos,
+            valorBruto: payment.valor,
+            valorBrutoCentavos: payment.valorCentavos,
+            valorTaxa: payment.cartao?.valorTaxa || 0,
+            valorTaxaCentavos: payment.cartao?.valorTaxaCentavos || 0,
+            valorLiquido: payment.cartao?.valorLiquido ?? payment.valor,
+            valorLiquidoCentavos: payment.cartao?.valorLiquidoCentavos ?? payment.valorCentavos,
+            tipo: 'entrada',
+            formaPagamento: payment.formaPagamento,
+            condicaoPagamento: payment.condicaoPagamento,
+            status: payment.status === 'confirmado' ? 'Paga' : 'Pendente',
+            naturezaFinanceira: payment.naturezaFinanceira,
+            movimentaCaixaFisico: payment.movimentaCaixaFisico,
+            bancoId: payment.bancoId || null,
+            bancoNome: payment.bancoNome || null,
+            prazoDias: payment.prazoDias || null,
+            data: payment.dataVencimento || saleData.dataVenda || dataVenda,
+            dataVencimento: payment.dataVencimento || null,
+            dataPrevistaRecebimento: payment.dataPrevistaRecebimento || null,
+            cartao: payment.cartao || null,
+            pedidoId: id,
+            sourceType: 'pedido_venda',
+            sourceId: id,
+            paymentIndex: payment.indice,
+            idempotencyKey: `pedido:${id}:pagamento:${payment.indice}`,
+            clienteId: saleData.clienteId ?? null,
+            clienteNome: saleData.clienteNome ?? clienteNome,
+            usuarioResponsavelId: saleData.usuarioResponsavelId ?? currentUser.uid,
+            vendedorId: saleData.vendedorId ?? vendedorId,
+            tenantId,
+            createdAt: saleData.createdAt ?? serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Forma de pagamento corrigida'),
+          });
+        });
+
+        // A composicao nova pode ter MENOS lancamentos que a antiga (ex:
+        // 3 parcelas viraram 1 a vista). Os que sobraram tem que sumir,
+        // senao a venda passaria a ter recebimento a mais no financeiro.
+        snapshotsAntigos.forEach((snapshot) => {
+          if (snapshot.exists() && !idsNovos.has(snapshot.id)) {
+            transaction.delete(snapshot.ref);
+          }
+        });
+
+        transaction.update(saleRef, {
+          formaPagamento: paymentSummary.paymentMethodLabel,
+          condicaoPagamento: paymentSummary.paymentCondition,
+          pagamentos: persistedPayments,
+          totalRecebido: paymentSummary.received,
+          totalRecebidoCentavos: paymentSummary.receivedCents,
+          totalPendente: paymentSummary.pending,
+          totalPendenteCentavos: paymentSummary.pendingCents,
+          totalTaxasPagamento: paymentSummary.cardFee,
+          totalTaxasPagamentoCentavos: paymentSummary.cardFeeCents,
+          totalLiquidoFinanceiro: paymentSummary.financialNet,
+          totalLiquidoFinanceiroCentavos: paymentSummary.financialNetCents,
+          pagamentoAlteradoEm: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Forma de pagamento alterada em venda finalizada'),
+        });
+      });
+
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'vendas',
+          acao: 'edicao',
+          descricao: `Forma de pagamento da venda #${numeroPedido} alterada de "${formaPagamento}" para "${paymentSummary.paymentMethodLabel}". Valor mantido em R$ ${valorTotalPedido.toFixed(2)}.`,
+          registroRelacionadoId: id,
+          status: 'sucesso',
+        });
+      } catch (err) {
+        console.error('Erro ao registrar log da alteração de pagamento:', err);
+      }
+
+      setFormaPagamento(paymentSummary.paymentMethodLabel);
+      setEditandoPagamento(false);
+      setIsDirty(false);
+      showSuccess('Forma de pagamento alterada e financeiro refeito.');
+    } catch (error) {
+      console.error('Erro ao alterar forma de pagamento:', error);
+      showError('Erro ao alterar pagamento', error instanceof Error ? error.message : 'Tente novamente.');
+    } finally {
+      setIsLoading(false);
+      submitLockRef.current = false;
+    }
+  };
+
   const handleFinalizarVenda = async (): Promise<boolean> => {
     if (submitLockRef.current) return false;
     if (!currentUser || !tenantId) return false;
@@ -870,9 +1470,12 @@ const PedidoVendaForm: React.FC = () => {
         }
       }
 
-      // Pedido pendente do agente ja tem numero -- nao aloca sequencia nova
-      // (senao numeros ficariam pulados/duplicados em espirito).
-      const currentMaxPedido = isPendingFromAgent
+      // Finalizando um pedido que JA EXISTE gravado (pre-venda do balcao ou
+      // pedido do agente): o documento e o numero ja existem, entao nao
+      // aloca sequencia nova -- senao os numeros ficariam pulados. Venda
+      // direta (sem passar por pedido aberto) segue alocando como sempre.
+      const finalizandoPedidoAberto = pedidoEstaAberto;
+      const currentMaxPedido = finalizandoPedidoAberto
         ? 0
         : await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
       let newPedidoId = '';
@@ -886,7 +1489,7 @@ const PedidoVendaForm: React.FC = () => {
       });
 
       await runTransaction(db, async (transaction) => {
-        const nextPedido = isPendingFromAgent
+        const nextPedido = finalizandoPedidoAberto
           ? 0
           : await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
         const selectedSellerId = vendedorId || currentUser.uid;
@@ -904,32 +1507,53 @@ const PedidoVendaForm: React.FC = () => {
           bankBalancesById.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
         }
 
-        const newPedidoRef = isPendingFromAgent ? doc(db, 'pedidos_venda', id!) : doc(collection(db, 'pedidos_venda'));
+        const newPedidoRef = finalizandoPedidoAberto ? doc(db, 'pedidos_venda', id!) : doc(collection(db, 'pedidos_venda'));
         newPedidoId = newPedidoRef.id;
 
-        // Le o documento pendente ANTES de qualquer escrita da transacao
+        // Le o documento aberto ANTES de qualquer escrita da transacao
         // (regra do Firestore: toda leitura vem antes de qualquer escrita)
         // pra preservar createdAt/criadoPor/criadoEm originais -- finalizar
-        // um pedido do agente nao deve apagar quando ele foi criado de
-        // verdade, so registrar quem finalizou.
-        const existingPedidoSnap = isPendingFromAgent ? await transaction.get(newPedidoRef) : null;
-        if (isPendingFromAgent && !existingPedidoSnap?.exists()) {
-          throw new Error('Este pedido pendente não existe mais.');
+        // uma pre-venda ou um pedido do agente nao deve apagar quando ele
+        // foi criado de verdade, so registrar quem finalizou.
+        const existingPedidoSnap = finalizandoPedidoAberto ? await transaction.get(newPedidoRef) : null;
+        if (finalizandoPedidoAberto && !existingPedidoSnap?.exists()) {
+          throw new Error('Este pedido não existe mais.');
         }
+        // Reserva conforme gravada NO BANCO (nao a da tela): e' o que
+        // precisa ser liberado do estoque agora que a baixa vira real.
+        const pedidoAbertoData = existingPedidoSnap?.data();
+        const reservaGravada = pedidoAbertoData?.estoqueReservado === true
+          ? toStockAdjustmentItems(pedidoAbertoData.itens || [])
+          : [];
 
-        if (!isPendingFromAgent) {
+        if (!finalizandoPedidoAberto) {
           finalNumeroPedido = formatSequenceValue(nextPedido, 4);
         }
 
-        await applyStockAdjustments(
-          transaction,
-          db,
-          toStockAdjustmentItems(itens),
-          'decrement',
-          permitirVendaSemEstoque
-        );
+        if (reservaGravada.length > 0) {
+          // Pre-venda finalizando: libera 100% da reserva e debita de
+          // verdade os itens atuais. Os dois lados podem divergir -- o
+          // usuario pode ter mexido nos itens na mesma tela que finaliza --
+          // e computeReservationCommit trata exatamente esse caso.
+          // Debitar direto aqui deixaria a reserva pendurada pra sempre,
+          // inflando o "reservado" do produto sem nenhuma pre-venda viva.
+          await applyStockFieldDeltas(
+            transaction,
+            db,
+            computeReservationCommit(reservaGravada, toStockAdjustmentItems(itens)),
+            permitirVendaSemEstoque
+          );
+        } else {
+          await applyStockAdjustments(
+            transaction,
+            db,
+            toStockAdjustmentItems(itens),
+            'decrement',
+            permitirVendaSemEstoque
+          );
+        }
 
-        if (!isPendingFromAgent) {
+        if (!finalizandoPedidoAberto) {
           writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
         }
 
@@ -994,19 +1618,33 @@ const PedidoVendaForm: React.FC = () => {
           vendedorId: selectedSellerId,
           vendedorNome: sellerName,
           comissao: commissionSnapshot,
-          // Pedido pendente do agente preserva createdAt/criadoPor/criadoEm
-          // originais (quando o cliente pediu de verdade) -- so grava quem
-          // finalizou, nao quem "criou" (ja existia). Firestore rejeita
-          // campo com valor undefined (quebraria a transacao inteira), entao
-          // cai num fallback seguro se o agente nao tiver gravado esses
-          // campos -- nao pode depender de uma integracao externa manter
-          // um contrato de metadados a risca.
-          ...(isPendingFromAgent
+          // Origem preservada: uma venda que nasceu de pre-venda continua
+          // sabendo que veio do balcao, e a que veio do WhatsApp continua
+          // marcada como do agente depois de faturada.
+          origem: finalizandoPedidoAberto ? origemPedido : 'balcao',
+          // A reserva foi consumida pela baixa real logo acima -- o
+          // documento nao pode continuar dizendo que reserva estoque, senao
+          // um cancelamento futuro tentaria liberar reserva que nao existe
+          // mais e devolveria quantidade a maior pro estoque.
+          estoqueReservado: false,
+          // Pedido aberto (pre-venda do balcao ou pendente do agente)
+          // preserva createdAt/criadoPor/criadoEm originais -- quando o
+          // pedido foi criado de verdade -- e so grava quem finalizou.
+          // Firestore rejeita campo com valor undefined (quebraria a
+          // transacao inteira), entao cai num fallback seguro se esses
+          // campos nao estiverem gravados: no caso do agente, nao da pra
+          // depender de uma integracao externa manter um contrato de
+          // metadados a risca.
+          ...(finalizandoPedidoAberto
             ? {
-                createdAt: existingPedidoSnap!.data()!.createdAt ?? serverTimestamp(),
-                criadoPor: existingPedidoSnap!.data()!.criadoPor ?? currentUser.uid,
-                criadoEm: existingPedidoSnap!.data()!.criadoEm ?? serverTimestamp(),
-                ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Pedido pendente do agente finalizado'),
+                createdAt: pedidoAbertoData?.createdAt ?? serverTimestamp(),
+                criadoPor: pedidoAbertoData?.criadoPor ?? currentUser.uid,
+                criadoEm: pedidoAbertoData?.criadoEm ?? serverTimestamp(),
+                ...buildDocumentUpdateMetadata(
+                  currentUser.uid,
+                  serverTimestamp(),
+                  isPendingFromAgent ? 'Pedido pendente do agente finalizado' : 'Pré-venda finalizada',
+                ),
               }
             : {
                 createdAt: serverTimestamp(),
@@ -2051,14 +2689,20 @@ const PedidoVendaForm: React.FC = () => {
         <div className="header-title-group">
           <button className="icon-btn back-btn" onClick={() => navigate('/pedidos-venda')}><ArrowLeft size={20} /></button>
           <div>
-            <h1 className="page-title">{isViewing ? `Pedido de Venda #${numeroPedido}` : 'Frente de Caixa (PDV)'}</h1>
+            <h1 className="page-title">
+              {isViewing
+                ? `${isPreVendaAberta ? 'Pré-venda' : 'Pedido de Venda'} #${numeroPedido}`
+                : 'Frente de Caixa (PDV)'}
+            </h1>
             <p className="page-subtitle">
               {isViewing
                 ? (status === 'Cancelada'
                   ? 'Esta venda foi CANCELADA'
-                  : isPendingFromAgent
-                    ? (canEditPendingOrder ? 'Pedido pendente — edite e finalize a venda' : 'Pedido pendente de confirmação (fora de uma integração externa)')
-                    : 'Detalhes do Pedido e Impressão')
+                  : isPreVendaAberta
+                    ? 'Pré-venda em aberto — estoque reservado, sem lançamento financeiro. Ainda não entra em faturamento.'
+                    : isPendingFromAgent
+                      ? (canEditPendingOrder ? 'Pedido pendente — edite e finalize a venda' : 'Pedido pendente de confirmação (fora de uma integração externa)')
+                      : 'Detalhes do Pedido e Impressão')
                 : 'Ponto de venda rápido para itens e produtos'}
             </p>
           </div>
@@ -2098,6 +2742,22 @@ const PedidoVendaForm: React.FC = () => {
               <button className="btn-secondary" onClick={() => navigate(`/pedidos-venda/print/${id}`)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Printer size={18} /> Imprimir Recibo
               </button>
+              {canAlterarPagamentoFinalizada && !editandoPagamento && (
+                <button
+                  className="btn-secondary"
+                  onClick={() => setEditandoPagamento(true)}
+                  disabled={isLoading || Boolean(motivoBloqueioAlterarPagamento)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    color: motivoBloqueioAlterarPagamento ? 'var(--text-muted)' : '#f59e0b',
+                    borderColor: motivoBloqueioAlterarPagamento ? 'var(--border-color)' : 'rgba(245,158,11,0.4)',
+                    cursor: motivoBloqueioAlterarPagamento ? 'not-allowed' : 'pointer',
+                  }}
+                  title={motivoBloqueioAlterarPagamento || 'Corrigir a forma de pagamento sem alterar o valor da venda'}
+                >
+                  <RefreshCw size={18} /> Alterar Pagamento
+                </button>
+              )}
               {canEditVenda && (
                 <button
                   className="btn-secondary"
@@ -2132,7 +2792,27 @@ const PedidoVendaForm: React.FC = () => {
               <XCircle size={18} /> Recusar Pedido
             </button>
           )}
-          {(!isViewing || (isPendingFromAgent && canEditPendingOrder)) && (
+          {isPreVendaAberta && canCancelarPreVenda && (
+            <button className="btn-secondary" onClick={handleCancelarPreVenda} disabled={isLoading} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>
+              <XCircle size={18} /> Cancelar Pré-venda
+            </button>
+          )}
+          {/* Gravar: cria a pre-venda (pedido novo) ou regrava uma ja
+              aberta. Fica ao lado de Finalizar de proposito -- e' a escolha
+              do operador entre separar agora e faturar agora. */}
+          {((!isViewing && canCriarPreVenda) || (isPreVendaAberta && canEditarPreVenda)) && (
+            <button
+              className="btn-secondary"
+              onClick={handleGravarPreVenda}
+              disabled={isLoading}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }}
+              title="Grava o pedido em aberto e reserva o estoque, sem gerar financeiro"
+            >
+              <Save size={18} />
+              {isLoading ? 'Gravando...' : (isPreVendaAberta ? 'Salvar Pré-venda' : 'Gravar Pré-venda')}
+            </button>
+          )}
+          {(!isViewing || (isPendingFromAgent && canEditPendingOrder) || (isPreVendaAberta && canFinalizarPreVenda)) && (
             <button className="btn-primary" onClick={handleFinalizarVenda} disabled={isLoading} style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981' }}>
               <ShoppingCart size={18} />
               {isLoading ? 'Finalizando...' : 'Finalizar Venda'}
@@ -2609,10 +3289,27 @@ const PedidoVendaForm: React.FC = () => {
             </div>
           </div>
 
+          {editandoPagamento && (
+            <div className="card" style={{ padding: '16px 20px', marginBottom: '16px', backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.4)' }}>
+              <strong style={{ color: '#f59e0b' }}>Corrigindo a forma de pagamento desta venda.</strong>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                {' '}O valor total continua o mesmo — só muda como ele foi recebido. Os lançamentos financeiros e o saldo dos bancos são refeitos ao salvar.
+              </span>
+              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                <button className="btn-primary" onClick={handleSalvarPagamentoAlterado} disabled={isLoading} style={{ backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}>
+                  {isLoading ? 'Salvando...' : 'Salvar Novo Pagamento'}
+                </button>
+                <button className="btn-secondary" onClick={() => setEditandoPagamento(false)} disabled={isLoading}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
           <div ref={pagamentoSectionRef}>
             <PaymentsEditor
               customerName={clienteNome}
-              disabled={isViewing && !canEditPendingOrder}
+              disabled={isViewing && !canEditPendingOrder && !editandoPagamento}
               drafts={paymentDrafts}
               financeConfig={financeConfig}
               idPrefix="sale-payment"
@@ -2628,7 +3325,19 @@ const PedidoVendaForm: React.FC = () => {
             />
           </div>
 
-          {(!isViewing || (isPendingFromAgent && canEditPendingOrder)) && (
+          {((!isViewing && canCriarPreVenda) || (isPreVendaAberta && canEditarPreVenda)) && (
+            <button
+              className="btn-secondary"
+              onClick={handleGravarPreVenda}
+              disabled={isLoading}
+              style={{ width: '100%', padding: '14px', fontSize: '15px', fontWeight: 700, marginBottom: '12px', color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}
+            >
+              <Save size={20} />
+              {isPreVendaAberta ? 'SALVAR PRÉ-VENDA' : 'GRAVAR PRÉ-VENDA'}
+            </button>
+          )}
+
+          {(!isViewing || (isPendingFromAgent && canEditPendingOrder) || (isPreVendaAberta && canFinalizarPreVenda)) && (
             <button className="btn-primary" onClick={handleFinalizarVenda} disabled={isLoading} style={{ width: '100%', padding: '16px', fontSize: '16px', fontWeight: 700, backgroundColor: '#10b981', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}>
               <ShoppingCart size={24} />
               FINALIZAR VENDA

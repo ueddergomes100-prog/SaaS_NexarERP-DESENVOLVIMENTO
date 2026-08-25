@@ -1345,6 +1345,29 @@ Atualizar ao concluir cada item.
 
 ---
 
+## 8.6 Pré-venda + alteração de pagamento em venda finalizada (F28, 2026-08-24)
+
+**Origem:** pedido do usuário — trabalhar com pré-venda no balcão (gravar o pedido em aberto e finalizar depois), mais dois controles em Configurações com hierarquia config → permissão de usuário.
+
+**Achado que reduziu o tamanho da feature:** o fluxo de pedido em aberto **já existia inteiro**, só que a única porta de entrada era o agente de WhatsApp (F25). Pedido `'Em Análise'` já ficava em aberto, já era editável sob permissões granulares, já avisava se estoque/preço mudaram desde a criação, e já finalizava pelo mesmo caminho da venda direta. A pré-venda não precisou de tela nova nem de fluxo novo: precisou do botão **Gravar** no balcão e da separação entre *estado* e *origem* do pedido.
+
+**Bug pré-existente achado e corrigido junto (o mais grave da fatia):** `RelatoriosVendas.tsx` e `Dashboard.tsx` contavam como faturamento **todo** pedido que não fosse `'Cancelada'` — ou seja, pedido `'Em Análise'` do agente, que nunca gerou um único lançamento financeiro, **já inflava o faturamento e o gráfico de vendas em silêncio**. Com pré-venda (uso diário) isso viraria receita fantasma em escala. A regra saiu das telas e virou `contaComoFaturamento()`.
+
+- **Fatia 1** — `preVendaDomain.ts` (novo, puro, 10 testes): modelo de estado do pedido (`ABERTO` = `'Pré-venda'` + `'Em Análise'`, `FATURADO`, `CANCELADO`), `contaComoFaturamento()`, `isPedidoAberto()` e `resolveOrigemPedido()`. `contaComoFaturamento` é escrito como "não é aberto E não é cancelado", **não** como "é Finalizada": existem pedidos legados com outros status que sempre contaram como venda, e a comparação positiva sumiria com faturamento histórico do cliente (tem teste de regressão pra isso).
+- **Fatia 2** — separação **estado × origem** em `PedidoVendaForm.tsx`. Antes, `isPendingFromAgent = isViewing && status === 'Em Análise'` colava as duas coisas. O estado governa o comportamento (não gera financeiro, reserva estoque); a origem (`'balcao'` | `'agente'`) governa **quais permissões** o usuário precisa. Sem isso, quem cuida da pré-venda do balcão herdaria acesso aos pedidos do WhatsApp. Pedido `'Em Análise'` legado sem campo `origem` resolve como `'agente'` — era o único jeito de ele existir.
+- **Fatia 3** — reserva de estoque real, reusando `estoqueReservaDomain` (que só a OS usava). Pré-venda **reserva e não baixa**; a baixa vira real só na finalização, via `computeReservationCommit` (libera 100% da reserva e debita os itens atuais — os dois lados podem divergir se o usuário mexeu nos itens na mesma tela que finaliza). Regravar uma pré-venda **reconcilia** a reserva (`computeReservationDelta`), nunca soma por cima — senão cada regravação duplicaria a reserva e o produto sumiria do disponível.
+- **Fatia 4** — configs + permissões, na hierarquia que o sistema já usa (mesmo padrão de `modoLimiteDesconto` + `vendas.liberar_desconto`): `trabalhaComPreVenda` e `alterarPagamentoVendaFinalizada` em Configurações; 6 permissões novas em `permissionCatalog.ts` (4 do ciclo de vida da pré-venda + relatório + alterar pagamento), `routeAccess.ts` e `firestore.rules` atualizados.
+- **Fatia 5** — **Relatório de Pré-vendas em Aberto** (`RelatorioPreVendas.tsx`, rota `/pre-vendas`), pedido explícito do usuário: pré-venda não pode somar em caixa nem faturamento, então precisa de tela própria pra esse dinheiro não ficar invisível. Filtros por origem/data/busca, CSV, e um aviso fixo e não dispensável de que **aqueles valores não são receita** — é o número mais fácil de confundir com faturamento no sistema inteiro.
+- **Fatia 6** — alterar forma de pagamento de venda finalizada. Valor total **não muda** (`normalizePayments` roda com o mesmo total); muda só a composição do recebimento, e os lançamentos em `transacoes` + o saldo dos bancos são refeitos por delta. Três travas **que não passam por permissão nenhuma**: cupom fiscal NFC-e autorizado (imutável na SEFAZ), venda com devolução, e lançamento já estornado — nesses casos o caminho certo é Estorno ou Devolução, que preservam o que aconteceu.
+
+**Outro bug pré-existente corrigido de passagem:** excluir um pedido em aberto pela lista (`PedidoVendas.tsx`) devolvia `quantidade` ao estoque — mas pedido em aberto nunca baixou quantidade, ele reservou. Isso criava mercadoria do nada **e** deixava a reserva pendurada, tirando o produto do disponível pra sempre. Agora exclusão de pedido aberto libera a reserva e não toca no estoque real; e não tenta estornar crédito bancário que nunca existiu.
+
+**Decisão de escopo do usuário:** editar **itens/valores** de venda finalizada ficou **de fora** — Devolução (parcial) e Estorno (total) já cobrem, preservando o histórico, e NF-e emitida não permite ser honesto com edição de item.
+
+**Status:** typecheck, lint (0 erros), 268 testes e build limpos. **Não validado ao vivo** — reproduzir exige login no sistema. `firestore.rules` foi alterado e precisa de deploy pra permissão nova valer no servidor.
+
+---
+
 ## 9. Pendências a esclarecer com o usuário
 
 1. ~~**Módulo 4:** trecho corrompido no PDF original — confirmar se falta requisito de Produção.~~ Resolvido em 2026-08-02: faltava Cadastro de Matéria-Prima (pool de estoque separado, mesma lógica do cadastro de produtos) — ver seção do Módulo 4.

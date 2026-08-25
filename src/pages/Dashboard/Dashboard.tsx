@@ -43,6 +43,7 @@ import {
   isWithinDateRange,
   type DashboardPeriod,
 } from '../../utils/dateTime';
+import { contaComoFaturamento } from '../../utils/preVendaDomain';
 import { isRevenueReversal, transactionNetAmount } from '../../utils/financeDomain';
 import './Dashboard.css';
 
@@ -359,7 +360,9 @@ const Dashboard: React.FC = () => {
       ? osFinalizadasMes.reduce((acc, os) => acc + Number(os.valorTotal || os.total || 0), 0) / osFinalizadasMes.length
       : 0;
 
-    const vendasMes = pedidos.filter((p) => p.status !== 'Cancelada' && isWithinDateRange(toDate(p.dataVenda) || toDate(p.createdAt), selectedPeriodRange.start, selectedPeriodRange.end));
+    // Pedido em aberto (pre-venda / pedido do agente) nao e' venda: nao
+    // gerou financeiro e nao pode inflar o valor vendido no periodo.
+    const vendasMes = pedidos.filter((p) => contaComoFaturamento(p.status) && isWithinDateRange(toDate(p.dataVenda) || toDate(p.createdAt), selectedPeriodRange.start, selectedPeriodRange.end));
     const vendasHoje = vendasMes.filter((p) => sameDay(toDate(p.dataVenda) || toDate(p.createdAt), hoje));
     const valorVendasMes = vendasMes.reduce((acc, p) => acc + Number(p.valorTotal || 0), 0);
 
@@ -509,7 +512,8 @@ const Dashboard: React.FC = () => {
     });
     pedidos.forEach((sale) => {
       const date = toDate(sale.dataVenda) || toDate(sale.createdAt);
-      if (sale.status === 'Cancelada' || !isWithinDateRange(date, selectedPeriodRange.start, selectedPeriodRange.end) || !date) return;
+      // Mesma regra do valor vendido: o grafico conta venda, nao pedido aberto.
+      if (!contaComoFaturamento(sale.status) || !isWithinDateRange(date, selectedPeriodRange.start, selectedPeriodRange.end) || !date) return;
       ensureBucket(date).pedidos += 1;
     });
     transacoes.forEach((transaction) => {

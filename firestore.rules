@@ -345,6 +345,20 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // PIN do vendedor (identificacao na hora da venda). NEGADO PARA TODO
+    // MUNDO de proposito: so o Admin SDK (que ignora estas rules, ou seja, so
+    // o backend) alcanca. O PIN tem 4 digitos -- 10.000 combinacoes -- entao
+    // qualquer leitura do hash pelo navegador o tornaria inutil em
+    // milissegundos. O codigo do vendedor, que NAO e' segredo, fica em
+    // usuarios/{uid}.codigoVendedor. Ver server/services/vendedorPin.js.
+    //
+    // A regra generica /{collectionName}/{documentId} mais abaixo usa lista
+    // de permissao, entao esta colecao ja cairia no `if false` final -- isto
+    // aqui e' explicito pra ninguem liberar por engano ao mexer naquela lista.
+    match /usuarios_pin/{documentId} {
+      allow read, write: if false;
+    }
+
     match /empresas/{tenantId}/logs/{logId} {
       allow create: if canAccessTenant(tenantId);
       allow read, delete: if isSuperAdmin() ||

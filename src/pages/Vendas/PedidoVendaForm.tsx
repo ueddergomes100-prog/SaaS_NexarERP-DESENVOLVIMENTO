@@ -53,6 +53,12 @@ import {
   type OrigemPedido,
 } from '../../utils/preVendaDomain';
 import {
+  DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
+  parseExigirIdentificacaoVendedor,
+  type VendedorIdentificado,
+} from '../../utils/vendedorPinDomain';
+import IdentificarVendedorModal from '../../components/common/IdentificarVendedorModal';
+import {
   isVendaDoUsuario,
   MENSAGEM_VENDA_DE_OUTRO_USUARIO,
   TITULO_VENDA_DE_OUTRO_USUARIO,
@@ -243,6 +249,22 @@ const PedidoVendaForm: React.FC = () => {
   const [imprimirMinutaAposVendaAtiva, setImprimirMinutaAposVendaAtiva] = useState(false);
   const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
   const [alterarPagamentoAtivo, setAlterarPagamentoAtivo] = useState(DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA);
+  const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR);
+  const [identificacaoAberta, setIdentificacaoAberta] = useState(false);
+  const [descricaoIdentificacao, setDescricaoIdentificacao] = useState('');
+  /**
+   * Vendedor identificado para a venda EM ANDAMENTO.
+   *
+   * Guardado em ref, nao em state, de proposito: quem identifica dispara a
+   * acao (finalizar/gravar) no mesmo instante, e um `setState` ainda nao
+   * teria chegado no closure da funcao -- a venda sairia carimbada no
+   * vendedor errado. Ref e' lida na hora.
+   *
+   * Zerado ao concluir a operacao: a proxima venda pede identificacao de
+   * novo, que e' justamente o pedido do balcao.
+   */
+  const vendedorIdentificadoRef = useRef<VendedorIdentificado | null>(null);
+  const acaoAposIdentificarRef = useRef<(() => void) | null>(null);
   /** Destrava a secao de pagamento numa venda JA finalizada. Fora deste modo
    * a venda finalizada continua somente-leitura, como sempre foi. */
   const [editandoPagamento, setEditandoPagamento] = useState(false);
@@ -422,6 +444,7 @@ const PedidoVendaForm: React.FC = () => {
           setConferenciaMercadoriaAtiva(config.conferenciaMercadoria === true);
           setTrabalhaComPreVenda(parseTrabalhaComPreVenda(config.trabalhaComPreVenda));
           setAlterarPagamentoAtivo(parseAlterarPagamentoVendaFinalizada(config.alterarPagamentoVendaFinalizada));
+          setExigirIdentificacaoVendedor(parseExigirIdentificacaoVendedor(config.exigirIdentificacaoVendedor));
           setVenderPorEmbalagem(config.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
           setLimiteDescontoPedido(parseLimiteDescontoConfig(config.limiteDescontoPedido));
           setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
@@ -863,6 +886,41 @@ const PedidoVendaForm: React.FC = () => {
    * NFC-e/imprime recibo) continua rodando igual ao fluxo normal do
    * botao -- so o valor de retorno no final e novo. */
   /**
+   * Trava de identificacao do vendedor.
+   *
+   * Devolve `true` quando pode seguir; `false` quando abriu o popup -- e ai
+   * a acao original e' re-disparada por `onIdentificado`, sem que a tela
+   * perca NADA do que estava montado. Esse detalhe e' requisito, nao
+   * refinamento: um carrinho de 30 itens refeito na frente do cliente por
+   * causa de um erro de senha seria inaceitavel no balcao.
+   */
+  const garantirVendedorIdentificado = (acao: () => void, descricao: string): boolean => {
+    if (!exigirIdentificacaoVendedor) return true;
+    if (vendedorIdentificadoRef.current) return true;
+
+    acaoAposIdentificarRef.current = acao;
+    setDescricaoIdentificacao(descricao);
+    setIdentificacaoAberta(true);
+    return false;
+  };
+
+  /** Chamado ao concluir a operacao: a proxima venda pede identificacao de
+   *  novo. E' isto que faz o fluxo ser "por venda", nao "por sessao". */
+  const esquecerVendedorIdentificado = () => {
+    vendedorIdentificadoRef.current = null;
+  };
+
+  const handleVendedorIdentificado = (vendedor: VendedorIdentificado) => {
+    vendedorIdentificadoRef.current = vendedor;
+    // Espelha no state so pra UI mostrar quem e' -- quem manda na gravacao
+    // e' a ref, lida na hora.
+    setVendedorId(vendedor.vendedorId);
+    const acao = acaoAposIdentificarRef.current;
+    acaoAposIdentificarRef.current = null;
+    if (acao) acao();
+  };
+
+  /**
    * Grava a PRE-VENDA: o pedido passa a existir em aberto, reservando
    * estoque, sem gerar nada de financeiro.
    *
@@ -884,6 +942,13 @@ const PedidoVendaForm: React.FC = () => {
       showError('Atenção', 'Adicione pelo menos um item à pré-venda.');
       return false;
     }
+
+    // A pre-venda ja carimba vendedorId, e a comissao nasce dali -- entao ela
+    // pede identificacao igual a venda.
+    if (!garantirVendedorIdentificado(
+      () => { void handleGravarPreVenda(); },
+      `Gravar pré-venda de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalPedido)}`,
+    )) return false;
 
     let finalClienteNome = clienteNome.trim().toUpperCase();
     if (!finalClienteNome) {
@@ -946,7 +1011,11 @@ const PedidoVendaForm: React.FC = () => {
           ? 0
           : await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
 
-        const selectedSellerId = vendedorId || currentUser.uid;
+        // Vendedor identificado pelo popup vence o estado da tela: quando a
+        // identificacao acabou de acontecer, o setState ainda nao chegou
+        // neste closure, e usar o state vendedorId carimbaria a venda na
+        // pessoa errada. Ver vendedorIdentificadoRef.
+        const selectedSellerId = vendedorIdentificadoRef.current?.vendedorId || vendedorId || currentUser.uid;
         const sellerSnap = await transaction.get(doc(db, 'usuarios', selectedSellerId));
         const sellerProfile = sellerSnap.exists() ? sellerSnap.data() : {};
         if (!sellerSnap.exists() || sellerProfile.tenantId !== tenantId) {
@@ -1061,6 +1130,8 @@ const PedidoVendaForm: React.FC = () => {
       setOrigemPedido('balcao');
       initialSnapshotRef.current = buildDirtySnapshot();
       setIsDirty(false);
+      // Operacao concluida: a proxima venda pede identificacao de novo.
+      esquecerVendedorIdentificado();
       gravouComSucesso = true;
 
       await showSuccess(`Pré-venda #${numeroGravado} gravada! O estoque foi reservado.`);
@@ -1379,6 +1450,11 @@ const PedidoVendaForm: React.FC = () => {
       return false;
     }
 
+    if (!garantirVendedorIdentificado(
+      () => { void handleFinalizarVenda(); },
+      `Finalizar venda de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalPedido)}`,
+    )) return false;
+
     // Nivel 2 (sistema): desconto TOTAL da venda contra o limite configurado
     // pra esta tela, reagindo conforme o modo escolhido em Configuracoes.
     if (checagemLimiteDesconto.excedeu) {
@@ -1513,7 +1589,11 @@ const PedidoVendaForm: React.FC = () => {
         const nextPedido = finalizandoPedidoAberto
           ? 0
           : await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
-        const selectedSellerId = vendedorId || currentUser.uid;
+        // Vendedor identificado pelo popup vence o estado da tela: quando a
+        // identificacao acabou de acontecer, o setState ainda nao chegou
+        // neste closure, e usar o state vendedorId carimbaria a venda na
+        // pessoa errada. Ver vendedorIdentificadoRef.
+        const selectedSellerId = vendedorIdentificadoRef.current?.vendedorId || vendedorId || currentUser.uid;
         const sellerSnap = await transaction.get(doc(db, 'usuarios', selectedSellerId));
         const sellerProfile = sellerSnap.exists() ? sellerSnap.data() : {};
         if (!sellerSnap.exists() || sellerProfile.tenantId !== tenantId) {
@@ -1747,6 +1827,8 @@ const PedidoVendaForm: React.FC = () => {
       }
 
       setIsLoading(false);
+      // Operacao concluida: a proxima venda pede identificacao de novo.
+      esquecerVendedorIdentificado();
       saveSucceeded = true;
       initialSnapshotRef.current = buildDirtySnapshot();
       setIsDirty(false);
@@ -2842,6 +2924,18 @@ const PedidoVendaForm: React.FC = () => {
         </div>
       </div>
 
+      {/* Identificacao do vendedor. Fechar ou errar aqui NAO mexe na venda:
+          o modal so devolve quem e' o vendedor. */}
+      <IdentificarVendedorModal
+        open={identificacaoAberta}
+        descricaoOperacao={descricaoIdentificacao}
+        onClose={() => {
+          setIdentificacaoAberta(false);
+          acaoAposIdentificarRef.current = null;
+        }}
+        onIdentificado={handleVendedorIdentificado}
+      />
+
       {pendingOrderStockWarnings.length > 0 && (
         <div className="card form-section" style={{ padding: '16px 24px', marginBottom: '24px', backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.4)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#f59e0b', fontWeight: 700 }}>
@@ -2972,7 +3066,10 @@ const PedidoVendaForm: React.FC = () => {
               <select
                 value={vendedorId}
                 onChange={(event) => setVendedorId(event.target.value)}
-                disabled={isViewing && !canEditPendingOrder}
+                // Com identificacao por codigo+senha ligada, escolher o
+                // vendedor a mao derrubaria o proposito da trava: quem define
+                // e' o popup, contra senha.
+                disabled={(isViewing && !canEditPendingOrder) || exigirIdentificacaoVendedor}
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
               >
                 {vendedoresDisponiveis.map((seller) => (
@@ -2980,7 +3077,9 @@ const PedidoVendaForm: React.FC = () => {
                 ))}
               </select>
               <span style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '6px' }}>
-                O usuário logado continuará registrado como responsável pela operação.
+                {exigirIdentificacaoVendedor
+                  ? 'O vendedor é definido pelo código e senha informados ao finalizar a venda. O usuário logado continua registrado como responsável pela operação.'
+                  : 'O usuário logado continuará registrado como responsável pela operação.'}
               </span>
             </div>
           </div>

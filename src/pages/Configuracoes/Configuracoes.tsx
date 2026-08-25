@@ -20,6 +20,10 @@ import {
   parseAlterarPagamentoVendaFinalizada,
   parseTrabalhaComPreVenda,
 } from '../../utils/preVendaDomain';
+import {
+  DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
+  parseExigirIdentificacaoVendedor,
+} from '../../utils/vendedorPinDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import {
   DEFAULT_MODO_LIMITE_DESCONTO,
@@ -136,6 +140,7 @@ const Configuracoes: React.FC = () => {
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     trabalhaComPreVenda: DEFAULT_TRABALHA_COM_PRE_VENDA,
     alterarPagamentoVendaFinalizada: DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
+    exigirIdentificacaoVendedor: DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
     restringirVendasPorUsuario: DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO,
     conferenciaMercadoria: DEFAULT_CONFERENCIA_MERCADORIA,
     imprimirMinutaAposVenda: DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
@@ -221,6 +226,7 @@ const Configuracoes: React.FC = () => {
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             trabalhaComPreVenda: parseTrabalhaComPreVenda(data.trabalhaComPreVenda),
             alterarPagamentoVendaFinalizada: parseAlterarPagamentoVendaFinalizada(data.alterarPagamentoVendaFinalizada),
+            exigirIdentificacaoVendedor: parseExigirIdentificacaoVendedor(data.exigirIdentificacaoVendedor),
             restringirVendasPorUsuario: parseRestringirVendasPorUsuario(data.restringirVendasPorUsuario),
             conferenciaMercadoria: data.conferenciaMercadoria ?? DEFAULT_CONFERENCIA_MERCADORIA,
             imprimirMinutaAposVenda: data.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
@@ -1423,6 +1429,28 @@ const Configuracoes: React.FC = () => {
                 </p>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                   Ligar aqui libera o recurso para a empresa. <strong>Quem pode gravar, editar, finalizar ou cancelar pré-venda é definido usuário a usuário</strong>, nas permissões de cada funcionário.
+                </p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Identificação do Vendedor</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.exigirIdentificacaoVendedor === true}
+                    onChange={(e) => setFormData({ ...formData, exigirIdentificacaoVendedor: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Exigir identificação do vendedor a cada venda
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Para lojas onde vários vendedores usam o mesmo computador. Ao finalizar cada venda, aparece um popup pedindo o
+                  <strong> código (2 dígitos)</strong> e a <strong>senha (4 dígitos)</strong> do vendedor — a venda e a comissão ficam no nome dele.
+                  Terminada a venda, o sistema esquece: a próxima pede de novo. Com esta opção ligada, o campo "Vendedor" da tela deixa de ser editável à mão.
+                </p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Cada funcionário precisa ter <strong>código e senha cadastrados em Usuários</strong>. Se o funcionário esquecer a senha, um administrador cadastra outra na hora, lá mesmo.
                 </p>
               </div>
 

@@ -68,6 +68,10 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // Idem: so vale com "Permitir alterar a forma de pagamento de venda
       // já finalizada" ligado nas Configurações.
       { id: 'vendas.alterar_pagamento_finalizada', label: 'Vendas: Alterar Pagamento de Venda Finalizada', color: '#ef4444' },
+      // Gerenciar codigo e senha de vendedor (identificacao na venda). Quem
+      // tem isto pode cadastrar a senha de OUTRA pessoa -- e portanto vender
+      // no nome dela. Tratada como permissao vermelha por isso.
+      { id: 'vendas.gerenciar_pin_vendedor', label: 'Vendas: Gerenciar Código/Senha de Vendedor', color: '#ef4444' },
       { id: 'vendas.orcamentos', label: 'Vendas: Orçamentos', color: '#f59e0b' },
       { id: 'vendas.orcamentos_alterar', label: 'Vendas: Alterar Orçamentos', color: '#f59e0b' },
       { id: 'vendas.orcamentos_excluir', label: 'Vendas: Excluir Orçamentos', color: '#ef4444' },

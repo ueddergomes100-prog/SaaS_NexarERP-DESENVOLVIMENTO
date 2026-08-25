@@ -13,6 +13,7 @@ const spedyRoutes = require('./routes/spedy.routes');
 const spedyWebhookRoutes = require('./routes/spedyWebhook.routes');
 const sessionRoutes = require('./routes/session.routes');
 const onboardingRoutes = require('./routes/onboarding.routes');
+const vendedorPinRoutes = require('./routes/vendedorPin.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -81,6 +82,9 @@ app.use('/api/spedy', spedyRoutes);
 app.use('/api/spedy-webhook', spedyWebhookRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/onboarding', onboardingRoutes);
+// Identificacao do vendedor na venda (codigo + PIN). Todas as rotas exigem
+// token Firebase -- ver vendedorPin.routes.js.
+app.use('/api/vendedor-pin', vendedorPinRoutes);
 
 // Middleware para tratamento global de erros HTTP
 app.use((err, req, res, next) => {

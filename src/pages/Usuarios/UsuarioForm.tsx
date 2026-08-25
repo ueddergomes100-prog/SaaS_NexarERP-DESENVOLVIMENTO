@@ -4,7 +4,26 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { collection, setDoc, doc, serverTimestamp, getDoc, updateDoc, query, where, getDocs } from 'firebase/firestore';
 import { db, firebaseConfig } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import {
+  checarPrefixoDaEmpresa,
+  checarUsername,
+  montarChaveUsername,
+  montarEmailSintetico,
+  normalizarUsername,
+  type ChecagemPrefixo,
+} from '../../utils/loginIdentidadeDomain';
+import {
+  CODIGO_VENDEDOR_DIGITOS,
+  isPinVendedorFraco,
+  isPinVendedorValido,
+  MENSAGEM_CODIGO_INVALIDO,
+  MENSAGEM_PIN_FRACO,
+  MENSAGEM_PIN_INVALIDO,
+  normalizarCodigoVendedor,
+  PIN_VENDEDOR_DIGITOS,
+} from '../../utils/vendedorPinDomain';
+import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { DEFAULT_NIVEL_ACESSO } from '../../utils/visibilidadeVendasDomain';
 
@@ -21,10 +40,15 @@ const UsuarioForm: React.FC = () => {
   const [formData, setFormData] = useState({
     nome: '',
     username: '',
-    senha: ''
+    senha: '',
+    codigoVendedor: ''
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [shopPrefix, setShopPrefix] = useState('');
+  /** Resultado da checagem do CNPJ da empresa -- ver loginIdentidadeDomain.ts.
+   *  `null` enquanto carrega. */
+  const [checagemPrefixo, setChecagemPrefixo] = useState<ChecagemPrefixo | null>(null);
+  const [pinVendedor, setPinVendedor] = useState('');
+  const [salvandoPin, setSalvandoPin] = useState(false);
 
   React.useEffect(() => {
     if (isEditing && id) {
@@ -35,7 +59,8 @@ const UsuarioForm: React.FC = () => {
           setFormData({
             nome: data.nome || '',
             username: data.username || '',
-            senha: ''
+            senha: '',
+            codigoVendedor: data.codigoVendedor || ''
           });
         }
       };
@@ -43,28 +68,86 @@ const UsuarioForm: React.FC = () => {
     }
   }, [id, isEditing]);
 
+  // O prefixo do login do funcionario e' o CNPJ da empresa -- e SO ele.
+  //
+  // Antes havia dois fallbacks aqui (slug do nome da oficina, e os 4
+  // primeiros caracteres do tenantId) para empresa sem CNPJ. Mas a tela de
+  // login SEMPRE monta a chave com o CNPJ digitado: o funcionario criado sob
+  // um prefixo alternativo era gravado com uma chave que o login nunca
+  // conseguiria produzir, e simplesmente NUNCA entrava -- com uma mensagem
+  // ("Usuário ou CNPJ não encontrado") que mandava procurar no lugar errado.
+  //
+  // Agora falha cedo, no cadastro, com instrucao de onde resolver.
   React.useEffect(() => {
-    const fetchShopPrefix = async () => {
+    const fetchCnpjEmpresa = async () => {
       if (!tenantId) return;
       try {
         const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
-        if (configSnap.exists() && configSnap.data().cnpj) {
-          const cnpjStr = configSnap.data().cnpj;
-          setShopPrefix(cnpjStr.replace(/\D/g, ''));
-        } else if (configSnap.exists() && configSnap.data().nomeOficina) {
-          // Fallback para empresas antigas sem CNPJ cadastrado
-          const nome = configSnap.data().nomeOficina;
-          const slug = nome.toLowerCase().replace(/[^a-z0-9]/g, '');
-          setShopPrefix(slug);
-        } else {
-          setShopPrefix(tenantId.substring(0, 4).toLowerCase());
-        }
+        setChecagemPrefixo(checarPrefixoDaEmpresa(configSnap.exists() ? configSnap.data().cnpj : ''));
       } catch (e) {
-        setShopPrefix(tenantId.substring(0, 4).toLowerCase());
+        console.error('Erro ao carregar o CNPJ da empresa:', e);
+        setChecagemPrefixo(checarPrefixoDaEmpresa(''));
       }
     };
-    fetchShopPrefix();
+    fetchCnpjEmpresa();
   }, [tenantId]);
+
+  /** O codigo ja esta em uso por OUTRO funcionario da mesma empresa?
+   *  Dois vendedores com o mesmo codigo carimbariam venda e comissao na
+   *  pessoa errada -- e o backend recusa a validacao nesse caso. */
+  const codigoJaEmUso = async (codigo: string): Promise<boolean> => {
+    if (!codigo || !tenantId) return false;
+    const snap = await getDocs(query(
+      collection(db, 'usuarios'),
+      where('tenantId', '==', tenantId),
+      where('codigoVendedor', '==', codigo),
+    ));
+    return snap.docs.some((documento) => documento.id !== id);
+  };
+
+  /**
+   * Grava o PIN pelo backend. Nao passa pelo Firestore: o hash mora numa
+   * colecao que as rules negam pra todo mundo, e a comparacao acontece no
+   * servidor -- 4 digitos validados no navegador nao valeriam nada.
+   */
+  const handleSalvarPin = async () => {
+    if (!id) return;
+    if (!isPinVendedorValido(pinVendedor)) {
+      showError('Senha inválida', MENSAGEM_PIN_INVALIDO);
+      return;
+    }
+    const codigoAtual = normalizarCodigoVendedor(formData.codigoVendedor);
+    if (!codigoAtual) {
+      showError('Falta o código', 'Cadastre e salve o código do vendedor antes de definir a senha dele.');
+      return;
+    }
+    if (isPinVendedorFraco(pinVendedor)) {
+      const confirma = await NexusSwal.fire({
+        title: 'Senha fácil de adivinhar',
+        text: MENSAGEM_PIN_FRACO,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Usar mesmo assim',
+        cancelButtonText: 'Escolher outra',
+        reverseButtons: true,
+      });
+      if (!confirma.isConfirmed) return;
+    }
+
+    setSalvandoPin(true);
+    try {
+      await definirPinVendedor(id, pinVendedor);
+      setPinVendedor('');
+      showSuccess('Senha do vendedor salva!');
+    } catch (error) {
+      const mensagem = error instanceof VendedorPinError
+        ? error.message
+        : 'Não foi possível salvar a senha do vendedor.';
+      showError('Erro ao salvar senha', mensagem);
+    } finally {
+      setSalvandoPin(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,8 +157,21 @@ const UsuarioForm: React.FC = () => {
 
     if (isEditing && id) {
       try {
+        const codigo = normalizarCodigoVendedor(formData.codigoVendedor);
+        if (formData.codigoVendedor && !codigo) {
+          showError('Código inválido', MENSAGEM_CODIGO_INVALIDO);
+          return;
+        }
+        if (codigo && await codigoJaEmUso(codigo)) {
+          showError('Código já usado', `Outro funcionário desta empresa já usa o código ${codigo}. Escolha um código diferente.`);
+          return;
+        }
+
         await updateDoc(doc(db, 'usuarios', id), {
           nome: formData.nome,
+          // Campo omitido quando vazio em vez de gravado como undefined --
+          // o Firestore recusa undefined e derrubaria o save inteiro.
+          ...(codigo ? { codigoVendedor: codigo } : {}),
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
@@ -109,24 +205,46 @@ const UsuarioForm: React.FC = () => {
       console.error("Erro ao validar limite de usuários:", e);
     }
 
-    // Validação básica do username (sem espaços, minúsculo)
-    const usernameLimpo = formData.username.trim().toLowerCase().replace(/\s+/g, '');
-    const prefixo = shopPrefix || tenantId.substring(0, 4).toLowerCase();
-    const usernameFinal = `${prefixo}-${usernameLimpo}`;
+    // Sem CNPJ valido na empresa, o funcionario nasceria incapaz de logar --
+    // bloqueia aqui, dizendo onde resolver, em vez de criar um usuario morto.
+    const checagem = checagemPrefixo ?? checarPrefixoDaEmpresa('');
+    if (!checagem.ok) {
+      showError('Cadastro da empresa incompleto', checagem.motivo);
+      setIsLoading(false);
+      return;
+    }
 
-    if (usernameLimpo.length < 3) {
-      showError('Atenção', 'O nome de usuário deve ter pelo menos 3 letras.');
+    const checagemUsuario = checarUsername(formData.username);
+    if (!checagemUsuario.ok) {
+      showError('Atenção', checagemUsuario.motivo);
+      setIsLoading(false);
       return;
     }
     if (formData.senha.length < 6) {
       showError('Atenção', 'A senha deve ter pelo menos 6 caracteres.');
+      setIsLoading(false);
       return;
     }
 
+    const codigoVendedor = normalizarCodigoVendedor(formData.codigoVendedor);
+    if (formData.codigoVendedor && !codigoVendedor) {
+      showError('Código inválido', MENSAGEM_CODIGO_INVALIDO);
+      setIsLoading(false);
+      return;
+    }
+    if (codigoVendedor && await codigoJaEmUso(codigoVendedor)) {
+      showError('Código já usado', `Outro funcionário desta empresa já usa o código ${codigoVendedor}. Escolha um código diferente.`);
+      setIsLoading(false);
+      return;
+    }
+
+    // A MESMA funcao que a tela de login usa pra montar a chave -- e' isso
+    // que garante que criacao e login nunca mais divirjam.
+    const usernameFinal = montarChaveUsername(checagem.cnpj, checagemUsuario.username);
+
     setIsLoading(true);
 
-    // Cria um email falso único para o Firebase Auth baseado no tenantId e username
-    const fakeEmail = `${usernameFinal}@nexar.app`;
+    const fakeEmail = montarEmailSintetico(usernameFinal);
 
     try {
       // 1. Inicia um App Secundário para não deslogar o dono
@@ -144,6 +262,10 @@ const UsuarioForm: React.FC = () => {
         nome: formData.nome,
         username: usernameFinal,
         email: fakeEmail,
+        // Codigo do vendedor: chave curta usada no popup de identificacao na
+        // venda. Nao e' segredo (o PIN e' que e'). Omitido quando vazio --
+        // Firestore recusa undefined.
+        ...(codigoVendedor ? { codigoVendedor } : {}),
         role: 'Funcionario',
         // Nivel de visibilidade de vendas. Nasce no nivel mais restrito; quem
         // precisa ver as vendas dos colegas e' promovido a 'administracao'
@@ -237,7 +359,7 @@ const UsuarioForm: React.FC = () => {
                 style={{ width: '100%' }}
               />
               <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Na tela de login, ele informará Código da Empresa: <strong>{shopPrefix || tenantId?.substring(0,4).toLowerCase()}</strong> e Usuário: <strong>{formData.username.toLowerCase().replace(/\s+/g, '') || 'joao'}</strong>
+                Na tela de login, ele informará o CNPJ da empresa (<strong>{checagemPrefixo?.cnpj || '—'}</strong>) e o Usuário: <strong>{normalizarUsername(formData.username) || 'joao'}</strong>
               </span>
             </div>
 
@@ -254,6 +376,56 @@ const UsuarioForm: React.FC = () => {
               />
             </div>
           </>
+        )}
+
+        {/* Identificacao do vendedor na venda: codigo publico + PIN secreto.
+            O codigo mora no documento do usuario; o PIN vai pro backend e
+            NUNCA passa pelo Firestore visivel ao cliente. */}
+        <div className="input-group" style={{ gridColumn: 'span 6' }}>
+          <label>Código do Vendedor ({CODIGO_VENDEDOR_DIGITOS} dígitos)</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="Ex: 07"
+            value={formData.codigoVendedor}
+            onChange={(e) => setFormData({ ...formData, codigoVendedor: e.target.value.replace(/\D/g, '').slice(0, CODIGO_VENDEDOR_DIGITOS) })}
+            onBlur={(e) => {
+              const normalizado = normalizarCodigoVendedor(e.target.value);
+              if (normalizado) setFormData((atual) => ({ ...atual, codigoVendedor: normalizado }));
+            }}
+            style={{ width: '100%' }}
+          />
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+            Usado no popup de identificação a cada venda, quando essa opção estiver ligada em Configurações. Opcional — deixe vazio se este usuário não vende.
+          </span>
+        </div>
+
+        {isEditing && (
+          <div className="input-group" style={{ gridColumn: 'span 6' }}>
+            <label>Senha do Vendedor ({PIN_VENDEDOR_DIGITOS} dígitos)</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="password"
+                inputMode="numeric"
+                placeholder="0000"
+                value={pinVendedor}
+                onChange={(e) => setPinVendedor(e.target.value.replace(/\D/g, '').slice(0, PIN_VENDEDOR_DIGITOS))}
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={salvandoPin || !pinVendedor}
+                onClick={() => void handleSalvarPin()}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                {salvandoPin ? 'Salvando...' : 'Salvar senha'}
+              </button>
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Cadastre aqui também quando o funcionário <strong>esquecer a senha</strong> — salvar uma nova substitui a antiga e destrava na hora quem estiver bloqueado por tentativas.
+            </span>
+          </div>
         )}
 
         <div className="input-group" style={{ gridColumn: 'span 12', marginTop: '8px' }}>

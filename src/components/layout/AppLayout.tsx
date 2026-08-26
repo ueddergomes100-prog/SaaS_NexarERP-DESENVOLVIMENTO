@@ -38,7 +38,7 @@ const AppLayout: React.FC = () => {
   return (
     <div className="app-layout-wrapper">
       {globalAlert && !hideAlert && (
-        <div style={{
+        <div className="global-alert-banner" style={{
           backgroundColor: '#f59e0b',
           color: '#000',
           padding: '12px 24px',

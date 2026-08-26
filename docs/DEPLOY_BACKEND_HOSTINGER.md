@@ -69,7 +69,7 @@ Obrigatórias para o backend subir e funcionar:
 | `FIREBASE_CLIENT_EMAIL` | service account |
 | `FIREBASE_PRIVATE_KEY` | service account — quebras de linha como `\n` |
 | `FIREBASE_STORAGE_BUCKET` | bucket dos backups |
-| `CORS_ORIGINS` | `https://accounts.nexarcompany.com.br,https://gestao.nexarcompany.com.br` |
+| `CORS_ORIGINS` | `https://accounts.nexarcompany.com.br` — só este. `gestao.nexarcompany.com.br` é outro sistema, separado, e não fala com este backend |
 | `BACKUP_ENCRYPTION_KEY` | **obrigatória em produção** — sem ela o serviço de backup lança erro, e sem guardar o valor os backups já criados ficam irrecuperáveis |
 | `ONBOARDING_CODE_SECRET` | obrigatório em produção |
 | `SPEDY_WEBHOOK_SECRET` | precisa ser o **mesmo** já registrado na Spedy |

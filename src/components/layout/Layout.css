@@ -1344,3 +1344,25 @@ body.mini-sidebar .logout-btn {
     justify-content: center;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Impressao: chrome do app nunca vai pro papel
+   ---------------------------------------------------------------------------
+   Bug de producao achado em 2026-08-25: ao imprimir uma OS (e, por extensao,
+   qualquer outra tela de impressao -- Pedido, Orcamento, NFE, Relatorios),
+   a barra de abas abertas do Sistema de Abas (F19, `.tab-bar` em
+   TabBar.tsx) saia junto no papel, mostrando os nomes das outras telas que
+   o usuario tinha aberto (ex: "Estoque / Produtos", "Fluxo de Caixa").
+   Nenhuma regra de impressao existia pra esconder o chrome do layout
+   (Sidebar, TopBar, TabBar, aviso global) -- cada tela de impressao so
+   cuidava do proprio conteudo, nunca do que ficava em volta dele no mesmo
+   documento. Resolvido aqui, uma vez so, pra valer em toda tela de
+   impressao do sistema de uma vez -- nao so na OS onde foi reportado. */
+@media print {
+  .global-alert-banner,
+  .sidebar,
+  .topbar,
+  .tab-bar {
+    display: none !important;
+  }
+}

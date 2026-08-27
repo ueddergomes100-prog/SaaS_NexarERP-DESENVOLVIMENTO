@@ -338,6 +338,17 @@ const PedidoVendaForm: React.FC = () => {
   // so pro pedido do agente, onde a loja quis controle fino sobre o que
   // pode ser mexido num pedido feito pelo proprio cliente.
   const canEditPendingOrder = canEditAgentOrder || canEditarPreVenda;
+  /** Com "Exigir identificação do vendedor" ligado, quem vende de verdade e'
+   * quem digitar codigo+PIN no popup (ver garantirVendedorIdentificado),
+   * nao o usuario logado na estacao (balcao01, balcao02...). Mostrar o
+   * select "Vendedor responsável" ainda preenchido com o login da estacao
+   * enquanto o carrinho esta sendo montado (venda nova ou pre-venda ainda
+   * editavel) so confunde quem esta no balcao -- por isso ele some nesses
+   * dois casos. Numa venda JA finalizada sendo so visualizada, o campo
+   * continua aparecendo (travado) porque ali ja reflete quem realmente
+   * vendeu (carregado do proprio documento, nao mais o login da estacao) --
+   * util pra conferencia/auditoria. */
+  const ocultarVendedorResponsavel = exigirIdentificacaoVendedor && (!isViewing || canEditPendingOrder);
   const canEditPendingCliente = isPreVendaAberta
     ? canEditarPreVenda
     : canEditAgentOrder && temPermissao('vendas.pedidos_pendentes_editar_cliente');
@@ -3061,27 +3072,29 @@ const PedidoVendaForm: React.FC = () => {
                 </button>
               )}
             </div>
-            <div className="input-group" style={{ marginTop: '16px' }}>
-              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Vendedor responsável *</label>
-              <select
-                value={vendedorId}
-                onChange={(event) => setVendedorId(event.target.value)}
-                // Com identificacao por codigo+senha ligada, escolher o
-                // vendedor a mao derrubaria o proposito da trava: quem define
-                // e' o popup, contra senha.
-                disabled={(isViewing && !canEditPendingOrder) || exigirIdentificacaoVendedor}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
-              >
-                {vendedoresDisponiveis.map((seller) => (
-                  <option key={seller.id} value={seller.id}>{seller.nome}</option>
-                ))}
-              </select>
-              <span style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '6px' }}>
-                {exigirIdentificacaoVendedor
-                  ? 'O vendedor é definido pelo código e senha informados ao finalizar a venda. O usuário logado continua registrado como responsável pela operação.'
-                  : 'O usuário logado continuará registrado como responsável pela operação.'}
-              </span>
-            </div>
+            {!ocultarVendedorResponsavel && (
+              <div className="input-group" style={{ marginTop: '16px' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Vendedor responsável *</label>
+                <select
+                  value={vendedorId}
+                  onChange={(event) => setVendedorId(event.target.value)}
+                  // Com identificacao por codigo+senha ligada, escolher o
+                  // vendedor a mao derrubaria o proposito da trava: quem define
+                  // e' o popup, contra senha.
+                  disabled={(isViewing && !canEditPendingOrder) || exigirIdentificacaoVendedor}
+                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
+                >
+                  {vendedoresDisponiveis.map((seller) => (
+                    <option key={seller.id} value={seller.id}>{seller.nome}</option>
+                  ))}
+                </select>
+                <span style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '6px' }}>
+                  {exigirIdentificacaoVendedor
+                    ? 'O vendedor é definido pelo código e senha informados ao finalizar a venda. O usuário logado continua registrado como responsável pela operação.'
+                    : 'O usuário logado continuará registrado como responsável pela operação.'}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Seção Adicionar Produto */}

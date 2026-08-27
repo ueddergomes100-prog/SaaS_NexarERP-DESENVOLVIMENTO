@@ -27,6 +27,17 @@ import {
  * Pedidos de Venda (ver listaGeralDeVendasEscondidaParaFuncionario em
  * vendedorPinDomain.ts).
  *
+ * O popup NAO abre sozinho ao entrar na tela: fica um botao "Identificar
+ * vendedor" primeiro. Motivo: esta tela roda dentro do Sistema de Abas
+ * (TabsContext), e o popup so devolve o vendedor via onIdentificado/onClose
+ * -- ele nao sabe navegar. Se o popup abrisse automatico e o usuario so
+ * fechasse (sem digitar nada), nao ha pra onde a tela "voltar" a nao ser
+ * ficar vazia; um `navigate('/dashboard')` aqui pra cobrir esse caso
+ * reescreveria o path DESTA aba pro Dashboard (updateTabLocation), criando
+ * uma aba "Dashboard" fantasma toda vez -- era exatamente o que enchia a
+ * barra de abas de "Dashboard" duplicado. Com o botao, cancelar o popup so
+ * fecha o popup e devolve pro botao, sem mexer na URL/aba.
+ *
  * Busca so por `vendedorId` (nunca o fallback de 3 campos que
  * visibilidadeVendasDomain.ts usa pra outro cenario, login individual):
  * toda venda feita pelo fluxo de PIN sempre grava vendedorId real, entao a
@@ -81,6 +92,7 @@ const MinhasVendas: React.FC = () => {
   const isTabActive = useContext(TabActiveContext);
 
   const [vendedor, setVendedor] = useState<VendedorIdentificado | null>(null);
+  const [modalAberto, setModalAberto] = useState(false);
   const [vendas, setVendas] = useState<VendaData[]>([]);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState('');
@@ -99,6 +111,7 @@ const MinhasVendas: React.FC = () => {
   useEffect(() => {
     if (!isTabActive) {
       setVendedor(null);
+      setModalAberto(false);
       setVendas([]);
       setVisivel(PAGE_STEP);
       setErro('');
@@ -158,12 +171,26 @@ const MinhasVendas: React.FC = () => {
 
   if (!vendedor) {
     return (
-      <IdentificarVendedorModal
-        open
-        descricaoOperacao="Ver minhas vendas"
-        onClose={() => navigate('/dashboard')}
-        onIdentificado={(identificado) => setVendedor(identificado)}
-      />
+      <>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', padding: '80px 20px', textAlign: 'center' }}>
+          <UserCheck size={40} color="var(--accent-purple)" />
+          <div>
+            <h1 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '6px' }}>Minhas Vendas</h1>
+            <p style={{ color: 'var(--text-muted)', maxWidth: '360px' }}>
+              Identifique-se com seu código e senha de vendedor para ver suas próprias vendas.
+            </p>
+          </div>
+          <button type="button" className="btn-primary" onClick={() => setModalAberto(true)}>
+            Identificar vendedor
+          </button>
+        </div>
+        <IdentificarVendedorModal
+          open={modalAberto}
+          descricaoOperacao="Ver minhas vendas"
+          onClose={() => setModalAberto(false)}
+          onIdentificado={(identificado) => setVendedor(identificado)}
+        />
+      </>
     );
   }
 

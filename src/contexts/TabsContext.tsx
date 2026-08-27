@@ -295,6 +295,24 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
+      // Mesmo risco do caso acima, so que entre abas IRMAS (sem relacao de
+      // pai/filho): navegacao interna (ex: `navigate()` direto, sem passar
+      // por openTab) pousou num path que outra aba ja mostra -- por exemplo,
+      // cancelar a identificacao em "Minhas Vendas" mandando pro Dashboard.
+      // Sem este desvio, o map abaixo RENOMEIA esta aba pro path/label do
+      // Dashboard em vez de reaproveitar a aba Dashboard ja existente,
+      // deixando duas abas "Dashboard" na barra -- e repetir a acao empilha
+      // mais uma a cada vez. So nao fecha se esta aba tiver filha propria
+      // pendente (mesma trava do caso do pai, acima).
+      const existingElsewhere = current.tabs.find((tab) => tab.id !== id && tab.path === path);
+      if (existingElsewhere) {
+        const hasOwnChildren = current.tabs.some((tab) => tab.parentTabId === id);
+        if (!hasOwnChildren) {
+          dirtyTabsRef.current.delete(id);
+          return { tabs: current.tabs.filter((tab) => tab.id !== id), activeTabId: existingElsewhere.id };
+        }
+      }
+
       let nextTabs = current.tabs.map((tab) => (
         tab.id === id ? { ...tab, path, label: label || resolveTabLabel(path) } : tab
       ));

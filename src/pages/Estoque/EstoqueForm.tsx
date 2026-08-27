@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Package, DollarSign, Loader2, Factory, Plus, Trash2 } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, setDoc } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, setDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
@@ -10,6 +10,7 @@ import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/
 import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, CSOSN_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
 import { computeAvailableStock } from '../../utils/estoqueReservaDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM, formatFatorConversao, normalizeEmbalagens } from '../../utils/embalagemDomain';
+import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -930,6 +931,11 @@ const EstoqueForm: React.FC = () => {
       const tags = formData.tags.split(',').map(tag => tag.trim()).filter(Boolean);
       const imagens = formData.imagensMarketplace.split('\n').map(img => img.trim()).filter(Boolean);
       const nomeProduto = formData.nome.toUpperCase().trim();
+      // Comissao do produto e' OPCIONAL: em branco, a comissao da venda cai
+      // pro cadastro do vendedor/config do sistema (ver resolveComissaoPercentual
+      // em financeDomain.ts). Por isso nao pode gravar 0 quando o campo
+      // ficou em branco -- zero e "nao configurado" precisam ser distintos.
+      const comissaoPercentualValor = parseComissaoPercentualInput(formData.comissaoPercentual);
 
       const produtoData = {
         ...formData,
@@ -948,7 +954,7 @@ const EstoqueForm: React.FC = () => {
         precoPromocional,
         margemLucro,
         lucroEstimado,
-        comissaoPercentual: toNumber(formData.comissaoPercentual),
+        comissaoPercentual: comissaoPercentualValor,
         descontoMaximoPercentual: toNumber(formData.descontoMaximoPercentual),
         ultimoCusto: toNumber(formData.ultimoCusto),
         leadTime: toNumber(formData.leadTime),
@@ -1019,7 +1025,7 @@ const EstoqueForm: React.FC = () => {
           custo: precoCusto,
           margemLucro,
           lucroEstimado,
-          comissaoPercentual: toNumber(formData.comissaoPercentual),
+          ...(comissaoPercentualValor !== undefined ? { comissaoPercentual: comissaoPercentualValor } : {}),
           descontoMaximoPercentual: toNumber(formData.descontoMaximoPercentual),
           impedirVendaAbaixoCusto: formData.impedirVendaAbaixoCusto,
           ultimaAlteracaoPreco: mudouPreco ? new Date().toISOString() : produtoOriginal?.ultimaAlteracaoPreco || null
@@ -1113,10 +1119,18 @@ const EstoqueForm: React.FC = () => {
           colecoesFuturas: ['produtos', 'estoque', 'fiscal', 'atacado', 'historico_precos', 'movimentacoes', 'ecommerce']
         }
       };
+      // Nunca gravar undefined no Firestore (CLAUDE.md) -- em branco, a
+      // chave precisa sumir de vez, nao so ficar com valor undefined.
+      if (comissaoPercentualValor === undefined) delete (produtoData as Record<string, unknown>).comissaoPercentual;
 
       if (isEditing && id) {
         await updateDoc(doc(db, 'estoque', id), {
           ...produtoData,
+          // updateDoc so mescla campos que aparecem no payload -- so OMITIR
+          // a chave (como fez o delete acima) deixaria uma comissao antiga
+          // gravada intacta se o usuario limpou o campo pra voltar ao
+          // fallback do vendedor/sistema. deleteField() remove de verdade.
+          ...(comissaoPercentualValor === undefined ? { comissaoPercentual: deleteField() } : {}),
           tenantId: tenantId || '',
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
@@ -1380,7 +1394,8 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-3">
                 <div className="input-group">
                   <label>Comissão (%)</label>
-                  <input type="number" name="comissaoPercentual" step="0.01" min="0" value={formData.comissaoPercentual} onChange={handleChange} />
+                  <input type="number" name="comissaoPercentual" step="0.01" min="0" value={formData.comissaoPercentual} onChange={handleChange} placeholder="Sem comissão própria" />
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Em branco, a venda usa a comissão do vendedor ou do sistema.</span>
                 </div>
                 <div className="input-group">
                   <label>Desconto máximo (%)</label>

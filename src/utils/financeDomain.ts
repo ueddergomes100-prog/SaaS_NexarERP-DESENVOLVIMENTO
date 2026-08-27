@@ -117,6 +117,21 @@ export interface CommissionProfile {
   comissaoPercentualPecas?: number;
 }
 
+/** Comissão de UM item da venda -- guardado no snapshot pra devolucao
+ * parcial poder recalcular exatamente o item devolvido, em vez de aplicar
+ * um percentual medio quando os itens da venda tem percentuais diferentes
+ * (produto com comissao propria vs. resto da venda pelo percentual do
+ * vendedor). Ver resolveComissaoPercentual. */
+export interface CommissionItemSnapshot {
+  id: string;
+  nome: string;
+  baseOriginalCentavos: number;
+  baseAtualCentavos: number;
+  percentual: number;
+  valorOriginalCentavos: number;
+  valorAtualCentavos: number;
+}
+
 export interface CommissionSnapshot {
   tipo: 'percentual_produtos';
   vendedorId: string;
@@ -135,6 +150,10 @@ export interface CommissionSnapshot {
   geradaEm: string;
   canceladaEm?: string;
   pagaEm?: string;
+  /** Presente so em vendas geradas por buildCommissionSnapshotFromItems.
+   * Ausente = snapshot antigo (flat) -- recalculateCommissionAfterReturn
+   * cai pro calculo antigo (percentual unico x base agregada) nesse caso. */
+  itens?: CommissionItemSnapshot[];
 }
 
 export const toCents = (value: number | string | null | undefined) => {
@@ -687,6 +706,48 @@ export const applyPaymentReceipt = (
   ];
 };
 
+const clampPercentual = (valor: number) => Math.max(0, Math.min(100, valor));
+
+/**
+ * Resolve o percentual de comissao de UM item vendido, na ordem: produto/
+ * servico (comissao propria, se configurada) > vendedor/mecanico (cadastro,
+ * se "recebe comissao" = sim) > padrao do sistema (Configuracoes).
+ *
+ * "Configurado" = valor numerico presente (inclusive 0). Campo em branco no
+ * formulario vira `undefined` no documento (ver parseComissaoPercentualInput
+ * -- nunca gravamos 0 pra "nao preenchido", senao um vendedor que digitou
+ * "0" de proposito ficaria indistinguivel de quem nunca mexeu no campo).
+ *
+ * `recebeComissao !== true` (false OU nunca configurado) sempre da 0% e
+ * PARA -- nao cai pro sistema. Decisao explicita do dono do produto
+ * (2026-08-27): todo cadastro de vendedor ja existente esta desmarcado
+ * hoje, e isso tem que continuar dando 0%, nao passar a puxar um padrao
+ * novo sem ninguem ter pedido.
+ */
+export const resolveComissaoPercentual = (args: {
+  itemPercentual?: number;
+  recebeComissao?: boolean;
+  percentualVendedor?: number;
+  percentualPadraoSistema?: number;
+}): number => {
+  if (typeof args.itemPercentual === 'number') return clampPercentual(args.itemPercentual);
+  if (args.recebeComissao !== true) return 0;
+  if (typeof args.percentualVendedor === 'number') return clampPercentual(args.percentualVendedor);
+  return clampPercentual(args.percentualPadraoSistema ?? 0);
+};
+
+/** Converte o texto digitado num campo de comissao (produto, servico ou
+ * vendedor) pro numero a gravar -- ou `undefined` quando o campo ficou em
+ * branco, pra o chamador OMITIR a chave no Firestore (nunca gravar
+ * `undefined` direto, regra do projeto). Blank != 0: e o que permite a
+ * hierarquia acima distinguir "configurado com zero" de "nunca configurado". */
+export const parseComissaoPercentualInput = (valor: string): number | undefined => {
+  const limpo = valor.trim();
+  if (!limpo) return undefined;
+  const numero = Number(limpo.replace(',', '.'));
+  return Number.isFinite(numero) ? numero : undefined;
+};
+
 export const buildCommissionSnapshot = (args: {
   sellerId: string;
   sellerName: string;
@@ -719,29 +780,102 @@ export const buildCommissionSnapshot = (args: {
   };
 };
 
+/** Item de entrada pra buildCommissionSnapshotFromItems/buildServiceOrder...
+ * -- ja vem com o percentual RESOLVIDO (ver resolveComissaoPercentual);
+ * esta funcao so faz a matematica de valor + acumulo, nao decide de onde
+ * o percentual vem. */
+interface ItemComPercentualResolvido {
+  id: string;
+  nome: string;
+  baseCents: number;
+  percentual: number;
+}
+
+const buildItensSnapshot = (itens: ItemComPercentualResolvido[]): CommissionItemSnapshot[] =>
+  itens.map((item) => {
+    const valorCents = Math.round(item.baseCents * (item.percentual / 100));
+    return {
+      id: item.id,
+      nome: item.nome,
+      baseOriginalCentavos: item.baseCents,
+      baseAtualCentavos: item.baseCents,
+      percentual: item.percentual,
+      valorOriginalCentavos: valorCents,
+      valorAtualCentavos: valorCents,
+    };
+  });
+
+/**
+ * Pedido de Venda (peças), com comissao por item -- substitui o unico
+ * percentual flat de buildCommissionSnapshot por um percentual proprio por
+ * item (produto com comissao propria vence; senao vendedor; senao sistema
+ * -- ver resolveComissaoPercentual, resolvido pelo chamador ANTES de
+ * montar `itens`). Guarda o detalhe por item no snapshot (`itens`) pra
+ * recalculateCommissionAfterReturn poder devolver so o item certo depois,
+ * sem precisar de um percentual medio.
+ *
+ * buildCommissionSnapshot (a antiga, flat) continua existindo e intocada
+ * -- o PDV (src/pages/PDV/PDV.tsx) ainda a usa e nao faz parte desta
+ * fatia.
+ */
+export const buildCommissionSnapshotFromItems = (args: {
+  sellerId: string;
+  sellerName: string;
+  itens: ItemComPercentualResolvido[];
+  generatedAt?: string;
+}): CommissionSnapshot => {
+  const itensSnapshot = buildItensSnapshot(args.itens);
+  const baseCents = itensSnapshot.reduce((soma, item) => soma + item.baseOriginalCentavos, 0);
+  const commissionCents = itensSnapshot.reduce((soma, item) => soma + item.valorOriginalCentavos, 0);
+  const percentualMedio = baseCents > 0 ? Number(((commissionCents / baseCents) * 100).toFixed(4)) : 0;
+
+  return {
+    tipo: 'percentual_produtos',
+    vendedorId: args.sellerId,
+    vendedorNome: args.sellerName,
+    baseOriginalCentavos: baseCents,
+    baseOriginal: fromCents(baseCents),
+    baseAtualCentavos: baseCents,
+    baseAtual: fromCents(baseCents),
+    percentual: percentualMedio,
+    valorOriginalCentavos: commissionCents,
+    valorOriginal: fromCents(commissionCents),
+    valorAtualCentavos: commissionCents,
+    valorAtual: fromCents(commissionCents),
+    status: commissionCents > 0 ? 'gerada' : 'nao_aplicavel',
+    regraVersion: 1,
+    geradaEm: args.generatedAt || new Date().toISOString(),
+    itens: itensSnapshot,
+  };
+};
+
+/**
+ * Ordem de Serviço (serviços + peças), com comissao por item -- mesma ideia
+ * de buildCommissionSnapshotFromItems, so que em dois grupos separados
+ * (serviço e peça tem percentuais resolvidos de fontes diferentes: cada um
+ * olha o proprio catalogo, depois recebeComissaoServicos/Pecas do
+ * mecanico, depois o padrao do sistema do respectivo tipo). OS nao tem
+ * devolucao parcial (so cancelamento total, via cancelCommissionSnapshot),
+ * entao os dois grupos aqui sao so pra somar certo o total -- nao precisam
+ * do mesmo tratamento de "recalculo por item" que peças de Pedido de Venda.
+ */
 export const buildServiceOrderCommissionSnapshot = (args: {
   sellerId: string;
   sellerName: string;
-  servicesBaseCents: number;
-  partsBaseCents: number;
-  profile?: {
-    recebeComissaoServicos?: boolean;
-    comissaoPercentualServicos?: number;
-    recebeComissaoPecas?: boolean;
-    comissaoPercentualPecas?: number;
-  } | null;
+  itensServicos: ItemComPercentualResolvido[];
+  itensPecas: ItemComPercentualResolvido[];
   generatedAt?: string;
 }) => {
-  const servicesPercentage = args.profile?.recebeComissaoServicos === true
-    ? Math.max(0, Math.min(100, Number(args.profile.comissaoPercentualServicos || 0)))
-    : 0;
-  const partsPercentage = args.profile?.recebeComissaoPecas === true
-    ? Math.max(0, Math.min(100, Number(args.profile.comissaoPercentualPecas || 0)))
-    : 0;
-  const servicesCommissionCents = Math.round(args.servicesBaseCents * (servicesPercentage / 100));
-  const partsCommissionCents = Math.round(args.partsBaseCents * (partsPercentage / 100));
-  const baseCents = args.servicesBaseCents + args.partsBaseCents;
-  const commissionCents = servicesCommissionCents + partsCommissionCents;
+  const itensServicosSnapshot = buildItensSnapshot(args.itensServicos);
+  const itensPecasSnapshot = buildItensSnapshot(args.itensPecas);
+
+  const baseServicosCentavos = itensServicosSnapshot.reduce((soma, item) => soma + item.baseOriginalCentavos, 0);
+  const basePecasCentavos = itensPecasSnapshot.reduce((soma, item) => soma + item.baseOriginalCentavos, 0);
+  const valorComissaoServicosCentavos = itensServicosSnapshot.reduce((soma, item) => soma + item.valorOriginalCentavos, 0);
+  const valorComissaoPecasCentavos = itensPecasSnapshot.reduce((soma, item) => soma + item.valorOriginalCentavos, 0);
+
+  const baseCents = baseServicosCentavos + basePecasCentavos;
+  const commissionCents = valorComissaoServicosCentavos + valorComissaoPecasCentavos;
 
   return {
     tipo: 'percentual_servicos_produtos',
@@ -752,16 +886,14 @@ export const buildServiceOrderCommissionSnapshot = (args: {
     baseAtualCentavos: baseCents,
     baseAtual: fromCents(baseCents),
     percentual: baseCents > 0 ? Number(((commissionCents / baseCents) * 100).toFixed(4)) : 0,
-    percentualServicos: servicesPercentage,
-    percentualPecas: partsPercentage,
-    baseServicosCentavos: args.servicesBaseCents,
-    baseServicos: fromCents(args.servicesBaseCents),
-    basePecasCentavos: args.partsBaseCents,
-    basePecas: fromCents(args.partsBaseCents),
-    valorComissaoServicosCentavos: servicesCommissionCents,
-    valorComissaoServicos: fromCents(servicesCommissionCents),
-    valorComissaoPecasCentavos: partsCommissionCents,
-    valorComissaoPecas: fromCents(partsCommissionCents),
+    baseServicosCentavos,
+    baseServicos: fromCents(baseServicosCentavos),
+    basePecasCentavos,
+    basePecas: fromCents(basePecasCentavos),
+    valorComissaoServicosCentavos,
+    valorComissaoServicos: fromCents(valorComissaoServicosCentavos),
+    valorComissaoPecasCentavos,
+    valorComissaoPecas: fromCents(valorComissaoPecasCentavos),
     valorOriginalCentavos: commissionCents,
     valorOriginal: fromCents(commissionCents),
     valorAtualCentavos: commissionCents,
@@ -769,13 +901,56 @@ export const buildServiceOrderCommissionSnapshot = (args: {
     status: commissionCents > 0 ? 'gerada' as const : 'nao_aplicavel' as const,
     regraVersion: 1,
     geradaEm: args.generatedAt || new Date().toISOString(),
+    itensServicos: itensServicosSnapshot,
+    itensPecas: itensPecasSnapshot,
   };
 };
 
+/**
+ * Recalcula a comissao apos uma devolucao (parcial ou total).
+ *
+ * `itensDevolvidos` e' a lista dos itens devolvidos NESTA devolucao (bate
+ * por id+nome, igual ao match que DevolucaoVendaModal.tsx ja faz contra os
+ * itens da venda -- precisa dos dois porque item "avulso" sem produto no
+ * catalogo usa id: 'avulso' repetido em varias linhas da mesma venda).
+ *
+ * Se o snapshot tem `itens` (venda gerada por buildCommissionSnapshotFromItems,
+ * com comissao por item): recalcula CADA item devolvido com o percentual
+ * PROPRIO dele e resoma os totais -- devolver so um produto de uma venda
+ * com produtos de percentuais diferentes nao pode usar um percentual medio,
+ * senao o resultado fica errado pros dois lados (sobra mais ou menos
+ * comissao do que o item que ficou realmente vale).
+ *
+ * Senao (snapshot antigo, sem breakdown por item): mantem exatamente a
+ * matematica de sempre -- percentual unico da venda x base agregada
+ * reduzida. Zero mudanca de comportamento pra vendas ja existentes.
+ */
 export const recalculateCommissionAfterReturn = (
   snapshot: CommissionSnapshot,
-  returnedBaseCents: number,
+  itensDevolvidos: Array<{ id: string; nome: string; baseCents: number }>,
 ) => {
+  if (snapshot.itens && snapshot.itens.length > 0) {
+    const itensAtualizados = snapshot.itens.map((item) => {
+      const devolvido = itensDevolvidos.find((d) => d.id === item.id && d.nome === item.nome);
+      if (!devolvido) return item;
+      const baseAtual = Math.max(0, item.baseAtualCentavos - devolvido.baseCents);
+      const valorAtual = Math.round(baseAtual * (item.percentual / 100));
+      return { ...item, baseAtualCentavos: baseAtual, valorAtualCentavos: valorAtual };
+    });
+    const baseCents = itensAtualizados.reduce((soma, item) => soma + item.baseAtualCentavos, 0);
+    const commissionCents = itensAtualizados.reduce((soma, item) => soma + item.valorAtualCentavos, 0);
+    return {
+      ...snapshot,
+      baseAtualCentavos: baseCents,
+      baseAtual: fromCents(baseCents),
+      valorAtualCentavos: commissionCents,
+      valorAtual: fromCents(commissionCents),
+      status: commissionCents > 0 ? 'gerada' as const : 'nao_aplicavel' as const,
+      itens: itensAtualizados,
+    };
+  }
+
+  const returnedBaseCents = itensDevolvidos.reduce((soma, item) => soma + item.baseCents, 0);
   const baseCents = Math.max(0, snapshot.baseAtualCentavos - returnedBaseCents);
   const commissionCents = Math.round(baseCents * (snapshot.percentual / 100));
   return {

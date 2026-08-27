@@ -23,7 +23,7 @@ import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/fina
 import DevolucaoVendaModal from './DevolucaoVendaModal';
 import {
   buildCardFeeSchedulesByBrand,
-  buildCommissionSnapshot,
+  buildCommissionSnapshotFromItems,
   cancelCommissionSnapshot,
   computeBankCreditsMap,
   createEmptyPaymentDraft,
@@ -33,6 +33,7 @@ import {
   normalizePayments,
   parseCreditTerms,
   recalculateCommissionAfterReturn,
+  resolveComissaoPercentual,
   summarizePayments,
   toCents,
   transactionMovesPhysicalCash,
@@ -120,6 +121,9 @@ interface ProdutoEstoque {
   unidadeMedidaFracionado?: boolean;
   embalagens?: unknown;
   descontoMaximoPercentual?: number;
+  /** Comissao propria do produto -- vence o percentual do vendedor/sistema
+   * quando configurada. Ver resolveComissaoPercentual em financeDomain.ts. */
+  comissaoPercentual?: number;
 }
 interface ItemVenda {
   id: string;
@@ -250,6 +254,10 @@ const PedidoVendaForm: React.FC = () => {
   const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
   const [alterarPagamentoAtivo, setAlterarPagamentoAtivo] = useState(DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA);
   const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR);
+  /** Ultimo nivel da hierarquia de comissao (produto > vendedor > sistema)
+   * -- undefined quando a empresa nunca configurou nada aqui. Ver
+   * resolveComissaoPercentual em financeDomain.ts. */
+  const [comissaoPadraoPecas, setComissaoPadraoPecas] = useState<number | undefined>(undefined);
   const [identificacaoAberta, setIdentificacaoAberta] = useState(false);
   const [descricaoIdentificacao, setDescricaoIdentificacao] = useState('');
   /**
@@ -440,7 +448,8 @@ const PedidoVendaForm: React.FC = () => {
         unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
         unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
         embalagens: doc.data().embalagens,
-        descontoMaximoPercentual: doc.data().descontoMaximoPercentual
+        descontoMaximoPercentual: doc.data().descontoMaximoPercentual,
+        comissaoPercentual: doc.data().comissaoPercentual
       }));
       setProdutosCatalogo(dataE);
 
@@ -456,6 +465,7 @@ const PedidoVendaForm: React.FC = () => {
           setTrabalhaComPreVenda(parseTrabalhaComPreVenda(config.trabalhaComPreVenda));
           setAlterarPagamentoAtivo(parseAlterarPagamentoVendaFinalizada(config.alterarPagamentoVendaFinalizada));
           setExigirIdentificacaoVendedor(parseExigirIdentificacaoVendedor(config.exigirIdentificacaoVendedor));
+          setComissaoPadraoPecas(typeof config.comissaoPadraoPecas === 'number' ? config.comissaoPadraoPecas : undefined);
           setVenderPorEmbalagem(config.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
           setLimiteDescontoPedido(parseLimiteDescontoConfig(config.limiteDescontoPedido));
           setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
@@ -1673,12 +1683,26 @@ const PedidoVendaForm: React.FC = () => {
           ...payment,
           transactionId: index === 0 ? newPedidoRef.id : `${newPedidoRef.id}_pag_${index + 1}`,
         }));
-        const commissionBaseCents = itens.reduce((sum, item) => sum + toCents(item.subtotal), 0);
-        const commissionSnapshot = buildCommissionSnapshot({
+        // Hierarquia da comissao, por item: produto (comissao propria, se
+        // configurada) > vendedor (cadastro, se "recebe comissao" = sim) >
+        // padrao do sistema. Item avulso (sem produto no catalogo, id
+        // 'avulso') nao acha correspondencia em produtosCatalogo -- cai
+        // direto pro vendedor/sistema, sem tratamento especial. Ver
+        // resolveComissaoPercentual em financeDomain.ts.
+        const commissionSnapshot = buildCommissionSnapshotFromItems({
           sellerId: selectedSellerId,
           sellerName,
-          baseCents: commissionBaseCents,
-          profile: sellerProfile,
+          itens: itens.map((item) => ({
+            id: item.id,
+            nome: item.nome,
+            baseCents: toCents(item.subtotal),
+            percentual: resolveComissaoPercentual({
+              itemPercentual: produtosCatalogo.find((p) => p.id === item.id)?.comissaoPercentual,
+              recebeComissao: sellerProfile.recebeComissaoPecas,
+              percentualVendedor: sellerProfile.comissaoPercentualPecas,
+              percentualPadraoSistema: comissaoPadraoPecas,
+            }),
+          })),
         });
 
         const pedidoData = {
@@ -2670,7 +2694,7 @@ const PedidoVendaForm: React.FC = () => {
         const devolucaoData = devolucaoSnap.data();
         if (devolucaoData.status === 'estornada') throw new Error('Esta devolução já foi estornada.');
 
-        const itensDevolvidos: Array<{ id: string; nome: string; quantidadeDevolvida: number; fatorConversao?: number }> = devolucaoData.itensDevolvidos || [];
+        const itensDevolvidos: Array<{ id: string; nome: string; quantidadeDevolvida: number; fatorConversao?: number; subtotal: number }> = devolucaoData.itensDevolvidos || [];
 
         // So estorna o destino do valor se ele ainda nao foi usado --
         // credito ja parcialmente gasto em Contas a Receber nao pode ser
@@ -2711,7 +2735,10 @@ const PedidoVendaForm: React.FC = () => {
 
         const valorDevolvidoCentavos = toCents(devolucaoData.valorTotalDevolvido || 0);
         const savedCommission = saleData.comissao?.regraVersion
-          ? recalculateCommissionAfterReturn(saleData.comissao, -valorDevolvidoCentavos)
+          ? recalculateCommissionAfterReturn(
+            saleData.comissao,
+            itensDevolvidos.map((item) => ({ id: item.id, nome: item.nome, baseCents: -toCents(item.subtotal) })),
+          )
           : null;
 
         transaction.update(saleRef, {

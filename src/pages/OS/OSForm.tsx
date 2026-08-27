@@ -64,6 +64,7 @@ import {
   normalizeCreditCardFeeSchedule,
   normalizePayments,
   parseCreditTerms,
+  resolveComissaoPercentual,
   summarizePayments,
   toCents,
   transactionMovesPhysicalCash,
@@ -82,7 +83,7 @@ interface BandeiraCartao {
   prazoRecebimentoCreditoDias?: number;
   prazoRecebimentoDebitoDias?: number;
 }
-interface ServicoData { id: string; nome: string; preco: number; }
+interface ServicoData { id: string; nome: string; preco: number; comissaoPercentual?: number; }
 interface ServicoSelecionado { id: string; nome: string; preco: number; quantidade: number; detalhamento?: string; tempoHoras?: number; }
 interface PecaData {
   id: string;
@@ -94,6 +95,9 @@ interface PecaData {
   unidadeMedidaSigla?: string;
   unidadeMedidaFracionado?: boolean;
   unidadeMedidaCasasDecimais?: number;
+  /** Comissao propria da peca -- vence o percentual do mecanico/sistema
+   * quando configurada. Ver resolveComissaoPercentual em financeDomain.ts. */
+  comissaoPercentual?: number;
 }
 interface PecaSelecionada {
   id: string;
@@ -173,6 +177,11 @@ const OSForm: React.FC = () => {
   });
 
   const [mecanicosDisponiveis, setMecanicosDisponiveis] = useState<{id: string, nome: string}[]>([]);
+  /** Ultimo nivel da hierarquia de comissao (produto/servico > mecanico >
+   * sistema) -- undefined quando a empresa nunca configurou nada aqui. Ver
+   * resolveComissaoPercentual em financeDomain.ts. */
+  const [comissaoPadraoPecas, setComissaoPadraoPecas] = useState<number | undefined>(undefined);
+  const [comissaoPadraoServicos, setComissaoPadraoServicos] = useState<number | undefined>(undefined);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingOS, setIsFetchingOS] = useState(isEditing);
@@ -267,7 +276,7 @@ const OSForm: React.FC = () => {
       const qS = query(collection(db, 'servicos'), where('tenantId', '==', tenantId));
       const snapS = await getDocs(qS);
       const dataS: ServicoData[] = [];
-      snapS.forEach((doc) => dataS.push({ id: doc.id, nome: doc.data().nome, preco: doc.data().preco }));
+      snapS.forEach((doc) => dataS.push({ id: doc.id, nome: doc.data().nome, preco: doc.data().preco, comissaoPercentual: doc.data().comissaoPercentual }));
       setServicosCatalogo(dataS);
 
       // Fetch Estoque
@@ -288,6 +297,7 @@ const OSForm: React.FC = () => {
         unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
         unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
         unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
+        comissaoPercentual: doc.data().comissaoPercentual,
       }));
       setPecasEstoque(dataE);
 
@@ -304,6 +314,8 @@ const OSForm: React.FC = () => {
           setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
           setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
           setTrabalhaComLimiteCredito(parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito));
+          setComissaoPadraoPecas(typeof config.comissaoPadraoPecas === 'number' ? config.comissaoPadraoPecas : undefined);
+          setComissaoPadraoServicos(typeof config.comissaoPadraoServicos === 'number' ? config.comissaoPadraoServicos : undefined);
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
           const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
@@ -1015,12 +1027,35 @@ const OSForm: React.FC = () => {
         const wasAlreadyCancelled = existingOsData?.status === 'Cancelada';
         if (formData.status === 'Finalizada' && !existingCommission && !wasAlreadyFinalized) {
           const mechanicProfile = mechanicSnap?.exists() ? mechanicSnap.data() : {};
+          // Hierarquia da comissao, por item: servico/peca (comissao propria,
+          // se configurada) > mecanico (cadastro, se "recebe comissao" =
+          // sim) > padrao do sistema. Ver resolveComissaoPercentual em
+          // financeDomain.ts.
           commission = buildServiceOrderCommissionSnapshot({
             sellerId: formData.mecanicoId,
             sellerName: formData.mecanicoNome || mechanicProfile.nome || 'Não identificado',
-            servicesBaseCents: toCents(totalServicos),
-            partsBaseCents: toCents(totalPecas),
-            profile: mechanicProfile,
+            itensServicos: servicosSelecionados.map((servico) => ({
+              id: servico.id,
+              nome: servico.nome,
+              baseCents: toCents(getServiceTotal(servico)),
+              percentual: resolveComissaoPercentual({
+                itemPercentual: servicosCatalogo.find((s) => s.id === servico.id)?.comissaoPercentual,
+                recebeComissao: mechanicProfile.recebeComissaoServicos,
+                percentualVendedor: mechanicProfile.comissaoPercentualServicos,
+                percentualPadraoSistema: comissaoPadraoServicos,
+              }),
+            })),
+            itensPecas: pecasSelecionadas.map((peca) => ({
+              id: peca.id,
+              nome: peca.nome,
+              baseCents: toCents(peca.preco * peca.quantidade),
+              percentual: resolveComissaoPercentual({
+                itemPercentual: pecasEstoque.find((p) => p.id === peca.id)?.comissaoPercentual,
+                recebeComissao: mechanicProfile.recebeComissaoPecas,
+                percentualVendedor: mechanicProfile.comissaoPercentualPecas,
+                percentualPadraoSistema: comissaoPadraoPecas,
+              }),
+            })),
           });
         } else if (formData.status === 'Cancelada' && existingCommission?.regraVersion) {
           commission = cancelCommissionSnapshot(existingCommission);

@@ -167,7 +167,10 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
         });
 
         const savedCommission = saleData.comissao?.regraVersion
-          ? recalculateCommissionAfterReturn(saleData.comissao, toCents(valorTotalCalculado))
+          ? recalculateCommissionAfterReturn(
+            saleData.comissao,
+            itensDevolvidos.map((item) => ({ id: item.id, nome: item.nome, baseCents: toCents(item.subtotal) })),
+          )
           : null;
         transaction.update(saleRef, {
           itens: updatedItems,

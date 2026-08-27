@@ -4,6 +4,7 @@ import {
   applyPaymentReceipt,
   buildCardFeeSchedulesByBrand,
   buildCommissionSnapshot,
+  buildCommissionSnapshotFromItems,
   cancelCommissionSnapshot,
   computeBankCreditsMap,
   createEmptyPaymentDraft,
@@ -14,6 +15,7 @@ import {
   REVENUE_REVERSAL_CATEGORIES,
   paymentRequiresBankAccount,
   recalculateCommissionAfterReturn,
+  resolveComissaoPercentual,
   summarizePayments,
   transactionFeeCents,
   transactionGrossCents,
@@ -369,13 +371,92 @@ test('snapshot de comissão não muda com percentual futuro e reage a devoluçã
   });
   assert.equal(snapshot.valorAtualCentavos, 500);
 
-  const afterReturn = recalculateCommissionAfterReturn(snapshot, 2_000);
+  // Snapshot flat (sem breakdown por item): recalculateCommissionAfterReturn
+  // cai pro calculo antigo -- percentual unico x base agregada reduzida.
+  const afterReturn = recalculateCommissionAfterReturn(snapshot, [
+    { id: 'item-1', nome: 'Produto', baseCents: 2_000 },
+  ]);
   assert.equal(afterReturn.baseAtualCentavos, 8_000);
   assert.equal(afterReturn.valorAtualCentavos, 400);
 
   const cancelled = cancelCommissionSnapshot(afterReturn, '2026-07-19T12:00:00.000Z');
   assert.equal(cancelled.status, 'cancelada');
   assert.equal(cancelled.valorAtualCentavos, 0);
+});
+
+test('resolveComissaoPercentual: produto vence vendedor, vendedor "não" nunca cai pro sistema, "sim" em branco usa o sistema', () => {
+  // 1) produto com comissao propria vence, mesmo com vendedor configurado diferente
+  assert.equal(
+    resolveComissaoPercentual({
+      itemPercentual: 10,
+      recebeComissao: true,
+      percentualVendedor: 5,
+      percentualPadraoSistema: 3,
+    }),
+    10,
+  );
+  // 2) vendedor "nao recebe comissao" (ou nunca configurado) -- 0%, nao cai pro sistema
+  assert.equal(
+    resolveComissaoPercentual({ recebeComissao: false, percentualPadraoSistema: 3 }),
+    0,
+  );
+  assert.equal(
+    resolveComissaoPercentual({ recebeComissao: undefined, percentualPadraoSistema: 3 }),
+    0,
+  );
+  // 3) vendedor "sim" com percentual proprio preenchido -- usa o dele
+  assert.equal(
+    resolveComissaoPercentual({ recebeComissao: true, percentualVendedor: 7, percentualPadraoSistema: 3 }),
+    7,
+  );
+  // 4) vendedor "sim" com percentual em branco (undefined) -- cai pro sistema
+  assert.equal(
+    resolveComissaoPercentual({ recebeComissao: true, percentualPadraoSistema: 3 }),
+    3,
+  );
+  // sem nada configurado em lugar nenhum -- 0%
+  assert.equal(resolveComissaoPercentual({ recebeComissao: true }), 0);
+});
+
+test('buildCommissionSnapshotFromItems calcula comissao por item e guarda o breakdown', () => {
+  const snapshot = buildCommissionSnapshotFromItems({
+    sellerId: 'vendedor-1',
+    sellerName: 'Vendedor',
+    itens: [
+      { id: 'produto-a', nome: 'Produto A', baseCents: 10_000, percentual: 10 },
+      { id: 'produto-b', nome: 'Produto B', baseCents: 20_000, percentual: 5 },
+    ],
+    generatedAt: '2026-08-27T12:00:00.000Z',
+  });
+
+  assert.equal(snapshot.baseAtualCentavos, 30_000);
+  assert.equal(snapshot.valorAtualCentavos, 2_000); // 1.000 (A) + 1.000 (B)
+  assert.equal(snapshot.itens?.length, 2);
+  assert.equal(snapshot.itens?.[0].valorAtualCentavos, 1_000);
+  assert.equal(snapshot.itens?.[1].valorAtualCentavos, 1_000);
+});
+
+test('recalculateCommissionAfterReturn com breakdown devolve so o item certo, sem usar percentual medio', () => {
+  const snapshot = buildCommissionSnapshotFromItems({
+    sellerId: 'vendedor-1',
+    sellerName: 'Vendedor',
+    itens: [
+      { id: 'produto-a', nome: 'Produto A', baseCents: 10_000, percentual: 10 }, // comissao 1.000
+      { id: 'produto-b', nome: 'Produto B', baseCents: 20_000, percentual: 5 },  // comissao 1.000
+    ],
+  });
+  assert.equal(snapshot.valorAtualCentavos, 2_000);
+
+  // Devolve o Produto B inteiro -- deve sobrar EXATAMENTE a comissao do
+  // Produto A (1.000), nao uma media dos dois percentuais (que daria errado
+  // se aplicada sobre a base restante).
+  const afterReturn = recalculateCommissionAfterReturn(snapshot, [
+    { id: 'produto-b', nome: 'Produto B', baseCents: 20_000 },
+  ]);
+  assert.equal(afterReturn.baseAtualCentavos, 10_000);
+  assert.equal(afterReturn.valorAtualCentavos, 1_000);
+  assert.equal(afterReturn.itens?.find((item) => item.id === 'produto-b')?.valorAtualCentavos, 0);
+  assert.equal(afterReturn.itens?.find((item) => item.id === 'produto-a')?.valorAtualCentavos, 1_000);
 });
 
 test('períodos da dashboard usam São Paulo e semana iniciada na segunda-feira', () => {

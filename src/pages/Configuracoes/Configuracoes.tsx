@@ -9,7 +9,7 @@ import { formatCompanyAddress } from '../../utils/companyAddress';
 import { MODULE_GROUPS } from '../../utils/moduleCatalog';
 import { PERMISSION_CATALOG } from '../../utils/permissionCatalog';
 import { isPlatformAdminRole } from '../../utils/roles';
-import { normalizeCreditCardFeeSchedule, parseCreditTerms } from '../../utils/financeDomain';
+import { normalizeCreditCardFeeSchedule, parseCreditTerms, parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
 import { spedyService, type SpedyCity } from '../../services/spedyService';
@@ -101,9 +101,13 @@ const Configuracoes: React.FC = () => {
   const [selectedUserPermissions, setSelectedUserPermissions] = useState<string[]>([]);
   const [selectedUserNivelAcesso, setSelectedUserNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
   const [recebeComissaoServicos, setRecebeComissaoServicos] = useState(false);
-  const [comissaoPercentualServicos, setComissaoPercentualServicos] = useState(0);
+  // String, nao number: percentual em branco != percentual zero -- em
+  // branco cai pra comissao padrao do sistema (ver resolveComissaoPercentual
+  // em financeDomain.ts). Um number sempre teria um valor (0 por padrao),
+  // sem jeito de representar "nao preenchido".
+  const [comissaoPercentualServicos, setComissaoPercentualServicos] = useState('');
   const [recebeComissaoPecas, setRecebeComissaoPecas] = useState(false);
-  const [comissaoPercentualPecas, setComissaoPercentualPecas] = useState(0);
+  const [comissaoPercentualPecas, setComissaoPercentualPecas] = useState('');
   const [isSavingPermissions, setIsSavingPermissions] = useState(false);
   const [moduleBlockedDraft, setModuleBlockedDraft] = useState<string[]>([]);
   const [isSavingTenantModules, setIsSavingTenantModules] = useState(false);
@@ -141,6 +145,11 @@ const Configuracoes: React.FC = () => {
     trabalhaComPreVenda: DEFAULT_TRABALHA_COM_PRE_VENDA,
     alterarPagamentoVendaFinalizada: DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
     exigirIdentificacaoVendedor: DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
+    // Usado so quando o vendedor/mecanico tem "Recebe comissao?" marcado
+    // sim mas nao preencheu um percentual proprio -- ver
+    // resolveComissaoPercentual em financeDomain.ts.
+    comissaoPadraoPecas: '',
+    comissaoPadraoServicos: '',
     restringirVendasPorUsuario: DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO,
     conferenciaMercadoria: DEFAULT_CONFERENCIA_MERCADORIA,
     imprimirMinutaAposVenda: DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
@@ -227,6 +236,8 @@ const Configuracoes: React.FC = () => {
             trabalhaComPreVenda: parseTrabalhaComPreVenda(data.trabalhaComPreVenda),
             alterarPagamentoVendaFinalizada: parseAlterarPagamentoVendaFinalizada(data.alterarPagamentoVendaFinalizada),
             exigirIdentificacaoVendedor: parseExigirIdentificacaoVendedor(data.exigirIdentificacaoVendedor),
+            comissaoPadraoPecas: data.comissaoPadraoPecas != null ? String(data.comissaoPadraoPecas) : '',
+            comissaoPadraoServicos: data.comissaoPadraoServicos != null ? String(data.comissaoPadraoServicos) : '',
             restringirVendasPorUsuario: parseRestringirVendasPorUsuario(data.restringirVendasPorUsuario),
             conferenciaMercadoria: data.conferenciaMercadoria ?? DEFAULT_CONFERENCIA_MERCADORIA,
             imprimirMinutaAposVenda: data.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
@@ -440,6 +451,8 @@ const Configuracoes: React.FC = () => {
     const debitCardFee = toConfigurationNumber(formData.taxaCartaoDebitoPercentual);
     const creditCardSettlementDays = toConfigurationNumber(formData.prazoRecebimentoCartaoCreditoDias);
     const debitCardSettlementDays = toConfigurationNumber(formData.prazoRecebimentoCartaoDebitoDias);
+    const comissaoPadraoPecasValor = toConfigurationNumber(formData.comissaoPadraoPecas);
+    const comissaoPadraoServicosValor = toConfigurationNumber(formData.comissaoPadraoServicos);
     const creditCardFees = Object.fromEntries(
       Array.from({ length: 12 }, (_, index) => {
         const installments = String(index + 1);
@@ -475,6 +488,13 @@ const Configuracoes: React.FC = () => {
     const nfseAliquotaIssPadrao = toConfigurationNumber(formData.nfseAliquotaIssPadrao);
     if (!Number.isFinite(nfseAliquotaIssPadrao) || nfseAliquotaIssPadrao < 0 || nfseAliquotaIssPadrao > 100) {
       showError('Configuração de NFS-e inválida', 'A alíquota de ISS padrão deve estar entre 0% e 100%.');
+      return;
+    }
+    if (
+      !Number.isFinite(comissaoPadraoPecasValor) || comissaoPadraoPecasValor < 0 || comissaoPadraoPecasValor > 100 ||
+      !Number.isFinite(comissaoPadraoServicosValor) || comissaoPadraoServicosValor < 0 || comissaoPadraoServicosValor > 100
+    ) {
+      showError('Configuração de comissão inválida', 'A comissão padrão do sistema deve estar entre 0% e 100%.');
       return;
     }
 
@@ -529,6 +549,8 @@ const Configuracoes: React.FC = () => {
         taxaCartaoDebitoPercentual: debitCardFee,
         prazoRecebimentoCartaoCreditoDias: creditCardSettlementDays,
         prazoRecebimentoCartaoDebitoDias: debitCardSettlementDays,
+        comissaoPadraoPecas: comissaoPadraoPecasValor,
+        comissaoPadraoServicos: comissaoPadraoServicosValor,
         endereco: enderecoCompleto,
         nfseAliquotaIssPadrao,
         ...limitesDesconto,
@@ -550,6 +572,8 @@ const Configuracoes: React.FC = () => {
         taxaCartaoDebitoPercentual: String(debitCardFee),
         prazoRecebimentoCartaoCreditoDias: String(creditCardSettlementDays),
         prazoRecebimentoCartaoDebitoDias: String(debitCardSettlementDays),
+        comissaoPadraoPecas: String(comissaoPadraoPecasValor),
+        comissaoPadraoServicos: String(comissaoPadraoServicosValor),
         nfseAliquotaIssPadrao: String(nfseAliquotaIssPadrao),
         limiteDescontoOS: { tipo: limitesDesconto.limiteDescontoOS.tipo, valor: limitesDesconto.limiteDescontoOS.valor > 0 ? String(limitesDesconto.limiteDescontoOS.valor) : '' },
         limiteDescontoPedido: { tipo: limitesDesconto.limiteDescontoPedido.tipo, valor: limitesDesconto.limiteDescontoPedido.valor > 0 ? String(limitesDesconto.limiteDescontoPedido.valor) : '' },
@@ -576,16 +600,16 @@ const Configuracoes: React.FC = () => {
       setSelectedUserPermissions(user?.permissoes || []);
       setSelectedUserNivelAcesso(parseNivelAcesso(user?.nivelAcesso));
       setRecebeComissaoServicos(user?.recebeComissaoServicos || false);
-      setComissaoPercentualServicos(user?.comissaoPercentualServicos || 0);
+      setComissaoPercentualServicos(user?.comissaoPercentualServicos != null ? String(user.comissaoPercentualServicos) : '');
       setRecebeComissaoPecas(user?.recebeComissaoPecas || false);
-      setComissaoPercentualPecas(user?.comissaoPercentualPecas || 0);
+      setComissaoPercentualPecas(user?.comissaoPercentualPecas != null ? String(user.comissaoPercentualPecas) : '');
     } else {
       setSelectedUserPermissions([]);
       setSelectedUserNivelAcesso(DEFAULT_NIVEL_ACESSO);
       setRecebeComissaoServicos(false);
-      setComissaoPercentualServicos(0);
+      setComissaoPercentualServicos('');
       setRecebeComissaoPecas(false);
-      setComissaoPercentualPecas(0);
+      setComissaoPercentualPecas('');
     }
   };
 
@@ -599,24 +623,37 @@ const Configuracoes: React.FC = () => {
     if (!selectedUserId || !currentUser) return;
     setIsSavingPermissions(true);
     try {
-      await updateDoc(doc(db, 'usuarios', selectedUserId), {
+      // Percentual em branco (undefined) cai pra comissao padrao do sistema
+      // na hora da venda -- por isso a chave e' OMITIDA, nunca gravada como
+      // 0 (regra do CLAUDE.md: nunca undefined tambem, entao e' de fato
+      // "sem a chave", nao "chave com undefined").
+      const percentualServicosValor = parseComissaoPercentualInput(comissaoPercentualServicos);
+      const percentualPecasValor = parseComissaoPercentualInput(comissaoPercentualPecas);
+      const updatePayload: Record<string, unknown> = {
         permissoes: selectedUserPermissions,
         nivelAcesso: selectedUserNivelAcesso,
         recebeComissaoServicos: recebeComissaoServicos,
-        comissaoPercentualServicos: comissaoPercentualServicos,
+        comissaoPercentualServicos: percentualServicosValor,
         recebeComissaoPecas: recebeComissaoPecas,
-        comissaoPercentualPecas: comissaoPercentualPecas,
+        comissaoPercentualPecas: percentualPecasValor,
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Permissões/regras de comissão atualizadas'),
-      });
+      };
+      // updateDoc so mescla campos presentes no payload -- so OMITIR a
+      // chave deixaria uma comissao antiga gravada intacta se o usuario
+      // limpou o campo pra voltar ao fallback do sistema. deleteField()
+      // remove de verdade (updateDoc sempre edita cadastro existente aqui).
+      if (percentualServicosValor === undefined) updatePayload.comissaoPercentualServicos = deleteField();
+      if (percentualPecasValor === undefined) updatePayload.comissaoPercentualPecas = deleteField();
+      await updateDoc(doc(db, 'usuarios', selectedUserId), updatePayload);
       // Atualiza o estado local para não perder
       setTenantUsers(prev => prev.map(u => u.id === selectedUserId ? {
         ...u,
         permissoes: selectedUserPermissions,
         nivelAcesso: selectedUserNivelAcesso,
         recebeComissaoServicos: recebeComissaoServicos,
-        comissaoPercentualServicos: comissaoPercentualServicos,
+        comissaoPercentualServicos: percentualServicosValor,
         recebeComissaoPecas: recebeComissaoPecas,
-        comissaoPercentualPecas: comissaoPercentualPecas
+        comissaoPercentualPecas: percentualPecasValor
       } : u));
 
       setShowSuccessAnim(true);
@@ -1500,6 +1537,39 @@ const Configuracoes: React.FC = () => {
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Comissão padrão do sistema</label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Ordem de prioridade da comissão de uma venda: <strong>1)</strong> comissão própria do produto/serviço (cadastro em Estoque/Serviços), <strong>2)</strong> comissão do vendedor/mecânico (cadastro em Usuários), <strong>3)</strong> este percentual padrão — usado só quando o vendedor tem "Recebe comissão?" marcado como sim mas não preencheu um percentual próprio.
+                </p>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Produtos (%):</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={formData.comissaoPadraoPecas}
+                      onChange={(e) => setFormData({ ...formData, comissaoPadraoPecas: e.target.value })}
+                      disabled={!isEditingMode}
+                      style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Serviços (%):</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={formData.comissaoPadraoServicos}
+                      onChange={(e) => setFormData({ ...formData, comissaoPadraoServicos: e.target.value })}
+                      disabled={!isEditingMode}
+                      style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Venda Finalizada</label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
                   <input
@@ -2060,11 +2130,15 @@ const Configuracoes: React.FC = () => {
                               type="number"
                               min="0"
                               max="100"
+                              placeholder="Usa o padrão do sistema"
                               value={comissaoPercentualServicos}
-                              onChange={(e) => setComissaoPercentualServicos(Number(e.target.value))}
-                              style={{ width: '80px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
+                              onChange={(e) => setComissaoPercentualServicos(e.target.value)}
+                              style={{ width: '160px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
                             />
                           </div>
+                        )}
+                        {recebeComissaoServicos && (
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Em branco, usa a comissão padrão do sistema (abaixo).</span>
                         )}
                       </div>
 
@@ -2086,11 +2160,15 @@ const Configuracoes: React.FC = () => {
                               type="number"
                               min="0"
                               max="100"
+                              placeholder="Usa o padrão do sistema"
                               value={comissaoPercentualPecas}
-                              onChange={(e) => setComissaoPercentualPecas(Number(e.target.value))}
-                              style={{ width: '80px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
+                              onChange={(e) => setComissaoPercentualPecas(e.target.value)}
+                              style={{ width: '160px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
                             />
                           </div>
+                        )}
+                        {recebeComissaoPecas && (
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Em branco, usa a comissão padrão do sistema (abaixo).</span>
                         )}
                       </div>
                     </div>

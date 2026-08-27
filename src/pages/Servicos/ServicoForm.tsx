@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Wrench, Loader2 } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 
 const ServicoForm: React.FC = () => {
   const navigate = useNavigate();
@@ -17,6 +18,7 @@ const ServicoForm: React.FC = () => {
     nome: '',
     categoria: '',
     preco: '',
+    comissaoPercentual: '',
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
@@ -40,7 +42,11 @@ const ServicoForm: React.FC = () => {
         if (isEditing && id) {
           const docSnap = await getDoc(doc(db, 'servicos', id));
           if (docSnap.exists()) {
-            setFormData(docSnap.data() as any);
+            const dados = docSnap.data();
+            setFormData({
+              ...dados,
+              comissaoPercentual: dados.comissaoPercentual != null ? String(dados.comissaoPercentual) : '',
+            } as any);
           }
         } else {
           // Gerar código sequencial para novo cadastro
@@ -72,15 +78,25 @@ const ServicoForm: React.FC = () => {
 
     setIsLoading(true);
     try {
-      const dataToSave = {
+      // Comissao do servico e' OPCIONAL: em branco, a comissao da OS cai
+      // pro cadastro do mecanico/config do sistema (resolveComissaoPercentual
+      // em financeDomain.ts) -- nao pode gravar 0 pra "em branco".
+      const comissaoPercentualValor = parseComissaoPercentualInput(formData.comissaoPercentual);
+      const dataToSave: Record<string, unknown> = {
         ...formData,
         nome: formData.nome.toUpperCase().trim(),
-        preco: Number(String(formData.preco).replace(',','.'))
+        preco: Number(String(formData.preco).replace(',','.')),
+        comissaoPercentual: comissaoPercentualValor,
       };
+      if (comissaoPercentualValor === undefined) delete dataToSave.comissaoPercentual;
 
       if (isEditing && id) {
         await updateDoc(doc(db, 'servicos', id), {
           ...dataToSave,
+          // updateDoc so mescla campos presentes no payload -- so OMITIR a
+          // chave deixaria uma comissao antiga intacta se o usuario limpou
+          // o campo pra voltar ao fallback do mecanico/sistema.
+          ...(comissaoPercentualValor === undefined ? { comissaoPercentual: deleteField() } : {}),
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
@@ -154,6 +170,14 @@ const ServicoForm: React.FC = () => {
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Valor por Hora (R$) *</label>
               <input type="text" name="preco" placeholder="150.00" value={formData.preco} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Comissão (%)</label>
+              <input type="number" name="comissaoPercentual" step="0.01" min="0" placeholder="Sem comissão própria" value={formData.comissaoPercentual} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Em branco, a OS usa a comissão do mecânico ou do sistema.</span>
             </div>
           </div>
         </div>

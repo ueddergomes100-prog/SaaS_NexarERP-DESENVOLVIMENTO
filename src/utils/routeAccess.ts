@@ -61,7 +61,8 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/operacoes/lotes-validades')) routeModule = 'operacoes.lotes';
 
   let routePermission = '';
-  if (path.startsWith('/clientes') || path.startsWith('/veiculos')) routePermission = 'cadastros.clientes';
+  if (path.startsWith('/dashboard')) routePermission = 'dashboard.acesso';
+  else if (path.startsWith('/clientes') || path.startsWith('/veiculos')) routePermission = 'cadastros.clientes';
   else if (path.startsWith('/usuarios')) routePermission = 'administrativo.equipe';
   else if (path.startsWith('/estoque')) routePermission = 'cadastros.estoque';
   else if (path.startsWith('/servicos')) routePermission = 'cadastros.servicos';

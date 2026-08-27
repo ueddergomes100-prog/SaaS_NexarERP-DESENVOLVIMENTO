@@ -38,6 +38,12 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
   {
     grupo: 'Visão Geral',
     itens: [
+      // Acesso a TELA (bloqueia /dashboard inteiro sem ela -- ver
+      // routeAccess.ts). Deliberadamente separada de dashboard.valores,
+      // que so controla os numeros financeiros DENTRO da tela: um
+      // funcionario pode ter acesso ao dashboard operacional sem ver
+      // dinheiro, mas sem esta aqui ele nao abre a tela de jeito nenhum.
+      { id: 'dashboard.acesso', label: 'Dashboard: Acesso à Tela', color: '#10b981' },
       { id: 'dashboard.valores', label: 'Dashboard: Visão Financeira', color: '#10b981' },
     ],
   },

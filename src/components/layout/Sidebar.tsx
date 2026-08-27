@@ -125,7 +125,7 @@ const Sidebar: React.FC = () => {
       label: 'Principal',
       icon: LayoutDashboard,
       items: [
-        { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, module: 'dashboard.empresa' }
+        { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, module: 'dashboard.empresa', permission: 'dashboard.acesso' }
       ]
     },
     {
@@ -306,7 +306,7 @@ const Sidebar: React.FC = () => {
   // especificas (nao pra grupos) -- pedido do usuario, pra nao precisar
   // expandir o menu completo so pra trocar de tela com o menu recolhido.
   const railShortcuts: NavItem[] = [
-    { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, module: 'dashboard.empresa' },
+    { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, module: 'dashboard.empresa', permission: 'dashboard.acesso' },
     { label: 'Pedido de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
     { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
     { label: 'Ordem de Serviço', to: '/os', icon: ClipboardList, module: 'mecanica.os', permission: 'mecanica.os' },

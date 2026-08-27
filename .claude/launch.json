@@ -9,6 +9,13 @@
       "autoPort": true
     },
     {
+      "name": "nexus-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/vite/bin/vite.js", "preview", "--host"],
+      "port": 4173,
+      "autoPort": true
+    },
+    {
       "name": "nexus-backend",
       "runtimeExecutable": "node",
       "runtimeArgs": ["server.js"],

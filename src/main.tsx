@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { registerServiceWorker } from './registerServiceWorker'
 
 const PRELOAD_RELOAD_KEY = 'nexus_preload_reload_attempted';
 const PRELOAD_RELOAD_WINDOW_MS = 60000;
@@ -30,3 +31,5 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 )
+
+registerServiceWorker();

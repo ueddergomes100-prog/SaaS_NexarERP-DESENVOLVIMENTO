@@ -4,6 +4,7 @@ import {
   isCodigoVendedorValido,
   isPinVendedorFraco,
   isPinVendedorValido,
+  listaGeralDeVendasEscondidaParaFuncionario,
   MAX_VENDEDORES_COM_CODIGO,
   normalizarCodigoVendedor,
   parseExigirIdentificacaoVendedor,
@@ -151,4 +152,35 @@ test('checarUsername exige 3 letras e devolve o valor normalizado', () => {
   const ok = checarUsername('  Joao Silva ');
   assert.equal(ok.ok, true);
   assert.equal(ok.username, 'joaosilva');
+});
+
+// --- Lista geral de vendas escondida do funcionario (Minhas Vendas) --------
+
+test('config desligada nunca esconde a lista, seja qual for o papel', () => {
+  assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
+    exigirIdentificacaoVendedor: false, role: 'Funcionario', isOwner: false,
+  }), false);
+  assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
+    exigirIdentificacaoVendedor: false, role: 'Master', isOwner: true,
+  }), false);
+});
+
+test('quem tem acesso total continua vendo a lista, mesmo com a config ligada', () => {
+  for (const role of ['Master', 'Admin', 'SuperAdmin', 'NexarAdmin']) {
+    assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
+      exigirIdentificacaoVendedor: true, role, isOwner: false,
+    }), false, `role ${role} deveria continuar vendo a lista`);
+  }
+  assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
+    exigirIdentificacaoVendedor: true, role: 'Funcionario', isOwner: true,
+  }), false, 'dono deveria continuar vendo a lista mesmo com role Funcionario');
+});
+
+test('funcionario comum fica sem a lista quando a config esta ligada', () => {
+  assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
+    exigirIdentificacaoVendedor: true, role: 'Funcionario', isOwner: false,
+  }), true);
+  assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
+    exigirIdentificacaoVendedor: true, role: undefined, isOwner: false,
+  }), true);
 });

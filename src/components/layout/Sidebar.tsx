@@ -35,6 +35,7 @@ import {
   Store,
   Tags,
   Truck,
+  UserCheck,
   UserCog,
   Users,
   Wallet,
@@ -134,6 +135,7 @@ const Sidebar: React.FC = () => {
       items: [
         { label: 'Frente de Caixa', to: '/pdv', icon: Store, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
         { label: 'Pedidos de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
+        { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
         { label: 'Orçamentos', to: '/orcamentos', icon: FileText, module: 'comercial.orcamentos', permission: 'vendas.orcamentos' },
         { label: 'Relatório de Vendas', to: '/relatorios-vendas', icon: BarChart2, module: 'comercial.relatorios', permission: 'vendas.relatorios' },
         { label: 'Pré-vendas em Aberto', to: '/pre-vendas', icon: ClipboardList, module: 'comercial.relatorios', permission: 'vendas.pre_venda_relatorio' }
@@ -306,6 +308,7 @@ const Sidebar: React.FC = () => {
   const railShortcuts: NavItem[] = [
     { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, module: 'dashboard.empresa' },
     { label: 'Pedido de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
+    { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
     { label: 'Ordem de Serviço', to: '/os', icon: ClipboardList, module: 'mecanica.os', permission: 'mecanica.os' },
     { label: 'Estoque', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
     { label: 'Contas a Receber', to: '/financeiro/contas-receber', icon: Clock, module: 'financeiro.receber', permission: 'financeiro.receber' },

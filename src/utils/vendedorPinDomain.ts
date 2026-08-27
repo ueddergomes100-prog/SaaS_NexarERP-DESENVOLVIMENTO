@@ -30,6 +30,8 @@
  * vale e' sempre a do backend.
  */
 
+import { hasTenantFullAccess } from './roles';
+
 export const CODIGO_VENDEDOR_DIGITOS = 2;
 export const PIN_VENDEDOR_DIGITOS = 4;
 
@@ -94,3 +96,32 @@ export interface VendedorIdentificado {
   vendedorNome: string;
   codigo: string;
 }
+
+/**
+ * A lista geral de "Pedidos de Venda" fica escondida da TELA (nao do
+ * Firestore) pra quem nao tem acesso total, quando a empresa liga "Exigir
+ * identificacao do vendedor a cada venda"?
+ *
+ * Por que esconder: no balcao compartilhado, cada venda e' gravada sob o
+ * UID da ESTACAO (balcao01...), nao do vendedor real -- a lista geral
+ * misturaria venda de todo mundo sem dizer "quem vendeu o que" de um jeito
+ * confiavel pra quem nao e' gestor. Quem tem acesso total (dono, Master,
+ * Admin, SuperAdmin -- hasTenantFullAccess) continua vendo tudo, igual
+ * hoje; o funcionario comum passa a usar "Minhas Vendas" (MinhasVendas.tsx),
+ * que se identifica pelo mesmo PIN e mostra so as vendas dele.
+ *
+ * IMPORTANTE: isto e' uma barreira de FLUXO/TELA, nao blindagem de
+ * Firestore. As regras continuam permitindo a query por tenantId pra
+ * qualquer autenticado do tenant, igual antes -- esconder a lista aqui e'
+ * so gestao de UX, nao seguranca de dado. Escopo aceito nesta fatia;
+ * blindagem de verdade (regras + reescrita de query) fica pra outra
+ * fatia, se um dia for necessaria.
+ */
+export const listaGeralDeVendasEscondidaParaFuncionario = (args: {
+  exigirIdentificacaoVendedor: boolean;
+  role: unknown;
+  isOwner: boolean;
+}): boolean => {
+  if (!args.exigirIdentificacaoVendedor) return false;
+  return !hasTenantFullAccess(args.role, args.isOwner);
+};

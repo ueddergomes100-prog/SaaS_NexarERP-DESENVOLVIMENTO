@@ -3,7 +3,7 @@ import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, 
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { MODULE_GROUPS } from '../../utils/moduleCatalog';
@@ -374,6 +374,48 @@ const Configuracoes: React.FC = () => {
 
   const handleRemoveDespesa = (index: number) => {
     setFormData(prev => ({ ...prev, planoContasDespesas: prev.planoContasDespesas.filter((_, i) => i !== index) }));
+  };
+
+  /**
+   * Primeiro precedente no sistema de "confirmar ANTES de marcar um
+   * checkbox de configuracao" -- este toggle muda o comportamento de
+   * DUAS telas de uma vez (exige PIN na venda + esconde a lista geral de
+   * Pedidos de Venda do funcionario comum), entao o usuario precisa saber
+   * disso antes de ligar, nao descobrir depois. Desligar nao precisa de
+   * aviso: nao ha risco de travar nada.
+   *
+   * Usa o updater funcional do setFormData -- o NexusSwal.fire fica
+   * aberto esperando o clique, e o formData pode ter mudado nesse meio
+   * tempo (usuario mexeu em outro campo antes de decidir).
+   */
+  const handleToggleExigirIdentificacaoVendedor = (ligar: boolean) => {
+    if (!ligar) {
+      setFormData((atual) => ({ ...atual, exigirIdentificacaoVendedor: false }));
+      return;
+    }
+
+    NexusSwal.fire({
+      icon: 'warning',
+      title: 'Ativar identificação do vendedor a cada venda?',
+      html: `
+        <div style="text-align:left; font-size:14px; line-height:1.6;">
+          <p style="margin:0 0 10px;">A partir de agora:</p>
+          <ul style="margin:0 0 12px; padding-left:20px;">
+            <li>Toda <strong>venda finalizada</strong> ou <strong>pré-venda</strong> gravada vai pedir o <strong>código (2 dígitos)</strong> e a <strong>senha (4 dígitos)</strong> do vendedor antes de concluir.</li>
+            <li>A lista geral de <strong>Pedidos de Venda</strong> deixa de aparecer para quem não é dono, Master ou Admin da empresa. Esses usuários passam a usar a nova tela <strong>Minhas Vendas</strong>, que mostra só as vendas do próprio vendedor.</li>
+          </ul>
+          <p style="margin:0;"><strong>Antes de confirmar:</strong> cadastre código e senha de pelo menos um vendedor em Usuários. Sem isso, ninguém consegue finalizar uma venda.</p>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Sim, ativar',
+      cancelButtonText: 'Cancelar',
+      reverseButtons: true,
+    }).then((result) => {
+      if (result.isConfirmed) {
+        setFormData((atual) => ({ ...atual, exigirIdentificacaoVendedor: true }));
+      }
+    });
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -1438,7 +1480,7 @@ const Configuracoes: React.FC = () => {
                   <input
                     type="checkbox"
                     checked={formData.exigirIdentificacaoVendedor === true}
-                    onChange={(e) => setFormData({ ...formData, exigirIdentificacaoVendedor: e.target.checked })}
+                    onChange={(e) => handleToggleExigirIdentificacaoVendedor(e.target.checked)}
                     disabled={!isEditingMode}
                     style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
                   />
@@ -1451,6 +1493,9 @@ const Configuracoes: React.FC = () => {
                 </p>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                   Cada funcionário precisa ter <strong>código e senha cadastrados em Usuários</strong>. Se o funcionário esquecer a senha, um administrador cadastra outra na hora, lá mesmo.
+                </p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Com esta opção ligada, a lista geral de <strong>Pedidos de Venda</strong> fica visível só para dono, Master ou Admin — o funcionário comum passa a usar a tela <strong>Minhas Vendas</strong>, que mostra e reimprime só as vendas dele.
                 </p>
               </div>
 

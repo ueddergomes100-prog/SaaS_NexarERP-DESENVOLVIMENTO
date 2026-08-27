@@ -10,6 +10,7 @@ const Orcamentos = lazy(() => import('../pages/Orcamentos/Orcamentos'));
 const OrcamentoForm = lazy(() => import('../pages/Orcamentos/OrcamentoForm'));
 const OrcamentoPrint = lazy(() => import('../pages/Orcamentos/OrcamentoPrint'));
 const PedidoVendas = lazy(() => import('../pages/Vendas/PedidoVendas'));
+const MinhasVendas = lazy(() => import('../pages/Vendas/MinhasVendas'));
 const RelatoriosVendas = lazy(() => import('../pages/Vendas/RelatoriosVendas'));
 const RelatorioPreVendas = lazy(() => import('../pages/Vendas/RelatorioPreVendas'));
 const OSList = lazy(() => import('../pages/OS/OSList'));
@@ -77,6 +78,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'orcamentos/editar/:id', element: <OrcamentoForm /> },
   { path: 'orcamentos/print/:id', element: <OrcamentoPrint /> },
   { path: 'pedidos-venda', element: <PedidoVendas /> },
+  { path: 'minhas-vendas', element: <MinhasVendas /> },
   { path: 'pedidos-venda/novo', element: <PedidoVendaForm /> },
   { path: 'pedidos-venda/visualizar/:id', element: <PedidoVendaForm /> },
   { path: 'pedidos-venda/print/:id', element: <PedidoPrint /> },

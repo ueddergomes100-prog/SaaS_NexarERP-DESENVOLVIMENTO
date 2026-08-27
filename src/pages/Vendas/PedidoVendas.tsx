@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, Plus, Search, FileText, Printer, Trash2, XCircle } from 'lucide-react';
+import { ShoppingCart, Plus, Search, FileText, Printer, Trash2, XCircle, UserCheck } from 'lucide-react';
 import { collection, query, where, onSnapshot, deleteDoc, doc, getDoc, updateDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -19,6 +19,10 @@ import {
   STATUS_EM_ANALISE,
   STATUS_PRE_VENDA,
 } from '../../utils/preVendaDomain';
+import {
+  listaGeralDeVendasEscondidaParaFuncionario,
+  parseExigirIdentificacaoVendedor,
+} from '../../utils/vendedorPinDomain';
 
 interface ItemVenda {
   id: string;
@@ -78,6 +82,16 @@ const PedidoVendas: React.FC = () => {
    * os checkboxes de impressao em lote). Abrir exige duplo clique ou Enter. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(false);
+  const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(false);
+
+  // Lista geral so e' escondida da TELA (nao do Firestore) do funcionario
+  // comum quando a empresa liga "Exigir identificacao do vendedor" -- ver
+  // vendedorPinDomain.ts. Quem tem acesso total continua vendo tudo.
+  const listaEscondida = listaGeralDeVendasEscondidaParaFuncionario({
+    exigirIdentificacaoVendedor,
+    role: userRole,
+    isOwner,
+  });
 
   // Estado para armazenar IDs dos cupons autorizados
   const [authorizedCupons, setAuthorizedCupons] = useState<Record<string, { spedyId: string; status: string }>>({});
@@ -113,7 +127,11 @@ const PedidoVendas: React.FC = () => {
     if (!currentUser || !tenantId) return;
 
     getDoc(doc(db, 'configuracoes', tenantId))
-      .then((snap) => setConferenciaMercadoriaAtiva(snap.exists() && snap.data().conferenciaMercadoria === true))
+      .then((snap) => {
+        const data = snap.exists() ? snap.data() : {};
+        setConferenciaMercadoriaAtiva(data.conferenciaMercadoria === true);
+        setExigirIdentificacaoVendedor(parseExigirIdentificacaoVendedor(data.exigirIdentificacaoVendedor));
+      })
       .catch((err) => console.error('Erro ao verificar configuração de conferência de mercadoria:', err));
   }, [currentUser, tenantId]);
 
@@ -439,6 +457,23 @@ const PedidoVendas: React.FC = () => {
         </button>
       </div>
 
+      {listaEscondida ? (
+        <div className="card" style={{ padding: '48px 24px', textAlign: 'center', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+          <UserCheck size={48} color="var(--accent-purple)" />
+          <h2 style={{ fontSize: '18px', margin: 0 }}>Lista geral de pedidos desativada</h2>
+          <p style={{ color: 'var(--text-muted)', maxWidth: '480px', margin: 0 }}>
+            Sua empresa ativou "Exigir identificação do vendedor a cada venda". Por isso, esta lista fica disponível só para dono, Master ou Admin. Para consultar e reimprimir suas próprias vendas, use a tela <strong>Minhas Vendas</strong>.
+          </p>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => openTab('/minhas-vendas', 'Minhas Vendas')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <UserCheck size={18} /> Ir para Minhas Vendas
+          </button>
+        </div>
+      ) : (
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
 
         <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
@@ -631,6 +666,7 @@ const PedidoVendas: React.FC = () => {
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 };

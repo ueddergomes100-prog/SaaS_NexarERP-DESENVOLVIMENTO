@@ -139,7 +139,7 @@ const PDV: React.FC = () => {
   const hasPdvAccess = isOwner ||
     isPlatformAdminRole(userRole) ||
     isTenantManagerRole(userRole) ||
-    userPermissions?.includes('vendas.pedidos');
+    userPermissions?.includes('vendas.pdv');
 
   // O PDV vive fora do sistema de abas/TabPane (ver App.tsx), entao nao
   // herda automaticamente a checagem de blockedModules que toda outra tela

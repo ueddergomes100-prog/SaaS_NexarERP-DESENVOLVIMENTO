@@ -28,7 +28,7 @@ const VeiculosList: React.FC = () => {
   const { openTab } = useTabs();
   const { tenantId, userPermissions, userRole, isOwner } = useAuth();
   
-  const canEdit = isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('cadastros.clientes');
+  const canEdit = isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('cadastros.veiculos');
 
   const fetchVeiculos = async () => {
     if (!tenantId) return;

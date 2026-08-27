@@ -62,7 +62,10 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
 
   let routePermission = '';
   if (path.startsWith('/dashboard')) routePermission = 'dashboard.acesso';
-  else if (path.startsWith('/clientes') || path.startsWith('/veiculos')) routePermission = 'cadastros.clientes';
+  else if (path.startsWith('/clientes')) routePermission = 'cadastros.clientes';
+  // Separada de cadastros.clientes em 2026-08-27 -- as duas telas
+  // dividiam o mesmo id, sem controle independente.
+  else if (path.startsWith('/veiculos')) routePermission = 'cadastros.veiculos';
   else if (path.startsWith('/usuarios')) routePermission = 'administrativo.equipe';
   else if (path.startsWith('/estoque')) routePermission = 'cadastros.estoque';
   else if (path.startsWith('/servicos')) routePermission = 'cadastros.servicos';
@@ -75,10 +78,16 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   // acessa via Estoque perde o acesso ate receber a permissao nova.
   else if (path.startsWith('/fornecedores')) routePermission = 'cadastros.fornecedores';
   else if (path.startsWith('/materias-primas')) routePermission = 'cadastros.materia_prima';
-  else if (path.startsWith('/producao/ordens') || path.startsWith('/producao/relatorios')) routePermission = 'operacoes.producao';
+  else if (path.startsWith('/producao/ordens')) routePermission = 'operacoes.producao';
+  // Separada de operacoes.producao em 2026-08-27 -- as duas telas
+  // dividiam o mesmo id, sem controle independente.
+  else if (path.startsWith('/producao/relatorios')) routePermission = 'operacoes.producao_relatorios';
   else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routePermission = 'operacoes.expedicao';
   else if (path.startsWith('/pedidos-venda')) routePermission = 'vendas.pedidos';
-  else if (path.startsWith('/minhas-vendas')) routePermission = 'vendas.pedidos';
+  // Separada de vendas.pedidos em 2026-08-27 -- Minhas Vendas e o PDV
+  // (este ultimo fora do sistema de rotas, ver PDV.tsx) dividiam o mesmo
+  // id de Pedidos de Venda, sem controle independente.
+  else if (path.startsWith('/minhas-vendas')) routePermission = 'vendas.minhas_vendas';
   else if (path.startsWith('/orcamentos')) routePermission = 'vendas.orcamentos';
   else if (path.startsWith('/pre-vendas')) routePermission = 'vendas.pre_venda_relatorio';
   else if (path.startsWith('/relatorios-vendas')) routePermission = 'vendas.relatorios';
@@ -94,6 +103,11 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/financeiro/faturamento')) routePermission = 'financeiro.faturamento';
   else if (path.startsWith('/financeiro/comissoes') || path.startsWith('/financeiro')) routePermission = 'financeiro.comissoes';
   else if (path.startsWith('/fiscal/nfe')) routePermission = 'fiscal.emitir';
+  // Precisa vir ANTES do branch generico de /fiscal/entrada-nfe logo
+  // abaixo (senao esta subrota nunca seria alcancada) -- separada em
+  // 2026-08-27 porque as duas telas dividiam o mesmo id, sem controle
+  // independente.
+  else if (path.startsWith('/fiscal/entrada-nfe/historico')) routePermission = 'fiscal.entrada_historico';
   else if (path.startsWith('/fiscal/entrada-nfe') || path.startsWith('/fiscal')) routePermission = 'fiscal.entrada';
   else if (path.startsWith('/utilitarios/sintegra')) routePermission = 'utilitarios.sintegra';
   else if (path.startsWith('/relatorios-diversos')) routePermission = 'administrativo.relatorios';

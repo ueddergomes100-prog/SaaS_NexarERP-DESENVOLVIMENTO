@@ -133,9 +133,9 @@ const Sidebar: React.FC = () => {
       label: 'Comercial',
       icon: ShoppingCart,
       items: [
-        { label: 'Frente de Caixa', to: '/pdv', icon: Store, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
+        { label: 'Frente de Caixa', to: '/pdv', icon: Store, module: 'comercial.pedidos', permission: 'vendas.pdv' },
         { label: 'Pedidos de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
-        { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
+        { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.minhas_vendas' },
         { label: 'Orçamentos', to: '/orcamentos', icon: FileText, module: 'comercial.orcamentos', permission: 'vendas.orcamentos' },
         { label: 'Relatório de Vendas', to: '/relatorios-vendas', icon: BarChart2, module: 'comercial.relatorios', permission: 'vendas.relatorios' },
         { label: 'Pré-vendas em Aberto', to: '/pre-vendas', icon: ClipboardList, module: 'comercial.relatorios', permission: 'vendas.pre_venda_relatorio' }
@@ -157,7 +157,7 @@ const Sidebar: React.FC = () => {
       icon: Users,
       items: [
         { label: 'Clientes', to: '/clientes', icon: Users, module: 'cadastros.clientes', permission: 'cadastros.clientes' },
-        { label: 'Veículos', to: '/veiculos', icon: Car, module: 'cadastros.veiculos', permission: 'cadastros.clientes' },
+        { label: 'Veículos', to: '/veiculos', icon: Car, module: 'cadastros.veiculos', permission: 'cadastros.veiculos' },
         { label: 'Estoque / Produtos', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
         { label: 'Serviços', to: '/servicos', icon: Briefcase, module: 'cadastros.servicos', permission: 'cadastros.servicos' }
       ]
@@ -181,7 +181,7 @@ const Sidebar: React.FC = () => {
       icon: Factory,
       items: [
         { label: 'Ordens de Produção', to: '/producao/ordens', icon: ClipboardList, module: 'operacoes.producao', permission: 'operacoes.producao' },
-        { label: 'Relatório de Produção', to: '/producao/relatorios', icon: PieChart, module: 'operacoes.producao', permission: 'operacoes.producao' },
+        { label: 'Relatório de Produção', to: '/producao/relatorios', icon: PieChart, module: 'operacoes.producao', permission: 'operacoes.producao_relatorios' },
       ]
     },
     {
@@ -213,7 +213,7 @@ const Sidebar: React.FC = () => {
       items: [
         { label: 'Notas Fiscais', to: '/fiscal/nfe', icon: Receipt, module: 'fiscal.nfe', permission: 'fiscal.emitir' },
         { label: 'Entrada de XML', to: '/fiscal/entrada-nfe', icon: Inbox, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' },
-        { label: 'Histórico de Entradas', to: '/fiscal/entrada-nfe/historico', icon: History, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' }
+        { label: 'Histórico de Entradas', to: '/fiscal/entrada-nfe/historico', icon: History, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada_historico' }
       ]
     },
     {
@@ -308,7 +308,7 @@ const Sidebar: React.FC = () => {
   const railShortcuts: NavItem[] = [
     { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, module: 'dashboard.empresa', permission: 'dashboard.acesso' },
     { label: 'Pedido de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
-    { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
+    { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.minhas_vendas' },
     { label: 'Ordem de Serviço', to: '/os', icon: ClipboardList, module: 'mecanica.os', permission: 'mecanica.os' },
     { label: 'Estoque', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
     { label: 'Contas a Receber', to: '/financeiro/contas-receber', icon: Clock, module: 'financeiro.receber', permission: 'financeiro.receber' },
@@ -319,7 +319,7 @@ const Sidebar: React.FC = () => {
   ].filter(canAccess);
 
   const quickActions = [
-    { label: 'PDV', to: '/pdv', icon: Store, permission: 'vendas.pedidos', module: 'comercial.pedidos' },
+    { label: 'PDV', to: '/pdv', icon: Store, permission: 'vendas.pdv', module: 'comercial.pedidos' },
     { label: 'Venda', to: '/pedidos-venda/novo', icon: ShoppingCart, permission: 'vendas.pedidos', module: 'comercial.pedidos' },
     { label: 'Cliente', to: '/clientes/novo', icon: Users, permission: 'cadastros.clientes', module: 'cadastros.clientes' },
     { label: 'OS', to: '/os/nova', icon: ClipboardList, permission: 'mecanica.os', module: 'mecanica.os' },

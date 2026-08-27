@@ -51,6 +51,11 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
     grupo: 'Vendas',
     itens: [
       { id: 'vendas.pedidos', label: 'Vendas: Pedidos de Venda', color: '#f59e0b' },
+      // Separadas de vendas.pedidos em 2026-08-27: as 3 telas dividiam o
+      // mesmo id (marcar Pedidos de Venda liberava PDV e Minhas Vendas
+      // tambem, sem controle independente -- achado pelo usuario).
+      { id: 'vendas.minhas_vendas', label: 'Vendas: Minhas Vendas', color: '#f59e0b' },
+      { id: 'vendas.pdv', label: 'Vendas: Frente de Caixa (PDV)', color: '#f59e0b' },
       { id: 'vendas.alterar', label: 'Vendas: Alterar Pedidos', color: '#f59e0b' },
       { id: 'vendas.excluir', label: 'Vendas: Excluir Pedidos', color: '#ef4444' },
       { id: 'vendas.devolucao', label: 'Vendas: Devolução de Venda', color: '#ef4444' },
@@ -98,6 +103,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
     grupo: 'Cadastros',
     itens: [
       { id: 'cadastros.clientes', label: 'Cadastros: Clientes', color: '#8b5cf6' },
+      // Separada de cadastros.clientes em 2026-08-27: marcar Clientes
+      // liberava Veiculos junto, sem controle independente.
+      { id: 'cadastros.veiculos', label: 'Cadastros: Veículos', color: '#8b5cf6' },
       { id: 'cadastros.estoque', label: 'Cadastros: Estoque / Produtos', color: '#8b5cf6' },
       { id: 'cadastros.servicos', label: 'Cadastros: Serviços', color: '#8b5cf6' },
       { id: 'cadastros.categorias', label: 'Cadastros: Categorias', color: '#8b5cf6' },
@@ -112,6 +120,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
     grupo: 'Produção e Expedição',
     itens: [
       { id: 'operacoes.producao', label: 'Produção: Ordens de Produção', color: '#f97316' },
+      // Separada de operacoes.producao em 2026-08-27: marcar Ordens de
+      // Producao liberava o Relatorio junto, sem controle independente.
+      { id: 'operacoes.producao_relatorios', label: 'Produção: Relatório de Produção', color: '#f97316' },
       { id: 'operacoes.expedicao', label: 'Expedição: Conferência de Mercadoria', color: '#14b8a6' },
     ],
   },
@@ -133,6 +144,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
     itens: [
       { id: 'fiscal.emitir', label: 'Fiscal: Emitir Nota Fiscal', color: '#f59e0b' },
       { id: 'fiscal.entrada', label: 'Fiscal: Entrada de XML', color: '#f59e0b' },
+      // Separada de fiscal.entrada em 2026-08-27: marcar Entrada de XML
+      // liberava o Historico de Entradas junto, sem controle independente.
+      { id: 'fiscal.entrada_historico', label: 'Fiscal: Histórico de Entradas', color: '#f59e0b' },
       { id: 'fiscal.excluir', label: 'Fiscal: Excluir/Cancelar Nota Fiscal', color: '#ef4444' },
       { id: 'utilitarios.sintegra', label: 'Utilitários: SINTEGRA', color: '#94a3b8' },
     ],

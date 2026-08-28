@@ -333,6 +333,19 @@ const sendEmailCode = async ({ email, code, companyName }) => {
     return { delivered: false, devCode: code };
   }
 
+  // Diagnostico -- so presenca/tamanho das variaveis, nunca o valor (mesmo
+  // padrao de diagnosticoCredencial em config/firebase.js). Existe porque o
+  // sintoma "configurei RESEND_API_KEY + EMAIL_FROM e continua dando este
+  // erro" e' opaco sem isto: nao da pra saber se a variavel nao chegou no
+  // processo (app errado, nome digitado diferente, faltou redeploy de
+  // verdade) so pela mensagem de erro que o usuario final ve.
+  console.warn(
+    `[Onboarding] Servico de e-mail nao configurado -- `
+    + `RESEND_API_KEY=${process.env.RESEND_API_KEY ? `presente (${process.env.RESEND_API_KEY.length} caracteres)` : 'AUSENTE'} | `
+    + `EMAIL_FROM=${process.env.EMAIL_FROM ? `presente (${process.env.EMAIL_FROM.length} caracteres)` : 'AUSENTE'} | `
+    + `SENDGRID_API_KEY=${process.env.SENDGRID_API_KEY ? `presente (${process.env.SENDGRID_API_KEY.length} caracteres)` : 'AUSENTE'}`
+  );
+
   const error = new Error('Servico de e-mail nao configurado.');
   error.status = 503;
   throw error;

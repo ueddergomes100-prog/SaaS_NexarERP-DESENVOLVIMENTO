@@ -287,7 +287,19 @@ const OSForm: React.FC = () => {
       const qS = query(collection(db, 'servicos'), where('tenantId', '==', tenantId));
       const snapS = await getDocs(qS);
       const dataS: ServicoData[] = [];
-      snapS.forEach((doc) => dataS.push({ id: doc.id, nome: doc.data().nome, preco: doc.data().preco, comissaoPercentual: doc.data().comissaoPercentual }));
+      snapS.forEach((doc) => {
+        const dataDoc = doc.data();
+        dataS.push({
+          id: doc.id,
+          nome: dataDoc.nome,
+          preco: dataDoc.preco,
+          // Comissao propria do servico e' opcional -- maioria nao tem.
+          // handleAddServico espalha este objeto inteiro (`...servico`) pro
+          // item selecionado, que vai direto pro Firestore em osData.servicos;
+          // chave com valor undefined quebrava o save (regra 3 do CLAUDE.md).
+          ...(dataDoc.comissaoPercentual !== undefined ? { comissaoPercentual: dataDoc.comissaoPercentual } : {}),
+        });
+      });
       setServicosCatalogo(dataS);
 
       // Fetch Estoque

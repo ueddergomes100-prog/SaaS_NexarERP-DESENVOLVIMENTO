@@ -32,6 +32,7 @@ import {
   Settings,
   ShieldAlert,
   ShoppingCart,
+  SlidersHorizontal,
   Store,
   Tags,
   Truck,
@@ -161,8 +162,21 @@ const Sidebar: React.FC = () => {
       items: [
         { label: 'Clientes', to: '/clientes', icon: Users, module: 'cadastros.clientes', permission: 'cadastros.clientes' },
         { label: 'Veículos', to: '/veiculos', icon: Car, module: 'cadastros.veiculos', permission: 'cadastros.veiculos' },
-        { label: 'Estoque / Produtos', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
         { label: 'Serviços', to: '/servicos', icon: Briefcase, module: 'cadastros.servicos', permission: 'cadastros.servicos' }
+      ]
+    },
+    {
+      id: 'estoque',
+      label: 'Estoque',
+      icon: Package,
+      items: [
+        // Continua com o module/permission cadastros.estoque que ja existia
+        // (nao inventar id novo aqui: quebraria a permissao ja concedida a
+        // funcionarios em producao). So mudou de grupo visual no menu.
+        { label: 'Produtos', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
+        { label: 'Ajuste Manual', to: '/estoque/ajuste', icon: SlidersHorizontal, module: 'estoque.ajusteManual', permission: 'estoque.ajusteManual' },
+        { label: 'Relatório de Estoque', to: '/estoque/relatorio', icon: PieChart, module: 'estoque.relatorio', permission: 'estoque.relatorio' },
+        { label: 'Relatório de Ajustes', to: '/estoque/relatorio-ajustes', icon: History, module: 'estoque.relatorioAjustes', permission: 'estoque.relatorioAjustes' }
       ]
     },
     {

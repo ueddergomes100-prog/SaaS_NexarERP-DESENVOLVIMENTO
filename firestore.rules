@@ -115,7 +115,12 @@ service cloud.firestore {
     function canWriteTenantCollection(collectionName) {
       return canManageTenantData() ||
         (collectionName in ['clientes', 'veiculos'] && hasAnyPermission(['cadastros.clientes', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'crm.agenda', 'crm.alertas'])) ||
-        (collectionName in ['produtos', 'estoque', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        (collectionName in ['produtos', 'estoque', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        // estoque_lotes saiu do grupo acima: quem so tem estoque.ajusteManual
+        // (Ajuste Manual de Estoque, sem ter cadastros.estoque completo)
+        // tambem precisa gravar/atualizar lote ao dar entrada/saida controlando
+        // lote e validade.
+        (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque', 'estoque.ajusteManual'])) ||
         // Fornecedores ganhou permissao propria (antes vinha no balaio de
         // cadastros.estoque). Aceita tambem fiscal.entrada porque a Entrada de
         // XML CRIA fornecedor durante a importacao (EntradaNFE.tsx) -- sem
@@ -157,7 +162,8 @@ service cloud.firestore {
     function canDeleteTenantCollection(collectionName) {
       return canManageTenantData() ||
         (collectionName in ['clientes', 'veiculos'] && hasPermission('cadastros.clientes')) ||
-        (collectionName in ['produtos', 'estoque', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'estoque_lotes', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        (collectionName in ['produtos', 'estoque', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque', 'estoque.ajusteManual'])) ||
         // Excluir fornecedor exige a permissao propria -- quem so tem
         // fiscal.entrada pode CRIAR pela importacao de XML, mas nao apagar.
         (collectionName == 'fornecedores' && hasPermission('cadastros.fornecedores')) ||
@@ -216,7 +222,7 @@ service cloud.firestore {
         resource.data.tenantId == currentTenantId() &&
         request.resource.data.tenantId == resource.data.tenantId &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'updatedAt']) &&
-        hasAnyPermission(['vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar']);
+        hasAnyPermission(['vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar', 'estoque.ajusteManual']);
     }
 
     // Modulo 12 (Conferencia de mercadoria): quem so tem operacoes.expedicao
@@ -375,6 +381,24 @@ service cloud.firestore {
           (isTenantAdmin() || hasPermission('administrativo.logs'))
         );
       allow update: if false;
+    }
+
+    // Kardex do Ajuste Manual de Estoque. Registro imutavel (sem update/delete)
+    // de proposito -- corrige-se um ajuste errado com um novo ajuste, igual
+    // trilha de auditoria financeira, nunca reescrevendo o que ja aconteceu.
+    match /ajustes_estoque/{documentId} {
+      allow read: if isSuperAdmin() ||
+        (
+          canAccessTenant(resource.data.tenantId) &&
+          (canManageTenantData() || hasAnyPermission(['estoque.ajusteManual', 'estoque.relatorioAjustes']))
+        );
+      allow create: if isSuperAdmin() ||
+        (
+          hasProfile() &&
+          request.resource.data.tenantId == currentTenantId() &&
+          (canManageTenantData() || hasPermission('estoque.ajusteManual'))
+        );
+      allow update, delete: if false;
     }
 
     match /{collectionName}/{documentId} {

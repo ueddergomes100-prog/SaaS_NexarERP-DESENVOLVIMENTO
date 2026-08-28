@@ -18,6 +18,13 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/clientes')) routeModule = 'cadastros.clientes';
   else if (path.startsWith('/usuarios')) routeModule = 'cadastros.usuarios';
   else if (path.startsWith('/veiculos')) routeModule = 'cadastros.veiculos';
+  // As 3 sub-telas do Ajuste Manual de Estoque precisam vir ANTES do
+  // generico '/estoque' logo abaixo (mais especifico primeiro, senao nunca
+  // seriam alcancadas) -- e 'relatorio-ajustes' antes de 'relatorio' pelo
+  // mesmo motivo (prefixo mais longo primeiro).
+  else if (path.startsWith('/estoque/ajuste')) routeModule = 'estoque.ajusteManual';
+  else if (path.startsWith('/estoque/relatorio-ajustes')) routeModule = 'estoque.relatorioAjustes';
+  else if (path.startsWith('/estoque/relatorio')) routeModule = 'estoque.relatorio';
   else if (path.startsWith('/estoque')) routeModule = 'cadastros.estoque';
   else if (path.startsWith('/servicos')) routeModule = 'cadastros.servicos';
   else if (path.startsWith('/categorias')) routeModule = 'cadastros.categorias';
@@ -68,6 +75,9 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   // dividiam o mesmo id, sem controle independente.
   else if (path.startsWith('/veiculos')) routePermission = 'cadastros.veiculos';
   else if (path.startsWith('/usuarios')) routePermission = 'administrativo.equipe';
+  else if (path.startsWith('/estoque/ajuste')) routePermission = 'estoque.ajusteManual';
+  else if (path.startsWith('/estoque/relatorio-ajustes')) routePermission = 'estoque.relatorioAjustes';
+  else if (path.startsWith('/estoque/relatorio')) routePermission = 'estoque.relatorio';
   else if (path.startsWith('/estoque')) routePermission = 'cadastros.estoque';
   else if (path.startsWith('/servicos')) routePermission = 'cadastros.servicos';
   else if (path.startsWith('/categorias')) routePermission = 'cadastros.categorias';

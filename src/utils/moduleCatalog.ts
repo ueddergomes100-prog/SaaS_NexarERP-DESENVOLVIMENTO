@@ -31,6 +31,11 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'cadastros.estoque', label: 'Estoque / Produtos' },
     { id: 'cadastros.servicos', label: 'Cadastro de Serviços' }
   ]},
+  { group: 'Estoque', items: [
+    { id: 'estoque.ajusteManual', label: 'Ajuste Manual de Estoque' },
+    { id: 'estoque.relatorio', label: 'Relatório de Estoque' },
+    { id: 'estoque.relatorioAjustes', label: 'Relatório de Ajustes de Estoque' }
+  ]},
   { group: 'Cadastros Auxiliares', items: [
     { id: 'cadastros.categorias', label: 'Categorias' },
     { id: 'cadastros.unidades_medida', label: 'Unidades de Medida' },

@@ -118,6 +118,14 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
     ],
   },
   {
+    grupo: 'Estoque',
+    itens: [
+      { id: 'estoque.ajusteManual', label: 'Estoque: Ajuste Manual', color: '#0ea5e9' },
+      { id: 'estoque.relatorio', label: 'Estoque: Relatório de Estoque', color: '#0ea5e9' },
+      { id: 'estoque.relatorioAjustes', label: 'Estoque: Relatório de Ajustes', color: '#0ea5e9' },
+    ],
+  },
+  {
     grupo: 'Produção e Expedição',
     itens: [
       { id: 'operacoes.producao', label: 'Produção: Ordens de Produção', color: '#f97316' },

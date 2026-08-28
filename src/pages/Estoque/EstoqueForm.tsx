@@ -11,6 +11,7 @@ import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, CSOSN_OPTIONS, usesCsosn, 
 import { computeAvailableStock } from '../../utils/estoqueReservaDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM, formatFatorConversao, normalizeEmbalagens } from '../../utils/embalagemDomain';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
+import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -918,6 +919,24 @@ const EstoqueForm: React.FC = () => {
       }
 
       const selectedUnit = activeUnidades.find(u => u.id === formData.unidadeMedidaId) || activeUnidades.find(u => u.sigla === 'UN') || activeUnidades[0];
+
+      // Mesma regra unica de quantidade fracionada usada em Pedido de Venda,
+      // OS, Orcamento, PDV e Ajuste Manual de Estoque (saleQuantity.ts) --
+      // sem isso, um produto na unidade UN (nao fracionavel) aceitava
+      // quantidade inicial "1.5" no proprio cadastro.
+      if (quantidadeEstoqueEditavel && formData.quantidade.trim() !== '') {
+        const unidadeFracionadaCadastro = Boolean(selectedUnit?.permiteFracionado) && formData.produtoFracionado;
+        const casasDecimaisCadastro = selectedUnit ? Number(selectedUnit.casasDecimais) : 0;
+        const quantidadeInicial = toNumber(formData.quantidade);
+        if (quantidadeInicial > 0 && !isValidSaleQuantity(quantidadeInicial, unidadeFracionadaCadastro, casasDecimaisCadastro)) {
+          setActiveTab('estoque');
+          showError('Quantidade inválida', unidadeFracionadaCadastro
+            ? `A quantidade aceita no máximo ${casasDecimaisCadastro} casa(s) decimal(is), conforme a unidade ${selectedUnit?.sigla || 'UN'}.`
+            : `Este produto está na unidade ${selectedUnit?.sigla || 'UN'}, que NÃO permite quantidade fracionada. Utilize um número inteiro.`);
+          return;
+        }
+      }
+
       const ultimoHistorico = [...historicoPrecos];
       // Mesmo fallback que a carga do formulario usa (`data.precos?.venda`):
       // produto legado guarda preco no objeto `precos`, nao nos campos
@@ -1301,10 +1320,9 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-3">
                 <div className="input-group">
                   <label>Categoria *</label>
-                  <input type="text" name="categoria" list="categorias-produto" value={formData.categoria} onChange={handleChange} required={!validarCadastroProduto} placeholder="Selecione ou digite uma categoria" />
-                  <datalist id="categorias-produto">
-                    {categoriasDB.map((cat, idx) => <option key={idx} value={cat} />)}
-                  </datalist>
+                  <select name="categoria" value={formData.categoria} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
+                    {categoriasDB.map((cat, idx) => <option key={idx} value={cat}>{cat}</option>)}
+                  </select>
                 </div>
                 <div className="input-group">
                   <label>Unidade de medida *</label>
@@ -1607,7 +1625,18 @@ const EstoqueForm: React.FC = () => {
                     <span className="field-hint">
                       {permitirVendaSemEstoque
                         ? 'Venda sem estoque está ativa; a quantidade pode ser ajustada manualmente.'
-                        : 'Em produto já cadastrado, a quantidade muda por NFE, venda, cancelamento ou movimentação.'}
+                        : (
+                          <>
+                            Em produto já cadastrado, a quantidade muda por NFE, venda, cancelamento, movimentação ou pelo{' '}
+                            <button
+                              type="button"
+                              className="link-button"
+                              onClick={() => navigate(`/estoque/ajuste?produtoId=${id}`)}
+                            >
+                              Ajuste Manual de Estoque
+                            </button>.
+                          </>
+                        )}
                     </span>
                   )}
                   {isEditing && Number(produtoOriginal?.quantidadeReservada) > 0 && (

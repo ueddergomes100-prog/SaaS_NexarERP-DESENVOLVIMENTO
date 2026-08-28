@@ -11,6 +11,7 @@ import {
   where,
 } from 'firebase/firestore';
 import type { StockFieldDelta } from './estoqueReservaDomain';
+import { buildAjusteEstoqueDoc, computeQuantidadeDepoisAjuste, type TipoAjusteEstoque } from './ajusteEstoqueDomain';
 
 /**
  * Chave do contador por tenant (documento "contadores/{tenantId}").
@@ -204,4 +205,126 @@ export const applyStockFieldDeltas = async (
       updatedAt: serverTimestamp(),
     });
   }
+};
+
+export interface AjusteEstoqueManualParams {
+  tenantId: string;
+  produtoId: string;
+  produtoNome: string;
+  produtoCodigo?: string;
+  tipo: TipoAjusteEstoque;
+  quantidade: number;
+  motivo: string;
+  observacao?: string;
+  controlarLote: boolean;
+  /** Lote existente reaproveitado -- obrigatorio na saida, opcional na entrada. */
+  loteId?: string;
+  /** Entrada em lote novo, usado so quando loteId nao veio. */
+  loteNovoCodigo?: string;
+  loteNovoValidade?: string | null;
+  usuarioId: string;
+  usuarioNome: string;
+}
+
+// Ajuste manual de estoque (tela AjusteEstoque.tsx). Nunca deixa negativar
+// -- nem o produto, nem o lote -- independente da config venderSemEstoque:
+// isso aqui e' correcao de dado, nao venda. Por isso nao reaproveita
+// applyStockAdjustments/applyStockFieldDeltas (as duas aceitam
+// allowNegativeStock vindo da tela de venda).
+export const applyAjusteEstoqueManual = async (
+  transaction: Transaction,
+  db: Firestore,
+  params: AjusteEstoqueManualParams
+): Promise<{ loteId?: string; quantidadeDepois: number }> => {
+  const produtoRef = doc(db, 'estoque', params.produtoId);
+  const loteRef = params.loteId ? doc(db, 'estoque_lotes', params.loteId) : null;
+
+  const [produtoSnap, loteSnap] = await Promise.all([
+    transaction.get(produtoRef),
+    loteRef ? transaction.get(loteRef) : Promise.resolve(null),
+  ]);
+
+  if (!produtoSnap.exists()) {
+    throw new Error(`Produto "${params.produtoNome}" não foi encontrado. Atualize a página e tente novamente.`);
+  }
+
+  const quantidadeAntes = Number(produtoSnap.data().quantidade || 0);
+  const quantidadeDepois = computeQuantidadeDepoisAjuste(quantidadeAntes, params.tipo, params.quantidade);
+
+  if (quantidadeDepois < 0) {
+    throw new Error(`Estoque insuficiente para "${params.produtoNome}". Disponível: ${quantidadeAntes}.`);
+  }
+
+  transaction.update(produtoRef, {
+    quantidade: quantidadeDepois,
+    updatedAt: serverTimestamp(),
+  });
+
+  let loteIdFinal: string | undefined;
+  let loteCodigoFinal: string | undefined;
+  let validadeFinal: string | undefined;
+
+  if (params.controlarLote) {
+    if (loteRef && loteSnap?.exists()) {
+      const loteData = loteSnap.data();
+      const saldoLoteAntes = Number(loteData.quantidade || 0);
+      const saldoLoteDepois = params.tipo === 'entrada'
+        ? saldoLoteAntes + params.quantidade
+        : saldoLoteAntes - params.quantidade;
+
+      if (saldoLoteDepois < 0) {
+        throw new Error(`Estoque insuficiente no lote "${loteData.lote}". Disponível: ${saldoLoteAntes}.`);
+      }
+
+      transaction.update(loteRef, {
+        quantidade: saldoLoteDepois,
+        updatedAt: serverTimestamp(),
+      });
+
+      loteIdFinal = params.loteId;
+      loteCodigoFinal = loteData.lote;
+      validadeFinal = loteData.validade || undefined;
+    } else if (params.tipo === 'entrada' && params.loteNovoCodigo?.trim()) {
+      const novoLoteRef = doc(collection(db, 'estoque_lotes'));
+      transaction.set(novoLoteRef, {
+        tenantId: params.tenantId,
+        produtoId: params.produtoId,
+        lote: params.loteNovoCodigo.trim(),
+        validade: params.loteNovoValidade || null,
+        quantidade: params.quantidade,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      loteIdFinal = novoLoteRef.id;
+      loteCodigoFinal = params.loteNovoCodigo.trim();
+      validadeFinal = params.loteNovoValidade || undefined;
+    } else {
+      throw new Error(`"${params.produtoNome}" controla lote e validade. Selecione um lote ou informe um lote novo.`);
+    }
+  }
+
+  const ajusteRef = doc(collection(db, 'ajustes_estoque'));
+  transaction.set(ajusteRef, {
+    ...buildAjusteEstoqueDoc({
+      tenantId: params.tenantId,
+      produtoId: params.produtoId,
+      produtoNome: params.produtoNome,
+      produtoCodigo: params.produtoCodigo,
+      tipo: params.tipo,
+      quantidade: params.quantidade,
+      motivo: params.motivo,
+      observacao: params.observacao,
+      loteId: loteIdFinal,
+      lote: loteCodigoFinal,
+      validade: validadeFinal,
+      quantidadeAntes,
+      quantidadeDepois,
+      usuarioId: params.usuarioId,
+      usuarioNome: params.usuarioNome,
+    }),
+    createdAt: serverTimestamp(),
+  });
+
+  return { loteId: loteIdFinal, quantidadeDepois };
 };

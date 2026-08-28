@@ -267,15 +267,19 @@ const OSForm: React.FC = () => {
       const dataV: VeiculoBasico[] = [];
       snapV.forEach((doc) => dataV.push({
         id: doc.id,
-        placa: doc.data().placa,
-        modelo: doc.data().modelo,
+        // Campos opcionais no cadastro de veiculo (Ano, Cor) podem faltar no
+        // documento -- sem o fallback, o autofill da OS copiava undefined
+        // pro formData e o Firestore recusava o save inteiro na hora de
+        // gravar a OS (regra 3 do CLAUDE.md: nunca gravar undefined).
+        placa: doc.data().placa || '',
+        modelo: doc.data().modelo || '',
         marca: doc.data().marca || '',
-        ano: doc.data().ano,
-        cor: doc.data().cor,
+        ano: doc.data().ano || '',
+        cor: doc.data().cor || '',
         kmAtual: Number(doc.data().kmAtual || 0),
         renavam: doc.data().renavam || '',
         combustivel: doc.data().combustivel || '',
-        clienteId: doc.data().clienteId,
+        clienteId: doc.data().clienteId || '',
       }));
       setVeiculosDisponiveis(dataV);
 
@@ -1446,14 +1450,14 @@ const OSForm: React.FC = () => {
                       ...formData,
                       clienteNome: c.nome,
                       clienteTelefone: c.telefone || '',
-                      placa: v.placa,
-                      modelo: v.modelo,
-                      marca: v.marca,
-                      ano: v.ano,
-                      cor: v.cor,
-                      renavam: v.renavam,
+                      placa: v.placa || '',
+                      modelo: v.modelo || '',
+                      marca: v.marca || '',
+                      ano: v.ano || '',
+                      cor: v.cor || '',
+                      renavam: v.renavam || '',
                       quilometragem: v.kmAtual ? String(v.kmAtual) : '',
-                      combustivel: v.combustivel,
+                      combustivel: v.combustivel || '',
                     });
                     setVeiculosDoCliente([]);
                     setIsVeiculoDropdownOpen(false);
@@ -1520,14 +1524,14 @@ const OSForm: React.FC = () => {
                       onClick={() => {
                         setFormData(prev => ({
                           ...prev,
-                          placa: v.placa,
-                          modelo: v.modelo,
-                          marca: v.marca,
-                          ano: v.ano,
-                          cor: v.cor,
-                          renavam: v.renavam,
+                          placa: v.placa || '',
+                          modelo: v.modelo || '',
+                          marca: v.marca || '',
+                          ano: v.ano || '',
+                          cor: v.cor || '',
+                          renavam: v.renavam || '',
                           quilometragem: v.kmAtual ? String(v.kmAtual) : '',
-                          combustivel: v.combustivel,
+                          combustivel: v.combustivel || '',
                         }));
                         setIsVeiculoDropdownOpen(false);
                       }}

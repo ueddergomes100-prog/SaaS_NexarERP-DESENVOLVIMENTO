@@ -87,7 +87,7 @@ test('decodificarArquivoTexto recupera texto Windows-1252 (cp1252) mal lido como
 
 test('inferirMapeamentoColunas reconhece o cabecalho real da planilha do cliente', () => {
   const mapeamento = inferirMapeamentoColunas(['Cód.', 'Descrição', 'Quantidade contada', 'Observação']);
-  assert.deepEqual(mapeamento, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3 });
+  assert.deepEqual(mapeamento, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null });
 });
 
 test('processarLinhas ignora linhas vazias e devolve item por linha com descricao', () => {
@@ -96,7 +96,7 @@ test('processarLinhas ignora linhas vazias e devolve item por linha com descrica
     ['', '', '', ''],
     ['113', 'ADUBO 04-14-08 50KG SACO', '8', ''],
   ];
-  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3 });
+  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null });
   assert.equal(itens.length, 2);
   assert.equal(itens[1].quantidadeCalculada, 8);
   assert.equal(itens[1].status, 'OK');
@@ -115,7 +115,7 @@ test('detectarGruposEmbalagem acha o par kg/saco e sugere o fator pelo peso na d
       ['84', 'ADUBO UREIA 45-00-00 50KG SACO', '44', ''],
       ['999', 'PRODUTO SEM PAR', '1', ''],
     ],
-    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3 },
+    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null },
   );
   const grupos = detectarGruposEmbalagem(itens);
   assert.equal(grupos.length, 1);
@@ -129,7 +129,7 @@ test('detectarGruposEmbalagem nao sugere fator quando a descricao nao informa o 
       ['92', 'LONA BRANCA/PRETA FUZIL 8X50 -200 MC METRO', '0', ''],
       ['39', 'LONA BRANCA/PRETA FUZIL 8X50 -200 MC ROLO', '0', ''],
     ],
-    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3 },
+    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null },
   );
   const grupos = detectarGruposEmbalagem(itens);
   assert.equal(grupos.length, 1);
@@ -165,6 +165,49 @@ test('montarProdutoImportado grava no mesmo formato que EstoqueForm.tsx (campos 
   assert.equal((produto.precos as any).venda, 3.5);
   assert.equal((produto.estoqueConfig as any).controlarEstoque, true);
   assert.equal(produto.ncmPendente, true);
+});
+
+test('inferirMapeamentoColunas acha custo/preco a vista/preco a prazo quando presentes, null quando ausentes', () => {
+  const comPrecos = inferirMapeamentoColunas(['Código', 'Descrição', 'Quantidade', 'Custo', 'Preço à Vista', 'Preço a Prazo']);
+  assert.equal(comPrecos.custo, 3);
+  assert.equal(comPrecos.precoAVista, 4);
+  assert.equal(comPrecos.precoAPrazo, 5);
+
+  const semPrecos = inferirMapeamentoColunas(['Cód.', 'Descrição', 'Quantidade contada', 'Observação']);
+  assert.equal(semPrecos.custo, null);
+  assert.equal(semPrecos.precoAVista, null);
+  assert.equal(semPrecos.precoAPrazo, null);
+});
+
+test('processarLinhas le custo/preco a vista/preco a prazo das colunas mapeadas', () => {
+  const linhas = [['1', 'PRODUTO X', '10', '', '25,50', '39,90', '45,00']];
+  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: 4, precoAVista: 5, precoAPrazo: 6 });
+  assert.equal(itens[0].custo, 25.5);
+  assert.equal(itens[0].precoAVista, 39.9);
+  assert.equal(itens[0].precoAPrazo, 45);
+});
+
+test('montarProdutoImportado grava custo/preco a vista/preco a prazo quando informados, omite quando ausentes', () => {
+  const unidadeUn = { id: 'un-un', sigla: 'UN', casasDecimais: 0, fracionado: false };
+
+  const comPrecos = montarProdutoImportado(
+    { codigo: '1', nome: 'produto', categoria: '', unidadeBase: unidadeUn, quantidade: 1, precoVenda: 39.9, precoCusto: 25.5, precoAVista: 39.9, precoAPrazo: 45 },
+    'tenant-1', 'user-1', 'TIMESTAMP',
+  );
+  assert.equal(comPrecos.precoCusto, 25.5);
+  assert.equal(comPrecos.precoAVista, 39.9);
+  assert.equal(comPrecos.precoAPrazo, 45);
+  assert.equal((comPrecos.precos as any).aVista, 39.9);
+  assert.equal((comPrecos.precos as any).aPrazo, 45);
+
+  const semPrecos = montarProdutoImportado(
+    { codigo: '2', nome: 'produto', categoria: '', unidadeBase: unidadeUn, quantidade: 1, precoVenda: 10 },
+    'tenant-1', 'user-1', 'TIMESTAMP',
+  );
+  assert.equal(semPrecos.precoCusto, 0); // precoCusto ja existia antes, sempre tem default 0
+  assert.equal('precoAVista' in semPrecos, false);
+  assert.equal('precoAPrazo' in semPrecos, false);
+  assert.equal('aVista' in (semPrecos.precos as any), false);
 });
 
 test('montarProdutoImportado sem embalagem grava array vazio, sem quebrar', () => {

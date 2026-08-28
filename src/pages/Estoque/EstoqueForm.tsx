@@ -102,6 +102,13 @@ interface ProdutoFormData {
   precoCusto: string;
   precoVenda: string;
   precoPromocional: string;
+  /** Campos novos (2026-08-28): so o dado, ainda sem logica de venda --
+   * o resto do sistema (Pedido de Venda, OS, PDV) continua vendendo pelo
+   * precoVenda de sempre. Existem pra guardar os dois precos que o
+   * sistema antigo de um cliente exportava, ate a logica de qual preco
+   * usar em cada forma de pagamento ser desenhada numa fatia futura. */
+  precoAVista: string;
+  precoAPrazo: string;
   comissaoPercentual: string;
   descontoMaximoPercentual: string;
   fornecedor: string;
@@ -255,6 +262,8 @@ const emptyFormData: ProdutoFormData = {
   precoCusto: '',
   precoVenda: '',
   precoPromocional: '',
+  precoAVista: '',
+  precoAPrazo: '',
   comissaoPercentual: '',
   descontoMaximoPercentual: '',
   fornecedor: '',
@@ -515,6 +524,8 @@ const EstoqueForm: React.FC = () => {
               precoCusto: String(data.precoCusto ?? data.precos?.custo ?? '0.00'),
               precoVenda: String(data.precoVenda ?? data.precos?.venda ?? '0.00'),
               precoPromocional: String(data.precoPromocional ?? data.precos?.promocional ?? ''),
+              precoAVista: data.precoAVista != null ? String(data.precoAVista) : (data.precos?.aVista != null ? String(data.precos.aVista) : ''),
+              precoAPrazo: data.precoAPrazo != null ? String(data.precoAPrazo) : (data.precos?.aPrazo != null ? String(data.precos.aPrazo) : ''),
               comissaoPercentual: String(data.comissaoPercentual ?? data.precos?.comissaoPercentual ?? ''),
               descontoMaximoPercentual: String(data.descontoMaximoPercentual ?? data.precos?.descontoMaximoPercentual ?? ''),
               fornecedor: data.fornecedor || data.compras?.ultimoFornecedor || '',
@@ -936,6 +947,10 @@ const EstoqueForm: React.FC = () => {
       // em financeDomain.ts). Por isso nao pode gravar 0 quando o campo
       // ficou em branco -- zero e "nao configurado" precisam ser distintos.
       const comissaoPercentualValor = parseComissaoPercentualInput(formData.comissaoPercentual);
+      // Mesma logica de "em branco != zero" da comissao: preco a vista/a
+      // prazo em branco significa "nao preenchido ainda", nao "gratis".
+      const precoAVistaValor = parseComissaoPercentualInput(formData.precoAVista);
+      const precoAPrazoValor = parseComissaoPercentualInput(formData.precoAPrazo);
 
       const produtoData = {
         ...formData,
@@ -952,6 +967,8 @@ const EstoqueForm: React.FC = () => {
         precoCusto,
         precoVenda,
         precoPromocional,
+        precoAVista: precoAVistaValor,
+        precoAPrazo: precoAPrazoValor,
         margemLucro,
         lucroEstimado,
         comissaoPercentual: comissaoPercentualValor,
@@ -1026,6 +1043,8 @@ const EstoqueForm: React.FC = () => {
           margemLucro,
           lucroEstimado,
           ...(comissaoPercentualValor !== undefined ? { comissaoPercentual: comissaoPercentualValor } : {}),
+          ...(precoAVistaValor !== undefined ? { aVista: precoAVistaValor } : {}),
+          ...(precoAPrazoValor !== undefined ? { aPrazo: precoAPrazoValor } : {}),
           descontoMaximoPercentual: toNumber(formData.descontoMaximoPercentual),
           impedirVendaAbaixoCusto: formData.impedirVendaAbaixoCusto,
           ultimaAlteracaoPreco: mudouPreco ? new Date().toISOString() : produtoOriginal?.ultimaAlteracaoPreco || null
@@ -1122,6 +1141,8 @@ const EstoqueForm: React.FC = () => {
       // Nunca gravar undefined no Firestore (CLAUDE.md) -- em branco, a
       // chave precisa sumir de vez, nao so ficar com valor undefined.
       if (comissaoPercentualValor === undefined) delete (produtoData as Record<string, unknown>).comissaoPercentual;
+      if (precoAVistaValor === undefined) delete (produtoData as Record<string, unknown>).precoAVista;
+      if (precoAPrazoValor === undefined) delete (produtoData as Record<string, unknown>).precoAPrazo;
 
       if (isEditing && id) {
         await updateDoc(doc(db, 'estoque', id), {
@@ -1131,6 +1152,8 @@ const EstoqueForm: React.FC = () => {
           // gravada intacta se o usuario limpou o campo pra voltar ao
           // fallback do vendedor/sistema. deleteField() remove de verdade.
           ...(comissaoPercentualValor === undefined ? { comissaoPercentual: deleteField() } : {}),
+          ...(precoAVistaValor === undefined ? { precoAVista: deleteField() } : {}),
+          ...(precoAPrazoValor === undefined ? { precoAPrazo: deleteField() } : {}),
           tenantId: tenantId || '',
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
@@ -1373,6 +1396,16 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>Última alteração</label>
                   <input type="text" value={produtoOriginal?.ultimaAlteracaoPreco ? new Date(produtoOriginal.ultimaAlteracaoPreco).toLocaleDateString('pt-BR') : 'Sem histórico'} readOnly />
+                </div>
+                <div className="input-group">
+                  <label>Preço à vista</label>
+                  <input type="number" name="precoAVista" step="0.01" min="0" placeholder="Ainda sem uso na venda" value={formData.precoAVista} onChange={handleChange} />
+                  <span className="field-hint">Só o dado, por enquanto — a venda continua usando o "Preço de venda" acima.</span>
+                </div>
+                <div className="input-group">
+                  <label>Preço a prazo</label>
+                  <input type="number" name="precoAPrazo" step="0.01" min="0" placeholder="Ainda sem uso na venda" value={formData.precoAPrazo} onChange={handleChange} />
+                  <span className="field-hint">Só o dado, por enquanto — a venda continua usando o "Preço de venda" acima.</span>
                 </div>
               </div>
 

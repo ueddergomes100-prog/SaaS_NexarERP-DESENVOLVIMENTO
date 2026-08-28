@@ -101,13 +101,19 @@ export const parseDelimitedText = (texto: string, delimitador: string): string[]
 // Mapeamento de colunas
 // ---------------------------------------------------------------------------
 
-export type CampoColuna = 'codigo' | 'descricao' | 'quantidade' | 'observacao';
+export type CampoColuna = 'codigo' | 'descricao' | 'quantidade' | 'observacao' | 'custo' | 'precoAVista' | 'precoAPrazo';
 
+/** codigo/descricao/quantidade sempre tem uma coluna (mesmo que seja um
+ * chute errado); os outros 4 sao realmente opcionais -- planilha de
+ * contagem pura nao traz preco nenhum. */
 export interface MapeamentoColunas {
   codigo: number;
   descricao: number;
   quantidade: number;
   observacao: number | null;
+  custo: number | null;
+  precoAVista: number | null;
+  precoAPrazo: number | null;
 }
 
 /** Sinonimos de cabecalho pra pre-preencher o mapeamento -- planilha de
@@ -119,6 +125,9 @@ const SINONIMOS: Record<CampoColuna, string[]> = {
   descricao: ['descricao', 'descr', 'produto', 'nome', 'item'],
   quantidade: ['quantidade', 'quant', 'qtd', 'qtde', 'contada', 'contagem'],
   observacao: ['observacao', 'observ', 'obs', 'nota'],
+  custo: ['custo'],
+  precoAVista: ['vista', 'avista'],
+  precoAPrazo: ['prazo', 'aprazo'],
 };
 
 const normalizarTextoComparacao = (valor: string): string => valor
@@ -129,8 +138,9 @@ const normalizarTextoComparacao = (valor: string): string => valor
 
 /** Chuta qual coluna e qual campo comparando o cabecalho com os sinonimos.
  * Sempre devolve um palpite pra codigo/descricao/quantidade (mesmo que
- * errado) e null pra observacao quando nao acha nenhuma candidata --
- * observacao e o unico campo realmente opcional. */
+ * errado); os 4 campos opcionais devolvem null quando nao acham nenhuma
+ * coluna candidata -- planilha de contagem pura nao tem preco nenhum,
+ * entao null (sem coluna) e o resultado normal, nao um erro. */
 export const inferirMapeamentoColunas = (cabecalho: string[]): MapeamentoColunas => {
   const normalizados = cabecalho.map(normalizarTextoComparacao);
 
@@ -138,16 +148,24 @@ export const inferirMapeamentoColunas = (cabecalho: string[]): MapeamentoColunas
     (col) => SINONIMOS[campo].some((sin) => col.includes(sin)),
   );
 
-  const codigo = encontrar('codigo');
-  const descricao = encontrar('descricao');
-  const quantidade = encontrar('quantidade');
-  const observacao = encontrar('observacao');
+  const indices: Record<CampoColuna, number> = {
+    codigo: encontrar('codigo'),
+    descricao: encontrar('descricao'),
+    quantidade: encontrar('quantidade'),
+    observacao: encontrar('observacao'),
+    custo: encontrar('custo'),
+    precoAVista: encontrar('precoAVista'),
+    precoAPrazo: encontrar('precoAPrazo'),
+  };
 
   return {
-    codigo: codigo >= 0 ? codigo : 0,
-    descricao: descricao >= 0 ? descricao : 1,
-    quantidade: quantidade >= 0 ? quantidade : 2,
-    observacao: observacao >= 0 ? observacao : (cabecalho.length > 3 ? 3 : null),
+    codigo: indices.codigo >= 0 ? indices.codigo : 0,
+    descricao: indices.descricao >= 0 ? indices.descricao : 1,
+    quantidade: indices.quantidade >= 0 ? indices.quantidade : 2,
+    observacao: indices.observacao >= 0 ? indices.observacao : (cabecalho.length > 3 ? 3 : null),
+    custo: indices.custo >= 0 ? indices.custo : null,
+    precoAVista: indices.precoAVista >= 0 ? indices.precoAVista : null,
+    precoAPrazo: indices.precoAPrazo >= 0 ? indices.precoAPrazo : null,
   };
 };
 
@@ -313,7 +331,23 @@ export interface ItemImportado {
   status: StatusItemImportado;
   motivo: string;
   observacao: string;
+  /** null = coluna nao mapeada OU celula vazia/ilegivel -- os 3 sao
+   * sempre opcionais, planilha de contagem pura nao traz nenhum. */
+  custo: number | null;
+  precoAVista: number | null;
+  precoAPrazo: number | null;
 }
+
+/** Numero de preco vindo de export do sistema antigo -- mais simples que
+ * interpretarQuantidade (sem "+", sem sufixo de unidade): so troca virgula
+ * decimal brasileira por ponto. Devolve null quando a celula esta vazia ou
+ * nao e um numero, sem tentar adivinhar. */
+const parseValorMonetario = (bruto: string | undefined): number | null => {
+  const limpo = (bruto || '').trim();
+  if (!limpo) return null;
+  const numero = Number(limpo.replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(numero) ? numero : null;
+};
 
 export const processarLinhas = (
   linhas: string[][],
@@ -336,6 +370,9 @@ export const processarLinhas = (
       status: interpretada.status,
       motivo: interpretada.motivo,
       observacao,
+      custo: mapeamento.custo !== null ? parseValorMonetario(linha[mapeamento.custo]) : null,
+      precoAVista: mapeamento.precoAVista !== null ? parseValorMonetario(linha[mapeamento.precoAVista]) : null,
+      precoAPrazo: mapeamento.precoAPrazo !== null ? parseValorMonetario(linha[mapeamento.precoAPrazo]) : null,
     };
   })
   .filter((item) => item.descricao);
@@ -450,6 +487,12 @@ export interface ProdutoParaImportar {
   quantidade: number;
   precoVenda: number;
   embalagem?: EmbalagemImportada;
+  /** Vindos do export do sistema antigo, quando a planilha trouxer essas
+   * colunas -- ausentes = a chave nem entra no documento (nunca grava
+   * undefined nem inventa 0, que pareceria "de graca"/"sem custo"). */
+  precoCusto?: number;
+  precoAVista?: number;
+  precoAPrazo?: number;
 }
 
 /** Monta o documento final pra gravar em `estoque`, no MESMO formato
@@ -478,6 +521,11 @@ export const montarProdutoImportado = (
   const unidadeSigla = produto.unidadeBase.sigla || UNIDADE_MEDIDA_FALLBACK.unidadeMedidaSigla;
   const unidadeCasasDecimais = produto.unidadeBase.casasDecimais ?? UNIDADE_MEDIDA_FALLBACK.unidadeMedidaCasasDecimais;
   const unidadeFracionado = produto.unidadeBase.fracionado ?? UNIDADE_MEDIDA_FALLBACK.unidadeMedidaFracionado;
+  // precoCusto e' um campo JA existente que o resto do sistema (margem,
+  // lucro estimado) sempre espera como numero -- por isso tem default 0,
+  // diferente de precoAVista/precoAPrazo (campos NOVOS, ninguem le ainda,
+  // entao ficam de fora do documento quando a planilha nao trouxer).
+  const precoCustoFinal = produto.precoCusto ?? 0;
 
   return {
     codigo: produto.codigo,
@@ -489,7 +537,9 @@ export const montarProdutoImportado = (
     permitirEstoqueNegativo: false,
     quantidade: produto.quantidade,
     precoVenda: produto.precoVenda,
-    precoCusto: 0,
+    precoCusto: precoCustoFinal,
+    ...(produto.precoAVista !== undefined ? { precoAVista: produto.precoAVista } : {}),
+    ...(produto.precoAPrazo !== undefined ? { precoAPrazo: produto.precoAPrazo } : {}),
     margemLucro: 0,
     lucroEstimado: 0,
     descontoMaximoPercentual: 0,
@@ -506,7 +556,9 @@ export const montarProdutoImportado = (
     precos: {
       venda: produto.precoVenda,
       promocional: 0,
-      custo: 0,
+      custo: precoCustoFinal,
+      ...(produto.precoAVista !== undefined ? { aVista: produto.precoAVista } : {}),
+      ...(produto.precoAPrazo !== undefined ? { aPrazo: produto.precoAPrazo } : {}),
       margemLucro: 0,
       lucroEstimado: 0,
       descontoMaximoPercentual: 0,

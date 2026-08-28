@@ -9,7 +9,6 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, PackageSearch, Up
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
-import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import {
   decodificarArquivoTexto,
@@ -56,6 +55,11 @@ interface ProdutoConfirmar {
   unidadeId: string;
   quantidade: string;
   precoVenda: string;
+  /** Vindos das colunas opcionais da planilha (custo/preço à vista/preço a
+   * prazo), quando mapeadas -- string vazia = a planilha não trouxe. */
+  custo: string;
+  precoAVista: string;
+  precoAPrazo: string;
   origemLinhaIds: number[];
   embalagem?: { unidadeId: string; fatorConversao: number };
 }
@@ -71,7 +75,7 @@ const ImportarProdutos: React.FC = () => {
   const [nomeArquivo, setNomeArquivo] = useState('');
   const [cabecalho, setCabecalho] = useState<string[]>([]);
   const [linhasDados, setLinhasDados] = useState<string[][]>([]);
-  const [mapeamento, setMapeamento] = useState<MapeamentoColunas>({ codigo: 0, descricao: 1, quantidade: 2, observacao: null });
+  const [mapeamento, setMapeamento] = useState<MapeamentoColunas>({ codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: null, precoAVista: null, precoAPrazo: null });
 
   const [itens, setItens] = useState<ItemImportado[]>([]);
   const [itensExcluidos, setItensExcluidos] = useState<Set<number>>(new Set());
@@ -208,6 +212,18 @@ const ImportarProdutos: React.FC = () => {
     return item.quantidadeCalculada ?? 0;
   };
 
+  const paraTexto = (valor: number | null): string => (valor === null ? '' : String(valor));
+
+  /** Campo em branco = "sem essa informação" (undefined, chave omitida no
+   * documento) -- nunca gravamos 0 pra custo/preço a vista/preço a prazo
+   * quando a planilha nao trouxer nem o usuario digitar. */
+  const paraNumeroOpcional = (texto: string): number | undefined => {
+    const limpo = texto.trim();
+    if (!limpo) return undefined;
+    const numero = Number(limpo.replace(',', '.'));
+    return Number.isFinite(numero) ? numero : undefined;
+  };
+
   const montarListaDeProdutos = () => {
     const itensValidos = itens.filter((item) => !itensExcluidos.has(item.linhaId));
     const idsEmGrupo = new Set(grupos.flatMap((g) => g.itens.map((i) => i.linhaId)));
@@ -232,13 +248,19 @@ const ImportarProdutos: React.FC = () => {
         ? (CONTAINER_WORD.exec(itensEmbalagem[0].descricao)?.[1]?.toUpperCase() === 'SACO' ? 'SC' : (acharUnidadePorSigla(itensEmbalagem[0].unidadeSugerida || 'SC')?.sigla || 'SC'))
         : '';
 
+      // Preco (custo/a vista/a prazo) vem do item BASE (o granel) -- nao
+      // faz sentido somar/mesclar preco entre os itens do grupo, so
+      // quantidade.
       resultado.push({
         chave: `grupo-${chaveGrupo(grupo)}`,
         nome: grupo.descricaoBase,
         categoria: categoriaCompartilhada,
         unidadeId: acharUnidadePorSigla(unidadeBaseSugerida)?.id || '',
         quantidade: String(quantidadeBase),
-        precoVenda: '',
+        precoVenda: paraTexto(itemBase.precoAVista),
+        custo: paraTexto(itemBase.custo),
+        precoAVista: paraTexto(itemBase.precoAVista),
+        precoAPrazo: paraTexto(itemBase.precoAPrazo),
         origemLinhaIds: grupo.itens.map((i) => i.linhaId),
         embalagem: fator > 0 ? { unidadeId: acharUnidadePorSigla(unidadeEmbalagemSugerida)?.id || '', fatorConversao: fator } : undefined,
       });
@@ -251,7 +273,10 @@ const ImportarProdutos: React.FC = () => {
         categoria: categoriaCompartilhada,
         unidadeId: acharUnidadePorSigla(item.unidadeSugerida || 'UN')?.id || '',
         quantidade: String(quantidadeFinalDoItem(item)),
-        precoVenda: '',
+        precoVenda: paraTexto(item.precoAVista),
+        custo: paraTexto(item.custo),
+        precoAVista: paraTexto(item.precoAVista),
+        precoAPrazo: paraTexto(item.precoAPrazo),
         origemLinhaIds: [item.linhaId],
       };
     }
@@ -323,6 +348,9 @@ const ImportarProdutos: React.FC = () => {
               unidadeBase: unidadeBaseRef,
               quantidade: Number(produto.quantidade.replace(',', '.')) || 0,
               precoVenda: Number(produto.precoVenda.replace(',', '.')) || 0,
+              precoCusto: paraNumeroOpcional(produto.custo),
+              precoAVista: paraNumeroOpcional(produto.precoAVista),
+              precoAPrazo: paraNumeroOpcional(produto.precoAPrazo),
               embalagem: (produto.embalagem && unidadeEmbalagem) ? {
                 unidade: { id: unidadeEmbalagem.id, sigla: unidadeEmbalagem.sigla, casasDecimais: unidadeEmbalagem.casasDecimais, fracionado: unidadeEmbalagem.permiteFracionado },
                 fatorConversao: produto.embalagem.fatorConversao,
@@ -332,7 +360,7 @@ const ImportarProdutos: React.FC = () => {
             tenantId,
             currentUser.uid,
             timestamp,
-          ) as Record<string, unknown>, ...buildDocumentMetadata(currentUser.uid, timestamp));
+          ));
         });
 
         if (inicio === 0 && precisaLigarEmbalagem) {
@@ -404,22 +432,31 @@ const ImportarProdutos: React.FC = () => {
             <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Arquivo: {nomeArquivo} — {linhasDados.length} linha(s) de dado encontrada(s).</p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-            {(['codigo', 'descricao', 'quantidade', 'observacao'] as const).map((campo) => (
-              <div className="input-group" key={campo}>
-                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
-                  Coluna de {campo === 'codigo' ? 'Código' : campo === 'descricao' ? 'Descrição' : campo === 'quantidade' ? 'Quantidade' : 'Observação (opcional)'}
-                </label>
-                <select
-                  value={mapeamento[campo] === null ? '' : mapeamento[campo]}
-                  onChange={(e) => setMapeamento((atual) => ({ ...atual, [campo]: e.target.value === '' ? null : Number(e.target.value) }))}
-                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
-                >
-                  {campo === 'observacao' && <option value="">-- Nenhuma --</option>}
-                  {cabecalho.map((h, idx) => <option key={idx} value={idx}>{h || `Coluna ${idx + 1}`}</option>)}
-                </select>
-              </div>
-            ))}
+            {(['codigo', 'descricao', 'quantidade', 'observacao', 'custo', 'precoAVista', 'precoAPrazo'] as const).map((campo) => {
+              const obrigatorio = campo === 'codigo' || campo === 'descricao' || campo === 'quantidade';
+              const rotulos: Record<typeof campo, string> = {
+                codigo: 'Código', descricao: 'Descrição', quantidade: 'Quantidade',
+                observacao: 'Observação (opcional)', custo: 'Custo (opcional)',
+                precoAVista: 'Preço à vista (opcional)', precoAPrazo: 'Preço a prazo (opcional)',
+              };
+              return (
+                <div className="input-group" key={campo}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Coluna de {rotulos[campo]}</label>
+                  <select
+                    value={mapeamento[campo] === null ? '' : mapeamento[campo]}
+                    onChange={(e) => setMapeamento((atual) => ({ ...atual, [campo]: e.target.value === '' ? null : Number(e.target.value) }))}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
+                  >
+                    {!obrigatorio && <option value="">-- Nenhuma --</option>}
+                    {cabecalho.map((h, idx) => <option key={idx} value={idx}>{h || `Coluna ${idx + 1}`}</option>)}
+                  </select>
+                </div>
+              );
+            })}
           </div>
+          <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
+            Custo, preço à vista e preço a prazo são opcionais — se o export do sistema antigo trouxer essas colunas, elas já vêm pré-preenchidas na tela de confirmação (ainda editáveis).
+          </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
             <button className="btn-secondary" onClick={() => setPasso('upload')}>Voltar</button>
             <button className="btn-primary" onClick={confirmarMapeamento} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -453,7 +490,7 @@ const ImportarProdutos: React.FC = () => {
                   const revisarPendente = item.status === 'REVISAR' && !itensExcluidos.has(item.linhaId) && !ajustesQuantidade[item.linhaId];
                   return (
                     <tr key={item.linhaId} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: item.status === 'REVISAR' ? 'rgba(245,158,11,0.08)' : undefined, opacity: itensExcluidos.has(item.linhaId) ? 0.4 : 1 }}>
-                      <td style={{ padding: '8px' }}>{item.nome ?? item.descricao}</td>
+                      <td style={{ padding: '8px' }}>{item.descricao}</td>
                       <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{item.quantidadeBruta}</td>
                       <td style={{ padding: '8px' }}>
                         {item.status === 'REVISAR' && !itensExcluidos.has(item.linhaId) ? (
@@ -581,6 +618,9 @@ const ImportarProdutos: React.FC = () => {
                   <th style={{ padding: '8px' }}>Nome</th>
                   <th style={{ padding: '8px' }}>Unidade</th>
                   <th style={{ padding: '8px' }}>Quantidade</th>
+                  <th style={{ padding: '8px' }}>Custo</th>
+                  <th style={{ padding: '8px' }}>Preço à vista</th>
+                  <th style={{ padding: '8px' }}>Preço a prazo</th>
                   <th style={{ padding: '8px' }}>Preço de venda *</th>
                 </tr>
               </thead>
@@ -588,7 +628,7 @@ const ImportarProdutos: React.FC = () => {
                 {produtos.map((produto) => (
                   <tr key={produto.chave} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" value={produto.nome} onChange={(e) => atualizarProduto(produto.chave, { nome: e.target.value })} style={{ width: '260px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                      <input type="text" value={produto.nome} onChange={(e) => atualizarProduto(produto.chave, { nome: e.target.value })} style={{ width: '220px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
                       <select value={produto.unidadeId} onChange={(e) => atualizarProduto(produto.chave, { unidadeId: e.target.value })} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }}>
@@ -598,6 +638,15 @@ const ImportarProdutos: React.FC = () => {
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="text" value={produto.quantidade} onChange={(e) => atualizarProduto(produto.chave, { quantidade: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                    </td>
+                    <td style={{ padding: '8px' }}>
+                      <input type="text" placeholder="-" value={produto.custo} onChange={(e) => atualizarProduto(produto.chave, { custo: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                    </td>
+                    <td style={{ padding: '8px' }}>
+                      <input type="text" placeholder="-" value={produto.precoAVista} onChange={(e) => atualizarProduto(produto.chave, { precoAVista: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                    </td>
+                    <td style={{ padding: '8px' }}>
+                      <input type="text" placeholder="-" value={produto.precoAPrazo} onChange={(e) => atualizarProduto(produto.chave, { precoAPrazo: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="text" placeholder="0,00" value={produto.precoVenda} onChange={(e) => atualizarProduto(produto.chave, { precoVenda: e.target.value })} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: !produto.precoVenda ? '1px solid #ef4444' : '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />

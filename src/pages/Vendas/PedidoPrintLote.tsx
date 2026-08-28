@@ -79,7 +79,8 @@ const PedidoPrintLote: React.FC = () => {
               .map((docT) => docT.data())
               .sort((a, b) => (a.paymentIndex ?? 0) - (b.paymentIndex ?? 0))
               .map((t, index) => ({
-                numero: (t.paymentIndex ?? index) + 1,
+                // paymentIndex ja nasce base-1 (ver 'indice' em financeDomain.ts).
+                numero: t.paymentIndex ?? (index + 1),
                 dataVencimento: t.dataVencimento || '',
                 valor: t.valor || 0,
               }));

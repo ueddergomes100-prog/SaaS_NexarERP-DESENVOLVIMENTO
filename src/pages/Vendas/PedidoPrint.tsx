@@ -66,7 +66,10 @@ const PedidoPrint: React.FC = () => {
             .map((docT) => docT.data())
             .sort((a, b) => (a.paymentIndex ?? 0) - (b.paymentIndex ?? 0))
             .map((t, index) => ({
-              numero: (t.paymentIndex ?? index) + 1,
+              // paymentIndex ja nasce base-1 (ver 'indice' em financeDomain.ts)
+              // -- somar +1 aqui duplicava a conta e mostrava "PARC 2" pra
+              // pagamento unico.
+              numero: t.paymentIndex ?? (index + 1),
               dataVencimento: t.dataVencimento || '',
               valor: t.valor || 0,
             }));

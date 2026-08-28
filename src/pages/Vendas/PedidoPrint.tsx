@@ -5,6 +5,8 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import PedidoPrintDocument from './PedidoPrintDocument';
+import PedidoPrintMeiaFolha from './PedidoPrintMeiaFolha';
+import { DEFAULT_PEDIDO_PRINT_MODEL } from '../../utils/pedidoPrintModels';
 import {
   isVendaDoUsuario,
   MENSAGEM_VENDA_DE_OUTRO_USUARIO,
@@ -20,6 +22,7 @@ const PedidoPrint: React.FC = () => {
   const [pedidoData, setPedidoData] = useState<any>(null);
   const [clientData, setClientData] = useState<any>(null);
   const [configData, setConfigData] = useState<any>(null);
+  const [parcelas, setParcelas] = useState<Array<{ numero: number; dataVencimento: string; valor: number }>>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -50,6 +53,24 @@ const PedidoPrint: React.FC = () => {
           if (!snapC.empty) {
             setClientData(snapC.docs[0].data());
           }
+
+          // Parcelas do pedido -- gravadas em documentos separados na
+          // colecao 'transacoes', usadas so pelo modelo meia-folha.
+          const qT = query(
+            collection(db, 'transacoes'),
+            where('tenantId', '==', tenantId),
+            where('pedidoId', '==', id),
+          );
+          const snapT = await getDocs(qT);
+          const parcelasCarregadas = snapT.docs
+            .map((docT) => docT.data())
+            .sort((a, b) => (a.paymentIndex ?? 0) - (b.paymentIndex ?? 0))
+            .map((t, index) => ({
+              numero: (t.paymentIndex ?? index) + 1,
+              dataVencimento: t.dataVencimento || '',
+              valor: t.valor || 0,
+            }));
+          setParcelas(parcelasCarregadas);
         } else {
           alert('Pedido não encontrado!');
           navigate('/pedidos-venda');
@@ -94,7 +115,11 @@ const PedidoPrint: React.FC = () => {
         </button>
       </div>
 
-      <PedidoPrintDocument pedidoData={pedidoData} clientData={clientData} configData={configData} />
+      {(configData?.modeloImpressaoPedidoVenda || DEFAULT_PEDIDO_PRINT_MODEL) === 'meia-folha' ? (
+        <PedidoPrintMeiaFolha pedidoData={pedidoData} clientData={clientData} configData={configData} parcelas={parcelas} />
+      ) : (
+        <PedidoPrintDocument pedidoData={pedidoData} clientData={clientData} configData={configData} />
+      )}
     </div>
   );
 };

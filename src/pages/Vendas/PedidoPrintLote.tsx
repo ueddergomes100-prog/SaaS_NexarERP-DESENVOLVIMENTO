@@ -5,6 +5,8 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import PedidoPrintDocument from './PedidoPrintDocument';
+import PedidoPrintMeiaFolha from './PedidoPrintMeiaFolha';
+import { DEFAULT_PEDIDO_PRINT_MODEL } from '../../utils/pedidoPrintModels';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from './pedidoPrintLoteConstants';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import '../OS/OsPrint.css'; // Reusing OS print styles
@@ -16,6 +18,7 @@ const PedidoPrintLote: React.FC = () => {
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
   const [pedidos, setPedidos] = useState<any[]>([]);
   const [clientsById, setClientsById] = useState<Record<string, any>>({});
+  const [parcelasByPedidoId, setParcelasByPedidoId] = useState<Record<string, Array<{ numero: number; dataVencimento: string; valor: number }>>>({});
   const [configData, setConfigData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [truncated, setTruncated] = useState(false);
@@ -61,6 +64,29 @@ const PedidoPrintLote: React.FC = () => {
           }),
         );
         setClientsById(Object.fromEntries(clientEntries));
+
+        // Parcelas de cada pedido -- gravadas em documentos separados na
+        // colecao 'transacoes', usadas so pelo modelo meia-folha.
+        const parcelasEntries = await Promise.all(
+          loadedPedidos.map(async (pedido) => {
+            const qT = query(
+              collection(db, 'transacoes'),
+              where('tenantId', '==', tenantId),
+              where('pedidoId', '==', pedido.id),
+            );
+            const snapT = await getDocs(qT);
+            const parcelasCarregadas = snapT.docs
+              .map((docT) => docT.data())
+              .sort((a, b) => (a.paymentIndex ?? 0) - (b.paymentIndex ?? 0))
+              .map((t, index) => ({
+                numero: (t.paymentIndex ?? index) + 1,
+                dataVencimento: t.dataVencimento || '',
+                valor: t.valor || 0,
+              }));
+            return [pedido.id, parcelasCarregadas] as const;
+          }),
+        );
+        setParcelasByPedidoId(Object.fromEntries(parcelasEntries));
 
         const configRef = doc(db, 'configuracoes', tenantId);
         const configSnap = await getDoc(configRef);
@@ -116,11 +142,20 @@ const PedidoPrintLote: React.FC = () => {
 
       {pedidos.map((pedidoData) => (
         <div className="print-batch-item" key={pedidoData.id}>
-          <PedidoPrintDocument
-            pedidoData={pedidoData}
-            clientData={clientsById[pedidoData.clienteNome] || null}
-            configData={configData}
-          />
+          {(configData?.modeloImpressaoPedidoVenda || DEFAULT_PEDIDO_PRINT_MODEL) === 'meia-folha' ? (
+            <PedidoPrintMeiaFolha
+              pedidoData={pedidoData}
+              clientData={clientsById[pedidoData.clienteNome] || null}
+              configData={configData}
+              parcelas={parcelasByPedidoId[pedidoData.id] || []}
+            />
+          ) : (
+            <PedidoPrintDocument
+              pedidoData={pedidoData}
+              clientData={clientsById[pedidoData.clienteNome] || null}
+              configData={configData}
+            />
+          )}
         </div>
       ))}
     </div>

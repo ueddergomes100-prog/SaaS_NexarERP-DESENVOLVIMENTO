@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
+import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/pedidoPrintModels';
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { MODULE_GROUPS } from '../../utils/moduleCatalog';
 import { PERMISSION_CATALOG } from '../../utils/permissionCatalog';
@@ -178,6 +179,8 @@ const Configuracoes: React.FC = () => {
     planoContasReceitas: ['Serviços', 'Venda de Produtos', 'Outras Receitas'],
     planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Produtos', 'Marketing', 'Manutenção', 'Outros'],
     modeloImpressaoOS: DEFAULT_OS_PRINT_MODEL,
+    modeloImpressaoPedidoVenda: DEFAULT_PEDIDO_PRINT_MODEL,
+    observacoesPadraoPedido: '',
     spedyEnabled: false,
     spedyApiKey: '',
     spedyEnvironment: 'sandbox',
@@ -278,6 +281,8 @@ const Configuracoes: React.FC = () => {
             planoContasReceitas: receitas,
             planoContasDespesas: despesas,
             modeloImpressaoOS: data.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL,
+            modeloImpressaoPedidoVenda: data.modeloImpressaoPedidoVenda || DEFAULT_PEDIDO_PRINT_MODEL,
+            observacoesPadraoPedido: data.observacoesPadraoPedido || '',
             spedyEnabled: data.spedyEnabled ?? false,
             spedyApiKey: privateSpedyApiKey,
             spedyEnvironment: data.spedyEnvironment ?? 'sandbox',
@@ -1293,6 +1298,64 @@ const Configuracoes: React.FC = () => {
                       </label>
                     );
                   })}
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                  <LayoutTemplate size={18} style={{ color: 'var(--accent-purple)' }} />
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '14px', color: 'var(--text-primary)' }}>Modelo de impressão do Pedido de Venda</h4>
+                    <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>O modelo selecionado será usado automaticamente ao imprimir qualquer Pedido de Venda.</p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '12px' }}>
+                  {PEDIDO_PRINT_MODELS.map(modelo => {
+                    const selected = formData.modeloImpressaoPedidoVenda === modelo.id;
+                    return (
+                      <label
+                        key={modelo.id}
+                        style={{
+                          display: 'flex',
+                          gap: '12px',
+                          alignItems: 'flex-start',
+                          padding: '14px',
+                          borderRadius: '8px',
+                          border: `1px solid ${selected ? 'var(--accent-purple)' : 'var(--border-color)'}`,
+                          backgroundColor: selected ? 'rgba(139, 92, 246, 0.1)' : 'var(--bg-tertiary)',
+                          cursor: isEditingMode ? 'pointer' : 'default',
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="modeloImpressaoPedidoVenda"
+                          value={modelo.id}
+                          checked={selected}
+                          onChange={handleChange}
+                          disabled={!isEditingMode}
+                          style={{ marginTop: '3px', accentColor: 'var(--accent-purple)' }}
+                        />
+                        <span>
+                          <strong style={{ display: 'block', fontSize: '13px', color: 'var(--text-primary)', marginBottom: '4px' }}>{modelo.name}</strong>
+                          <span style={{ display: 'block', fontSize: '12px', lineHeight: 1.45, color: 'var(--text-muted)' }}>{modelo.description}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Observações Padrão (Aparecerá na impressão do Pedido de Venda em meia folha)</label>
+                  <textarea
+                    name="observacoesPadraoPedido"
+                    rows={2}
+                    placeholder="Ex: Devoluções e troca em até 15 dias somente com a apresentação da nota."
+                    value={formData.observacoesPadraoPedido}
+                    onChange={handleChange}
+                    disabled={!isEditingMode}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', resize: 'vertical' }}
+                  />
                 </div>
               </div>
             </>

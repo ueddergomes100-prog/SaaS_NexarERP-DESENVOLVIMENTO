@@ -132,6 +132,9 @@ interface ProdutoEstoque {
 interface ItemVenda {
   id: string;
   nome: string;
+  /** Codigo do produto no catalogo (Estoque). Item avulso (sem produto
+   * cadastrado) fica sem essa chave -- nunca grava undefined. */
+  codigo?: string;
   precoUnitario: number;
   quantidade: number;
   desconto: number;
@@ -724,6 +727,7 @@ const PedidoVendaForm: React.FC = () => {
     const novoItem: ItemVenda = {
       id: produtoEncontrado?.id || 'avulso',
       nome: produtoEncontrado?.nome || produtoBusca,
+      ...(produtoEncontrado?.codigo ? { codigo: produtoEncontrado.codigo } : {}),
       precoUnitario: precoFinal,
       quantidade: qtdNum,
       desconto: produtoDesconto,

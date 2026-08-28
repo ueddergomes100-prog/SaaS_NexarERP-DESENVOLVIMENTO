@@ -114,6 +114,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'cadastros.bancos', label: 'Cadastros: Bancos', color: '#8b5cf6' },
       { id: 'cadastros.fornecedores', label: 'Cadastros: Fornecedores', color: '#8b5cf6' },
       { id: 'cadastros.materia_prima', label: 'Cadastros: Matéria-Prima', color: '#8b5cf6' },
+      { id: 'cadastros.vendedores', label: 'Cadastros: Vendedores (balcão)', color: '#8b5cf6' },
     ],
   },
   {

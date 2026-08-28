@@ -26,6 +26,7 @@ import {
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { DEFAULT_NIVEL_ACESSO } from '../../utils/visibilidadeVendasDomain';
+import { isRegistroComLogin } from '../../utils/vendedorCadastroDomain';
 
 // Importa app secundário para criar usuário sem deslogar o dono
 import { initializeApp } from 'firebase/app';
@@ -190,7 +191,11 @@ const UsuarioForm: React.FC = () => {
     try {
       const qUsers = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
       const qSnap = await getDocs(qUsers);
-      const currentCount = qSnap.size;
+      // So conta quem tem LOGIN. Vendedor de balcao mora na mesma colecao,
+      // mas nao entra no sistema -- cobrar uma vaga do plano por ele faria
+      // uma loja com 4 estacoes contratadas travar no 5o vendedor, que nem
+      // consome acesso. Ver src/utils/vendedorCadastroDomain.ts.
+      const currentCount = qSnap.docs.filter((documento) => isRegistroComLogin(documento.data())).length;
 
       // Obtém o limite configurado no documento do dono da oficina (tenantId)
       const ownerDoc = await getDoc(doc(db, 'usuarios', tenantId));
@@ -396,7 +401,7 @@ const UsuarioForm: React.FC = () => {
             style={{ width: '100%' }}
           />
           <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Usado no popup de identificação a cada venda, quando essa opção estiver ligada em Configurações. Opcional — deixe vazio se este usuário não vende.
+            Usado no popup de identificação a cada venda, quando essa opção estiver ligada em Configurações. Opcional — deixe vazio se este usuário não vende. Vendedor que <strong>não precisa entrar no sistema</strong> é cadastrado em Cadastros Auxiliares → Vendedores, e não ocupa vaga do plano.
           </span>
         </div>
 

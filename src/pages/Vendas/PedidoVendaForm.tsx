@@ -59,6 +59,7 @@ import {
   type VendedorIdentificado,
 } from '../../utils/vendedorPinDomain';
 import IdentificarVendedorModal from '../../components/common/IdentificarVendedorModal';
+import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import {
   isVendaDoUsuario,
   MENSAGEM_VENDA_DE_OUTRO_USUARIO,
@@ -418,6 +419,14 @@ const PedidoVendaForm: React.FC = () => {
       const dataU: VendedorBasico[] = [];
       snapU.forEach((document) => {
         const user = document.data();
+        // Vendedor de balcao (cadastro sem login) NAO entra neste combo. Ele
+        // so existe pro fluxo de codigo+senha -- e nesse fluxo o campo
+        // "Vendedor" fica travado de proposito (ocultarVendedorResponsavel).
+        // Deixa-lo selecionavel aqui carimbaria a venda num id que nao e' de
+        // ninguem logado, e a trava "nao visualizar vendas de outro usuario"
+        // (que compara com o uid de quem esta logado) esconderia da propria
+        // pessoa a venda que ela acabou de fazer.
+        if (isRegistroDeVendedor(user)) return;
         dataU.push({
           id: document.id,
           nome: user.nome || user.nomeResponsavel || user.email || 'Usuário sem nome',

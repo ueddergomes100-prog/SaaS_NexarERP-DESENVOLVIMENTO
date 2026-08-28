@@ -37,7 +37,8 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'cadastros.bandeiras_cartao', label: 'Bandeiras de Cartão' },
     { id: 'cadastros.bancos', label: 'Bancos' },
     { id: 'cadastros.fornecedores', label: 'Fornecedores' },
-    { id: 'cadastros.materia_prima', label: 'Matéria-Prima' }
+    { id: 'cadastros.materia_prima', label: 'Matéria-Prima' },
+    { id: 'cadastros.vendedores', label: 'Vendedores (balcão)' }
   ]},
   { group: 'Comercial & Vendas', items: [
     { id: 'comercial.pedidos', label: 'Pedido de Vendas' },

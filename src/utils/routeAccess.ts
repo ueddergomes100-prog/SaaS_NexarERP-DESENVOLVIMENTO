@@ -26,6 +26,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/bancos')) routeModule = 'cadastros.bancos';
   else if (path.startsWith('/fornecedores')) routeModule = 'cadastros.fornecedores';
   else if (path.startsWith('/materias-primas')) routeModule = 'cadastros.materia_prima';
+  else if (path.startsWith('/vendedores')) routeModule = 'cadastros.vendedores';
   else if (path.startsWith('/producao/ordens') || path.startsWith('/producao/relatorios')) routeModule = 'operacoes.producao';
   else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routeModule = 'operacoes.expedicao';
   else if (path.startsWith('/pedidos-venda')) routeModule = 'comercial.pedidos';
@@ -78,6 +79,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   // acessa via Estoque perde o acesso ate receber a permissao nova.
   else if (path.startsWith('/fornecedores')) routePermission = 'cadastros.fornecedores';
   else if (path.startsWith('/materias-primas')) routePermission = 'cadastros.materia_prima';
+  else if (path.startsWith('/vendedores')) routePermission = 'cadastros.vendedores';
   else if (path.startsWith('/producao/ordens')) routePermission = 'operacoes.producao';
   // Separada de operacoes.producao em 2026-08-27 -- as duas telas
   // dividiam o mesmo id, sem controle independente.

@@ -104,6 +104,14 @@ async function definirPin({ tenantId, usuarioId, pin, autorId }) {
     definidoEm: admin.firestore.FieldValue.serverTimestamp(),
   });
 
+  // Espelha no cadastro um carimbo de "ja tem senha" -- NAO a senha, nem o
+  // hash dela. Sem isto a tela de Vendedores nao tem como saber quem ainda
+  // esta sem senha (a colecao do PIN e' negada pra todo mundo nas rules), e
+  // o vendedor so descobriria isso no balcao, com cliente na frente.
+  await usuarioRef.update({
+    pinDefinidoEm: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
   return { usuarioId: usuarioRef.id, codigo };
 }
 
@@ -118,6 +126,15 @@ async function removerPin({ tenantId, usuarioId }) {
   }
 
   await pinRef.delete();
+
+  // Tira o carimbo junto -- deixar "senha cadastrada" numa pessoa que nao
+  // tem mais senha e' pior que nao mostrar nada.
+  await db.collection('usuarios').doc(String(usuarioId)).update({
+    pinDefinidoEm: admin.firestore.FieldValue.delete(),
+  }).catch(() => {
+    // Usuario ja excluido: o PIN sumiu, que era o que importava.
+  });
+
   return { removido: true };
 }
 

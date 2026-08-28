@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
+import { menuVendedoresVisivel } from '../../utils/vendedorCadastroDomain';
 import hennderIcon from '../../assets/hennder-icon.svg';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
 import wordmarkLight from '../../assets/hennder-wordmark-light.png';
@@ -78,7 +79,9 @@ const Sidebar: React.FC = () => {
     isOwner,
     isPlatformAdmin,
     currentUser,
-    selectedTenant
+    selectedTenant,
+    exigirIdentificacaoVendedor,
+    temVendedorCadastrado
   } = useAuth();
   const navigate = useNavigate();
   const { tabs, activeTabId, openTab } = useTabs();
@@ -172,7 +175,14 @@ const Sidebar: React.FC = () => {
         { label: 'Bandeiras de Cartão', to: '/bandeiras-cartao', icon: CreditCard, module: 'cadastros.bandeiras_cartao', permission: 'cadastros.bandeiras_cartao' },
         { label: 'Bancos', to: '/bancos', icon: Building2, module: 'cadastros.bancos', permission: 'cadastros.bancos' },
         { label: 'Fornecedores', to: '/fornecedores', icon: Truck, module: 'cadastros.fornecedores', permission: 'cadastros.fornecedores' },
-        { label: 'Matéria-Prima', to: '/materias-primas', icon: Factory, module: 'cadastros.materia_prima', permission: 'cadastros.materia_prima' }
+        { label: 'Matéria-Prima', to: '/materias-primas', icon: Factory, module: 'cadastros.materia_prima', permission: 'cadastros.materia_prima' },
+        // Vendedores de balcao so faz sentido pra quem trabalha com estacao
+        // compartilhada. Aparece com o checkbox ligado OU enquanto houver
+        // vendedor cadastrado -- desmarcar a opcao por engano nao pode fazer
+        // o cadastro sumir da vista. Ver vendedorCadastroDomain.ts.
+        ...(menuVendedoresVisivel({ exigirIdentificacaoVendedor, temVendedorCadastrado })
+          ? [{ label: 'Vendedores', to: '/vendedores', icon: UserCheck, module: 'cadastros.vendedores', permission: 'cadastros.vendedores' }]
+          : [])
       ]
     },
     {
@@ -281,7 +291,7 @@ const Sidebar: React.FC = () => {
         { label: 'Lotes e Validades', to: '/operacoes/lotes-validades', icon: Package, module: 'operacoes.lotes', permission: 'operacoes.lotes' }
       ]
     }
-  ], []);
+  ], [exigirIdentificacaoVendedor, temVendedorCadastrado]);
 
   const visibleGroups = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();

@@ -92,6 +92,14 @@ service cloud.firestore {
         // usuario nem libera modulo, so decide quais vendas ele enxerga.
         // Ver src/utils/visibilidadeVendasDomain.ts.
         'nivelAcesso',
+        // Codigo do vendedor (2 digitos, publico) usado no popup de
+        // identificacao da venda. Estava FALTANDO aqui: o campo era gravavel
+        // na criacao do funcionario, mas qualquer edicao posterior batia em
+        // "Missing or insufficient permissions" -- ou seja, trocar ou
+        // corrigir o codigo de alguem ja cadastrado era impossivel. E' o
+        // mesmo campo que o cadastro de Vendedores (sem login) escreve.
+        // Ver src/utils/vendedorPinDomain.ts e vendedorCadastroDomain.ts.
+        'codigoVendedor',
         'recebeComissaoServicos',
         'comissaoPercentualServicos',
         'recebeComissaoPecas',

@@ -44,6 +44,7 @@ import {
   DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
 } from '../../utils/conferenciaDomain';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import {
   DEFAULT_NIVEL_ACESSO,
   DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO,
@@ -305,6 +306,10 @@ const Configuracoes: React.FC = () => {
         const usersList: any[] = [];
         qSnap.forEach(u => {
           const uData = u.data();
+          // Vendedor de balcao nao entra no sistema: nao ha modulo pra
+          // liberar nem tela pra bloquear. As regras de comissao dele ficam
+          // no proprio cadastro, em Cadastros Auxiliares > Vendedores.
+          if (isRegistroDeVendedor(uData)) return;
           // Allow listing Admin to satisfy user request
           usersList.push({ id: u.id, ...uData });
         });
@@ -1544,7 +1549,14 @@ const Configuracoes: React.FC = () => {
                   Terminada a venda, o sistema esquece: a próxima pede de novo. Com esta opção ligada, o campo "Vendedor" da tela deixa de ser editável à mão.
                 </p>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                  Cada funcionário precisa ter <strong>código e senha cadastrados em Usuários</strong>. Se o funcionário esquecer a senha, um administrador cadastra outra na hora, lá mesmo.
+                  Ligar esta opção libera o menu <strong>Cadastros Auxiliares → Vendedores</strong>. É lá que entram as pessoas que vendem
+                  no balcão — <strong>sem login, sem senha de acesso e sem ocupar vaga do seu plano</strong>. Os computadores ficam
+                  logados o dia inteiro em contas de estação (balcão 01, balcão 02...), criadas em Equipe &amp; Acessos como sempre.
+                </p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Quem <strong>também precisa entrar no sistema</strong> (um gerente que vende, por exemplo) continua em Equipe &amp; Acessos,
+                  com o código do vendedor cadastrado na ficha dele. Se alguém esquecer a senha de 4 dígitos, o administrador cadastra
+                  outra na hora e isso já destrava quem estiver bloqueado por tentativas.
                 </p>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                   Com esta opção ligada, a lista geral de <strong>Pedidos de Venda</strong> fica visível só para dono, Master ou Admin — o funcionário comum passa a usar a tela <strong>Minhas Vendas</strong>, que mostra e reimprime só as vendas dele.

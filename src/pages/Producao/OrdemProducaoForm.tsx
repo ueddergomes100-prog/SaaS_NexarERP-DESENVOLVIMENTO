@@ -9,6 +9,7 @@ import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/
 import { reserveTenantSequence, formatSequenceValue, getCurrentMaxSequence } from '../../utils/firestoreAtomic';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
@@ -139,7 +140,12 @@ const OrdemProducaoForm: React.FC = () => {
         const qUsuarios = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
         const snapUsuarios = await getDocs(qUsuarios);
         const usuarios: OpcaoSimples[] = [];
-        snapUsuarios.forEach(d => usuarios.push({ id: d.id, nome: d.data().nome || d.data().nomeResponsavel || 'Usuário' }));
+        // Fora vendedor de balcao: ele nao entra no sistema, entao nao pode
+        // ser responsavel por ordem de producao.
+        snapUsuarios.forEach(d => {
+          if (isRegistroDeVendedor(d.data())) return;
+          usuarios.push({ id: d.id, nome: d.data().nome || d.data().nomeResponsavel || 'Usuário' });
+        });
         setUsuariosDisponiveis(usuarios);
 
         if (isEditing && id) {

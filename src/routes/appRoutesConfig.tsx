@@ -57,6 +57,7 @@ const PrintRelatorioDescontos = lazy(() => import('../pages/RelatoriosDiversos/P
 const UnidadesMedidaList = lazy(() => import('../pages/UnidadesMedida/UnidadesMedidaList'));
 const BandeirasCartaoList = lazy(() => import('../pages/BandeirasCartao/BandeirasCartaoList'));
 const BancosList = lazy(() => import('../pages/Bancos/BancosList'));
+const VendedoresList = lazy(() => import('../pages/Vendedores/VendedoresList'));
 const LogsSistema = lazy(() => import('../pages/Configuracoes/LogsSistema'));
 const RoadmapModule = lazy(() => import('../pages/Roadmap/RoadmapModule'));
 const FornecedoresList = lazy(() => import('../pages/Fornecedores/FornecedoresList'));
@@ -139,6 +140,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'unidades-medida', element: <UnidadesMedidaList /> },
   { path: 'bandeiras-cartao', element: <BandeirasCartaoList /> },
   { path: 'bancos', element: <BancosList /> },
+  { path: 'vendedores', element: <VendedoresList /> },
   { path: 'fornecedores', element: <FornecedoresList /> },
   { path: 'fornecedores/novo', element: <FornecedorForm /> },
   { path: 'fornecedores/editar/:id', element: <FornecedorForm /> },

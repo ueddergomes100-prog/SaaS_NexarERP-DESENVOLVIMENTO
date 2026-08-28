@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { getIdTokenResult, onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import Swal from 'sweetalert2';
 import { auth, db } from '../services/firebase';
 import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from '../utils/session';
@@ -21,6 +21,11 @@ import {
   somenteVendasProprias as calcSomenteVendasProprias,
   type NivelAcesso,
 } from '../utils/visibilidadeVendasDomain';
+import {
+  DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
+  parseExigirIdentificacaoVendedor,
+} from '../utils/vendedorPinDomain';
+import { isRegistroDeVendedor } from '../utils/vendedorCadastroDomain';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -45,6 +50,14 @@ interface AuthContextType {
   nivelAcesso: NivelAcesso;
   /** Config da empresa: "nao visualizar vendas de outro usuario". */
   restringirVendasPorUsuario: boolean;
+  /** Config da empresa: "exigir identificacao do vendedor a cada venda". E'
+   *  a marca de que a empresa trabalha em balcao compartilhado -- ver
+   *  src/utils/vendedorCadastroDomain.ts. */
+  exigirIdentificacaoVendedor: boolean;
+  /** Existe pelo menos um vendedor SEM LOGIN cadastrado nesta empresa. Serve
+   *  so pra decidir se o menu "Vendedores" aparece: o cadastro nao pode
+   *  sumir da vista quando alguem desmarca o checkbox por engano. */
+  temVendedorCadastrado: boolean;
   /** true quando ESTE usuario so pode ver as proprias vendas. */
   somenteVendasProprias: boolean;
   /** Id pra filtrar vendas, ou null quando o usuario ve todas. Passe
@@ -110,6 +123,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [selectedTenant, setSelectedTenant] = useState<TenantOption | null>(null);
   const [nivelAcesso, setNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
   const [restringirVendasPorUsuario, setRestringirVendasPorUsuario] = useState(DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO);
+  const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR);
+  const [temVendedorCadastrado, setTemVendedorCadastrado] = useState(false);
   const [loading, setLoading] = useState(true);
   const sessionCloseTokenRef = useRef('');
 
@@ -325,12 +340,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (!tenantId) {
       setRestringirVendasPorUsuario(DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO);
+      setExigirIdentificacaoVendedor(DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR);
       return;
     }
 
     const unsubscribe = onSnapshot(doc(db, 'configuracoes', tenantId), (snap) => {
       setRestringirVendasPorUsuario(
         parseRestringirVendasPorUsuario(snap.exists() ? snap.data().restringirVendasPorUsuario : undefined),
+      );
+      // Mesma leitura, mesmo listener: as duas configs vivem no mesmo
+      // documento e mudam juntas na tela de Configuracoes.
+      setExigirIdentificacaoVendedor(
+        parseExigirIdentificacaoVendedor(snap.exists() ? snap.data().exigirIdentificacaoVendedor : undefined),
       );
     }, (error) => {
       // Falha de leitura MANTEM o valor atual de proposito. Cair pro
@@ -456,6 +477,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return signOut(auth);
   };
 
+  // Existe vendedor sem login cadastrado? Decide so a visibilidade do menu
+  // "Cadastros Auxiliares > Vendedores". Reaproveita a lista de pessoas da
+  // empresa, que e' curta -- e filtra o tipo aqui, sem where() novo, pra nao
+  // exigir indice composto.
+  useEffect(() => {
+    if (!tenantId) {
+      setTemVendedorCadastrado(false);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'usuarios'), where('tenantId', '==', tenantId)),
+      (snap) => setTemVendedorCadastrado(snap.docs.some((documento) => isRegistroDeVendedor(documento.data()))),
+      (error) => {
+        // Falha de leitura nao esconde o menu: sumir com o cadastro por
+        // causa de uma queda de rede vale um chamado de suporte.
+        console.error('Erro ao verificar vendedores cadastrados:', error);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [tenantId]);
+
   const isPlatformAdmin = isPlatformAdminRole(userRole);
   const needsTenantSelection = isPlatformAdmin && !tenantId;
 
@@ -468,7 +512,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId }}>
       {children}
     </AuthContext.Provider>
   );

@@ -16,6 +16,7 @@ import {
   type MomentoBaixaEstoque,
 } from '../../utils/estoqueReservaDomain';
 import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
+import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import {
   calcularDescontoCents,
   checarLimiteTotal,
@@ -346,7 +347,13 @@ const OSForm: React.FC = () => {
       const qM = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
       const snapM = await getDocs(qM);
       const dataM: {id: string, nome: string}[] = [];
-      snapM.forEach((doc) => dataM.push({ id: doc.id, nome: doc.data().nome || doc.data().nomeResponsavel || 'Administrador' }));
+      // Vendedor de balcao (cadastro sem login) fica de fora: ele existe pro
+      // fluxo de identificacao por codigo+senha na venda, nao pra assumir
+      // uma OS. Ver src/utils/vendedorCadastroDomain.ts.
+      snapM.forEach((doc) => {
+        if (isRegistroDeVendedor(doc.data())) return;
+        dataM.push({ id: doc.id, nome: doc.data().nome || doc.data().nomeResponsavel || 'Administrador' });
+      });
       setMecanicosDisponiveis(dataM);
 
       // Fetch OS se for Edição

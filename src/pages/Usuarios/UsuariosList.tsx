@@ -11,6 +11,11 @@ import {
   parseNivelAcesso,
 } from '../../utils/visibilidadeVendasDomain';
 import PermissoesUsuarioModal from '../../components/common/PermissoesUsuarioModal';
+import {
+  EXPLICACAO_VENDEDOR_SEM_LOGIN,
+  isRegistroDeVendedor,
+  menuVendedoresVisivel,
+} from '../../utils/vendedorCadastroDomain';
 
 interface UsuarioData {
   id: string;
@@ -24,7 +29,13 @@ interface UsuarioData {
 }
 
 const UsuariosList: React.FC = () => {
-  const { tenantId, userRole, restringirVendasPorUsuario } = useAuth();
+  const {
+    tenantId,
+    userRole,
+    restringirVendasPorUsuario,
+    exigirIdentificacaoVendedor,
+    temVendedorCadastrado,
+  } = useAuth();
   const { openTab } = useTabs();
   const [usuarios, setUsuarios] = useState<UsuarioData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,6 +52,12 @@ const UsuariosList: React.FC = () => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const users: UsuarioData[] = [];
       snapshot.forEach(doc => {
+        // Vendedor de balcao mora na mesma colecao mas NAO tem login: sem
+        // senha, sem username, sem modulo pra liberar. Listar aqui daria um
+        // "usuario" com botao de permissao que nao serve pra nada e um
+        // login que nao existe. Ele fica em Cadastros Auxiliares >
+        // Vendedores -- ver src/utils/vendedorCadastroDomain.ts.
+        if (isRegistroDeVendedor(doc.data())) return;
         users.push({ id: doc.id, ...doc.data() } as UsuarioData);
       });
       setUsuarios(users);
@@ -126,6 +143,13 @@ const UsuariosList: React.FC = () => {
           </button>
         )}
       </div>
+
+      {menuVendedoresVisivel({ exigirIdentificacaoVendedor, temVendedorCadastrado }) && (
+        <div style={{ padding: '14px 18px', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: 'var(--radius-md)', color: 'var(--text-secondary)', fontSize: '13px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+          <UserCog size={18} style={{ color: '#3b82f6', flexShrink: 0, marginTop: '1px' }} />
+          <span>{EXPLICACAO_VENDEDOR_SEM_LOGIN} Esta lista mostra só quem entra no sistema.</span>
+        </div>
+      )}
 
       {restringirVendasPorUsuario && (
         <div style={{ padding: '14px 18px', backgroundColor: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: 'var(--radius-md)', color: 'var(--text-secondary)', fontSize: '13px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>

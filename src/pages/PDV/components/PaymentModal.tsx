@@ -3,6 +3,7 @@ import { CreditCard, Plus, Trash2, X } from 'lucide-react';
 import {
   createEmptyPaymentDraft,
   fromCents,
+  isCardPayment,
   paymentRequiresBankAccount,
   toCents,
   type PaymentDraft,
@@ -142,7 +143,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 />
               </label>
 
-              {paymentRequiresBankAccount(draft.forma) && (
+              {paymentRequiresBankAccount(draft.forma) && !(financeConfig.pagamentoCartaoSimplificadoAtivo && isCardPayment(draft.forma)) && (
                 <label>
                   <span>Banco de destino</span>
                   <select
@@ -160,7 +161,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </label>
               )}
 
-              {draft.forma === 'Cartão de Crédito' && (
+              {draft.forma === 'Cartão de Crédito' && !financeConfig.pagamentoCartaoSimplificadoAtivo && (
                 <label>
                   <span>Parcelas</span>
                   <select
@@ -174,9 +175,13 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </label>
               )}
 
-              {draft.forma !== 'Cartão de Crédito' && (
+              {(draft.forma !== 'Cartão de Crédito' || financeConfig.pagamentoCartaoSimplificadoAtivo) && (
                 <div className="pdv-payment-placeholder">
-                  <span>{draft.forma === 'Cartão de Débito' ? 'À vista' : 'Confirmado'}</span>
+                  <span>
+                    {isCardPayment(draft.forma) && financeConfig.pagamentoCartaoSimplificadoAtivo
+                      ? 'Confirmado na hora'
+                      : draft.forma === 'Cartão de Débito' ? 'À vista' : 'Confirmado'}
+                  </span>
                 </div>
               )}
 

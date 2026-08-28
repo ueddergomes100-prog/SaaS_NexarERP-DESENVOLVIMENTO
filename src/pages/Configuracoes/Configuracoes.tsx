@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy } from 'lucide-react';
-import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
+import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
@@ -9,7 +9,14 @@ import { formatCompanyAddress } from '../../utils/companyAddress';
 import { MODULE_GROUPS } from '../../utils/moduleCatalog';
 import { PERMISSION_CATALOG } from '../../utils/permissionCatalog';
 import { isPlatformAdminRole } from '../../utils/roles';
-import { normalizeCreditCardFeeSchedule, parseCreditTerms, parseComissaoPercentualInput } from '../../utils/financeDomain';
+import {
+  DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO,
+  normalizeCreditCardFeeSchedule,
+  parseCreditTerms,
+  parseComissaoPercentualInput,
+  parsePagamentoCartaoSimplificadoAtivo,
+  SIMPLIFIED_CARD_BANK_NAME,
+} from '../../utils/financeDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
 import { spedyService, type SpedyCity } from '../../services/spedyService';
@@ -43,7 +50,7 @@ import {
   DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
   DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
 } from '../../utils/conferenciaDomain';
-import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import {
   DEFAULT_NIVEL_ACESSO,
@@ -163,6 +170,7 @@ const Configuracoes: React.FC = () => {
     emiteNFSe: false,
     diasCrediario: '30',
     maxParcelasCartao: '12',
+    pagamentoCartaoSimplificadoAtivo: DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO,
     taxasCartaoCreditoPorParcela: toCreditCardRateInputs(null),
     taxaCartaoDebitoPercentual: '0',
     prazoRecebimentoCartaoCreditoDias: '30',
@@ -259,6 +267,7 @@ const Configuracoes: React.FC = () => {
             cep: data.cep ?? '',
             diasCrediario: data.diasCrediario ?? '30',
             maxParcelasCartao: String(Math.min(12, Math.max(1, Number(data.maxParcelasCartao ?? 12) || 12))),
+            pagamentoCartaoSimplificadoAtivo: parsePagamentoCartaoSimplificadoAtivo(data.pagamentoCartaoSimplificadoAtivo),
             taxasCartaoCreditoPorParcela: toCreditCardRateInputs(
               data.taxasCartaoCreditoPorParcela,
               data.taxaCartaoCreditoPercentual ?? 0,
@@ -567,6 +576,39 @@ const Configuracoes: React.FC = () => {
         updatedAt: serverTimestamp(),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
       }, { merge: true });
+
+      // Pagamento de cartão simplificado precisa de um banco de destino fixo
+      // pra nao pedir escolha na venda -- garante que "BANCO" existe assim
+      // que a opcao e' ligada, em vez de deixar a venda descobrir isso na
+      // hora de finalizar. Nao mexe se ja existir (mesmo inativo -- respeita
+      // uma desativacao deliberada em vez de recriar por baixo).
+      if (formData.pagamentoCartaoSimplificadoAtivo) {
+        const bancosSnap = await getDocs(query(collection(db, 'bancos'), where('tenantId', '==', tenantId)));
+        const bancoPadraoJaExiste = bancosSnap.docs.some((bancoDoc) => (
+          String(bancoDoc.data().nome || '').trim().toLowerCase() === SIMPLIFIED_CARD_BANK_NAME.toLowerCase()
+        ));
+        if (!bancoPadraoJaExiste) {
+          const maiorOrdem = bancosSnap.docs.reduce(
+            (max, bancoDoc) => Math.max(max, Number(bancoDoc.data().ordem) || 0),
+            -1,
+          );
+          await addDoc(collection(db, 'bancos'), {
+            nome: SIMPLIFIED_CARD_BANK_NAME,
+            banco: '',
+            agencia: '',
+            conta: '',
+            tipoConta: 'corrente',
+            ativo: true,
+            ordem: maiorOrdem + 1,
+            saldoInicialCentavos: 0,
+            saldoCentavos: 0,
+            tenantId,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          });
+        }
+      }
 
       setFormData((current) => ({
         ...current,
@@ -1972,6 +2014,27 @@ const Configuracoes: React.FC = () => {
                   disabled={!isEditingMode}
                 />
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Define até qual opção, entre 1x e 12x, poderá ser usada na operação.</p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Pagamento de Cartão Simplificado</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.pagamentoCartaoSimplificadoAtivo === true}
+                    onChange={(e) => setFormData({ ...formData, pagamentoCartaoSimplificadoAtivo: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Finalizar cartão de crédito/débito sem bandeira, autorização, parcelas ou banco
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Com esta opção ligada, ao escolher Cartão de Crédito ou Débito na venda/OS/PDV o operador só informa o
+                  valor — o pagamento confirma na hora e é lançado automaticamente no banco padrão{' '}
+                  <strong>&quot;{SIMPLIFIED_CARD_BANK_NAME}&quot;</strong> (criado automaticamente ao salvar). Dinheiro,
+                  Pix, Transferência e Pagamento a Prazo não mudam. Desligada (padrão), o cartão continua pedindo
+                  bandeira, NSU/autorização, parcelas e banco de destino, como hoje.
+                </p>
               </div>
             </div>
           )}

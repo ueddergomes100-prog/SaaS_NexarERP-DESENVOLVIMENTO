@@ -15,7 +15,9 @@ import {
   REVENUE_REVERSAL_CATEGORIES,
   paymentRequiresBankAccount,
   recalculateCommissionAfterReturn,
+  resolveBancoPadraoSimplificado,
   resolveComissaoPercentual,
+  SIMPLIFIED_CARD_BANK_NAME,
   summarizePayments,
   transactionFeeCents,
   transactionGrossCents,
@@ -629,4 +631,103 @@ test('REVENUE_REVERSAL_CATEGORIES cobre as 3 categorias que o sistema grava, sem
     'Devolução de Venda',
   ]);
   assert.equal(new Set(REVENUE_REVERSAL_CATEGORIES).size, REVENUE_REVERSAL_CATEGORIES.length);
+});
+
+test('pagamento simplificado: cartão confirma na hora, usa o banco padrão e ignora bandeira/parcelas do draft', () => {
+  const bancoPadraoSimplificado = { id: 'banco-padrao', nome: 'BANCO' };
+  const [record] = normalizePayments(10_000, [
+    payment({
+      forma: 'Cartão de Crédito',
+      bancoId: '',
+      bancoNome: '',
+      bandeira: 'Visa',
+      autorizacao: '123456',
+      parcelas: '6',
+    }),
+  ], {
+    saleDate: '2026-07-18',
+    creditFeePercent: 2.5,
+    pagamentoCartaoSimplificadoAtivo: true,
+    bancoPadraoSimplificado,
+  });
+
+  assert.equal(record.status, 'confirmado');
+  assert.equal(record.naturezaFinanceira, 'bancario_digital');
+  assert.equal(record.bancoId, 'banco-padrao');
+  assert.equal(record.bancoNome, 'BANCO');
+  assert.equal(record.cartao?.parcelas, 1);
+  assert.equal(record.cartao?.taxaPercentual, 0);
+  assert.equal(record.cartao?.valorLiquidoCentavos, 10_000);
+  assert.equal(record.cartao?.bandeira, undefined);
+  assert.equal(record.cartao?.autorizacao, undefined);
+  assertNoUndefined(record);
+});
+
+test('pagamento simplificado: cartão de débito também confirma na hora sem exigir banco escolhido na tela', () => {
+  const [record] = normalizePayments(10_000, [
+    payment({ forma: 'Cartão de Débito', bancoId: '', bancoNome: '' }),
+  ], {
+    saleDate: '2026-07-18',
+    pagamentoCartaoSimplificadoAtivo: true,
+    bancoPadraoSimplificado: { id: 'banco-padrao', nome: 'BANCO' },
+  });
+
+  assert.equal(record.status, 'confirmado');
+  assert.equal(record.bancoId, 'banco-padrao');
+});
+
+test('pagamento simplificado: sem banco "BANCO" cadastrado, bloqueia com mensagem clara em vez de adivinhar destino', () => {
+  assert.throws(
+    () => normalizePayments(10_000, [
+      payment({ forma: 'Cartão de Crédito', bancoId: '', bancoNome: '' }),
+    ], {
+      saleDate: '2026-07-18',
+      pagamentoCartaoSimplificadoAtivo: true,
+      bancoPadraoSimplificado: null,
+    }),
+    /banco padrão "BANCO"/,
+  );
+});
+
+test('pagamento simplificado desligado (padrão): cartão continua exigindo banco e mantém pendente, como hoje', () => {
+  const [record] = normalizePayments(10_000, [
+    payment({ forma: 'Cartão de Crédito', bandeira: 'Visa' }),
+  ], { saleDate: '2026-07-18', creditFeePercent: 2.5 });
+
+  assert.equal(record.status, 'pendente');
+  assert.equal(record.naturezaFinanceira, 'contas_receber');
+  assert.equal(record.bancoId, 'banco-teste');
+});
+
+test('pagamento simplificado ligado: dinheiro e pagamento a prazo não mudam em nada', () => {
+  const [dinheiro] = normalizePayments(10_000, [
+    payment({ forma: 'Dinheiro' }),
+  ], { saleDate: '2026-07-18', pagamentoCartaoSimplificadoAtivo: true });
+  assert.equal(dinheiro.status, 'confirmado');
+  assert.equal(dinheiro.naturezaFinanceira, 'caixa_fisico');
+  assert.equal(dinheiro.movimentaCaixaFisico, true);
+
+  const [aPrazo] = normalizePayments(10_000, [
+    payment({ forma: 'Pagamento a Prazo', prazoDias: '30' }),
+  ], { saleDate: '2026-07-18', pagamentoCartaoSimplificadoAtivo: true });
+  assert.equal(aPrazo.status, 'pendente');
+  assert.equal(aPrazo.naturezaFinanceira, 'contas_receber');
+  assert.equal(aPrazo.dataVencimento, '2026-08-17');
+});
+
+test('resolveBancoPadraoSimplificado acha "BANCO" ignorando maiusculas/espacos e bancos inativos', () => {
+  assert.equal(
+    resolveBancoPadraoSimplificado([
+      { id: '1', nome: 'Caixa Loja', ativo: true },
+      { id: '2', nome: '  banco  ', ativo: true },
+    ])?.id,
+    '2',
+  );
+  assert.equal(
+    resolveBancoPadraoSimplificado([
+      { id: '3', nome: SIMPLIFIED_CARD_BANK_NAME, ativo: false },
+    ]),
+    null,
+  );
+  assert.equal(resolveBancoPadraoSimplificado([]), null);
 });

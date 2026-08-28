@@ -34,6 +34,7 @@ import {
   explodeInstallmentPaymentRecords,
   fromCents,
   normalizePayments,
+  resolveBancoPadraoSimplificado,
   summarizePayments,
   toCents,
   type PaymentDraft,
@@ -93,6 +94,7 @@ interface BandeiraCartao {
   prazoRecebimentoCreditoDias?: number;
   prazoRecebimentoDebitoDias?: number;
 }
+interface Banco { id: string; nome: string; ativo: boolean; }
 
 const normalizeText = (value: unknown) => String(value || '').trim();
 
@@ -110,7 +112,9 @@ const PDV: React.FC = () => {
     needsTenantSelection,
   } = useAuth();
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
+  const { items: bancosDisponiveis } = useTenantCollection<Banco>('bancos', tenantId);
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
+  const bancoPadraoSimplificado = resolveBancoPadraoSimplificado(bancosDisponiveis);
 
   const productInputRef = useRef<HTMLInputElement | null>(null);
   const [loading, setLoading] = useState(true);
@@ -758,6 +762,8 @@ const PDV: React.FC = () => {
         creditSettlementDays: financeConfig.creditSettlementDays,
         debitSettlementDays: financeConfig.debitSettlementDays,
         cardFeeSchedulesByBrand,
+        pagamentoCartaoSimplificadoAtivo: financeConfig.pagamentoCartaoSimplificadoAtivo,
+        bancoPadraoSimplificado,
       });
     } catch (error) {
       showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os pagamentos.');

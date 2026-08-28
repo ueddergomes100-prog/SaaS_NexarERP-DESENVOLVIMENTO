@@ -65,6 +65,8 @@ import {
   normalizeCreditCardFeeSchedule,
   normalizePayments,
   parseCreditTerms,
+  parsePagamentoCartaoSimplificadoAtivo,
+  resolveBancoPadraoSimplificado,
   resolveComissaoPercentual,
   summarizePayments,
   toCents,
@@ -76,6 +78,7 @@ import {
 import './OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
+interface Banco { id: string; nome: string; ativo: boolean; }
 interface BandeiraCartao {
   id: string;
   nome: string;
@@ -221,7 +224,10 @@ const OSForm: React.FC = () => {
   const { currentUser, tenantId, userRole } = useAuth();
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
+  const { items: bancosDisponiveis } = useTenantCollection<Banco>('bancos', tenantId);
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
+  const [pagamentoCartaoSimplificadoAtivo, setPagamentoCartaoSimplificadoAtivo] = useState(false);
+  const bancoPadraoSimplificado = resolveBancoPadraoSimplificado(bancosDisponiveis);
 
   const [isServicoDropdownOpen, setIsServicoDropdownOpen] = useState(false);
   const servicoDropdownRef = useRef<HTMLDivElement>(null);
@@ -309,6 +315,7 @@ const OSForm: React.FC = () => {
         if (configSnap.exists()) {
           const config = configSnap.data();
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
+          setPagamentoCartaoSimplificadoAtivo(parsePagamentoCartaoSimplificadoAtivo(config.pagamentoCartaoSimplificadoAtivo));
           setPecaSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           setMomentoBaixaEstoque((config.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque);
           setLimiteDescontoOS(parseLimiteDescontoConfig(config.limiteDescontoOS));
@@ -836,6 +843,8 @@ const OSForm: React.FC = () => {
           creditSettlementDays: financeConfig.creditSettlementDays,
           debitSettlementDays: financeConfig.debitSettlementDays,
           cardFeeSchedulesByBrand,
+          pagamentoCartaoSimplificadoAtivo,
+          bancoPadraoSimplificado,
         });
         paymentRecords = explodeInstallmentPaymentRecords(paymentRecords);
         paymentSummary = summarizePayments(paymentRecords);
@@ -1406,6 +1415,7 @@ const OSForm: React.FC = () => {
                   onRemovePayment={removePaymentDraft}
                   onTransactionDateChange={(date) => setFormData((current) => ({ ...current, dataSaida: date }))}
                   onUpdatePayment={updatePaymentDraft}
+                  pagamentoCartaoSimplificadoAtivo={pagamentoCartaoSimplificadoAtivo}
                   sourceLabel="OS"
                   tenantId={tenantId}
                   totalCents={totalOSCentavos}

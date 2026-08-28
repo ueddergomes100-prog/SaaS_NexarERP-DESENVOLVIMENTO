@@ -2,6 +2,7 @@ import {
   fromCents,
   normalizeCreditCardFeeSchedule,
   parseCreditTerms,
+  parsePagamentoCartaoSimplificadoAtivo,
   toCents,
   type CreditCardFeeSchedule,
 } from '../../utils/financeDomain';
@@ -24,6 +25,7 @@ export interface PdvFinanceConfig {
   debitFeePercent: number;
   creditSettlementDays: number;
   debitSettlementDays: number;
+  pagamentoCartaoSimplificadoAtivo: boolean;
 }
 
 export const defaultPdvFinanceConfig = (): PdvFinanceConfig => ({
@@ -33,6 +35,7 @@ export const defaultPdvFinanceConfig = (): PdvFinanceConfig => ({
   debitFeePercent: 0,
   creditSettlementDays: 30,
   debitSettlementDays: 1,
+  pagamentoCartaoSimplificadoAtivo: false,
 });
 
 export const buildPdvFinanceConfig = (config: Record<string, unknown> | null | undefined): PdvFinanceConfig => {
@@ -50,6 +53,7 @@ export const buildPdvFinanceConfig = (config: Record<string, unknown> | null | u
     debitFeePercent: Math.max(0, Number(config?.taxaCartaoDebitoPercentual || 0)),
     creditSettlementDays: creditSettlementDays === '' ? 30 : Math.max(0, Number(creditSettlementDays)),
     debitSettlementDays: debitSettlementDays === '' ? 1 : Math.max(0, Number(debitSettlementDays)),
+    pagamentoCartaoSimplificadoAtivo: parsePagamentoCartaoSimplificadoAtivo(config?.pagamentoCartaoSimplificadoAtivo),
   };
 };
 

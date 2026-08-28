@@ -32,7 +32,9 @@ import {
   normalizeCreditCardFeeSchedule,
   normalizePayments,
   parseCreditTerms,
+  parsePagamentoCartaoSimplificadoAtivo,
   recalculateCommissionAfterReturn,
+  resolveBancoPadraoSimplificado,
   resolveComissaoPercentual,
   summarizePayments,
   toCents,
@@ -103,6 +105,7 @@ import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
 interface VendedorBasico { id: string; nome: string; email?: string; }
+interface Banco { id: string; nome: string; ativo: boolean; }
 interface BandeiraCartao {
   id: string;
   nome: string;
@@ -372,7 +375,10 @@ const PedidoVendaForm: React.FC = () => {
     : canEditAgentOrder && temPermissao('vendas.pedidos_pendentes_excluir_item');
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
+  const { items: bancosDisponiveis } = useTenantCollection<Banco>('bancos', tenantId);
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
+  const [pagamentoCartaoSimplificadoAtivo, setPagamentoCartaoSimplificadoAtivo] = useState(false);
+  const bancoPadraoSimplificado = resolveBancoPadraoSimplificado(bancosDisponiveis);
 
   useEffect(() => {
     if (currentUser && !vendedorId) setVendedorId(currentUser.uid);
@@ -469,6 +475,7 @@ const PedidoVendaForm: React.FC = () => {
         if (configSnap.exists()) {
           const config = configSnap.data();
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
+          setPagamentoCartaoSimplificadoAtivo(parsePagamentoCartaoSimplificadoAtivo(config.pagamentoCartaoSimplificadoAtivo));
           setProdutoSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           setConferenciaMercadoriaAtiva(config.conferenciaMercadoria === true);
           setTrabalhaComPreVenda(parseTrabalhaComPreVenda(config.trabalhaComPreVenda));
@@ -1295,6 +1302,8 @@ const PedidoVendaForm: React.FC = () => {
         creditSettlementDays: financeConfig.creditSettlementDays,
         debitSettlementDays: financeConfig.debitSettlementDays,
         cardFeeSchedulesByBrand,
+        pagamentoCartaoSimplificadoAtivo,
+        bancoPadraoSimplificado,
       });
     } catch (error) {
       showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os dados do pagamento.');
@@ -1519,6 +1528,8 @@ const PedidoVendaForm: React.FC = () => {
         creditSettlementDays: financeConfig.creditSettlementDays,
         debitSettlementDays: financeConfig.debitSettlementDays,
         cardFeeSchedulesByBrand,
+        pagamentoCartaoSimplificadoAtivo,
+        bancoPadraoSimplificado,
       });
     } catch (error) {
       showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os dados do pagamento.');
@@ -3486,6 +3497,7 @@ const PedidoVendaForm: React.FC = () => {
               onRemovePayment={removePaymentDraft}
               onTransactionDateChange={setDataVenda}
               onUpdatePayment={updatePaymentDraft}
+              pagamentoCartaoSimplificadoAtivo={pagamentoCartaoSimplificadoAtivo}
               sourceLabel="venda"
               tenantId={tenantId}
               totalCents={valorTotalPedidoCentavos}

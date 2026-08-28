@@ -77,6 +77,8 @@ interface PaymentsEditorProps {
   onRemovePayment: (id: string) => void;
   onTransactionDateChange: (date: string) => void;
   onUpdatePayment: (id: string, updates: Partial<PaymentDraft>) => void;
+  /** Pagamento de cartão simplificado (Configurações) -- some banco/bandeira/autorização/parcelas do cartão. */
+  pagamentoCartaoSimplificadoAtivo?: boolean;
   sourceLabel?: string;
   tenantId?: string | null;
   totalCents: number;
@@ -308,6 +310,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   onRemovePayment,
   onTransactionDateChange,
   onUpdatePayment,
+  pagamentoCartaoSimplificadoAtivo = false,
   sourceLabel = 'operação',
   tenantId,
   totalCents,
@@ -351,6 +354,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
       </div>
 
       {drafts.map((payment, index) => {
+        const isSimplifiedCardPayment = pagamentoCartaoSimplificadoAtivo && isCardPayment(payment.forma);
         const paymentCents = toCents(payment.valor);
         const installmentCount = payment.forma === 'Cartão de Crédito'
           ? Math.max(1, Number.parseInt(payment.parcelas, 10) || 1)
@@ -414,7 +418,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
               </div>
             </div>
 
-            {paymentRequiresBankAccount(payment.forma) && (
+            {paymentRequiresBankAccount(payment.forma) && !isSimplifiedCardPayment && (
               <div className="input-group">
                 <label htmlFor={`${idPrefix}-banco-${payment.id}`}>Banco de destino *</label>
                 <select
@@ -473,7 +477,13 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
               </div>
             )}
 
-            {isCardPayment(payment.forma) && (
+            {isSimplifiedCardPayment && (
+              <span className="payments-editor__digital-notice">
+                Cartão confirmado na hora, sem bandeira, autorização ou parcelas — lançado direto no banco padrão.
+              </span>
+            )}
+
+            {isCardPayment(payment.forma) && !isSimplifiedCardPayment && (
               <div className="payments-editor__card-fields">
                 <div className="payments-editor__card-grid">
                   <div className="input-group">
@@ -547,7 +557,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
 
             {payment.forma === 'Dinheiro' ? (
               <span className="payments-editor__cash-notice">Este pagamento movimenta o caixa físico.</span>
-            ) : payment.forma === 'Pix' || payment.forma === 'Transferência' ? (
+            ) : (payment.forma === 'Pix' || payment.forma === 'Transferência') ? (
               <span className="payments-editor__digital-notice">Recebimento digital confirmado; não movimenta o caixa físico.</span>
             ) : null}
           </div>

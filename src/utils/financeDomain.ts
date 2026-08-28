@@ -100,6 +100,9 @@ export interface PaymentValidationOptions {
   creditSettlementDays?: number;
   debitSettlementDays?: number;
   cardFeeSchedulesByBrand?: Record<string, CardFeeSchedule>;
+  /** Pagamento de cartão simplificado (Configurações) -- ver resolveBancoPadraoSimplificado. */
+  pagamentoCartaoSimplificadoAtivo?: boolean;
+  bancoPadraoSimplificado?: { id: string; nome: string } | null;
 }
 
 export interface CardFeeSchedule {
@@ -268,6 +271,33 @@ export const isCardPayment = (method: string) => (
   method === 'Cartão de Crédito' || method === 'Cartão de Débito'
 );
 
+export const DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = false;
+
+export const parsePagamentoCartaoSimplificadoAtivo = (value: unknown): boolean => value === true;
+
+/**
+ * Nome do banco padrao usado como destino automatico do cartao quando o
+ * pagamento simplificado (Configuracoes) esta ligado -- o operador nao
+ * escolhe banco nesse modo, entao precisa de um destino fixo e previsivel.
+ */
+export const SIMPLIFIED_CARD_BANK_NAME = 'BANCO';
+
+/**
+ * Acha, entre os bancos ativos do tenant, o banco padrao do pagamento
+ * simplificado (nome "BANCO", comparacao sem distincao de maiusculas/
+ * espacos). Retorna null se ainda nao foi criado -- nesse caso
+ * normalizePayments bloqueia com mensagem clara em vez de adivinhar um
+ * destino.
+ */
+export const resolveBancoPadraoSimplificado = (
+  bancos: Array<{ id: string; nome: string; ativo: boolean }>,
+): { id: string; nome: string } | null => {
+  const match = bancos.find((banco) => (
+    banco.ativo && banco.nome.trim().toLowerCase() === SIMPLIFIED_CARD_BANK_NAME.toLowerCase()
+  ));
+  return match ? { id: match.id, nome: match.nome } : null;
+};
+
 export const isPhysicalCashPayment = (method?: string) => method === 'Dinheiro';
 
 /**
@@ -427,12 +457,31 @@ export const normalizePayments = (
   const records = drafts.map((draft, index): PaymentRecord => {
     const valueCents = toCents(draft.valor);
     if (valueCents <= 0) throw new Error(`O valor do pagamento ${index + 1} deve ser maior que zero.`);
-    if (paymentRequiresBankAccount(draft.forma) && !draft.bancoId?.trim()) {
+
+    // Pagamento simplificado (Configuracoes): cartao confirma na hora, sem
+    // bandeira/autorizacao/parcelas, e usa o banco "BANCO" automaticamente
+    // em vez do banco escolhido na tela -- ver SIMPLIFIED_CARD_BANK_NAME.
+    const isSimplifiedCard = isCardPayment(draft.forma) && options.pagamentoCartaoSimplificadoAtivo === true;
+    let effectiveBancoId = draft.bancoId;
+    let effectiveBancoNome = draft.bancoNome;
+    if (isSimplifiedCard) {
+      if (!options.bancoPadraoSimplificado) {
+        throw new Error(
+          `Nenhum banco padrão "${SIMPLIFIED_CARD_BANK_NAME}" foi encontrado para o pagamento simplificado. `
+          + `Abra Financeiro → Bancos e cadastre um banco chamado "${SIMPLIFIED_CARD_BANK_NAME}", `
+          + 'ou desligue o pagamento de cartão simplificado em Configurações.',
+        );
+      }
+      effectiveBancoId = options.bancoPadraoSimplificado.id;
+      effectiveBancoNome = options.bancoPadraoSimplificado.nome;
+    }
+
+    if (paymentRequiresBankAccount(draft.forma) && !effectiveBancoId?.trim()) {
       throw new Error(`Selecione o banco de destino do pagamento ${index + 1}.`);
     }
 
     const isTerm = draft.forma === 'Pagamento a Prazo';
-    const nature = financialNatureForPayment(draft.forma);
+    const nature = isSimplifiedCard ? 'bancario_digital' : financialNatureForPayment(draft.forma);
     const record: PaymentRecord = {
       id: draft.id,
       indice: index + 1,
@@ -440,14 +489,14 @@ export const normalizePayments = (
       condicaoPagamento: isTerm ? 'aprazo' : 'avista',
       valorCentavos: valueCents,
       valor: fromCents(valueCents),
-      status: paymentIsImmediatelyConfirmed(draft.forma) ? 'confirmado' : 'pendente',
+      status: (paymentIsImmediatelyConfirmed(draft.forma) || isSimplifiedCard) ? 'confirmado' : 'pendente',
       naturezaFinanceira: nature,
       movimentaCaixaFisico: draft.forma === 'Dinheiro',
     };
 
-    if (draft.bancoId?.trim()) {
-      record.bancoId = draft.bancoId.trim();
-      record.bancoNome = draft.bancoNome?.trim() || '';
+    if (effectiveBancoId?.trim()) {
+      record.bancoId = effectiveBancoId.trim();
+      record.bancoNome = effectiveBancoNome?.trim() || '';
     }
 
     if (isTerm) {
@@ -464,7 +513,16 @@ export const normalizePayments = (
       record.dataVencimento = dueDate;
     }
 
-    if (isCardPayment(draft.forma)) {
+    if (isCardPayment(draft.forma) && isSimplifiedCard) {
+      record.dataPrevistaRecebimento = saleDate;
+      record.cartao = buildCardDetails({
+        method: draft.forma,
+        grossCents: valueCents,
+        installments: 1,
+        feePercent: 0,
+        firstSettlementDate: saleDate,
+      });
+    } else if (isCardPayment(draft.forma)) {
       const installments = Number.parseInt(draft.parcelas, 10);
       if (
         draft.forma === 'Cartão de Crédito' &&

@@ -163,7 +163,18 @@ const OrcamentoForm: React.FC = () => {
         const qV = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId));
         const snapV = await getDocs(qV);
         const dataV: VeiculoBasico[] = [];
-        snapV.forEach((doc) => dataV.push({ id: doc.id, placa: doc.data().placa, modelo: doc.data().modelo, ano: doc.data().ano, cor: doc.data().cor, clienteId: doc.data().clienteId }));
+        // Campos opcionais no cadastro de veiculo (Ano, Cor) podem faltar no
+        // documento -- sem o fallback, o autofill do orcamento copiava
+        // undefined pro formData e o Firestore recusava o save inteiro
+        // (mesmo bug corrigido em OSForm.tsx -- regra 3 do CLAUDE.md).
+        snapV.forEach((doc) => dataV.push({
+          id: doc.id,
+          placa: doc.data().placa || '',
+          modelo: doc.data().modelo || '',
+          ano: doc.data().ano || '',
+          cor: doc.data().cor || '',
+          clienteId: doc.data().clienteId || '',
+        }));
         setVeiculosDisponiveis(dataV);
 
         const qS = query(collection(db, 'servicos'), where('tenantId', '==', tenantId));
@@ -268,6 +279,31 @@ const OrcamentoForm: React.FC = () => {
     setPecaNomeInput('');
     setPecaPrecoInput('');
     setPecaSelecionada(null);
+  };
+
+  // Mesma checagem de bloquear/perguntar que ja rodava so no Salvar (ver
+  // handleSubmit) -- disparada tambem ao sair do campo, pra nao deixar o
+  // usuario montar o orcamento inteiro antes de descobrir que o cliente
+  // digitado nao esta cadastrado.
+  const handleClienteBlur = () => {
+    const nomeDigitado = formData.clienteNome.trim();
+    if (!nomeDigitado) return;
+    const clienteEncontrado = clientesDisponiveis.some(c => c.nome.toUpperCase() === nomeDigitado.toUpperCase());
+    const acao = resolverAcaoValidacaoCliente(modoValidacaoCliente, clienteEncontrado, nomeDigitado);
+    if (acao.tipo === 'bloquear') {
+      showError('Cliente não cadastrado', acao.motivo);
+    } else if (acao.tipo === 'perguntar') {
+      NexusSwal.fire({
+        title: 'Cliente não cadastrado',
+        text: `"${nomeDigitado.toUpperCase()}" ainda não tem cadastro. Deseja cadastrar agora?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Cadastrar cliente',
+        cancelButtonText: 'Cancelar',
+      }).then((result) => {
+        if (result.isConfirmed) setCadastroRapidoAberto(true);
+      });
+    }
   };
 
   const handleAddItem = (tipo: 'servico' | 'peca') => {
@@ -731,11 +767,12 @@ const OrcamentoForm: React.FC = () => {
                 value={formData.clienteNome}
                 onChange={(value) => setFormData({ ...formData, clienteId: null, clienteNome: value })}
                 clients={clientesDisponiveis}
+                onBlur={handleClienteBlur}
                 onSelect={(cliente) => {
                   const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === cliente.id);
                   if (vDoCliente.length === 1) {
                     const v = vDoCliente[0];
-                    setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone, placa: v.placa, modelo: v.modelo, ano: v.ano, cor: v.cor });
+                    setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone, placa: v.placa || '', modelo: v.modelo || '', ano: v.ano || '', cor: v.cor || '' });
                     setVeiculosDoCliente([]);
                     setIsVeiculoDropdownOpen(false);
                   } else if (vDoCliente.length > 1) {
@@ -794,7 +831,7 @@ const OrcamentoForm: React.FC = () => {
                       key={v.id} 
                       type="button"
                       onClick={() => {
-                        setFormData(prev => ({...prev, placa: v.placa, modelo: v.modelo, ano: v.ano, cor: v.cor}));
+                        setFormData(prev => ({...prev, placa: v.placa || '', modelo: v.modelo || '', ano: v.ano || '', cor: v.cor || ''}));
                         setIsVeiculoDropdownOpen(false);
                       }}
                       style={{ padding: '8px 16px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}

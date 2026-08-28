@@ -15,6 +15,11 @@ export interface ClientAutocompleteProps<T extends SearchableClient & { id: stri
   inputRef?: React.RefObject<HTMLInputElement | null>;
   emptyHint?: React.ReactNode;
   className?: string;
+  /** Roda ao sair do campo, alem do fechamento do dropdown -- usado pra
+   * validar o nome digitado (bloquear/perguntar) na hora, sem esperar o
+   * usuario terminar a venda/OS/orcamento inteiro pra descobrir que o
+   * cliente nao esta cadastrado. */
+  onBlur?: () => void;
 }
 
 /**
@@ -37,6 +42,7 @@ function ClientAutocompleteInner<T extends SearchableClient & { id: string }>({
   inputRef,
   emptyHint,
   className,
+  onBlur,
 }: ClientAutocompleteProps<T>) {
   const internalRef = useRef<HTMLInputElement | null>(null);
   const resolvedInputRef = inputRef || internalRef;
@@ -96,7 +102,10 @@ function ClientAutocompleteInner<T extends SearchableClient & { id: string }>({
           setIsOpen(true);
         }}
         onFocus={() => setIsOpen(true)}
-        onBlur={() => setIsOpen(false)}
+        onBlur={() => {
+          setIsOpen(false);
+          onBlur?.();
+        }}
         onKeyDown={handleKeyDown}
         style={{ textTransform: 'uppercase' }}
         className="client-autocomplete__input"

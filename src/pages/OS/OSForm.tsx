@@ -623,6 +623,31 @@ const OSForm: React.FC = () => {
     setServicosSelecionados(novos);
   };
 
+  // Mesma checagem de bloquear/perguntar que ja rodava so no Salvar (ver
+  // handleSubmit) -- disparada tambem ao sair do campo, pra nao deixar o
+  // usuario preencher a OS inteira antes de descobrir que o cliente
+  // digitado nao esta cadastrado.
+  const handleClienteBlur = () => {
+    const nomeDigitado = formData.clienteNome.trim();
+    if (!nomeDigitado) return;
+    const clienteEncontrado = clientesDisponiveis.some(c => c.nome.toUpperCase() === nomeDigitado.toUpperCase());
+    const acao = resolverAcaoValidacaoCliente(modoValidacaoCliente, clienteEncontrado, nomeDigitado);
+    if (acao.tipo === 'bloquear') {
+      showError('Cliente não cadastrado', acao.motivo);
+    } else if (acao.tipo === 'perguntar') {
+      NexusSwal.fire({
+        title: 'Cliente não cadastrado',
+        text: `"${nomeDigitado.toUpperCase()}" ainda não tem cadastro. Deseja cadastrar agora?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Cadastrar cliente',
+        cancelButtonText: 'Cancelar',
+      }).then((result) => {
+        if (result.isConfirmed) setCadastroRapidoAberto(true);
+      });
+    }
+  };
+
   const handleAddPeca = async () => {
     if (!pecaNomeInput || !pecaPrecoInput) return;
     const precoNum = parseFloat(pecaPrecoInput.replace(',', '.'));
@@ -1454,6 +1479,7 @@ const OSForm: React.FC = () => {
                 onChange={(value) => setFormData({ ...formData, clienteNome: value })}
                 clients={clientesDisponiveis}
                 inputRef={clienteInputRef}
+                onBlur={handleClienteBlur}
                 onSelect={(c) => {
                   const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === c.id);
                   if (vDoCliente.length === 1) {

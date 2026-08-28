@@ -662,6 +662,32 @@ const PedidoVendaForm: React.FC = () => {
     setProdutoPreco(findOpcaoUnidadeVenda(opcoesUnidadeVenda, embalagemId).precoVenda);
   };
 
+  // Mesma checagem de bloquear/perguntar que ja rodava so na pre-venda/
+  // finalizacao (ver os dois usos de resolverAcaoValidacaoCliente abaixo)
+  // -- disparada tambem ao sair do campo, pra nao deixar o usuario montar
+  // a venda inteira antes de descobrir que o cliente digitado nao esta
+  // cadastrado.
+  const handleClienteBlur = () => {
+    const nomeDigitado = clienteNome.trim();
+    if (!nomeDigitado) return;
+    const clienteEncontrado = clientesDisponiveis.some(c => c.nome.toUpperCase() === nomeDigitado.toUpperCase());
+    const acao = resolverAcaoValidacaoCliente(modoValidacaoCliente, clienteEncontrado, nomeDigitado);
+    if (acao.tipo === 'bloquear') {
+      showError('Cliente não cadastrado', acao.motivo);
+    } else if (acao.tipo === 'perguntar') {
+      NexusSwal.fire({
+        title: 'Cliente não cadastrado',
+        text: `"${nomeDigitado.toUpperCase()}" ainda não tem cadastro. Deseja cadastrar agora?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Cadastrar cliente',
+        cancelButtonText: 'Cancelar',
+      }).then((result) => {
+        if (result.isConfirmed) setCadastroRapidoAberto(true);
+      });
+    }
+  };
+
   const handleAddItem = () => {
     if (!produtoBusca) {
       showError('Atenção', 'Selecione ou digite o nome de um produto.');
@@ -3101,6 +3127,7 @@ const PedidoVendaForm: React.FC = () => {
                 onChange={setClienteNome}
                 clients={clientesDisponiveis}
                 onSelect={(c) => setClienteNome(c.nome)}
+                onBlur={handleClienteBlur}
                 disabled={isViewing && !canEditPendingCliente}
                 inputRef={clienteInputRef}
                 placeholder="Busque ou digite o nome do cliente..."

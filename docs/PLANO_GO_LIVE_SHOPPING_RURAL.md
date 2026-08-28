@@ -329,3 +329,91 @@ amanhã.
 - **Notas Recebidas automática via Spedy** (item 11 da Seção 9) continua sem decisão,
   travada em certificado digital A1. Se a loja for receber muita nota de fornecedor,
   isso conversa diretamente com o item 9 deste plano.
+
+---
+
+## 4. Importação inicial do catálogo de produtos — 2026-08-28
+
+Necessidade que surgiu à parte dos 12 itens: o cliente tem ~200 produtos anotados
+numa contagem física do estoque do sistema antigo (planilha CSV/XLSX), e precisa
+que isso vire o cadastro de produtos do Hennder ERP antes do go-live, sem digitar
+um por um. Documentado aqui pra continuar em outra janela de contexto sem perder
+as decisões de negócio já fechadas.
+
+**Implementado, em `dev` e `production`** (commits `65681d3`, `439c7d6`, `12eb491`):
+
+- Nova tela `/estoque/importar`
+  ([ImportarProdutos.tsx](../src/pages/Estoque/ImportarProdutos.tsx)), botão
+  "Importar produtos" em
+  [EstoqueList.tsx](../src/pages/Estoque/EstoqueList.tsx). Fluxo em 5 passos:
+  upload (CSV/XLSX) → mapeamento de colunas (configurável, não hardcoded pra um
+  layout só) → interpretação de quantidade (resolve "+" e vírgula decimal, nunca
+  resolve sozinho valor ambíguo) → detecção de pares "mesmo produto em unidade
+  diferente" (sugere mesclar com embalagem) → confirmação final de
+  unidade/preço/quantidade por produto.
+- Toda a lógica pura em
+  [importacaoEstoqueDomain.ts](../src/utils/importacaoEstoqueDomain.ts), coberta
+  por `tests/importacaoEstoqueDomain.test.ts` (validado contra a planilha real do
+  cliente, inclusive os 16 itens ambíguos e os 8 pares de embalagem encontrados).
+- Grava com `writeBatch` — primeira vez no projeto que isso é usado pra CRIAR
+  documentos (só existia pra apagar logs em `logService.ts`).
+
+**Decisões de negócio fechadas com o usuário (não óbvias pelo código):**
+
+- Código do produto: **sempre** gerado pela sequência própria do sistema
+  (`getCountFromServer` + 1, mesmo mecanismo do cadastro manual em
+  [EstoqueForm.tsx:590-596](../src/pages/Estoque/EstoqueForm.tsx:590)). O "Cód.
+  Interno"/"Cód. Barras" da planilha do cliente ficam só como referência — nunca
+  viram o campo `codigo` do produto.
+- Importação é 100% criação de produto novo — sem checagem de duplicidade contra
+  cadastro existente (cliente começando do zero).
+- Pares "mesmo produto em unidade diferente" (ex: ração vendida solta em KILO e em
+  SACO como dois cadastros no sistema antigo) são detectados por normalização de
+  descrição e sugeridos pra virar UM produto com embalagem — usuário confirma ou
+  recusa por grupo. Fator de conversão só é sugerido quando a própria
+  descrição/observação informa o peso do saco (ex: "50KG SACO"); senão exige
+  digitação manual, nunca inventa.
+- Produto importado nasce sem NCM (não dá pra inventar por item) — aviso claro na
+  tela final, não bloqueia a venda.
+- Se algum grupo for mesclado com embalagem, a importação ativa sozinha
+  `configuracoes/{tenantId}.venderPorEmbalagem` quando estiver desligada (senão a
+  aba de embalagem nem apareceria no cadastro pra editar depois).
+
+**Campos novos no cadastro de produto** ([EstoqueForm.tsx](../src/pages/Estoque/EstoqueForm.tsx),
+aba Preços): `precoAVista` e `precoAPrazo` — **só o dado por enquanto**. A venda
+continua usando o `precoVenda` de sempre em Pedido de Venda/OS/PDV. A lógica de
+qual preço usar por forma de pagamento ficou **deliberadamente de fora** desta
+fatia — próximo passo natural quando o usuário pedir.
+
+**Molde de planilha confirmado com o cliente** (2026-08-28): Cód. Interno, Cód.
+Barras, Descrição, Quantidade Contada, Unidade, Preço à Vista, Preço a Prazo. O
+mapeamento de colunas já reconhece esse layout automaticamente
+(`inferirMapeamentoColunas`), incluindo:
+
+- Coluna "Unidade" explícita (ex: "UNID") sempre vence qualquer sufixo adivinhado
+  dentro da quantidade — `resolverSiglaUnidade` traduz nome por extenso
+  (UNID→UN, QUILO→KG, SACO→SC...) pra sigla que o sistema usa.
+- Coluna "Código de Barras" opcional, vai pro campo `codigoBarras` já existente.
+- Preço aceita formato moeda ("R$ 14,00"), não só número cru.
+- Quantidade tolera vírgula sobrando sem nada depois ("11," → 11).
+
+**Pendente / próximos passos:**
+
+- **Ainda não testado ao vivo pelo usuário** — a sessão que implementou não loga
+  (regra permanente do projeto, ver `docs/PLANO_EVOLUCAO_NEXAR.md`). Roteiro já
+  entregue: visitar Unidades de Medida uma vez primeiro (semeia os 10 padrões —
+  sem isso o dropdown da importação fica vazio pra tenant novo), depois rodar a
+  importação completa com a planilha real.
+- Lógica de "qual preço usar em qual forma de pagamento" (à vista vs a prazo) —
+  os campos existem, a regra ainda não foi desenhada nem pedida.
+- Os 2 grupos de LONA (metro/rolo) não têm peso na descrição — o fator de
+  conversão não é sugerido automaticamente, precisa ser digitado na hora da
+  importação.
+
+**Achado de tooling** (sem relação com o produto, registrado por ter custado
+tempo real nesta sessão): `npx tsc --noEmit -p .` é um no-op neste projeto — o
+`tsconfig.json` raiz é um solution file (`files: []`), sem `-b` ele não checa
+nada, nem um erro óbvio proposital. Usar sempre `npm run typecheck` (`tsc -b`) —
+e mesmo assim, ele só cobre `src/`; quem compila `tests/*.test.ts` é o próprio
+`npm test`. Rotina de verificação completa: `npm run typecheck` + `npm test` +
+`npm run build` + `npm run lint`, os quatro.

@@ -22,6 +22,7 @@ const PedidoPrint = lazy(() => import('../pages/Vendas/PedidoPrint'));
 const PedidoPrintLote = lazy(() => import('../pages/Vendas/PedidoPrintLote'));
 const EstoqueList = lazy(() => import('../pages/Estoque/EstoqueList'));
 const EstoqueForm = lazy(() => import('../pages/Estoque/EstoqueForm'));
+const ImportarProdutos = lazy(() => import('../pages/Estoque/ImportarProdutos'));
 const LembretesList = lazy(() => import('../pages/Lembretes/LembretesList'));
 const LembreteForm = lazy(() => import('../pages/Lembretes/LembreteForm'));
 const Caixa = lazy(() => import('../pages/Financeiro/Caixa'));
@@ -95,6 +96,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'estoque', element: <EstoqueList /> },
   { path: 'estoque/nova', element: <EstoqueForm /> },
   { path: 'estoque/editar/:id', element: <EstoqueForm /> },
+  { path: 'estoque/importar', element: <ImportarProdutos /> },
 
   { path: 'servicos', element: <ServicosList /> },
   { path: 'servicos/novo', element: <ServicoForm /> },

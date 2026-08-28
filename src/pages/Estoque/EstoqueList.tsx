@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Filter, AlertCircle, Package, Edit, Trash2 } from 'lucide-react';
+import { Plus, Search, Filter, AlertCircle, Package, Edit, Trash2, Upload } from 'lucide-react';
 import { collection, query, onSnapshot, doc, deleteDoc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -157,7 +157,15 @@ const EstoqueList: React.FC = () => {
           <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
             Padronizar (A-Z)
           </button>
-          <button 
+          <button
+            className="btn-secondary"
+            onClick={() => openTab('/estoque/importar', 'Importar Produtos')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Upload size={18} />
+            Importar produtos
+          </button>
+          <button
             className="btn-primary"
             onClick={() => openTab('/estoque/nova')}
           >

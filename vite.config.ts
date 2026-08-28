@@ -18,6 +18,14 @@ export default defineConfig({
             if (id.includes('lucide-react')) {
               return 'vendor-lucide';
             }
+            if (id.includes('/xlsx/')) {
+              // So a tela de Importar Produtos usa isso, e ela ja e'
+              // lazy-loaded (appRoutesConfig.tsx) -- sem chunk proprio, o
+              // fallback "vendor" abaixo juntaria essa lib pesada (~330KB)
+              // no bundle que TODA pagina carrega, mesmo quem nunca abre
+              // a importacao.
+              return 'vendor-xlsx';
+            }
             return 'vendor'; // other third-party dependencies
           }
         }

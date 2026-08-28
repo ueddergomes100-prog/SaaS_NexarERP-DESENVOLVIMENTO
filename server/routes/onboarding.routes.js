@@ -94,12 +94,6 @@ const maskEmail = (email) => {
   return `${user.slice(0, 2)}***@${domain}`;
 };
 
-const maskPhone = (phone) => {
-  const digits = onlyDigits(phone);
-  if (digits.length < 4) return phone;
-  return `+${digits.slice(0, 2)} ** *****-${digits.slice(-4)}`;
-};
-
 const escapeHtml = (value = '') => String(value)
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -351,47 +345,6 @@ const sendEmailCode = async ({ email, code, companyName }) => {
   throw error;
 };
 
-const sendPhoneCode = async ({ phone, code, companyName }) => {
-  const message = `Hennder ERP: seu codigo para validar ${companyName} e ${code}. Expira em 10 minutos.`;
-
-  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_PHONE) {
-    const credentials = Buffer
-      .from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`)
-      .toString('base64');
-
-    const response = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${credentials}`,
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: new URLSearchParams({
-          From: process.env.TWILIO_FROM_PHONE,
-          To: phone,
-          Body: message
-        })
-      }
-    );
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.message || 'Nao foi possivel enviar o codigo por SMS.');
-    }
-    return { delivered: true };
-  }
-
-  if (process.env.ONBOARDING_DEV_CODES === 'true' && process.env.NODE_ENV !== 'production') {
-    console.warn(`[Onboarding DEV] Codigo de telefone para ${phone}: ${code}`);
-    return { delivered: false, devCode: code };
-  }
-
-  const error = new Error('Servico de SMS/telefone nao configurado.');
-  error.status = 503;
-  throw error;
-};
-
 const loadPending = async (onboardingId) => {
   if (!onboardingId || typeof onboardingId !== 'string') {
     const error = new Error('Cadastro pendente invalido.');
@@ -486,9 +439,13 @@ router.post('/start', async (req, res) => {
     const companyName = nomeOficinaInput || cnpjData.nomeFantasia || cnpjData.razaoSocial;
     const onboardingId = crypto.randomUUID();
     const emailCode = generateCode();
-    const phoneCode = generateCode();
     const now = Date.now();
 
+    // Telefone e' coletado e guardado (contato/WhatsApp), mas NAO passa por
+    // codigo de verificacao -- decisao do dono do produto (2026-08-27): o
+    // unico canal de confianca do cadastro e' o e-mail. Reativar SMS/WhatsApp
+    // exigiria configurar Twilio (ou similar) em producao; sem isso o
+    // cadastro ficava bloqueado.
     pendingRef = db.collection('onboarding_pendentes').doc(onboardingId);
     await pendingRef.set({
       onboardingId,
@@ -506,33 +463,21 @@ router.post('/start', async (req, res) => {
         expiresAt: timestampFromMillis(now + CODE_TTL_MS),
         verifiedAt: null
       },
-      phoneVerification: {
-        codeHash: hashCode(onboardingId, 'phone', phoneCode),
-        attempts: 0,
-        sentAt: admin.firestore.FieldValue.serverTimestamp(),
-        expiresAt: timestampFromMillis(now + CODE_TTL_MS),
-        verifiedAt: null
-      },
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       expiresAt: timestampFromMillis(now + ONBOARDING_TTL_MS),
       requestIp: getRequestIp(req),
       userAgent: req.get('user-agent') || ''
     });
 
-    const [emailDelivery, phoneDelivery] = await Promise.all([
-      sendEmailCode({ email, code: emailCode, companyName }),
-      sendPhoneCode({ phone: telefone, code: phoneCode, companyName })
-    ]);
+    const emailDelivery = await sendEmailCode({ email, code: emailCode, companyName });
 
     return res.json({
       ok: true,
       onboardingId,
       cnpj: publicCnpjData(cnpjData),
       maskedEmail: maskEmail(email),
-      maskedPhone: maskPhone(telefone),
       devCodes: {
-        email: emailDelivery.devCode || undefined,
-        phone: phoneDelivery.devCode || undefined
+        email: emailDelivery.devCode || undefined
       }
     });
   } catch (error) {
@@ -549,9 +494,8 @@ router.post('/resend-code', async (req, res) => {
     requireFirebaseAdmin();
     checkRateLimit(`resend:${getRequestIp(req)}`);
 
-    const type = req.body?.type === 'phone' ? 'phone' : 'email';
+    const field = 'emailVerification';
     const { ref, data } = await loadPending(req.body?.onboardingId);
-    const field = type === 'phone' ? 'phoneVerification' : 'emailVerification';
     const verification = data[field] || {};
     const sentAtMillis = verification.sentAt?.toMillis ? verification.sentAt.toMillis() : 0;
 
@@ -561,12 +505,10 @@ router.post('/resend-code', async (req, res) => {
 
     const code = generateCode();
     const companyName = data.nomeOficina || data.cnpjData?.razaoSocial || 'sua empresa';
-    const delivery = type === 'phone'
-      ? await sendPhoneCode({ phone: data.telefone, code, companyName })
-      : await sendEmailCode({ email: data.email, code, companyName });
+    const delivery = await sendEmailCode({ email: data.email, code, companyName });
 
     await ref.update({
-      [`${field}.codeHash`]: hashCode(req.body.onboardingId, type, code),
+      [`${field}.codeHash`]: hashCode(req.body.onboardingId, 'email', code),
       [`${field}.attempts`]: 0,
       [`${field}.sentAt`]: admin.firestore.FieldValue.serverTimestamp(),
       [`${field}.expiresAt`]: timestampFromMillis(Date.now() + CODE_TTL_MS)
@@ -582,8 +524,8 @@ router.post('/resend-code', async (req, res) => {
   }
 });
 
-const verifyCode = async ({ onboardingId, type, code }) => {
-  const field = type === 'phone' ? 'phoneVerification' : 'emailVerification';
+const verifyCode = async ({ onboardingId, code }) => {
+  const field = 'emailVerification';
   const { ref, data } = await loadPending(onboardingId);
   const verification = data[field] || {};
 
@@ -607,7 +549,7 @@ const verifyCode = async ({ onboardingId, type, code }) => {
   }
 
   const expectedHash = verification.codeHash;
-  const receivedHash = hashCode(onboardingId, type, code);
+  const receivedHash = hashCode(onboardingId, 'email', code);
 
   if (expectedHash !== receivedHash) {
     await ref.update({
@@ -630,23 +572,11 @@ router.post('/verify-email', async (req, res) => {
   try {
     requireFirebaseAdmin();
     checkRateLimit(`verify-email:${getRequestIp(req)}`);
-    await verifyCode({ onboardingId: req.body?.onboardingId, type: 'email', code: req.body?.code });
+    await verifyCode({ onboardingId: req.body?.onboardingId, code: req.body?.code });
     return res.json({ ok: true });
   } catch (error) {
     console.error('[Onboarding verify-email]', error.message);
     return res.status(error.status || 500).json({ error: error.message || 'Erro ao validar e-mail.' });
-  }
-});
-
-router.post('/verify-phone', async (req, res) => {
-  try {
-    requireFirebaseAdmin();
-    checkRateLimit(`verify-phone:${getRequestIp(req)}`);
-    await verifyCode({ onboardingId: req.body?.onboardingId, type: 'phone', code: req.body?.code });
-    return res.json({ ok: true });
-  } catch (error) {
-    console.error('[Onboarding verify-phone]', error.message);
-    return res.status(error.status || 500).json({ error: error.message || 'Erro ao validar telefone.' });
   }
 });
 
@@ -664,8 +594,8 @@ router.post('/complete', async (req, res) => {
     }
 
     const { ref, data } = await loadPending(req.body?.onboardingId);
-    if (!data.emailVerification?.verifiedAt || !data.phoneVerification?.verifiedAt) {
-      return res.status(409).json({ error: 'Confirme o e-mail e o telefone antes de finalizar.' });
+    if (!data.emailVerification?.verifiedAt) {
+      return res.status(409).json({ error: 'Confirme o e-mail antes de finalizar.' });
     }
 
     const [emailUser, phoneUser, legacyCnpjSnap] = await Promise.all([
@@ -727,7 +657,11 @@ router.post('/complete', async (req, res) => {
         email: data.email,
         emailVerificado: true,
         telefone: data.telefone,
-        telefoneVerificado: true,
+        // Coletado, mas NAO passa por codigo de verificacao (ver comentario
+        // em /start) -- fica false pra nao afirmar uma confirmacao que nao
+        // aconteceu. isOnboardingIncomplete (AuthContext.tsx/AuthPage.tsx)
+        // nao olha mais este campo, entao ele nao bloqueia login.
+        telefoneVerificado: false,
         role: 'Master',
         tenantId: createdUid,
         createdAt: now,

@@ -28,7 +28,6 @@ import {
 import { isPlatformAdminRole } from '../../utils/roles';
 import {
   onboardingService,
-  type OnboardingCodeType,
   type PublicCnpjData,
   type StartOnboardingResponse
 } from '../../services/onboardingService';
@@ -47,11 +46,12 @@ const hasIncompleteOnboarding = (data: Record<string, unknown>) => {
     return false;
   }
 
+  // Mesma regra de AuthContext.tsx: telefone e' coletado mas nao exige
+  // mais codigo de verificacao (2026-08-27), entao nao entra mais aqui.
   const hasOnboardingFlags =
     'onboardingStatus' in data ||
     'cnpjValidado' in data ||
-    'emailVerificado' in data ||
-    'telefoneVerificado' in data;
+    'emailVerificado' in data;
 
   if (!hasOnboardingFlags) {
     return false;
@@ -59,8 +59,7 @@ const hasIncompleteOnboarding = (data: Record<string, unknown>) => {
 
   return data.onboardingStatus !== 'active' ||
     data.cnpjValidado !== true ||
-    data.emailVerificado !== true ||
-    data.telefoneVerificado !== true;
+    data.emailVerificado !== true;
 };
 
 // O popup "Qual empresa deseja acessar?" que existia aqui foi removido em
@@ -76,11 +75,6 @@ const hasIncompleteOnboarding = (data: Record<string, unknown>) => {
 
 type AuthMode = 'login' | 'signup';
 type RegisterStep = 'company' | 'codes' | 'password';
-
-type CodeVerification = {
-  email: boolean;
-  phone: boolean;
-};
 
 const formatCnpj = (value: string) => {
   const digits = value.replace(/\D/g, '').slice(0, 14);
@@ -241,7 +235,7 @@ const AuthPage: React.FC = () => {
           if (hasIncompleteOnboarding(userData)) {
             clearStoredSessionId();
             await signOut(auth);
-            setLoginError('Cadastro ainda nao validado. Confirme CNPJ, e-mail e telefone antes de acessar.');
+            setLoginError('Cadastro ainda nao validado. Confirme CNPJ e e-mail antes de acessar.');
             setLoginLoading(false);
             return;
           }
@@ -399,16 +393,17 @@ const AuthPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [telefone, setTelefone] = useState('');
   const [emailCode, setEmailCode] = useState('');
-  const [phoneCode, setPhoneCode] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [onboarding, setOnboarding] = useState<StartOnboardingResponse | null>(null);
   const [cnpjInfo, setCnpjInfo] = useState<PublicCnpjData | null>(null);
-  const [verified, setVerified] = useState<CodeVerification>({ email: false, phone: false });
-  const [devCodes, setDevCodes] = useState<{ email?: string; phone?: string }>({});
+  // Telefone e' coletado no cadastro (contato/WhatsApp) mas nao exige mais
+  // codigo de verificacao (2026-08-27) -- so o e-mail passa por esse fluxo.
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [devCodes, setDevCodes] = useState<{ email?: string }>({});
   const [signupLoading, setSignupLoading] = useState(false);
-  const [verifying, setVerifying] = useState<OnboardingCodeType | null>(null);
-  const [resending, setResending] = useState<OnboardingCodeType | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
   const [signupError, setSignupError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState('');
 
@@ -450,11 +445,10 @@ const AuthPage: React.FC = () => {
       setOnboarding(response);
       setCnpjInfo(response.cnpj);
       setDevCodes(response.devCodes || {});
-      setVerified({ email: false, phone: false });
+      setEmailVerified(false);
       setEmailCode('');
-      setPhoneCode('');
       setSignupStep('codes');
-      setSignupSuccess('CNPJ validado. Enviamos os codigos de confirmacao.');
+      setSignupSuccess('CNPJ validado. Enviamos o codigo de confirmacao.');
     } catch (err) {
       setSignupError(getErrorMessage(err, 'Nao foi possivel iniciar o cadastro seguro.'));
     } finally {
@@ -462,54 +456,43 @@ const AuthPage: React.FC = () => {
     }
   };
 
-  const handleVerifyCode = async (type: OnboardingCodeType) => {
+  const handleVerifyCode = async () => {
     if (!onboarding?.onboardingId) return;
 
-    const code = type === 'email' ? emailCode : phoneCode;
-    if (code.trim().length < 6) {
+    if (emailCode.trim().length < 6) {
       setSignupError('Informe o codigo de 6 digitos.');
       return;
     }
 
     clearMessages();
-    setVerifying(type);
+    setVerifying(true);
     try {
-      if (type === 'email') {
-        await onboardingService.verifyEmail({ onboardingId: onboarding.onboardingId, code: code.trim() });
-      } else {
-        await onboardingService.verifyPhone({ onboardingId: onboarding.onboardingId, code: code.trim() });
-      }
-
-      const nextVerified: CodeVerification = { ...verified, [type]: true };
-      setVerified(nextVerified);
-      setSignupSuccess(type === 'email' ? 'E-mail confirmado com sucesso.' : 'Telefone confirmado com sucesso.');
-
-      if (nextVerified.email && nextVerified.phone) {
-        setSignupStep('password');
-        setSignupSuccess('Validacoes concluidas. Agora crie a senha de acesso.');
-      }
+      await onboardingService.verifyEmail({ onboardingId: onboarding.onboardingId, code: emailCode.trim() });
+      setEmailVerified(true);
+      setSignupStep('password');
+      setSignupSuccess('E-mail confirmado. Agora crie a senha de acesso.');
     } catch (err) {
       setSignupError(getErrorMessage(err, 'Codigo invalido ou expirado.'));
     } finally {
-      setVerifying(null);
+      setVerifying(false);
     }
   };
 
-  const handleResend = async (type: OnboardingCodeType) => {
+  const handleResend = async () => {
     if (!onboarding?.onboardingId) return;
 
     clearMessages();
-    setResending(type);
+    setResending(true);
     try {
-      const response = await onboardingService.resendCode(onboarding.onboardingId, type);
+      const response = await onboardingService.resendCode(onboarding.onboardingId);
       if (response.devCode) {
-        setDevCodes(current => ({ ...current, [type]: response.devCode }));
+        setDevCodes(current => ({ ...current, email: response.devCode }));
       }
-      setSignupSuccess(type === 'email' ? 'Novo codigo enviado para o e-mail.' : 'Novo codigo enviado para o telefone.');
+      setSignupSuccess('Novo codigo enviado para o e-mail.');
     } catch (err) {
       setSignupError(getErrorMessage(err, 'Nao foi possivel reenviar o codigo.'));
     } finally {
-      setResending(null);
+      setResending(false);
     }
   };
 
@@ -602,14 +585,14 @@ const AuthPage: React.FC = () => {
       )}
 
       <div className="auth-code-grid">
-        <div className={`auth-code-card ${verified.email ? 'verified' : ''}`}>
+        <div className={`auth-code-card ${emailVerified ? 'verified' : ''}`}>
           <div className="auth-code-title">
             <Mail size={18} />
             <div>
               <strong>E-mail</strong>
               <span>{onboarding?.maskedEmail}</span>
             </div>
-            {verified.email && <CheckCircle2 size={18} />}
+            {emailVerified && <CheckCircle2 size={18} />}
           </div>
           <div className="auth-code-row">
             <input
@@ -617,71 +600,33 @@ const AuthPage: React.FC = () => {
               placeholder="000000"
               value={emailCode}
               onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-              disabled={verified.email || verifying === 'email'}
+              disabled={emailVerified || verifying}
               inputMode="numeric"
             />
             <button
               type="button"
               className="auth-mini-button"
-              onClick={() => handleVerifyCode('email')}
-              disabled={verified.email || verifying === 'email'}
+              onClick={() => handleVerifyCode()}
+              disabled={emailVerified || verifying}
             >
-              {verifying === 'email' ? <Loader2 size={16} className="spin-icon" /> : 'OK'}
+              {verifying ? <Loader2 size={16} className="spin-icon" /> : 'OK'}
             </button>
           </div>
           <button
             type="button"
             className="auth-text-button"
-            onClick={() => handleResend('email')}
-            disabled={verified.email || resending === 'email'}
+            onClick={() => handleResend()}
+            disabled={emailVerified || resending}
           >
-            {resending === 'email' ? 'Reenviando...' : 'Reenviar codigo'}
-          </button>
-        </div>
-
-        <div className={`auth-code-card ${verified.phone ? 'verified' : ''}`}>
-          <div className="auth-code-title">
-            <Phone size={18} />
-            <div>
-              <strong>Telefone</strong>
-              <span>{onboarding?.maskedPhone}</span>
-            </div>
-            {verified.phone && <CheckCircle2 size={18} />}
-          </div>
-          <div className="auth-code-row">
-            <input
-              className="auth-input auth-code-input"
-              placeholder="000000"
-              value={phoneCode}
-              onChange={(event) => setPhoneCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-              disabled={verified.phone || verifying === 'phone'}
-              inputMode="numeric"
-            />
-            <button
-              type="button"
-              className="auth-mini-button"
-              onClick={() => handleVerifyCode('phone')}
-              disabled={verified.phone || verifying === 'phone'}
-            >
-              {verifying === 'phone' ? <Loader2 size={16} className="spin-icon" /> : 'OK'}
-            </button>
-          </div>
-          <button
-            type="button"
-            className="auth-text-button"
-            onClick={() => handleResend('phone')}
-            disabled={verified.phone || resending === 'phone'}
-          >
-            {resending === 'phone' ? 'Reenviando...' : 'Reenviar codigo'}
+            {resending ? 'Reenviando...' : 'Reenviar codigo'}
           </button>
         </div>
       </div>
 
-      {(devCodes.email || devCodes.phone) && (
+      {devCodes.email && (
         <div className="auth-dev-codes">
           <strong>Codigos de desenvolvimento</strong>
-          {devCodes.email && <span>E-mail: {devCodes.email}</span>}
-          {devCodes.phone && <span>Telefone: {devCodes.phone}</span>}
+          <span>E-mail: {devCodes.email}</span>
         </div>
       )}
 
@@ -692,7 +637,7 @@ const AuthPage: React.FC = () => {
         <button
           type="button"
           className="auth-button"
-          disabled={!verified.email || !verified.phone}
+          disabled={!emailVerified}
           onClick={() => setSignupStep('password')}
         >
           Continuar
@@ -916,7 +861,7 @@ const AuthPage: React.FC = () => {
         </div>
 
         <div className="auth-input-group">
-          <label>Telefone (recebe SMS) *</label>
+          <label>Telefone com WhatsApp *</label>
           <div className="auth-input-wrapper">
             <Phone size={18} className="auth-input-icon" />
             <input
@@ -934,7 +879,7 @@ const AuthPage: React.FC = () => {
 
         <button type="submit" className={`auth-button ${signupLoading ? 'auth-button-loading' : ''}`} disabled={signupLoading}>
           {signupLoading ? <Loader2 size={18} className="spin-icon" /> : <ShieldCheck size={18} />}
-          {signupLoading ? 'Validando empresa...' : 'Validar e Enviar Codigos'}
+          {signupLoading ? 'Validando empresa...' : 'Validar e Enviar Codigo'}
         </button>
       </form>
 
@@ -994,7 +939,7 @@ const AuthPage: React.FC = () => {
           <div className="auth-header">
             <img src={hennderIcon} alt="Hennder ERP" className="auth-logo" />
             <h1>Crie sua conta</h1>
-            <p>Cadastre sua empresa com validacao de CNPJ, e-mail e telefone.</p>
+            <p>Cadastre sua empresa com validacao de CNPJ e e-mail.</p>
           </div>
 
           {renderStepHeader()}

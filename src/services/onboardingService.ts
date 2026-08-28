@@ -1,8 +1,6 @@
 const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
 const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
 
-export type OnboardingCodeType = 'email' | 'phone';
-
 export interface PublicCnpjData {
   cnpj: string;
   razaoSocial: string;
@@ -26,10 +24,8 @@ export interface StartOnboardingResponse {
   onboardingId: string;
   cnpj: PublicCnpjData;
   maskedEmail: string;
-  maskedPhone: string;
   devCodes?: {
     email?: string;
-    phone?: string;
   };
 }
 
@@ -99,18 +95,10 @@ export const onboardingService = {
     );
   },
 
-  verifyPhone(input: VerifyCodeInput) {
-    return postJson<{ ok: boolean }>(
-      '/verify-phone',
-      input,
-      'Nao foi possivel validar o codigo de telefone.'
-    );
-  },
-
-  resendCode(onboardingId: string, type: OnboardingCodeType) {
+  resendCode(onboardingId: string) {
     return postJson<{ ok: boolean; devCode?: string }>(
       '/resend-code',
-      { onboardingId, type },
+      { onboardingId },
       'Nao foi possivel reenviar o codigo.'
     );
   },

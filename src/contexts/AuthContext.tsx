@@ -81,11 +81,14 @@ const isOnboardingIncomplete = (data: Record<string, unknown>, role: UserRole) =
     return false;
   }
 
+  // Telefone e' coletado no cadastro (contato/WhatsApp) mas NAO exige mais
+  // codigo de verificacao (2026-08-27, dependia de Twilio configurado em
+  // producao) -- por isso telefoneVerificado nao entra mais aqui. So
+  // e-mail continua sendo canal de confianca do cadastro.
   const hasOnboardingFlags =
     'onboardingStatus' in data ||
     'cnpjValidado' in data ||
-    'emailVerificado' in data ||
-    'telefoneVerificado' in data;
+    'emailVerificado' in data;
 
   if (!hasOnboardingFlags) {
     return false;
@@ -93,8 +96,7 @@ const isOnboardingIncomplete = (data: Record<string, unknown>, role: UserRole) =
 
   return data.onboardingStatus !== 'active' ||
     data.cnpjValidado !== true ||
-    data.emailVerificado !== true ||
-    data.telefoneVerificado !== true;
+    data.emailVerificado !== true;
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

@@ -106,7 +106,6 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // Separada de cadastros.clientes em 2026-08-27: marcar Clientes
       // liberava Veiculos junto, sem controle independente.
       { id: 'cadastros.veiculos', label: 'Cadastros: Veículos', color: '#8b5cf6' },
-      { id: 'cadastros.estoque', label: 'Cadastros: Estoque / Produtos', color: '#8b5cf6' },
       { id: 'cadastros.servicos', label: 'Cadastros: Serviços', color: '#8b5cf6' },
       { id: 'cadastros.categorias', label: 'Cadastros: Categorias', color: '#8b5cf6' },
       { id: 'cadastros.unidades_medida', label: 'Cadastros: Unidades de Medida', color: '#8b5cf6' },
@@ -120,6 +119,11 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
   {
     grupo: 'Estoque',
     itens: [
+      { id: 'cadastros.estoque', label: 'Estoque: Ver Lista de Produtos', color: '#0ea5e9' },
+      // Separada de cadastros.estoque em 2026-08-28: marcar "Ver Lista"
+      // liberava abrir/criar/excluir o cadastro inteiro do produto (custo,
+      // margem, fornecedor) sem controle independente -- achado pelo usuario.
+      { id: 'cadastros.estoque_alterar', label: 'Estoque: Abrir Cadastro de Produto', color: '#0ea5e9' },
       { id: 'estoque.ajusteManual', label: 'Estoque: Ajuste Manual', color: '#0ea5e9' },
       { id: 'estoque.relatorio', label: 'Estoque: Relatório de Estoque', color: '#0ea5e9' },
       { id: 'estoque.relatorioAjustes', label: 'Estoque: Relatório de Ajustes', color: '#0ea5e9' },

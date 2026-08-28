@@ -28,10 +28,10 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
   { group: 'Cadastros', items: [
     { id: 'cadastros.clientes', label: 'Clientes' },
     { id: 'cadastros.veiculos', label: 'Veículos' },
-    { id: 'cadastros.estoque', label: 'Estoque / Produtos' },
     { id: 'cadastros.servicos', label: 'Cadastro de Serviços' }
   ]},
   { group: 'Estoque', items: [
+    { id: 'cadastros.estoque', label: 'Estoque / Produtos' },
     { id: 'estoque.ajusteManual', label: 'Ajuste Manual de Estoque' },
     { id: 'estoque.relatorio', label: 'Relatório de Estoque' },
     { id: 'estoque.relatorioAjustes', label: 'Relatório de Ajustes de Estoque' }

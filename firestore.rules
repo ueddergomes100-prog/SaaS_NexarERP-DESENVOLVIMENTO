@@ -115,12 +115,14 @@ service cloud.firestore {
     function canWriteTenantCollection(collectionName) {
       return canManageTenantData() ||
         (collectionName in ['clientes', 'veiculos'] && hasAnyPermission(['cadastros.clientes', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'crm.agenda', 'crm.alertas'])) ||
-        (collectionName in ['produtos', 'estoque', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'entregas'] && hasPermission('cadastros.estoque')) ||
-        // estoque_lotes saiu do grupo acima: quem so tem estoque.ajusteManual
-        // (Ajuste Manual de Estoque, sem ter cadastros.estoque completo)
-        // tambem precisa gravar/atualizar lote ao dar entrada/saida controlando
-        // lote e validade.
-        (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque', 'estoque.ajusteManual'])) ||
+        (collectionName in ['produtos', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        // estoque (o cadastro do produto em si, com custo/margem/fornecedor)
+        // saiu do grupo acima em 2026-08-28: cadastros.estoque virou "ver a
+        // lista", so cadastros.estoque_alterar cria/edita o produto.
+        (collectionName == 'estoque' && hasPermission('cadastros.estoque_alterar')) ||
+        // estoque_lotes: mesma logica -- exige a permissao de alterar cadastro
+        // ou a de Ajuste Manual de Estoque, nunca so "ver a lista".
+        (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.ajusteManual'])) ||
         // Fornecedores ganhou permissao propria (antes vinha no balaio de
         // cadastros.estoque). Aceita tambem fiscal.entrada porque a Entrada de
         // XML CRIA fornecedor durante a importacao (EntradaNFE.tsx) -- sem
@@ -162,8 +164,9 @@ service cloud.firestore {
     function canDeleteTenantCollection(collectionName) {
       return canManageTenantData() ||
         (collectionName in ['clientes', 'veiculos'] && hasPermission('cadastros.clientes')) ||
-        (collectionName in ['produtos', 'estoque', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'entregas'] && hasPermission('cadastros.estoque')) ||
-        (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque', 'estoque.ajusteManual'])) ||
+        (collectionName in ['produtos', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'entregas'] && hasPermission('cadastros.estoque')) ||
+        (collectionName == 'estoque' && hasPermission('cadastros.estoque_alterar')) ||
+        (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.ajusteManual'])) ||
         // Excluir fornecedor exige a permissao propria -- quem so tem
         // fiscal.entrada pode CRIAR pela importacao de XML, mas nao apagar.
         (collectionName == 'fornecedores' && hasPermission('cadastros.fornecedores')) ||

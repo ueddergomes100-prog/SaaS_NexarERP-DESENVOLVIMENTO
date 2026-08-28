@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { isPlatformAdminRole } from '../../utils/roles';
 import './Estoque.css';
 
 interface PecaData {
@@ -28,7 +29,12 @@ const EstoqueList: React.FC = () => {
    * Enter), pra um clique de leitura nao abrir uma aba sem querer. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  // So quem tem "Estoque: Abrir Cadastro de Produto" abre/cria/exclui um
+  // produto -- ver a lista (nome, categoria, qtd, preco de venda) e' a
+  // permissao base (cadastros.estoque). Sem isto, um funcionario so-leitura
+  // dava duplo clique e via custo/margem/fornecedor do produto inteiro.
+  const canEditProduto = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('cadastros.estoque_alterar'));
 
   useEffect(() => {
     if (!currentUser) return;
@@ -165,13 +171,15 @@ const EstoqueList: React.FC = () => {
             <Upload size={18} />
             Importar produtos
           </button>
-          <button
-            className="btn-primary"
-            onClick={() => openTab('/estoque/nova')}
-          >
-            <Plus size={18} style={{ marginRight: 8 }} />
-            Novo Produto
-          </button>
+          {canEditProduto && (
+            <button
+              className="btn-primary"
+              onClick={() => openTab('/estoque/nova')}
+            >
+              <Plus size={18} style={{ marginRight: 8 }} />
+              Novo Produto
+            </button>
+          )}
         </div>
       </div>
 
@@ -256,16 +264,18 @@ const EstoqueList: React.FC = () => {
                 filteredPecas.map((peca) => (
                   <tr
                     key={peca.id}
-                    className={selectedId === peca.id ? 'row-selectable is-selected' : 'row-selectable'}
-                    onClick={() => setSelectedId(peca.id)}
-                    onDoubleClick={() => openTab(`/estoque/editar/${peca.id}`)}
+                    // Sem permissao de abrir o cadastro a linha nao abre nada --
+                    // seria um duplo clique que so devolve erro.
+                    className={canEditProduto ? (selectedId === peca.id ? 'row-selectable is-selected' : 'row-selectable') : undefined}
+                    onClick={canEditProduto ? () => setSelectedId(peca.id) : undefined}
+                    onDoubleClick={canEditProduto ? () => openTab(`/estoque/editar/${peca.id}`) : undefined}
                     // Enter abre o produto selecionado -- o duplo clique sozinho
                     // deixaria a linha inacessivel por teclado.
-                    onKeyDown={(event) => {
+                    onKeyDown={canEditProduto ? (event) => {
                       if (event.key === 'Enter') openTab(`/estoque/editar/${peca.id}`);
-                    }}
-                    tabIndex={0}
-                    title="Clique para selecionar, duplo clique para editar"
+                    } : undefined}
+                    tabIndex={canEditProduto ? 0 : undefined}
+                    title={canEditProduto ? 'Clique para selecionar, duplo clique para editar' : undefined}
                   >
                     <td className="font-medium" style={{ color: 'var(--text-muted)' }}>{peca.codigo}</td>
                     <td>{peca.nome}</td>
@@ -278,16 +288,18 @@ const EstoqueList: React.FC = () => {
                     </td>
                     <td>{getStatusBadge(Number(peca.quantidade))}</td>
                     <td>
-                      {/* stopPropagation: sem isso, um duplo clique acidental
-                          em cima da lixeira tambem abriria a tela de edicao. */}
-                      <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-                        <button className="icon-btn" title="Editar" onClick={() => openTab(`/estoque/editar/${peca.id}`)}>
-                          <Edit size={16} />
-                        </button>
-                        <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(peca.id)}>
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
+                      {canEditProduto && (
+                        // stopPropagation: sem isso, um duplo clique acidental
+                        // em cima da lixeira tambem abriria a tela de edicao.
+                        <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                          <button className="icon-btn" title="Editar" onClick={() => openTab(`/estoque/editar/${peca.id}`)}>
+                            <Edit size={16} />
+                          </button>
+                          <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(peca.id)}>
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))

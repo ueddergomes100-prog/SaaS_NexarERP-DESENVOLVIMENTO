@@ -416,7 +416,7 @@ const EstoqueForm: React.FC = () => {
   const [validarCadastroProduto, setValidarCadastroProduto] = useState(false);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
   const [regimeTributario, setRegimeTributario] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
-  const { currentUser, tenantId, userRole } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
 
   const fallbackUnidades: UnidadeMedida[] = [
     { id: 'un', sigla: 'UN', nome: 'UNIDADE', casasDecimais: 0, permiteFracionado: false },
@@ -427,6 +427,18 @@ const EstoqueForm: React.FC = () => {
 
   const activeUnidades = unidadesDB.length > 0 ? unidadesDB : fallbackUnidades;
   const isSuperAdmin = isPlatformAdminRole(userRole);
+  // Segunda camada de defesa, alem da lista (EstoqueList.tsx) nao oferecer o
+  // duplo clique: sem isto, quem so tem "ver a lista" abria o cadastro
+  // inteiro (custo, margem, fornecedor) digitando a URL direto.
+  const canEditProduto = isOwner || isSuperAdmin || (userPermissions && userPermissions.includes('cadastros.estoque_alterar'));
+
+  useEffect(() => {
+    if (!canEditProduto) {
+      showError('Sem permissão', 'Você não tem permissão para abrir o cadastro de produto. Peça ao administrador para liberar "Estoque: Abrir Cadastro de Produto".');
+      navigate('/estoque');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEditProduto]);
   /** Sigla da unidade base do produto -- e nela que o estoque e' controlado,
    * e e' contra ela que o fator de conversao de cada embalagem e' expresso. */
   const baseUnidadeSigla = activeUnidades.find(u => u.id === formData.unidadeMedidaId)?.sigla || 'UN';
@@ -1226,6 +1238,15 @@ const EstoqueForm: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  if (!canEditProduto) {
+    return (
+      <div className="estoque-loading">
+        <Loader2 size={20} className="spin-icon" />
+        Redirecionando...
+      </div>
+    );
+  }
 
   if (isFetching) {
     return (

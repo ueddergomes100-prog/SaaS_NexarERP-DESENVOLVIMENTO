@@ -60,6 +60,7 @@ interface ProdutoConfirmar {
   custo: string;
   precoAVista: string;
   precoAPrazo: string;
+  codigoBarras: string;
   origemLinhaIds: number[];
   embalagem?: { unidadeId: string; fatorConversao: number };
 }
@@ -75,7 +76,7 @@ const ImportarProdutos: React.FC = () => {
   const [nomeArquivo, setNomeArquivo] = useState('');
   const [cabecalho, setCabecalho] = useState<string[]>([]);
   const [linhasDados, setLinhasDados] = useState<string[][]>([]);
-  const [mapeamento, setMapeamento] = useState<MapeamentoColunas>({ codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: null, precoAVista: null, precoAPrazo: null });
+  const [mapeamento, setMapeamento] = useState<MapeamentoColunas>({ codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null });
 
   const [itens, setItens] = useState<ItemImportado[]>([]);
   const [itensExcluidos, setItensExcluidos] = useState<Set<number>>(new Set());
@@ -261,6 +262,7 @@ const ImportarProdutos: React.FC = () => {
         custo: paraTexto(itemBase.custo),
         precoAVista: paraTexto(itemBase.precoAVista),
         precoAPrazo: paraTexto(itemBase.precoAPrazo),
+        codigoBarras: itemBase.codigoBarras,
         origemLinhaIds: grupo.itens.map((i) => i.linhaId),
         embalagem: fator > 0 ? { unidadeId: acharUnidadePorSigla(unidadeEmbalagemSugerida)?.id || '', fatorConversao: fator } : undefined,
       });
@@ -277,6 +279,7 @@ const ImportarProdutos: React.FC = () => {
         custo: paraTexto(item.custo),
         precoAVista: paraTexto(item.precoAVista),
         precoAPrazo: paraTexto(item.precoAPrazo),
+        codigoBarras: item.codigoBarras,
         origemLinhaIds: [item.linhaId],
       };
     }
@@ -351,6 +354,7 @@ const ImportarProdutos: React.FC = () => {
               precoCusto: paraNumeroOpcional(produto.custo),
               precoAVista: paraNumeroOpcional(produto.precoAVista),
               precoAPrazo: paraNumeroOpcional(produto.precoAPrazo),
+              codigoBarras: produto.codigoBarras,
               embalagem: (produto.embalagem && unidadeEmbalagem) ? {
                 unidade: { id: unidadeEmbalagem.id, sigla: unidadeEmbalagem.sigla, casasDecimais: unidadeEmbalagem.casasDecimais, fracionado: unidadeEmbalagem.permiteFracionado },
                 fatorConversao: produto.embalagem.fatorConversao,
@@ -432,11 +436,12 @@ const ImportarProdutos: React.FC = () => {
             <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Arquivo: {nomeArquivo} — {linhasDados.length} linha(s) de dado encontrada(s).</p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-            {(['codigo', 'descricao', 'quantidade', 'observacao', 'custo', 'precoAVista', 'precoAPrazo'] as const).map((campo) => {
+            {(['codigo', 'descricao', 'quantidade', 'unidade', 'observacao', 'codigoBarras', 'custo', 'precoAVista', 'precoAPrazo'] as const).map((campo) => {
               const obrigatorio = campo === 'codigo' || campo === 'descricao' || campo === 'quantidade';
               const rotulos: Record<typeof campo, string> = {
-                codigo: 'Código', descricao: 'Descrição', quantidade: 'Quantidade',
-                observacao: 'Observação (opcional)', custo: 'Custo (opcional)',
+                codigo: 'Código interno (referência)', descricao: 'Descrição', quantidade: 'Quantidade',
+                unidade: 'Unidade (opcional)', observacao: 'Observação (opcional)',
+                codigoBarras: 'Código de barras (opcional)', custo: 'Custo (opcional)',
                 precoAVista: 'Preço à vista (opcional)', precoAPrazo: 'Preço a prazo (opcional)',
               };
               return (
@@ -455,7 +460,7 @@ const ImportarProdutos: React.FC = () => {
             })}
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
-            Custo, preço à vista e preço a prazo são opcionais — se o export do sistema antigo trouxer essas colunas, elas já vêm pré-preenchidas na tela de confirmação (ainda editáveis).
+            Unidade, código de barras, custo, preço à vista e preço a prazo são opcionais — se o export do sistema antigo trouxer essas colunas, elas já vêm pré-preenchidas na tela de confirmação (ainda editáveis). O código interno da planilha é só referência: o código do produto no sistema é sempre gerado automaticamente (1, 2, 3...).
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
             <button className="btn-secondary" onClick={() => setPasso('upload')}>Voltar</button>

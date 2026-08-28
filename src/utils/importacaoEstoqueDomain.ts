@@ -101,11 +101,11 @@ export const parseDelimitedText = (texto: string, delimitador: string): string[]
 // Mapeamento de colunas
 // ---------------------------------------------------------------------------
 
-export type CampoColuna = 'codigo' | 'descricao' | 'quantidade' | 'observacao' | 'custo' | 'precoAVista' | 'precoAPrazo';
+export type CampoColuna = 'codigo' | 'descricao' | 'quantidade' | 'observacao' | 'custo' | 'precoAVista' | 'precoAPrazo' | 'codigoBarras' | 'unidade';
 
 /** codigo/descricao/quantidade sempre tem uma coluna (mesmo que seja um
- * chute errado); os outros 4 sao realmente opcionais -- planilha de
- * contagem pura nao traz preco nenhum. */
+ * chute errado); os outros 6 sao realmente opcionais -- planilha de
+ * contagem pura nao traz preco nem codigo de barras. */
 export interface MapeamentoColunas {
   codigo: number;
   descricao: number;
@@ -114,6 +114,8 @@ export interface MapeamentoColunas {
   custo: number | null;
   precoAVista: number | null;
   precoAPrazo: number | null;
+  codigoBarras: number | null;
+  unidade: number | null;
 }
 
 /** Sinonimos de cabecalho pra pre-preencher o mapeamento -- planilha de
@@ -121,13 +123,15 @@ export interface MapeamentoColunas {
  * contada;Observação", entao a tela sempre mostra o mapeamento pro
  * usuario confirmar, isto aqui e so um chute inicial razoavel. */
 const SINONIMOS: Record<CampoColuna, string[]> = {
-  codigo: ['cod', 'codigo', 'referencia', 'ref'],
+  codigo: ['cod. interno', 'codigo interno', 'cod', 'codigo', 'referencia', 'ref'],
   descricao: ['descricao', 'descr', 'produto', 'nome', 'item'],
   quantidade: ['quantidade', 'quant', 'qtd', 'qtde', 'contada', 'contagem'],
   observacao: ['observacao', 'observ', 'obs', 'nota'],
   custo: ['custo'],
   precoAVista: ['vista', 'avista'],
   precoAPrazo: ['prazo', 'aprazo'],
+  codigoBarras: ['barras', 'ean', 'gtin'],
+  unidade: ['unidade', 'und', 'un.', 'medida'],
 };
 
 const normalizarTextoComparacao = (valor: string): string => valor
@@ -138,34 +142,42 @@ const normalizarTextoComparacao = (valor: string): string => valor
 
 /** Chuta qual coluna e qual campo comparando o cabecalho com os sinonimos.
  * Sempre devolve um palpite pra codigo/descricao/quantidade (mesmo que
- * errado); os 4 campos opcionais devolvem null quando nao acham nenhuma
- * coluna candidata -- planilha de contagem pura nao tem preco nenhum,
- * entao null (sem coluna) e o resultado normal, nao um erro. */
+ * errado); os 6 campos opcionais devolvem null quando nao acham nenhuma
+ * coluna candidata -- planilha de contagem pura nao tem preco nem codigo
+ * de barras, entao null (sem coluna) e o resultado normal, nao um erro.
+ * "codigo" e' checado por ULTIMO entre os textuais porque o sinonimo
+ * "cod" tambem bate em "Cód. Barras" -- precisa que codigoBarras ja
+ * tenha reservado a propria coluna primeiro, senao "Cód. Interno" e
+ * "Cód. Barras" empatam e o findIndex pega sempre a mesma. */
 export const inferirMapeamentoColunas = (cabecalho: string[]): MapeamentoColunas => {
   const normalizados = cabecalho.map(normalizarTextoComparacao);
 
-  const encontrar = (campo: CampoColuna): number => normalizados.findIndex(
-    (col) => SINONIMOS[campo].some((sin) => col.includes(sin)),
+  const encontrar = (campo: CampoColuna, evitar: number[] = []): number => normalizados.findIndex(
+    (col, idx) => !evitar.includes(idx) && SINONIMOS[campo].some((sin) => col.includes(sin)),
   );
 
-  const indices: Record<CampoColuna, number> = {
-    codigo: encontrar('codigo'),
-    descricao: encontrar('descricao'),
-    quantidade: encontrar('quantidade'),
-    observacao: encontrar('observacao'),
-    custo: encontrar('custo'),
-    precoAVista: encontrar('precoAVista'),
-    precoAPrazo: encontrar('precoAPrazo'),
-  };
+  const codigoBarras = encontrar('codigoBarras');
+  const descricao = encontrar('descricao');
+  const quantidade = encontrar('quantidade');
+  const observacao = encontrar('observacao');
+  const custo = encontrar('custo');
+  const precoAVista = encontrar('precoAVista');
+  const precoAPrazo = encontrar('precoAPrazo');
+  const unidade = encontrar('unidade');
+  // So agora, sabendo qual coluna JA e' o codigo de barras, evita ela pra
+  // "codigo" (interno) nao colidir com "Cód. Barras".
+  const codigo = encontrar('codigo', codigoBarras >= 0 ? [codigoBarras] : []);
 
   return {
-    codigo: indices.codigo >= 0 ? indices.codigo : 0,
-    descricao: indices.descricao >= 0 ? indices.descricao : 1,
-    quantidade: indices.quantidade >= 0 ? indices.quantidade : 2,
-    observacao: indices.observacao >= 0 ? indices.observacao : (cabecalho.length > 3 ? 3 : null),
-    custo: indices.custo >= 0 ? indices.custo : null,
-    precoAVista: indices.precoAVista >= 0 ? indices.precoAVista : null,
-    precoAPrazo: indices.precoAPrazo >= 0 ? indices.precoAPrazo : null,
+    codigo: codigo >= 0 ? codigo : 0,
+    descricao: descricao >= 0 ? descricao : 1,
+    quantidade: quantidade >= 0 ? quantidade : 2,
+    observacao: observacao >= 0 ? observacao : (cabecalho.length > 3 ? 3 : null),
+    custo: custo >= 0 ? custo : null,
+    precoAVista: precoAVista >= 0 ? precoAVista : null,
+    precoAPrazo: precoAPrazo >= 0 ? precoAPrazo : null,
+    codigoBarras: codigoBarras >= 0 ? codigoBarras : null,
+    unidade: unidade >= 0 ? unidade : null,
   };
 };
 
@@ -248,6 +260,10 @@ export const interpretarQuantidade = (
 ): QuantidadeInterpretada => {
   const obs = (observacao || '').trim();
   let q = (quantidadeBruta || '').trim();
+  // Planilha exportada de sistema/planilha eletronica as vezes deixa uma
+  // virgula sobrando sem nada depois ("11," em vez de "11") -- formatacao
+  // de numero da fonte original, nao uma soma nem decimal de verdade.
+  q = q.replace(/,\s*$/, '');
 
   if (!q) {
     return {
@@ -327,10 +343,14 @@ export interface ItemImportado {
   descricao: string;
   quantidadeBruta: string;
   quantidadeCalculada: number | null;
+  /** Sigla resolvida (ver resolverSiglaUnidade) -- prioriza a coluna
+   * "Unidade" explicita da planilha quando existir; cai pro sufixo
+   * encontrado dentro da propria quantidade ("kg", "sc") quando nao. */
   unidadeSugerida: string;
   status: StatusItemImportado;
   motivo: string;
   observacao: string;
+  codigoBarras: string;
   /** null = coluna nao mapeada OU celula vazia/ilegivel -- os 3 sao
    * sempre opcionais, planilha de contagem pura nao traz nenhum. */
   custo: number | null;
@@ -338,12 +358,41 @@ export interface ItemImportado {
   precoAPrazo: number | null;
 }
 
+/** Sinonimos de nome escrito por extenso -> sigla que o sistema usa
+ * (UNIDADES_MEDIDA_PADRAO, ver unidadeMedidaDomain.ts). Export de sistema
+ * antigo escreve "UNID"/"UNIDADE", nao a sigla "UN" que o Hennder usa --
+ * sem isso, toda linha com unidade explicita cairia no fallback errado. */
+const SINONIMOS_UNIDADE: Record<string, string> = {
+  UNID: 'UN', UNIDADE: 'UN', UND: 'UN', UNI: 'UN',
+  QUILO: 'KG', QUILOS: 'KG', QUILOGRAMA: 'KG', KILO: 'KG', KILOS: 'KG',
+  GRAMA: 'G', GRAMAS: 'G',
+  LITRO: 'LTS', LITROS: 'LTS', LT: 'LTS', L: 'LTS',
+  MILILITRO: 'ML', MILILITROS: 'ML',
+  METRO: 'MT', METROS: 'MT',
+  CAIXA: 'CX', CAIXAS: 'CX',
+  PACOTE: 'PC', PACOTES: 'PC',
+  SACO: 'SC', SACOS: 'SC',
+  CONJUNTO: 'CJ', CONJUNTOS: 'CJ',
+};
+
+/** Resolve o texto de unidade da planilha pra sigla do sistema -- tenta o
+ * sinonimo primeiro (cobre "UNID"/"QUILO" etc.), senao devolve o proprio
+ * texto em maiusculas (cobre planilha que ja escreve a sigla certa,
+ * "KG"/"SC"). Vazio devolve vazio, nunca inventa uma unidade. */
+export const resolverSiglaUnidade = (textoUnidade: string): string => {
+  const limpo = textoUnidade.trim().toUpperCase();
+  if (!limpo) return '';
+  return SINONIMOS_UNIDADE[limpo] || limpo;
+};
+
 /** Numero de preco vindo de export do sistema antigo -- mais simples que
  * interpretarQuantidade (sem "+", sem sufixo de unidade): so troca virgula
  * decimal brasileira por ponto. Devolve null quando a celula esta vazia ou
  * nao e um numero, sem tentar adivinhar. */
 const parseValorMonetario = (bruto: string | undefined): number | null => {
-  const limpo = (bruto || '').trim();
+  // Remove "R$", espaco e qualquer letra -- planilha de preco costuma vir
+  // formatada como moeda ("R$ 14,00"), nao so o numero cru.
+  const limpo = (bruto || '').trim().replace(/r\$\s*/i, '').replace(/\s/g, '');
   if (!limpo) return null;
   const numero = Number(limpo.replace(/\./g, '').replace(',', '.'));
   return Number.isFinite(numero) ? numero : null;
@@ -359,6 +408,7 @@ export const processarLinhas = (
     const quantidadeBruta = (linha[mapeamento.quantidade] || '').trim();
     const observacao = mapeamento.observacao !== null ? (linha[mapeamento.observacao] || '').trim() : '';
     const interpretada = interpretarQuantidade(quantidadeBruta, observacao);
+    const unidadeExplicita = mapeamento.unidade !== null ? resolverSiglaUnidade(linha[mapeamento.unidade] || '') : '';
 
     return {
       linhaId: index,
@@ -366,10 +416,13 @@ export const processarLinhas = (
       descricao,
       quantidadeBruta,
       quantidadeCalculada: interpretada.valor,
-      unidadeSugerida: interpretada.unidadeSugerida,
+      // Coluna "Unidade" explicita sempre vence o sufixo adivinhado dentro
+      // da propria quantidade -- e' informacao de verdade, nao um chute.
+      unidadeSugerida: unidadeExplicita || interpretada.unidadeSugerida,
       status: interpretada.status,
       motivo: interpretada.motivo,
       observacao,
+      codigoBarras: mapeamento.codigoBarras !== null ? (linha[mapeamento.codigoBarras] || '').trim() : '',
       custo: mapeamento.custo !== null ? parseValorMonetario(linha[mapeamento.custo]) : null,
       precoAVista: mapeamento.precoAVista !== null ? parseValorMonetario(linha[mapeamento.precoAVista]) : null,
       precoAPrazo: mapeamento.precoAPrazo !== null ? parseValorMonetario(linha[mapeamento.precoAPrazo]) : null,
@@ -477,6 +530,10 @@ export interface EmbalagemImportada {
 }
 
 export interface ProdutoParaImportar {
+  /** Sempre a sequencia PROPRIA do sistema (1, 2, 3...), nunca o codigo
+   * da planilha do cliente -- decisao do dono do produto, 2026-08-28. O
+   * "Cód. Interno"/"Cód. Barras" do cliente ficam so como referencia
+   * (ItemImportado.codigoOriginal/codigoBarras). */
   codigo: string;
   nome: string;
   categoria: string;
@@ -493,6 +550,7 @@ export interface ProdutoParaImportar {
   precoCusto?: number;
   precoAVista?: number;
   precoAPrazo?: number;
+  codigoBarras?: string;
 }
 
 /** Monta o documento final pra gravar em `estoque`, no MESMO formato
@@ -532,6 +590,7 @@ export const montarProdutoImportado = (
     codigoAutomatico: true,
     nome: produto.nome.toUpperCase().trim(),
     categoria: produto.categoria.trim(),
+    codigoBarras: produto.codigoBarras?.trim() || '',
     statusAtivo: true,
     ativo: true,
     permitirEstoqueNegativo: false,

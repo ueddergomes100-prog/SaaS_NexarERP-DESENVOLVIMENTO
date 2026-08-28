@@ -10,6 +10,7 @@ import {
   normalizarDescricaoBase,
   detectarGruposEmbalagem,
   montarProdutoImportado,
+  resolverSiglaUnidade,
 } from '../src/utils/importacaoEstoqueDomain';
 
 test('interpretarQuantidade soma expressoes com "+"', () => {
@@ -87,7 +88,7 @@ test('decodificarArquivoTexto recupera texto Windows-1252 (cp1252) mal lido como
 
 test('inferirMapeamentoColunas reconhece o cabecalho real da planilha do cliente', () => {
   const mapeamento = inferirMapeamentoColunas(['Cód.', 'Descrição', 'Quantidade contada', 'Observação']);
-  assert.deepEqual(mapeamento, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null });
+  assert.deepEqual(mapeamento, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null });
 });
 
 test('processarLinhas ignora linhas vazias e devolve item por linha com descricao', () => {
@@ -96,7 +97,7 @@ test('processarLinhas ignora linhas vazias e devolve item por linha com descrica
     ['', '', '', ''],
     ['113', 'ADUBO 04-14-08 50KG SACO', '8', ''],
   ];
-  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null });
+  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null });
   assert.equal(itens.length, 2);
   assert.equal(itens[1].quantidadeCalculada, 8);
   assert.equal(itens[1].status, 'OK');
@@ -115,7 +116,7 @@ test('detectarGruposEmbalagem acha o par kg/saco e sugere o fator pelo peso na d
       ['84', 'ADUBO UREIA 45-00-00 50KG SACO', '44', ''],
       ['999', 'PRODUTO SEM PAR', '1', ''],
     ],
-    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null },
+    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null },
   );
   const grupos = detectarGruposEmbalagem(itens);
   assert.equal(grupos.length, 1);
@@ -129,7 +130,7 @@ test('detectarGruposEmbalagem nao sugere fator quando a descricao nao informa o 
       ['92', 'LONA BRANCA/PRETA FUZIL 8X50 -200 MC METRO', '0', ''],
       ['39', 'LONA BRANCA/PRETA FUZIL 8X50 -200 MC ROLO', '0', ''],
     ],
-    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null },
+    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null },
   );
   const grupos = detectarGruposEmbalagem(itens);
   assert.equal(grupos.length, 1);
@@ -181,7 +182,7 @@ test('inferirMapeamentoColunas acha custo/preco a vista/preco a prazo quando pre
 
 test('processarLinhas le custo/preco a vista/preco a prazo das colunas mapeadas', () => {
   const linhas = [['1', 'PRODUTO X', '10', '', '25,50', '39,90', '45,00']];
-  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: 4, precoAVista: 5, precoAPrazo: 6 });
+  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: 4, precoAVista: 5, precoAPrazo: 6, codigoBarras: null, unidade: null });
   assert.equal(itens[0].custo, 25.5);
   assert.equal(itens[0].precoAVista, 39.9);
   assert.equal(itens[0].precoAPrazo, 45);
@@ -208,6 +209,58 @@ test('montarProdutoImportado grava custo/preco a vista/preco a prazo quando info
   assert.equal('precoAVista' in semPrecos, false);
   assert.equal('precoAPrazo' in semPrecos, false);
   assert.equal('aVista' in (semPrecos.precos as any), false);
+});
+
+test('interpretarQuantidade tolera virgula sobrando sem nada depois ("11,")', () => {
+  const r = interpretarQuantidade('11,');
+  assert.equal(r.valor, 11);
+  assert.equal(r.status, 'OK');
+});
+
+test('inferirMapeamentoColunas nao confunde Cód. Interno com Cód. Barras', () => {
+  const mapeamento = inferirMapeamentoColunas(['Cód. Interno', 'Cód. Barras', 'Descrição', 'Quantidade Contada', 'Unidade', 'Preço à Vista', 'Preço a Prazo']);
+  assert.equal(mapeamento.codigo, 0);
+  assert.equal(mapeamento.codigoBarras, 1);
+  assert.equal(mapeamento.descricao, 2);
+  assert.equal(mapeamento.quantidade, 3);
+  assert.equal(mapeamento.unidade, 4);
+  assert.equal(mapeamento.precoAVista, 5);
+  assert.equal(mapeamento.precoAPrazo, 6);
+});
+
+test('resolverSiglaUnidade traduz nome por extenso pra sigla do sistema, mantem sigla ja correta', () => {
+  assert.equal(resolverSiglaUnidade('UNID'), 'UN');
+  assert.equal(resolverSiglaUnidade('unidade'), 'UN');
+  assert.equal(resolverSiglaUnidade('Quilo'), 'KG');
+  assert.equal(resolverSiglaUnidade('KG'), 'KG');
+  assert.equal(resolverSiglaUnidade(''), '');
+});
+
+test('processarLinhas usa a coluna Unidade explicita, mesmo com preco em formato "R$ 14,00"', () => {
+  const linhas = [['136', '000001', '100 PS SUPLEMENTO PARA PÁSSARO 10ML', '11,', 'UNID', 'R$ 14,00', 'R$ 14,00']];
+  const itens = processarLinhas(linhas, {
+    codigo: 0, codigoBarras: 1, descricao: 2, quantidade: 3, unidade: 4, precoAVista: 5, precoAPrazo: 6, observacao: null, custo: null,
+  });
+  assert.equal(itens[0].quantidadeCalculada, 11);
+  assert.equal(itens[0].unidadeSugerida, 'UN');
+  assert.equal(itens[0].codigoBarras, '000001');
+  assert.equal(itens[0].precoAVista, 14);
+  assert.equal(itens[0].precoAPrazo, 14);
+});
+
+test('montarProdutoImportado grava codigoBarras quando informado, string vazia quando nao', () => {
+  const unidadeUn = { id: 'un-un', sigla: 'UN', casasDecimais: 0, fracionado: false };
+  const comBarras = montarProdutoImportado(
+    { codigo: '1', nome: 'produto', categoria: '', unidadeBase: unidadeUn, quantidade: 1, precoVenda: 10, codigoBarras: '7891234567890' },
+    'tenant-1', 'user-1', 'TIMESTAMP',
+  );
+  assert.equal(comBarras.codigoBarras, '7891234567890');
+
+  const semBarras = montarProdutoImportado(
+    { codigo: '2', nome: 'produto', categoria: '', unidadeBase: unidadeUn, quantidade: 1, precoVenda: 10 },
+    'tenant-1', 'user-1', 'TIMESTAMP',
+  );
+  assert.equal(semBarras.codigoBarras, '');
 });
 
 test('montarProdutoImportado sem embalagem grava array vazio, sem quebrar', () => {

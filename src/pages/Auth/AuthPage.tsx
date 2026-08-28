@@ -916,7 +916,7 @@ const AuthPage: React.FC = () => {
         </div>
 
         <div className="auth-input-group">
-          <label>Telefone com WhatsApp *</label>
+          <label>Telefone (recebe SMS) *</label>
           <div className="auth-input-wrapper">
             <Phone size={18} className="auth-input-icon" />
             <input

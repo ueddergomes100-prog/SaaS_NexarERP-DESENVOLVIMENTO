@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
+  Boxes,
   Building2,
   CheckCircle2,
   KeyRound,
@@ -12,7 +13,8 @@ import {
   Phone,
   ShieldCheck,
   Store,
-  User
+  User,
+  Zap
 } from 'lucide-react';
 import { getIdTokenResult, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
@@ -31,9 +33,24 @@ import {
   type PublicCnpjData,
   type StartOnboardingResponse
 } from '../../services/onboardingService';
-import hennderIcon from '../../assets/hennder-icon.svg';
+import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
+import wordmarkLight from '../../assets/hennder-wordmark-light.png';
+import monogramDark from '../../assets/hennder-monogram.png';
+// Variante para uso sobre o roxo da marca: a metade roxa do simbolo vira
+// violeta claro, senao ela desaparece contra o painel.
+import monogramOnBrand from '../../assets/hennder-monogram-onbrand.png';
 import BootSplash from '../../components/layout/BootSplash';
 import './Auth.css';
+
+// Assinatura oficial da marca. Sao dois arquivos porque o wordmark tem tinta
+// branca no tema escuro e tinta quase-preta no claro -- o CSS mostra so um
+// (mesmo padrao do .nexus-brand-mark da Sidebar).
+const HennderWordmark: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <span className={`auth-brand-mark ${className}`.trim()}>
+    <img className="auth-brand-img is-dark" src={wordmarkDark} alt="Hennder Company" />
+    <img className="auth-brand-img is-light" src={wordmarkLight} alt="Hennder Company" />
+  </span>
+);
 
 const LOGIN_LOADING_STEPS = [
   'Validando acesso',
@@ -697,7 +714,8 @@ const AuthPage: React.FC = () => {
   const renderLoginFormPanel = () => (
     <>
       <div className="auth-switch-header">
-        <img src={hennderIcon} alt="Hennder ERP" className="auth-switch-logo" />
+        <HennderWordmark className="auth-switch-logo" />
+        <span className="auth-eyebrow">Acesso ao sistema</span>
         <h1>Entrar</h1>
       </div>
 
@@ -790,7 +808,8 @@ const AuthPage: React.FC = () => {
   const renderCompanyFormPanel = () => (
     <>
       <div className="auth-switch-header">
-        <img src={hennderIcon} alt="Hennder ERP" className="auth-switch-logo" />
+        <HennderWordmark className="auth-switch-logo" />
+        <span className="auth-eyebrow">Novo cadastro</span>
         <h1>Criar conta</h1>
       </div>
 
@@ -898,29 +917,75 @@ const AuthPage: React.FC = () => {
       <>
         {showSplash && <BootSplash />}
         <div className="auth-switch-container" style={{ display: showSplash ? 'none' : undefined }}>
+        <div className="auth-aurora" aria-hidden="true">
+          <span className="auth-aurora-blob one" />
+          <span className="auth-aurora-blob two" />
+          <span className="auth-aurora-blob three" />
+          <span className="auth-aurora-grid" />
+        </div>
         <div className={`auth-switch-card mode-${mode}`}>
           <div className="auth-switch-form-panel">
             {mode === 'login' ? renderLoginFormPanel() : renderCompanyFormPanel()}
           </div>
 
           <div className="auth-switch-accent-panel">
-            {mode === 'login' ? (
-              <>
-                <h2>Novo por aqui?</h2>
-                <p>Cadastre sua empresa e comece a usar o Hennder ERP em minutos.</p>
-                <button type="button" className="auth-switch-ghost-button" onClick={handleToggleMode}>
-                  Criar Conta
-                </button>
-              </>
-            ) : (
-              <>
-                <h2>Já tem uma conta?</h2>
-                <p>Entre com seu e-mail e senha para acessar o sistema.</p>
-                <button type="button" className="auth-switch-ghost-button" onClick={handleToggleMode}>
-                  Entrar
-                </button>
-              </>
-            )}
+            {/* Camadas decorativas: as faixas diagonais repetem o angulo das
+                barras da logo, e o monograma sangra pela base do painel. */}
+            <span className="auth-accent-beams" aria-hidden="true" />
+            <span className="auth-accent-halo" aria-hidden="true" />
+            <img src={monogramOnBrand} alt="" aria-hidden="true" className="auth-accent-watermark" />
+
+            <div className="auth-accent-content">
+              <img src={monogramOnBrand} alt="" aria-hidden="true" className="auth-accent-mark" />
+
+              {mode === 'login' ? (
+                <>
+                  <h2>Novo por aqui?</h2>
+                  <p>Cadastre sua empresa e comece a usar o Hennder ERP em minutos.</p>
+
+                  <ul className="auth-accent-highlights">
+                    <li>
+                      <span className="auth-accent-bullet"><Zap size={14} /></span>
+                      PDV, orçamento e ordem de serviço
+                    </li>
+                    <li>
+                      <span className="auth-accent-bullet"><Boxes size={14} /></span>
+                      Estoque, financeiro e nota fiscal
+                    </li>
+                    <li>
+                      <span className="auth-accent-bullet"><ShieldCheck size={14} /></span>
+                      Cadastro validado por CNPJ
+                    </li>
+                  </ul>
+
+                  <button type="button" className="auth-switch-ghost-button" onClick={handleToggleMode}>
+                    Criar Conta
+                    <ArrowRight size={16} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h2>Já tem uma conta?</h2>
+                  <p>Entre com seu e-mail e senha para acessar o sistema.</p>
+
+                  <ul className="auth-accent-highlights">
+                    <li>
+                      <span className="auth-accent-bullet"><LogIn size={14} /></span>
+                      Retome de onde parou
+                    </li>
+                    <li>
+                      <span className="auth-accent-bullet"><ShieldCheck size={14} /></span>
+                      Sessão única por usuário
+                    </li>
+                  </ul>
+
+                  <button type="button" className="auth-switch-ghost-button" onClick={handleToggleMode}>
+                    Entrar
+                    <ArrowRight size={16} />
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
         </div>
@@ -935,9 +1000,15 @@ const AuthPage: React.FC = () => {
       {showSplash && <BootSplash />}
 
       <div className="auth-container" style={{ display: showSplash ? 'none' : 'flex' }}>
+        <div className="auth-aurora" aria-hidden="true">
+          <span className="auth-aurora-blob one" />
+          <span className="auth-aurora-blob two" />
+          <span className="auth-aurora-blob three" />
+          <span className="auth-aurora-grid" />
+        </div>
         <div className={`auth-card auth-register-card ${signupLoading ? 'auth-card-loading' : ''}`}>
           <div className="auth-header">
-            <img src={hennderIcon} alt="Hennder ERP" className="auth-logo" />
+            <HennderWordmark className="auth-logo" />
             <h1>Crie sua conta</h1>
             <p>Cadastre sua empresa com validacao de CNPJ e e-mail.</p>
           </div>

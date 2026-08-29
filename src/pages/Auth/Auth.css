@@ -1,42 +1,145 @@
-.auth-container {
+/* ------------------------------------------------------------------ */
+/* Ambiente da marca Hennder -- fundo compartilhado pelas duas telas    */
+/* de autenticacao (card unico e card dividido).                        */
+/* ------------------------------------------------------------------ */
+
+.auth-container,
+.auth-switch-container {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: var(--bg-primary);
   padding: 20px;
   position: relative;
   overflow: hidden;
+  /* Base violeta-escura: o preto puro deixava a marca flutuando no vazio.
+     O degrade sobe do quase-preto da logo para um roxo profundo no topo. */
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(124, 58, 237, 0.20) 0%, transparent 60%),
+    linear-gradient(180deg, #100a1d 0%, var(--bg-primary) 45%, #0a0710 100%);
 }
 
-/* Efeito de luz no fundo da tela de login */
-.auth-container::before {
-  content: '';
+/* Camadas de luz roxa. Sao spans reais (nao ::before) porque a tela precisa
+   de tres focos de luz + a malha, e pseudo-elementos so dariam dois. */
+.auth-aurora {
   position: absolute;
-  width: 600px;
-  height: 600px;
-  background: radial-gradient(circle, var(--accent-purple-glow) 0%, rgba(0,0,0,0) 70%);
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.auth-aurora-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  will-change: transform;
+}
+
+.auth-aurora-blob.one {
+  width: 620px;
+  height: 620px;
+  top: -220px;
+  left: -160px;
+  background: radial-gradient(circle, rgba(124, 58, 237, 0.55) 0%, rgba(124, 58, 237, 0) 70%);
+  animation: authAuroraDrift 18s ease-in-out infinite alternate;
+}
+
+.auth-aurora-blob.two {
+  width: 540px;
+  height: 540px;
+  right: -180px;
+  bottom: -200px;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.42) 0%, rgba(167, 139, 250, 0) 70%);
+  animation: authAuroraDrift 22s ease-in-out infinite alternate-reverse;
+}
+
+/* Halo central: e' o que "acende" o card por tras, como no Hennder CRM. */
+.auth-aurora-blob.three {
+  width: 900px;
+  height: 520px;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  z-index: 0;
-  pointer-events: none;
+  background: radial-gradient(ellipse, rgba(91, 33, 182, 0.38) 0%, rgba(91, 33, 182, 0) 70%);
+  filter: blur(110px);
+}
+
+/* Malha tecnica bem discreta -- da textura sem virar xadrez. */
+.auth-aurora-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(196, 181, 253, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(196, 181, 253, 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, #000 0%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, #000 0%, transparent 75%);
+}
+
+@keyframes authAuroraDrift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(40px, 30px, 0) scale(1.12); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-aurora-blob {
+    animation: none;
+  }
+}
+
+/* Tema claro: mesma composicao, mas o roxo entra como neblina sobre branco. */
+body.light-theme .auth-container,
+body.light-theme .auth-switch-container {
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(124, 58, 237, 0.14) 0%, transparent 60%),
+    linear-gradient(180deg, #f3f0ff 0%, var(--bg-primary) 50%, #eceaf7 100%);
+}
+
+body.light-theme .auth-aurora-blob.one {
+  background: radial-gradient(circle, rgba(124, 58, 237, 0.24) 0%, rgba(124, 58, 237, 0) 70%);
+}
+
+body.light-theme .auth-aurora-blob.two {
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.20) 0%, rgba(139, 92, 246, 0) 70%);
+}
+
+body.light-theme .auth-aurora-blob.three {
+  background: radial-gradient(ellipse, rgba(167, 139, 250, 0.20) 0%, rgba(167, 139, 250, 0) 70%);
+}
+
+body.light-theme .auth-aurora-grid {
+  background-image:
+    linear-gradient(rgba(124, 58, 237, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124, 58, 237, 0.07) 1px, transparent 1px);
 }
 
 .auth-card {
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-xl);
+  background-color: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(167, 139, 250, 0.20);
+  border-radius: 18px;
   padding: 40px;
   width: 100%;
   max-width: 420px;
-  box-shadow: var(--shadow-card);
+  box-shadow:
+    0 30px 90px rgba(10, 6, 22, 0.72),
+    0 0 60px rgba(124, 58, 237, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
   z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 24px;
   position: relative;
   transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+body.light-theme .auth-card {
+  border-color: rgba(124, 58, 237, 0.20);
+  box-shadow:
+    0 24px 60px rgba(76, 29, 149, 0.14),
+    0 0 40px rgba(124, 58, 237, 0.08);
 }
 
 .auth-register-card {
@@ -53,13 +156,40 @@
   text-align: center;
 }
 
-.auth-logo {
-  width: 64px;
-  height: 64px;
-  object-fit: contain;
-  margin: 0 auto 16px;
+/* ------------------------------------------------------------------ */
+/* Assinatura da marca (wordmark oficial Hennder Company)              */
+/* ------------------------------------------------------------------ */
+
+.auth-brand-mark {
   display: block;
-  filter: drop-shadow(var(--shadow-neon));
+  line-height: 0;
+}
+
+.auth-brand-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+/* Uma tinta por tema: branca no escuro, quase-preta no claro. */
+.auth-brand-img.is-light {
+  display: none;
+}
+
+body.light-theme .auth-brand-img.is-dark {
+  display: none;
+}
+
+body.light-theme .auth-brand-img.is-light {
+  display: block;
+}
+
+.auth-logo {
+  width: 220px;
+  max-width: 100%;
+  margin: 0 auto 20px;
+  filter: drop-shadow(0 6px 18px rgba(124, 58, 237, 0.35));
 }
 
 .auth-header h1 {
@@ -105,19 +235,37 @@
 
 .auth-input {
   width: 100%;
-  background-color: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 12px 14px 12px 42px;
+  background-color: color-mix(in srgb, var(--bg-tertiary) 62%, transparent);
+  border: 1px solid rgba(167, 139, 250, 0.16);
+  border-radius: 10px;
+  padding: 13px 14px 13px 42px;
   color: var(--text-primary);
   font-size: 14px;
-  transition: all 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+}
+
+.auth-input:hover:not(:disabled) {
+  border-color: rgba(167, 139, 250, 0.30);
 }
 
 .auth-input:focus {
   outline: none;
-  border-color: var(--accent-purple);
-  box-shadow: 0 0 0 2px var(--accent-purple-glow);
+  background-color: color-mix(in srgb, var(--bg-tertiary) 85%, transparent);
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.22);
+}
+
+/* O icone acompanha o foco -- reforca o roxo da marca no campo ativo. */
+.auth-input-wrapper:focus-within .auth-input-icon {
+  color: var(--brand-400);
+}
+
+body.light-theme .auth-input {
+  border-color: rgba(124, 58, 237, 0.18);
+}
+
+body.light-theme .auth-input-wrapper:focus-within .auth-input-icon {
+  color: var(--brand-600);
 }
 
 .auth-input:disabled {
@@ -230,15 +378,17 @@
 
 .auth-button {
   width: 100%;
-  background-color: var(--accent-purple);
+  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%);
   color: white;
   border: none;
-  border-radius: var(--radius-md);
-  padding: 12px;
+  border-radius: 10px;
+  padding: 14px;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: box-shadow 0.2s, transform 0.2s, filter 0.2s;
+  box-shadow: 0 10px 26px rgba(124, 58, 237, 0.32);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -249,8 +399,8 @@
 }
 
 .auth-button:hover:not(:disabled) {
-  background-color: #7c3aed;
-  box-shadow: var(--shadow-neon);
+  filter: brightness(1.08);
+  box-shadow: 0 14px 34px rgba(124, 58, 237, 0.46);
   transform: translateY(-2px);
 }
 
@@ -552,42 +702,35 @@
 /* (Login <-> passo "Empresa" do Cadastro)                             */
 /* ------------------------------------------------------------------ */
 
-.auth-switch-container {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: var(--bg-primary);
-  padding: 20px;
-  position: relative;
-  overflow: hidden;
-}
-
-.auth-switch-container::before {
-  content: '';
-  position: absolute;
-  width: 600px;
-  height: 600px;
-  background: radial-gradient(circle, var(--accent-purple-glow) 0%, rgba(0,0,0,0) 70%);
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 0;
-  pointer-events: none;
-}
+/* O fundo/aurora do .auth-switch-container esta definido no topo do arquivo,
+   junto com o .auth-container -- as duas telas usam o mesmo ambiente. */
 
 .auth-switch-card {
   position: relative;
   width: 100%;
   max-width: 880px;
   min-height: 580px;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-card);
+  background-color: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(167, 139, 250, 0.20);
+  border-radius: 18px;
+  /* Sombra com sangria roxa em vez de preto puro: e' o que separa o card
+     do fundo sem cortar a atmosfera da marca. */
+  box-shadow:
+    0 30px 90px rgba(10, 6, 22, 0.72),
+    0 0 60px rgba(124, 58, 237, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
   overflow: hidden;
   display: flex;
   z-index: 1;
+}
+
+body.light-theme .auth-switch-card {
+  border-color: rgba(124, 58, 237, 0.20);
+  box-shadow:
+    0 24px 60px rgba(76, 29, 149, 0.14),
+    0 0 40px rgba(124, 58, 237, 0.08);
 }
 
 .auth-switch-form-panel {
@@ -617,19 +760,36 @@
 }
 
 .auth-switch-header {
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 
 .auth-switch-logo {
-  width: 40px;
-  height: 40px;
-  object-fit: contain;
-  margin-bottom: 12px;
-  filter: drop-shadow(var(--shadow-neon));
+  width: 215px;
+  max-width: 78%;
+  margin-bottom: 20px;
+  filter: drop-shadow(0 6px 18px rgba(124, 58, 237, 0.35));
+}
+
+/* Sobrelinha da marca -- o mesmo recurso do Hennder CRM: diz de que acesso
+   se trata antes do titulo, e ancora o roxo no texto. */
+.auth-eyebrow {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brand-400);
+  margin-bottom: 6px;
+}
+
+body.light-theme .auth-eyebrow {
+  color: var(--brand-600);
 }
 
 .auth-switch-header h1 {
-  font-size: 26px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   color: var(--text-primary);
   margin: 0;
 }
@@ -647,9 +807,110 @@
   gap: 14px;
   padding: 48px 36px;
   color: #fff;
-  background: linear-gradient(160deg, var(--accent-purple), var(--accent-blue));
+  overflow: hidden;
+  /* Roxo da marca em profundidade (600 -> 800 -> quase-preto violeta), com
+     um realce de luz no topo. O gradiente chapado de antes era o que mais
+     fazia a tela parecer template generico. */
+  background:
+    radial-gradient(circle at 26% 8%, rgba(196, 181, 253, 0.22) 0%, transparent 42%),
+    linear-gradient(155deg, var(--brand-600) 0%, var(--brand-800) 52%, #2e0b63 100%);
   transition: left 0.6s cubic-bezier(0.65, 0, 0.35, 1), border-radius 0.6s cubic-bezier(0.65, 0, 0.35, 1);
   z-index: 3;
+}
+
+/* Faixas diagonais no angulo das barras da logo (~25deg). E' o que tira o
+   painel do "degrade chapado" -- da a mesma geometria de velocidade que a
+   marca tem, sem competir com o texto. */
+.auth-accent-beams {
+  position: absolute;
+  inset: -30%;
+  background: repeating-linear-gradient(
+    115deg,
+    rgba(255, 255, 255, 0.07) 0px,
+    rgba(255, 255, 255, 0.07) 12px,
+    transparent 12px,
+    transparent 44px
+  );
+  mask-image: linear-gradient(150deg, #000 0%, rgba(0, 0, 0, 0.35) 45%, transparent 78%);
+  -webkit-mask-image: linear-gradient(150deg, #000 0%, rgba(0, 0, 0, 0.35) 45%, transparent 78%);
+  pointer-events: none;
+}
+
+/* Halo atras do conteudo: separa o texto das faixas sem precisar de caixa. */
+.auth-accent-halo {
+  position: absolute;
+  width: 120%;
+  height: 62%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(ellipse, rgba(46, 11, 99, 0.55) 0%, rgba(46, 11, 99, 0) 70%);
+  pointer-events: none;
+}
+
+/* Monograma da marca como marca d'agua, sangrando pela base do painel. */
+.auth-accent-watermark {
+  position: absolute;
+  width: 105%;
+  max-width: 460px;
+  bottom: -26%;
+  left: -18%;
+  opacity: 0.07;
+  pointer-events: none;
+  user-select: none;
+}
+
+.auth-accent-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+/* Monograma apresentado como marca de verdade, nao so textura. */
+.auth-accent-mark {
+  width: 62px;
+  height: auto;
+  margin-bottom: 4px;
+  filter: drop-shadow(0 8px 22px rgba(15, 5, 35, 0.6));
+}
+
+/* Tres provas do produto -- o painel vendia a conta sem dizer o que o
+   sistema faz, que era metade da sensacao de generico. */
+.auth-accent-highlights {
+  list-style: none;
+  margin: 4px 0 2px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  text-align: left;
+  max-width: 260px;
+}
+
+.auth-accent-highlights li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.auth-accent-bullet {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  color: #fff;
 }
 
 .auth-switch-card.mode-login .auth-switch-accent-panel {
@@ -675,24 +936,38 @@
   max-width: 260px;
 }
 
+/* CTA solida em branco sobre o roxo: contraste maximo e leitura de acao
+   primaria. O contorno vazado de antes sumia dentro do degrade. */
 .auth-switch-ghost-button {
-  margin-top: 6px;
-  padding: 12px 32px;
+  margin-top: 8px;
+  padding: 13px 28px;
   border-radius: 999px;
-  border: 2px solid rgba(255, 255, 255, 0.85);
-  background: transparent;
-  color: #fff;
-  font-weight: 700;
-  font-size: 14px;
-  letter-spacing: 0.5px;
+  border: 0;
+  background: #fff;
+  color: var(--brand-700);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 10px 26px rgba(15, 5, 35, 0.32);
+  transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .auth-switch-ghost-button:hover {
-  background-color: rgba(255, 255, 255, 0.15);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px rgba(15, 5, 35, 0.42);
+}
+
+.auth-switch-ghost-button svg {
+  transition: transform 0.2s;
+}
+
+.auth-switch-ghost-button:hover svg {
+  transform: translateX(3px);
 }
 
 .auth-switch-social-label {

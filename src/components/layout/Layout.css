@@ -249,15 +249,15 @@
    pra leitura rapida de uma lista longa de modulos.
    ============================================================ */
 .nexus-sidebar {
-  --nexus-bg: #0d0e15;
-  --nexus-rail-bg: #090a10;
-  --nexus-surface: rgba(255, 255, 255, 0.04);
-  --nexus-hover: rgba(255, 255, 255, 0.06);
-  --nexus-text: #f3f4f8;
-  --nexus-text-secondary: #b9bbcb;
-  --nexus-text-muted: #82849a;
-  --nexus-border: rgba(160, 162, 190, 0.14);
-  --nexus-guide: rgba(160, 162, 190, 0.18);
+  --nexus-bg: #0f0819;
+  --nexus-rail-bg: #0a0412;
+  --nexus-surface: rgba(183, 147, 242, 0.06);
+  --nexus-hover: rgba(183, 147, 242, 0.10);
+  --nexus-text: #f4f1fa;
+  --nexus-text-secondary: #c6bcda;
+  --nexus-text-muted: #8e85a6;
+  --nexus-border: rgba(183, 147, 242, 0.16);
+  --nexus-guide: rgba(183, 147, 242, 0.20);
   width: var(--sidebar-width);
   flex-direction: row;
   background: var(--nexus-bg);
@@ -269,13 +269,15 @@
 body.light-theme .nexus-sidebar {
   --nexus-bg: var(--bg-secondary);
   --nexus-rail-bg: var(--bg-secondary);
-  --nexus-surface: rgba(20, 21, 31, 0.03);
-  --nexus-hover: rgba(20, 21, 31, 0.05);
+  /* Tints derivados do roxo profundo (43,16,87) em vez do quase-preto
+     neutro: mantem o menu na familia da marca no tema claro. */
+  --nexus-surface: rgba(43, 16, 87, 0.04);
+  --nexus-hover: rgba(43, 16, 87, 0.07);
   --nexus-text: var(--text-primary);
   --nexus-text-secondary: var(--text-secondary);
   --nexus-text-muted: var(--text-muted);
   --nexus-border: var(--border-color);
-  --nexus-guide: rgba(20, 21, 31, 0.12);
+  --nexus-guide: rgba(43, 16, 87, 0.12);
 }
 
 .nexus-sidebar :focus-visible {

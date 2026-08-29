@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Filter, Plus, Users, Edit, Trash2 } from 'lucide-react';
+import { Search, Filter, Plus, Users, Edit, Trash2, Upload } from 'lucide-react';
 import { collection, query, onSnapshot, doc, deleteDoc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import ValidarDocumentoButton from '../../components/common/ValidarDocumentoButton';
 
 interface ClienteData {
   id: string;
@@ -14,6 +15,10 @@ interface ClienteData {
   telefone: string;
   email: string;
   documento: string; // CPF/CNPJ
+  endereco?: string;
+  numero?: string;
+  bairro?: string;
+  cidade?: string;
   isPadrao?: boolean;
   createdAt: any;
 }
@@ -117,6 +122,14 @@ const ClientesList: React.FC = () => {
           <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
             Padronizar (A-Z)
           </button>
+          <button
+            className="btn-secondary"
+            onClick={() => openTab('/clientes/importar', 'Importar Clientes')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Upload size={18} />
+            Importar clientes
+          </button>
           <button className="btn-primary" onClick={() => openTab('/clientes/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Novo Cliente
           </button>
@@ -189,6 +202,7 @@ const ClientesList: React.FC = () => {
                         <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Sistema Padrão</span>
                       ) : (
                         <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                          <ValidarDocumentoButton documento={cliente.documento} />
                           <button className="icon-btn" title="Editar" onClick={() => openTab(`/clientes/editar/${cliente.id}`)}>
                             <Edit size={16} />
                           </button>

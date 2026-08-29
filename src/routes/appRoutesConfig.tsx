@@ -37,6 +37,7 @@ const ContasPagar = lazy(() => import('../pages/Financeiro/ContasPagar'));
 const RelatorioComissoes = lazy(() => import('../pages/Financeiro/RelatorioComissoes'));
 const ClientesList = lazy(() => import('../pages/Clientes/ClientesList'));
 const ClienteForm = lazy(() => import('../pages/Clientes/ClienteForm'));
+const ImportarClientes = lazy(() => import('../pages/Clientes/ImportarClientes'));
 const UsuariosList = lazy(() => import('../pages/Usuarios/UsuariosList'));
 const Configuracoes = lazy(() => import('../pages/Configuracoes/Configuracoes'));
 const ServicosList = lazy(() => import('../pages/Servicos/ServicosList'));
@@ -130,6 +131,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'clientes', element: <ClientesList /> },
   { path: 'clientes/novo', element: <ClienteForm /> },
   { path: 'clientes/editar/:id', element: <ClienteForm /> },
+  { path: 'clientes/importar', element: <ImportarClientes /> },
 
   { path: 'veiculos', element: <VeiculosList /> },
   { path: 'veiculos/novo', element: <VeiculoForm /> },

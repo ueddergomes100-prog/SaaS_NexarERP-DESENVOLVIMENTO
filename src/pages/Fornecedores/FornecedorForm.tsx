@@ -6,6 +6,9 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { mensagemDocumentoInvalido } from '../../utils/documentoValidacao';
+import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton';
+import type { ConsultaCnpjResultado, ConsultaCpfResultado } from '../../services/documentoService';
 
 const FornecedorForm: React.FC = () => {
   const navigate = useNavigate();
@@ -21,6 +24,7 @@ const FornecedorForm: React.FC = () => {
     endereco: '',
     bairro: '',
     numero: '',
+    cidade: '',
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -67,6 +71,23 @@ const FornecedorForm: React.FC = () => {
     setFormData({ ...formData, [name]: value });
   };
 
+  const preencherDeCnpj = (dados: ConsultaCnpjResultado) => {
+    setFormData((prev) => ({
+      ...prev,
+      nome: (dados.razaoSocial || prev.nome).toUpperCase(),
+      endereco: dados.logradouro || prev.endereco,
+      numero: dados.numero || prev.numero,
+      bairro: dados.bairro || prev.bairro,
+      cidade: dados.municipio || prev.cidade,
+      telefone: prev.telefone || dados.telefone || prev.telefone,
+      email: prev.email || dados.email || prev.email,
+    }));
+  };
+
+  const preencherDeCpf = (dados: ConsultaCpfResultado) => {
+    setFormData((prev) => ({ ...prev, nome: (dados.nome || prev.nome).toUpperCase() }));
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.nome) {
@@ -74,11 +95,10 @@ const FornecedorForm: React.FC = () => {
       return;
     }
 
-    if (formData.cnpj && formData.cnpj.length > 0) {
-      if (formData.cnpj.length !== 11 && formData.cnpj.length !== 14) {
-        showError('Documento Inválido', 'O CPF deve ter 11 dígitos e o CNPJ 14 dígitos (apenas números).');
-        return;
-      }
+    const erroDocumento = mensagemDocumentoInvalido(formData.cnpj);
+    if (erroDocumento) {
+      showError('Documento Inválido', erroDocumento);
+      return;
     }
 
     if (!currentUser) return;
@@ -162,7 +182,7 @@ const FornecedorForm: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '20px', alignItems: 'start' }}>
             <div className="input-group">
               <label>Telefone / WhatsApp</label>
               <input type="text" name="telefone" placeholder="(00) 00000-0000" value={formData.telefone} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
@@ -170,7 +190,13 @@ const FornecedorForm: React.FC = () => {
             <div className="input-group">
               <label>CNPJ / CPF (Apenas números)</label>
               <input type="text" name="cnpj" placeholder="00000000000000" value={formData.cnpj} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              {formData.cnpj.length >= 11 && (
+                mensagemDocumentoInvalido(formData.cnpj)
+                  ? <small style={{ color: '#ef4444' }}>{mensagemDocumentoInvalido(formData.cnpj)}</small>
+                  : <small style={{ color: '#10b981' }}>Dígitos verificadores válidos.</small>
+              )}
             </div>
+            <BuscarDocumentoButton documento={formData.cnpj} onEncontrarCnpj={preencherDeCnpj} onEncontrarCpf={preencherDeCpf} />
           </div>
 
           <div className="input-group">
@@ -194,9 +220,15 @@ const FornecedorForm: React.FC = () => {
             </div>
           </div>
 
-          <div className="input-group">
-            <label>Bairro</label>
-            <input type="text" name="bairro" placeholder="Centro" value={formData.bairro} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div className="input-group">
+              <label>Bairro</label>
+              <input type="text" name="bairro" placeholder="Centro" value={formData.bairro} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+            <div className="input-group">
+              <label>Cidade</label>
+              <input type="text" name="cidade" placeholder="Manhuaçu" value={formData.cidade} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
           </div>
 
         </div>

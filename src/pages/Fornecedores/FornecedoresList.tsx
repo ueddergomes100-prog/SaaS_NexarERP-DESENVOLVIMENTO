@@ -5,6 +5,8 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
+import ValidarDocumentoButton from '../../components/common/ValidarDocumentoButton';
+import { formatarDocumento } from '../../utils/documentoValidacao';
 
 interface FornecedorData {
   id: string;
@@ -13,15 +15,14 @@ interface FornecedorData {
   cnpj: string;
   telefone: string;
   email: string;
+  endereco?: string;
+  numero?: string;
+  bairro?: string;
+  cidade?: string;
   createdAt: any;
 }
 
-const formatCnpjOuCpf = (digits: string) => {
-  if (!digits) return '-';
-  if (digits.length === 14) return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
-  if (digits.length === 11) return digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
-  return digits;
-};
+const formatCnpjOuCpf = (digits: string) => (digits ? formatarDocumento(digits) : '-');
 
 const FornecedoresList: React.FC = () => {
   const { openTab } = useTabs();
@@ -137,6 +138,7 @@ const FornecedoresList: React.FC = () => {
                     <td>{fornecedor.email || '-'}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '8px' }}>
+                        <ValidarDocumentoButton documento={fornecedor.cnpj} />
                         <button className="icon-btn" title="Editar" onClick={() => openTab(`/fornecedores/editar/${fornecedor.id}`)}>
                           <Edit size={16} />
                         </button>

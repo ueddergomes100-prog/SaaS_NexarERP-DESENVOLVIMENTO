@@ -351,8 +351,12 @@ export const settledFinancialNatureForPayment = (method: PaymentMethod): Financi
   return 'bancario_digital';
 };
 
+/** Credito de devolucao entra aqui junto com Dinheiro/Pix/Transferencia: o
+ * dinheiro ja esta com a loja desde a devolucao que gerou o credito, entao
+ * a parte da venda paga com ele nasce quitada -- nunca vira conta a receber. */
 export const paymentIsImmediatelyConfirmed = (method: PaymentMethod) => (
   method === 'Dinheiro' || method === 'Pix' || method === 'Transferência'
+  || method === 'Crédito de Devolução'
 );
 
 export const buildCardDetails = (args: {

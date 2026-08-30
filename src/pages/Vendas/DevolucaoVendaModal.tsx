@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Receipt, X } from 'lucide-react';
-import { collection, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDocs, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
@@ -9,6 +9,15 @@ import { toStockAdjustmentItems } from '../../utils/embalagemDomain';
 import { recalculateCommissionAfterReturn, toCents } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+
+/** Formas de devolucao que saem de conta bancaria (nao do caixa fisico). */
+const FORMAS_BANCARIAS = ['Pix', 'Transferência'] as const;
+type FormaBancaria = typeof FORMAS_BANCARIAS[number];
+
+interface BancoOption {
+  id: string;
+  nome: string;
+}
 
 interface DevolucaoItem {
   id: string;
@@ -43,7 +52,10 @@ interface DevolucaoVendaModalProps {
 const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, numeroPedido, clienteNome, itens: itensOriginais, onClose, onSuccess }) => {
   const { currentUser, tenantId } = useAuth();
   const [itens, setItens] = useState<DevolucaoItem[]>([]);
-  const [destinoValor, setDestinoValor] = useState<'credito' | 'caixa'>('credito');
+  const [destinoValor, setDestinoValor] = useState<'credito' | 'caixa' | 'banco'>('credito');
+  const [formaBancaria, setFormaBancaria] = useState<FormaBancaria>('Pix');
+  const [bancoId, setBancoId] = useState('');
+  const [bancos, setBancos] = useState<BancoOption[]>([]);
   const [motivo, setMotivo] = useState('');
   const [observacao, setObservacao] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -57,6 +69,13 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
       selecionado: false,
     })));
   }, [itensOriginais]);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    getDocs(query(collection(db, 'bancos'), where('tenantId', '==', tenantId), where('ativo', '==', true)))
+      .then((snap) => setBancos(snap.docs.map((d) => ({ id: d.id, nome: String(d.data().nome || '') }))))
+      .catch((error) => console.error('Erro ao carregar bancos:', error));
+  }, [tenantId]);
 
   const handleToggleItem = (index: number) => {
     setItens((current) => current.map((item, idx) => {
@@ -96,6 +115,10 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
       showError('Atenção', 'Selecione o motivo da devolução.');
       return;
     }
+    if (destinoValor === 'banco' && !bancoId) {
+      showError('Atenção', 'Selecione de qual banco o dinheiro está saindo.');
+      return;
+    }
 
     returnLockRef.current = true;
     setIsProcessing(true);
@@ -122,6 +145,16 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
         if (!saleSnap.exists()) throw new Error('A venda original não existe mais.');
         const saleData = saleSnap.data();
         if (saleData.status === 'Cancelada') throw new Error('Venda cancelada não pode receber nova devolução.');
+
+        // Leitura do banco ANTES de qualquer escrita: applyStockAdjustments
+        // ja grava, e transacao do Firestore recusa read depois de write.
+        const bancoRef = destinoValor === 'banco' ? doc(db, 'bancos', bancoId) : null;
+        let saldoBancoCentavos = 0;
+        if (bancoRef) {
+          const bancoSnap = await transaction.get(bancoRef);
+          if (!bancoSnap.exists()) throw new Error('O banco selecionado não existe mais.');
+          saldoBancoCentavos = Number(bancoSnap.data().saldoCentavos || 0);
+        }
 
         const storedItems = Array.isArray(saleData.itens) ? saleData.itens : [];
         const updatedItems = storedItems.map((storedItem: DevolucaoItem) => {
@@ -155,6 +188,13 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
           valorTotalDevolvido: valorTotalCalculado,
           valorTotalDevolvidoCentavos: toCents(valorTotalCalculado),
           destinoValor,
+          // Guardados pro estorno saber devolver o dinheiro pro mesmo
+          // banco, sem depender do que estiver selecionado na tela depois.
+          ...(destinoValor === 'banco' ? {
+            bancoId,
+            bancoNome: bancos.find((b) => b.id === bancoId)?.nome || '',
+            formaDevolucao: formaBancaria,
+          } : {}),
           motivo,
           observacao,
           tenantId,
@@ -198,6 +238,36 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
             tenantId,
             createdAt: serverTimestamp(),
             ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          });
+        } else if (destinoValor === 'banco' && bancoRef) {
+          const bancoNome = bancos.find((b) => b.id === bancoId)?.nome || '';
+          transaction.set(doc(db, 'transacoes', `devolucao_${novaDevolucaoRef.id}`), {
+            descricao: `Devolução Pedido #${numeroPedido} - ${formaBancaria}${bancoNome ? ` (${bancoNome})` : ''}`,
+            categoria: 'Devolução de Venda',
+            valor: valorTotalCalculado,
+            valorCentavos: toCents(valorTotalCalculado),
+            tipo: 'saida',
+            formaPagamento: formaBancaria,
+            naturezaFinanceira: 'bancario_digital',
+            movimentaCaixaFisico: false,
+            bancoId,
+            bancoNome,
+            status: 'Paga',
+            data: getDateInputInTimeZone(),
+            clienteNome,
+            pedidoOrigemId: pedidoId,
+            devolucaoId: novaDevolucaoRef.id,
+            idempotencyKey: `devolucao:${novaDevolucaoRef.id}:banco`,
+            tenantId,
+            createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          });
+          // Debita o banco na hora, simetrico ao credito que a venda por
+          // Pix/Transferencia aplica ao ser finalizada.
+          transaction.update(bancoRef, {
+            saldoCentavos: saldoBancoCentavos - toCents(valorTotalCalculado),
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Devolução do pedido #${numeroPedido}`),
           });
         } else {
           transaction.set(doc(db, 'creditos_cliente', `devolucao_${novaDevolucaoRef.id}`), {
@@ -346,11 +416,51 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
                       <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: `2px solid ${destinoValor === 'caixa' ? '#10b981' : 'var(--text-muted)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {destinoValor === 'caixa' && <div style={{ width: '10px', height: '10px', backgroundColor: '#10b981', borderRadius: '50%' }} />}
                       </div>
-                      <strong style={{ color: destinoValor === 'caixa' ? '#10b981' : 'white' }}>Devolver pelo Caixa</strong>
+                      <strong style={{ color: destinoValor === 'caixa' ? '#10b981' : 'white' }}>Devolver em Dinheiro</strong>
                     </div>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '26px' }}>Lança uma Despesa no Fluxo de Caixa no dia de hoje.</span>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '26px' }}>Sai do caixa físico e lança uma despesa no fluxo de caixa hoje.</span>
+                  </label>
+
+                  <label style={{ flex: 1, padding: '16px', border: `2px solid ${destinoValor === 'banco' ? '#3b82f6' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: destinoValor === 'banco' ? 'rgba(59, 130, 246, 0.1)' : 'transparent', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input type="radio" name="destino" checked={destinoValor === 'banco'} onChange={() => setDestinoValor('banco')} style={{ display: 'none' }} />
+                      <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: `2px solid ${destinoValor === 'banco' ? '#3b82f6' : 'var(--text-muted)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {destinoValor === 'banco' && <div style={{ width: '10px', height: '10px', backgroundColor: '#3b82f6', borderRadius: '50%' }} />}
+                      </div>
+                      <strong style={{ color: destinoValor === 'banco' ? '#3b82f6' : 'white' }}>Devolver pelo Banco</strong>
+                    </div>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '26px' }}>Pix ou transferência: debita o saldo do banco escolhido.</span>
                   </label>
                 </div>
+
+                {destinoValor === 'banco' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', marginTop: '16px' }}>
+                    <div className="input-group">
+                      <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Forma *</label>
+                      <select
+                        value={formaBancaria}
+                        onChange={(e) => setFormaBancaria(e.target.value as FormaBancaria)}
+                        style={{ width: '100%', padding: '10px 12px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)' }}
+                      >
+                        {FORMAS_BANCARIAS.map((forma) => <option key={forma} value={forma}>{forma}</option>)}
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>De qual banco está saindo o dinheiro? *</label>
+                      <select
+                        value={bancoId}
+                        onChange={(e) => setBancoId(e.target.value)}
+                        style={{ width: '100%', padding: '10px 12px', backgroundColor: 'var(--bg-primary)', border: `1px solid ${bancoId ? 'var(--border-color)' : '#ef4444'}`, borderRadius: '4px', color: 'var(--text-primary)' }}
+                      >
+                        <option value="">Selecione o banco...</option>
+                        {bancos.map((banco) => <option key={banco.id} value={banco.id}>{banco.nome}</option>)}
+                      </select>
+                      {bancos.length === 0 && (
+                        <small style={{ color: '#f59e0b' }}>Nenhum banco ativo cadastrado. Cadastre um em Cadastros → Bancos.</small>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', marginTop: '8px' }}>
@@ -399,9 +509,9 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
           <button className="btn-secondary" onClick={onClose}>Cancelar</button>
           <button
             className="btn-primary"
-            disabled={valorTotalCalculado <= 0 || !motivo || isProcessing}
+            disabled={valorTotalCalculado <= 0 || !motivo || isProcessing || (destinoValor === 'banco' && !bancoId)}
             onClick={handleConfirmarDevolucao}
-            style={{ backgroundColor: '#ef4444', border: 'none', opacity: (valorTotalCalculado <= 0 || !motivo || isProcessing) ? 0.5 : 1 }}
+            style={{ backgroundColor: '#ef4444', border: 'none', opacity: (valorTotalCalculado <= 0 || !motivo || isProcessing || (destinoValor === 'banco' && !bancoId)) ? 0.5 : 1 }}
           >
             {isProcessing ? 'Processando...' : 'Confirmar Devolução'}
           </button>

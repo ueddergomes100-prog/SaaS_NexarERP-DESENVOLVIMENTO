@@ -79,6 +79,10 @@ interface PaymentsEditorProps {
   onUpdatePayment: (id: string, updates: Partial<PaymentDraft>) => void;
   /** Pagamento de cartão simplificado (Configurações) -- some banco/bandeira/autorização/parcelas do cartão. */
   pagamentoCartaoSimplificadoAtivo?: boolean;
+  /** Crédito de devolução disponível do cliente (centavos). Só quando há
+   * saldo é que "Crédito de Devolução" entra na lista de formas -- ninguém
+   * escolhe pagar com crédito que o cliente não tem. */
+  creditoDisponivelCentavos?: number;
   sourceLabel?: string;
   tenantId?: string | null;
   totalCents: number;
@@ -311,6 +315,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   onTransactionDateChange,
   onUpdatePayment,
   pagamentoCartaoSimplificadoAtivo = false,
+  creditoDisponivelCentavos = 0,
   sourceLabel = 'operação',
   tenantId,
   totalCents,
@@ -327,9 +332,14 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeiras);
   const informedCents = drafts.reduce((sum, payment) => sum + toCents(payment.valor), 0);
   const isFinalConsumer = customerName.toLowerCase().includes('consumidor final');
-  const availableMethods: PaymentMethod[] = isFinalConsumer
-    ? ['Dinheiro', 'Pix']
-    : ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Pagamento a Prazo'];
+  const temCreditoDisponivel = creditoDisponivelCentavos > 0
+    || drafts.some((d) => d.forma === 'Crédito de Devolução');
+  const availableMethods: PaymentMethod[] = [
+    ...(isFinalConsumer
+      ? (['Dinheiro', 'Pix'] as PaymentMethod[])
+      : (['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Pagamento a Prazo'] as PaymentMethod[])),
+    ...(temCreditoDisponivel ? (['Crédito de Devolução'] as PaymentMethod[]) : []),
+  ];
 
   return (
     <div className={`payments-editor${embedded ? ' payments-editor--embedded' : ' card'}`}>

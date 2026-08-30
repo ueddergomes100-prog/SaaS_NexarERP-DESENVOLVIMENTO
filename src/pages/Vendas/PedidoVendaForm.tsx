@@ -4,7 +4,7 @@ import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, 
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { spedyService } from '../../services/spedyService';
 import { applyStockAdjustments, applyStockFieldDeltas, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isPlatformAdminRole } from '../../utils/roles';
@@ -94,7 +94,13 @@ import {
   resolverAcaoValidacaoCliente,
   type ModoValidacaoCliente,
 } from '../../utils/clienteValidacaoDomain';
-import { excedeLimiteCredito, parseTrabalhaComLimiteCredito } from '../../utils/creditoDomain';
+import {
+  distribuirConsumoCredito,
+  excedeLimiteCredito,
+  parseTrabalhaComLimiteCredito,
+  somarCreditosCentavos,
+  type CreditoClienteDisponivel,
+} from '../../utils/creditoDomain';
 import { calcularSaldoEmAbertoClienteCents } from '../../utils/contasReceberQuery';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
 import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../components/common/CadastroRapidoClienteModal';
@@ -209,6 +215,12 @@ const PedidoVendaForm: React.FC = () => {
   const [paymentDrafts, setPaymentDrafts] = useState<PaymentDraft[]>([
     createEmptyPaymentDraft('pagamento-1', 0),
   ]);
+  /** Creditos de devolucao disponiveis do cliente selecionado (ver
+   * DevolucaoVendaModal, destino "Gerar Crédito"). Carregado ao escolher o
+   * cliente; o popup so' aparece uma vez por cliente pra nao repetir a
+   * pergunta a cada re-render. */
+  const [creditosCliente, setCreditosCliente] = useState<CreditoClienteDisponivel[]>([]);
+  const creditoPerguntadoParaRef = useRef<string>('');
   const [financeConfig, setFinanceConfig] = useState<PaymentFinanceConfig>({
     defaultTermDays: 30,
     maxCreditInstallments: 12,
@@ -686,6 +698,102 @@ const PedidoVendaForm: React.FC = () => {
         if (result.isConfirmed) setCadastroRapidoAberto(true);
       });
     }
+  };
+
+  const creditoDisponivelCentavos = somarCreditosCentavos(creditosCliente);
+
+  // Carrega o credito de devolucao do cliente escolhido e oferece o
+  // abatimento uma unica vez por cliente. So em venda nova: reabrir um
+  // pedido ja gravado nao pode oferecer credito de novo -- o abatimento
+  // dele, se houve, ja esta nos pagamentos salvos.
+  useEffect(() => {
+    const nome = clienteNome.trim().toUpperCase();
+    if (!tenantId || isViewing || !nome || nome === 'CONSUMIDOR FINAL') {
+      setCreditosCliente([]);
+      return;
+    }
+    if (creditoPerguntadoParaRef.current === nome) return;
+
+    let cancelado = false;
+    (async () => {
+      try {
+        const snap = await getDocs(query(
+          collection(db, 'creditos_cliente'),
+          where('tenantId', '==', tenantId),
+          where('clienteNome', '==', nome),
+          where('status', 'in', ['disponivel', 'usado_parcial']),
+        ));
+        if (cancelado) return;
+
+        const disponiveis: CreditoClienteDisponivel[] = snap.docs
+          .map((d) => ({
+            id: d.id,
+            saldoDisponivelCentavos: Number(d.data().saldoDisponivelCentavos ?? toCents(d.data().saldoDisponivel || 0)),
+            createdAt: d.data().createdAt?.toMillis?.() ?? 0,
+          }))
+          .filter((c) => c.saldoDisponivelCentavos > 0)
+          // Mais antigo primeiro: credito velho e' consumido antes do novo.
+          .sort((a, b) => a.createdAt - b.createdAt)
+          .map(({ id, saldoDisponivelCentavos }) => ({ id, saldoDisponivelCentavos }));
+
+        setCreditosCliente(disponiveis);
+        const totalCents = somarCreditosCentavos(disponiveis);
+        if (totalCents <= 0) return;
+
+        creditoPerguntadoParaRef.current = nome;
+        const result = await NexusSwal.fire({
+          title: 'Este cliente tem crédito',
+          html: `<div style="font-size:14px;line-height:1.7;">
+            <p><strong>${nome}</strong> tem <strong style="color:#10b981">R$ ${fromCents(totalCents).toFixed(2)}</strong> de crédito de devolução.</p>
+            <p style="opacity:0.75;font-size:13px;">Deseja usar esse crédito para abater o valor desta venda?</p>
+          </div>`,
+          icon: 'info',
+          showCancelButton: true,
+          confirmButtonText: 'Usar o crédito',
+          cancelButtonText: 'Agora não',
+        });
+        if (!cancelado && result.isConfirmed) aplicarCreditoNaVenda(disponiveis);
+      } catch (error) {
+        console.error('Erro ao buscar crédito do cliente:', error);
+      }
+    })();
+
+    return () => { cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clienteNome, tenantId, isViewing]);
+
+  /** Adiciona (ou atualiza) a linha de pagamento "Crédito de Devolução".
+   * Nunca abate mais que o total da venda nem que o saldo do cliente. */
+  const aplicarCreditoNaVenda = (creditos: CreditoClienteDisponivel[]) => {
+    const disponivelCents = somarCreditosCentavos(creditos);
+    if (disponivelCents <= 0) return;
+
+    setPaymentDrafts((atuais) => {
+      const outros = atuais.filter((d) => d.forma !== 'Crédito de Devolução');
+      const totalVendaCents = valorTotalPedidoCentavos;
+      // Venda ainda sem itens: usa o saldo inteiro como ponto de partida --
+      // o proprio editor reequilibra os valores conforme os itens entram.
+      const abatimentoCents = totalVendaCents > 0
+        ? Math.min(disponivelCents, totalVendaCents)
+        : disponivelCents;
+
+      const creditoDraft: PaymentDraft = {
+        ...createEmptyPaymentDraft('pagamento-credito', abatimentoCents),
+        forma: 'Crédito de Devolução',
+      };
+
+      const restanteCents = Math.max(0, totalVendaCents - abatimentoCents);
+      const primeiroOutro = outros[0];
+      if (primeiroOutro) {
+        return [
+          creditoDraft,
+          { ...primeiroOutro, valor: fromCents(restanteCents).toFixed(2) },
+          ...outros.slice(1),
+        ];
+      }
+      return [creditoDraft];
+    });
+    showWarning('Crédito aplicado nesta venda', 'Confira os valores das formas de pagamento antes de finalizar.');
   };
 
   const handleAddItem = () => {
@@ -1679,6 +1787,34 @@ const PedidoVendaForm: React.FC = () => {
           bankBalancesById.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
         }
 
+        // Credito de devolucao usado nesta venda: rele os saldos DENTRO da
+        // transacao (o que a tela carregou pode estar velho -- outra venda
+        // pode ter gasto o mesmo credito nesse meio tempo) e so entao
+        // distribui. Leitura antes de qualquer escrita, como o Firestore exige.
+        const creditoUsadoCentavos = paymentRecords
+          .filter((payment) => payment.formaPagamento === 'Crédito de Devolução')
+          .reduce((soma, payment) => soma + payment.valorCentavos, 0);
+        let consumosCredito: ReturnType<typeof distribuirConsumoCredito> = [];
+        if (creditoUsadoCentavos > 0) {
+          const saldosAtuais: CreditoClienteDisponivel[] = [];
+          for (const credito of creditosCliente) {
+            const creditoSnap = await transaction.get(doc(db, 'creditos_cliente', credito.id));
+            if (!creditoSnap.exists()) continue;
+            const creditoData = creditoSnap.data();
+            if (creditoData.tenantId !== tenantId) continue;
+            if (!['disponivel', 'usado_parcial'].includes(creditoData.status)) continue;
+            saldosAtuais.push({
+              id: credito.id,
+              saldoDisponivelCentavos: Number(creditoData.saldoDisponivelCentavos ?? toCents(creditoData.saldoDisponivel || 0)),
+            });
+          }
+          try {
+            consumosCredito = distribuirConsumoCredito(saldosAtuais, creditoUsadoCentavos);
+          } catch {
+            throw new Error('O crédito deste cliente mudou desde que a venda foi montada. Refaça o pagamento com crédito.');
+          }
+        }
+
         const newPedidoRef = finalizandoPedidoAberto ? doc(db, 'pedidos_venda', id!) : doc(collection(db, 'pedidos_venda'));
         newPedidoId = newPedidoRef.id;
 
@@ -1845,6 +1981,16 @@ const PedidoVendaForm: React.FC = () => {
             saldoCentavos: (bankBalancesById.get(bancoId) || 0) + deltaCents,
             updatedAt: serverTimestamp(),
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Crédito da venda #${finalNumeroPedido}`),
+          });
+        });
+
+        consumosCredito.forEach((consumo) => {
+          transaction.update(doc(db, 'creditos_cliente', consumo.id), {
+            saldoDisponivelCentavos: consumo.saldoRestanteCentavos,
+            saldoDisponivel: fromCents(consumo.saldoRestanteCentavos),
+            status: consumo.saldoRestanteCentavos <= 0 ? 'esgotado' : 'usado_parcial',
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Crédito usado na venda #${finalNumeroPedido}`),
           });
         });
 
@@ -2761,6 +2907,18 @@ const PedidoVendaForm: React.FC = () => {
           }
         }
 
+        // Devolucao paga pelo banco debitou o saldo -- o estorno devolve
+        // pro MESMO banco gravado na devolucao (nao o que estiver
+        // selecionado em alguma tela agora). Leitura antes das escritas.
+        let bancoEstornoRef = null;
+        let saldoBancoEstornoCentavos = 0;
+        if (devolucaoData.destinoValor === 'banco' && devolucaoData.bancoId) {
+          bancoEstornoRef = doc(db, 'bancos', devolucaoData.bancoId);
+          const bancoSnap = await transaction.get(bancoEstornoRef);
+          if (!bancoSnap.exists()) throw new Error('O banco usado nesta devolução não existe mais.');
+          saldoBancoEstornoCentavos = Number(bancoSnap.data().saldoCentavos || 0);
+        }
+
         const saleData = saleSnap.data();
         const storedItems = Array.isArray(saleData.itens) ? saleData.itens : [];
         const updatedItems = storedItems.map((storedItem: ItemVenda) => {
@@ -2833,6 +2991,40 @@ const PedidoVendaForm: React.FC = () => {
             createdAt: serverTimestamp(),
             ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           }, { merge: true });
+        } else if (bancoEstornoRef) {
+          transaction.update(doc(db, 'transacoes', `devolucao_${devolucao.id}`), {
+            estornada: true,
+            statusOperacional: 'Estornada',
+            estornadaEm: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estorno da devolução'),
+          });
+          transaction.set(doc(db, 'transacoes', `estorno_devolucao_${devolucao.id}`), {
+            descricao: `Estorno da devolução do pedido #${numeroPedido}`,
+            categoria: 'Devolução de Venda',
+            valor: Number(devolucaoData.valorTotalDevolvido || 0),
+            valorCentavos: valorDevolvidoCentavos,
+            tipo: 'entrada',
+            formaPagamento: devolucaoData.formaDevolucao || 'Transferência',
+            naturezaFinanceira: 'bancario_digital',
+            movimentaCaixaFisico: false,
+            bancoId: devolucaoData.bancoId,
+            bancoNome: devolucaoData.bancoNome || '',
+            status: 'Paga',
+            data: getDateInputInTimeZone(),
+            clienteNome,
+            pedidoOrigemId: id,
+            devolucaoId: devolucao.id,
+            idempotencyKey: `estorno_devolucao:${devolucao.id}`,
+            tenantId,
+            createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          }, { merge: true });
+          transaction.update(bancoEstornoRef, {
+            saldoCentavos: saldoBancoEstornoCentavos + valorDevolvidoCentavos,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Estorno da devolução do pedido #${numeroPedido}`),
+          });
         } else if (creditoRef) {
           transaction.update(creditoRef, {
             status: 'cancelado',
@@ -3529,6 +3721,7 @@ const PedidoVendaForm: React.FC = () => {
               onTransactionDateChange={setDataVenda}
               onUpdatePayment={updatePaymentDraft}
               pagamentoCartaoSimplificadoAtivo={pagamentoCartaoSimplificadoAtivo}
+              creditoDisponivelCentavos={creditoDisponivelCentavos}
               sourceLabel="venda"
               tenantId={tenantId}
               totalCents={valorTotalPedidoCentavos}

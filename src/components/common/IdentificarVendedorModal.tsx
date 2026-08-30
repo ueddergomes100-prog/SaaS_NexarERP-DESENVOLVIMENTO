@@ -75,7 +75,19 @@ const IdentificarVendedorModal: React.FC<IdentificarVendedorModalProps> = ({
     setErro('');
     setValidando(false);
     // Timeout pra garantir que o input existe quando o foco e' pedido.
-    const timer = setTimeout(() => codigoRef.current?.focus(), 50);
+    const timer = setTimeout(() => {
+      // Autofill de senha salva do navegador escreve direto no <input
+      // type="password"> por baixo do DOM, sem disparar o onChange do
+      // React -- o estado (pin='') fica certo, mas o campo na tela mostra
+      // caracteres que ninguem digitou. Limpa o DOM na marra aqui, depois
+      // que o autofill ja teve chance de acontecer, e forca o React a
+      // sincronizar nesse re-render.
+      if (codigoRef.current) codigoRef.current.value = '';
+      if (pinRef.current) pinRef.current.value = '';
+      setCodigo('');
+      setPin('');
+      codigoRef.current?.focus();
+    }, 50);
     return () => clearTimeout(timer);
   }, [open]);
 
@@ -165,7 +177,9 @@ const IdentificarVendedorModal: React.FC<IdentificarVendedorModalProps> = ({
                 ref={codigoRef}
                 type="text"
                 inputMode="numeric"
-                autoComplete="off"
+                autoComplete="one-time-code"
+                data-lpignore="true"
+                data-1p-ignore=""
                 disabled={validando}
                 value={codigo}
                 onChange={(e) => {
@@ -192,7 +206,9 @@ const IdentificarVendedorModal: React.FC<IdentificarVendedorModalProps> = ({
                 ref={pinRef}
                 type="password"
                 inputMode="numeric"
-                autoComplete="off"
+                autoComplete="one-time-code"
+                data-lpignore="true"
+                data-1p-ignore=""
                 disabled={validando}
                 value={pin}
                 onChange={(e) => setPin(somenteDigitos(e.target.value, PIN_VENDEDOR_DIGITOS))}

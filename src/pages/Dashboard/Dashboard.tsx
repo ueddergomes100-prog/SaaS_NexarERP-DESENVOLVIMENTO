@@ -45,7 +45,7 @@ import {
 } from '../../utils/dateTime';
 import { contaComoFaturamento } from '../../utils/preVendaDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
-import { isRevenueReversal, transactionNetAmount } from '../../utils/financeDomain';
+import { isRevenueReversal, transactionDueDateInput, transactionNetAmount } from '../../utils/financeDomain';
 import './Dashboard.css';
 
 interface OSData {
@@ -69,6 +69,11 @@ interface TransacaoData {
   formaPagamento?: string;
   data?: string;
   dataPagamento?: string;
+  /** Vencimento real do titulo (pagamento a prazo/boleto). */
+  dataVencimento?: string;
+  /** Repasse previsto da administradora (cartao) -- e' a data em que o
+   * dinheiro entra, nao a da venda. */
+  dataPrevistaRecebimento?: string;
   createdAt?: any;
 }
 
@@ -104,6 +109,9 @@ interface EstoqueData {
   nome: string;
   quantidade: number;
   estoqueMinimo?: number;
+  /** A importacao em massa grava o minimo so aqui dentro, nao no campo
+   * de topo -- ver montarProdutoImportado (importacaoEstoqueDomain.ts). */
+  estoqueConfig?: { minimo?: number };
   unidadeMedidaSigla?: string;
 }
 
@@ -134,6 +142,18 @@ const toDate = (value?: any): Date | null => {
 
 const transactionDate = (t: TransacaoData): Date | null => (
   toDate(t.dataPagamento) || toDate(t.data) || toDate(t.createdAt)
+);
+
+/**
+ * Data em que o titulo VENCE -- usada so pra decidir se esta atrasado.
+ * A precedencia vem de transactionDueDateInput (financeDomain), a MESMA
+ * que ContasReceber usa: sem isso, parcela de cartao era marcada como
+ * vencida no dia seguinte a venda, porque `data` guarda a data da VENDA e
+ * o repasse real fica em dataPrevistaRecebimento (+30 dias, tipicamente),
+ * e o numero do Dashboard nunca batia com o da tela de Contas a Receber.
+ */
+const transactionDueDate = (t: TransacaoData): Date | null => (
+  toDate(transactionDueDateInput(t)) || toDate(t.createdAt)
 );
 
 const sameDay = (date: Date | null, base: Date) => (
@@ -360,7 +380,6 @@ const Dashboard: React.FC = () => {
     const osFinalizadas = osMesAtual.filter((os) => os.status === 'Finalizada');
     const osFinalizadasMes = osMesAtual.filter((os) => os.status === 'Finalizada');
     const osParadas = osAtivas.filter((os) => daysSince(toDate(os.createdAt), hoje) >= 3);
-    const clientesUnicosMes = new Set(osMesAtual.map((os) => os.clienteNome).filter(Boolean)).size;
     const ticketMedioOS = osFinalizadasMes.length
       ? osFinalizadasMes.reduce((acc, os) => acc + Number(os.valorTotal || os.total || 0), 0) / osFinalizadasMes.length
       : 0;
@@ -370,6 +389,30 @@ const Dashboard: React.FC = () => {
     const vendasMes = pedidos.filter((p) => contaComoFaturamento(p.status) && isWithinDateRange(toDate(p.dataVenda) || toDate(p.createdAt), selectedPeriodRange.start, selectedPeriodRange.end));
     const vendasHoje = vendasMes.filter((p) => sameDay(toDate(p.dataVenda) || toDate(p.createdAt), hoje));
     const valorVendasMes = vendasMes.reduce((acc, p) => acc + Number(p.valorTotal || 0), 0);
+
+    // Clientes atendidos = quem comprou + quem abriu OS. Antes saia so das
+    // ordens de servico, entao loja de varejo (que quase nao abre OS)
+    // mostrava zero mesmo com dezenas de vendas no periodo.
+    //
+    // "Consumidor Final" nao entra no conjunto de nomes: 200 vendas de
+    // balcao viram 200 pessoas diferentes atendidas, nao 1 cliente
+    // chamado "Consumidor Final". Por isso cada venda anonima conta como
+    // um atendimento proprio.
+    const ehConsumidorFinalNome = (nome?: string) => (
+      (nome || '').trim().toUpperCase() === 'CONSUMIDOR FINAL'
+    );
+    const nomesIdentificados = new Set<string>();
+    let atendimentosAnonimos = 0;
+    [
+      ...osMesAtual.map((os) => os.clienteNome),
+      ...vendasMes.map((venda) => venda.clienteNome),
+    ].forEach((nome) => {
+      const limpo = (nome || '').trim().toUpperCase();
+      if (!limpo) return;
+      if (ehConsumidorFinalNome(limpo)) atendimentosAnonimos += 1;
+      else nomesIdentificados.add(limpo);
+    });
+    const clientesUnicosMes = nomesIdentificados.size + atendimentosAnonimos;
 
     const orcamentosMes = orcamentos.filter((o) => isWithinDateRange(toDate(o.createdAt), selectedPeriodRange.start, selectedPeriodRange.end));
     const orcamentosConvertidos = orcamentosMes.filter((o) => ['Finalizado', 'Convertido'].includes(o.status)).length;
@@ -432,16 +475,24 @@ const Dashboard: React.FC = () => {
     const topSeller = Array.from(sellerCounts.values())
       .sort((left, right) => right.count - left.count)[0] || null;
     const contasReceberVencidas = transacoes.filter((t) => (
-      t.tipo === 'entrada' && t.status === 'Pendente' && isBeforeToday(toDate(t.data) || toDate(t.createdAt), hoje)
+      t.tipo === 'entrada' && t.status === 'Pendente' && isBeforeToday(transactionDueDate(t), hoje)
     ));
     const contasPagarVencidas = transacoes.filter((t) => (
-      t.tipo === 'saida' && t.status === 'Pendente' && isBeforeToday(toDate(t.data) || toDate(t.createdAt), hoje)
+      t.tipo === 'saida' && t.status === 'Pendente' && isBeforeToday(transactionDueDate(t), hoje)
     ));
 
+    // Alerta de estoque baixo so existe pra produto com minimo REALMENTE
+    // cadastrado. Antes, produto sem minimo caia num default 5 inventado
+    // aqui -- e produto importado de planilha nunca traz esse campo, entao
+    // todo item com 5 unidades ou menos aparecia como "abaixo do minimo"
+    // sem ninguem ter definido nada. Produto zerado continua coberto por
+    // itensEsgotados, que e' o sinal que nao depende de configuracao.
+    // Le os dois lugares onde o minimo e' gravado (EstoqueForm grava nos
+    // dois; a importacao em massa so' no estoqueConfig).
     const itensEstoqueBaixo = estoque.filter((item) => {
       const qtd = Number(item.quantidade || 0);
-      const minimo = Number(item.estoqueMinimo ?? 5);
-      return qtd <= minimo;
+      const minimo = Number(item.estoqueMinimo ?? item.estoqueConfig?.minimo ?? 0);
+      return minimo > 0 && qtd <= minimo;
     });
     const itensEsgotados = estoque.filter((item) => Number(item.quantidade || 0) <= 0);
 
@@ -604,8 +655,17 @@ const Dashboard: React.FC = () => {
     (metrics.osFinalizadasMes.length / Math.max(metrics.osFinalizadasMes.length + metrics.osAtivas.length, 1)) * 100
   );
   const approvalRate = clampPercentage(metrics.taxaConversaoOrcamentos);
-  const monthlyGoalRate = hasFinancialAccess
-    ? clampPercentage((metrics.faturamentoMes / Math.max(metrics.faturamentoMes + metrics.valorOrcamentosPendentes, 1)) * 100)
+  // NAO e' "meta mensal" -- o sistema nao tem meta cadastrada em lugar
+  // nenhum. O que esta conta mede e' quanto da oportunidade do periodo ja
+  // virou dinheiro: receita paga sobre (receita paga + orcamentos ainda em
+  // aberto). Ficava rotulado como meta e mostrava 100% pra qualquer
+  // faturamento sem orcamento pendente, o que nao queria dizer nada.
+  // Quando houver meta configuravel, esta conta vira outra coisa.
+  const oportunidadeTotal = metrics.faturamentoMes + metrics.valorOrcamentosPendentes;
+  const pipelineRealizadoRate = hasFinancialAccess
+    ? (oportunidadeTotal > 0
+      ? clampPercentage((metrics.faturamentoMes / oportunidadeTotal) * 100)
+      : 0)
     : osCompletionRate;
 
   const kpiCards = [
@@ -676,7 +736,12 @@ const Dashboard: React.FC = () => {
   const healthItems = [
     { label: 'Conclusão de OS', value: `${osCompletionRate}%`, progress: osCompletionRate, color: '#37d7ff' },
     { label: 'Orçamentos aprovados', value: `${approvalRate}%`, progress: approvalRate, color: '#ff4fb3' },
-    { label: hasFinancialAccess ? 'Meta mensal' : 'Ritmo operacional', value: `${monthlyGoalRate}%`, progress: monthlyGoalRate, color: '#9f7aea' }
+    {
+      label: hasFinancialAccess ? 'Receita já realizada vs. em aberto' : 'Ritmo operacional',
+      value: `${pipelineRealizadoRate}%`,
+      progress: pipelineRealizadoRate,
+      color: '#9f7aea',
+    }
   ];
 
   const criticalTasks = [

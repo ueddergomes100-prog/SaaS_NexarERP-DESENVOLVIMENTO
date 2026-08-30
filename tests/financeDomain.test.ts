@@ -19,6 +19,7 @@ import {
   resolveComissaoPercentual,
   SIMPLIFIED_CARD_BANK_NAME,
   summarizePayments,
+  transactionDueDateInput,
   transactionFeeCents,
   transactionGrossCents,
   transactionNetCents,
@@ -730,4 +731,30 @@ test('resolveBancoPadraoSimplificado acha "BANCO" ignorando maiusculas/espacos e
     null,
   );
   assert.equal(resolveBancoPadraoSimplificado([]), null);
+});
+
+test('transactionDueDateInput prioriza o vencimento explicito (prazo/boleto)', () => {
+  assert.equal(transactionDueDateInput({
+    dataVencimento: '2026-09-30',
+    dataPrevistaRecebimento: '2026-09-15',
+    data: '2026-08-30',
+  }), '2026-09-30');
+});
+
+test('transactionDueDateInput usa o repasse do cartao, NAO a data da venda -- parcela nao vence no dia seguinte', () => {
+  // Venda no cartao hoje (data), repasse da administradora em 30 dias.
+  // Usar `data` marcava a parcela como atrasada ja no dia seguinte.
+  assert.equal(transactionDueDateInput({
+    dataPrevistaRecebimento: '2026-09-29',
+    data: '2026-08-30',
+  }), '2026-09-29');
+});
+
+test('transactionDueDateInput cai pra data da operacao quando nao ha vencimento nem repasse', () => {
+  assert.equal(transactionDueDateInput({ data: '2026-08-30' }), '2026-08-30');
+});
+
+test('transactionDueDateInput devolve vazio quando nao ha nenhuma data', () => {
+  assert.equal(transactionDueDateInput({}), '');
+  assert.equal(transactionDueDateInput({ dataVencimento: null, dataPrevistaRecebimento: null, data: null }), '');
 });

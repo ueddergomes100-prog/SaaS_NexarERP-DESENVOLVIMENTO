@@ -1036,6 +1036,26 @@ export const cancelCommissionSnapshot = (
   canceladaEm: cancelledAt,
 });
 
+/**
+ * Data em que o titulo VENCE (nao a da operacao que o gerou).
+ *
+ * Precedencia: vencimento explicito (prazo/boleto) > repasse previsto da
+ * administradora (cartao) > `data` > vazio. Importa porque numa venda no
+ * cartao `data` guarda a data da VENDA, e o dinheiro so entra em
+ * dataPrevistaRecebimento (+30 dias, tipicamente) -- usar `data` marcava a
+ * parcela como atrasada no dia seguinte a venda.
+ *
+ * Fonte unica pra ContasReceber.tsx e Dashboard.tsx, que antes tinham a
+ * mesma regra escrita (e divergindo) em cada tela.
+ */
+export const transactionDueDateInput = (transaction: {
+  dataVencimento?: string | null;
+  dataPrevistaRecebimento?: string | null;
+  data?: string | null;
+}): string => (
+  transaction.dataVencimento || transaction.dataPrevistaRecebimento || transaction.data || ''
+);
+
 export const transactionMovesPhysicalCash = (transaction: {
   movimentaCaixaFisico?: boolean;
   formaPagamento?: string;

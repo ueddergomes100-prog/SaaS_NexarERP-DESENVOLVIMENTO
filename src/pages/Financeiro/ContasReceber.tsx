@@ -12,6 +12,7 @@ import {
   settledFinancialNatureForPayment,
   summarizePayments,
   toCents,
+  transactionDueDateInput,
   transactionNetAmount,
   type PaymentMethod,
   type PaymentRecord,
@@ -58,7 +59,8 @@ interface GrupoCliente {
   diasAtrasoMax: number;
 }
 
-const dataReferenciaTransacao = (t: TransacaoData) => t.dataVencimento || t.dataPrevistaRecebimento || t.data;
+/** Regra compartilhada com o Dashboard -- ver transactionDueDateInput. */
+const dataReferenciaTransacao = (t: TransacaoData) => transactionDueDateInput(t) || undefined;
 
 const paymentMethods: PaymentMethod[] = [
   'Dinheiro',

@@ -92,6 +92,31 @@ test('inferirMapeamentoColunasCliente reconhece cabecalho em portugues', () => {
   assert.equal(m.telefone, 3);
 });
 
+test('inferirMapeamentoColunasCliente corrige a coluna de Nome quando o cabecalho aponta pra uma coluna sistematicamente vazia (celula mesclada na planilha original -- caso real Shopping Rural)', () => {
+  const cabecalho = ['NOME CLIENTE OU RAZAO SOCIAL ', '', 'CPF OU CNPJ', 'Endereço', '', 'Telefone', ''];
+  const linhasAmostra = [
+    ['', 'ADEMAR LAITANO', '', '', '', '', ''],
+    ['', 'ADRIANO MEDRADO DE JESUS - REVENDA', '064.397.856-99', 'CORREGO GAMELEIRA , S/N, CENTRO - LUISBURGO', '', '0339993456', ''],
+    ['', 'AGROCON', '', '', '', '', ''],
+  ];
+  const m = inferirMapeamentoColunasCliente(cabecalho, linhasAmostra);
+  assert.equal(m.nome, 1);
+  assert.equal(m.documento, 2);
+  assert.equal(m.endereco, 3);
+  assert.equal(m.telefone, 5);
+});
+
+test('inferirMapeamentoColunasCliente NAO corrige quando a coluna de Nome do cabecalho ja vem preenchida na maioria das linhas', () => {
+  const cabecalho = ['Nome', 'CPF', 'Endereço', 'Telefone'];
+  const linhasAmostra = [
+    ['JOAO DA SILVA', '', '', ''],
+    ['MARIA SOUZA', '', '', ''],
+    ['', '', '', ''],
+  ];
+  const m = inferirMapeamentoColunasCliente(cabecalho, linhasAmostra);
+  assert.equal(m.nome, 0);
+});
+
 test('processarLinhasClientes ignora linha em branco e a linha "CONSUMIDOR FINAL" (ja existe por padrao no sistema)', () => {
   const mapeamento = { nome: 1, documento: 2, endereco: 3, telefone: 5 };
   const linhas = [

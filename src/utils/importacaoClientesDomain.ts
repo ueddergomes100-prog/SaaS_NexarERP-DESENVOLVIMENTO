@@ -45,12 +45,47 @@ const normalizarTextoComparacao = (valor: string): string => valor
   .toLowerCase()
   .trim();
 
+/** Taxa de linhas (0 a 1) em que a coluna `indice` vem preenchida, entre as
+ * `linhas` de amostra. */
+const taxaPreenchimento = (indice: number, linhas: string[][]): number => {
+  if (indice < 0 || linhas.length === 0) return 0;
+  const preenchidas = linhas.filter((linha) => (linha[indice] || '').trim()).length;
+  return preenchidas / linhas.length;
+};
+
+/** Corrige o caso real (visto na planilha do Shopping Rural, 2026-08-29):
+ * celula mesclada no Excel original faz o TEXTO do cabecalho ficar numa
+ * coluna, mas o DADO de cada linha fica na coluna vizinha -- entao o
+ * palpite por sinonimo de cabecalho acerta a coluna errada, sempre vazia.
+ * So se aplica ao Nome: e' o unico campo que deveria vir preenchido em
+ * praticamente toda linha (diferente de documento/endereco/telefone, que
+ * legitimamente ficam em branco pra muitos clientes do sistema antigo --
+ * "vazio" ali e' dado real, nao teria como diferenciar erro de mapeamento). */
+const corrigirColunaNomeVazia = (indice: number, linhas: string[][]): number => {
+  if (indice < 0 || taxaPreenchimento(indice, linhas) >= 0.5) return indice;
+
+  let melhorIndice = indice;
+  let melhorTaxa = taxaPreenchimento(indice, linhas);
+  [indice + 1, indice - 1].forEach((candidato) => {
+    const taxa = taxaPreenchimento(candidato, linhas);
+    if (taxa > melhorTaxa) {
+      melhorIndice = candidato;
+      melhorTaxa = taxa;
+    }
+  });
+  return melhorIndice;
+};
+
 /** Chuta qual coluna e qual campo comparando o cabecalho com os sinonimos.
- * Relatorio de sistema antigo pode ter o cabecalho desalinhado da coluna
- * de verdade (celula mesclada na planilha original vira coluna vazia no
- * CSV) -- por isso a tela de mapeamento sempre mostra o palpite pro
- * usuario confirmar/corrigir, nunca aplica sozinho. */
-export const inferirMapeamentoColunasCliente = (cabecalho: string[]): MapeamentoColunasCliente => {
+ * `linhasAmostra` (opcional) e' usado so pra corrigir a coluna do Nome
+ * quando o palpite por cabecalho aponta pra uma coluna sistematicamente
+ * vazia (ver corrigirColunaNomeVazia) -- mesmo assim, a tela de
+ * mapeamento sempre mostra o palpite pro usuario confirmar/corrigir,
+ * nunca aplica sozinho sem chance de revisao. */
+export const inferirMapeamentoColunasCliente = (
+  cabecalho: string[],
+  linhasAmostra: string[][] = [],
+): MapeamentoColunasCliente => {
   const normalizados = cabecalho.map(normalizarTextoComparacao);
   const encontrar = (campo: CampoColunaCliente): number => normalizados.findIndex(
     (col) => SINONIMOS[campo].some((sin) => col.includes(sin)),
@@ -62,7 +97,7 @@ export const inferirMapeamentoColunasCliente = (cabecalho: string[]): Mapeamento
   const telefone = encontrar('telefone');
 
   return {
-    nome: nome >= 0 ? nome : 0,
+    nome: nome >= 0 ? corrigirColunaNomeVazia(nome, linhasAmostra) : 0,
     documento: documento >= 0 ? documento : null,
     endereco: endereco >= 0 ? endereco : null,
     telefone: telefone >= 0 ? telefone : null,

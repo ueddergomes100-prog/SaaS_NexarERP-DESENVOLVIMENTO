@@ -94,7 +94,7 @@ const ImportarClientes: React.FC = () => {
       setNomeArquivo(file.name);
       setCabecalho(linhaCabecalho);
       setLinhasDados(resto);
-      setMapeamento(inferirMapeamentoColunasCliente(linhaCabecalho));
+      setMapeamento(inferirMapeamentoColunasCliente(linhaCabecalho, resto));
       setPasso('mapeamento');
     } catch (error) {
       console.error('Erro ao ler arquivo de importação:', error);
@@ -112,6 +112,14 @@ const ImportarClientes: React.FC = () => {
       if (!nomeBruto) return false;
       return ehConsumidorFinal(removerPrefixoCodigoAntigo(nomeBruto).nomeLimpo);
     }).length;
+
+    if (processados.length === 0 && totalConsumidorFinal === 0) {
+      showError(
+        'Nenhum cliente encontrado nessa coluna',
+        'A coluna selecionada para "Nome / Razão Social" veio em branco em todas as linhas. Confira no cabeçalho da planilha se a coluna certa foi escolhida -- às vezes o dado de verdade está uma coluna ao lado do texto do cabeçalho (célula mesclada na planilha original).',
+      );
+      return;
+    }
 
     setClientes(processados);
     setIgnoradosConsumidorFinal(totalConsumidorFinal);

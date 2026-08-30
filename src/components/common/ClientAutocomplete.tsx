@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { searchClients, type SearchableClient } from '../../utils/clientSearch';
 import { useEscapeLayer } from '../../hooks/useKeyboardFlow';
 import './ClientAutocomplete.css';
@@ -48,6 +49,11 @@ function ClientAutocompleteInner<T extends SearchableClient & { id: string }>({
   const resolvedInputRef = inputRef || internalRef;
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
+  // Depois de selecionado, o campo trava (so' o "x" remove) -- ninguem
+  // apaga o cliente sem querer digitando/dando backspace em cima do nome
+  // no meio da venda. Comeca travado se ja' vier com valor (edicao de
+  // pedido/OS/orcamento existente).
+  const [locked, setLocked] = useState(() => value.trim().length > 0);
 
   const results = useMemo(() => searchClients(clients, value), [clients, value]);
 
@@ -55,14 +61,32 @@ function ClientAutocompleteInner<T extends SearchableClient & { id: string }>({
     setHighlightedIndex(0);
   }, [value, clients]);
 
+  // Rede de seguranca: se o valor for limpo por fora (reset de formulario,
+  // outro fluxo que zera o nome), destrava tambem -- senao o campo fica
+  // vazio mas travado, sem chance de digitar de novo.
+  useEffect(() => {
+    if (!value.trim()) setLocked(false);
+  }, [value]);
+
   useEscapeLayer(isOpen, () => setIsOpen(false));
+
+  const confirmSelect = (client: T) => {
+    onSelect(client);
+    setLocked(true);
+    setIsOpen(false);
+  };
 
   const selectHighlighted = (): boolean => {
     const client = results[highlightedIndex] || results[0];
     if (!client) return false;
-    onSelect(client);
-    setIsOpen(false);
+    confirmSelect(client);
     return true;
+  };
+
+  const clearSelection = () => {
+    onChange('');
+    setLocked(false);
+    resolvedInputRef.current?.focus();
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -94,6 +118,7 @@ function ClientAutocompleteInner<T extends SearchableClient & { id: string }>({
         type="text"
         value={value}
         disabled={disabled}
+        readOnly={locked}
         autoComplete="off"
         aria-label={ariaLabel}
         placeholder={placeholder}
@@ -101,15 +126,28 @@ function ClientAutocompleteInner<T extends SearchableClient & { id: string }>({
           onChange(event.target.value);
           setIsOpen(true);
         }}
-        onFocus={() => setIsOpen(true)}
+        onFocus={() => { if (!locked) setIsOpen(true); }}
         onBlur={() => {
           setIsOpen(false);
           onBlur?.();
         }}
         onKeyDown={handleKeyDown}
         style={{ textTransform: 'uppercase' }}
-        className="client-autocomplete__input"
+        className={`client-autocomplete__input${locked ? ' client-autocomplete__input--locked' : ''}`}
       />
+
+      {locked && !disabled && (
+        <button
+          type="button"
+          className="client-autocomplete__clear"
+          aria-label="Remover cliente selecionado"
+          title="Remover cliente selecionado"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={clearSelection}
+        >
+          <X size={16} />
+        </button>
+      )}
 
       {showResults && (
         <div className="client-autocomplete__panel" role="listbox">
@@ -126,10 +164,7 @@ function ClientAutocompleteInner<T extends SearchableClient & { id: string }>({
               }
               onMouseEnter={() => setHighlightedIndex(index)}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                onSelect(client);
-                setIsOpen(false);
-              }}
+              onClick={() => confirmSelect(client)}
             >
               {renderItem(client, highlightedIndex === index)}
             </button>

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import {
   searchProducts,
   type ProductSearchMode,
@@ -55,6 +56,10 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   const resolvedInputRef = inputRef || internalRef;
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
+  // Depois de selecionado, o campo trava (so' o "x" remove) -- ninguem
+  // apaga o produto sem querer digitando/dando backspace em cima do nome.
+  // Comeca travado se ja' vier com valor.
+  const [locked, setLocked] = useState(() => value.trim().length > 0);
 
   const result = useMemo(() => {
     if (!value.trim()) {
@@ -71,6 +76,25 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
     setHighlightedIndex(0);
   }, [value, products]);
 
+  // Rede de seguranca: se o valor for limpo por fora (ex: depois de
+  // adicionar o item ao carrinho, a tela zera a busca pro proximo
+  // produto), destrava tambem -- senao o campo fica vazio mas travado.
+  useEffect(() => {
+    if (!value.trim()) setLocked(false);
+  }, [value]);
+
+  const confirmSelect = (product: T) => {
+    onSelect(product);
+    setLocked(true);
+    setIsOpen(false);
+  };
+
+  const clearSelection = () => {
+    onChange('');
+    setLocked(false);
+    resolvedInputRef.current?.focus();
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
       if (result.items.length === 0) return;
@@ -85,10 +109,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
       if (result.items.length === 0) return;
       event.preventDefault();
       const product = result.items[highlightedIndex] || result.items[0];
-      if (product) {
-        onSelect(product);
-        setIsOpen(false);
-      }
+      if (product) confirmSelect(product);
     } else if (event.key === 'Escape') {
       if (isOpen) {
         event.preventDefault();
@@ -110,6 +131,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
         type="text"
         value={value}
         disabled={disabled}
+        readOnly={locked}
         autoFocus={autoFocus}
         autoComplete="off"
         aria-label={ariaLabel}
@@ -118,11 +140,24 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
           onChange(event.target.value);
           setIsOpen(true);
         }}
-        onFocus={() => setIsOpen(true)}
+        onFocus={() => { if (!locked) setIsOpen(true); }}
         onBlur={() => setIsOpen(false)}
         onKeyDown={handleKeyDown}
-        className="product-autocomplete__input"
+        className={`product-autocomplete__input${locked ? ' product-autocomplete__input--locked' : ''}`}
       />
+
+      {locked && !disabled && (
+        <button
+          type="button"
+          className="product-autocomplete__clear"
+          aria-label="Remover produto selecionado"
+          title="Remover produto selecionado"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={clearSelection}
+        >
+          <X size={16} />
+        </button>
+      )}
 
       {showResults && (
         <div
@@ -142,10 +177,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
               }
               onMouseEnter={() => setHighlightedIndex(index)}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                onSelect(product);
-                setIsOpen(false);
-              }}
+              onClick={() => confirmSelect(product)}
             >
               {renderItem(product, highlightedIndex === index)}
             </button>

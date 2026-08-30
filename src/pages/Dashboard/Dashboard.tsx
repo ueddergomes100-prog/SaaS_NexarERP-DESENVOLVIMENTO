@@ -29,7 +29,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { TabActiveContext, useTabs } from '../../contexts/TabsContext';
@@ -46,6 +46,7 @@ import {
 import { contaComoFaturamento } from '../../utils/preVendaDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { isRevenueReversal, transactionDueDateInput, transactionNetAmount } from '../../utils/financeDomain';
+import { calcularProgressoMeta, faltaParaMeta, parseMetaFaturamentoMensal } from '../../utils/metaFaturamentoDomain';
 import './Dashboard.css';
 
 interface OSData {
@@ -216,6 +217,9 @@ const Dashboard: React.FC = () => {
   const [hideData, setHideData] = useState(() => localStorage.getItem('nexus_hide_dashboard') === 'true');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [openActionMenu, setOpenActionMenu] = useState<'top' | 'quick' | null>(null);
+  /** Meta de faturamento do mes (Configuracoes). 0 = empresa nao trabalha
+   * com meta -- o anel mostra o indicador de pipeline no lugar. */
+  const [metaFaturamentoMensal, setMetaFaturamentoMensal] = useState(0);
   const topActionMenuRef = useRef<HTMLDivElement>(null);
   const quickActionMenuRef = useRef<HTMLDivElement>(null);
 
@@ -338,6 +342,12 @@ const Dashboard: React.FC = () => {
 
     if (hasFinancialAccess) {
       unsubscribes.push(onSnapshot(
+        doc(db, 'configuracoes', tenantId),
+        (snap) => setMetaFaturamentoMensal(parseMetaFaturamentoMensal(snap.data()?.metaFaturamentoMensal)),
+        (error) => console.error('Erro ao carregar a meta de faturamento:', error),
+      ));
+
+      unsubscribes.push(onSnapshot(
         query(collection(db, 'transacoes'), where('tenantId', '==', tenantId)),
         (snapshot) => {
           const data: TransacaoData[] = [];
@@ -371,6 +381,26 @@ const Dashboard: React.FC = () => {
     () => getDashboardPeriodRange(dashboardPeriod, currentDate, DEFAULT_TIME_ZONE),
     [currentDate, dashboardPeriod],
   );
+
+  // A meta e' MENSAL, entao o progresso dela sempre olha o mes corrente --
+  // independente do filtro de periodo. Sem isso, com o filtro em "hoje" a
+  // meta do mes apareceria como quase 0% todo dia de manha.
+  const currentMonthRange = useMemo(
+    () => getDashboardPeriodRange('mes', currentDate, DEFAULT_TIME_ZONE),
+    [currentDate],
+  );
+
+  const faturamentoMesCalendario = useMemo(() => {
+    const pagasNoMes = transacoes.filter((t) => (
+      t.status === 'Paga' && isWithinDateRange(transactionDate(t), currentMonthRange.start, currentMonthRange.end)
+    ));
+    const estornos = pagasNoMes
+      .filter(isRevenueReversal)
+      .reduce((acc, t) => acc + transactionNetAmount(t), 0);
+    return pagasNoMes
+      .filter((t) => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução')
+      .reduce((acc, t) => acc + transactionNetAmount(t), 0) - estornos;
+  }, [currentMonthRange, transacoes]);
 
   const metrics = useMemo(() => {
     const hoje = currentDate;
@@ -655,18 +685,24 @@ const Dashboard: React.FC = () => {
     (metrics.osFinalizadasMes.length / Math.max(metrics.osFinalizadasMes.length + metrics.osAtivas.length, 1)) * 100
   );
   const approvalRate = clampPercentage(metrics.taxaConversaoOrcamentos);
-  // NAO e' "meta mensal" -- o sistema nao tem meta cadastrada em lugar
-  // nenhum. O que esta conta mede e' quanto da oportunidade do periodo ja
-  // virou dinheiro: receita paga sobre (receita paga + orcamentos ainda em
-  // aberto). Ficava rotulado como meta e mostrava 100% pra qualquer
-  // faturamento sem orcamento pendente, o que nao queria dizer nada.
-  // Quando houver meta configuravel, esta conta vira outra coisa.
+  // Indicador de pipeline: quanto da oportunidade do periodo ja virou
+  // dinheiro (receita paga sobre receita paga + orcamentos em aberto).
+  // E' o que aparece quando a empresa NAO cadastrou meta -- antes esta
+  // mesma conta vinha rotulada como "Meta mensal", o que era falso.
   const oportunidadeTotal = metrics.faturamentoMes + metrics.valorOrcamentosPendentes;
   const pipelineRealizadoRate = hasFinancialAccess
     ? (oportunidadeTotal > 0
       ? clampPercentage((metrics.faturamentoMes / oportunidadeTotal) * 100)
       : 0)
     : osCompletionRate;
+
+  // Meta cadastrada em Configuracoes -> Financeiro. progressoMeta null =
+  // nao ha meta, e o anel cai no indicador de pipeline.
+  const progressoMeta = hasFinancialAccess
+    ? calcularProgressoMeta(faturamentoMesCalendario, metaFaturamentoMensal)
+    : null;
+  const restanteMeta = faltaParaMeta(faturamentoMesCalendario, metaFaturamentoMensal);
+  const metaBatida = progressoMeta !== null && progressoMeta >= 100;
 
   const kpiCards = [
     {
@@ -734,14 +770,27 @@ const Dashboard: React.FC = () => {
   ];
 
   const healthItems = [
-    { label: 'Conclusão de OS', value: `${osCompletionRate}%`, progress: osCompletionRate, color: '#37d7ff' },
-    { label: 'Orçamentos aprovados', value: `${approvalRate}%`, progress: approvalRate, color: '#ff4fb3' },
-    {
-      label: hasFinancialAccess ? 'Receita já realizada vs. em aberto' : 'Ritmo operacional',
-      value: `${pipelineRealizadoRate}%`,
-      progress: pipelineRealizadoRate,
-      color: '#9f7aea',
-    }
+    { label: 'Conclusão de OS', value: `${osCompletionRate}%`, progress: osCompletionRate, color: '#37d7ff', hint: '' },
+    { label: 'Orçamentos aprovados', value: `${approvalRate}%`, progress: approvalRate, color: '#ff4fb3', hint: '' },
+    // Com meta cadastrada, o anel vira a meta do mes. O valor pode passar
+    // de 100% (bateu e superou); a barra e' que fica limitada a 100.
+    progressoMeta !== null
+      ? {
+        label: 'Meta do mês',
+        value: `${progressoMeta}%`,
+        progress: clampPercentage(progressoMeta),
+        color: metaBatida ? '#2ee6a6' : '#9f7aea',
+        hint: metaBatida
+          ? `Meta de ${formatMoney(metaFaturamentoMensal)} batida`
+          : `Faltam ${formatMoney(restanteMeta)} de ${formatMoney(metaFaturamentoMensal)}`,
+      }
+      : {
+        label: hasFinancialAccess ? 'Receita já realizada vs. em aberto' : 'Ritmo operacional',
+        value: `${pipelineRealizadoRate}%`,
+        progress: pipelineRealizadoRate,
+        color: '#9f7aea',
+        hint: '',
+      }
   ];
 
   const criticalTasks = [
@@ -997,6 +1046,11 @@ const Dashboard: React.FC = () => {
                   <div>
                     <strong>{item.value}</strong>
                     <span>{item.label}</span>
+                    {item.hint && (
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {item.hint}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

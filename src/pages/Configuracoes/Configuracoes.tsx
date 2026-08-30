@@ -44,6 +44,7 @@ import {
   parseModoValidacaoCliente,
 } from '../../utils/clienteValidacaoDomain';
 import { parseTrabalhaComLimiteCredito } from '../../utils/creditoDomain';
+import { parseMetaFaturamentoMensal } from '../../utils/metaFaturamentoDomain';
 import {
   DEFAULT_BLOQUEAR_EXCEDENTE,
   DEFAULT_CONFERENCIA_MERCADORIA,
@@ -160,6 +161,9 @@ const Configuracoes: React.FC = () => {
     // resolveComissaoPercentual em financeDomain.ts.
     comissaoPadraoPecas: '',
     comissaoPadraoServicos: '',
+    /** Meta de faturamento do mes (R$). Vazio/0 = sem meta -- o Dashboard
+     * mostra o indicador de pipeline no lugar do anel de meta. */
+    metaFaturamentoMensal: '',
     restringirVendasPorUsuario: DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO,
     conferenciaMercadoria: DEFAULT_CONFERENCIA_MERCADORIA,
     imprimirMinutaAposVenda: DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
@@ -251,6 +255,11 @@ const Configuracoes: React.FC = () => {
             exigirIdentificacaoVendedor: parseExigirIdentificacaoVendedor(data.exigirIdentificacaoVendedor),
             comissaoPadraoPecas: data.comissaoPadraoPecas != null ? String(data.comissaoPadraoPecas) : '',
             comissaoPadraoServicos: data.comissaoPadraoServicos != null ? String(data.comissaoPadraoServicos) : '',
+            // 0 (sem meta) volta como campo vazio, nao como "0" -- o campo
+            // em branco e' o que comunica "nao trabalho com meta".
+            metaFaturamentoMensal: parseMetaFaturamentoMensal(data.metaFaturamentoMensal) > 0
+              ? String(parseMetaFaturamentoMensal(data.metaFaturamentoMensal))
+              : '',
             restringirVendasPorUsuario: parseRestringirVendasPorUsuario(data.restringirVendasPorUsuario),
             conferenciaMercadoria: data.conferenciaMercadoria ?? DEFAULT_CONFERENCIA_MERCADORIA,
             imprimirMinutaAposVenda: data.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
@@ -518,6 +527,18 @@ const Configuracoes: React.FC = () => {
       return;
     }
 
+    // Meta de faturamento: campo vazio = sem meta (0), valido. Numero
+    // negativo ou texto e' erro de digitacao -- avisa em vez de gravar 0
+    // calado, que pareceria "salvou" e sumiria com a meta.
+    const metaFaturamentoInformada = formData.metaFaturamentoMensal.trim();
+    const metaFaturamentoValor = metaFaturamentoInformada === ''
+      ? 0
+      : toConfigurationNumber(formData.metaFaturamentoMensal);
+    if (metaFaturamentoInformada !== '' && (!Number.isFinite(metaFaturamentoValor) || metaFaturamentoValor <= 0)) {
+      showError('Meta de faturamento inválida', 'Informe um valor maior que zero, ou deixe o campo em branco para não trabalhar com meta.');
+      return;
+    }
+
     // Limite de desconto: campo vazio = sem limite (0), valido em qualquer
     // tela. Percentual tem teto de 100; valor (R$) so nao pode ser negativo.
     const buildLimiteDesconto = (raw: { tipo: DescontoTipo; valor: string }) => {
@@ -571,6 +592,7 @@ const Configuracoes: React.FC = () => {
         prazoRecebimentoCartaoDebitoDias: debitCardSettlementDays,
         comissaoPadraoPecas: comissaoPadraoPecasValor,
         comissaoPadraoServicos: comissaoPadraoServicosValor,
+        metaFaturamentoMensal: metaFaturamentoValor,
         endereco: enderecoCompleto,
         nfseAliquotaIssPadrao,
         ...limitesDesconto,
@@ -627,6 +649,7 @@ const Configuracoes: React.FC = () => {
         prazoRecebimentoCartaoDebitoDias: String(debitCardSettlementDays),
         comissaoPadraoPecas: String(comissaoPadraoPecasValor),
         comissaoPadraoServicos: String(comissaoPadraoServicosValor),
+        metaFaturamentoMensal: metaFaturamentoValor > 0 ? String(metaFaturamentoValor) : '',
         nfseAliquotaIssPadrao: String(nfseAliquotaIssPadrao),
         limiteDescontoOS: { tipo: limitesDesconto.limiteDescontoOS.tipo, valor: limitesDesconto.limiteDescontoOS.valor > 0 ? String(limitesDesconto.limiteDescontoOS.valor) : '' },
         limiteDescontoPedido: { tipo: limitesDesconto.limiteDescontoPedido.tipo, valor: limitesDesconto.limiteDescontoPedido.valor > 0 ? String(limitesDesconto.limiteDescontoPedido.valor) : '' },
@@ -1698,6 +1721,29 @@ const Configuracoes: React.FC = () => {
                       style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px' }}
                     />
                   </div>
+                </div>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Meta de faturamento mensal</label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Quanto a empresa quer faturar por mês. O Dashboard mostra o quanto já foi atingido e o quanto falta,
+                  comparando com a <strong>receita paga do mês corrente</strong> (não do período selecionado nos filtros).
+                  Deixe <strong>em branco</strong> se você não trabalha com meta — nesse caso o Dashboard mostra, no lugar do
+                  anel de meta, quanto da oportunidade do período já virou dinheiro.
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Meta (R$):</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Sem meta"
+                    value={formData.metaFaturamentoMensal}
+                    onChange={(e) => setFormData({ ...formData, metaFaturamentoMensal: e.target.value })}
+                    disabled={!isEditingMode}
+                    style={{ width: '160px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px' }}
+                  />
                 </div>
               </div>
 

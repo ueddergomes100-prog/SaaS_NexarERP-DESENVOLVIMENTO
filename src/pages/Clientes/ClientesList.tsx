@@ -105,6 +105,7 @@ const ClientesList: React.FC = () => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return (
+      (cliente.codigo && cliente.codigo.toLowerCase().includes(term)) ||
       (cliente.nome && cliente.nome.toLowerCase().includes(term)) ||
       (cliente.documento && cliente.documento.includes(searchTerm)) ||
       (cliente.telefone && cliente.telefone.includes(searchTerm))
@@ -142,7 +143,7 @@ const ClientesList: React.FC = () => {
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
             <input 
               type="text" 
-              placeholder="Buscar cliente, CPF ou telefone..." 
+              placeholder="Buscar por código, cliente, CPF ou telefone..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}

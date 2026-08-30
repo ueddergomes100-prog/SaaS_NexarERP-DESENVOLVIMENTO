@@ -46,7 +46,17 @@ const ClienteForm: React.FC = () => {
               navigate('/clientes');
               return;
             }
-            setFormData(prev => ({ ...prev, ...data }));
+            setFormData(prev => ({
+              ...prev,
+              ...data,
+              // limiteDeCredito grava null no Firestore quando fica em branco
+              // (ver handleSave) -- o input e' controlado como texto, entao
+              // precisa voltar pra string aqui, senao o .trim() do proximo
+              // save quebra em cima de null.
+              limiteDeCredito: data.limiteDeCredito === null || data.limiteDeCredito === undefined
+                ? ''
+                : String(data.limiteDeCredito),
+            }));
           }
         } else {
           const proximoCodigo = await getProximoCodigoCliente(tenantId);

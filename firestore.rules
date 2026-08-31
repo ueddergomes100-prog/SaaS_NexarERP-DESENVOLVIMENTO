@@ -338,15 +338,43 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
+    // Quem pode consumir uma sequencia (numero de pedido, OS, orcamento ou
+    // ordem de producao). 'operacoes.producao' ENTROU em 2026-08-30: a
+    // ordem de producao numera pelo mesmo contador desde sempre, mas nao
+    // constava aqui -- quem so tinha essa permissao, sem ser Admin, batia
+    // em "Missing or insufficient permissions" ao criar a ordem.
+    function canConsumeTenantSequence() {
+      return canManageTenantData() ||
+        hasAnyPermission(['mecanica.os', 'vendas.pedidos', 'vendas.orcamentos', 'operacoes.producao']);
+    }
+
     match /contadores/{tenantId} {
+      // Documento legado (todas as sequencias em campos do mesmo
+      // documento). Continua LEGIVEL porque a transacao ainda le ele para
+      // a migracao acontecer sozinha -- ver src/utils/firestoreAtomic.ts.
+      //
+      // A ESCRITA continua liberada de proposito, mesmo o codigo novo nao
+      // usando mais: rules valem na hora em que sao publicadas, mas quem
+      // esta com o sistema aberto segue rodando o JavaScript antigo ate
+      // recarregar a pagina. Fechar a escrita aqui faria a venda desses
+      // usuarios falhar com "Missing or insufficient permissions" ate o
+      // F5 deles. Pode fechar (trocar por isSuperAdmin) depois que todo
+      // mundo tiver recarregado.
       allow read: if canAccessTenant(tenantId);
       allow create, update: if canAccessTenant(tenantId) &&
         request.resource.data.tenantId == tenantId &&
-        (
-          canManageTenantData() ||
-          hasAnyPermission(['mecanica.os', 'vendas.pedidos', 'vendas.orcamentos'])
-        );
+        canConsumeTenantSequence();
       allow delete: if isSuperAdmin();
+
+      // Uma sequencia por documento, para emitir OS nao disputar o mesmo
+      // documento de quem esta fechando venda. Ver firestoreAtomic.ts.
+      match /sequencias/{sequenceKey} {
+        allow read: if canAccessTenant(tenantId);
+        allow create, update: if canAccessTenant(tenantId) &&
+          request.resource.data.tenantId == tenantId &&
+          canConsumeTenantSequence();
+        allow delete: if isSuperAdmin();
+      }
     }
 
     match /system_alerts/{alertId} {

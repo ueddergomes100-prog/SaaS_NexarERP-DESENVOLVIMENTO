@@ -31,7 +31,14 @@ import {
   resolverAcaoValidacaoCliente,
   type ModoValidacaoCliente,
 } from '../../utils/clienteValidacaoDomain';
-import { excedeLimiteCredito, parseTrabalhaComLimiteCredito } from '../../utils/creditoDomain';
+import {
+  CAMPO_CREDITO_VERSAO,
+  creditoFoiAlteradoDurante,
+  excedeLimiteCredito,
+  MENSAGEM_CREDITO_CONCORRENTE,
+  parseCreditoVersao,
+  parseTrabalhaComLimiteCredito,
+} from '../../utils/creditoDomain';
 import { calcularSaldoEmAbertoClienteCents } from '../../utils/contasReceberQuery';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
 import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../components/common/CadastroRapidoClienteModal';
@@ -937,13 +944,29 @@ const OSForm: React.FC = () => {
 
       // Limite de Credito: so entra em jogo quando a OS vira receita
       // (Finalizada) com condicao a prazo, e a config esta ligada.
-      if (formData.status === 'Finalizada' && trabalhaComLimiteCredito && paymentSummary?.paymentCondition === 'aprazo') {
+      // O saldo em aberto vem de consulta na colecao `transacoes`, e o SDK
+      // cliente nao aceita consulta dentro de transacao. A versao lida junto
+      // com o saldo e' reconferida DENTRO da transacao -- e' o que impede
+      // uma OS e uma venda a prazo do mesmo cliente, ao mesmo tempo, de
+      // furarem o limite juntas. Ver creditoDomain.ts.
+      const osEhAprazo = formData.status === 'Finalizada'
+        && trabalhaComLimiteCredito
+        && paymentSummary?.paymentCondition === 'aprazo';
+      let creditoVersaoNaChecagem = 0;
+
+      if (osEhAprazo) {
         const limiteDeCreditoCents = clienteEncontrado?.limiteDeCredito != null
           ? Math.round(clienteEncontrado.limiteDeCredito * 100)
           : null;
         const saldoEmAbertoCents = clienteIdParaSalvar
           ? await calcularSaldoEmAbertoClienteCents(tenantId, clienteIdParaSalvar)
           : 0;
+        // Depois do saldo, nunca antes: assim tudo que foi gravado ate aqui
+        // ja esta refletido no saldo OU na versao.
+        if (clienteIdParaSalvar) {
+          const clienteSnapChecagem = await getDoc(doc(db, 'clientes', clienteIdParaSalvar));
+          creditoVersaoNaChecagem = parseCreditoVersao(clienteSnapChecagem.data()?.[CAMPO_CREDITO_VERSAO]);
+        }
         const checagemCredito = excedeLimiteCredito(limiteDeCreditoCents, saldoEmAbertoCents, totalOSCentavos);
         if (checagemCredito.bloqueado) {
           const motivoTexto = checagemCredito.motivo === 'sem_limite'
@@ -992,6 +1015,22 @@ const OSForm: React.FC = () => {
         const mechanicSnap = formData.mecanicoId
           ? await transaction.get(doc(db, 'usuarios', formData.mecanicoId))
           : null;
+
+        // Guarda do limite de credito: outra venda/OS a prazo do mesmo
+        // cliente entrou depois que o saldo foi lido la fora? Entao o saldo
+        // em maos esta velho e esta gravacao para. Leitura antes de
+        // qualquer escrita, como o Firestore exige.
+        const clienteCreditoRef = osEhAprazo && clienteIdParaSalvar
+          ? doc(db, 'clientes', clienteIdParaSalvar)
+          : null;
+        let creditoVersaoAtual = 0;
+        if (clienteCreditoRef) {
+          const clienteSnapTx = await transaction.get(clienteCreditoRef);
+          creditoVersaoAtual = parseCreditoVersao(clienteSnapTx.data()?.[CAMPO_CREDITO_VERSAO]);
+          if (creditoFoiAlteradoDurante(creditoVersaoNaChecagem, creditoVersaoAtual)) {
+            throw new Error(MENSAGEM_CREDITO_CONCORRENTE);
+          }
+        }
         const persistedPayments = paymentRecords.map((payment, index) => ({
           ...payment,
           transactionId: index === 0 ? osRef.id : `${osRef.id}_pag_${index + 1}`,
@@ -1186,6 +1225,15 @@ const OSForm: React.FC = () => {
             tenantId,
             createdAt: serverTimestamp(),
             ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          });
+        }
+
+        // Fecha a guarda: a proxima venda/OS a prazo deste cliente que tiver
+        // lido o saldo antes desta aqui vai ver a versao diferente e parar.
+        if (clienteCreditoRef) {
+          transaction.update(clienteCreditoRef, {
+            [CAMPO_CREDITO_VERSAO]: creditoVersaoAtual + 1,
+            updatedAt: serverTimestamp(),
           });
         }
 
@@ -1410,7 +1458,12 @@ const OSForm: React.FC = () => {
           <button className="icon-btn back-btn" onClick={() => navigate('/os')}><ArrowLeft size={20} /></button>
           <div>
             <h1 className="page-title">{isEditing ? 'Editar Ordem de Serviço' : 'Nova Ordem de Serviço'}</h1>
-            <p className="page-subtitle">{isEditing ? `Gerenciando OS #${formData.numeroOS || id?.substring(0,6).toUpperCase()}` : `Preencha os dados (OS #${formData.numeroOS})`}</p>
+            {/* OS nova NAO mostra numero: ele so e' alocado ao salvar, dentro
+                da transacao. Anunciar "OS #0042" aqui e gravar #0047 (porque
+                outra pessoa salvou antes) faz o usuario achar que o sistema
+                errou -- com varias pessoas emitindo ao mesmo tempo isso deixa
+                de ser raro. Ver getNextTenantSequenceValue. */}
+            <p className="page-subtitle">{isEditing ? `Gerenciando OS #${formData.numeroOS || id?.substring(0,6).toUpperCase()}` : 'Preencha os dados — o número da OS é definido ao salvar'}</p>
           </div>
         </div>
         <button className="btn-primary" onClick={handleSave} disabled={isLoading} style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center' }}>

@@ -23,6 +23,7 @@ import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
 import {
   applyStockAdjustments,
+  describeTransactionError,
   formatSequenceValue,
   getCurrentMaxSequence,
   getNextTenantSequenceValue,
@@ -173,6 +174,11 @@ const PDV: React.FC = () => {
   // Uma aprovacao de senha so vale pro carrinho do momento -- mudar item ou
   // desconto depois invalida.
   const primeiraRenderAprovacaoRef = useRef(true);
+  // Trava sincrona de duplo-clique. O estado `saving` desabilita o botao,
+  // mas so no render seguinte -- dois cliques dentro do mesmo frame passam
+  // os dois e gravam duas vendas. Mesmo padrao de submitLockRef no
+  // PedidoVendaForm e returnLockRef no DevolucaoVendaModal.
+  const saleLockRef = useRef(false);
   useEffect(() => {
     if (primeiraRenderAprovacaoRef.current) {
       primeiraRenderAprovacaoRef.current = false;
@@ -723,6 +729,7 @@ const PDV: React.FC = () => {
   }, [selectedItem, updateItemQuantity]);
 
   const finalizeSale = async (drafts: PaymentDraft[], observation: string) => {
+    if (saleLockRef.current) return;
     if (!currentUser || !tenantId || !session) return;
     if (cartItems.length === 0) {
       showError('Venda vazia', 'Adicione pelo menos um produto.');
@@ -771,6 +778,7 @@ const PDV: React.FC = () => {
     }
     paymentRecords = explodeInstallmentPaymentRecords(paymentRecords);
 
+    saleLockRef.current = true;
     setSaving(true);
     try {
       const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
@@ -1009,9 +1017,15 @@ const PDV: React.FC = () => {
       }
     } catch (error) {
       console.error('Erro ao finalizar PDV:', error);
-      showError('Erro ao finalizar venda', error instanceof Error ? error.message : 'Tente novamente.');
+      // Ver describeTransactionError: disputa entre operadores e queda de
+      // conexao ganham recado proprio, em vez do texto cru do Firestore.
+      showError(
+        'Erro ao finalizar venda',
+        describeTransactionError(error) || (error instanceof Error ? error.message : 'Tente novamente.')
+      );
     } finally {
       setSaving(false);
+      saleLockRef.current = false;
     }
   };
 

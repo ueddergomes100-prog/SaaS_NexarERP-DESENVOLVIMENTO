@@ -1509,6 +1509,32 @@ Implementado com Web App Manifest + service worker mínimo — commit `726f9b4`,
 
 ---
 
+## 8.9 Auditoria de prontidão para 12 vendedores simultâneos (2026-08-30/31)
+
+**Origem:** pergunta direta do usuário — "o sistema está apto a ter 12 ou mais usuários simultâneos fazendo vendas, sem duplicidade e sem erro?". Levantamento geral primeiro (concorrência, segurança, dependências, ferramental), depois correção dos itens priorizados por ele.
+
+**Resposta curta:** sim. O núcleo transacional já estava correto — numeração, baixa de estoque e saldo bancário rodam dentro de `runTransaction`, então dois vendedores nunca pegam o mesmo número nem vendem a mesma peça duas vezes. O que faltava era gargalo, brecha estreita e ferramental.
+
+### O que foi corrigido
+
+- **Contadores separados por sequência.** Antes as **quatro** sequências (pedido, OS, orçamento, ordem de produção) eram campos de um único `contadores/{tenantId}`, e o Firestore sustenta ~1 escrita/segundo **por documento** — emitir OS disputava o mesmo documento de quem fechava venda. Agora cada uma mora em `contadores/{tenantId}/sequencias/{chave}`. **Ressalva registrada no código:** isso separa a disputa *entre módulos*; dois vendedores gravando pedido continuam no mesmo documento e **têm que continuar** — é essa disputa que garante número único.
+- **Migração sem script.** `getNextTenantSequenceValue` lê três fontes e fica com a maior: documento novo, campo legado e o maior número real da coleção. Evitou uma armadilha séria: `ordens_producao` **não tinha índice composto**, a consulta de bootstrap falhava no `.catch(() => 0)`, e migrar sem isso faria a numeração de ordem de produção **reiniciar em #0001, duplicando números já usados**. O índice que faltava foi adicionado em `firestore.indexes.json`.
+- **Corrida do limite de crédito fechada.** Dois vendedores no mesmo cliente a prazo liam o mesmo saldo, os dois passavam, os dois gravavam. **A correção óbvia era impossível:** o saldo vem de uma *consulta* em `transacoes`, e `Transaction.get()` do SDK cliente só aceita `DocumentReference` — não existe consulta dentro de transação. Resolvido com guarda de versão: `clientes/{id}.creditoVersao`, lido junto com o saldo e reconferido dentro da transação. Preferido a denormalizar o saldo porque saldo fora de sincronia erra nos **dois** sentidos (barra venda boa, libera venda que estourou); o contador só precisa *mudar*.
+- **`operacoes.producao` faltava na regra do contador** — quem tinha só essa permissão, sem ser Admin, não conseguia criar ordem de produção. Bug latente, corrigido junto.
+- **Erro de infraestrutura virou português.** `transacaoErroDomain.ts` (puro, 9 testes) traduz `aborted`/`unavailable`/`permission-denied`/`failed-precondition`/`resource-exhausted`. Antes a tela mostrava `Transaction failed: ABORTED`, que não diz ao operador que nada foi gravado e basta repetir.
+- **Lint estava 100% desligado desde 28/08.** Um worktree órfão (`.claude/worktrees/busy-diffie-c0a8cf`) duplicava os tsconfig e o typescript-eslint não sabia qual raiz usar — 390 erros, todos de config, nenhum arquivo analisado. Removido (o commit segue no branch `claude/busy-diffie-c0a8cf`). Restaram **1 erro real** (ternário como comando em `ValidarDocumentoButton.tsx`, corrigido) e 65 avisos pré-existentes.
+- **5 das 6 vulnerabilidades npm** resolvidas com `npm audit fix`. React Router 7.14.2 → 7.18.3 (7 CVEs), `@grpc/grpc-js`, `protobufjs`, `websocket-driver`. Navegação validada no navegador.
+- **Travas de duplo-clique uniformizadas.** PDV ganhou `saleLockRef`; Orçamento ganhou `submitLockRef` nos três caminhos que gravam. `DevolucaoVendaModal` já tinha a sua (`returnLockRef`).
+- **OS nova não anuncia mais número.** Dizia "Preencha os dados (OS #0042)" e gravava #0047 quando outra pessoa salvava antes. Agora diz "o número da OS é definido ao salvar". Pedido de Venda e Orçamento não precisaram — só mostram número em modo visualização.
+
+**Validado:** 412 testes (eram 384), typecheck limpo, lint com 0 erros, build limpo, navegação conferida no navegador. **Não validado:** carga real com 12 sessões simultâneas — as correções de concorrência foram verificadas por raciocínio e teste unitário, nunca sob disputa de verdade.
+
+### Pendências desta fatia
+
+Ver itens **17** e **18** da Seção 9.
+
+---
+
 ## 9. Pendências a esclarecer com o usuário
 
 1. ~~**Módulo 4:** trecho corrompido no PDF original — confirmar se falta requisito de Produção.~~ Resolvido em 2026-08-02: faltava Cadastro de Matéria-Prima (pool de estoque separado, mesma lógica do cadastro de produtos) — ver seção do Módulo 4.
@@ -1543,3 +1569,15 @@ Implementado com Web App Manifest + service worker mínimo — commit `726f9b4`,
     - **`BACKUP_ENCRYPTION_KEY` não está configurada em nenhum dos dois backends** (achado durante a migração) — com `NODE_ENV=production`, o serviço de backup lança erro sempre que tenta rodar. Gerar uma chave nova (não há backup antigo pra descriptografar, então pode ser qualquer valor aleatório longo) e configurar nos dois, Render e Hostinger.
     - **`limiteUsuarios` do tenant que vai usar o F30** (10 estações + funcionários) precisa ser ajustado no SuperAdmin antes do cliente entrar — o padrão do sistema é 3. Decisão comercial em aberto: estação compartilhada conta como licença?
     - **Decidir o destino do Render**: manter como rollback por quanto tempo, e quando desligar de vez (economiza a mensalidade que motivou a migração).
+17. **Deploy da auditoria de concorrência (2026-08-31, ver Seção 8.9) — passos que só o usuário faz:**
+    - **Publicar `firestore.rules` e `firestore.indexes.json`.** O código novo grava em `contadores/{tenantId}/sequencias/{chave}`, que **não existe nas rules publicadas hoje** — sem publicar, toda venda, OS, orçamento e ordem de produção falha com "Missing or insufficient permissions". **É o passo mais crítico da fatia.** O índice de `ordens_producao` também precisa terminar de construir antes de valer.
+    - **Pedir a todos que recarreguem a página depois do deploy.** Rules valem no instante em que são publicadas, mas quem está com o sistema aberto segue rodando o JavaScript antigo. Por isso a escrita no documento legado `contadores/{tenantId}` foi **deixada liberada de propósito** — fechar agora derrubaria a venda dessas pessoas. Pode trocar por `isSuperAdmin` depois que todo mundo recarregar.
+    - **Elevar `limiteUsuarios`** do tenant que vai receber os 12 vendedores. É o mesmo item já registrado em 16 — o padrão do sistema continua 3, e ele bloqueia o *cadastro* do 4º usuário com login (não o login simultâneo). Único item da auditoria que não dá para resolver no código.
+    - **Conferir, depois de rodar alguns dias, que todo tenant tem `contadores/{tenantId}/sequencias/*` com valor maior ou igual ao campo legado.** Só depois disso é seguro remover a leitura do documento legado em `firestoreAtomic.ts` (está comentado lá).
+18. **Decisões em aberto deixadas pela auditoria de concorrência (2026-08-31):**
+    - **`xlsx` continua vulnerável e não tem correção** (prototype pollution + ReDoS). São exatamente **2 pontos de uso** — `ImportarClientes.tsx:75` e `ImportarProdutos.tsx:132` — e ambos são `XLSX.read` de arquivo escolhido pelo operador, que é justamente o caminho explorável. Só 2 chamadas torna a troca por `exceljs` viável. Alternativa: aceitar o risco, já que quem importa planilha é gente de dentro com arquivo próprio. **Não decidido.**
+    - **O heartbeat de sessão colide com a transação de venda.** `AuthContext.tsx` grava `usuarios/{uid}` a cada 30 segundos para marcar a sessão viva, e a transação de venda **lê esse mesmo documento** (perfil do vendedor, para nome e comissão). Toda colisão força a transação inteira a reexecutar — invisível para o operador, mas somando latência justamente no momento mais concorrido. **Para 12 vendedores isso pesa mais que a separação dos contadores.** A correção seria ler o perfil *fora* da transação (serve para nome e percentual, não para consistência de saldo); ficou de fora por mudar como a comissão é gravada. **Não corrigido.**
+    - **Catálogo inteiro carregado a cada abertura de tela de venda.** PDV (`PDV.tsx:197`) e Pedido de Venda fazem `getDocs` de `estoque` + `clientes` sem `limit()`. Com 5.000 produtos e 3.000 clientes são 8.000 leituras faturadas por abertura, vezes 12 vendedores, o dia inteiro. Some com 108 listeners `onSnapshot`, vários sobre coleções inteiras (`EstoqueList`, `ClientesList`). **Recomendação mantida: medir a conta real do Firestore com a equipe cheia antes de refatorar** — é custo e desempenho, não correção.
+    - **As rules fazem uma leitura extra de `usuarios/{uid}` por operação** (`hasProfile()`/`currentProfile()`). É o preço do modelo de permissão granular e o desenho está certo; migrar `tenantId` e papel para *custom claims* eliminaria essa leitura. Só vale se a conta incomodar.
+    - **`usernames/{username}` tem `allow get: if true`** — leitura sem login, provavelmente intencional (o login resolve usuário → e-mail antes de autenticar), mas permite enumerar usernames válidos. Fechar exige que o backend resolva esse mapeamento.
+    - **`.env.development` e `.env.production` estão versionados** apesar do `.gitignore` listar `.env.*` (a regra não desrastreia o que já estava dentro). São Web API keys do Firebase, **públicas por design** — a proteção real são as rules. Risco baixo; `server/.env`, com os segredos de verdade, está corretamente fora. Limpar é opcional (`git rm --cached`).

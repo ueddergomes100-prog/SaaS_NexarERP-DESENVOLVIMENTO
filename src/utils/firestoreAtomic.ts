@@ -11,16 +11,53 @@ import {
   where,
 } from 'firebase/firestore';
 import type { StockFieldDelta } from './estoqueReservaDomain';
+// Reexportado para as telas importarem transacao e traducao de erro do
+// mesmo lugar. A funcao mora em modulo puro (sem Firestore) pra ficar
+// coberta pelo harness de testes, que so compila dominio puro.
+export { describeTransactionError } from './transacaoErroDomain';
 import { buildAjusteEstoqueDoc, computeQuantidadeDepoisAjuste, type TipoAjusteEstoque } from './ajusteEstoqueDomain';
 
 /**
- * Chave do contador por tenant (documento "contadores/{tenantId}").
- * Qualquer string e aceita -- por convencao deve ser o nome da colecao
- * correspondente quando ela existe, para getCurrentMaxSequence poder
- * fazer bootstrap a partir de documentos legados sem contador ainda.
- * Chaves em uso hoje: 'ordens_de_servico', 'pedidos_venda', 'orcamentos'.
+ * Chave do contador por tenant. Qualquer string e aceita -- por convencao
+ * deve ser o nome da colecao correspondente quando ela existe, para
+ * getCurrentMaxSequence poder fazer bootstrap a partir de documentos
+ * legados sem contador ainda. Chaves em uso hoje: 'ordens_de_servico',
+ * 'pedidos_venda', 'orcamentos', 'ordens_producao'.
  */
 export type SequenceKey = string;
+
+/**
+ * Documento da sequencia: "contadores/{tenantId}/sequencias/{key}".
+ *
+ * Cada sequencia mora no PROPRIO documento desde 2026-08-30. Antes as
+ * quatro (pedido, OS, orcamento, ordem de producao) eram campos de um
+ * unico "contadores/{tenantId}" -- e como o Firestore sustenta cerca de
+ * uma escrita por segundo POR DOCUMENTO, emitir uma OS disputava o mesmo
+ * documento de quem estava fechando uma venda no balcao, sem nenhuma
+ * relacao entre as duas operacoes.
+ *
+ * Isso NAO elimina a disputa entre dois vendedores gravando pedido ao
+ * mesmo tempo -- os dois continuam no mesmo documento, e tem que continuar
+ * mesmo: e' exatamente essa disputa que garante numero unico. O que sai de
+ * cena e' a disputa entre modulos diferentes, que nunca precisou existir.
+ */
+const sequenceDocRef = (db: Firestore, tenantId: string, key: SequenceKey) =>
+  doc(db, 'contadores', tenantId, 'sequencias', key);
+
+/**
+ * Documento legado, com todas as sequencias como campos do mesmo
+ * documento. Continua sendo LIDO (nunca mais escrito) para a migracao
+ * acontecer sozinha: enquanto o valor legado for maior que o do documento
+ * novo, e' ele que manda, e a numeracao nunca anda pra tras.
+ *
+ * Ler um documento que ninguem mais escreve nao devolve a contencao --
+ * transacao so reexecuta quando algo que ela leu MUDA.
+ *
+ * Nao apague isto sem antes conferir, em producao, que todo tenant ja tem
+ * "contadores/{tenantId}/sequencias/*" com valor >= ao campo legado.
+ */
+const legacySequenceDocRef = (db: Firestore, tenantId: string) =>
+  doc(db, 'contadores', tenantId);
 
 export interface StockAdjustmentItem {
   id: string;
@@ -69,6 +106,16 @@ export const reserveTenantSequence = async (
   return nextValue;
 };
 
+/**
+ * Proximo valor da sequencia, considerando as TRES fontes e ficando com a
+ * maior: o documento novo da sequencia, o campo no documento legado e o
+ * piso `minCurrentValue` (o maior numero realmente gravado na colecao, que
+ * o chamador busca com getCurrentMaxSequence antes de abrir a transacao).
+ *
+ * As tres importam. So o documento novo reiniciaria a numeracao em 1 no
+ * primeiro uso depois da migracao; so o piso quebraria onde a consulta de
+ * bootstrap nao tem indice composto e devolve 0 pelo .catch() do chamador.
+ */
 export const getNextTenantSequenceValue = async (
   transaction: Transaction,
   db: Firestore,
@@ -76,11 +123,15 @@ export const getNextTenantSequenceValue = async (
   key: SequenceKey,
   minCurrentValue = 0
 ) => {
-  const counterRef = doc(db, 'contadores', tenantId);
-  const counterSnap = await transaction.get(counterRef);
-  const currentValue = counterSnap.exists() ? parseSequenceValue(counterSnap.data()[key]) : 0;
+  const [sequenceSnap, legacySnap] = await Promise.all([
+    transaction.get(sequenceDocRef(db, tenantId, key)),
+    transaction.get(legacySequenceDocRef(db, tenantId)),
+  ]);
 
-  return Math.max(currentValue, minCurrentValue) + 1;
+  const currentValue = sequenceSnap.exists() ? parseSequenceValue(sequenceSnap.data().valor) : 0;
+  const legacyValue = legacySnap.exists() ? parseSequenceValue(legacySnap.data()[key]) : 0;
+
+  return Math.max(currentValue, legacyValue, minCurrentValue) + 1;
 };
 
 export const writeTenantSequenceValue = (
@@ -90,12 +141,12 @@ export const writeTenantSequenceValue = (
   key: SequenceKey,
   nextValue: number
 ) => {
-  const counterRef = doc(db, 'contadores', tenantId);
   transaction.set(
-    counterRef,
+    sequenceDocRef(db, tenantId, key),
     {
       tenantId,
-      [key]: nextValue,
+      chave: key,
+      valor: nextValue,
       updatedAt: serverTimestamp(),
     },
     { merge: true }

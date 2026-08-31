@@ -138,7 +138,11 @@ const ValidarDocumentoButton: React.FC<Props> = ({ documento }) => {
       type="button"
       className="icon-btn"
       title={tipo === 'CPF' ? 'Validar CPF' : 'Validar CNPJ na Receita Federal'}
-      onClick={(e) => { e.stopPropagation(); tipo === 'CPF' ? validarCpf() : validarCnpj(); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (tipo === 'CPF') void validarCpf();
+        else void validarCnpj();
+      }}
       disabled={carregando}
     >
       {carregando ? <Loader2 size={16} className="spin-animation" /> : <Search size={16} />}

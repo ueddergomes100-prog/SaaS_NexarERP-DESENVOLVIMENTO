@@ -102,6 +102,12 @@ const OrcamentoForm: React.FC = () => {
   });
 
   const [isLoading, setIsLoading] = useState(false);
+  // Trava sincrona de duplo-clique, compartilhada pelos tres caminhos que
+  // gravam nesta tela (salvar orcamento, gerar OS, finalizar venda). O
+  // estado isLoading desabilita o botao, mas so no render seguinte -- dois
+  // cliques no mesmo frame passariam os dois e gerariam documento
+  // duplicado. Mesmo padrao de submitLockRef no PedidoVendaForm.
+  const submitLockRef = useRef(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
   const [descontoInput, setDescontoInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
@@ -412,6 +418,7 @@ const OrcamentoForm: React.FC = () => {
   const checagemLimiteDesconto = checarLimiteTotal(limiteDescontoOrcamento, subtotalOrcamentoCents, descontoCents);
 
   const handleSave = async (e?: React.FormEvent) => {
+    if (submitLockRef.current) return;
     if (e) e.preventDefault();
     if (!formData.clienteNome) {
       showError('Erro', 'Informe o nome do cliente.');
@@ -465,6 +472,7 @@ const OrcamentoForm: React.FC = () => {
       return;
     }
 
+    submitLockRef.current = true;
     setIsLoading(true);
     try {
       if (!currentUser || !tenantId) return;
@@ -541,10 +549,12 @@ const OrcamentoForm: React.FC = () => {
       showError('Erro', 'Não foi possível salvar o orçamento.');
     } finally {
       setIsLoading(false);
+      submitLockRef.current = false;
     }
   };
 
   const handleConvertToOS = async () => {
+    if (submitLockRef.current) return;
     const confirm = await NexusSwal.fire({
       title: 'Converter para OS?',
       text: 'Será criada uma nova Ordem de Serviço.',
@@ -555,6 +565,7 @@ const OrcamentoForm: React.FC = () => {
     });
 
       if (confirm.isConfirmed) {
+      submitLockRef.current = true;
       setIsLoading(true);
       try {
         if (!tenantId) throw new Error('Tenant nao carregado.');
@@ -599,11 +610,13 @@ const OrcamentoForm: React.FC = () => {
         showError('Erro ao converter');
       } finally {
         setIsLoading(false);
+        submitLockRef.current = false;
       }
     }
   };
 
   const handleConvertToVenda = async () => {
+    if (submitLockRef.current) return;
     const confirm = await NexusSwal.fire({
       title: 'Converter para Venda?',
       text: 'Isso criará um Pedido de Venda e baixará o estoque.',
@@ -614,6 +627,7 @@ const OrcamentoForm: React.FC = () => {
     });
 
     if (confirm.isConfirmed) {
+      submitLockRef.current = true;
       setIsLoading(true);
       try {
         // Filtrar apenas PEÇAS para a Venda
@@ -694,6 +708,7 @@ const OrcamentoForm: React.FC = () => {
         showError('Erro ao converter');
       } finally {
         setIsLoading(false);
+        submitLockRef.current = false;
       }
     }
   };

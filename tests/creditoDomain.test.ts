@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  creditoFoiAlteradoDurante,
   distribuirConsumoCredito,
   excedeLimiteCredito,
+  MENSAGEM_CREDITO_CONCORRENTE,
+  parseCreditoVersao,
   parseTrabalhaComLimiteCredito,
   somarCreditosCentavos,
 } from '../src/utils/creditoDomain';
@@ -104,4 +107,60 @@ test('distribuirConsumoCredito pula credito ja zerado sem quebrar a distribuicao
   assert.deepEqual(distribuirConsumoCredito(creditos, 1500), [
     { id: 'bom', usadoCentavos: 1500, saldoRestanteCentavos: 2500 },
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// Guarda de concorrencia da venda a prazo
+// ---------------------------------------------------------------------------
+
+test('cliente sem o campo de versao comeca em zero', () => {
+  assert.equal(parseCreditoVersao(undefined), 0);
+  assert.equal(parseCreditoVersao(null), 0);
+});
+
+test('versao corrompida nao derruba a venda, cai em zero', () => {
+  assert.equal(parseCreditoVersao('abc'), 0);
+  assert.equal(parseCreditoVersao(-7), 0);
+  assert.equal(parseCreditoVersao(Number.NaN), 0);
+  assert.equal(parseCreditoVersao(Number.POSITIVE_INFINITY), 0);
+});
+
+test('versao valida e preservada, inclusive vinda como texto', () => {
+  assert.equal(parseCreditoVersao(12), 12);
+  assert.equal(parseCreditoVersao('12'), 12);
+  assert.equal(parseCreditoVersao(12.9), 12);
+});
+
+test('versao igual libera a gravacao', () => {
+  assert.equal(creditoFoiAlteradoDurante(4, 4), false);
+  // Cliente antigo: os dois lados caem em 0 e a venda passa normalmente.
+  assert.equal(creditoFoiAlteradoDurante(0, undefined as unknown as number), false);
+});
+
+test('versao diferente bloqueia: outra venda a prazo entrou no meio', () => {
+  assert.equal(creditoFoiAlteradoDurante(4, 5), true);
+  assert.equal(creditoFoiAlteradoDurante(0, 1), true);
+});
+
+// A guarda existe porque o saldo em aberto vem de CONSULTA, e o SDK cliente
+// do Firestore nao aceita consulta dentro de transacao. Sem ela, dois
+// vendedores no mesmo cliente leem o mesmo saldo e os dois passam.
+test('cenario da corrida: segunda venda para o mesmo cliente e barrada', () => {
+  const limiteCents = 100_000;
+  const saldoLidoPelosDois = 60_000;
+  const valorDeCadaVenda = 30_000;
+
+  // Os dois passam na checagem, porque leram o mesmo saldo.
+  assert.equal(excedeLimiteCredito(limiteCents, saldoLidoPelosDois, valorDeCadaVenda).bloqueado, false);
+
+  // O primeiro grava e leva a versao de 7 para 8. O segundo, que leu 7,
+  // encontra 8 na hora de gravar e para -- sem a guarda, o total gravado
+  // seria 120.000 num limite de 100.000.
+  assert.equal(creditoFoiAlteradoDurante(7, 8), true);
+});
+
+test('mensagem da corrida diz que nada foi gravado e o que fazer', () => {
+  assert.match(MENSAGEM_CREDITO_CONCORRENTE, /Nada foi gravado/);
+  assert.match(MENSAGEM_CREDITO_CONCORRENTE, /finalize novamente/i);
+  assert.doesNotMatch(MENSAGEM_CREDITO_CONCORRENTE, /Transaction|undefined|Firestore/i);
 });

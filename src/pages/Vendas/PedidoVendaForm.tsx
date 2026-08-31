@@ -6,7 +6,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { spedyService } from '../../services/spedyService';
-import { applyStockAdjustments, applyStockFieldDeltas, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
+import { applyStockAdjustments, applyStockFieldDeltas, describeTransactionError, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
@@ -95,8 +95,12 @@ import {
   type ModoValidacaoCliente,
 } from '../../utils/clienteValidacaoDomain';
 import {
+  CAMPO_CREDITO_VERSAO,
+  creditoFoiAlteradoDurante,
   distribuirConsumoCredito,
   excedeLimiteCredito,
+  MENSAGEM_CREDITO_CONCORRENTE,
+  parseCreditoVersao,
   parseTrabalhaComLimiteCredito,
   somarCreditosCentavos,
   type CreditoClienteDisponivel,
@@ -1730,13 +1734,28 @@ const PedidoVendaForm: React.FC = () => {
       // ligada. Cliente sem limite cadastrado (inclusive um recem-criado
       // acima, ou "CONSUMIDOR FINAL") bloqueia por "sem_limite" -- nao ha
       // como fiar pra quem nao tem limite definido.
-      if (trabalhaComLimiteCredito && paymentSummary.paymentCondition === 'aprazo') {
+      // Venda a prazo confere o limite aqui FORA da transacao porque o saldo
+      // em aberto vem de uma consulta na colecao `transacoes`, e o SDK
+      // cliente nao aceita consulta dentro de transacao. A versao lida junto
+      // com o saldo e' reconferida la dentro (ver creditoDomain.ts) -- e' o
+      // que impede dois vendedores de furarem o limite do mesmo cliente ao
+      // mesmo tempo.
+      const vendaEhAprazo = trabalhaComLimiteCredito && paymentSummary.paymentCondition === 'aprazo';
+      let creditoVersaoNaChecagem = 0;
+
+      if (vendaEhAprazo) {
         const limiteDeCreditoCents = clienteEncontrado?.limiteDeCredito != null
           ? Math.round(clienteEncontrado.limiteDeCredito * 100)
           : null;
         const saldoEmAbertoCents = clienteIdParaSalvar
           ? await calcularSaldoEmAbertoClienteCents(tenantId, clienteIdParaSalvar)
           : 0;
+        // Depois do saldo, nunca antes: assim toda venda a prazo gravada
+        // ate aqui ja esta refletida no saldo OU na versao.
+        if (clienteIdParaSalvar) {
+          const clienteSnapChecagem = await getDoc(doc(db, 'clientes', clienteIdParaSalvar));
+          creditoVersaoNaChecagem = parseCreditoVersao(clienteSnapChecagem.data()?.[CAMPO_CREDITO_VERSAO]);
+        }
         const checagemCredito = excedeLimiteCredito(limiteDeCreditoCents, saldoEmAbertoCents, valorTotalPedidoCentavos);
         if (checagemCredito.bloqueado) {
           const motivoTexto = checagemCredito.motivo === 'sem_limite'
@@ -1785,6 +1804,21 @@ const PedidoVendaForm: React.FC = () => {
           const bancoSnap = await transaction.get(doc(db, 'bancos', bancoId));
           if (!bancoSnap.exists()) throw new Error('O banco de destino selecionado não foi encontrado.');
           bankBalancesById.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
+        }
+
+        // Guarda do limite de credito: confere aqui dentro se outra venda a
+        // prazo do mesmo cliente entrou depois que o saldo foi lido la fora.
+        // Leitura antes de qualquer escrita, como o Firestore exige.
+        const clienteCreditoRef = vendaEhAprazo && clienteIdParaSalvar
+          ? doc(db, 'clientes', clienteIdParaSalvar)
+          : null;
+        let creditoVersaoAtual = 0;
+        if (clienteCreditoRef) {
+          const clienteSnapTx = await transaction.get(clienteCreditoRef);
+          creditoVersaoAtual = parseCreditoVersao(clienteSnapTx.data()?.[CAMPO_CREDITO_VERSAO]);
+          if (creditoFoiAlteradoDurante(creditoVersaoNaChecagem, creditoVersaoAtual)) {
+            throw new Error(MENSAGEM_CREDITO_CONCORRENTE);
+          }
         }
 
         // Credito de devolucao usado nesta venda: rele os saldos DENTRO da
@@ -1975,6 +2009,15 @@ const PedidoVendaForm: React.FC = () => {
         };
 
         transaction.set(newPedidoRef, pedidoData);
+
+        // Fecha a guarda: a proxima venda a prazo deste cliente que tiver
+        // lido o saldo antes desta aqui vai ver a versao diferente e parar.
+        if (clienteCreditoRef) {
+          transaction.update(clienteCreditoRef, {
+            [CAMPO_CREDITO_VERSAO]: creditoVersaoAtual + 1,
+            updatedAt: serverTimestamp(),
+          });
+        }
 
         bankCreditsByBanco.forEach((deltaCents, bancoId) => {
           transaction.update(doc(db, 'bancos', bancoId), {
@@ -2346,7 +2389,11 @@ const PedidoVendaForm: React.FC = () => {
 
     } catch (error) {
       console.error('Erro ao finalizar venda:', error);
-      const errorMessage = error instanceof Error ? error.message : '';
+      // Erro de infraestrutura (disputa entre vendedores, queda de conexao)
+      // tem recado proprio -- sem isso a tela mostrava o texto cru do
+      // Firestore, que nao diz ao operador que basta tentar de novo.
+      const infraMessage = describeTransactionError(error);
+      const errorMessage = infraMessage || (error instanceof Error ? error.message : '');
       showError('Erro', errorMessage ? `Não foi possível finalizar a venda. ${errorMessage}` : 'Não foi possível finalizar a venda.');
       setIsLoading(false);
     } finally {

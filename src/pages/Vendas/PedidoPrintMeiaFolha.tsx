@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { formatCompanyAddress } from '../../utils/companyAddress';
+import { formatarDocumento } from '../../utils/documentoValidacao';
 import { STATUS_PRE_VENDA, STATUS_EM_ANALISE, STATUS_FINALIZADA, STATUS_CANCELADA } from '../../utils/preVendaDomain';
 import './PedidoPrintMeiaFolha.css';
 
@@ -59,7 +60,28 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
   const valorDesconto = pedidoData.valorTotalDescontos || 0;
   const valorTotal = pedidoData.valorTotal || 0;
   const situacao = SITUACAO_LABELS[pedidoData.status] || pedidoData.status || '---';
+  // @page precisa dizer o TAMANHO DO PAPEL, senao o navegador assume A4 e
+  // sobra margem torta na meia folha. Fica aqui, injetado enquanto este
+  // modelo esta montado, e nao no .css: o arquivo de estilo e' carregado
+  // junto com o modelo A4 (os dois vivem em PedidoPrint.tsx), e uma regra
+  // @page fixa quebraria a impressao de pagina inteira.
+  useEffect(() => {
+    const estilo = document.createElement('style');
+    estilo.setAttribute('data-meia-folha', 'true');
+    estilo.textContent = '@media print { @page { size: 210mm 148mm; margin: 4mm; } }';
+    document.head.appendChild(estilo);
+    return () => { estilo.remove(); };
+  }, []);
+
   const endereco = formatCompanyAddress(configData);
+
+  // Endereco do cliente montado das partes que existirem: cadastro sem
+  // numero ou sem bairro nao pode imprimir "RUA X, - " com sobra de
+  // pontuacao. Sem nenhuma parte, a linha inteira nao aparece.
+  const enderecoCliente = [
+    [clientData?.endereco, clientData?.numero].filter(Boolean).join(', '),
+    clientData?.bairro,
+  ].filter(Boolean).join(' - ');
 
   return (
     <div className="mf-page">
@@ -89,10 +111,22 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
         </div>
       </div>
 
+      {/* Dados do cliente. So entra o campo que EXISTE no cadastro -- rotulo
+          com valor vazio ("E-mail:" sem e-mail) so ocupa espaco num papel
+          pequeno e faz o balcao achar que o sistema perdeu o dado. */}
       <div className="mf-cliente-row">
         <span><strong>Cliente:</strong> {pedidoData.clienteNome || 'Consumidor Final'}</span>
+        {clientData?.codigo && <span><strong>Código:</strong> {clientData.codigo}</span>}
+        {clientData?.documento && <span><strong>CPF/CNPJ:</strong> {formatarDocumento(clientData.documento)}</span>}
         <span><strong>Cidade:</strong> {clientData?.cidade || ''}</span>
       </div>
+
+      {(enderecoCliente || clientData?.email) && (
+        <div className="mf-cliente-row mf-cliente-row--secundaria">
+          {enderecoCliente && <span><strong>Endereço:</strong> {enderecoCliente}</span>}
+          {clientData?.email && <span><strong>E-mail:</strong> {clientData.email}</span>}
+        </div>
+      )}
 
       <table className="mf-items-table">
         <thead>

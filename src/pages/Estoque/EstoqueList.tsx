@@ -7,6 +7,7 @@ import { useTabs } from '../../contexts/TabsContext';
 import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms } from '../../utils/textSearch';
 import './Estoque.css';
 
 interface PecaData {
@@ -117,15 +118,11 @@ const EstoqueList: React.FC = () => {
     }
   };
 
-  const filteredPecas = pecasList.filter((peca) => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
-    return (
-      peca.nome.toLowerCase().includes(term) ||
-      peca.codigo.toLowerCase().includes(term) ||
-      peca.categoria.toLowerCase().includes(term)
-    );
-  });
+  // Mesma busca das telas de venda: acento nao conta e "+" exige todas as
+  // palavras ("Racao+Quatree+20KG"). Ver matchesAllSearchTerms.
+  const filteredPecas = pecasList.filter((peca) => (
+    matchesAllSearchTerms([peca.nome, peca.codigo, peca.categoria], searchTerm)
+  ));
 
   const getStatusBadge = (quantidade: number) => {
     if (quantidade <= 0) {
@@ -225,7 +222,7 @@ const EstoqueList: React.FC = () => {
             <Search size={18} className="search-icon" />
             <input
               type="text"
-              placeholder="Buscar por código, nome ou categoria..."
+              placeholder={`Buscar por código, nome ou categoria — ${DICA_BUSCA_MULTIPLA}`}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />

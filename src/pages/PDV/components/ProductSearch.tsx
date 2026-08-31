@@ -5,6 +5,7 @@ import { currency } from '../pdvHelpers';
 import ProductAutocomplete from '../../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../../components/common/ProductSearchModal';
 import type { ProductSearchMode } from '../../../utils/productSearch';
+import { DICA_BUSCA_MULTIPLA } from '../../../utils/textSearch';
 
 interface ProductSearchProps {
   value: string;
@@ -56,7 +57,7 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
           inputRef={inputRef}
           mode={mode}
           disabled={disabled}
-          placeholder="Código, barras, SKU, referência ou nome"
+          placeholder={`Código, barras, SKU ou nome — ${DICA_BUSCA_MULTIPLA}`}
           ariaLabel="Pesquisar produto no PDV"
           onViewMore={() => setIsSearchModalOpen(true)}
           renderItem={renderProductRow}

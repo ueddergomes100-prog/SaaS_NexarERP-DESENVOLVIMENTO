@@ -4,6 +4,7 @@ import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
+import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms } from '../../utils/textSearch';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
@@ -69,12 +70,8 @@ const OrdensProducaoList: React.FC = () => {
 
   const filteredOrdens = ordens.filter(ordem => {
     if (statusFilter !== 'todas' && ordem.status !== statusFilter) return false;
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
-    return (
-      (ordem.numero && ordem.numero.toLowerCase().includes(term)) ||
-      (ordem.produtoNome && ordem.produtoNome.toLowerCase().includes(term))
-    );
+    // Acento nao conta e "+" exige todas as palavras, igual as telas de venda.
+    return matchesAllSearchTerms([ordem.numero, ordem.produtoNome], searchTerm);
   });
 
   return (
@@ -133,7 +130,7 @@ const OrdensProducaoList: React.FC = () => {
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
             <input
               type="text"
-              placeholder="Buscar por número ou produto..."
+              placeholder={`Buscar por número ou produto — ${DICA_BUSCA_MULTIPLA}`}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}

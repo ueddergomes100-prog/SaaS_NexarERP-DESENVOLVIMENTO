@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { isListarTudoTerm, searchProducts, type ProductSearchMode, type SearchableProduct } from '../../utils/productSearch';
+import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import { useEscapeLayer } from '../../hooks/useKeyboardFlow';
 import './ProductSearchModal.css';
 
@@ -64,7 +65,7 @@ function ProductSearchModalInner<T extends SearchableProduct & { id: string }>({
           <input
             autoFocus
             type="text"
-            placeholder="Nome, código, código de barras, referência, marca ou categoria — ou # para ver todos"
+            placeholder={`Nome, código, barras, marca ou categoria — ${DICA_BUSCA_MULTIPLA} — # lista todos`}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />

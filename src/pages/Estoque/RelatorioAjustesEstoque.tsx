@@ -15,6 +15,7 @@ import {
   labelMotivoAjusteEstoque,
   type TipoAjusteEstoque,
 } from '../../utils/ajusteEstoqueDomain';
+import { matchesAllSearchTerms } from '../../utils/textSearch';
 import './Estoque.css';
 
 interface AjusteRegistro {
@@ -124,7 +125,7 @@ const RelatorioAjustesEstoque: React.FC = () => {
         const dentroPeriodo = data ? isWithinInterval(data, { start, end }) : true;
         const bateTipo = tipoFiltro === 'todos' || a.tipo === tipoFiltro;
         const bateMotivo = !motivoFiltro || a.motivo === motivoFiltro;
-        const bateProduto = !produtoFiltro.trim() || a.produtoNome.toLowerCase().includes(produtoFiltro.trim().toLowerCase());
+        const bateProduto = matchesAllSearchTerms([a.produtoNome], produtoFiltro);
         const bateUsuario = !usuarioFiltro || a.usuarioNome === usuarioFiltro;
         return dentroPeriodo && bateTipo && bateMotivo && bateProduto && bateUsuario;
       })
@@ -213,7 +214,7 @@ const RelatorioAjustesEstoque: React.FC = () => {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={labelStyle}>Produto</label>
-              <input type="text" value={produtoFiltro} onChange={(e) => setProdutoFiltro(e.target.value)} placeholder="Nome do produto" style={selectStyle} />
+              <input type="text" value={produtoFiltro} onChange={(e) => setProdutoFiltro(e.target.value)} placeholder="Nome do produto (ração+20kg)" style={selectStyle} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={labelStyle}>Usuário</label>

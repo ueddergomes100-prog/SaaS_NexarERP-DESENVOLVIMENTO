@@ -1,4 +1,4 @@
-import { normalizeSearchText } from './textSearch';
+import { normalizeSearchText, splitSearchTerms } from './textSearch';
 import { normalizeEmbalagens } from './embalagemDomain';
 
 export type ProductSearchMode = 'exata' | 'completa';
@@ -97,10 +97,11 @@ const productMatchesCodePrefix = <T extends SearchableProduct>(product: T, norma
   })
 );
 
-export const productMatchesSearch = <T extends SearchableProduct>(
+/** Casa UM termo, do jeito de sempre: prefixo de codigo ou campo de texto. */
+const productMatchesSingleTerm = <T extends SearchableProduct>(
   product: T,
   term: string,
-  mode: ProductSearchMode = DEFAULT_MODE,
+  mode: ProductSearchMode,
 ): boolean => {
   const normalizedTerm = normalize(term);
   if (!normalizedTerm) return false;
@@ -108,6 +109,28 @@ export const productMatchesSearch = <T extends SearchableProduct>(
   if (productMatchesCodePrefix(product, normalizedTerm)) return true;
 
   return TEXT_FIELDS.some((field) => matchesByMode(normalize(product[field]), normalizedTerm, mode));
+};
+
+export const productMatchesSearch = <T extends SearchableProduct>(
+  product: T,
+  term: string,
+  mode: ProductSearchMode = DEFAULT_MODE,
+): boolean => {
+  const termos = splitSearchTerms(term);
+  if (termos.length === 0) return false;
+
+  if (termos.length === 1) {
+    return productMatchesSingleTerm(product, termos[0], mode);
+  }
+
+  // Busca com "+": TODOS os termos precisam bater, em qualquer ordem.
+  //
+  // O modo 'exata' (comeca com) da empresa vale pra um termo so. Com "+" cada
+  // pedaco casa por "contem", e nao por prefixo, senao a busca nao serviria
+  // pra nada: em "Racao Quatree Gourmet 20KG", so "Racao" e' prefixo -- nem
+  // "Quatree" nem "20KG" sao. Quem digita "+" esta pedindo justamente as
+  // palavras do meio e do fim do nome.
+  return termos.every((parte) => productMatchesSingleTerm(product, parte, 'completa'));
 };
 
 /**
@@ -134,13 +157,19 @@ export const searchProducts = <T extends SearchableProduct>(
     };
   }
 
-  const normalizedTerm = normalize(term);
+  const termos = splitSearchTerms(term);
 
-  if (!normalizedTerm) {
+  if (termos.length === 0) {
     return { items: [], total: 0, truncated: false };
   }
 
-  const exactMatches = products.filter((product) => productMatchesExactCode(product, term));
+  // Atalho do leitor de codigo de barras: so faz sentido com UM termo. O
+  // leitor manda o EAN inteiro e nunca manda "+", entao busca com "+" pula
+  // direto pro filtro de texto.
+  const exactMatches = termos.length === 1
+    ? products.filter((product) => productMatchesExactCode(product, termos[0]))
+    : [];
+
   const matches = exactMatches.length > 0
     ? exactMatches
     : products.filter((product) => productMatchesSearch(product, term, mode));

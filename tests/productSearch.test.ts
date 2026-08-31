@@ -241,3 +241,86 @@ test('isListarTudoTerm reconhece so o termo exato', () => {
   assert.equal(isListarTudoTerm(''), false);
   assert.equal(isListarTudoTerm(undefined), false);
 });
+
+// --- Busca com "+" nos produtos -------------------------------------------
+
+const catalogoRacao = [
+  product({ id: 'a', nome: 'Ração Quatree Gourmet Cães Adultos 20KG', codigo: '101' }),
+  product({ id: 'b', nome: 'Ração Quatree Gourmet Cães Adultos 10,1KG', codigo: '102' }),
+  product({ id: 'c', nome: 'Ração Golden Life Gatos 20KG', codigo: '103' }),
+  product({ id: 'd', nome: 'Areia Sanitária Gatos 4KG', codigo: '104' }),
+];
+
+test('"+" exige todas as palavras e devolve so quem tem as tres', () => {
+  const result = searchProducts(catalogoRacao, 'Ração+Quatree+20KG', { limit: 10 });
+
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0].id, 'a');
+});
+
+test('"+" nao depende da ordem nem do acento digitado', () => {
+  const semAcento = searchProducts(catalogoRacao, 'racao+quatree+20kg', { limit: 10 });
+  assert.equal(semAcento.total, 1);
+  assert.equal(semAcento.items[0].id, 'a');
+
+  const foraDeOrdem = searchProducts(catalogoRacao, '20KG+gourmet+racao', { limit: 10 });
+  assert.equal(foraDeOrdem.total, 1);
+  assert.equal(foraDeOrdem.items[0].id, 'a');
+});
+
+test('"+" com dois termos lista todos que batem nos dois', () => {
+  const result = searchProducts(catalogoRacao, 'quatree+gourmet', { limit: 10 });
+
+  assert.equal(result.total, 2);
+  assert.deepEqual(result.items.map((item) => item.id), ['a', 'b']);
+});
+
+test('busca de uma palavra so continua funcionando como antes', () => {
+  const result = searchProducts(catalogoRacao, 'gatos', { limit: 10 });
+
+  assert.equal(result.total, 2);
+  assert.deepEqual(result.items.map((item) => item.id), ['c', 'd']);
+});
+
+test('modo exata: "+" casa por conter, senao palavra do meio nunca acharia', () => {
+  // No modo 'exata' um termo unico casa por prefixo -- "20KG" sozinho nao acha
+  // nada, e e' assim que a empresa configurou. Com "+", cada pedaco casa por
+  // conter: quem digita "+" esta pedindo justamente o meio e o fim do nome.
+  const umTermo = searchProducts(catalogoRacao, '20KG', { mode: 'exata', limit: 10 });
+  assert.equal(umTermo.total, 0);
+
+  const comMais = searchProducts(catalogoRacao, 'racao+20kg', { mode: 'exata', limit: 10 });
+  assert.equal(comMais.total, 2);
+  assert.deepEqual(comMais.items.map((item) => item.id), ['a', 'c']);
+});
+
+test('"+" tambem casa termo em campo diferente (nome + marca)', () => {
+  const produtos = [
+    product({ id: 'x', nome: 'Ração Cães Adultos', marca: 'Quatree' }),
+    product({ id: 'y', nome: 'Ração Cães Filhotes', marca: 'Outra' }),
+  ];
+
+  const result = searchProducts(produtos, 'racao+quatree', { limit: 10 });
+
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0].id, 'x');
+});
+
+test('leitor de codigo de barras nao e afetado: EAN inteiro continua exato', () => {
+  const produtos = [
+    product({ id: 'ean', nome: 'Ração Quatree 20KG', codigoBarras: '7891234567890' }),
+    product({ id: 'outro', nome: 'Ração Quatree 10KG', codigoBarras: '7899999999999' }),
+  ];
+
+  const result = searchProducts(produtos, '7891234567890', { limit: 10 });
+
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0].id, 'ean');
+});
+
+test('productMatchesSearch com "+" derruba quem tem so parte das palavras', () => {
+  const produto = product({ nome: 'Ração Quatree Gourmet 20KG' });
+
+  assert.equal(productMatchesSearch(produto, 'racao+gourmet'), true);
+  assert.equal(productMatchesSearch(produto, 'racao+premium'), false);
+});

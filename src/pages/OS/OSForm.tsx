@@ -82,6 +82,7 @@ import {
   type PaymentMethod,
   type PaymentRecord,
 } from '../../utils/financeDomain';
+import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import './OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
@@ -1898,7 +1899,7 @@ const OSForm: React.FC = () => {
                     setPecaPrecoInput(String(p.precoVenda));
                   }}
                   mode={pecaSearchMode}
-                  placeholder="Busque ou digite nova Peça"
+                  placeholder={`Busque ou digite nova peça — ${DICA_BUSCA_MULTIPLA}`}
                   ariaLabel="Buscar peça"
                   className="has-clear-btn"
                   onViewMore={() => setIsPecaSearchModalOpen(true)}

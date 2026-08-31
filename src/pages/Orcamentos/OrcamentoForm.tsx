@@ -43,6 +43,7 @@ import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
+import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import '../OS/OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; }
@@ -971,7 +972,7 @@ const OrcamentoForm: React.FC = () => {
                       setPecaPrecoInput(p.precoVenda.toString());
                       setPecaSelecionada(p);
                     }}
-                    placeholder="Nome do Produto..."
+                    placeholder={`Nome do produto — ${DICA_BUSCA_MULTIPLA}`}
                     ariaLabel="Buscar produto"
                     className="has-clear-btn"
                     onViewMore={() => setIsPecaSearchModalOpen(true)}

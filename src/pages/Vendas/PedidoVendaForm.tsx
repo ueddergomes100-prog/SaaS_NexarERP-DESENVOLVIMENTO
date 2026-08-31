@@ -111,6 +111,7 @@ import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../
 import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import Swal from 'sweetalert2';
+import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
@@ -3458,7 +3459,7 @@ const PedidoVendaForm: React.FC = () => {
                         setEmbalagemSelecionadaId('');
                       }}
                       mode={produtoSearchMode}
-                      placeholder="Nome ou Código..."
+                      placeholder={`Nome ou código — ${DICA_BUSCA_MULTIPLA}`}
                       ariaLabel="Buscar produto"
                       className="has-clear-btn"
                       onViewMore={() => setIsProdutoSearchModalOpen(true)}

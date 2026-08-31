@@ -1,0 +1,43 @@
+/*
+ * TODA IMPRESSAO SAI EM MAIUSCULAS.
+ *
+ * Decisao do cliente (2026-08-31): documento entregue ao cliente final -- OS,
+ * pedido, orcamento, minuta, relatorio -- sai inteiro em caixa alta.
+ *
+ * Por que em CSS e nao com .toUpperCase() no codigo:
+ *
+ *  - o dado no banco NAO muda. `text-transform` e' so como o texto aparece,
+ *    entao o nome do cliente continua gravado do jeito que foi digitado, e a
+ *    tela normal do sistema segue igual;
+ *  - pega TODA impressao de uma vez, inclusive as que vierem depois. Espalhar
+ *    .toUpperCase() por dezenas de campos deixaria um sempre de fora -- que
+ *    e' exatamente o tipo de erro que aparece no papel na frente do cliente.
+ *
+ * Duas regras, porque ha dois tipos de impressao no sistema:
+ *
+ *  1. paginas dedicadas (OsPrint, PedidoPrint, OrcamentoPrint, MinutaPrint,
+ *     relatorios), que montam o papel dentro de .print-layout-wrapper. Aqui
+ *     vale tambem na PREVIA em tela: o que a pessoa ve tem que ser o que sai
+ *     na impressora;
+ *  2. telas que imprimem a si mesmas com window.print() (Relatorio de
+ *     Producao, Relatorios de Mecanica). Essas nao tem wrapper proprio, entao
+ *     a regra dentro de @media print cobre elas -- e so no papel, sem mexer
+ *     na tela de trabalho.
+ */
+
+.print-layout-wrapper,
+.mf-page {
+  text-transform: uppercase;
+}
+
+/* Os botoes "Voltar"/"Imprimir" ficam dentro do wrapper mas nao vao pro
+   papel (.no-print). Deixar em caixa alta so deixaria a tela estranha. */
+.print-layout-wrapper .no-print {
+  text-transform: none;
+}
+
+@media print {
+  body {
+    text-transform: uppercase;
+  }
+}

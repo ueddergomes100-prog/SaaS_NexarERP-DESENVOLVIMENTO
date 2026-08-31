@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { DEFAULT_OS_PRINT_MODEL } from '../../utils/osPrintModels';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import { getCompanyAddressRows } from '../../utils/companyAddress';
+import { resolverDescontoImpressaoOS, totalComDescontoOS } from '../../utils/osDescontoImpressao';
 import OsPrintPersonalizado01 from './OsPrintPersonalizado01';
 import './OsPrint.css';
 
@@ -92,7 +93,9 @@ const OsPrint: React.FC = () => {
     ...servicos.map((s: any) => ({ ...s, tipo: 'Serviço', totalCalculado: getServiceTotal(s) })),
     ...pecas.map((p: any) => ({ ...p, tipo: 'Peça', totalCalculado: Number(p.preco || 0) * Number(p.quantidade || 1) }))
   ];
-  const valorTotal = todosItens.reduce((total: number, item: any) => total + item.totalCalculado, 0);
+  const subtotalItens = todosItens.reduce((total: number, item: any) => total + item.totalCalculado, 0);
+  const descontoOS = resolverDescontoImpressaoOS(osData.desconto);
+  const valorTotal = totalComDescontoOS(subtotalItens, descontoOS);
 
   return (
     <div className="print-layout-wrapper">
@@ -207,6 +210,24 @@ const OsPrint: React.FC = () => {
               )}
             </tbody>
             <tfoot>
+              {/* Subtotal e desconto so aparecem quando houve desconto -- OS
+                  sem desconto imprime exatamente como imprimia antes. */}
+              {descontoOS.temDesconto && (
+                <>
+                  <tr>
+                    <td colSpan={3} style={{ textAlign: 'right' }}>Subtotal:</td>
+                    <td style={{ textAlign: 'right' }}>
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(subtotalItens)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} style={{ textAlign: 'right' }}>{descontoOS.rotulo}:</td>
+                    <td style={{ textAlign: 'right' }}>
+                      -{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(descontoOS.valor)}
+                    </td>
+                  </tr>
+                </>
+              )}
               <tr>
                 <td colSpan={3} style={{ textAlign: 'right', fontWeight: 'bold' }}>TOTAL GERAL:</td>
                 <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '18px' }}>

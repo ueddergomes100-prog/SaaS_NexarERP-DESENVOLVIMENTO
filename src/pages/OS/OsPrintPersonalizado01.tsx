@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { getCompanyAddressRows } from '../../utils/companyAddress';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
+import { resolverDescontoImpressaoOS, totalComDescontoOS } from '../../utils/osDescontoImpressao';
 import instagramIcon from '../../assets/instagram-icon.png';
 import whatsappIcon from '../../assets/whatsapp-icon.png';
 import hennderIcon from '../../assets/hennder-icon.svg';
@@ -75,7 +76,9 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
     (total: number, item: any) => total + getServiceHours(item),
     0
   );
-  const totalGeral = totalServicos + totalPecas;
+  const subtotalItens = totalServicos + totalPecas;
+  const descontoOS = resolverDescontoImpressaoOS(osData.desconto);
+  const totalGeral = totalComDescontoOS(subtotalItens, descontoOS);
   const numeroOS = osData.numeroOS || osData.id?.substring(0, 6).toUpperCase();
   const companyDetails: Array<{ type: 'text' | 'instagram' | 'whatsapp'; value: string }> = [
     configData?.cnpj ? `CNPJ ${configData.cnpj}` : null,
@@ -283,6 +286,16 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
           </p>
         </div>
         <div className="os-custom-total-card">
+          {descontoOS.temDesconto && (
+            <>
+              <span>Subtotal</span>
+              <strong className="os-custom-total-secundario">{currency(subtotalItens)}</strong>
+              <span>{descontoOS.rotulo}</span>
+              <strong className="os-custom-total-secundario os-custom-total-desconto">
+                -{currency(descontoOS.valor)}
+              </strong>
+            </>
+          )}
           <span>Total geral</span>
           <strong>{currency(totalGeral)}</strong>
         </div>

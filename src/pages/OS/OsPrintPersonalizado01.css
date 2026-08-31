@@ -356,6 +356,18 @@
   font-size: 16px;
 }
 
+/* Subtotal e desconto ficam no mesmo cartao, menores que o total geral -- o
+   numero que o cliente procura no papel e' o que ele vai pagar. */
+.os-custom-total-card strong.os-custom-total-secundario {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.os-custom-total-card strong.os-custom-total-desconto {
+  color: #ffd9d9;
+}
+
 .os-custom-notes {
   margin-top: 8px;
 }

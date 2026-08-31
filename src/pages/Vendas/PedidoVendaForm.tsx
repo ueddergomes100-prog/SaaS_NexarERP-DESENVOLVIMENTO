@@ -561,6 +561,16 @@ const PedidoVendaForm: React.FC = () => {
             setOrcamentoId(p.orcamentoId || '');
             setFrete(p.frete || 0);
             setEncargos(p.encargos || 0);
+            // Mesmo defeito que a OS tinha: o desconto geral era gravado mas
+            // nunca voltava pro campo ao reabrir o pedido. Reabrir e salvar de
+            // novo regravava com o campo vazio -- o desconto sumia e o total
+            // voltava cheio, sem ninguem perceber.
+            if (p.descontoGeral) {
+              setDescontoGeralInput({
+                tipo: p.descontoGeral.tipo === 'percentual' ? 'percentual' : 'valor',
+                valor: Number(p.descontoGeral.valorInformado) > 0 ? String(p.descontoGeral.valorInformado) : '',
+              });
+            }
             if (Array.isArray(p.pagamentos) && p.pagamentos.length > 0) {
               setPaymentDrafts(p.pagamentos.map((payment: PaymentRecord, index: number) => ({
                 id: payment.id || `pagamento-${index + 1}`,

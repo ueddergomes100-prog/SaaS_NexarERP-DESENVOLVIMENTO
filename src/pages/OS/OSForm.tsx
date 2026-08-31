@@ -432,6 +432,18 @@ const OSForm: React.FC = () => {
               ...peca,
               ...resolveUnidadeMedidaProduto(peca),
             })));
+            // O desconto ERA gravado (campo `desconto` la embaixo), mas nunca
+            // voltava pro formulario ao reabrir a OS. Dois estragos: parecia
+            // que nao tinha salvado, e -- pior -- salvar de novo (so pra mudar
+            // o status, por exemplo) regravava com o campo vazio, apagando o
+            // desconto e devolvendo o valorTotal cheio. Mesmo carregamento que
+            // OrcamentoForm.tsx ja fazia.
+            if (os.desconto) {
+              setDescontoInput({
+                tipo: os.desconto.tipo === 'percentual' ? 'percentual' : 'valor',
+                valor: Number(os.desconto.valorInformado) > 0 ? String(os.desconto.valorInformado) : '',
+              });
+            }
             if (Array.isArray(os.pagamentos) && os.pagamentos.length > 0) {
               setPaymentDrafts(os.pagamentos.map((payment: PaymentRecord, index: number) => ({
                 id: payment.id || `pagamento-${index + 1}`,

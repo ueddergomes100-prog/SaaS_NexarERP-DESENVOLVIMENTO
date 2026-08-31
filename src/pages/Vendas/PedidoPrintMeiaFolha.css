@@ -111,14 +111,18 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 9px;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
+/* Respiro nas linhas: com padding de 2px as linhas encostavam umas nas
+   outras e o papel ficava dificil de ler no balcao. A meia folha tem espaco
+   de sobra -- a lista raramente passa de 10 itens. */
 .mf-items-table th,
 .mf-items-table td {
   border: 1px solid #000;
-  padding: 2px 5px;
+  padding: 5px 6px;
   text-align: left;
+  line-height: 1.3;
 }
 
 .mf-items-table th {
@@ -193,12 +197,16 @@
   margin: 2px 0 0;
 }
 
+/* `margin-top: auto` empurra o bloco pro fim da meia folha -- so funciona
+   porque .mf-page tem ALTURA definida (inclusive na impressao, veja o
+   @media print la embaixo). Com height:auto o flex nao tem folga pra
+   distribuir e a assinatura subia pra logo depois do ultimo texto. */
 .mf-signatures {
   margin-top: auto;
   display: flex;
   justify-content: space-between;
   gap: 24px;
-  padding-top: 14px;
+  padding-top: 18px;
   font-size: 9.5px;
 }
 
@@ -225,11 +233,27 @@
 }
 
 @media print {
+  /*
+   * ALTURA FIXA NA IMPRESSAO, e menor que a meia folha.
+   *
+   * Antes era `height: auto` + `min-height: 148mm`, e isso quebrava as duas
+   * coisas de uma vez:
+   *
+   *  - sem altura definida o flex nao tem folga pra distribuir, entao o
+   *    `margin-top: auto` da assinatura nao empurrava nada -- ela subia pra
+   *    logo depois do ultimo texto em vez de ficar no rodape;
+   *  - 148mm e a meia folha INTEIRA. Somando a margem que a impressora
+   *    reserva, o bloco nao cabia e o rodape (assinatura + marca) escorria
+   *    pra uma segunda pagina.
+   *
+   * 132mm deixa ~16mm pras margens do navegador/impressora. Se a impressao
+   * sair com sobra grande embaixo, e' esse numero que se mexe.
+   */
   .mf-page {
     width: 100% !important;
     max-width: none !important;
-    height: auto !important;
-    min-height: 148mm !important;
+    height: 132mm !important;
+    min-height: 0 !important;
     margin: 0 !important;
     box-shadow: none !important;
     page-break-after: always;

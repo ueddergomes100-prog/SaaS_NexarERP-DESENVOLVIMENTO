@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, Save, Car, User, Settings, Hash, MapPin, Calendar, Activity } from 'lucide-react';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import '../OS/OS.css'; // Reusing OS styles
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
@@ -83,7 +84,11 @@ const VeiculoForm: React.FC = () => {
   }, [id, isEditing, tenantId, navigate]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
+    const { name } = e.target;
+    // Caixa alta na digitacao: o que se ve e o que se grava.
+    // textarea, select, e-mail, senha e chave ficam de fora --
+    // ver aplicarCaixaAltaCadastro.
+    const value = aplicarCaixaAltaCadastro(e.target, e.target.value);
     if (name === 'placa') {
       setFormData({ ...formData, [name]: value.toUpperCase() });
     } else {

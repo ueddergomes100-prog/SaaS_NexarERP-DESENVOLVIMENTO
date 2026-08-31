@@ -238,7 +238,7 @@ const RelatoriosDiversos: React.FC = () => {
   };
 
   return (
-    <div className="os-page">
+    <div className="os-page relatorio-caixa-alta">
       <div className="page-header">
         <div className="header-title-group">
           <div>

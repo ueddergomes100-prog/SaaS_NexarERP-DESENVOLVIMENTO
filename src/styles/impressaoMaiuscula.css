@@ -41,3 +41,40 @@
     text-transform: uppercase;
   }
 }
+
+/*
+ * TEXTO LONGO SAI COMO FOI ESCRITO.
+ *
+ * Decisao do cliente (2026-08-31): observacao, defeito relatado e relatorio
+ * tecnico ficam com maiuscula e minuscula, no papel e na tela -- o combinado
+ * e que o papel mostre exatamente o que esta na tela. Paragrafo inteiro em
+ * caixa alta cansa de ler, e era isso que estava saindo.
+ *
+ * Combina com a excecao de `textarea` em index.css: o mesmo texto que a tela
+ * deixa a pessoa escrever livre e o que o papel imprime livre.
+ */
+.texto-como-digitado {
+  text-transform: none;
+}
+
+/*
+ * RELATORIO EM CAIXA ALTA TAMBEM NA TELA.
+ *
+ * Decisao do cliente (2026-08-31). O relatorio impresso ja saia em caixa alta;
+ * na tela ele mostrava o banco cru, e ali aparece a mistura dos cadastros
+ * antigos -- "joao silva" ao lado de "MARIA SOUZA". Com esta regra a tela do
+ * relatorio mostra o mesmo que o papel, que era a queixa: ver de um jeito e
+ * imprimir de outro.
+ *
+ * Os campos de filtro ficam de fora: quem digita ali ja tem a caixa alta pela
+ * regra de input em index.css, e select de periodo/status nao deve virar
+ * codigo em caixa alta.
+ */
+.relatorio-caixa-alta {
+  text-transform: uppercase;
+}
+
+/* Texto livre dentro de relatorio segue a mesma excecao do papel. */
+.relatorio-caixa-alta .texto-como-digitado {
+  text-transform: none;
+}

@@ -241,10 +241,25 @@ textarea {
   caret-color: var(--accent-purple);
 }
 
-/* Padrao do sistema: campos de texto/selecao em caixa alta, exceto
-   onde a caixa do valor digitado importa de verdade (e-mail e URL). */
-input:not([type='email']):not([type='url']),
-textarea,
+/* Padrao do sistema: campo preenchido aparece em CAIXA ALTA.
+ *
+ * Desde 2026-08-31 a caixa alta acontece tambem na DIGITACAO (ver
+ * src/utils/textoCadastroDomain.ts), entao o banco guarda o mesmo que a tela
+ * mostra. Esta regra continua por causa do que ja esta gravado: registro
+ * antigo, com a caixa misturada, abre no formulario aparentando o padrao novo.
+ *
+ * Tres excecoes, e todas tem motivo:
+ *
+ *  - `email`, `url` e `password`: a caixa do valor E o valor. E-mail em caixa
+ *    alta parece erro de digitacao, e senha revelada pelo olhinho apareceria
+ *    diferente do que foi digitado;
+ *  - `textarea`: texto longo (observacao, defeito relatado, relatorio tecnico)
+ *    sai como foi escrito. Decisao do cliente em 2026-08-31 -- paragrafo
+ *    inteiro em caixa alta cansa de ler, e o papel tem que mostrar exatamente
+ *    o que esta na tela;
+ *  - login e criacao de conta, exceto pelo arquivo Auth.css.
+ */
+input:not([type='email']):not([type='url']):not([type='password']),
 select,
 select option {
   text-transform: uppercase;

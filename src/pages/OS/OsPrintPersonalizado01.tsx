@@ -185,11 +185,11 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
       <section className="os-custom-two-columns os-custom-report-grid">
         <div className="os-custom-section os-custom-text-section">
           <h2>Solicitação do cliente</h2>
-          <p>{osData.defeitoRelatado || 'Nenhuma solicitação registrada.'}</p>
+          <p className="texto-como-digitado">{osData.defeitoRelatado || 'Nenhuma solicitação registrada.'}</p>
         </div>
         <div className="os-custom-section os-custom-text-section">
           <h2>Serviço realizado / relatório técnico</h2>
-          <p>{osData.relatorioTecnico || 'Nenhum relatório técnico registrado.'}</p>
+          <p className="texto-como-digitado">{osData.relatorioTecnico || 'Nenhum relatório técnico registrado.'}</p>
         </div>
       </section>
 
@@ -273,7 +273,7 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
         <div className="os-custom-summary-card">
           <PackageCheck size={20} />
           <span>Materiais fornecidos pelo cliente</span>
-          <p>{osData.materiaisCliente || 'Nenhum material informado.'}</p>
+          <p className="texto-como-digitado">{osData.materiaisCliente || 'Nenhum material informado.'}</p>
         </div>
         <div className="os-custom-summary-card">
           <CreditCard size={20} />
@@ -304,7 +304,7 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
       {(osData.observacoes || configData?.garantiaPadrao) && (
         <section className="os-custom-section os-custom-notes">
           <h2>Observações e condições</h2>
-          {osData.observacoes && <p>{osData.observacoes}</p>}
+          {osData.observacoes && <p className="texto-como-digitado">{osData.observacoes}</p>}
           {configData?.garantiaPadrao && <p>{configData.garantiaPadrao}</p>}
         </section>
       )}

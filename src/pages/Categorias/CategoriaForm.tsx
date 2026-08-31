@@ -6,6 +6,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 
 const CategoriaForm: React.FC = () => {
   const navigate = useNavigate();
@@ -39,7 +40,7 @@ const CategoriaForm: React.FC = () => {
   }, [id, isEditing]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    setFormData({ ...formData, [e.target.name]: aplicarCaixaAltaCadastro(e.target, e.target.value) });
   };
 
   const handleSave = async (e: React.FormEvent) => {

@@ -176,7 +176,7 @@ const RelatoriosMecanica: React.FC = () => {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', paddingBottom: '40px' }}>
+    <div className="relatorio-caixa-alta" style={{ display: 'flex', flexDirection: 'column', gap: '32px', paddingBottom: '40px' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>

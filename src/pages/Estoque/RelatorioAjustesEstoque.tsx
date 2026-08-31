@@ -171,7 +171,7 @@ const RelatorioAjustesEstoque: React.FC = () => {
   const labelStyle: React.CSSProperties = { fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' };
 
   return (
-    <div className="estoque-page">
+    <div className="estoque-page relatorio-caixa-alta">
       <div className="page-header">
         <div className="header-title-group">
           <button className="icon-btn back-btn" onClick={() => navigate('/estoque')} title="Voltar">

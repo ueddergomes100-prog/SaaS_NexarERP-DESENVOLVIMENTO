@@ -9,6 +9,7 @@ import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/
 import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialStock';
 import { computeEstoquePrevisto } from '../../utils/producaoDomain';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 
 const inputStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg-tertiary)',
@@ -105,7 +106,11 @@ const MateriaPrimaForm: React.FC = () => {
   }, [formReady, formData]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
+    const { name } = e.target;
+    // Caixa alta na digitacao: o que se ve e o que se grava.
+    // textarea, select, e-mail, senha e chave ficam de fora --
+    // ver aplicarCaixaAltaCadastro.
+    const value = aplicarCaixaAltaCadastro(e.target, e.target.value);
     setFormData({ ...formData, [name]: value });
   };
 

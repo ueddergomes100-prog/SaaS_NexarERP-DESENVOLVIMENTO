@@ -186,7 +186,7 @@ const OrcamentoPrint: React.FC = () => {
         {data.observacoes && (
           <div className="a4-section">
             <h3 className="section-title">Observações</h3>
-            <p className="a4-text-block">{data.observacoes}</p>
+            <p className="a4-text-block texto-como-digitado">{data.observacoes}</p>
           </div>
         )}
 

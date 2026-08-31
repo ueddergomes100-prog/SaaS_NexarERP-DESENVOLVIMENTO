@@ -63,6 +63,7 @@ import {
   parseRestringirVendasPorUsuario,
   type NivelAcesso,
 } from '../../utils/visibilidadeVendasDomain';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 
 const toStringArray = (value: unknown): string[] => {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -360,7 +361,7 @@ const Configuracoes: React.FC = () => {
   }, [currentUser, tenantId, isPlatformAdmin]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    setFormData({ ...formData, [e.target.name]: aplicarCaixaAltaCadastro(e.target, e.target.value) });
   };
 
   // Busca ao vivo de cidades integradas a Spedy pra NFS-e -- exige a

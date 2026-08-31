@@ -165,11 +165,11 @@ const OsPrint: React.FC = () => {
         <div className="a4-section" style={{ display: 'flex', gap: '20px' }}>
           <div style={{ flex: 1 }}>
             <h3 className="section-title">Problema Relatado (Cliente)</h3>
-            <p className="a4-text-block">{osData.defeitoRelatado || 'Nenhum defeito relatado.'}</p>
+            <p className="a4-text-block texto-como-digitado">{osData.defeitoRelatado || 'Nenhum defeito relatado.'}</p>
           </div>
           <div style={{ flex: 1 }}>
             <h3 className="section-title">Relatório Técnico (Mecânico)</h3>
-            <p className="a4-text-block">{osData.relatorioTecnico || 'Nenhum relatório técnico emitido.'}</p>
+            <p className="a4-text-block texto-como-digitado">{osData.relatorioTecnico || 'Nenhum relatório técnico emitido.'}</p>
           </div>
         </div>
 

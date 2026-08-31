@@ -401,7 +401,7 @@ const RelatoriosVendas: React.FC = () => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>
+    <div className="relatorio-caixa-alta" style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: '26px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}><BarChart2 color="var(--accent-purple)" /> Relatório de Vendas</h1>

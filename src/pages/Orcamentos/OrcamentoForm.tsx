@@ -44,6 +44,7 @@ import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
 import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import '../OS/OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; }
@@ -272,7 +273,11 @@ const OrcamentoForm: React.FC = () => {
   }, [id, isEditing, currentUser, tenantId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
+    const { name } = e.target;
+    // Caixa alta na digitacao: o que se ve e o que se grava.
+    // textarea, select, e-mail, senha e chave ficam de fora --
+    // ver aplicarCaixaAltaCadastro.
+    const value = aplicarCaixaAltaCadastro(e.target, e.target.value);
     setFormData({ ...formData, [name]: value });
   };
 

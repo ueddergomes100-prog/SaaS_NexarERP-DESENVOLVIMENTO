@@ -12,6 +12,7 @@ import { computeAvailableStock } from '../../utils/estoqueReservaDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM, formatFatorConversao, normalizeEmbalagens } from '../../utils/embalagemDomain';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -748,7 +749,11 @@ const EstoqueForm: React.FC = () => {
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
+    const { name } = e.target;
+    // Caixa alta na digitacao: o que se ve e o que se grava.
+    // textarea, select, e-mail, senha e chave ficam de fora --
+    // ver aplicarCaixaAltaCadastro.
+    const value = aplicarCaixaAltaCadastro(e.target, e.target.value);
     setFormData(prev => {
       const next = { ...prev, [name]: value };
 

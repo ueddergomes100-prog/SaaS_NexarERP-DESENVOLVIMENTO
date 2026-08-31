@@ -9,6 +9,7 @@ import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/
 import { mensagemDocumentoInvalido } from '../../utils/documentoValidacao';
 import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton';
 import type { ConsultaCnpjResultado, ConsultaCpfResultado } from '../../services/documentoService';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 
 const FornecedorForm: React.FC = () => {
   const navigate = useNavigate();
@@ -57,7 +58,11 @@ const FornecedorForm: React.FC = () => {
   }, [id, isEditing, tenantId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
+    const { name } = e.target;
+    // Caixa alta na digitacao: o que se ve e o que se grava.
+    // textarea, select, e-mail, senha e chave ficam de fora --
+    // ver aplicarCaixaAltaCadastro.
+    const value = aplicarCaixaAltaCadastro(e.target, e.target.value);
 
     // Validação específica para CNPJ/CPF (apenas números)
     if (name === 'cnpj') {

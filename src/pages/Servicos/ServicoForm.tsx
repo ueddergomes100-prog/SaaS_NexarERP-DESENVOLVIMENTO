@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 
 const ServicoForm: React.FC = () => {
   const navigate = useNavigate();
@@ -65,7 +66,7 @@ const ServicoForm: React.FC = () => {
   }, [id, isEditing]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    setFormData({ ...formData, [e.target.name]: aplicarCaixaAltaCadastro(e.target, e.target.value) });
   };
 
   const handleSave = async (e: React.FormEvent) => {

@@ -1043,3 +1043,25 @@ body.light-theme .auth-eyebrow {
     grid-template-columns: 1fr;
   }
 }
+
+/*
+ * LOGIN E CRIACAO DE CONTA FICAM FORA DA CAIXA ALTA.
+ *
+ * O sistema padroniza campo preenchido em CAIXA ALTA (regra global em
+ * index.css). Aqui nao: quem esta nesta tela ainda nao entrou no sistema, e o
+ * que se digita e' e-mail, senha e o nome da propria empresa -- coisas que a
+ * pessoa reconhece pela forma como escreveu. E-mail em caixa alta fica feio e
+ * parece erro.
+ *
+ * O campo de login ja tinha a excecao no proprio JSX desde 2026-08-14; esta
+ * regra estende pro resto da tela (nome da empresa, responsavel, senha) e
+ * cobre os dois layouts -- o card dividido e o empilhado.
+ */
+.auth-switch-container input,
+.auth-switch-container textarea,
+.auth-switch-container select,
+.auth-container input,
+.auth-container textarea,
+.auth-container select {
+  text-transform: none;
+}

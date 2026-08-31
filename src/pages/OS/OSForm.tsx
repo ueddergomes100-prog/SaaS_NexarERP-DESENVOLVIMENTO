@@ -83,6 +83,7 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import './OS.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
@@ -546,7 +547,11 @@ const OSForm: React.FC = () => {
   }, [formReady, formData, paymentDrafts, servicosSelecionados, pecasSelecionadas]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
+    const { name } = e.target;
+    // Caixa alta na digitacao: o que se ve e o que se grava.
+    // textarea, select, e-mail, senha e chave ficam de fora --
+    // ver aplicarCaixaAltaCadastro.
+    const value = aplicarCaixaAltaCadastro(e.target, e.target.value);
     if (name === 'mecanicoId') {
       const mecEncontrado = mecanicosDisponiveis.find(m => m.id === value);
       setFormData({ ...formData, mecanicoId: value, mecanicoNome: mecEncontrado ? mecEncontrado.nome : '' });

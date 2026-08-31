@@ -5,6 +5,7 @@ import { collection, addDoc, serverTimestamp, getDocs, query, where, doc, getDoc
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, confirmDelete } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 
 interface ClienteBasico {
   id: string;
@@ -111,7 +112,11 @@ const LembreteForm: React.FC = () => {
   }, [currentUser, isEditing, id]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
+    const { name } = e.target;
+    // Caixa alta na digitacao: o que se ve e o que se grava.
+    // textarea, select, e-mail, senha e chave ficam de fora --
+    // ver aplicarCaixaAltaCadastro.
+    const value = aplicarCaixaAltaCadastro(e.target, e.target.value);
     
     if (name === 'clienteNome') {
       const clienteEncontrado = clientesDisponiveis.find(c => c.nome === value);

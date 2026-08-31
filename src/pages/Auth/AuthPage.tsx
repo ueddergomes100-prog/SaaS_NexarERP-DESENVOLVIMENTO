@@ -24,6 +24,7 @@ import { clearStoredSessionId, createSessionId, setStoredSessionId } from '../..
 import {
   buildActiveSessionWarningHtml,
   buildSessionMetadata,
+  isSessionFromThisDevice,
   isSessionRecentlyActive,
   type ActiveSessionInfo
 } from '../../utils/sessionInfo';
@@ -280,7 +281,13 @@ const AuthPage: React.FC = () => {
       // do arquivo). userTenantId segue 'geral' pro log de auditoria, que e' o
       // certo: e' um acesso de plataforma, nao de uma empresa especifica.
 
-      if (hasUserProfile && isSessionRecentlyActive(activeSessionId, activeSession)) {
+      // Sessao pendurada DESTE mesmo aparelho nao vira pergunta: e' o caso de
+      // quem fechou o PWA no X e esta abrindo de novo. A resposta seria sempre
+      // "encerrar a outra e entrar" -- e logo abaixo o login ja grava uma
+      // sessao nova por cima, que e' exatamente o que o botao faria.
+      const sessaoPenduradaDesteAparelho = isSessionFromThisDevice(activeSession);
+
+      if (hasUserProfile && !sessaoPenduradaDesteAparelho && isSessionRecentlyActive(activeSessionId, activeSession)) {
         const result = await Swal.fire({
           title: 'Sessão ativa detectada',
           html: buildActiveSessionWarningHtml(activeSession),

@@ -1,9 +1,13 @@
 import type { User } from 'firebase/auth';
+import { getDeviceId } from './session';
 
 export const ACTIVE_SESSION_MAX_AGE_MS = 2 * 60 * 1000;
 
 export interface ActiveSessionInfo {
   sessionId?: string;
+  /** Id do APARELHO (ver session.ts). Sessao antiga nao tem -- e ai o login
+   *  volta a perguntar, igual antes. */
+  deviceId?: string;
   deviceLabel?: string;
   ip?: string;
   userAgent?: string;
@@ -130,6 +134,7 @@ export const buildSessionMetadata = async (user?: User): Promise<ActiveSessionIn
   const userAgent = navigator.userAgent || backendInfo.userAgent || '';
 
   return {
+    deviceId: getDeviceId(),
     deviceLabel: getLocalDeviceLabel(),
     ip: backendInfo.ip || '',
     userAgent,
@@ -143,6 +148,21 @@ export const buildSessionMetadata = async (user?: User): Promise<ActiveSessionIn
 
 export const getSessionLastSeenDate = (session?: ActiveSessionInfo | null) => {
   return timestampToDate(session?.lastSeenAt) || timestampToDate(session?.lastSeenClientAt);
+};
+
+/**
+ * A sessao pendurada e' deste mesmo aparelho?
+ *
+ * Se for, nao ha nada a perguntar: quem fechou o PWA e esta abrindo de novo e'
+ * a mesma pessoa, na mesma maquina, e a resposta ao alerta seria sempre
+ * "encerrar a outra e entrar". Perguntar so atrasa a abertura do caixa.
+ *
+ * Isto NAO enfraquece o controle de sessao unica: o alerta existe pra avisar
+ * que a conta esta aberta em OUTRO aparelho, e esse caso continua avisado.
+ */
+export const isSessionFromThisDevice = (session?: ActiveSessionInfo | null): boolean => {
+  const deviceId = getDeviceId();
+  return Boolean(deviceId && session?.deviceId && session.deviceId === deviceId);
 };
 
 export const isSessionRecentlyActive = (
@@ -211,14 +231,60 @@ export const buildActiveSessionWarningHtml = (session?: ActiveSessionInfo | null
   `;
 };
 
+/**
+ * Encerra a sessao no servidor quando a janela esta fechando.
+ *
+ * ---------------------------------------------------------------------------
+ * POR QUE `sendBeacon` E NAO `fetch`
+ * ---------------------------------------------------------------------------
+ *
+ * Fechar o PWA no X mata o processo da pagina. Um `fetch`, mesmo com
+ * `keepalive`, sai de dentro da pagina -- e no fechamento do aplicativo ele
+ * frequentemente e' descartado antes de chegar a rede. Era esse o sintoma
+ * relatado: fechava no X, abria de novo e aparecia "Sessao ativa detectada",
+ * porque o servidor nunca soube que a sessao acabou.
+ *
+ * `navigator.sendBeacon` entrega o pedido ao processo do NAVEGADOR, que o
+ * envia depois da pagina morrer. E' a API feita exatamente pra isto.
+ *
+ * Duas consequencias no formato do envio:
+ *
+ *  - beacon nao aceita cabecalho, entao o token vai no CORPO. O backend
+ *    aceita os dois jeitos (ver server/routes/session.routes.js). O token e' a
+ *    mesma credencial de sempre, na mesma conexao HTTPS -- nao ha nada mais
+ *    exposto aqui do que no cabecalho;
+ *  - o tipo e' `text/plain`, nao `application/json`, de proposito: JSON
+ *    obrigaria um preflight de CORS, e um OPTIONS extra e' justamente o que
+ *    nao da tempo de acontecer com a janela morrendo. O backend faz o parse.
+ *
+ * O `fetch` continua como plano B pra navegador sem `sendBeacon`.
+ */
 export const endSessionOnBackend = (sessionId: string, token: string, reason = 'browser_close') => {
   const apiUrl = getBackendApiUrl();
   if (!apiUrl || !sessionId || !token) {
     return false;
   }
 
+  const url = `${apiUrl}/api/sessions/end`;
+
   try {
-    void fetch(`${apiUrl}/api/sessions/end`, {
+    if (typeof navigator.sendBeacon === 'function') {
+      const corpo = new Blob(
+        [JSON.stringify({ sessionId, reason, token })],
+        { type: 'text/plain;charset=UTF-8' }
+      );
+
+      if (navigator.sendBeacon(url, corpo)) {
+        return true;
+      }
+    }
+  } catch (error) {
+    // Beacon recusado (fila cheia, storage bloqueado): cai no fetch abaixo.
+    console.warn('sendBeacon nao aceitou o encerramento da sessao:', error);
+  }
+
+  try {
+    void fetch(url, {
       method: 'POST',
       keepalive: true,
       headers: {

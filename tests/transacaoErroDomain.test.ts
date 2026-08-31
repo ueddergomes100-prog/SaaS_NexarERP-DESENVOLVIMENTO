@@ -26,11 +26,15 @@ test('queda de conexao manda conferir a internet', () => {
   }
 });
 
-test('falta de permissao manda procurar o administrador da empresa', () => {
+test('falta de permissao atende quem nao e admin E quem ja e', () => {
   const mensagem = describeTransactionError({ code: 'permission-denied' });
 
   assert.ok(mensagem);
+  // Quem nao e administrador tem a quem recorrer...
   assert.match(mensagem, /administrador da empresa/);
+  // ...e quem JA e' administrador nao pode ficar sem saida: a causa provavel
+  // e' regra de acesso nao publicada, e isso e' com o suporte.
+  assert.match(mensagem, /suporte/);
 });
 
 test('indice faltando manda avisar o suporte dizendo a tela', () => {

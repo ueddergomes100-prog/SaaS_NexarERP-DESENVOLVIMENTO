@@ -35,7 +35,14 @@ export const describeTransactionError = (error: unknown): string | null => {
     return 'A conexão com o servidor falhou no meio da gravação. Confira a internet e tente novamente.';
   }
   if (codigo.includes('permission-denied') || codigo.includes('insufficient permissions')) {
-    return 'Seu usuário não tem permissão para concluir esta operação. Peça ao administrador da empresa para revisar suas permissões.';
+    // Duas causas MUITO diferentes caem neste mesmo codigo, e a mensagem
+    // precisa servir pras duas: (a) o usuario realmente nao tem a permissao
+    // -- resolve com o administrador da empresa; (b) a regra de acesso do
+    // Firestore ainda nao foi publicada depois de uma funcionalidade nova --
+    // e ai NAO ha nada que o administrador possa fazer sozinho. Mandar so
+    // "revise suas permissoes" deixava o proprio administrador rodando em
+    // circulo, que foi o que aconteceu na OS em 31/08/2026.
+    return 'O sistema recusou esta operação por falta de permissão. Se você não é administrador da empresa, peça a ele para revisar seus acessos. Se já é, avise o suporte dizendo em qual tela isso aconteceu — provavelmente é uma regra de acesso do sistema que ainda não foi publicada.';
   }
   if (codigo.includes('failed-precondition')) {
     return 'O sistema não conseguiu concluir a gravação porque uma consulta interna não está pronta. Avise o suporte informando em qual tela isso aconteceu.';

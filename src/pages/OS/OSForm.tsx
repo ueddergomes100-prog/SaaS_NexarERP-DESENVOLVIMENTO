@@ -6,7 +6,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showSuccess, showError, showWarning } from '../../utils/alerts';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
-import { applyStockAdjustments, applyStockFieldDeltas, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
+import { applyStockAdjustments, applyStockFieldDeltas, describeTransactionError, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import {
   computeReservationCommit,
   computeReservationDelta,
@@ -1433,7 +1433,17 @@ const OSForm: React.FC = () => {
       return true;
     } catch (error) {
       console.error('Erro ao salvar OS:', error);
-      showError('Erro ao salvar', error instanceof Error ? error.message : 'Verifique a conexão e tente novamente.');
+      // Erro de infraestrutura primeiro (disputa entre operadores, queda de
+      // rede, permissao recusada): sem isto o texto cru do Firestore chegava
+      // na tela -- foi assim que "Missing or insufficient permissions."
+      // apareceu pro cliente. As mensagens de negocio lancadas aqui dentro
+      // ("Estoque insuficiente para X") continuam vindo pelo fallback, que
+      // sao sempre mais especificas do que qualquer texto generico.
+      showError(
+        'Erro ao salvar',
+        describeTransactionError(error)
+          || (error instanceof Error && error.message ? error.message : 'Verifique a conexão e tente novamente.'),
+      );
       return false;
     } finally {
       submitLockRef.current = false;

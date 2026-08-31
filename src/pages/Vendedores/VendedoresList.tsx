@@ -31,7 +31,8 @@ import {
   MENSAGEM_PIN_FRACO,
   MENSAGEM_PIN_INVALIDO,
   normalizarCodigoVendedor,
-  PIN_VENDEDOR_DIGITOS,
+  AJUDA_TAMANHO_PIN,
+  PIN_VENDEDOR_MAX_DIGITOS,
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
 
@@ -43,7 +44,7 @@ import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPin
  *
  * Duas coisas que o desenho desta tela leva a serio:
  *
- * 1. **Cadastrar tem que caber numa tela so.** Nome, codigo e senha de 4
+ * 1. **Cadastrar tem que caber numa tela so.** Nome, codigo e senha de 2 a 10
  *    digitos saem juntos. O fluxo antigo (criar o usuario, salvar, entrar de
  *    novo pra definir a senha) existia por limitacao do backend, que exige o
  *    registro criado antes de aceitar o PIN -- aqui a tela faz os dois
@@ -218,7 +219,7 @@ const VendedoresList: React.FC = () => {
     // se identificar, e so descobriria isso no balcao, na primeira venda.
     const definindoPin = !!form.pin;
     if (!editando && !definindoPin) {
-      showError('Falta a senha', `Informe a senha de ${PIN_VENDEDOR_DIGITOS} dígitos deste vendedor. É com ela que ele se identifica em cada venda.`);
+      showError('Falta a senha', `Informe a senha deste vendedor (${AJUDA_TAMANHO_PIN.toLowerCase()}). É com ela que ele se identifica em cada venda.`);
       return;
     }
     if (definindoPin && !isPinVendedorValido(form.pin)) {
@@ -422,7 +423,7 @@ const VendedoresList: React.FC = () => {
                 <tr>
                   <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     {vendedores.length === 0
-                      ? 'Nenhum vendedor cadastrado ainda. Cadastre quem vende no balcão — cada um com um código de 2 dígitos e uma senha de 4.'
+                      ? 'Nenhum vendedor cadastrado ainda. Cadastre quem vende no balcão — cada um com um código de 2 dígitos e uma senha numérica.'
                       : 'Nenhum vendedor encontrado com esse termo.'}
                   </td>
                 </tr>
@@ -530,14 +531,14 @@ const VendedoresList: React.FC = () => {
 
               <div className="input-group">
                 <label>
-                  Senha ({PIN_VENDEDOR_DIGITOS} dígitos) {editando ? '' : '*'}
+                  Senha ({AJUDA_TAMANHO_PIN.toLowerCase()}) {editando ? '' : '*'}
                 </label>
                 <input
                   type="password"
                   inputMode="numeric"
-                  placeholder={editando ? 'Deixe vazio para manter' : '0000'}
+                  placeholder={editando ? 'Deixe vazio para manter' : 'Senha'}
                   value={form.pin}
-                  onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, '').slice(0, PIN_VENDEDOR_DIGITOS) })}
+                  onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, '').slice(0, PIN_VENDEDOR_MAX_DIGITOS) })}
                   style={{ ...inputStyle, fontSize: '18px', letterSpacing: '6px', fontWeight: 700 }}
                 />
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>

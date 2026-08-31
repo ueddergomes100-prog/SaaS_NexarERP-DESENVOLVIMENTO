@@ -8,9 +8,9 @@ const { admin, db } = require('../config/firebase');
  * POR QUE ISTO VIVE NO BACKEND
  * ---------------------------------------------------------------------------
  *
- * O PIN tem 4 digitos: 10.000 combinacoes. Se o hash fosse legivel pelo
- * navegador, qualquer funcionario com o app aberto quebraria o PIN de todos
- * os colegas em milissegundos. Entao:
+ * O PIN e' curto (de 2 a 10 digitos -- 100 combinacoes no menor deles). Se o
+ * hash fosse legivel pelo navegador, qualquer funcionario com o app aberto
+ * quebraria o PIN de todos os colegas em milissegundos. Entao:
  *
  *  - o hash mora em `usuarios_pin/{uid}`, uma colecao que as firestore.rules
  *    negam PARA TODO MUNDO (`allow read, write: if false`). So o Admin SDK,
@@ -24,7 +24,11 @@ const { admin, db } = require('../config/firebase');
  */
 
 const COLECAO_PIN = 'usuarios_pin';
-const PIN_DIGITOS = 4;
+/** Faixa de tamanho do PIN. Tem que bater com src/utils/vendedorPinDomain.ts
+ *  (PIN_VENDEDOR_MIN_DIGITOS / PIN_VENDEDOR_MAX_DIGITOS): a tela avisa cedo,
+ *  mas quem decide e' esta validacao. */
+const PIN_MIN_DIGITOS = 2;
+const PIN_MAX_DIGITOS = 10;
 const CODIGO_DIGITOS = 2;
 
 /** Tentativas erradas antes de bloquear, e por quanto tempo. */
@@ -32,8 +36,8 @@ const MAX_TENTATIVAS = 5;
 const BLOQUEIO_MINUTOS = 5;
 
 /** Parametros do scrypt. Custo alto o suficiente pra tornar forca bruta cara
- *  mesmo com 10.000 combinacoes, e baixo o suficiente pra nao pesar numa
- *  venda de balcao (o popup roda a cada venda). */
+ *  mesmo com poucas combinacoes possiveis, e baixo o suficiente pra nao pesar
+ *  numa venda de balcao (o popup roda a cada venda). */
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_OPTS = { N: 16384, r: 8, p: 1 };
 
@@ -50,7 +54,7 @@ const normalizarCodigo = (valor) => {
   return digitos.padStart(CODIGO_DIGITOS, '0');
 };
 
-const isPinValido = (valor) => new RegExp(`^\\d{${PIN_DIGITOS}}$`).test(String(valor ?? ''));
+const isPinValido = (valor) => new RegExp(`^\\d{${PIN_MIN_DIGITOS},${PIN_MAX_DIGITOS}}$`).test(String(valor ?? ''));
 
 /** Erro com status HTTP, pra rota so repassar. */
 class ErroPin extends Error {
@@ -70,7 +74,7 @@ class ErroPin extends Error {
 async function definirPin({ tenantId, usuarioId, pin, autorId }) {
   if (!db) throw new ErroPin(503, 'Backend sem acesso ao banco de dados.');
   if (!isPinValido(pin)) {
-    throw new ErroPin(400, `A senha do vendedor deve ter ${PIN_DIGITOS} dígitos numéricos.`);
+    throw new ErroPin(400, `A senha do vendedor deve ter de ${PIN_MIN_DIGITOS} a ${PIN_MAX_DIGITOS} dígitos numéricos.`);
   }
 
   const usuarioRef = db.collection('usuarios').doc(String(usuarioId || ''));

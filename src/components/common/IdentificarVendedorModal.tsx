@@ -6,7 +6,7 @@ import {
   isPinVendedorValido,
   MENSAGEM_CODIGO_INVALIDO,
   MENSAGEM_PIN_INVALIDO,
-  PIN_VENDEDOR_DIGITOS,
+  PIN_VENDEDOR_MAX_DIGITOS,
   type VendedorIdentificado,
 } from '../../utils/vendedorPinDomain';
 import { validarVendedor, VendedorPinError } from '../../services/vendedorPinService';
@@ -211,12 +211,12 @@ const IdentificarVendedorModal: React.FC<IdentificarVendedorModalProps> = ({
                 data-1p-ignore=""
                 disabled={validando}
                 value={pin}
-                onChange={(e) => setPin(somenteDigitos(e.target.value, PIN_VENDEDOR_DIGITOS))}
+                onChange={(e) => setPin(somenteDigitos(e.target.value, PIN_VENDEDOR_MAX_DIGITOS))}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') { e.preventDefault(); void confirmar(); }
                 }}
                 style={inputStyle}
-                placeholder="0000"
+                placeholder="Senha"
               />
             </div>
           </div>

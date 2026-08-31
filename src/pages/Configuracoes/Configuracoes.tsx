@@ -441,7 +441,7 @@ const Configuracoes: React.FC = () => {
         <div style="text-align:left; font-size:14px; line-height:1.6;">
           <p style="margin:0 0 10px;">A partir de agora:</p>
           <ul style="margin:0 0 12px; padding-left:20px;">
-            <li>Toda <strong>venda finalizada</strong> ou <strong>pré-venda</strong> gravada vai pedir o <strong>código (2 dígitos)</strong> e a <strong>senha (4 dígitos)</strong> do vendedor antes de concluir.</li>
+            <li>Toda <strong>venda finalizada</strong> ou <strong>pré-venda</strong> gravada vai pedir o <strong>código (2 dígitos)</strong> e a <strong>senha (de 2 a 10 dígitos)</strong> do vendedor antes de concluir.</li>
             <li>A lista geral de <strong>Pedidos de Venda</strong> deixa de aparecer para quem não é dono, Master ou Admin da empresa. Esses usuários passam a usar a nova tela <strong>Minhas Vendas</strong>, que mostra só as vendas do próprio vendedor.</li>
           </ul>
           <p style="margin:0;"><strong>Antes de confirmar:</strong> cadastre código e senha de pelo menos um vendedor em Usuários. Sem isso, ninguém consegue finalizar uma venda.</p>
@@ -1673,7 +1673,7 @@ const Configuracoes: React.FC = () => {
                 </label>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                   Para lojas onde vários vendedores usam o mesmo computador. Ao finalizar cada venda, aparece um popup pedindo o
-                  <strong> código (2 dígitos)</strong> e a <strong>senha (4 dígitos)</strong> do vendedor — a venda e a comissão ficam no nome dele.
+                  <strong> código (2 dígitos)</strong> e a <strong>senha (de 2 a 10 dígitos)</strong> do vendedor — a venda e a comissão ficam no nome dele.
                   Terminada a venda, o sistema esquece: a próxima pede de novo. Com esta opção ligada, o campo "Vendedor" da tela deixa de ser editável à mão.
                 </p>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
@@ -1683,7 +1683,7 @@ const Configuracoes: React.FC = () => {
                 </p>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                   Quem <strong>também precisa entrar no sistema</strong> (um gerente que vende, por exemplo) continua em Equipe &amp; Acessos,
-                  com o código do vendedor cadastrado na ficha dele. Se alguém esquecer a senha de 4 dígitos, o administrador cadastra
+                  com o código do vendedor cadastrado na ficha dele. Se alguém esquecer a senha, o administrador cadastra
                   outra na hora e isso já destrava quem estiver bloqueado por tentativas.
                 </p>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>

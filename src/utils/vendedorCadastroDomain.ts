@@ -4,7 +4,7 @@
 // cada um logado o dia inteiro numa conta de ESTACAO (`balcao01`,
 // `balcao02`, `frenteloja01`...). Quem vende sao pessoas -- Juliano,
 // Rodrigo, Fabielle -- que se identificam a cada venda com codigo + senha
-// de 4 digitos (ver vendedorPinDomain.ts).
+// de 2 a 10 digitos (ver vendedorPinDomain.ts).
 //
 // ---------------------------------------------------------------------------
 // O PROBLEMA QUE ISTO RESOLVE
@@ -106,4 +106,4 @@ export const VENDEDOR_SEM_LOGIN_FORA_DOS_COMBOS = true;
 /** Mensagem unica pra explicar o cadastro em todas as telas que citam ele.
  *  Uma frase so, no lugar de cada tela inventar a sua. */
 export const EXPLICACAO_VENDEDOR_SEM_LOGIN =
-  'Vendedores de balcão são cadastrados em Cadastros Auxiliares → Vendedores. Eles não entram no sistema: identificam-se com código e senha de 4 dígitos a cada venda, enquanto a estação (balcão 01, balcão 02...) segue logada.';
+  'Vendedores de balcão são cadastrados em Cadastros Auxiliares → Vendedores. Eles não entram no sistema: identificam-se com código e senha numérica a cada venda, enquanto a estação (balcão 01, balcão 02...) segue logada.';

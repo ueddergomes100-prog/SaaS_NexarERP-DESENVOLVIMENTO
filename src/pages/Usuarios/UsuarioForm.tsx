@@ -21,7 +21,8 @@ import {
   MENSAGEM_PIN_FRACO,
   MENSAGEM_PIN_INVALIDO,
   normalizarCodigoVendedor,
-  PIN_VENDEDOR_DIGITOS,
+  AJUDA_TAMANHO_PIN,
+  PIN_VENDEDOR_MAX_DIGITOS,
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -109,7 +110,7 @@ const UsuarioForm: React.FC = () => {
   /**
    * Grava o PIN pelo backend. Nao passa pelo Firestore: o hash mora numa
    * colecao que as rules negam pra todo mundo, e a comparacao acontece no
-   * servidor -- 4 digitos validados no navegador nao valeriam nada.
+   * servidor -- um PIN curto validado no navegador nao valeria nada.
    */
   const handleSalvarPin = async () => {
     if (!id) return;
@@ -407,14 +408,14 @@ const UsuarioForm: React.FC = () => {
 
         {isEditing && (
           <div className="input-group" style={{ gridColumn: 'span 6' }}>
-            <label>Senha do Vendedor ({PIN_VENDEDOR_DIGITOS} dígitos)</label>
+            <label>Senha do Vendedor ({AJUDA_TAMANHO_PIN.toLowerCase()})</label>
             <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 type="password"
                 inputMode="numeric"
-                placeholder="0000"
+                placeholder="Senha"
                 value={pinVendedor}
-                onChange={(e) => setPinVendedor(e.target.value.replace(/\D/g, '').slice(0, PIN_VENDEDOR_DIGITOS))}
+                onChange={(e) => setPinVendedor(e.target.value.replace(/\D/g, '').slice(0, PIN_VENDEDOR_MAX_DIGITOS))}
                 style={{ flex: 1 }}
               />
               <button

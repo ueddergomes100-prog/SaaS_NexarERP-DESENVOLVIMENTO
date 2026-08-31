@@ -1,5 +1,6 @@
 /**
- * Identificacao do vendedor na venda: codigo de 2 digitos + PIN de 4 digitos.
+ * Identificacao do vendedor na venda: codigo de 2 digitos + PIN de 2 a 10
+ * digitos.
  *
  * ---------------------------------------------------------------------------
  * PRA QUE SERVE
@@ -15,12 +16,14 @@
  * POR QUE O PIN NAO E' A SENHA DO FIREBASE AUTH
  * ---------------------------------------------------------------------------
  *
- * O Firebase Auth exige senha de 6+ caracteres, e o PIN aqui tem 4 digitos.
+ * O Firebase Auth exige senha de 6+ caracteres, e o PIN aqui pode ter tao
+ * pouco quanto 2 digitos.
  * Entao o PIN e' um segredo PROPRIO, guardado fora do alcance do navegador e
  * validado no backend (Admin SDK). Duas consequencias que valem lembrar:
  *
- *  - o navegador NUNCA ve o hash do PIN. Se visse, 10.000 combinacoes caem em
- *    milissegundos -- e ai o PIN nao valeria nada;
+ *  - o navegador NUNCA ve o hash do PIN. Se visse, as combinacoes (100 num PIN
+ *    de 2 digitos, 10.000 num de 4) caem em milissegundos -- e ai o PIN nao
+ *    valeria nada;
  *  - o codigo de 2 digitos e' PUBLICO por natureza (todo mundo ve o do
  *    colega). Toda a seguranca fica no PIN + no controle de tentativas do
  *    lado servidor.
@@ -33,7 +36,24 @@
 import { hasTenantFullAccess } from './roles';
 
 export const CODIGO_VENDEDOR_DIGITOS = 2;
-export const PIN_VENDEDOR_DIGITOS = 4;
+
+/**
+ * Faixa de tamanho do PIN (decisao de produto, 2026-08-31): a empresa escolhe
+ * quantos digitos usar, de 2 a 10. O que ja esta cadastrado com 4 continua
+ * valendo -- o backend guarda o hash, nao o tamanho, entao nao ha migracao.
+ *
+ * O piso de 2 e' uma escolha de conveniencia do balcao, nao de seguranca: com
+ * 2 digitos sao 100 combinacoes. Quem segura o estrago e' o limite de
+ * tentativas do backend (5 erros bloqueiam o vendedor por 5 minutos), nao o
+ * tamanho do PIN -- por isso a tela avisa quando o PIN esta curto demais
+ * (ver `isPinVendedorFraco`).
+ */
+export const PIN_VENDEDOR_MIN_DIGITOS = 2;
+export const PIN_VENDEDOR_MAX_DIGITOS = 10;
+
+/** Tamanho abaixo do qual a tela avisa que o PIN e' facil de adivinhar.
+ *  Nao bloqueia -- a decisao continua sendo do dono da empresa. */
+const PIN_VENDEDOR_DIGITOS_SEGUROS = 4;
 
 /** Teto de funcionarios com codigo por empresa: 00 a 99. */
 export const MAX_VENDEDORES_COM_CODIGO = 10 ** CODIGO_VENDEDOR_DIGITOS;
@@ -55,20 +75,21 @@ export const normalizarCodigoVendedor = (valor: unknown): string => {
 export const isCodigoVendedorValido = (valor: unknown): boolean =>
   normalizarCodigoVendedor(valor) !== '';
 
-/** PIN e' exatamente N digitos -- nem mais, nem menos, nada alem de digito. */
+/** PIN e' de MIN a MAX digitos -- nada alem de digito, sem espaco nem letra. */
 export const isPinVendedorValido = (valor: unknown): boolean => {
   const bruto = String(valor ?? '');
-  return new RegExp(`^\\d{${PIN_VENDEDOR_DIGITOS}}$`).test(bruto);
+  return new RegExp(`^\\d{${PIN_VENDEDOR_MIN_DIGITOS},${PIN_VENDEDOR_MAX_DIGITOS}}$`).test(bruto);
 };
 
 /**
  * PIN obvio demais. Nao BLOQUEIA (a decisao e' do dono da empresa), mas a
- * tela avisa: com 4 digitos e um codigo publico, "1234" e "0000" entregam a
- * conta pro primeiro colega curioso.
+ * tela avisa: com poucos digitos e um codigo publico, "12", "1234" e "0000"
+ * entregam a conta pro primeiro colega curioso.
  */
 export const isPinVendedorFraco = (valor: unknown): boolean => {
   if (!isPinVendedorValido(valor)) return false;
   const pin = String(valor);
+  if (pin.length < PIN_VENDEDOR_DIGITOS_SEGUROS) return true;
   const todosIguais = /^(\d)\1+$/.test(pin);
   const crescente = '0123456789'.includes(pin);
   const decrescente = '9876543210'.includes(pin);
@@ -80,10 +101,14 @@ export const MENSAGEM_CODIGO_INVALIDO =
   `O código do vendedor tem ${CODIGO_VENDEDOR_DIGITOS} dígitos (de 00 a 99). Confira o código com o responsável.`;
 
 export const MENSAGEM_PIN_INVALIDO =
-  `A senha do vendedor tem ${PIN_VENDEDOR_DIGITOS} dígitos numéricos.`;
+  `A senha do vendedor tem de ${PIN_VENDEDOR_MIN_DIGITOS} a ${PIN_VENDEDOR_MAX_DIGITOS} dígitos numéricos.`;
 
 export const MENSAGEM_PIN_FRACO =
-  'Esta senha é fácil de adivinhar (como 1234 ou 0000). Como o código do vendedor é visível para os colegas, prefira uma combinação menos óbvia.';
+  'Esta senha é fácil de adivinhar (curta demais, ou uma sequência como 1234 e 0000). Como o código do vendedor é visível para os colegas, prefira uma senha mais longa e menos óbvia.';
+
+/** Texto curto de ajuda, pro campo de senha em cada tela dizer o mesmo. */
+export const AJUDA_TAMANHO_PIN =
+  `De ${PIN_VENDEDOR_MIN_DIGITOS} a ${PIN_VENDEDOR_MAX_DIGITOS} dígitos`;
 
 /** Config do tenant: exige identificar o vendedor a cada venda.
  *  Desligado por padrao -- ligar mudaria o fluxo de quem ja vende hoje. */

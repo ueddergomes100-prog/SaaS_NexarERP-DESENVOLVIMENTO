@@ -6,7 +6,7 @@ import type { VendedorIdentificado } from '../utils/vendedorPinDomain';
  *
  * A validacao de verdade acontece SEMPRE no backend -- ver
  * `server/services/vendedorPin.js`. Aqui nao ha nem hash nem comparacao:
- * com 4 digitos, qualquer verificacao no navegador seria quebrada em
+ * com um PIN curto, qualquer verificacao no navegador seria quebrada em
  * milissegundos. As funcoes puras de `vendedorPinDomain.ts` servem so pra
  * avisar o usuario cedo sobre formato, nao pra decidir acesso.
  *

@@ -55,11 +55,20 @@ test('o teto de codigos e 100 (00 a 99)', () => {
 
 // --- PIN -------------------------------------------------------------------
 
-test('isPinVendedorValido exige exatamente 4 digitos', () => {
+test('isPinVendedorValido aceita de 2 a 10 digitos', () => {
+  // Faixa aberta em 2026-08-31. Os PINs de 4 digitos ja cadastrados seguem
+  // valendo -- por isso eles continuam no teste.
+  assert.equal(isPinVendedorValido('42'), true);
   assert.equal(isPinVendedorValido('1357'), true);
   assert.equal(isPinVendedorValido('0042'), true);
-  assert.equal(isPinVendedorValido('135'), false);
-  assert.equal(isPinVendedorValido('13570'), false);
+  assert.equal(isPinVendedorValido('135'), true);
+  assert.equal(isPinVendedorValido('13570'), true);
+  assert.equal(isPinVendedorValido('1234567890'), true);
+});
+
+test('isPinVendedorValido recusa fora da faixa e o que nao e digito', () => {
+  assert.equal(isPinVendedorValido('7'), false);
+  assert.equal(isPinVendedorValido('12345678901'), false);
   assert.equal(isPinVendedorValido('12a4'), false);
   assert.equal(isPinVendedorValido(''), false);
   assert.equal(isPinVendedorValido(undefined), false);
@@ -78,13 +87,22 @@ test('isPinVendedorFraco pega repetido e sequencia, nos dois sentidos', () => {
   assert.equal(isPinVendedorFraco('6789'), true);
 });
 
-test('isPinVendedorFraco deixa passar PIN comum', () => {
+test('isPinVendedorFraco avisa sobre PIN curto -- mas nao bloqueia', () => {
+  // Curto e' PERMITIDO (a empresa decide); a tela so avisa. Quem segura a
+  // forca bruta e' o limite de tentativas do backend.
+  assert.equal(isPinVendedorFraco('42'), true);
+  assert.equal(isPinVendedorFraco('135'), true);
+  assert.equal(isPinVendedorValido('42'), true);
+});
+
+test('isPinVendedorFraco deixa passar PIN comum, curto ou longo', () => {
   assert.equal(isPinVendedorFraco('1357'), false);
   assert.equal(isPinVendedorFraco('2846'), false);
+  assert.equal(isPinVendedorFraco('284617'), false);
 });
 
 test('isPinVendedorFraco so opina sobre PIN de formato valido', () => {
-  assert.equal(isPinVendedorFraco('111'), false);
+  assert.equal(isPinVendedorFraco('7'), false);
   assert.equal(isPinVendedorFraco('abcd'), false);
 });
 

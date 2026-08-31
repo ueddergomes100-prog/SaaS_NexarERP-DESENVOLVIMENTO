@@ -19,6 +19,7 @@ import {
   SIMPLIFIED_CARD_BANK_NAME,
 } from '../../utils/financeDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
+import { DEFAULT_MOSTRAR_VALOR_LISTA_OS, parseMostrarValorListaOS } from '../../utils/osListaValorDomain';
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
 import { spedyService, type SpedyCity } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
@@ -183,6 +184,7 @@ const Configuracoes: React.FC = () => {
     planoContasReceitas: ['Serviços', 'Venda de Produtos', 'Outras Receitas'],
     planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Produtos', 'Marketing', 'Manutenção', 'Outros'],
     modeloImpressaoOS: DEFAULT_OS_PRINT_MODEL,
+    mostrarValorListaOS: DEFAULT_MOSTRAR_VALOR_LISTA_OS,
     modeloImpressaoPedidoVenda: DEFAULT_PEDIDO_PRINT_MODEL,
     observacoesPadraoPedido: '',
     spedyEnabled: false,
@@ -290,6 +292,7 @@ const Configuracoes: React.FC = () => {
             planoContasReceitas: receitas,
             planoContasDespesas: despesas,
             modeloImpressaoOS: data.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL,
+            mostrarValorListaOS: parseMostrarValorListaOS(data.mostrarValorListaOS),
             modeloImpressaoPedidoVenda: data.modeloImpressaoPedidoVenda || DEFAULT_PEDIDO_PRINT_MODEL,
             observacoesPadraoPedido: data.observacoesPadraoPedido || '',
             spedyEnabled: data.spedyEnabled ?? false,
@@ -1322,6 +1325,24 @@ const Configuracoes: React.FC = () => {
                     );
                   })}
                 </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: 'var(--text-primary)', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.mostrarValorListaOS === true}
+                    onChange={(e) => setFormData({ ...formData, mostrarValorListaOS: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Mostrar o valor de cada OS na lista
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '8px 0 0' }}>
+                  Acrescenta uma coluna <strong>Valor</strong> no fim de cada linha da lista de Ordens de Serviço, com o total já
+                  com desconto. Sem ela, descobrir quanto vale cada OS exige abrir uma por uma. Desligue se o computador fica
+                  à vista do cliente e você prefere o valor fora da tela — quem abrir a OS continua vendo o total normalmente.
+                </p>
               </div>
 
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>

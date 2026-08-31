@@ -9,6 +9,11 @@ import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { applyStockFieldDeltas } from '../../utils/firestoreAtomic';
 import { computeReservationRelease } from '../../utils/estoqueReservaDomain';
+import {
+  DEFAULT_MOSTRAR_VALOR_LISTA_OS,
+  formatarValorListaOS,
+  parseMostrarValorListaOS,
+} from '../../utils/osListaValorDomain';
 import './OS.css';
 
 interface OSData {
@@ -22,6 +27,10 @@ interface OSData {
   createdAt: any;
   clienteTelefone?: string;
   total?: number;
+  /** Total da OS ja com o desconto abatido. Centavos e' a fonte boa; o campo
+   *  em reais existe pra OS gravada antes dos centavos. */
+  valorTotal?: number;
+  valorTotalCentavos?: number;
 }
 
 const OSList: React.FC = () => {
@@ -33,6 +42,8 @@ const OSList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   /** Linha destacada por um clique simples. Abrir exige duplo clique (ou Enter). */
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Configuracoes -> Ordem de Servico: mostrar o valor na lista. */
+  const [mostrarValor, setMostrarValor] = useState(DEFAULT_MOSTRAR_VALOR_LISTA_OS);
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
 
   const canEditOS = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('mecanica.os_alterar'));
@@ -62,6 +73,21 @@ const OSList: React.FC = () => {
 
     return () => unsubscribe();
   }, [currentUser]);
+
+  // Ao vivo, como o resto das configuracoes: o dono liga/desliga em
+  // Configuracoes e a lista acompanha sem ninguem precisar relogar.
+  useEffect(() => {
+    if (!tenantId) return;
+    const unsubscribe = onSnapshot(doc(db, 'configuracoes', tenantId), (snap) => {
+      setMostrarValor(parseMostrarValorListaOS(snap.exists() ? snap.data().mostrarValorListaOS : undefined));
+    }, (error) => {
+      // Falha de leitura MANTEM o que ja estava: piscar a coluna por causa de
+      // uma queda de rede seria pior do que continuar mostrando.
+      console.error('Erro ao carregar a configuracao de valor na lista de OS:', error);
+    });
+
+    return () => unsubscribe();
+  }, [tenantId]);
 
   const handleOpenWhatsApp = (os: OSData) => {
     if (!os.clienteTelefone) {
@@ -258,17 +284,18 @@ const OSList: React.FC = () => {
                 <th>Veículo</th>
                 <th>Placa</th>
                 <th>Status</th>
+                {mostrarValor && <th style={{ textAlign: 'right' }}>Valor</th>}
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando Ordens de Serviço...</td>
+                  <td colSpan={mostrarValor ? 7 : 6} style={{ textAlign: 'center', padding: '20px' }}>Carregando Ordens de Serviço...</td>
                 </tr>
               ) : filteredOsList.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>
+                  <td colSpan={mostrarValor ? 7 : 6} style={{ textAlign: 'center', padding: '20px' }}>
                     {searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhuma Ordem de Serviço encontrada nesta aba."}
                   </td>
                 </tr>
@@ -299,6 +326,11 @@ const OSList: React.FC = () => {
                         {os.status}
                       </span>
                     </td>
+                    {mostrarValor && (
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <span className="os-valor-chip">{formatarValorListaOS(os)}</span>
+                      </td>
+                    )}
                     <td>
                       <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                         <button

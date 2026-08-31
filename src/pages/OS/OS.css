@@ -471,3 +471,20 @@
 .item-row-selectable.selected {
   background-color: rgba(139, 92, 246, 0.12);
 }
+
+/* Valor da OS na lista (Configuracoes -> Ordem de Servico).
+   Pastilha discreta: numero tabular pra os valores alinharem coluna a coluna,
+   e peso um pouco maior que o resto da linha porque e' o que o olho procura
+   quando corre a lista atras de quanto vale cada OS. */
+.os-valor-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

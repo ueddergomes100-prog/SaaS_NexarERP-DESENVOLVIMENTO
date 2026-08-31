@@ -23,6 +23,16 @@ export interface ProductAutocompleteProps<T extends SearchableProduct & { id: st
   inputRef?: React.RefObject<HTMLInputElement | null>;
   emptyHint?: React.ReactNode;
   onViewMore?: (result: ProductSearchResult<T>) => void;
+  /**
+   * Enter com um produto JA selecionado. Serve pra tela lancar o item direto
+   * do campo de busca, sem o operador ter que sair de Tab ate o botao
+   * Adicionar -- no balcao, com fila, cada Tab conta.
+   *
+   * Nao dispara no Enter que SELECIONA: ali o primeiro Enter escolhe o
+   * produto (e ainda da tempo de mexer na quantidade), e o segundo lanca.
+   * Enter sempre significa "avanca um passo", nunca dois de uma vez.
+   */
+  onEnterComProdutoSelecionado?: () => void;
   className?: string;
   /** 'overlay' (padrao) flutua sobre o conteudo; 'inline' empurra o layout, usado no PDV. */
   variant?: 'overlay' | 'inline';
@@ -49,6 +59,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   inputRef,
   emptyHint,
   onViewMore,
+  onEnterComProdutoSelecionado,
   className,
   variant = 'overlay',
 }: ProductAutocompleteProps<T>) {
@@ -106,6 +117,14 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
       event.preventDefault();
       setHighlightedIndex((index) => Math.max(0, index - 1));
     } else if (event.key === 'Enter') {
+      // Produto ja escolhido (o campo trava quando isso acontece): Enter aqui
+      // lanca o item. Ver onEnterComProdutoSelecionado.
+      if (locked) {
+        if (!onEnterComProdutoSelecionado) return;
+        event.preventDefault();
+        onEnterComProdutoSelecionado();
+        return;
+      }
       if (result.items.length === 0) return;
       event.preventDefault();
       const product = result.items[highlightedIndex] || result.items[0];

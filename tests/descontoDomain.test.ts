@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
+  parsePermitirDescontoPorItem,
   DEFAULT_MODO_LIMITE_DESCONTO,
   calcularDescontoCents,
   checarLimiteTotal,
@@ -93,4 +95,36 @@ test('parseModoLimiteDesconto aceita so os 3 modos validos', () => {
   assert.equal(parseModoLimiteDesconto('avisar'), 'avisar');
   assert.equal(parseModoLimiteDesconto('lixo'), DEFAULT_MODO_LIMITE_DESCONTO);
   assert.equal(parseModoLimiteDesconto(undefined), DEFAULT_MODO_LIMITE_DESCONTO);
+});
+
+// --- Campo de desconto por item na tela de venda ---------------------------
+
+test('desconto por item vem habilitado por padrao', () => {
+  assert.equal(DEFAULT_PERMITIR_DESCONTO_POR_ITEM, true);
+});
+
+test('so false explicito esconde o desconto por item', () => {
+  assert.equal(parsePermitirDescontoPorItem(false), false);
+  // Empresa que nunca abriu a configuracao nao tem o campo gravado -- sumir
+  // com um campo que ela ja usa seria pior que manter.
+  assert.equal(parsePermitirDescontoPorItem(undefined), true);
+  assert.equal(parsePermitirDescontoPorItem(null), true);
+  assert.equal(parsePermitirDescontoPorItem('false'), true);
+});
+
+// --- Limite da tela vale pro desconto digitado em R$, nao so em % ----------
+
+test('limite em percentual pega desconto digitado em valor', () => {
+  // R$ 30 de desconto em R$ 100 sao 30% -- acima de um limite de 10%,
+  // independente de a pessoa ter digitado "30" em R$ ou "30" em %.
+  const limite = { tipo: 'percentual' as const, valor: 10 };
+  assert.equal(checarLimiteTotal(limite, 10000, 3000).excedeu, true);
+  assert.equal(checarLimiteTotal(limite, 10000, 900).excedeu, false);
+});
+
+test('limite em reais pega desconto digitado em percentual', () => {
+  // 30% de R$ 100 sao R$ 30 -- acima de um limite de R$ 20.
+  const limite = { tipo: 'valor' as const, valor: 20 };
+  assert.equal(checarLimiteTotal(limite, 10000, 3000).excedeu, true);
+  assert.equal(checarLimiteTotal(limite, 10000, 1500).excedeu, false);
 });

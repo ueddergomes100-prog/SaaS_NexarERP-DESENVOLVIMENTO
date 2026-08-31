@@ -21,6 +21,7 @@ import {
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { DEFAULT_MOSTRAR_VALOR_LISTA_OS, parseMostrarValorListaOS } from '../../utils/osListaValorDomain';
 import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../../utils/fiscalDomain';
+import { DEFAULT_PERMITIR_DESCONTO_POR_ITEM, parsePermitirDescontoPorItem } from '../../utils/descontoDomain';
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
 import { spedyService, type SpedyCity } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
@@ -153,6 +154,7 @@ const Configuracoes: React.FC = () => {
     limiteDescontoPedido: { tipo: 'percentual' as DescontoTipo, valor: '' },
     limiteDescontoOrcamento: { tipo: 'percentual' as DescontoTipo, valor: '' },
     limiteDescontoPdv: { tipo: 'percentual' as DescontoTipo, valor: '' },
+    permitirDescontoPorItem: DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
     modoValidacaoCliente: DEFAULT_MODO_VALIDACAO_CLIENTE,
     trabalhaComLimiteCredito: false,
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
@@ -251,6 +253,7 @@ const Configuracoes: React.FC = () => {
             limiteDescontoPedido: toLimiteDescontoFormValue(data.limiteDescontoPedido),
             limiteDescontoOrcamento: toLimiteDescontoFormValue(data.limiteDescontoOrcamento),
             limiteDescontoPdv: toLimiteDescontoFormValue(data.limiteDescontoPdv),
+            permitirDescontoPorItem: parsePermitirDescontoPorItem(data.permitirDescontoPorItem),
             modoValidacaoCliente: parseModoValidacaoCliente(data.modoValidacaoCliente),
             trabalhaComLimiteCredito: parseTrabalhaComLimiteCredito(data.trabalhaComLimiteCredito),
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
@@ -1972,6 +1975,27 @@ const Configuracoes: React.FC = () => {
                     Vale para as 4 telas acima. "Solicitar senha" exige a permissão "Vendas: Aprovar Desconto Acima do
                     Limite" (ou ser Admin/Master) de quem for digitar a senha.
                   </p>
+                </div>
+
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '14px', color: 'var(--text-primary)', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.permitirDescontoPorItem === true}
+                      onChange={(e) => setFormData({ ...formData, permitirDescontoPorItem: e.target.checked })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px', marginTop: '2px' }}
+                    />
+                    <span>
+                      Permitir desconto por item no Pedido de Venda
+                      <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
+                        Desmarque para tirar o campo <strong>Desconto</strong> da linha de lançamento do produto. Em loja que
+                        negocia um desconto só, no fim da venda, o campo por item é porta aberta para erro — desconto lançado
+                        no produto errado, ou dado duas vezes (no item e no total). O <strong>desconto geral da venda</strong> continua
+                        funcionando normalmente. Venda já gravada não muda: item que tem desconto continua com ele.
+                      </span>
+                    </span>
+                  </label>
                 </div>
               </div>
 

@@ -131,3 +131,25 @@ export const parseLimiteDescontoConfig = (raw: unknown): LimiteDescontoConfig =>
 export const parseModoLimiteDesconto = (raw: unknown): ModoLimiteDesconto => (
   raw === 'bloquear' || raw === 'senha' ? raw : DEFAULT_MODO_LIMITE_DESCONTO
 );
+
+/**
+ * DESCONTO POR ITEM APARECE NA TELA DE VENDA?
+ *
+ * Decisao de produto (2026-08-31). Nem toda loja quer o operador negociando
+ * item a item: em muita delas o desconto e' um so, no fim da venda, e o campo
+ * por item e' porta aberta pra erro -- desconto lancado no produto errado, ou
+ * dado duas vezes (no item e no total) sem ninguem perceber.
+ *
+ * Desligado, o campo some da linha de lancamento. O desconto GERAL da venda
+ * continua igual: e' ele que a maioria usa, e e ele que o limite de
+ * Configuracoes sempre olhou.
+ *
+ * Nao mexe em venda ja gravada: item que tem desconto continua com ele, e o
+ * total do pedido antigo nao muda. A opcao decide o que a tela OFERECE daqui
+ * pra frente, nao reescreve historico.
+ */
+export const DEFAULT_PERMITIR_DESCONTO_POR_ITEM = true;
+
+/** So `false` explicito esconde. Empresa que nunca abriu a configuracao nao
+ *  tem o campo gravado, e sumir com um campo que ela ja usa seria pior. */
+export const parsePermitirDescontoPorItem = (raw: unknown): boolean => raw !== false;

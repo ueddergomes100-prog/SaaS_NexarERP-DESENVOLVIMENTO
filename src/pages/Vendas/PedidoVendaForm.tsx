@@ -82,7 +82,9 @@ import {
 import {
   calcularDescontoCents,
   checarLimiteTotal,
+  DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
   excedeLimiteItem,
+  parsePermitirDescontoPorItem,
   parseLimiteDescontoConfig,
   parseModoLimiteDesconto,
   type LimiteDescontoConfig,
@@ -269,6 +271,7 @@ const PedidoVendaForm: React.FC = () => {
   const [descontoGeralInput, setDescontoGeralInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
   const [limiteDescontoPedido, setLimiteDescontoPedido] = useState<LimiteDescontoConfig | null>(null);
   const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>('avisar');
+  const [permitirDescontoPorItem, setPermitirDescontoPorItem] = useState(DEFAULT_PERMITIR_DESCONTO_POR_ITEM);
   const [modoValidacaoCliente, setModoValidacaoCliente] = useState<ModoValidacaoCliente>(DEFAULT_MODO_VALIDACAO_CLIENTE);
   const [trabalhaComLimiteCredito, setTrabalhaComLimiteCredito] = useState(false);
   const [cadastroRapidoAberto, setCadastroRapidoAberto] = useState(false);
@@ -505,6 +508,7 @@ const PedidoVendaForm: React.FC = () => {
           setVenderPorEmbalagem(config.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
           setLimiteDescontoPedido(parseLimiteDescontoConfig(config.limiteDescontoPedido));
           setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
+          setPermitirDescontoPorItem(parsePermitirDescontoPorItem(config.permitirDescontoPorItem));
           setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
           setTrabalhaComLimiteCredito(parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito));
           setImprimirMinutaAposVendaAtiva(config.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA);
@@ -856,7 +860,13 @@ const PedidoVendaForm: React.FC = () => {
 
     const precoFinal = produtoPreco > 0 ? produtoPreco : (opcaoUnidade?.precoVenda || produtoEncontrado?.precoVenda || 0);
     const precoCheioCents = toCents(precoFinal * qtdNum);
-    const descontoItemCents = calcularDescontoCents(produtoDescontoInput.tipo, produtoDescontoInput.valor, precoCheioCents);
+    // Com a opcao desligada o desconto por item e' ZERO de verdade, nao so
+    // escondido: senao um valor que ficou no estado (digitado antes de o dono
+    // desligar a opcao, que muda ao vivo) entraria na venda com o campo
+    // invisivel na tela -- desconto que ninguem consegue ver nem conferir.
+    const descontoItemCents = permitirDescontoPorItem
+      ? calcularDescontoCents(produtoDescontoInput.tipo, produtoDescontoInput.valor, precoCheioCents)
+      : 0;
 
     // Nivel 1 (produto): se o PRODUTO define seu proprio limite de desconto,
     // ele e' o piso -- sempre bloqueia, independente do modo configurado no
@@ -868,6 +878,40 @@ const PedidoVendaForm: React.FC = () => {
         `${produtoEncontrado.nome} aceita no máximo ${produtoEncontrado.descontoMaximoPercentual}% de desconto, definido no próprio cadastro.`,
       );
       return;
+    }
+
+    // Nivel 2 (empresa) TAMBEM no item, nao so no total da venda.
+    //
+    // O limite de Configuracoes sempre foi conferido, mas so no finalizar,
+    // olhando o total. Um desconto exagerado num item barato podia nao mover
+    // o total o suficiente pra disparar nada -- e ninguem via. Agora a
+    // conferencia acontece na hora de lancar, com o operador ainda olhando
+    // pro produto.
+    //
+    // Vale igual pros dois jeitos de digitar: checarLimiteTotal compara
+    // CENTAVOS ja resolvidos contra o limite convertido, entao R$ 30 num item
+    // de R$ 100 e' 30% do mesmo jeito que digitar "30%".
+    const limiteItem = checarLimiteTotal(limiteDescontoPedido, precoCheioCents, descontoItemCents);
+    if (limiteItem.excedeu) {
+      const descricaoLimite = limiteDescontoPedido?.tipo === 'valor'
+        ? `R$ ${Number(limiteDescontoPedido.valor).toFixed(2).replace('.', ',')}`
+        : `${limiteDescontoPedido?.valor}%`;
+      const nomeItem = produtoEncontrado?.nome || 'Este item';
+
+      // O modo configurado manda: quem escolheu "bloquear" quer barrado aqui;
+      // quem escolheu avisar/senha ja tem a decisao no fim da venda, e travar
+      // o lancamento seria mais duro do que a empresa pediu.
+      if (modoLimiteDesconto === 'bloquear') {
+        showError(
+          'Desconto acima do limite',
+          `O desconto de ${nomeItem} (${limiteItem.percentualAplicado.toFixed(1)}%) passa do limite de ${descricaoLimite} configurado para Pedido de Venda. Reduza o desconto para lançar o item.`,
+        );
+        return;
+      }
+
+      showWarning(
+        `Desconto de ${limiteItem.percentualAplicado.toFixed(1)}% em ${nomeItem} passa do limite de ${descricaoLimite} configurado. Vai precisar de liberação no fim da venda.`,
+      );
     }
 
     const produtoDesconto = fromCents(descontoItemCents);
@@ -980,7 +1024,8 @@ const PedidoVendaForm: React.FC = () => {
   useKeyboardShortcuts([
     { key: 'F2', when: !isViewing || canEditPendingCliente, handler: () => clienteInputRef.current?.focus() },
     { key: 'F3', when: !isViewing || canAddPendingItem, handler: () => produtoBuscaInputRef.current?.focus() },
-    { key: 'F4', when: !isViewing || canAddPendingItem, handler: () => produtoDescontoInputRef.current?.focus() },
+    // F4 (desconto do item) so vale quando o campo existe na tela.
+    { key: 'F4', when: permitirDescontoPorItem && (!isViewing || canAddPendingItem), handler: () => produtoDescontoInputRef.current?.focus() },
     { key: 'F5', when: (!isViewing || canEditPendingQtd) && selectedItemIndex !== null, handler: () => { void askSelectedItemQuantity(); } },
     { key: 'F6', when: !isViewing || canEditPendingOrder, handler: focusPagamentoSection },
     { key: 'F7', when: !isViewing || canEditPendingOrder, handler: focusPagamentoSection },
@@ -3510,6 +3555,10 @@ const PedidoVendaForm: React.FC = () => {
                       className="has-clear-btn"
                       onViewMore={() => setIsProdutoSearchModalOpen(true)}
                       renderItem={renderProdutoRow}
+                      // Produto ja escolhido + Enter = lanca o item, sem Tab
+                      // ate o botao Adicionar. Quantidade e preco ja faziam
+                      // isso; faltava o campo onde o operador esta.
+                      onEnterComProdutoSelecionado={handleAddItem}
                     />
                     {produtoBusca && (
                       <button
@@ -3582,16 +3631,20 @@ const PedidoVendaForm: React.FC = () => {
                   <input type="number" step="0.01" value={produtoPreco} onChange={(e) => setProdutoPreco(Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
                 </div>
 
-                <div style={{ flex: '0.9', minWidth: '130px' }}>
-                  <DescontoInput
-                    label="Desconto"
-                    idPrefix="item-desconto"
-                    value={produtoDescontoInput}
-                    onChange={setProdutoDescontoInput}
-                    inputRef={produtoDescontoInputRef}
-                    onEnterKey={handleAddItem}
-                  />
-                </div>
+                {/* Some quando a empresa desliga desconto por item em
+                    Configuracoes. O desconto GERAL da venda continua. */}
+                {permitirDescontoPorItem && (
+                  <div style={{ flex: '0.9', minWidth: '130px' }}>
+                    <DescontoInput
+                      label="Desconto"
+                      idPrefix="item-desconto"
+                      value={produtoDescontoInput}
+                      onChange={setProdutoDescontoInput}
+                      inputRef={produtoDescontoInputRef}
+                      onEnterKey={handleAddItem}
+                    />
+                  </div>
+                )}
 
                 <button type="button" onClick={handleAddItem} className="btn-primary" style={{ padding: '12px 24px', whiteSpace: 'nowrap' }}>
                   Adicionar

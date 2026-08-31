@@ -309,7 +309,7 @@ const PedidoVendaForm: React.FC = () => {
   // (gravar/finalizar/cancelar). State aqui seria uma segunda copia da
   // verdade, que envelhece se outra aba mexer na mesma pre-venda.
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal } = useAuth();
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
   const canReturnVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao'));
   // Pedido pendente do agente de WhatsApp: nasce com status "Em Analise"
@@ -2141,20 +2141,56 @@ const PedidoVendaForm: React.FC = () => {
         navigate(destino);
       };
 
-      // 5. Perguntar o que fazer
+      // 5. Perguntar o que fazer.
+      //
+      // Empresa que nao controla fiscal nao ve a opcao de cupom: pra ela,
+      // "Imprimir Recibo" vira a acao principal (ver controlaFiscal em
+      // fiscalDomain.ts). Sem isso, o botao mais destacado da tela era um que
+      // so tinha como dar errado se alguem clicasse.
       const result = await NexusSwal.fire({
         title: 'Venda Finalizada com Sucesso!',
         text: 'O estoque foi atualizado e o financeiro lançado. O que deseja fazer agora?',
         icon: 'success',
-        showDenyButton: true,
-        confirmButtonText: 'Emitir Cupom Fiscal (NFC-e)',
+        showCancelButton: true,
+        showDenyButton: controlaFiscal,
+        confirmButtonText: controlaFiscal ? 'Emitir Cupom Fiscal (NFC-e)' : 'Imprimir Recibo',
         denyButtonText: 'Imprimir Recibo',
         cancelButtonText: 'Apenas Concluir',
-        confirmButtonColor: '#10b981',
+        confirmButtonColor: controlaFiscal ? '#10b981' : '#3b82f6',
         denyButtonColor: '#3b82f6'
       });
 
-      if (result.isConfirmed) {
+      // Fechar no X, clicar fora ou apertar Esc quase sempre e' esquecimento:
+      // o cliente esta na frente esperando o papel. Pergunta uma vez -- e'
+      // barato aqui, e caro depois, com a venda ja feita e sem comprovante.
+      //
+      // Quem clica em "Apenas Concluir" NAO e' perguntado: ali a pessoa
+      // escolheu, e repetir a pergunta viraria clique a toa em toda venda.
+      const fechouSemEscolher = !result.isConfirmed
+        && !result.isDenied
+        && result.dismiss !== Swal.DismissReason.cancel;
+
+      if (fechouSemEscolher) {
+        const semImpressao = await NexusSwal.fire({
+          title: 'Concluir sem imprimir?',
+          text: 'A venda já está gravada. Você só não vai entregar o comprovante ao cliente.',
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Imprimir agora',
+          cancelButtonText: 'Concluir sem imprimir',
+          confirmButtonColor: '#3b82f6'
+        });
+
+        if (semImpressao.isConfirmed) {
+          await askMinutaAndNavigate(`/pedidos-venda/print/${newPedidoId}`);
+          return saveSucceeded;
+        }
+      }
+
+      // Sem fiscal, o botao principal imprime o recibo em vez de emitir cupom.
+      if (result.isConfirmed && !controlaFiscal) {
+        await askMinutaAndNavigate(`/pedidos-venda/print/${newPedidoId}`);
+      } else if (result.isConfirmed) {
         NexusSwal.fire({
           title: 'Emitindo Cupom Fiscal...',
           text: 'Enviando dados para a Spedy API / SEFAZ...',

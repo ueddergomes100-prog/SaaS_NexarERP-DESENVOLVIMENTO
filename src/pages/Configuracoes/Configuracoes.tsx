@@ -20,6 +20,7 @@ import {
 } from '../../utils/financeDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { DEFAULT_MOSTRAR_VALOR_LISTA_OS, parseMostrarValorListaOS } from '../../utils/osListaValorDomain';
+import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../../utils/fiscalDomain';
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
 import { spedyService, type SpedyCity } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
@@ -132,6 +133,7 @@ const Configuracoes: React.FC = () => {
     cnpj: '',
     inscricaoEstadual: '',
     regimeTributario: DEFAULT_REGIME_TRIBUTARIO as RegimeTributario,
+    controlaFiscal: DEFAULT_CONTROLA_FISCAL,
     telefone: '',
     whatsapp: '',
     instagram: '',
@@ -273,6 +275,7 @@ const Configuracoes: React.FC = () => {
             emiteNFCe: data.emiteNFCe ?? false,
             emiteNFSe: data.emiteNFSe ?? false,
             regimeTributario: (data.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario,
+            controlaFiscal: parseControlaFiscal(data.controlaFiscal),
             whatsapp: data.whatsapp ?? '',
             instagram: data.instagram ?? '',
             inscricaoEstadual: data.inscricaoEstadual ?? '',
@@ -1084,6 +1087,27 @@ const Configuracoes: React.FC = () => {
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
+
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '13px', color: 'var(--text-primary)', marginTop: '4px', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                <input
+                  type="checkbox"
+                  checked={formData.controlaFiscal === false}
+                  onChange={(e) => setFormData({ ...formData, controlaFiscal: !e.target.checked })}
+                  disabled={!isEditingMode}
+                  style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px', marginTop: '2px' }}
+                />
+                <span>
+                  <strong>Esta empresa não controla fiscal</strong>
+                  <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
+                    Marque quando a empresa vende no balcão com recibo e resolve a parte fiscal fora do sistema. Some da tela o
+                    menu <strong>Fiscal</strong> inteiro, o botão de <strong>emitir cupom (NFC-e)</strong> ao finalizar a venda e o de
+                    imprimir cupom na lista de pedidos. O resto do sistema não muda.
+                    <br />
+                    O regime tributário acima continua valendo: ele é um fato contábil da empresa e é o que define CSOSN/CST no
+                    cadastro de produto, mesmo que nenhuma nota saia por aqui.
+                  </span>
+                </span>
+              </label>
             </div>
           </div>
 

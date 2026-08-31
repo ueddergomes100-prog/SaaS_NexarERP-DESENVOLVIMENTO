@@ -10,6 +10,35 @@ export const REGIME_TRIBUTARIO_OPTIONS: Array<{ value: RegimeTributario; label: 
 
 export const DEFAULT_REGIME_TRIBUTARIO: RegimeTributario = 'simples_nacional';
 
+/**
+ * A EMPRESA CONTROLA FISCAL?
+ *
+ * Decisao de produto (2026-08-31). Nem todo cliente do sistema emite
+ * documento fiscal: ha quem venda no balcao com recibo simples e resolva a
+ * parte fiscal fora daqui. Pra esses, cada botao de "Emitir Cupom Fiscal" e
+ * cada menu de nota e' ruido -- pior, e' um botao que so tem como dar errado
+ * se alguem clicar por engano.
+ *
+ * Desligado, some da tela: o menu Fiscal inteiro (notas, entrada de XML e
+ * historico), o botao de emitir NFC-e no fim da venda e o de imprimir cupom
+ * na lista de pedidos. O resto do sistema nao muda em nada.
+ *
+ * NAO e um valor do regime tributario, e uma chave separada de proposito.
+ * Regime tributario e um fato contabil da empresa (ela CONTINUA sendo Simples
+ * Nacional mesmo sem emitir nota por aqui), e ele alimenta o calculo de
+ * imposto do cadastro de produto. Misturar "nao emito nota" na mesma lista
+ * faria o produto perder a referencia de CSOSN/CST por uma decisao que nao e
+ * sobre tributacao.
+ */
+export const DEFAULT_CONTROLA_FISCAL = true;
+
+/**
+ * So `false` explicito desliga. Empresa que nunca abriu a configuracao nao
+ * tem o campo gravado, e `undefined` tem que continuar com o fiscal ligado --
+ * sumir com o menu de nota de quem ja emite seria bem pior que o contrario.
+ */
+export const parseControlaFiscal = (raw: unknown): boolean => raw !== false;
+
 /** Simples Nacional tributa por CSOSN; Lucro Presumido/Real usam CST real
  * + aliquotas efetivas de ICMS/PIS/COFINS. Consumido pelas fatias
  * seguintes do modulo fiscal (cadastro de produto e emissao de NF-e). */

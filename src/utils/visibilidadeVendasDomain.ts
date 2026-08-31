@@ -52,14 +52,37 @@ export const parseRestringirVendasPorUsuario = (raw: unknown): boolean => {
  * checagem por role e' de proposito redundante com o nivel: quem hoje e'
  * Admin nao pode perder visibilidade so porque o campo novo ainda nao foi
  * preenchido no documento dele.
+ *
+ * ---------------------------------------------------------------------------
+ * A EXCECAO DO BALCAO COMPARTILHADO (2026-08-31)
+ * ---------------------------------------------------------------------------
+ *
+ * Quando a empresa exige identificacao do vendedor a cada venda, quem esta
+ * logado NAO e' uma pessoa -- e' a estacao (`balcao01`, `balcao02`...). A
+ * venda fica gravada no nome do vendedor que digitou o PIN, que nunca e' o
+ * uid da estacao.
+ *
+ * Filtrar por "minhas vendas = vendas do uid logado" nesse modo nao esconde
+ * nada de ninguem: esconde TUDO da estacao, inclusive a venda que ela acabou
+ * de fazer. Era esse o bug relatado -- finalizava a venda, clicava em
+ * imprimir e o sistema respondia "venda de outro vendedor".
+ *
+ * Neste modo a separacao por pessoa continua existindo, mas por outro
+ * caminho: a lista geral some pra quem nao e' gestor (ver
+ * listaGeralDeVendasEscondidaParaFuncionario, em vendedorPinDomain.ts) e o
+ * vendedor usa "Minhas Vendas", que se identifica pelo mesmo PIN. Quem
+ * responde "de quem e' esta venda" e' o PIN, nao o login.
  */
 export const somenteVendasProprias = (args: {
   restricaoAtiva: boolean;
   nivelAcesso: NivelAcesso;
   role: unknown;
   isOwner: boolean;
+  /** A empresa exige codigo + PIN do vendedor a cada venda? */
+  identificacaoVendedorAtiva?: boolean;
 }): boolean => {
   if (!args.restricaoAtiva) return false;
+  if (args.identificacaoVendedorAtiva) return false;
   if (hasTenantFullAccess(args.role, args.isOwner)) return false;
   return args.nivelAcesso === 'funcionario';
 };

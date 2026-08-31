@@ -26,6 +26,7 @@ import {
   parseExigirIdentificacaoVendedor,
 } from '../utils/vendedorPinDomain';
 import { isRegistroDeVendedor } from '../utils/vendedorCadastroDomain';
+import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../utils/fiscalDomain';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -54,6 +55,10 @@ interface AuthContextType {
    *  a marca de que a empresa trabalha em balcao compartilhado -- ver
    *  src/utils/vendedorCadastroDomain.ts. */
   exigirIdentificacaoVendedor: boolean;
+  /** Config da empresa: false quando ela NAO emite documento fiscal por aqui.
+   *  Esconde o menu Fiscal, o botao de NFC-e no fim da venda e o de imprimir
+   *  cupom na lista. Ver DEFAULT_CONTROLA_FISCAL em fiscalDomain.ts. */
+  controlaFiscal: boolean;
   /** Existe pelo menos um vendedor SEM LOGIN cadastrado nesta empresa. Serve
    *  so pra decidir se o menu "Vendedores" aparece: o cadastro nao pode
    *  sumir da vista quando alguem desmarca o checkbox por engano. */
@@ -124,6 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [nivelAcesso, setNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
   const [restringirVendasPorUsuario, setRestringirVendasPorUsuario] = useState(DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO);
   const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR);
+  const [controlaFiscal, setControlaFiscal] = useState(DEFAULT_CONTROLA_FISCAL);
   const [temVendedorCadastrado, setTemVendedorCadastrado] = useState(false);
   const [loading, setLoading] = useState(true);
   const sessionCloseTokenRef = useRef('');
@@ -341,6 +347,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!tenantId) {
       setRestringirVendasPorUsuario(DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO);
       setExigirIdentificacaoVendedor(DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR);
+      setControlaFiscal(DEFAULT_CONTROLA_FISCAL);
       return;
     }
 
@@ -353,6 +360,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setExigirIdentificacaoVendedor(
         parseExigirIdentificacaoVendedor(snap.exists() ? snap.data().exigirIdentificacaoVendedor : undefined),
       );
+      // Mesma leitura: a empresa que nao emite nota nao pode ver botao de
+      // nota, e isso muda ao vivo quando o dono desmarca em Configuracoes.
+      setControlaFiscal(parseControlaFiscal(snap.exists() ? snap.data().controlaFiscal : undefined));
     }, (error) => {
       // Falha de leitura MANTEM o valor atual de proposito. Cair pro
       // default (false) aqui abriria as vendas de todo mundo pro
@@ -508,11 +518,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     nivelAcesso,
     role: userRole,
     isOwner,
+    // No balcao compartilhado quem esta logado e' a ESTACAO, nao a pessoa --
+    // filtrar por uid ali esconde da estacao a venda que ela acabou de fazer.
+    // Ver somenteVendasProprias.
+    identificacaoVendedorAtiva: exigirIdentificacaoVendedor,
   });
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  DEFAULT_CONTROLA_FISCAL,
+  parseControlaFiscal,
   usesCsosn, ICMS_CST_OPTIONS, matchProdutoFromXmlItem, matchMateriaPrimaFromXmlItem, buildTaxesPayload,
   buildServiceInvoiceDescription, sumServiceInvoiceAmount, buildServiceInvoicePayload,
   isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields,
@@ -304,4 +306,20 @@ test('resolveInvoiceUnitFields bloqueia CFOP de exportacao sem peso configurado'
     cfop: '7102', unidadeComercial: 'UN', quantidadeComercial: 5, valorUnitarioComercial: 10, pesoLiquidoUnitarioKg: 0,
   });
   assert.equal(pesoZero.ok, false);
+});
+
+// --- Empresa que nao controla fiscal --------------------------------------
+
+test('fiscal vem ligado por padrao', () => {
+  assert.equal(DEFAULT_CONTROLA_FISCAL, true);
+});
+
+test('so false explicito desliga o fiscal', () => {
+  assert.equal(parseControlaFiscal(false), false);
+  // Empresa que nunca abriu a configuracao nao tem o campo gravado -- sumir
+  // com o menu de nota de quem ja emite seria bem pior que o contrario.
+  assert.equal(parseControlaFiscal(undefined), true);
+  assert.equal(parseControlaFiscal(null), true);
+  assert.equal(parseControlaFiscal(true), true);
+  assert.equal(parseControlaFiscal('false'), true);
 });

@@ -82,6 +82,7 @@ const Sidebar: React.FC = () => {
     currentUser,
     selectedTenant,
     exigirIdentificacaoVendedor,
+    controlaFiscal,
     temVendedorCadastrado
   } = useAuth();
   const navigate = useNavigate();
@@ -119,9 +120,13 @@ const Sidebar: React.FC = () => {
   const isBlocked = useCallback((module?: string) => Boolean(module && blockedModules?.includes(module)), [blockedModules]);
   const canAccess = useCallback((item: NavItem) => {
     if (isBlocked(item.module)) return false;
+    // Empresa que nao emite documento fiscal nao ve menu de nota. Nao e'
+    // permissao: e' a empresa dizendo que essa parte do sistema nao existe
+    // pra ela. Ver DEFAULT_CONTROLA_FISCAL em fiscalDomain.ts.
+    if (!controlaFiscal && item.module?.startsWith('fiscal.')) return false;
     if (item.managerOnly && !hasFullAccess) return false;
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [hasFullAccess, isBlocked, userPermissions]);
+  }, [controlaFiscal, hasFullAccess, isBlocked, userPermissions]);
 
   const groups = useMemo<NavGroup[]>(() => [
     {

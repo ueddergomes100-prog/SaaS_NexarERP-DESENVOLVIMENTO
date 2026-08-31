@@ -127,3 +127,37 @@ test('filtrarLancamentosVisiveis sem usuario nao esconde nada', () => {
   const lancamentos = [{ sourceType: 'pedido_venda', vendedorId: 'user-2' }];
   assert.deepEqual(filtrarLancamentosVisiveis(lancamentos, null), lancamentos);
 });
+
+// --- Balcao compartilhado: quem esta logado e a estacao, nao a pessoa ------
+
+test('identificacao do vendedor ligada desliga o filtro por uid', () => {
+  // A venda fica no nome de quem digitou o PIN, que nunca e o uid da estacao
+  // (balcao01). Filtrar por uid ali nao esconde nada de ninguem -- esconde
+  // TUDO da estacao, inclusive a venda que ela acabou de fazer. Era o bug de
+  // "venda de outro vendedor" ao imprimir logo depois de finalizar.
+  assert.equal(somenteVendasProprias({
+    restricaoAtiva: true,
+    nivelAcesso: 'funcionario',
+    role: 'Funcionario',
+    isOwner: false,
+    identificacaoVendedorAtiva: true,
+  }), false);
+});
+
+test('sem identificacao de vendedor a restricao por uid continua valendo', () => {
+  assert.equal(somenteVendasProprias({
+    restricaoAtiva: true,
+    nivelAcesso: 'funcionario',
+    role: 'Funcionario',
+    isOwner: false,
+    identificacaoVendedorAtiva: false,
+  }), true);
+
+  // Campo ausente (empresa que nunca abriu a config) se comporta igual.
+  assert.equal(somenteVendasProprias({
+    restricaoAtiva: true,
+    nivelAcesso: 'funcionario',
+    role: 'Funcionario',
+    isOwner: false,
+  }), true);
+});

@@ -21,7 +21,12 @@ import {
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { DEFAULT_MOSTRAR_VALOR_LISTA_OS, parseMostrarValorListaOS } from '../../utils/osListaValorDomain';
 import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../../utils/fiscalDomain';
-import { DEFAULT_PERMITIR_DESCONTO_POR_ITEM, parsePermitirDescontoPorItem } from '../../utils/descontoDomain';
+import {
+  DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
+  DEFAULT_TIPO_DESCONTO_PADRAO,
+  parsePermitirDescontoPorItem,
+  parseTipoDescontoPadrao,
+} from '../../utils/descontoDomain';
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
 import { spedyService, type SpedyCity } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
@@ -155,6 +160,7 @@ const Configuracoes: React.FC = () => {
     limiteDescontoOrcamento: { tipo: 'percentual' as DescontoTipo, valor: '' },
     limiteDescontoPdv: { tipo: 'percentual' as DescontoTipo, valor: '' },
     permitirDescontoPorItem: DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
+    tipoDescontoPadrao: DEFAULT_TIPO_DESCONTO_PADRAO as DescontoTipo,
     modoValidacaoCliente: DEFAULT_MODO_VALIDACAO_CLIENTE,
     trabalhaComLimiteCredito: false,
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
@@ -254,6 +260,7 @@ const Configuracoes: React.FC = () => {
             limiteDescontoOrcamento: toLimiteDescontoFormValue(data.limiteDescontoOrcamento),
             limiteDescontoPdv: toLimiteDescontoFormValue(data.limiteDescontoPdv),
             permitirDescontoPorItem: parsePermitirDescontoPorItem(data.permitirDescontoPorItem),
+            tipoDescontoPadrao: parseTipoDescontoPadrao(data.tipoDescontoPadrao),
             modoValidacaoCliente: parseModoValidacaoCliente(data.modoValidacaoCliente),
             trabalhaComLimiteCredito: parseTrabalhaComLimiteCredito(data.trabalhaComLimiteCredito),
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
@@ -1974,6 +1981,33 @@ const Configuracoes: React.FC = () => {
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                     Vale para as 4 telas acima. "Solicitar senha" exige a permissão "Vendas: Aprovar Desconto Acima do
                     Limite" (ou ser Admin/Master) de quem for digitar a senha.
+                  </p>
+                </div>
+
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Desconto abre em</label>
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    {([
+                      { value: 'valor' as DescontoTipo, label: 'R$ (valor)' },
+                      { value: 'percentual' as DescontoTipo, label: '% (percentual)' },
+                    ]).map((opcao) => (
+                      <label key={opcao.value} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: isEditingMode ? 'pointer' : 'default', color: 'var(--text-primary)', fontSize: '14px' }}>
+                        <input
+                          type="radio"
+                          name="tipoDescontoPadrao"
+                          checked={formData.tipoDescontoPadrao === opcao.value}
+                          onChange={() => setFormData({ ...formData, tipoDescontoPadrao: opcao.value })}
+                          disabled={!isEditingMode}
+                          style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                        />
+                        {opcao.label}
+                      </label>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                    Decide qual dos dois já vem escolhido quando o campo de desconto abre vazio — no item e na venda inteira, e
+                    também na OS e no Orçamento. Loja que negocia sempre em percentual deixa de trocar o seletor em
+                    toda venda. Trocar na hora continua sendo um clique, e desconto já lançado não muda.
                   </p>
                 </div>
 

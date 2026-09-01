@@ -153,3 +153,28 @@ export const DEFAULT_PERMITIR_DESCONTO_POR_ITEM = true;
 /** So `false` explicito esconde. Empresa que nunca abriu a configuracao nao
  *  tem o campo gravado, e sumir com um campo que ela ja usa seria pior. */
 export const parsePermitirDescontoPorItem = (raw: unknown): boolean => raw !== false;
+
+/**
+ * QUAL TIPO DE DESCONTO APARECE PRIMEIRO NA TELA.
+ *
+ * Decisao de produto (2026-09-01). O seletor de desconto (R$ / %) sempre
+ * abria em R$, fixo no codigo. Mas isso e habito de loja, nao regra: ha quem
+ * negocie sempre "10% pra voce" e ha quem negocie "tiro 5 reais". Quem
+ * trabalha em percentual trocava o seletor em TODA venda -- um clique a toa
+ * que se repete o dia inteiro.
+ *
+ * Vale pros dois campos, o do item e o da venda inteira: quem pensa em
+ * percentual pensa em percentual nos dois.
+ *
+ * NAO muda desconto ja lancado nem o que ja foi gravado -- decide so' como o
+ * campo VAZIO abre. Trocar o tipo na hora continua sendo um clique.
+ */
+export const DEFAULT_TIPO_DESCONTO_PADRAO: DescontoTipo = 'valor';
+
+export const parseTipoDescontoPadrao = (raw: unknown): DescontoTipo => (
+  raw === 'percentual' ? 'percentual' : DEFAULT_TIPO_DESCONTO_PADRAO
+);
+
+/** Estado inicial (e o de "limpar") do campo de desconto. Uma funcao so pras
+ *  quatro telas nao repetirem `{ tipo, valor: '' }` cada uma do seu jeito. */
+export const descontoInicial = (tipoPadrao: DescontoTipo) => ({ tipo: tipoPadrao, valor: '' });

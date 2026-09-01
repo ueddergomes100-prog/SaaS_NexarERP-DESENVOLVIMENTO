@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  DEFAULT_TIPO_DESCONTO_PADRAO,
+  descontoInicial,
+  parseTipoDescontoPadrao,
   DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
   parsePermitirDescontoPorItem,
   DEFAULT_MODO_LIMITE_DESCONTO,
@@ -127,4 +130,23 @@ test('limite em reais pega desconto digitado em percentual', () => {
   const limite = { tipo: 'valor' as const, valor: 20 };
   assert.equal(checarLimiteTotal(limite, 10000, 3000).excedeu, true);
   assert.equal(checarLimiteTotal(limite, 10000, 1500).excedeu, false);
+});
+
+// --- Tipo de desconto que abre por padrao ---------------------------------
+
+test('o padrao continua sendo R$, como sempre foi', () => {
+  assert.equal(DEFAULT_TIPO_DESCONTO_PADRAO, 'valor');
+});
+
+test('so "percentual" troca o padrao -- qualquer outra coisa cai em R$', () => {
+  assert.equal(parseTipoDescontoPadrao('percentual'), 'percentual');
+  assert.equal(parseTipoDescontoPadrao('valor'), 'valor');
+  assert.equal(parseTipoDescontoPadrao(undefined), 'valor');
+  assert.equal(parseTipoDescontoPadrao(null), 'valor');
+  assert.equal(parseTipoDescontoPadrao('%'), 'valor');
+});
+
+test('descontoInicial abre o campo vazio no tipo escolhido', () => {
+  assert.deepEqual(descontoInicial('percentual'), { tipo: 'percentual', valor: '' });
+  assert.deepEqual(descontoInicial('valor'), { tipo: 'valor', valor: '' });
 });

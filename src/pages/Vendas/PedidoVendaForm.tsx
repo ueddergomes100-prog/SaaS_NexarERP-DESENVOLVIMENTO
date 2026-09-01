@@ -83,6 +83,10 @@ import {
   calcularDescontoCents,
   checarLimiteTotal,
   DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
+  DEFAULT_TIPO_DESCONTO_PADRAO,
+  descontoInicial,
+  parseTipoDescontoPadrao,
+  type DescontoTipo,
   excedeLimiteItem,
   parsePermitirDescontoPorItem,
   parseLimiteDescontoConfig,
@@ -271,6 +275,26 @@ const PedidoVendaForm: React.FC = () => {
   const [descontoGeralInput, setDescontoGeralInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
   const [limiteDescontoPedido, setLimiteDescontoPedido] = useState<LimiteDescontoConfig | null>(null);
   const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>('avisar');
+  const [tipoDescontoPadrao, setTipoDescontoPadrao] = useState<DescontoTipo>(DEFAULT_TIPO_DESCONTO_PADRAO);
+
+  // O tipo padrao vem da configuracao da empresa, que carrega DEPOIS do
+  // primeiro render -- entao o campo abre em R$ e so aqui muda pro que a
+  // empresa escolheu. So mexe no campo AINDA VAZIO: desconto ja digitado (ou
+  // carregado de um documento salvo) mantem o tipo que tem, senao trocar a
+  // configuracao reescreveria um desconto que alguem ja lancou.
+  useEffect(() => {
+    setProdutoDescontoInput((atual) => (atual.valor === '' ? descontoInicial(tipoDescontoPadrao) : atual));
+  }, [tipoDescontoPadrao]);
+
+  // O tipo padrao vem da configuracao da empresa, que carrega DEPOIS do
+  // primeiro render -- entao o campo abre em R$ e so aqui muda pro que a
+  // empresa escolheu. So mexe no campo AINDA VAZIO: desconto ja digitado (ou
+  // carregado de um documento salvo) mantem o tipo que tem, senao trocar a
+  // configuracao reescreveria um desconto que alguem ja lancou.
+  useEffect(() => {
+    setDescontoGeralInput((atual) => (atual.valor === '' ? descontoInicial(tipoDescontoPadrao) : atual));
+  }, [tipoDescontoPadrao]);
+
   const [permitirDescontoPorItem, setPermitirDescontoPorItem] = useState(DEFAULT_PERMITIR_DESCONTO_POR_ITEM);
   const [modoValidacaoCliente, setModoValidacaoCliente] = useState<ModoValidacaoCliente>(DEFAULT_MODO_VALIDACAO_CLIENTE);
   const [trabalhaComLimiteCredito, setTrabalhaComLimiteCredito] = useState(false);
@@ -508,6 +532,7 @@ const PedidoVendaForm: React.FC = () => {
           setVenderPorEmbalagem(config.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
           setLimiteDescontoPedido(parseLimiteDescontoConfig(config.limiteDescontoPedido));
           setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
+          setTipoDescontoPadrao(parseTipoDescontoPadrao(config.tipoDescontoPadrao));
           setPermitirDescontoPorItem(parsePermitirDescontoPorItem(config.permitirDescontoPorItem));
           setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
           setTrabalhaComLimiteCredito(parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito));
@@ -937,7 +962,9 @@ const PedidoVendaForm: React.FC = () => {
     setItens([...itens, novoItem]);
     setProdutoBusca('');
     setProdutoQtd(1);
-    setProdutoDescontoInput({ tipo: 'valor', valor: '' });
+    // Limpa no tipo que a empresa escolheu, nao no R$ fixo: quem trabalha em
+    // percentual teria que trocar o seletor a cada item lancado.
+    setProdutoDescontoInput(descontoInicial(tipoDescontoPadrao));
     setProdutoPreco(0);
     setProdutoSelecionado(null);
     setEmbalagemSelecionadaId('');

@@ -20,8 +20,12 @@ import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import {
   calcularDescontoCents,
   checarLimiteTotal,
+  DEFAULT_TIPO_DESCONTO_PADRAO,
+  descontoInicial,
   parseLimiteDescontoConfig,
   parseModoLimiteDesconto,
+  parseTipoDescontoPadrao,
+  type DescontoTipo,
   type LimiteDescontoConfig,
   type ModoLimiteDesconto,
 } from '../../utils/descontoDomain';
@@ -224,6 +228,17 @@ const OSForm: React.FC = () => {
   const [descontoInput, setDescontoInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
   const [limiteDescontoOS, setLimiteDescontoOS] = useState<LimiteDescontoConfig | null>(null);
   const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>('avisar');
+  const [tipoDescontoPadrao, setTipoDescontoPadrao] = useState<DescontoTipo>(DEFAULT_TIPO_DESCONTO_PADRAO);
+
+  // O tipo padrao vem da configuracao da empresa, que carrega DEPOIS do
+  // primeiro render -- entao o campo abre em R$ e so aqui muda pro que a
+  // empresa escolheu. So mexe no campo AINDA VAZIO: desconto ja digitado (ou
+  // carregado de um documento salvo) mantem o tipo que tem, senao trocar a
+  // configuracao reescreveria um desconto que alguem ja lancou.
+  useEffect(() => {
+    setDescontoInput((atual) => (atual.valor === '' ? descontoInicial(tipoDescontoPadrao) : atual));
+  }, [tipoDescontoPadrao]);
+
   const [modoValidacaoCliente, setModoValidacaoCliente] = useState<ModoValidacaoCliente>(DEFAULT_MODO_VALIDACAO_CLIENTE);
   const [trabalhaComLimiteCredito, setTrabalhaComLimiteCredito] = useState(false);
   const [cadastroRapidoAberto, setCadastroRapidoAberto] = useState(false);
@@ -345,6 +360,7 @@ const OSForm: React.FC = () => {
           setMomentoBaixaEstoque((config.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque);
           setLimiteDescontoOS(parseLimiteDescontoConfig(config.limiteDescontoOS));
           setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
+          setTipoDescontoPadrao(parseTipoDescontoPadrao(config.tipoDescontoPadrao));
           setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
           setTrabalhaComLimiteCredito(parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito));
           setComissaoPadraoPecas(typeof config.comissaoPadraoPecas === 'number' ? config.comissaoPadraoPecas : undefined);

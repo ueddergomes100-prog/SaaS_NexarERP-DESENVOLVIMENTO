@@ -351,8 +351,13 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
       <div className="payments-editor__header">
         <h3>Pagamentos e condição</h3>
         {!disabled && (
-          <button type="button" className="btn-secondary payments-editor__add" onClick={onAddPayment}>
-            + Adicionar forma
+          <button
+            type="button"
+            className="btn-secondary payments-editor__add"
+            onClick={onAddPayment}
+            title="Divide esta venda em mais de uma forma de pagamento (ex: parte no Pix, parte no cartão)"
+          >
+            + Dividir pagamento
           </button>
         )}
       </div>

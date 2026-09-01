@@ -14,6 +14,9 @@ export interface ClienteCadastradoRapido {
   telefone: string;
   documento: string;
   endereco: string;
+  numero: string;
+  bairro: string;
+  cidade: string;
 }
 
 interface CadastroRapidoClienteModalProps {
@@ -27,9 +30,10 @@ interface CadastroRapidoClienteModalProps {
 
 /**
  * Popup de cadastro rapido de cliente, aberto direto das telas de venda
- * (PDV, Pedido de Venda, OS, Orcamento) -- so os 4 campos essenciais
- * pedidos pelo usuario. Quem precisar de mais campos (limite de credito,
- * bairro, numero...) edita o cadastro completo depois em Clientes.
+ * (PDV, Pedido de Venda, OS, Orcamento) -- os campos essenciais pedidos pelo
+ * usuario, no mesmo nome de campo do cadastro completo (endereco, numero,
+ * bairro, cidade). Quem precisar de mais (limite de credito, e-mail...)
+ * edita o cadastro completo depois em Clientes.
  */
 const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
   open,
@@ -40,6 +44,9 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
   const { currentUser, tenantId } = useAuth();
   const [nome, setNome] = useState('');
   const [endereco, setEndereco] = useState('');
+  const [numero, setNumero] = useState('');
+  const [bairro, setBairro] = useState('');
+  const [cidade, setCidade] = useState('');
   const [telefone, setTelefone] = useState('');
   const [documento, setDocumento] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -48,6 +55,9 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
     if (!open) return;
     setNome(nomeInicial?.trim() || '');
     setEndereco('');
+    setNumero('');
+    setBairro('');
+    setCidade('');
     setTelefone('');
     setDocumento('');
   }, [open, nomeInicial]);
@@ -73,13 +83,26 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
         codigo,
         nome: nomeLimpo,
         endereco: endereco.trim(),
+        numero: numero.trim(),
+        bairro: bairro.trim(),
+        cidade: cidade.trim(),
         telefone: telefone.trim(),
         documento,
         tenantId,
         createdAt: serverTimestamp(),
         ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
       });
-      onCriado({ id: novoClienteRef.id, codigo, nome: nomeLimpo, telefone: telefone.trim(), documento, endereco: endereco.trim() });
+      onCriado({
+        id: novoClienteRef.id,
+        codigo,
+        nome: nomeLimpo,
+        telefone: telefone.trim(),
+        documento,
+        endereco: endereco.trim(),
+        numero: numero.trim(),
+        bairro: bairro.trim(),
+        cidade: cidade.trim(),
+      });
       onClose();
     } catch (error) {
       console.error('Erro ao cadastrar cliente:', error);
@@ -127,14 +150,46 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
             />
           </div>
 
-          <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Endereço</label>
-            <input
-              type="text"
-              value={endereco}
-              onChange={(e) => setEndereco(e.target.value)}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Endereço</label>
+              <input
+                type="text"
+                value={endereco}
+                onChange={(e) => setEndereco(e.target.value)}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Número</label>
+              <input
+                type="text"
+                value={numero}
+                onChange={(e) => setNumero(e.target.value)}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Bairro</label>
+              <input
+                type="text"
+                value={bairro}
+                onChange={(e) => setBairro(e.target.value)}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Cidade</label>
+              <input
+                type="text"
+                value={cidade}
+                onChange={(e) => setCidade(e.target.value)}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+              />
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>

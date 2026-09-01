@@ -3,7 +3,7 @@ import { collection, query, orderBy, limit, getDocs, startAfter, where, Timestam
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { createAuditLog, runLogsCleanup } from '../../services/logService';
-import { ShieldAlert, Search, Calendar, Filter, Loader2, Info, Lock, KeyRound } from 'lucide-react';
+import { ShieldAlert, Search, Calendar, Filter, Loader2, Info } from 'lucide-react';
 import { showError, showSuccess } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 
@@ -34,11 +34,7 @@ interface LogDocument {
 
 const LogsSistema: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
-  
-  // Acesso e Autenticação da Tela
-  const [authorized, setAuthorized] = useState(false);
-  const [password, setPassword] = useState('');
-  const [passwordError, setPasswordError] = useState('');
+
   const [hasPermission, setHasPermission] = useState(true);
 
   // States dos Logs
@@ -84,19 +80,19 @@ const LogsSistema: React.FC = () => {
     }
   }, [userRole, userPermissions, currentUser, tenantId]);
 
-  // Limpeza automática dos logs em background após a autorização da tela
+  // Limpeza automática dos logs em background após liberar a tela
   useEffect(() => {
-    if (authorized && tenantId) {
+    if (hasPermission && tenantId) {
       runLogsCleanup(tenantId);
     }
-  }, [authorized, tenantId]);
+  }, [hasPermission, tenantId]);
 
   // Carregar dados iniciais
   useEffect(() => {
-    if (authorized && tenantId) {
+    if (hasPermission && tenantId) {
       fetchLogs(true);
     }
-  }, [authorized, tenantId, moduloFilter, acaoFilter, statusFilter, startDate, endDate]);
+  }, [hasPermission, tenantId, moduloFilter, acaoFilter, statusFilter, startDate, endDate]);
 
   const fetchLogs = async (isInitial = true) => {
     if (!tenantId) return;
@@ -179,38 +175,6 @@ const LogsSistema: React.FC = () => {
     }
   };
 
-  const handleVerifyPassword = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentUser || !tenantId) return;
-
-    if (password === '6924') {
-      setAuthorized(true);
-      setPasswordError('');
-      createAuditLog({
-        tenantId,
-        usuarioId: currentUser.uid,
-        usuarioEmail: currentUser.email || currentUser.uid,
-        modulo: 'logs',
-        acao: 'acesso_autorizado',
-        descricao: 'Acesso autorizado à tela de logs do sistema.',
-        status: 'sucesso',
-        critical: true
-      });
-    } else {
-      setPasswordError('Senha incorreta! A tentativa foi gravada nos logs de auditoria.');
-      createAuditLog({
-        tenantId,
-        usuarioId: currentUser.uid,
-        usuarioEmail: currentUser.email || currentUser.uid,
-        modulo: 'logs',
-        acao: 'senha_incorreta',
-        descricao: `Tentativa falha de entrada no painel de auditoria utilizando a senha: ${password || 'vazia'}.`,
-        status: 'negado',
-        critical: true
-      });
-    }
-  };
-
   // Filtro de Busca de Usuário (executado no cliente por flexibilidade e performance)
   const filteredLogs = logs.filter(log => {
     if (!searchUser) return true;
@@ -249,96 +213,6 @@ const LogsSistema: React.FC = () => {
         <ShieldAlert size={64} color="#ef4444" style={{ marginBottom: '16px', filter: 'drop-shadow(0 0 10px rgba(239,68,68,0.3))' }} />
         <h2 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '8px' }}>Acesso Negado</h2>
         <p style={{ color: 'var(--text-muted)', maxWidth: '400px' }}>Você não tem permissão para visualizar a tela de auditoria e logs do sistema.</p>
-      </div>
-    );
-  }
-
-  // Tela de verificação de senha
-  if (!authorized) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '65vh', padding: '20px' }}>
-        <div style={{
-          width: '100%',
-          maxWidth: '420px',
-          backgroundColor: 'var(--bg-secondary)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border-color)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-          overflow: 'hidden'
-        }}>
-          <div style={{
-            background: 'linear-gradient(135deg, var(--accent-purple), var(--accent-blue))',
-            padding: '24px',
-            textAlign: 'center',
-            color: 'white'
-          }}>
-            <Lock size={36} style={{ marginBottom: '12px' }} />
-            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700 }}>Acesso Protegido</h2>
-            <p style={{ margin: '4px 0 0 0', fontSize: '13px', opacity: 0.8 }}>Digite a chave de segurança para abrir a auditoria.</p>
-          </div>
-
-          <form onSubmit={handleVerifyPassword} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {passwordError && (
-              <div style={{
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                borderRadius: '8px',
-                padding: '12px',
-                color: '#ef4444',
-                fontSize: '13px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <Info size={16} />
-                <span>{passwordError}</span>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Senha de Acesso</label>
-              <div style={{ position: 'relative' }}>
-                <KeyRound size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Informe a senha de 4 dígitos"
-                  style={{
-                    width: '100%',
-                    padding: '12px 12px 12px 38px',
-                    backgroundColor: 'var(--bg-primary)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '8px',
-                    color: 'white',
-                    fontSize: '14px',
-                    outline: 'none',
-                    transition: 'border-color 0.2s'
-                  }}
-                  autoFocus
-                />
-              </div>
-            </div>
-
-            <button type="submit" style={{
-              width: '100%',
-              padding: '12px',
-              backgroundColor: 'var(--accent-purple)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'opacity 0.2s',
-              marginTop: '8px'
-            }}
-            onMouseOver={(e) => e.currentTarget.style.opacity = '0.9'}
-            onMouseOut={(e) => e.currentTarget.style.opacity = '1'}
-            >
-              Liberar Painel
-            </button>
-          </form>
-        </div>
       </div>
     );
   }

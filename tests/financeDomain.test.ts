@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO,
+  formaPagamentoInicial,
+  parseExigirEscolhaFormaPagamento,
   applyPaymentReceipt,
   buildCardFeeSchedulesByBrand,
   buildCommissionSnapshot,
@@ -757,4 +760,34 @@ test('transactionDueDateInput cai pra data da operacao quando nao ha vencimento 
 test('transactionDueDateInput devolve vazio quando nao ha nenhuma data', () => {
   assert.equal(transactionDueDateInput({}), '');
   assert.equal(transactionDueDateInput({ dataVencimento: null, dataPrevistaRecebimento: null, data: null }), '');
+});
+
+// --- Obrigar a escolha da forma de pagamento ------------------------------
+
+test('a exigencia vem desligada por padrao', () => {
+  assert.equal(DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO, false);
+  assert.equal(parseExigirEscolhaFormaPagamento(undefined), false);
+  assert.equal(parseExigirEscolhaFormaPagamento('true'), false);
+  assert.equal(parseExigirEscolhaFormaPagamento(true), true);
+});
+
+test('ligada, o campo abre vazio; desligada, abre em Dinheiro', () => {
+  assert.equal(formaPagamentoInicial(true), '');
+  assert.equal(formaPagamentoInicial(false), 'Dinheiro');
+});
+
+test('gravar sem escolher a forma e recusado, dizendo QUAL pagamento', () => {
+  // Numa venda com duas formas, "escolha a forma" sozinho nao ajuda ninguem.
+  assert.throws(
+    () => normalizePayments(10_000, [payment({ forma: '', valor: '100.00' })], { saleDate: '2026-09-01' }),
+    /Escolha a forma de pagamento antes de finalizar/,
+  );
+
+  assert.throws(
+    () => normalizePayments(10_000, [
+      payment({ forma: 'Dinheiro', valor: '50.00' }),
+      payment({ id: 'p2', forma: '', valor: '50.00' }),
+    ], { saleDate: '2026-09-01' }),
+    /Escolha a forma do pagamento 2 antes de finalizar/,
+  );
 });

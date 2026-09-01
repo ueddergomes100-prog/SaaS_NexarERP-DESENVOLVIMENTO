@@ -27,6 +27,9 @@ import {
   cancelCommissionSnapshot,
   computeBankCreditsMap,
   createEmptyPaymentDraft,
+  DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO,
+  formaPagamentoInicial,
+  parseExigirEscolhaFormaPagamento,
   explodeInstallmentPaymentRecords,
   fromCents,
   normalizeCreditCardFeeSchedule,
@@ -234,6 +237,9 @@ const PedidoVendaForm: React.FC = () => {
     creditSettlementDays: 30,
     debitSettlementDays: 1,
   });
+  /** Configuracoes: obriga escolher a forma antes de finalizar -- ver
+   *  DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO em financeDomain.ts. */
+  const [exigirEscolhaFormaPagamento, setExigirEscolhaFormaPagamento] = useState(DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO);
   const [numeroPedido, setNumeroPedido] = useState('');
   const [status, setStatus] = useState('Aberta');
   const [itens, setItens] = useState<ItemVenda[]>([]);
@@ -535,6 +541,16 @@ const PedidoVendaForm: React.FC = () => {
           const defaultTermDays = configuredTerms[0] || 30;
           const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
           const debitSettlementDays = config.prazoRecebimentoCartaoDebitoDias ?? 1;
+          setExigirEscolhaFormaPagamento(parseExigirEscolhaFormaPagamento(config.exigirEscolhaFormaPagamento));
+          // A config chega DEPOIS do primeiro render, entao o rascunho ja
+          // nasceu em Dinheiro. Limpa aqui -- e so em documento NOVO: numa
+          // edicao os pagamentos vem do que foi gravado, e apagar um Dinheiro
+          // de verdade seria reescrever a venda de alguem.
+          if (parseExigirEscolhaFormaPagamento(config.exigirEscolhaFormaPagamento) && !id) {
+            setPaymentDrafts((atuais) => atuais.map((rascunho) => (
+              rascunho.forma === 'Dinheiro' ? { ...rascunho, forma: '' as const } : rascunho
+            )));
+          }
           setFinanceConfig({
             defaultTermDays,
             maxCreditInstallments: Math.min(12, Math.max(1, Number(config.maxParcelasCartao ?? 12) || 12)),
@@ -816,7 +832,7 @@ const PedidoVendaForm: React.FC = () => {
         : disponivelCents;
 
       const creditoDraft: PaymentDraft = {
-        ...createEmptyPaymentDraft('pagamento-credito', abatimentoCents),
+        ...createEmptyPaymentDraft('pagamento-credito', abatimentoCents, financeConfig.defaultTermDays, formaPagamentoInicial(exigirEscolhaFormaPagamento)),
         forma: 'Crédito de Devolução',
       };
 

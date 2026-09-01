@@ -22,6 +22,7 @@ import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils
 import { DEFAULT_MOSTRAR_VALOR_LISTA_OS, parseMostrarValorListaOS } from '../../utils/osListaValorDomain';
 import { DEFAULT_MOSTRAR_RESUMO_ESTOQUE, parseMostrarResumoEstoque } from '../../utils/estoqueResumoDomain';
 import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../../utils/fiscalDomain';
+import { DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO, parseExigirEscolhaFormaPagamento } from '../../utils/financeDomain';
 import {
   DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
   DEFAULT_TIPO_DESCONTO_PADRAO,
@@ -190,6 +191,7 @@ const Configuracoes: React.FC = () => {
     diasCrediario: '30',
     maxParcelasCartao: '12',
     pagamentoCartaoSimplificadoAtivo: DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO,
+    exigirEscolhaFormaPagamento: DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO,
     taxasCartaoCreditoPorParcela: toCreditCardRateInputs(null),
     taxaCartaoDebitoPercentual: '0',
     prazoRecebimentoCartaoCreditoDias: '30',
@@ -299,6 +301,7 @@ const Configuracoes: React.FC = () => {
             diasCrediario: data.diasCrediario ?? '30',
             maxParcelasCartao: String(Math.min(12, Math.max(1, Number(data.maxParcelasCartao ?? 12) || 12))),
             pagamentoCartaoSimplificadoAtivo: parsePagamentoCartaoSimplificadoAtivo(data.pagamentoCartaoSimplificadoAtivo),
+            exigirEscolhaFormaPagamento: parseExigirEscolhaFormaPagamento(data.exigirEscolhaFormaPagamento),
             taxasCartaoCreditoPorParcela: toCreditCardRateInputs(
               data.taxasCartaoCreditoPorParcela,
               data.taxaCartaoCreditoPercentual ?? 0,
@@ -2269,6 +2272,26 @@ const Configuracoes: React.FC = () => {
                   <strong>&quot;{SIMPLIFIED_CARD_BANK_NAME}&quot;</strong> (criado automaticamente ao salvar). Dinheiro,
                   Pix, Transferência e Pagamento a Prazo não mudam. Desligada (padrão), o cartão continua pedindo
                   bandeira, NSU/autorização, parcelas e banco de destino, como hoje.
+                </p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Escolha da Forma de Pagamento</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.exigirEscolhaFormaPagamento === true}
+                    onChange={(e) => setFormData({ ...formData, exigirEscolhaFormaPagamento: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Obrigar o operador a escolher a forma de pagamento
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  O campo passa a abrir em <strong>&quot;Selecione...&quot;</strong> em vez de Dinheiro, e finalizar sem escolher
+                  mostra um aviso. Sem isso, quem vende no cartão ou no Pix também não mexe no campo — clica em finalizar e a
+                  venda sai como Dinheiro, sujando o caixa e o relatório sem ninguém perceber. Custa um clique a mais por
+                  venda; evita descobrir o erro no fechamento do caixa. Desligada (padrão), continua abrindo em Dinheiro.
                 </p>
               </div>
             </div>

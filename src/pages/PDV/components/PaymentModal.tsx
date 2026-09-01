@@ -143,7 +143,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 />
               </label>
 
-              {paymentRequiresBankAccount(draft.forma) && !(financeConfig.pagamentoCartaoSimplificadoAtivo && isCardPayment(draft.forma)) && (
+              {draft.forma !== '' && paymentRequiresBankAccount(draft.forma) && !(financeConfig.pagamentoCartaoSimplificadoAtivo && isCardPayment(draft.forma)) && (
                 <label>
                   <span>Banco de destino</span>
                   <select

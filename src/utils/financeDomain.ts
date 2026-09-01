@@ -22,7 +22,10 @@ export type FinancialNature = 'caixa_fisico' | 'bancario_digital' | 'contas_rece
 
 export interface PaymentDraft {
   id: string;
-  forma: PaymentMethod;
+  /** '' significa "ainda nao escolheu". So existe no RASCUNHO da tela: o
+   *  registro gravado sempre tem forma de verdade -- buildPaymentRecords
+   *  recusa antes disso. Ver DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO. */
+  forma: PaymentMethod | '';
   valor: string;
   prazoDias: string;
   dataVencimento: string;
@@ -437,13 +440,37 @@ export const buildCardDetails = (args: {
   return details;
 };
 
+/**
+ * A TELA COMECA COM "SELECIONE" EM VEZ DE "DINHEIRO"?
+ *
+ * Decisao de produto (2026-09-01). O seletor vinha preenchido com Dinheiro, e
+ * era comodo: quem vende no dinheiro nao mexia em nada. So que quem NAO vende
+ * no dinheiro tambem nao mexia -- clicava em finalizar e a venda saia como
+ * Dinheiro sem ninguem perceber, sujando o caixa e o relatorio.
+ *
+ * Ligada, a forma comeca vazia e finalizar sem escolher trava com recado
+ * claro. Um clique a mais por venda, em troca de nao descobrir o erro no
+ * fechamento do caixa.
+ *
+ * DESLIGADA por padrao: ligar mudaria o fluxo de quem ja vende hoje.
+ */
+export const DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO = false;
+
+export const parseExigirEscolhaFormaPagamento = (raw: unknown): boolean => raw === true;
+
+/** Forma inicial do rascunho, conforme a empresa configurou. */
+export const formaPagamentoInicial = (exigirEscolha: boolean): PaymentMethod | '' => (
+  exigirEscolha ? '' : 'Dinheiro'
+);
+
 export const createEmptyPaymentDraft = (
   id: string,
   amountCents: number,
   defaultTermDays = 30,
+  formaInicial: PaymentMethod | '' = 'Dinheiro',
 ): PaymentDraft => ({
   id,
-  forma: 'Dinheiro',
+  forma: formaInicial,
   valor: fromCents(amountCents).toFixed(2),
   prazoDias: String(defaultTermDays),
   dataVencimento: '',
@@ -469,6 +496,15 @@ export const normalizePayments = (
   if (!parseDateInput(saleDate)) throw new Error('A data da venda é inválida.');
 
   const records = drafts.map((draft, index): PaymentRecord => {
+    // Forma vazia so existe no rascunho da tela. Chegar aqui sem escolha e'
+    // erro de operacao, e o recado tem que dizer QUAL pagamento -- numa venda
+    // com duas formas, "escolha a forma" sozinho nao ajuda ninguem.
+    if (!draft.forma) {
+      throw new Error(drafts.length > 1
+        ? `Escolha a forma do pagamento ${index + 1} antes de finalizar.`
+        : 'Escolha a forma de pagamento antes de finalizar.');
+    }
+
     const valueCents = toCents(draft.valor);
     if (valueCents <= 0) throw new Error(`O valor do pagamento ${index + 1} deve ser maior que zero.`);
 

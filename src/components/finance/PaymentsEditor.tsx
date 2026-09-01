@@ -137,7 +137,9 @@ interface PaymentMethodSelectProps {
   id: string;
   onChange: (method: PaymentMethod) => void;
   options: PaymentMethod[];
-  value: PaymentMethod;
+  /** '' quando a empresa exige escolher e ninguem escolheu ainda -- o
+   *  gatilho mostra "Selecione..." em vez de fingir uma forma. */
+  value: PaymentMethod | '';
 }
 
 const PaymentMethodSelect: React.FC<PaymentMethodSelectProps> = ({
@@ -150,16 +152,19 @@ const PaymentMethodSelect: React.FC<PaymentMethodSelectProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [isOpen, setIsOpen] = useState(false);
-  const [highlightedIndex, setHighlightedIndex] = useState(() => Math.max(0, options.indexOf(value)));
+  const [highlightedIndex, setHighlightedIndex] = useState(() => Math.max(0, options.indexOf(value as PaymentMethod)));
   const listboxId = `${id}-options`;
   // value pode vir de um documento gravado fora das telas do sistema (ex:
   // integracao externa) com um texto que nao bate com nenhuma das formas
   // de pagamento validas -- cai em "Outros" em vez de quebrar a tela.
-  const selectedPresentation = PAYMENT_METHOD_PRESENTATION[value] ?? PAYMENT_METHOD_PRESENTATION.Outros;
+  const semEscolha = value === '';
+  const selectedPresentation = semEscolha
+    ? PAYMENT_METHOD_PRESENTATION.Outros
+    : (PAYMENT_METHOD_PRESENTATION[value] ?? PAYMENT_METHOD_PRESENTATION.Outros);
   const SelectedIcon = selectedPresentation.icon;
 
   useEffect(() => {
-    const selectedIndex = options.indexOf(value);
+    const selectedIndex = options.indexOf(value as PaymentMethod);
     setHighlightedIndex(selectedIndex >= 0 ? selectedIndex : 0);
   }, [options, value]);
 
@@ -205,7 +210,7 @@ const PaymentMethodSelect: React.FC<PaymentMethodSelectProps> = ({
 
       if (!isOpen) {
         setIsOpen(true);
-        setHighlightedIndex(Math.max(0, options.indexOf(value)));
+        setHighlightedIndex(Math.max(0, options.indexOf(value as PaymentMethod)));
         return;
       }
 
@@ -428,7 +433,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
               </div>
             </div>
 
-            {paymentRequiresBankAccount(payment.forma) && !isSimplifiedCardPayment && (
+            {payment.forma !== '' && paymentRequiresBankAccount(payment.forma) && !isSimplifiedCardPayment && (
               <div className="input-group">
                 <label htmlFor={`${idPrefix}-banco-${payment.id}`}>Banco de destino *</label>
                 <select

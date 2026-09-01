@@ -8,6 +8,7 @@ import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/al
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms } from '../../utils/textSearch';
+import { DEFAULT_MOSTRAR_RESUMO_ESTOQUE, parseMostrarResumoEstoque } from '../../utils/estoqueResumoDomain';
 import './Estoque.css';
 
 interface PecaData {
@@ -29,6 +30,8 @@ const EstoqueList: React.FC = () => {
   /** Linha destacada por um clique simples. Editar exige duplo clique (ou
    * Enter), pra um clique de leitura nao abrir uma aba sem querer. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Configuracoes -> Estoque: mostrar os cartoes de resumo no topo. */
+  const [mostrarResumo, setMostrarResumo] = useState(DEFAULT_MOSTRAR_RESUMO_ESTOQUE);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   // So quem tem "Estoque: Abrir Cadastro de Produto" abre/cria/exclui um
@@ -36,6 +39,21 @@ const EstoqueList: React.FC = () => {
   // permissao base (cadastros.estoque). Sem isto, um funcionario so-leitura
   // dava duplo clique e via custo/margem/fornecedor do produto inteiro.
   const canEditProduto = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('cadastros.estoque_alterar'));
+
+  // Ao vivo: o dono liga/desliga em Configuracoes e a tela acompanha sem
+  // ninguem precisar relogar.
+  useEffect(() => {
+    if (!tenantId) return;
+    const unsubscribe = onSnapshot(doc(db, 'configuracoes', tenantId), (snap) => {
+      setMostrarResumo(parseMostrarResumoEstoque(snap.exists() ? snap.data().mostrarResumoEstoque : undefined));
+    }, (error) => {
+      // Falha de leitura MANTEM o que ja estava: piscar os cartoes por causa
+      // de uma queda de rede seria pior do que continuar mostrando.
+      console.error('Erro ao carregar a configuracao de resumo do estoque:', error);
+    });
+
+    return () => unsubscribe();
+  }, [tenantId]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -180,6 +198,9 @@ const EstoqueList: React.FC = () => {
         </div>
       </div>
 
+      {/* Cartoes de resumo: a empresa decide se aparecem (Configuracoes ->
+          Estoque). Ver DEFAULT_MOSTRAR_RESUMO_ESTOQUE. */}
+      {mostrarResumo && (
       <div className="dashboard-charts" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: '8px' }}>
          <div className="card stat-card" style={{ padding: '20px' }}>
           <div className="stat-header">
@@ -215,6 +236,7 @@ const EstoqueList: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
 
       <div className="card list-container">
         <div className="list-toolbar">

@@ -20,6 +20,7 @@ import {
 } from '../../utils/financeDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { DEFAULT_MOSTRAR_VALOR_LISTA_OS, parseMostrarValorListaOS } from '../../utils/osListaValorDomain';
+import { DEFAULT_MOSTRAR_RESUMO_ESTOQUE, parseMostrarResumoEstoque } from '../../utils/estoqueResumoDomain';
 import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../../utils/fiscalDomain';
 import {
   DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
@@ -196,6 +197,7 @@ const Configuracoes: React.FC = () => {
     planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Produtos', 'Marketing', 'Manutenção', 'Outros'],
     modeloImpressaoOS: DEFAULT_OS_PRINT_MODEL,
     mostrarValorListaOS: DEFAULT_MOSTRAR_VALOR_LISTA_OS,
+    mostrarResumoEstoque: DEFAULT_MOSTRAR_RESUMO_ESTOQUE,
     modeloImpressaoPedidoVenda: DEFAULT_PEDIDO_PRINT_MODEL,
     observacoesPadraoPedido: '',
     spedyEnabled: false,
@@ -307,6 +309,7 @@ const Configuracoes: React.FC = () => {
             planoContasDespesas: despesas,
             modeloImpressaoOS: data.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL,
             mostrarValorListaOS: parseMostrarValorListaOS(data.mostrarValorListaOS),
+            mostrarResumoEstoque: parseMostrarResumoEstoque(data.mostrarResumoEstoque),
             modeloImpressaoPedidoVenda: data.modeloImpressaoPedidoVenda || DEFAULT_PEDIDO_PRINT_MODEL,
             observacoesPadraoPedido: data.observacoesPadraoPedido || '',
             spedyEnabled: data.spedyEnabled ?? false,
@@ -1377,6 +1380,24 @@ const Configuracoes: React.FC = () => {
                   Acrescenta uma coluna <strong>Valor</strong> no fim de cada linha da lista de Ordens de Serviço, com o total já
                   com desconto. Sem ela, descobrir quanto vale cada OS exige abrir uma por uma. Desligue se o computador fica
                   à vista do cliente e você prefere o valor fora da tela — quem abrir a OS continua vendo o total normalmente.
+                </p>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: 'var(--text-primary)', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.mostrarResumoEstoque === true}
+                    onChange={(e) => setFormData({ ...formData, mostrarResumoEstoque: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Mostrar os cartões de resumo na tela de Estoque
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '8px 0 0' }}>
+                  São os três do topo: <strong>Itens Cadastrados</strong>, <strong>Estoque Baixo</strong> e <strong>Itens Esgotados</strong>.
+                  Eles ocupam a primeira dobra inteira da tela — quem usa o Estoque para consultar produto ganha a busca e a
+                  lista mais acima ao desligar. Nenhum número deixa de ser calculado, apenas não aparece.
                 </p>
               </div>
 

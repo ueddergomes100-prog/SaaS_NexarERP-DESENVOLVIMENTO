@@ -60,15 +60,31 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
   const valorDesconto = pedidoData.valorTotalDescontos || 0;
   const valorTotal = pedidoData.valorTotal || 0;
   const situacao = SITUACAO_LABELS[pedidoData.status] || pedidoData.status || '---';
-  // @page precisa dizer o TAMANHO DO PAPEL, senao o navegador assume A4 e
-  // sobra margem torta na meia folha. Fica aqui, injetado enquanto este
-  // modelo esta montado, e nao no .css: o arquivo de estilo e' carregado
-  // junto com o modelo A4 (os dois vivem em PedidoPrint.tsx), e uma regra
-  // @page fixa quebraria a impressao de pagina inteira.
+  /*
+   * Margem pequena na impressao -- e SO a margem.
+   *
+   * A tentativa anterior declarava tambem `size: 210mm 148mm`, e isso
+   * QUEBROU a impressao: o navegador montava a pagina com 210mm de largura
+   * enquanto a impressora tinha outro papel carregado, e o resultado saiu
+   * cortado na lateral, espalhado em duas folhas. Quem manda no tamanho e' o
+   * papel escolhido no dialogo de impressao; declarar tamanho aqui e brigar
+   * com ele.
+   *
+   * A margem sozinha resolve o que era pra resolver: o vazio grande e
+   * desigual das bordas vinha da margem PADRAO do navegador (~10mm de cada
+   * lado), e com 4mm o bloco ocupa quase o papel inteiro, centralizado pela
+   * propria margem. De quebra, o Chrome desenha cabecalho e rodape dentro da
+   * area de margem -- com 4mm ele nao tem onde escrever a data, que era o que
+   * roubava a faixa de baixo e cortava a assinatura no PWA.
+   *
+   * Fica aqui, injetado enquanto este modelo esta montado, e nao no .css: o
+   * arquivo de estilo e carregado junto com o modelo A4 (os dois vivem em
+   * PedidoPrint.tsx), e um @page fixo no css mexeria na pagina inteira.
+   */
   useEffect(() => {
     const estilo = document.createElement('style');
     estilo.setAttribute('data-meia-folha', 'true');
-    estilo.textContent = '@media print { @page { size: 210mm 148mm; margin: 4mm; } }';
+    estilo.textContent = '@media print { @page { margin: 4mm; } }';
     document.head.appendChild(estilo);
     return () => { estilo.remove(); };
   }, []);

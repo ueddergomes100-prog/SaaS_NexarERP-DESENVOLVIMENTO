@@ -267,11 +267,12 @@
   .mf-page {
     width: 100% !important;
     max-width: none !important;
-    /* 148mm da meia folha menos os 4mm de margem de cada lado do @page
-       injetado pelo componente. O bloco passa a ocupar o papel quase
-       inteiro, centralizado pela propria margem -- antes sobrava um vazio
-       grande e desigual, porque a margem vinha do padrao do navegador. */
-    height: 140mm !important;
+    /* Meia folha (148mm) menos os 4mm de margem de cada lado do @page
+       injetado pelo componente = 140mm de area util. A caixa fica em 134mm
+       pra sobrar folga: 140mm cravado nao perdoa nenhum arredondamento, e
+       um milimetro a mais joga a assinatura pra uma segunda folha.
+       Se a impressao sair com vazio grande embaixo, e' este numero que sobe. */
+    height: 134mm !important;
     min-height: 0 !important;
     margin: 0 !important;
     box-shadow: none !important;

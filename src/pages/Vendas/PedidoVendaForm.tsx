@@ -1246,6 +1246,7 @@ const PedidoVendaForm: React.FC = () => {
     let gravouComSucesso = false;
     let numeroGravado = numeroPedido;
     let preVendaId = id || '';
+    let vendedorGravado: { id?: string; nome?: string } = {};
 
     try {
       let clienteIdParaSalvar: string | null = clienteEncontrado?.id || null;
@@ -1284,6 +1285,7 @@ const PedidoVendaForm: React.FC = () => {
           throw new Error('O vendedor selecionado não pertence à empresa ativa.');
         }
         const sellerName = sellerProfile.nome || sellerProfile.nomeResponsavel || currentUser.displayName || currentUser.email || 'Vendedor';
+        vendedorGravado = { id: selectedSellerId, nome: sellerName };
 
         const preVendaRef = regravando ? doc(db, 'pedidos_venda', id!) : doc(collection(db, 'pedidos_venda'));
         preVendaId = preVendaRef.id;
@@ -1381,6 +1383,8 @@ const PedidoVendaForm: React.FC = () => {
           acao: isPreVendaAberta ? 'edicao' : 'criacao',
           descricao: `Pré-venda #${numeroGravado} ${isPreVendaAberta ? 'alterada' : 'gravada'} no valor de R$ ${valorTotalPedido.toFixed(2)}. Cliente: ${finalClienteNome}`,
           registroRelacionadoId: preVendaId,
+          vendedorId: vendedorGravado.id,
+          vendedorNome: vendedorGravado.nome,
           status: 'sucesso',
         });
       } catch (err) {
@@ -1466,9 +1470,10 @@ const PedidoVendaForm: React.FC = () => {
           usuarioId: currentUser.uid,
           usuarioEmail: currentUser.email || currentUser.uid,
           modulo: 'vendas',
-          acao: 'exclusao',
+          acao: 'cancelamento',
           descricao: `Pré-venda #${numeroPedido} cancelada. Estoque reservado liberado.`,
           registroRelacionadoId: id,
+          vendedorId: vendedorId || undefined,
           status: 'sucesso',
         });
       } catch (err) {
@@ -1550,6 +1555,7 @@ const PedidoVendaForm: React.FC = () => {
 
     submitLockRef.current = true;
     setIsLoading(true);
+    let vendedorDaVenda: { id?: string; nome?: string } = {};
     try {
       const saleRef = doc(db, 'pedidos_venda', id);
       // Refs dos lancamentos atuais levantados FORA da transacao (query nao
@@ -1575,6 +1581,7 @@ const PedidoVendaForm: React.FC = () => {
         if (saleData.status !== 'Finalizada') {
           throw new Error('Esta venda não está mais finalizada. Recarregue a tela.');
         }
+        vendedorDaVenda = { id: saleData.vendedorId, nome: saleData.vendedorNome };
 
         const snapshotsAntigos = await Promise.all(refsAntigas.map((ref) => transaction.get(ref)));
         const jaEstornada = snapshotsAntigos.some((snapshot) => snapshot.exists() && snapshot.data()?.estornada === true);
@@ -1687,6 +1694,11 @@ const PedidoVendaForm: React.FC = () => {
           acao: 'edicao',
           descricao: `Forma de pagamento da venda #${numeroPedido} alterada de "${formaPagamento}" para "${paymentSummary.paymentMethodLabel}". Valor mantido em R$ ${valorTotalPedido.toFixed(2)}.`,
           registroRelacionadoId: id,
+          vendedorId: vendedorDaVenda.id,
+          vendedorNome: vendedorDaVenda.nome,
+          alteracoes: [
+            { campo: 'formaPagamento', valorAnterior: formaPagamento, valorNovo: paymentSummary.paymentMethodLabel },
+          ],
           status: 'sucesso',
         });
       } catch (err) {
@@ -1796,6 +1808,7 @@ const PedidoVendaForm: React.FC = () => {
     submitLockRef.current = true;
     setIsLoading(true);
     let saveSucceeded = false;
+    let vendedorGravado: { id?: string; nome?: string } = {};
 
     try {
       // 1. Cadastrar Cliente (se não existir)
@@ -1881,6 +1894,7 @@ const PedidoVendaForm: React.FC = () => {
           throw new Error('O vendedor selecionado não pertence à empresa ativa.');
         }
         const sellerName = sellerProfile.nome || sellerProfile.nomeResponsavel || currentUser.displayName || currentUser.email || 'Vendedor';
+        vendedorGravado = { id: selectedSellerId, nome: sellerName };
 
         const bankBalancesById = new Map<string, number>();
         for (const bancoId of bankCreditsByBanco.keys()) {
@@ -2177,6 +2191,8 @@ const PedidoVendaForm: React.FC = () => {
           acao: 'criacao',
           descricao: `Venda Direta #${finalNumeroPedido} finalizada no valor de R$ ${valorTotalPedido.toFixed(2)}. Cliente: ${finalClienteNome || 'Geral'}`,
           registroRelacionadoId: newPedidoId,
+          vendedorId: vendedorGravado.id,
+          vendedorNome: vendedorGravado.nome,
           status: 'sucesso'
         });
       } catch (err) {
@@ -2874,6 +2890,8 @@ const PedidoVendaForm: React.FC = () => {
 
     submitLockRef.current = true;
     setIsLoading(true);
+    let vendedorDaVendaCancelada: { id?: string; nome?: string } = {};
+    let snapshotAntesCancelamento: Record<string, unknown> | null = null;
     try {
       const saleRef = doc(db, 'pedidos_venda', id);
       const paymentTransactionsSnap = await getDocs(query(
@@ -2892,6 +2910,8 @@ const PedidoVendaForm: React.FC = () => {
         if (saleData.status === 'Cancelada') {
           throw new Error('Esta venda já foi cancelada.');
         }
+        vendedorDaVendaCancelada = { id: saleData.vendedorId, nome: saleData.vendedorNome };
+        snapshotAntesCancelamento = saleData;
 
         // Reverte o credito bancario aplicado na criacao da venda (pagamento
         // Pix/Cartao/Transferencia) -- antes ficava pra sempre no saldo do
@@ -2997,6 +3017,9 @@ const PedidoVendaForm: React.FC = () => {
           acao: 'cancelamento',
           descricao: `Venda Direta #${numeroPedido} CANCELADA e estoque estornado.`,
           registroRelacionadoId: id,
+          vendedorId: vendedorDaVendaCancelada.id,
+          vendedorNome: vendedorDaVendaCancelada.nome,
+          snapshotExcluido: snapshotAntesCancelamento,
           status: 'sucesso',
           critical: true
         });

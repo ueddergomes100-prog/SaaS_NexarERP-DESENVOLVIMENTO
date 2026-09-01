@@ -269,6 +269,17 @@ const PedidoVendas: React.FC = () => {
             }
           }
         }
+        // Captura o documento inteiro antes de apagar: a exclusao aqui e'
+        // fisica (sem soft-delete), entao esse snapshot no log e' a UNICA
+        // forma de saber depois como o pedido era.
+        let snapshotAntesExclusao: Record<string, unknown> | null = null;
+        try {
+          const snapAntes = await getDoc(doc(db, 'pedidos_venda', pedido.id));
+          snapshotAntesExclusao = snapAntes.exists() ? snapAntes.data() : null;
+        } catch (err) {
+          console.error('Erro ao capturar snapshot do pedido antes da exclusão:', err);
+        }
+
         await deleteDoc(doc(db, 'pedidos_venda', pedido.id));
         try {
           // Uma venda em cartao parcelado grava uma transacao por
@@ -314,6 +325,9 @@ const PedidoVendas: React.FC = () => {
             acao: 'exclusao',
             descricao: `Pedido de Venda #${pedido.numeroPedido} excluído permanentemente. Cliente: ${pedido.clienteNome || 'Geral'}. Valor: R$ ${(pedido.valorTotal || 0).toFixed(2)}.`,
             registroRelacionadoId: pedido.id,
+            vendedorId: pedido.vendedorId || (snapshotAntesExclusao?.vendedorId as string | undefined),
+            vendedorNome: snapshotAntesExclusao?.vendedorNome as string | undefined,
+            snapshotExcluido: snapshotAntesExclusao,
             status: 'sucesso',
             critical: true
           });

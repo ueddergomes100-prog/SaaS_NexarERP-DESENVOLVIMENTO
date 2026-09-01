@@ -126,6 +126,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
     try {
       const novaDevolucaoRef = doc(collection(db, 'devolucoes_venda'));
       const saleRef = doc(db, 'pedidos_venda', pedidoId);
+      let vendedorDaVendaOriginal: { id?: string; nome?: string } = {};
       const itensFiltrados = itens.filter((item) => item.selecionado && item.quantidadeSelecionada > 0);
       const itensDevolvidos = itensFiltrados.map((item) => ({
         id: item.id,
@@ -145,6 +146,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
         if (!saleSnap.exists()) throw new Error('A venda original não existe mais.');
         const saleData = saleSnap.data();
         if (saleData.status === 'Cancelada') throw new Error('Venda cancelada não pode receber nova devolução.');
+        vendedorDaVendaOriginal = { id: saleData.vendedorId, nome: saleData.vendedorNome };
 
         // Leitura do banco ANTES de qualquer escrita: applyStockAdjustments
         // ja grava, e transacao do Firestore recusa read depois de write.
@@ -297,6 +299,8 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
           acao: 'devolucao',
           descricao: `Devolução concluída para o pedido #${numeroPedido} no valor de R$ ${valorTotalCalculado.toFixed(2)}.`,
           registroRelacionadoId: novaDevolucaoRef.id,
+          vendedorId: vendedorDaVendaOriginal.id,
+          vendedorNome: vendedorDaVendaOriginal.nome,
           status: 'sucesso',
           critical: true
         });

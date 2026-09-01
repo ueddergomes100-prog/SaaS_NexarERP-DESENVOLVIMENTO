@@ -7,6 +7,12 @@ import { ShieldAlert, Search, Calendar, Filter, Loader2, Info, Lock, KeyRound } 
 import { showError, showSuccess } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 
+interface LogFieldChange {
+  campo: string;
+  valorAnterior: unknown;
+  valorNovo: unknown;
+}
+
 interface LogDocument {
   id: string;
   dataHora: any;
@@ -18,6 +24,10 @@ interface LogDocument {
   registroRelacionadoId?: string;
   valorAnterior?: string;
   valorNovo?: string;
+  vendedorId?: string;
+  vendedorNome?: string;
+  alteracoes?: LogFieldChange[];
+  snapshotExcluido?: Record<string, unknown>;
   status: 'sucesso' | 'erro' | 'negado';
   critical?: boolean;
 }
@@ -560,6 +570,7 @@ const LogsSistema: React.FC = () => {
                 <tr style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: 'rgba(255,255,255,0.02)' }}>
                   <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Data/Hora</th>
                   <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Usuário</th>
+                  <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Vendedor</th>
                   <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Módulo</th>
                   <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Ação</th>
                   <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Descrição</th>
@@ -584,6 +595,9 @@ const LogsSistema: React.FC = () => {
                     </td>
                     <td style={{ padding: '16px 20px', fontSize: '13px', color: 'white', fontWeight: 500 }}>
                       {log.usuario}
+                    </td>
+                    <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      {log.vendedorNome || '-'}
                     </td>
                     <td style={{ padding: '16px 20px', fontSize: '12px' }}>
                       <span style={{
@@ -724,9 +738,15 @@ const LogsSistema: React.FC = () => {
                   <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 500 }}>{formatTimestamp(selectedLog.dataHora)}</span>
                 </div>
                 <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>Usuário</label>
+                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>Usuário (estação)</label>
                   <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 500 }}>{selectedLog.usuario}</span>
                 </div>
+                {selectedLog.vendedorNome && (
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>Vendedor</label>
+                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 500 }}>{selectedLog.vendedorNome}</span>
+                  </div>
+                )}
                 <div>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>Módulo</label>
                   <span style={{
@@ -760,6 +780,53 @@ const LogsSistema: React.FC = () => {
                   {selectedLog.descricao}
                 </div>
               </div>
+
+              {selectedLog.alteracoes && selectedLog.alteracoes.length > 0 && (
+                <div>
+                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>O Que Mudou</label>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: '6px', overflow: 'hidden' }}>
+                    {selectedLog.alteracoes.map((mudanca, index) => (
+                      <div
+                        key={`${mudanca.campo}-${index}`}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 1fr 1fr',
+                          gap: '8px',
+                          padding: '10px 12px',
+                          fontSize: '12px',
+                          borderTop: index === 0 ? 'none' : '1px solid var(--border-color)',
+                          backgroundColor: 'var(--bg-primary)',
+                        }}
+                      >
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{mudanca.campo}</span>
+                        <span style={{ color: '#ef4444', textDecoration: 'line-through' }}>{String(mudanca.valorAnterior ?? '-')}</span>
+                        <span style={{ color: '#10b981' }}>{String(mudanca.valorNovo ?? '-')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedLog.snapshotExcluido && (
+                <div>
+                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>Registro no Momento da Exclusão/Cancelamento</label>
+                  <pre style={{
+                    padding: '12px',
+                    backgroundColor: 'var(--bg-primary)',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-secondary)',
+                    fontSize: '11px',
+                    lineHeight: '1.5',
+                    maxHeight: '240px',
+                    overflow: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}>
+                    {JSON.stringify(selectedLog.snapshotExcluido, null, 2)}
+                  </pre>
+                </div>
+              )}
 
               {selectedLog.registroRelacionadoId && (
                 <div>

@@ -205,3 +205,13 @@ export const permissionLabelMap = PERMISSION_CATALOG.reduce<Record<string, strin
   acc[item.id] = item.label;
   return acc;
 }, {});
+
+/**
+ * Id da permissao de liberar desconto acima do limite.
+ *
+ * Vale pros DOIS tipos de aprovador: usuario com login (confirma com a senha)
+ * e vendedor de balcao sem login (confirma com o proprio PIN). E' de proposito
+ * a mesma permissao -- o que muda e como a pessoa prova quem e', nao o que ela
+ * pode fazer.
+ */
+export const PERMISSAO_LIBERAR_DESCONTO = 'vendas.liberar_desconto';

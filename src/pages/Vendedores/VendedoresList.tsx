@@ -22,6 +22,7 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { isTenantManagerRole } from '../../utils/roles';
 import { DEFAULT_NIVEL_ACESSO } from '../../utils/visibilidadeVendasDomain';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
+import { PERMISSAO_LIBERAR_DESCONTO } from '../../utils/permissionCatalog';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import {
   CODIGO_VENDEDOR_DIGITOS,
@@ -63,6 +64,7 @@ interface VendedorData {
   comissaoPercentualServicos?: number;
   recebeComissaoPecas?: boolean;
   comissaoPercentualPecas?: number;
+  permissoes?: string[];
   /** Carimbo gravado pelo backend quando a senha e' definida. Nao e' a
    *  senha nem o hash dela -- e' so "ja tem senha", pra tela conseguir
    *  avisar ANTES do vendedor descobrir isso no balcao com cliente na
@@ -79,6 +81,8 @@ interface FormState {
   comissaoPercentualServicos: string;
   recebeComissaoPecas: boolean;
   comissaoPercentualPecas: string;
+  /** Pode liberar desconto acima do limite, digitando o proprio PIN. */
+  liberaDesconto: boolean;
 }
 
 const FORM_VAZIO: FormState = {
@@ -90,6 +94,7 @@ const FORM_VAZIO: FormState = {
   comissaoPercentualServicos: '',
   recebeComissaoPecas: false,
   comissaoPercentualPecas: '',
+  liberaDesconto: false,
 };
 
 const inputStyle: React.CSSProperties = {
@@ -168,6 +173,7 @@ const VendedoresList: React.FC = () => {
       comissaoPercentualServicos: vendedor.comissaoPercentualServicos != null ? String(vendedor.comissaoPercentualServicos) : '',
       recebeComissaoPecas: vendedor.recebeComissaoPecas === true,
       comissaoPercentualPecas: vendedor.comissaoPercentualPecas != null ? String(vendedor.comissaoPercentualPecas) : '',
+      liberaDesconto: (vendedor.permissoes || []).includes(PERMISSAO_LIBERAR_DESCONTO),
     });
     setModalAberto(true);
   };
@@ -246,6 +252,11 @@ const VendedoresList: React.FC = () => {
         recebeComissaoPecas: form.recebeComissaoPecas,
       };
 
+      // Mesma permissao do usuario com login -- conceito unico no sistema, so
+      // que este aqui aprova digitando o PIN em vez da senha. Ver
+      // SolicitarAprovacaoDescontoModal.
+      const permissoes = form.liberaDesconto ? [PERMISSAO_LIBERAR_DESCONTO] : [];
+
       let vendedorId = editando?.id || '';
 
       if (editando) {
@@ -253,6 +264,7 @@ const VendedoresList: React.FC = () => {
           nome,
           codigoVendedor: codigo,
           status: form.status,
+          permissoes,
           ...comissao,
           comissaoPercentualServicos: percentualServicos === undefined ? deleteField() : percentualServicos,
           comissaoPercentualPecas: percentualPecas === undefined ? deleteField() : percentualPecas,
@@ -268,7 +280,7 @@ const VendedoresList: React.FC = () => {
           // plano -- ver vendedorCadastroDomain.ts.
           tipoRegistro: 'vendedor',
           role: 'Funcionario',
-          permissoes: [],
+          permissoes,
           nivelAcesso: DEFAULT_NIVEL_ACESSO,
           status: form.status,
           tenantId,
@@ -559,6 +571,28 @@ const VendedoresList: React.FC = () => {
                   <option value="Ativo">Ativo</option>
                   <option value="Inativo">Inativo (não consegue vender)</option>
                 </select>
+              </div>
+
+              <div style={{ gridColumn: 'span 2', borderTop: '1px solid var(--border-color)', paddingTop: '18px' }}>
+                <h4 style={{ margin: '0 0 4px 0', fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444' }}></span>
+                  Liberação de Desconto
+                </h4>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', marginTop: '10px' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.liberaDesconto}
+                    onChange={(e) => setForm({ ...form, liberaDesconto: e.target.checked })}
+                    style={{ width: '18px', height: '18px', accentColor: '#ef4444', cursor: 'pointer' }}
+                  />
+                  Pode liberar desconto acima do limite
+                </label>
+                <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Para o vendedor que também é supervisor. Quando alguém passar do limite configurado e a empresa exigir
+                  senha, o nome dele aparece na lista de quem pode liberar — e ele confirma com o <strong>próprio código e
+                  PIN</strong>, o mesmo que usa em cada venda. Não precisa de login no sistema e não ocupa vaga do plano.
+                  Toda liberação (e toda tentativa recusada) fica registrada nos Logs.
+                </p>
               </div>
 
               <div style={{ gridColumn: 'span 2', borderTop: '1px solid var(--border-color)', paddingTop: '18px' }}>

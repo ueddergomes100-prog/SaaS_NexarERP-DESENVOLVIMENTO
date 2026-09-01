@@ -5,6 +5,9 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { X, ShieldAlert, Loader2 } from 'lucide-react';
 import { db, firebaseConfig } from '../../services/firebase';
 import { hasModuleAccess } from '../../utils/roles';
+import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
+import { normalizarCodigoVendedor } from '../../utils/vendedorPinDomain';
+import { validarVendedor, VendedorPinError } from '../../services/vendedorPinService';
 import { showError } from '../../utils/alerts';
 import { useAuth } from '../../contexts/AuthContext';
 import { createAuditLog } from '../../services/logService';
@@ -33,7 +36,12 @@ const validarSenha = async (email: string, senha: string): Promise<string> => {
 interface Aprovador {
   id: string;
   nome: string;
-  email: string;
+  /** Usuario com login confirma com a SENHA (Firebase Auth). */
+  email?: string;
+  /** Vendedor de balcao confirma com o PROPRIO PIN (codigo + PIN, validado
+   *  no backend). Nao tem login nem senha -- ver VendedoresList.tsx. */
+  codigoVendedor?: string;
+  tipo: 'login' | 'vendedor';
 }
 
 export interface AprovacaoDesconto {
@@ -93,8 +101,32 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
             permissions: data.permissoes,
             requiredPermission: 'vendas.liberar_desconto',
           });
-          if (podeAprovar && data.email) {
-            lista.push({ id: docSnap.id, nome: data.nome || data.nomeResponsavel || data.email, email: data.email });
+          if (!podeAprovar) return;
+
+          // Vendedor de balcao entra pelo codigo, nao pelo e-mail: ele nao tem
+          // login nenhum. Sem PIN cadastrado fica de fora -- apareceria na
+          // lista e so daria erro na hora de confirmar.
+          const ehVendedorSemLogin = isRegistroDeVendedor(data);
+          if (ehVendedorSemLogin) {
+            const codigo = normalizarCodigoVendedor(data.codigoVendedor);
+            if (codigo && data.pinDefinidoEm) {
+              lista.push({
+                id: docSnap.id,
+                nome: data.nome || `Vendedor ${codigo}`,
+                codigoVendedor: codigo,
+                tipo: 'vendedor',
+              });
+            }
+            return;
+          }
+
+          if (data.email) {
+            lista.push({
+              id: docSnap.id,
+              nome: data.nome || data.nomeResponsavel || data.email,
+              email: data.email,
+              tipo: 'login',
+            });
           }
         });
         lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
@@ -108,6 +140,8 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
 
     void carregarAprovadores();
   }, [open, tenantId]);
+
+  const aprovadorSelecionado = aprovadores.find((item) => item.id === aprovadorId);
 
   if (!open) return null;
 
@@ -131,16 +165,25 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
       return;
     }
     if (!senha) {
-      showError('Atenção', 'Digite a senha do aprovador.');
+      showError('Atenção', aprovador.tipo === 'vendedor'
+        ? 'Digite o PIN do vendedor que está liberando.'
+        : 'Digite a senha do aprovador.');
       return;
     }
 
     setIsValidando(true);
     try {
-      const uid = await validarSenha(aprovador.email, senha);
-      if (uid !== aprovador.id) {
-        // Nao deveria acontecer (email e' unico por usuario), mas se
-        // acontecer e' mais seguro recusar do que aprovar com identidade
+      // Dois jeitos de provar quem e', mesma permissao dos dois lados: quem
+      // tem login digita a senha; o vendedor de balcao digita o proprio PIN,
+      // validado no backend (com limite de tentativas -- ver
+      // server/services/vendedorPin.js).
+      const idConfirmado = aprovador.tipo === 'vendedor'
+        ? (await validarVendedor(aprovador.codigoVendedor || '', senha)).vendedorId
+        : await validarSenha(aprovador.email || '', senha);
+
+      if (idConfirmado !== aprovador.id) {
+        // Nao deveria acontecer (e-mail e codigo sao unicos por empresa), mas
+        // se acontecer e' mais seguro recusar do que aprovar com identidade
         // incerta.
         showError('Erro', 'Não foi possível confirmar a identidade do aprovador.');
         return;
@@ -162,19 +205,25 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
       onAprovado({ aprovadoPorId: aprovador.id, aprovadoPorNome: aprovador.nome });
       onClose();
     } catch (error: any) {
+      const ehVendedor = aprovador.tipo === 'vendedor';
       const codigo = error?.code || '';
-      const senhaErrada = codigo.includes('wrong-password') || codigo.includes('invalid-credential');
-      const mensagem = senhaErrada
-        ? 'Senha incorreta.'
-        : 'Não foi possível validar a senha. Tente novamente.';
+      // O backend do PIN ja devolve recado pronto e especifico (senha errada,
+      // vendedor bloqueado por tentativas, vendedor sem PIN cadastrado) --
+      // trocar por um texto generico aqui jogaria fora a parte util.
+      const senhaErrada = ehVendedor
+        ? error instanceof VendedorPinError && error.status === 401
+        : codigo.includes('wrong-password') || codigo.includes('invalid-credential');
+      const mensagem = ehVendedor
+        ? (error?.message || 'Não foi possível validar o PIN. Tente novamente.')
+        : (senhaErrada ? 'Senha incorreta.' : 'Não foi possível validar a senha. Tente novamente.');
 
       // Tentativa recusada tambem entra no log: senha errada repetida no nome
       // de um aprovador e' exatamente o padrao que uma auditoria procura.
       registrarLogDeAprovacao({
         status: 'negado',
         descricao: senhaErrada
-          ? `${motivo} Tentativa recusada: senha incorreta para ${aprovador.nome}.`
-          : `${motivo} Tentativa não concluída: falha ao validar a senha de ${aprovador.nome}.`,
+          ? `${motivo} Tentativa recusada: ${ehVendedor ? 'PIN incorreto' : 'senha incorreta'} para ${aprovador.nome}.`
+          : `${motivo} Tentativa não concluída: falha ao validar ${ehVendedor ? 'o PIN' : 'a senha'} de ${aprovador.nome} (${mensagem}).`,
       });
 
       showError('Aprovação recusada', mensagem);
@@ -213,8 +262,9 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
             </div>
           ) : aprovadores.length === 0 ? (
             <p style={{ margin: 0, fontSize: '13px', color: '#ef4444' }}>
-              Nenhum usuário tem permissão para aprovar desconto. Conceda "Vendas: Aprovar Desconto Acima do Limite"
-              a alguém em Configurações → Permissão de Usuários, ou peça a um Admin/Master.
+              Ninguém tem permissão para aprovar desconto. Conceda "Vendas: Aprovar Desconto Acima do Limite" a alguém em
+              Configurações → Permissão de Usuários, marque "Pode liberar desconto acima do limite" na ficha de um vendedor
+              em Cadastros Auxiliares → Vendedores (ele confirma com o próprio PIN), ou peça a um Admin/Master.
             </p>
           ) : (
             <>
@@ -222,21 +272,30 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Aprovador</label>
                 <select
                   value={aprovadorId}
-                  onChange={(e) => setAprovadorId(e.target.value)}
+                  onChange={(e) => { setAprovadorId(e.target.value); setSenha(''); }}
                   style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
                 >
                   <option value="">Selecione...</option>
                   {aprovadores.map((aprovador) => (
-                    <option key={aprovador.id} value={aprovador.id}>{aprovador.nome}</option>
+                    <option key={aprovador.id} value={aprovador.id}>
+                      {aprovador.tipo === 'vendedor'
+                        ? `${aprovador.nome} (vendedor ${aprovador.codigoVendedor})`
+                        : aprovador.nome}
+                    </option>
                   ))}
                 </select>
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Senha</label>
+                {/* O rotulo muda com o tipo do aprovador: quem tem login
+                    digita senha, o vendedor de balcao digita o PIN dele. */}
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  {aprovadorSelecionado?.tipo === 'vendedor' ? 'PIN do vendedor' : 'Senha'}
+                </label>
                 <input
                   type="password"
                   autoFocus
+                  inputMode={aprovadorSelecionado?.tipo === 'vendedor' ? 'numeric' : undefined}
                   value={senha}
                   onChange={(e) => setSenha(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleConfirmar(); } }}

@@ -123,7 +123,6 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
         <div className="mf-meta-info">
           <p><strong>Data:</strong> {formatDateTime(pedidoData.createdAt)}</p>
           <p><strong>Vendedor:</strong> {pedidoData.vendedorNome || '---'}</p>
-          <p><strong>Telefone:</strong> {clientData?.telefone || ''}</p>
         </div>
       </div>
 
@@ -132,7 +131,12 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
           pequeno e faz o balcao achar que o sistema perdeu o dado. */}
       <div className="mf-cliente-row">
         <span><strong>Cliente:</strong> {pedidoData.clienteNome || 'Consumidor Final'}</span>
-        {clientData?.codigo && <span><strong>Código:</strong> {clientData.codigo}</span>}
+        {/* O telefone e DO CLIENTE (sai de clientData) -- ficava embaixo do
+            vendedor, dando a entender que era o telefone dele. Assumiu o lugar
+            do codigo do cliente, que nao diz nada a quem recebe o papel: o
+            codigo serve pra busca dentro do sistema, e quem esta com o recibo
+            na mao procura telefone, nao numero de cadastro. */}
+        <span><strong>Telefone:</strong> {clientData?.telefone || ''}</span>
         {clientData?.documento && <span><strong>CPF/CNPJ:</strong> {formatarDocumento(clientData.documento)}</span>}
         <span><strong>Cidade:</strong> {clientData?.cidade || ''}</span>
       </div>

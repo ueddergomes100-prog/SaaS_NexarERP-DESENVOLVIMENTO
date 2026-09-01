@@ -668,7 +668,7 @@ const LogsSistema: React.FC = () => {
                   <span>Carregando...</span>
                 </>
               ) : (
-                <span>Carregcar Mais Logs</span>
+                <span>Carregar Mais Logs</span>
               )}
             </button>
           </div>

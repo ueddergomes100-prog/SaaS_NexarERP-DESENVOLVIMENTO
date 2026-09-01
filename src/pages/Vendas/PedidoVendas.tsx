@@ -43,6 +43,7 @@ interface PedidoVendaData {
   tenantId: string;
   statusConferencia?: string;
   vendedorId?: string;
+  vendedorNome?: string;
   usuarioResponsavelId?: string;
   criadoPor?: string;
 }
@@ -326,7 +327,11 @@ const PedidoVendas: React.FC = () => {
             descricao: `Pedido de Venda #${pedido.numeroPedido} excluído permanentemente. Cliente: ${pedido.clienteNome || 'Geral'}. Valor: R$ ${(pedido.valorTotal || 0).toFixed(2)}.`,
             registroRelacionadoId: pedido.id,
             vendedorId: pedido.vendedorId || (snapshotAntesExclusao?.vendedorId as string | undefined),
-            vendedorNome: snapshotAntesExclusao?.vendedorNome as string | undefined,
+            // Mesmo plano B do id acima: o snapshot pode ter falhado (o catch
+            // dele nao interrompe a exclusao), e sem isto o log gravava id sem
+            // nome -- a coluna Vendedor mostrava "-" numa exclusao que tinha
+            // vendedor identificado.
+            vendedorNome: pedido.vendedorNome || (snapshotAntesExclusao?.vendedorNome as string | undefined),
             snapshotExcluido: snapshotAntesExclusao,
             status: 'sucesso',
             critical: true

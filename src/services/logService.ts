@@ -1,5 +1,6 @@
 import { collection, addDoc, serverTimestamp, query, where, getDocs, writeBatch, limit, Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { reduzirSnapshotDeLog } from '../utils/auditoriaSnapshotDomain';
 
 /** Uma mudança pontual de campo, registrada para permitir diff estruturado
  * (em vez de so uma frase solta em `descricao`). */
@@ -69,7 +70,11 @@ export const createAuditLog = (logData: AuditLogInput) => {
         vendedorId: logData.vendedorId || null,
         vendedorNome: logData.vendedorNome || null,
         alteracoes: sanitizeForLog(logData.alteracoes),
-        snapshotExcluido: sanitizeForLog(logData.snapshotExcluido),
+        // Reduz antes de sanitizar: pedido gigante estourava o teto de 1 MB do
+        // Firestore e a gravacao falhava EM SILENCIO (a escrita de log e' fire
+        // and forget de proposito), perdendo justamente o registro da
+        // exclusao. Ver reduzirSnapshotDeLog.
+        snapshotExcluido: sanitizeForLog(reduzirSnapshotDeLog(logData.snapshotExcluido)),
         status: logData.status,
         critical: !!logData.critical,
         dataHora: serverTimestamp(),

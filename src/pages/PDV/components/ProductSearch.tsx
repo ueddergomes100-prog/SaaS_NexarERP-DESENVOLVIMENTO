@@ -6,6 +6,7 @@ import ProductAutocomplete from '../../../components/common/ProductAutocomplete'
 import ProductSearchModal from '../../../components/common/ProductSearchModal';
 import type { ProductSearchMode } from '../../../utils/productSearch';
 import { DICA_BUSCA_MULTIPLA } from '../../../utils/textSearch';
+import { renderProdutoOpcaoBusca } from '../../../components/common/ProdutoOpcaoBusca';
 
 interface ProductSearchProps {
   value: string;
@@ -18,15 +19,10 @@ interface ProductSearchProps {
   onSelect: (product: PdvProduct) => void;
 }
 
-const renderProductRow = (product: PdvProduct) => (
-  <>
-    <span>
-      <strong>{product.nome}</strong>
-      <small>{product.codigo || product.codigoBarras || product.skuSistema || 'Sem código'} · Estoque {product.quantidade || 0}</small>
-    </span>
-    <b>{currency.format(Number(product.precoVenda || 0))}</b>
-  </>
-);
+// A linha de produto e a MESMA nas quatro telas de busca -- antes cada uma
+// desenhava a sua, com informacao diferente (a OS nem mostrava estoque).
+// Ver src/components/common/ProdutoOpcaoBusca.tsx.
+const renderProductRow = renderProdutoOpcaoBusca;
 
 const ProductSearch: React.FC<ProductSearchProps> = ({
   value,

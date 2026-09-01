@@ -12,7 +12,9 @@ export interface ProductSearchModalProps<T extends SearchableProduct & { id: str
   onClose: () => void;
   products: T[];
   onSelect: (product: T) => void;
-  renderItem: (product: T) => React.ReactNode;
+  /** Mesma assinatura do autocomplete, pras duas telas usarem a MESMA
+   *  linha de produto -- `termo` marca onde a busca casou. */
+  renderItem: (product: T, highlighted: boolean, termo: string) => React.ReactNode;
   initialQuery?: string;
   mode?: ProductSearchMode;
   title?: string;
@@ -90,7 +92,7 @@ function ProductSearchModalInner<T extends SearchableProduct & { id: string }>({
                 onClose();
               }}
             >
-              {renderItem(product)}
+              {renderItem(product, false, query)}
             </button>
           ))}
           {query.trim() && result.items.length === 0 && (

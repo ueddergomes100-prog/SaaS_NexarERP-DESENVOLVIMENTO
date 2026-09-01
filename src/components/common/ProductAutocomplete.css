@@ -66,13 +66,20 @@
   box-shadow: none;
 }
 
+/*
+ * Grade de duas colunas: nome (cresce) e preco (so o que precisa).
+ *
+ * Era flex numa linha so, e o nome perdia a disputa por espaco pro bloco de
+ * estoque+preco -- num catalogo em que os nomes comecam iguais, o corte no
+ * fim apagava justamente a diferenca (20KG x 10,1KG). Ver
+ * ProdutoOpcaoBusca.tsx.
+ */
 .product-autocomplete__option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 14px;
   width: 100%;
-  padding: 10px 16px;
+  padding: 9px 16px;
   border: none;
   border-bottom: 1px solid var(--border-color);
   background-color: transparent;
@@ -80,6 +87,89 @@
   font-size: 13px;
   text-align: left;
   cursor: pointer;
+}
+
+/* O nome ocupa a linha inteira e quebra em ate duas -- nunca cortado no meio
+   de uma palavra. Duas linhas seguram nome longo sem deixar um item unico
+   empurrar a lista toda pra fora da tela. */
+.produto-opcao__nome {
+  grid-column: 1;
+  grid-row: 1;
+  font-weight: 500;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Pedaco que casou com a busca: fundo nenhum, so a cor de destaque -- realce
+   com fundo brigaria com a linha selecionada. */
+.produto-opcao__match {
+  background: none;
+  color: var(--accent-purple);
+  font-weight: 700;
+}
+
+/* Numero tabular pras virgulas ficarem uma embaixo da outra: o olho corre a
+   coluna de preco sem precisar ler. */
+.produto-opcao__preco {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #34d399;
+  white-space: nowrap;
+}
+
+.produto-opcao__meta {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* Tres estados, nao dois: "baixo" e o unico em que ainda da pra repor antes
+   de faltar, e era o que nao existia. Ver nivelDeEstoque. */
+.produto-opcao__estoque {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.produto-opcao__ponto {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.produto-opcao__estoque.is-ok {
+  background-color: color-mix(in srgb, #10b981 14%, transparent);
+  color: #34d399;
+}
+
+.produto-opcao__estoque.is-baixo {
+  background-color: color-mix(in srgb, #f59e0b 16%, transparent);
+  color: #fbbf24;
+}
+
+.produto-opcao__estoque.is-zerado {
+  background-color: color-mix(in srgb, #ef4444 15%, transparent);
+  color: #f87171;
+}
+
+.produto-opcao__codigo {
+  font-variant-numeric: tabular-nums;
 }
 
 .product-autocomplete__option:last-child {

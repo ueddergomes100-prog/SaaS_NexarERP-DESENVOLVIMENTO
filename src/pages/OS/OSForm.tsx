@@ -89,6 +89,7 @@ import {
 import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import './OS.css';
+import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
 interface Banco { id: string; nome: string; ativo: boolean; }
@@ -126,12 +127,10 @@ interface PecaSelecionada {
   unidadeMedidaCasasDecimais?: number;
 }
 
-const renderPecaRow = (p: PecaData) => (
-  <>
-    <span>{p.nome}</span>
-    <span>R$ {p.precoVenda.toFixed(2)}</span>
-  </>
-);
+// A linha de produto e a MESMA nas quatro telas de busca -- antes cada uma
+// desenhava a sua, com informacao diferente (a OS nem mostrava estoque).
+// Ver src/components/common/ProdutoOpcaoBusca.tsx.
+const renderPecaRow = renderProdutoOpcaoBusca;
 interface VeiculoBasico {
   id: string;
   placa: string;

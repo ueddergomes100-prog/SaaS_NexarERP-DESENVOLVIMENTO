@@ -118,6 +118,7 @@ import DescontoInput, { type DescontoInputValue } from '../../components/finance
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import Swal from 'sweetalert2';
 import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
+import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
@@ -188,17 +189,10 @@ interface DevolucaoVenda {
   itensDevolvidos: Array<{ id: string; nome: string; quantidadeDevolvida: number; fatorConversao?: number }>;
 }
 
-const renderProdutoRow = (p: ProdutoEstoque) => (
-  <>
-    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nome} {p.codigo && <span style={{ color: 'var(--text-muted)' }}>[{p.codigo}]</span>}</span>
-    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexShrink: 0 }}>
-      <span style={{ color: p.quantidade > 0 ? '#10b981' : '#ef4444' }}>
-        Est: {p.quantidade.toFixed(p.unidadeMedidaCasasDecimais ?? 0)} {p.unidadeMedidaSigla || 'UN'}
-      </span>
-      <span style={{ color: '#10b981', fontWeight: 600 }}>R$ {p.precoVenda.toFixed(2)}</span>
-    </div>
-  </>
-);
+// A linha de produto e a MESMA nas quatro telas de busca -- antes cada uma
+// desenhava a sua, com informacao diferente (a OS nem mostrava estoque).
+// Ver src/components/common/ProdutoOpcaoBusca.tsx.
+const renderProdutoRow = renderProdutoOpcaoBusca;
 
 const toSpedyPaymentMethod = (method: string) => {
   if (method === 'Pix') return 'pix';

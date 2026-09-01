@@ -13,7 +13,8 @@ export interface ProductAutocompleteProps<T extends SearchableProduct & { id: st
   onChange: (value: string) => void;
   products: T[];
   onSelect: (product: T) => void;
-  renderItem: (product: T, highlighted: boolean) => React.ReactNode;
+  /** `termo` e o que foi digitado -- serve pra linha destacar onde casou. */
+  renderItem: (product: T, highlighted: boolean, termo: string) => React.ReactNode;
   mode?: ProductSearchMode;
   limit?: number;
   placeholder?: string;
@@ -198,7 +199,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => confirmSelect(product)}
             >
-              {renderItem(product, highlightedIndex === index)}
+              {renderItem(product, highlightedIndex === index, value)}
             </button>
           ))}
 

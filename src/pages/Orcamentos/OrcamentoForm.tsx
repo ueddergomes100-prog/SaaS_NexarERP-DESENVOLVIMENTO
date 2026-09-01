@@ -50,6 +50,7 @@ import ProductSearchModal from '../../components/common/ProductSearchModal';
 import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import '../OS/OS.css';
+import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; }
 interface ServicoData { id: string; nome: string; preco: number; }
@@ -63,12 +64,10 @@ interface ItemOrcamento {
   unidadeMedidaFracionado?: boolean;
   unidadeMedidaCasasDecimais?: number;
 }
-const renderPecaRow = (p: PecaOrcamento) => (
-  <>
-    <span>{p.nome}</span>
-    <span style={{ color: '#10b981' }}>R$ {p.precoVenda.toFixed(2)}</span>
-  </>
-);
+// A linha de produto e a MESMA nas quatro telas de busca -- antes cada uma
+// desenhava a sua, com informacao diferente (a OS nem mostrava estoque).
+// Ver src/components/common/ProdutoOpcaoBusca.tsx.
+const renderPecaRow = renderProdutoOpcaoBusca;
 
 interface PecaOrcamento {
   id: string;

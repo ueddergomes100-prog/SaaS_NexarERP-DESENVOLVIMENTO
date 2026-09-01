@@ -13,6 +13,7 @@ import {
   TITULO_VENDA_DE_OUTRO_USUARIO,
 } from '../../utils/visibilidadeVendasDomain';
 import { showError } from '../../utils/alerts';
+import { parcelasParaImpressao } from '../../utils/parcelasExibicaoDomain';
 import '../OS/OsPrint.css'; // Reusing OS print styles
 
 const PedidoPrint: React.FC = () => {
@@ -73,7 +74,11 @@ const PedidoPrint: React.FC = () => {
               dataVencimento: t.dataVencimento || '',
               valor: t.valor || 0,
             }));
-          setParcelas(parcelasCarregadas);
+          // O financeiro manda: se a venda gerou mais de uma transacao, essas
+          // sao as parcelas de verdade. A divisao so entra no cartao
+          // simplificado, que tem transacao unica e parcelamento informado so
+          // pra constar no papel. Ver parcelasExibicaoDomain.ts.
+          setParcelas(parcelasParaImpressao(parcelasCarregadas, data.pagamentos));
         } else {
           alert('Pedido não encontrado!');
           navigate('/pedidos-venda');

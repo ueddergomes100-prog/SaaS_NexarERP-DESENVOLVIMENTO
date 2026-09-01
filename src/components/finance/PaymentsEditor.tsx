@@ -489,8 +489,36 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
 
             {isSimplifiedCardPayment && (
               <span className="payments-editor__digital-notice">
-                Cartão confirmado na hora, sem bandeira, autorização ou parcelas — lançado direto no banco padrão.
+                Cartão confirmado na hora, sem bandeira, autorização ou taxa — lançado direto no banco padrão, pelo valor integral.
               </span>
+            )}
+
+            {/* Parcelamento no modo simplificado: entra SO no recibo. O
+                financeiro segue com uma transacao pelo valor cheio -- ver
+                parcelasExibicao em financeDomain.ts. */}
+            {isSimplifiedCardPayment && payment.forma === 'Cartão de Crédito' && (
+              <div className="payments-editor__card-fields">
+                <div className="payments-editor__card-grid">
+                  <div className="input-group">
+                    <label htmlFor={`${idPrefix}-display-installments-${payment.id}`}>Parcelas no cartão</label>
+                    <input
+                      disabled={disabled}
+                      id={`${idPrefix}-display-installments-${payment.id}`}
+                      max={financeConfig.maxCreditInstallments || undefined}
+                      min="1"
+                      onChange={(event) => onUpdatePayment(payment.id, { parcelas: event.target.value })}
+                      step="1"
+                      type="number"
+                      value={payment.parcelas}
+                    />
+                  </div>
+                </div>
+                <span className="payments-editor__digital-notice">
+                  {installmentCount > 1
+                    ? `Sai no recibo como ${installmentCount}x de R$ ${installmentPreview.toFixed(2)}. O valor entra inteiro no caixa — o sistema não controla essas parcelas.`
+                    : 'Em quantas vezes o cliente parcelou na maquininha. Serve só para sair no recibo; o valor entra inteiro no caixa.'}
+                </span>
+              </div>
             )}
 
             {isCardPayment(payment.forma) && !isSimplifiedCardPayment && (

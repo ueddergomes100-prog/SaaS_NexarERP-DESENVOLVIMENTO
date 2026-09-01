@@ -88,6 +88,16 @@ export interface PaymentRecord {
   /** Banco de destino escolhido na venda (Modulo Bancos, F18). */
   bancoId?: string;
   bancoNome?: string;
+  /**
+   * Em quantas vezes o cliente parcelou na maquininha, APENAS pra sair no
+   * recibo. Nao gera transacao, nao mexe em saldo, nao vira conta a receber:
+   * o cartao simplificado continua entrando integral, numa transacao so.
+   *
+   * Proposital que NAO seja `cartao.parcelas` -- aquele comanda o financeiro
+   * de verdade (explode em N transacoes, aplica taxa por parcela, agenda
+   * recebimento). Ver src/utils/parcelasExibicaoDomain.ts.
+   */
+  parcelasExibicao?: number;
 }
 
 export interface PaymentValidationOptions {
@@ -526,6 +536,13 @@ export const normalizePayments = (
         feePercent: 0,
         firstSettlementDate: saleDate,
       });
+
+      // Parcelamento so pra constar no recibo. `installments: 1` acima
+      // continua sendo a verdade financeira: uma transacao, valor integral.
+      const parcelasInformadas = Number.parseInt(draft.parcelas, 10);
+      if (draft.forma === 'Cartão de Crédito' && Number.isFinite(parcelasInformadas) && parcelasInformadas > 1) {
+        record.parcelasExibicao = parcelasInformadas;
+      }
     } else if (isCardPayment(draft.forma)) {
       const installments = Number.parseInt(draft.parcelas, 10);
       if (

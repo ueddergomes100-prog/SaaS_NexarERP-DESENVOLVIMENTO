@@ -116,6 +116,13 @@
   gap: 24px;
 }
 
+/* Espaco pra escrever a mao quando o cadastro nao tem endereco: o rotulo
+   sozinho encostado na borda esquerda nao daria linha nenhuma pra caneta. */
+.mf-cliente-row--secundaria > span:first-child {
+  flex: 1;
+  min-width: 55%;
+}
+
 .mf-items-table {
   width: 100%;
   border-collapse: collapse;

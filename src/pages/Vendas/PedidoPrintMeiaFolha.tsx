@@ -137,12 +137,19 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
         <span><strong>Cidade:</strong> {clientData?.cidade || ''}</span>
       </div>
 
-      {(enderecoCliente || clientData?.email) && (
-        <div className="mf-cliente-row mf-cliente-row--secundaria">
-          {enderecoCliente && <span><strong>Endereço:</strong> {enderecoCliente}</span>}
-          {clientData?.email && <span><strong>E-mail:</strong> {clientData.email}</span>}
-        </div>
-      )}
+      {/* Linha do endereco SEMPRE sai, mesmo com o cadastro vazio -- igual a
+          "Cidade" ali em cima. O papel e entregue ao cliente e as vezes vira
+          comprovante de entrega: com o rotulo impresso, quem esta no balcao
+          escreve o endereco a mao na hora. Sem a linha, sobra um vazio que
+          nao convida a nada.
+
+          O e-mail e o contrario: so aparece quando existe. Ele nao e campo de
+          preencher a mao, e um rotulo "E-mail:" vazio no meio da linha so
+          empurra o endereco pro canto. */}
+      <div className="mf-cliente-row mf-cliente-row--secundaria">
+        <span><strong>Endereço:</strong> {enderecoCliente}</span>
+        {clientData?.email && <span><strong>E-mail:</strong> {clientData.email}</span>}
+      </div>
 
       <table className="mf-items-table">
         <thead>

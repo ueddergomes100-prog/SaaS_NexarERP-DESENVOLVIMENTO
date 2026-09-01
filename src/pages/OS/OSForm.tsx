@@ -2068,6 +2068,7 @@ const OSForm: React.FC = () => {
           open={showAprovacaoDesconto}
           tenantId={tenantId}
           motivo={`Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% nesta OS, acima do limite configurado. Confirme com a senha de um aprovador para finalizar.`}
+          moduloLog="mecanica"
           onClose={() => setShowAprovacaoDesconto(false)}
           onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
         />

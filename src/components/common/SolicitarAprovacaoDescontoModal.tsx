@@ -6,6 +6,8 @@ import { X, ShieldAlert, Loader2 } from 'lucide-react';
 import { db, firebaseConfig } from '../../services/firebase';
 import { hasModuleAccess } from '../../utils/roles';
 import { showError } from '../../utils/alerts';
+import { useAuth } from '../../contexts/AuthContext';
+import { createAuditLog } from '../../services/logService';
 
 const SECONDARY_APP_NAME = 'DescontoApprovalApp';
 
@@ -47,6 +49,9 @@ interface SolicitarAprovacaoDescontoModalProps {
   motivo: string;
   onClose: () => void;
   onAprovado: (aprovacao: AprovacaoDesconto) => void;
+  /** Modulo gravado no log de auditoria. 'vendas' cobre pedido, PDV e
+   *  orcamento; a OS passa 'mecanica'. */
+  moduloLog?: string;
 }
 
 /**
@@ -61,7 +66,9 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
   motivo,
   onClose,
   onAprovado,
+  moduloLog = 'vendas',
 }) => {
+  const { currentUser } = useAuth();
   const [aprovadores, setAprovadores] = useState<Aprovador[]>([]);
   const [isLoadingAprovadores, setIsLoadingAprovadores] = useState(false);
   const [aprovadorId, setAprovadorId] = useState('');
@@ -104,6 +111,19 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
 
   if (!open) return null;
 
+  const registrarLogDeAprovacao = (args: { status: 'sucesso' | 'negado'; descricao: string }) => {
+    createAuditLog({
+      tenantId: tenantId || '',
+      usuarioId: currentUser?.uid || '',
+      usuarioEmail: currentUser?.email || currentUser?.uid || '',
+      modulo: moduloLog,
+      acao: 'aprovacao_desconto',
+      descricao: args.descricao,
+      status: args.status,
+      critical: true,
+    });
+  };
+
   const handleConfirmar = async () => {
     const aprovador = aprovadores.find((item) => item.id === aprovadorId);
     if (!aprovador) {
@@ -125,13 +145,38 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
         showError('Erro', 'Não foi possível confirmar a identidade do aprovador.');
         return;
       }
+      // Liberar desconto acima do limite e alguem usando a propria senha pra
+      // autorizar dinheiro a menos -- pertence a trilha critica, nao so ao
+      // relatorio de descontos. `critical: true` porque a limpeza automatica
+      // de 6 meses nao pode levar isto embora.
+      //
+      // Registrado AQUI, e nao no salvamento da venda, de proposito: a
+      // liberacao concedida numa venda que depois foi abandonada nao vira
+      // documento nenhum, e era exatamente o caso que sumia sem deixar
+      // rastro.
+      registrarLogDeAprovacao({
+        status: 'sucesso',
+        descricao: `${motivo} Liberado por ${aprovador.nome}.`,
+      });
+
       onAprovado({ aprovadoPorId: aprovador.id, aprovadoPorNome: aprovador.nome });
       onClose();
     } catch (error: any) {
       const codigo = error?.code || '';
-      const mensagem = codigo.includes('wrong-password') || codigo.includes('invalid-credential')
+      const senhaErrada = codigo.includes('wrong-password') || codigo.includes('invalid-credential');
+      const mensagem = senhaErrada
         ? 'Senha incorreta.'
         : 'Não foi possível validar a senha. Tente novamente.';
+
+      // Tentativa recusada tambem entra no log: senha errada repetida no nome
+      // de um aprovador e' exatamente o padrao que uma auditoria procura.
+      registrarLogDeAprovacao({
+        status: 'negado',
+        descricao: senhaErrada
+          ? `${motivo} Tentativa recusada: senha incorreta para ${aprovador.nome}.`
+          : `${motivo} Tentativa não concluída: falha ao validar a senha de ${aprovador.nome}.`,
+      });
+
       showError('Aprovação recusada', mensagem);
     } finally {
       setIsValidando(false);

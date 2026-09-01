@@ -33,7 +33,7 @@
  * vale e' sempre a do backend.
  */
 
-import { hasTenantFullAccess } from './roles';
+import { podeVerVendasDeTodos, type NivelAcesso } from './visibilidadeVendasDomain';
 
 export const CODIGO_VENDEDOR_DIGITOS = 2;
 
@@ -146,7 +146,18 @@ export const listaGeralDeVendasEscondidaParaFuncionario = (args: {
   exigirIdentificacaoVendedor: boolean;
   role: unknown;
   isOwner: boolean;
+  /** Cargo da pessoa em Vendas. Supervisor e gerente veem a lista inteira. */
+  nivelAcesso: NivelAcesso;
 }): boolean => {
   if (!args.exigirIdentificacaoVendedor) return false;
-  return !hasTenantFullAccess(args.role, args.isOwner);
+  // Antes esta regra olhava SO o papel (Master/Admin) enquanto a outra trava
+  // de visibilidade olhava o nivel de acesso. Dava o pior dos dois mundos:
+  // marcar o gerente no nivel de cima nao devolvia a lista pra ele, e nao
+  // existia tela nenhuma no sistema pra promover alguem a Admin. As duas
+  // travas passam a responder a mesma pergunta.
+  return !podeVerVendasDeTodos({
+    nivelAcesso: args.nivelAcesso,
+    role: args.role,
+    isOwner: args.isOwner,
+  });
 };

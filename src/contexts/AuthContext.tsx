@@ -183,7 +183,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setUserRole(role);
         setUserPermissions([]);
-        setNivelAcesso('administracao');
+        setNivelAcesso('gerente');
         setTenantOptions(options);
         setSelectedTenant(activeTenant);
         setTenantId(activeTenant?.id || null);

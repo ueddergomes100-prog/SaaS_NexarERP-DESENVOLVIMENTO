@@ -8,6 +8,7 @@ import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
 import { isTenantManagerRole } from '../../utils/roles';
 import {
   NIVEL_ACESSO_LABELS,
+  type NivelAcesso,
   parseNivelAcesso,
 } from '../../utils/visibilidadeVendasDomain';
 import PermissoesUsuarioModal from '../../components/common/PermissoesUsuarioModal';
@@ -118,8 +119,12 @@ const UsuariosList: React.FC = () => {
   // sistema, que continua sendo quem manda nos modulos.
   const getNivelBadge = (user: UsuarioData) => {
     const ehDono = user.id === tenantId;
-    const nivel = ehDono || isTenantManagerRole(user.role) ? 'administracao' : parseNivelAcesso(user.nivelAcesso);
-    const cor = nivel === 'administracao' ? '#10b981' : '#6b7280';
+    // Dono e papel de gestor ja veem tudo por outro caminho -- a etiqueta
+    // mostra o efeito, nao o campo gravado.
+    const nivel: NivelAcesso = ehDono || isTenantManagerRole(user.role)
+      ? 'gerente'
+      : parseNivelAcesso(user.nivelAcesso);
+    const cor = nivel === 'funcionario' ? '#6b7280' : '#10b981';
     return (
       <span style={{ backgroundColor: cor + '1a', color: cor, padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>
         {NIVEL_ACESSO_LABELS[nivel]}

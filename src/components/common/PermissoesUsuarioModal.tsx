@@ -9,6 +9,7 @@ import { useEscapeLayer } from '../../hooks/useKeyboardFlow';
 import { PERMISSION_GROUPS, PERMISSION_CATALOG } from '../../utils/permissionCatalog';
 import {
   DEFAULT_NIVEL_ACESSO,
+  NIVEIS_ACESSO,
   NIVEL_ACESSO_LABELS,
   parseNivelAcesso,
   type NivelAcesso,
@@ -132,8 +133,9 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
               disabled={isLoading}
               style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '13px' }}
             >
-              <option value="funcionario">{NIVEL_ACESSO_LABELS.funcionario}</option>
-              <option value="administracao">{NIVEL_ACESSO_LABELS.administracao}</option>
+              {NIVEIS_ACESSO.map((nivel) => (
+                <option key={nivel} value={nivel}>{NIVEL_ACESSO_LABELS[nivel]}</option>
+              ))}
             </select>
           </div>
           <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>

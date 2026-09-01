@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   DEFAULT_NIVEL_ACESSO,
+  NIVEIS_ACESSO,
+  podeVerVendasDeTodos,
   filtrarLancamentosVisiveis,
   filtrarVendasVisiveis,
   isVendaDoUsuario,
@@ -15,9 +17,11 @@ import {
 test('parseNivelAcesso cai no default para valor invalido ou ausente', () => {
   assert.equal(parseNivelAcesso(undefined), DEFAULT_NIVEL_ACESSO);
   assert.equal(parseNivelAcesso(null), 'funcionario');
-  assert.equal(parseNivelAcesso('gerente'), 'funcionario');
-  assert.equal(parseNivelAcesso('administracao'), 'administracao');
+  assert.equal(parseNivelAcesso('diretor'), 'funcionario');
   assert.equal(parseNivelAcesso('funcionario'), 'funcionario');
+  // Cargos validos desde 2026-09-01; 'gerente' era invalido antes disso.
+  assert.equal(parseNivelAcesso('supervisor'), 'supervisor');
+  assert.equal(parseNivelAcesso('gerente'), 'gerente');
 });
 
 test('parseRestringirVendasPorUsuario so aceita true booleano', () => {
@@ -41,9 +45,9 @@ test('com a restricao ligada o funcionario fica limitado as proprias vendas', ()
   );
 });
 
-test('nivel administracao ve tudo mesmo com a restricao ligada', () => {
+test('cargo acima de funcionario ve tudo mesmo com a restricao ligada', () => {
   assert.equal(
-    somenteVendasProprias({ restricaoAtiva: true, nivelAcesso: 'administracao', role: 'Funcionario', isOwner: false }),
+    somenteVendasProprias({ restricaoAtiva: true, nivelAcesso: 'gerente', role: 'Funcionario', isOwner: false }),
     false,
   );
 });
@@ -160,4 +164,40 @@ test('sem identificacao de vendedor a restricao por uid continua valendo', () =>
     role: 'Funcionario',
     isOwner: false,
   }), true);
+});
+
+// --- Cargos: funcionario, supervisor e gerente ----------------------------
+
+test('os tres cargos existem, e o padrao e o mais restrito', () => {
+  assert.deepEqual(NIVEIS_ACESSO, ['funcionario', 'supervisor', 'gerente']);
+  assert.equal(parseNivelAcesso(undefined), 'funcionario');
+  assert.equal(parseNivelAcesso('qualquer coisa'), 'funcionario');
+});
+
+test('o nome antigo "administracao" vira gerente, nao vira funcionario', () => {
+  // Quem ja estava marcado assim NAO pode perder acesso por causa da troca de
+  // nome -- cairia em 'funcionario' e passaria a nao ver as vendas da equipe.
+  assert.equal(parseNivelAcesso('administracao'), 'gerente');
+});
+
+test('supervisor e gerente veem as vendas de todos; funcionario nao', () => {
+  const base = { role: 'Funcionario', isOwner: false };
+  assert.equal(podeVerVendasDeTodos({ ...base, nivelAcesso: 'funcionario' }), false);
+  assert.equal(podeVerVendasDeTodos({ ...base, nivelAcesso: 'supervisor' }), true);
+  assert.equal(podeVerVendasDeTodos({ ...base, nivelAcesso: 'gerente' }), true);
+});
+
+test('dono e papel de gestor veem tudo, seja qual for o cargo', () => {
+  assert.equal(podeVerVendasDeTodos({ nivelAcesso: 'funcionario', role: 'Funcionario', isOwner: true }), true);
+  for (const role of ['Master', 'Admin', 'SuperAdmin', 'NexarAdmin']) {
+    assert.equal(podeVerVendasDeTodos({ nivelAcesso: 'funcionario', role, isOwner: false }), true, role);
+  }
+});
+
+test('supervisor e gerente escapam da restricao de "so as proprias vendas"', () => {
+  // Sem identificacao por PIN: e' a trava classica, por uid.
+  const base = { restricaoAtiva: true, role: 'Funcionario', isOwner: false, identificacaoVendedorAtiva: false };
+  assert.equal(somenteVendasProprias({ ...base, nivelAcesso: 'funcionario' }), true);
+  assert.equal(somenteVendasProprias({ ...base, nivelAcesso: 'supervisor' }), false);
+  assert.equal(somenteVendasProprias({ ...base, nivelAcesso: 'gerente' }), false);
 });

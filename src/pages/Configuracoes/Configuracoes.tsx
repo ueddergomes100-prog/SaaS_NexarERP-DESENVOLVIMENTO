@@ -66,6 +66,7 @@ import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import {
   DEFAULT_NIVEL_ACESSO,
   DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO,
+  NIVEIS_ACESSO,
   NIVEL_ACESSO_LABELS,
   parseNivelAcesso,
   parseRestringirVendasPorUsuario,
@@ -2437,8 +2438,9 @@ const Configuracoes: React.FC = () => {
                           onChange={(e) => setSelectedUserNivelAcesso(parseNivelAcesso(e.target.value))}
                           style={{ width: '100%', maxWidth: '320px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)', fontSize: '14px' }}
                         >
-                          <option value="funcionario">{NIVEL_ACESSO_LABELS.funcionario}</option>
-                          <option value="administracao">{NIVEL_ACESSO_LABELS.administracao}</option>
+                          {NIVEIS_ACESSO.map((nivel) => (
+                            <option key={nivel} value={nivel}>{NIVEL_ACESSO_LABELS[nivel]}</option>
+                          ))}
                         </select>
                         <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                           O nível decide <strong>apenas</strong> quais vendas a pessoa enxerga. Os módulos que ela pode abrir continuam sendo os marcados aqui embaixo, em Módulos Permitidos — mudar o nível não libera módulo nenhum.

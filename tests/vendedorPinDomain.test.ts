@@ -176,29 +176,40 @@ test('checarUsername exige 3 letras e devolve o valor normalizado', () => {
 
 test('config desligada nunca esconde a lista, seja qual for o papel', () => {
   assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
-    exigirIdentificacaoVendedor: false, role: 'Funcionario', isOwner: false,
+    exigirIdentificacaoVendedor: false, role: 'Funcionario', isOwner: false, nivelAcesso: 'funcionario',
   }), false);
   assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
-    exigirIdentificacaoVendedor: false, role: 'Master', isOwner: true,
+    exigirIdentificacaoVendedor: false, role: 'Master', isOwner: true, nivelAcesso: 'gerente',
   }), false);
 });
 
 test('quem tem acesso total continua vendo a lista, mesmo com a config ligada', () => {
   for (const role of ['Master', 'Admin', 'SuperAdmin', 'NexarAdmin']) {
     assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
-      exigirIdentificacaoVendedor: true, role, isOwner: false,
+      exigirIdentificacaoVendedor: true, role, isOwner: false, nivelAcesso: 'funcionario',
     }), false, `role ${role} deveria continuar vendo a lista`);
   }
   assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
-    exigirIdentificacaoVendedor: true, role: 'Funcionario', isOwner: true,
+    exigirIdentificacaoVendedor: true, role: 'Funcionario', isOwner: true, nivelAcesso: 'funcionario',
   }), false, 'dono deveria continuar vendo a lista mesmo com role Funcionario');
+});
+
+test('supervisor e gerente veem a lista geral mesmo com o PIN ligado', () => {
+  // Era o buraco: esta regra olhava so o papel (Master/Admin) e nao existia
+  // tela nenhuma no sistema pra promover alguem a Admin. O gerente ficava sem
+  // a lista por mais que fosse marcado no nivel de cima.
+  for (const nivelAcesso of ['supervisor', 'gerente'] as const) {
+    assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
+      exigirIdentificacaoVendedor: true, role: 'Funcionario', isOwner: false, nivelAcesso,
+    }), false, nivelAcesso);
+  }
 });
 
 test('funcionario comum fica sem a lista quando a config esta ligada', () => {
   assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
-    exigirIdentificacaoVendedor: true, role: 'Funcionario', isOwner: false,
+    exigirIdentificacaoVendedor: true, role: 'Funcionario', isOwner: false, nivelAcesso: 'funcionario',
   }), true);
   assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
-    exigirIdentificacaoVendedor: true, role: undefined, isOwner: false,
+    exigirIdentificacaoVendedor: true, role: undefined, isOwner: false, nivelAcesso: 'funcionario',
   }), true);
 });

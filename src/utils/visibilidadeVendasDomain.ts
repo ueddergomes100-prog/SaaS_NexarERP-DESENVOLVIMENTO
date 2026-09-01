@@ -22,9 +22,26 @@
 
 import { hasTenantFullAccess } from './roles';
 
-export type NivelAcesso = 'funcionario' | 'administracao';
+/**
+ * Cargo da pessoa dentro da empresa, no que diz respeito a VENDAS.
+ *
+ * Tres niveis (2026-09-01, pedido do cliente): funcionario ve so as proprias
+ * vendas; supervisor e gerente veem as de todo mundo. O DONO nao entra na
+ * lista -- ele ja e' identificado por ser quem criou a empresa, e nao ha o que
+ * escolher na ficha dele.
+ *
+ * Supervisor e gerente se comportam IGUAL aqui, e isso e' de proposito: o que
+ * o cliente pediu foi poder chamar cada um pelo nome que a loja usa, nao dois
+ * comportamentos diferentes. Se um dia precisarem divergir, o lugar de mudar
+ * e' `podeVerVendasDeTodos` -- nao espalhado pelas telas.
+ *
+ * O valor antigo 'administracao' continua sendo aceito e vira 'gerente': as
+ * empresas que ja marcaram alguem assim nao podem perder o acesso por causa da
+ * troca de nome.
+ */
+export type NivelAcesso = 'funcionario' | 'supervisor' | 'gerente';
 
-export const NIVEIS_ACESSO: NivelAcesso[] = ['funcionario', 'administracao'];
+export const NIVEIS_ACESSO: NivelAcesso[] = ['funcionario', 'supervisor', 'gerente'];
 
 export const DEFAULT_NIVEL_ACESSO: NivelAcesso = 'funcionario';
 
@@ -32,12 +49,40 @@ export const DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO = false;
 
 export const NIVEL_ACESSO_LABELS: Record<NivelAcesso, string> = {
   funcionario: 'Funcionário',
-  administracao: 'Administração',
+  supervisor: 'Supervisor',
+  gerente: 'Gerente',
+};
+
+/** Uma linha explicando cada cargo, pra ficha do usuario nao virar adivinhacao. */
+export const NIVEL_ACESSO_DESCRICOES: Record<NivelAcesso, string> = {
+  funcionario: 'Vê apenas as próprias vendas quando a empresa liga a restrição.',
+  supervisor: 'Vê as vendas de toda a equipe, sem precisar de outros acessos.',
+  gerente: 'Vê as vendas de toda a equipe, sem precisar de outros acessos.',
 };
 
 export const parseNivelAcesso = (raw: unknown): NivelAcesso => {
+  // Nome antigo do nivel de cima, gravado antes de 2026-09-01.
+  if (raw === 'administracao') return 'gerente';
   return NIVEIS_ACESSO.includes(raw as NivelAcesso) ? raw as NivelAcesso : DEFAULT_NIVEL_ACESSO;
 };
+
+/**
+ * ESTA PESSOA ENXERGA AS VENDAS DE TODO MUNDO?
+ *
+ * Resposta unica pras duas travas de visibilidade que o sistema tem -- a de
+ * "so as proprias vendas" e a que esconde a lista geral no balcao
+ * compartilhado. Antes cada uma decidia por conta propria, e por caminhos
+ * diferentes: uma olhava o nivel de acesso, a outra so o papel (Master/Admin).
+ * Resultado: marcar o gerente como nivel de cima nao devolvia a lista pra ele,
+ * e nao havia tela nenhuma pra promover alguem a Admin.
+ */
+export const podeVerVendasDeTodos = (args: {
+  nivelAcesso: NivelAcesso;
+  role: unknown;
+  isOwner: boolean;
+}): boolean => (
+  hasTenantFullAccess(args.role, args.isOwner) || args.nivelAcesso !== 'funcionario'
+);
 
 export const parseRestringirVendasPorUsuario = (raw: unknown): boolean => {
   return raw === true;
@@ -83,8 +128,7 @@ export const somenteVendasProprias = (args: {
 }): boolean => {
   if (!args.restricaoAtiva) return false;
   if (args.identificacaoVendedorAtiva) return false;
-  if (hasTenantFullAccess(args.role, args.isOwner)) return false;
-  return args.nivelAcesso === 'funcionario';
+  return !podeVerVendasDeTodos(args);
 };
 
 /** Campos onde a venda guarda "de quem ela e'", em ordem de confianca.

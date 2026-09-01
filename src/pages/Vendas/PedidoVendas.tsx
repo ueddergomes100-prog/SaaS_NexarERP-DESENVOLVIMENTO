@@ -67,7 +67,7 @@ const CONFERENCIA_STATUS_COLORS: Record<string, string> = {
 const PedidoVendas: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, nivelAcesso } = useAuth();
 
   const canDeleteVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.excluir'));
   // Mesma permissao cobre editar/finalizar E recusar um pedido pendente do
@@ -92,6 +92,7 @@ const PedidoVendas: React.FC = () => {
     exigirIdentificacaoVendedor,
     role: userRole,
     isOwner,
+    nivelAcesso,
   });
 
   // Estado para armazenar IDs dos cupons autorizados

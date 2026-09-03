@@ -864,6 +864,18 @@ const PedidoVendaForm: React.FC = () => {
     // Tenta achar o produto no catálogo para pegar o ID real
     const produtoEncontrado = produtoSelecionado || produtosCatalogo.find(p => p.nome.toLowerCase() === produtoBusca.toLowerCase() || p.codigo === produtoBusca);
 
+    // Nunca lanca item "avulso" (sem produto cadastrado no Estoque): venda
+    // digitada na mao, sem controle de estoque nenhum, ja foi usada pra
+    // vender item que nao existe. Bloqueia aqui -- so passa quem veio da
+    // lista de sugestoes ou bate nome/codigo exato com um produto real.
+    if (!produtoEncontrado) {
+      showError(
+        'Produto não encontrado',
+        `Não existe nenhum produto chamado "${produtoBusca}" no Estoque. Selecione um produto da lista de sugestões ou cadastre-o em Estoque antes de vender.`,
+      );
+      return;
+    }
+
     // Produto achado por texto (sem passar pelo autocomplete) nao tem opcao de
     // embalagem selecionada -- cai na unidade base dele, nao na do produto que
     // por acaso estivesse selecionado antes.

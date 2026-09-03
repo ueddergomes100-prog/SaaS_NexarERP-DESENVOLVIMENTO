@@ -346,7 +346,20 @@ const OrcamentoForm: React.FC = () => {
 
     if (tipo === 'peca') {
       const peca = pecaSelecionada || pecasEstoque.find(p => p.nome.toLowerCase() === nome.toLowerCase());
-      existingId = peca?.id;
+
+      // Peca sem cadastro no Estoque nao entra: orcamento pode virar venda
+      // com baixa de estoque e financeiro "Paga" direto (handleConvertToVenda),
+      // sem passar pela tela de Pedido de Venda de novo -- item digitado na
+      // mao aqui vira dinheiro sem produto nenhum por tras.
+      if (!peca) {
+        showError(
+          'Peça não encontrada',
+          `Não existe nenhuma peça chamada "${nome}" no Estoque. Selecione uma peça da lista de sugestões ou cadastre-a em Estoque antes de orçar.`,
+        );
+        return;
+      }
+
+      existingId = peca.id;
 
       if (!permitirVendaSemEstoque && peca && 1 > (peca.quantidade || 0)) {
         showError('Estoque Insuficiente', `Você tem apenas ${peca.quantidade || 0} un. no estoque. Venda sem estoque desativada.`);

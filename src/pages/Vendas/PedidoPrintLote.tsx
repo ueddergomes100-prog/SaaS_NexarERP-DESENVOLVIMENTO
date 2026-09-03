@@ -9,6 +9,7 @@ import PedidoPrintMeiaFolha from './PedidoPrintMeiaFolha';
 import { DEFAULT_PEDIDO_PRINT_MODEL } from '../../utils/pedidoPrintModels';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from './pedidoPrintLoteConstants';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
+import { usePrintAndClose } from '../../hooks/usePrintAndClose';
 import '../OS/OsPrint.css'; // Reusing OS print styles
 import './PedidoPrintLote.css';
 
@@ -104,9 +105,7 @@ const PedidoPrintLote: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, tenantId, location.search, vendasVisiveisDeUsuarioId]);
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = usePrintAndClose('/pedidos-venda');
 
   if (loading) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando pedidos para impressão...</div>;

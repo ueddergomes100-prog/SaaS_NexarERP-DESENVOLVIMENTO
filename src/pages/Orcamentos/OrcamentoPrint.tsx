@@ -5,6 +5,7 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCompanyAddressRows } from '../../utils/companyAddress';
+import { usePrintAndClose } from '../../hooks/usePrintAndClose';
 import '../OS/OsPrint.css';
 
 const OrcamentoPrint: React.FC = () => {
@@ -58,9 +59,7 @@ const OrcamentoPrint: React.FC = () => {
     fetchData();
   }, [id, navigate, currentUser, tenantId]);
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = usePrintAndClose('/orcamentos');
 
   if (loading) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando dados para impressão...</div>;

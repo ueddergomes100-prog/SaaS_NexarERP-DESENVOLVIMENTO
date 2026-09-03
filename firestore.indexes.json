@@ -33,6 +33,14 @@
       ]
     },
     {
+      "collectionGroup": "notas_avulsas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "numero", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "caixas_pdv",
       "queryScope": "COLLECTION",
       "fields": [

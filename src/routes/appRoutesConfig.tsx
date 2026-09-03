@@ -12,6 +12,7 @@ const OrcamentoPrint = lazy(() => import('../pages/Orcamentos/OrcamentoPrint'));
 const PedidoVendas = lazy(() => import('../pages/Vendas/PedidoVendas'));
 const MinhasVendas = lazy(() => import('../pages/Vendas/MinhasVendas'));
 const RelatoriosVendas = lazy(() => import('../pages/Vendas/RelatoriosVendas'));
+const DevolucoesVenda = lazy(() => import('../pages/Vendas/DevolucoesVenda'));
 const RelatorioPreVendas = lazy(() => import('../pages/Vendas/RelatorioPreVendas'));
 const OSList = lazy(() => import('../pages/OS/OSList'));
 const RelatoriosMecanica = lazy(() => import('../pages/OS/RelatoriosMecanica'));
@@ -26,6 +27,8 @@ const ImportarProdutos = lazy(() => import('../pages/Estoque/ImportarProdutos'))
 const AjusteEstoque = lazy(() => import('../pages/Estoque/AjusteEstoque'));
 const RelatorioEstoque = lazy(() => import('../pages/Estoque/RelatorioEstoque'));
 const RelatorioAjustesEstoque = lazy(() => import('../pages/Estoque/RelatorioAjustesEstoque'));
+const NotasAvulsasList = lazy(() => import('../pages/Estoque/NotasAvulsasList'));
+const NotaAvulsaForm = lazy(() => import('../pages/Estoque/NotaAvulsaForm'));
 const LembretesList = lazy(() => import('../pages/Lembretes/LembretesList'));
 const LembreteForm = lazy(() => import('../pages/Lembretes/LembreteForm'));
 const Caixa = lazy(() => import('../pages/Financeiro/Caixa'));
@@ -89,6 +92,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'pedidos-venda/visualizar/:id', element: <PedidoVendaForm /> },
   { path: 'pedidos-venda/print/:id', element: <PedidoPrint /> },
   { path: 'pedidos-venda/print-lote', element: <PedidoPrintLote /> },
+  { path: 'vendas/devolucoes', element: <DevolucoesVenda /> },
   { path: 'relatorios-vendas', element: <RelatoriosVendas /> },
   { path: 'pre-vendas', element: <RelatorioPreVendas /> },
 
@@ -105,6 +109,8 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'estoque/ajuste', element: <AjusteEstoque /> },
   { path: 'estoque/relatorio', element: <RelatorioEstoque /> },
   { path: 'estoque/relatorio-ajustes', element: <RelatorioAjustesEstoque /> },
+  { path: 'estoque/notas-avulsas', element: <NotasAvulsasList /> },
+  { path: 'estoque/notas-avulsas/nova', element: <NotaAvulsaForm /> },
 
   { path: 'servicos', element: <ServicosList /> },
   { path: 'servicos/novo', element: <ServicoForm /> },

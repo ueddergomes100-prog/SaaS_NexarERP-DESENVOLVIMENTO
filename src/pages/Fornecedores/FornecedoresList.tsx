@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Truck, Edit, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, doc, deleteDoc, where } from 'firebase/firestore';
+import { Search, Plus, Truck, Edit, Power } from 'lucide-react';
+import { collection, query, onSnapshot, doc, updateDoc, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import ValidarDocumentoButton from '../../components/common/ValidarDocumentoButton';
 import { formatarDocumento } from '../../utils/documentoValidacao';
 
@@ -19,6 +20,7 @@ interface FornecedorData {
   numero?: string;
   bairro?: string;
   cidade?: string;
+  ativo?: boolean;
   createdAt: any;
 }
 
@@ -53,16 +55,31 @@ const FornecedoresList: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser, tenantId]);
 
-  const handleDelete = async (id: string) => {
-    const isConfirmed = await confirmDelete('este fornecedor');
-    if (isConfirmed) {
-      try {
-        await deleteDoc(doc(db, 'fornecedores', id));
-        showSuccess('Fornecedor excluído!');
-      } catch (error) {
-        console.error("Erro ao excluir fornecedor:", error);
-        showError('Erro ao excluir', 'Tente novamente mais tarde.');
-      }
+  const handleToggleAtivo = async (fornecedor: FornecedorData) => {
+    if (!currentUser) return;
+    const novoStatus = fornecedor.ativo === false;
+
+    const confirm = await NexusSwal.fire({
+      title: novoStatus ? `Ativar ${fornecedor.nome}?` : `Inativar ${fornecedor.nome}?`,
+      text: novoStatus
+        ? `${fornecedor.nome} volta a aparecer nas buscas de compra e entrada de nota.`
+        : `${fornecedor.nome} some das buscas de compra e entrada de nota, mas o histórico dele continua intacto. Pode ser reativado quando quiser.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: novoStatus ? 'Sim, ativar' : 'Sim, inativar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      await updateDoc(doc(db, 'fornecedores', fornecedor.id), {
+        ativo: novoStatus,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Fornecedor reativado' : 'Fornecedor inativado'),
+      });
+      showSuccess(novoStatus ? 'Fornecedor ativado!' : 'Fornecedor inativado!');
+    } catch (error) {
+      console.error("Erro ao atualizar status do fornecedor:", error);
+      showError('Erro ao atualizar', 'Tente novamente mais tarde.');
     }
   };
 
@@ -113,17 +130,18 @@ const FornecedoresList: React.FC = () => {
                 <th>Telefone</th>
                 <th>CNPJ / CPF</th>
                 <th>E-mail</th>
+                <th>Status</th>
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando fornecedores...</td>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>Carregando fornecedores...</td>
                 </tr>
               ) : filteredFornecedores.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
                     <Truck size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>{searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhum fornecedor cadastrado."}</p>
                   </td>
@@ -137,13 +155,27 @@ const FornecedoresList: React.FC = () => {
                     <td>{formatCnpjOuCpf(fornecedor.cnpj)}</td>
                     <td>{fornecedor.email || '-'}</td>
                     <td>
+                      <span style={{
+                        backgroundColor: fornecedor.ativo === false ? 'rgba(255,255,255,0.05)' : '#10b98120',
+                        color: fornecedor.ativo === false ? 'var(--text-muted)' : '#10b981',
+                        padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
+                      }}>
+                        {fornecedor.ativo === false ? 'Inativo' : 'Ativo'}
+                      </span>
+                    </td>
+                    <td>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <ValidarDocumentoButton documento={fornecedor.cnpj} />
                         <button className="icon-btn" title="Editar" onClick={() => openTab(`/fornecedores/editar/${fornecedor.id}`)}>
                           <Edit size={16} />
                         </button>
-                        <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(fornecedor.id)}>
-                          <Trash2 size={16} />
+                        <button
+                          className="icon-btn"
+                          title={fornecedor.ativo === false ? 'Ativar' : 'Inativar'}
+                          style={{ color: fornecedor.ativo === false ? '#10b981' : '#ef4444' }}
+                          onClick={() => handleToggleAtivo(fornecedor)}
+                        >
+                          <Power size={16} />
                         </button>
                       </div>
                     </td>

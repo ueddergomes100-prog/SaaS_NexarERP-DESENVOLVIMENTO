@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, Factory, Loader2, Play, Pause, CheckCircle2, XCircle, RotateCcw, Package, Trash2, Undo2 } from 'lucide-react';
-import { collection, doc, deleteDoc, getDoc, getDocs, updateDoc, serverTimestamp, query, where, runTransaction } from 'firebase/firestore';
+import { ArrowLeft, Save, Factory, Loader2, Play, Pause, CheckCircle2, XCircle, RotateCcw, Package, Undo2 } from 'lucide-react';
+import { collection, doc, getDoc, getDocs, updateDoc, serverTimestamp, query, where, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, confirmDelete, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { reserveTenantSequence, formatSequenceValue, getCurrentMaxSequence } from '../../utils/firestoreAtomic';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
@@ -75,10 +75,6 @@ const STATUS_COLORS: Record<StatusOrdem, string> = {
   cancelada: '#ef4444',
   estornada: '#64748b',
 };
-
-/** Status que ainda nao tocaram estoque -- excluir e so apagar o documento,
- * sem nenhuma reversao necessaria. */
-const STATUS_EXCLUIVEL: StatusOrdem[] = ['criada', 'em_producao', 'pausada', 'cancelada'];
 
 const inputStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg-tertiary)',
@@ -367,46 +363,6 @@ const OrdemProducaoForm: React.FC = () => {
     } catch (error) {
       console.error('Erro ao cancelar ordem:', error);
       showError('Erro', 'Não foi possível cancelar a ordem de produção.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Exclusao definitiva -- so permitida pra status que nunca tocaram
-  // estoque (STATUS_EXCLUIVEL), entao nao ha nada pra reverter.
-  const handleExcluir = async () => {
-    if (!id || !ordem) return;
-    if (!canManageProducao) {
-      showError('Acesso negado', 'Você não tem permissão para excluir ordens de produção.');
-      return;
-    }
-    const isConfirmed = await confirmDelete(`a ordem de produção ${ordem.numero}`);
-    if (!isConfirmed) return;
-
-    setIsProcessing(true);
-    try {
-      await deleteDoc(doc(db, 'ordens_producao', id));
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId: tenantId || '',
-          usuarioId: currentUser?.uid || '',
-          usuarioEmail: currentUser?.email || '',
-          modulo: 'producao',
-          acao: 'exclusao',
-          descricao: `Ordem de produção ${ordem.numero} excluída permanentemente.`,
-          registroRelacionadoId: id,
-          status: 'sucesso',
-          critical: true,
-        });
-      } catch {
-        // ignore audit log error
-      }
-      showSuccess('Ordem de produção excluída!');
-      navigate('/producao/ordens');
-    } catch (error) {
-      console.error('Erro ao excluir ordem de produção:', error);
-      showError('Erro ao excluir', 'Tente novamente mais tarde.');
     } finally {
       setIsProcessing(false);
     }
@@ -710,11 +666,6 @@ const OrdemProducaoForm: React.FC = () => {
                 {canManageProducao && ordem.status === 'finalizada' && (
                   <button type="button" className="btn-secondary" disabled={isProcessing} onClick={handleEstornar} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b' }}>
                     <Undo2 size={16} /> Estornar Produção
-                  </button>
-                )}
-                {canManageProducao && STATUS_EXCLUIVEL.includes(ordem.status) && (
-                  <button type="button" className="icon-btn" style={{ color: '#ef4444' }} title="Excluir ordem" disabled={isProcessing} onClick={handleExcluir}>
-                    <Trash2 size={18} />
                   </button>
                 )}
               </div>

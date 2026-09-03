@@ -11,7 +11,7 @@ import {
   getCurrentSessionPath,
   type ActiveSessionInfo
 } from '../utils/sessionInfo';
-import { isPlatformAdminRole, normalizeUserRole, type UserRole } from '../utils/roles';
+import { isPlatformAdminRole, isTenantManagerRole, normalizeUserRole, type UserRole } from '../utils/roles';
 import { activeTenantStorageKey, loadTenantOptions, type TenantOption } from '../utils/platformTenants';
 import {
   DEFAULT_NIVEL_ACESSO,
@@ -27,6 +27,12 @@ import {
 } from '../utils/vendedorPinDomain';
 import { isRegistroDeVendedor } from '../utils/vendedorCadastroDomain';
 import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../utils/fiscalDomain';
+import {
+  DEFAULT_AGENTE_DIGITAL_ATIVO,
+  DEFAULT_TRABALHA_COM_PRE_VENDA,
+  parseAgenteDigitalAtivo,
+  parseTrabalhaComPreVenda,
+} from '../utils/preVendaDomain';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -59,6 +65,18 @@ interface AuthContextType {
    *  Esconde o menu Fiscal, o botao de NFC-e no fim da venda e o de imprimir
    *  cupom na lista. Ver DEFAULT_CONTROLA_FISCAL em fiscalDomain.ts. */
   controlaFiscal: boolean;
+  /** Config da empresa: true quando a Devolucao de Venda deve ter tela/menu
+   *  proprios (busca o pedido) em vez do botao dentro da tela do pedido.
+   *  Mutuamente exclusivo com o botao inline -- ver PedidoVendaForm.tsx. */
+  devolucaoBotaoSeparado: boolean;
+  /** Config da empresa: "trabalha com pré-venda" -- ver DEFAULT_TRABALHA_COM_PRE_VENDA
+   *  em preVendaDomain.ts. Governa se a aba "Pré-vendas" aparece na
+   *  listagem de Pedidos de Venda. */
+  trabalhaComPreVenda: boolean;
+  /** Config da empresa: recebe pedido pelo agente digital (WhatsApp) --
+   *  ver DEFAULT_AGENTE_DIGITAL_ATIVO em preVendaDomain.ts. Governa se a
+   *  aba "Pendentes" aparece na listagem de Pedidos de Venda. */
+  agenteDigitalAtivo: boolean;
   /** Existe pelo menos um vendedor SEM LOGIN cadastrado nesta empresa. Serve
    *  so pra decidir se o menu "Vendedores" aparece: o cadastro nao pode
    *  sumir da vista quando alguem desmarca o checkbox por engano. */
@@ -130,6 +148,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [restringirVendasPorUsuario, setRestringirVendasPorUsuario] = useState(DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO);
   const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR);
   const [controlaFiscal, setControlaFiscal] = useState(DEFAULT_CONTROLA_FISCAL);
+  const [devolucaoBotaoSeparado, setDevolucaoBotaoSeparado] = useState(false);
+  const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
+  const [agenteDigitalAtivo, setAgenteDigitalAtivo] = useState(DEFAULT_AGENTE_DIGITAL_ATIVO);
   const [temVendedorCadastrado, setTemVendedorCadastrado] = useState(false);
   const [loading, setLoading] = useState(true);
   const sessionCloseTokenRef = useRef('');
@@ -279,6 +300,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return;
             }
 
+            // Funcionario inativado em Equipe & Acessos (UsuariosList.tsx) --
+            // derruba a sessao ao vivo, nao so na proxima tela. O dono/gestor
+            // nunca cai aqui: a tela nem mostra o botao de inativar pra
+            // Master/Admin, so pra Funcionario/Mecanico/Vendedor com login.
+            if (data.status === 'Inativo' && !isTenantManagerRole(finalRole)) {
+              clearUserState();
+              if (unsubscribeUserSnapshot) {
+                unsubscribeUserSnapshot();
+                unsubscribeUserSnapshot = null;
+              }
+              await signOut(auth);
+              Swal.fire({
+                title: 'Acesso desativado',
+                text: 'Seu usuario foi inativado pelo administrador da empresa. Fale com ele para reativar o acesso.',
+                icon: 'warning',
+                confirmButtonColor: '#8b5cf6'
+              });
+              setLoading(false);
+              return;
+            }
+
             const finalTenant = typeof data.tenantId === 'string' && data.tenantId ? data.tenantId : user.uid;
             const finalPermissions = toStringArray(data.permissoes);
             let finalBlockedModules: string[] = [];
@@ -348,6 +390,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setRestringirVendasPorUsuario(DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO);
       setExigirIdentificacaoVendedor(DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR);
       setControlaFiscal(DEFAULT_CONTROLA_FISCAL);
+      setDevolucaoBotaoSeparado(false);
+      setTrabalhaComPreVenda(DEFAULT_TRABALHA_COM_PRE_VENDA);
+      setAgenteDigitalAtivo(DEFAULT_AGENTE_DIGITAL_ATIVO);
       return;
     }
 
@@ -363,6 +408,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Mesma leitura: a empresa que nao emite nota nao pode ver botao de
       // nota, e isso muda ao vivo quando o dono desmarca em Configuracoes.
       setControlaFiscal(parseControlaFiscal(snap.exists() ? snap.data().controlaFiscal : undefined));
+      // Mesma leitura: decide se a Devolucao de Venda vira tela/menu
+      // separados ou continua so como botao dentro do pedido.
+      setDevolucaoBotaoSeparado(Boolean(snap.exists() && snap.data().devolucaoBotaoSeparado === true));
+      // Mesma leitura: governam as abas "Pré-vendas" e "Pendentes" na
+      // listagem de Pedidos de Venda (PedidoVendas.tsx).
+      setTrabalhaComPreVenda(parseTrabalhaComPreVenda(snap.exists() ? snap.data().trabalhaComPreVenda : undefined));
+      setAgenteDigitalAtivo(parseAgenteDigitalAtivo(snap.exists() ? snap.data().agenteDigitalAtivo : undefined));
     }, (error) => {
       // Falha de leitura MANTEM o valor atual de proposito. Cair pro
       // default (false) aqui abriria as vendas de todo mundo pro
@@ -526,7 +578,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, trabalhaComPreVenda, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId }}>
       {children}
     </AuthContext.Provider>
   );

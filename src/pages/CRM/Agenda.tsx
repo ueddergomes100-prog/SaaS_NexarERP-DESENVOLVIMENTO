@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, X, User, Car, Clock, Wrench, Trash2 } from 'lucide-react';
-import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, deleteDoc } from 'firebase/firestore';
-import Swal from 'sweetalert2';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, X, User, Car, Clock, Wrench } from 'lucide-react';
+import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
 interface VeiculoBasico { id: string; placa: string; modelo: string; clienteId: string; }
@@ -135,6 +135,7 @@ const Agenda: React.FC = () => {
   };
 
   const handleAgendamentoClick = async (ag: Agendamento) => {
+    const jaCancelado = ag.status === 'Cancelado';
     const result = await NexusSwal.fire({
       title: 'Detalhes do Agendamento',
       html: `
@@ -143,37 +144,38 @@ const Agenda: React.FC = () => {
           <p><strong>Cliente:</strong> ${ag.clienteNome}</p>
           <p><strong>Veículo:</strong> ${ag.veiculo || 'Não informado'}</p>
           <p><strong>Serviço:</strong> ${ag.servico || 'Não informado'}</p>
+          ${jaCancelado ? '<p style="color:#ef4444"><strong>Status:</strong> Cancelado</p>' : ''}
         </div>
       `,
-      showCancelButton: true,
-      showDenyButton: true,
+      showDenyButton: !jaCancelado,
       confirmButtonText: 'Fechar',
       confirmButtonColor: '#8b5cf6',
-      denyButtonText: 'Excluir',
+      denyButtonText: 'Cancelar Agendamento',
       denyButtonColor: '#ef4444',
-      cancelButtonText: 'Cancelar',
-      cancelButtonColor: '#3f3f46',
     });
 
     if (result.isDenied) {
       const confirm = await NexusSwal.fire({
-        title: 'Tem certeza?',
-        text: "Isso irá remover o agendamento da sua agenda permanentemente.",
+        title: 'Cancelar agendamento?',
+        text: 'O agendamento some da agenda ativa, mas o registro continua existindo com o status Cancelado.',
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#ef4444',
         cancelButtonColor: '#3f3f46',
-        confirmButtonText: 'Sim, excluir!',
-        cancelButtonText: 'Cancelar'
+        confirmButtonText: 'Sim, cancelar',
+        cancelButtonText: 'Manter agendamento'
       });
-      
-      if (confirm.isConfirmed) {
+
+      if (confirm.isConfirmed && currentUser) {
         try {
-          await deleteDoc(doc(db, 'agendamentos', ag.id));
-          showSuccess('Agendamento excluído com sucesso!');
+          await updateDoc(doc(db, 'agendamentos', ag.id), {
+            status: 'Cancelado',
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Agendamento cancelado'),
+          });
+          showSuccess('Agendamento cancelado!');
         } catch (err) {
           console.error(err);
-          showError('Erro', 'Não foi possível excluir o agendamento.');
+          showError('Erro', 'Não foi possível cancelar o agendamento.');
         }
       }
     }
@@ -246,19 +248,22 @@ const Agenda: React.FC = () => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                       <span style={{ fontWeight: isToday ? 700 : 500, color: isToday ? 'var(--accent-purple)' : 'white' }}>{day}</span>
                     </div>
-                    {hasAg && hasAg.sort((a,b) => a.hora.localeCompare(b.hora)).map((ag) => (
-                      <div 
-                        key={ag.id} 
-                        onClick={() => handleAgendamentoClick(ag)}
-                        style={{ backgroundColor: 'var(--bg-secondary)', padding: '6px 8px', borderRadius: '4px', fontSize: '11px', borderLeft: '3px solid #10b981', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', transition: 'filter 0.2s' }} 
-                        onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.2)'}
-                        onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
-                        title={`${ag.hora} - ${ag.clienteNome} (Clique para opções)`}
-                      >
-                        <strong style={{ display: 'block', color: 'var(--text-primary)' }}>{ag.hora} - {ag.veiculo || 'S/V'}</strong>
-                        <span style={{ color: 'var(--text-muted)' }}>{ag.clienteNome}</span>
-                      </div>
-                    ))}
+                    {hasAg && hasAg.sort((a,b) => a.hora.localeCompare(b.hora)).map((ag) => {
+                      const cancelado = ag.status === 'Cancelado';
+                      return (
+                        <div
+                          key={ag.id}
+                          onClick={() => handleAgendamentoClick(ag)}
+                          style={{ backgroundColor: 'var(--bg-secondary)', padding: '6px 8px', borderRadius: '4px', fontSize: '11px', borderLeft: `3px solid ${cancelado ? '#6b7280' : '#10b981'}`, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', transition: 'filter 0.2s', opacity: cancelado ? 0.5 : 1 }}
+                          onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.2)'}
+                          onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
+                          title={`${ag.hora} - ${ag.clienteNome}${cancelado ? ' (Cancelado)' : ''} (Clique para opções)`}
+                        >
+                          <strong style={{ display: 'block', color: 'var(--text-primary)', textDecoration: cancelado ? 'line-through' : 'none' }}>{ag.hora} - {ag.veiculo || 'S/V'}</strong>
+                          <span style={{ color: 'var(--text-muted)' }}>{ag.clienteNome}</span>
+                        </div>
+                      );
+                    })}
                   </>
                 )}
               </div>

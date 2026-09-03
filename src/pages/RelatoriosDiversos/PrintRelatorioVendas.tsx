@@ -132,11 +132,11 @@ const PrintRelatorioVendas: React.FC = () => {
           }
         });
 
-        listVendas.sort((a, b) => {
-          const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date();
-          const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date();
-          return dateA.getTime() - dateB.getTime();
-        });
+        // Ordenado pelo numero sequencial do pedido, nao pela data de
+        // criacao -- com a exclusao fisica desativada (nunca mais tem
+        // pedido apagado furando a sequencia), o numero e a ordem mais
+        // confiavel pra conferencia impressa.
+        listVendas.sort((a, b) => Number(a.numeroPedido) - Number(b.numeroPedido));
         setPedidos(filtrarVendasVisiveis(listVendas, vendasVisiveisDeUsuarioId));
 
         // 5. Buscar devoluções (devolucoes_venda)
@@ -186,8 +186,14 @@ const PrintRelatorioVendas: React.FC = () => {
     }> = {};
 
     pedidos.forEach(p => {
-      const vId = p.usuarioResponsavelId || 'admin';
-      const vNome = usuarios[vId] || p.vendedorNome || 'Administrador';
+      // vendedorId/vendedorNome e' quem VENDEU de verdade (inclusive
+      // identificado por PIN, no balcao compartilhado) -- usuarioResponsavelId
+      // e' so quem estava logado na estacao, que agrupava todo mundo do
+      // balcao debaixo do mesmo nome quando a empresa exige identificacao
+      // do vendedor. So cai pro usuario logado em pedido antigo sem
+      // vendedorId gravado.
+      const vId = p.vendedorId || p.usuarioResponsavelId || 'admin';
+      const vNome = p.vendedorNome || usuarios[vId] || 'Administrador';
 
       if (!map[vId]) {
         map[vId] = {
@@ -209,8 +215,8 @@ const PrintRelatorioVendas: React.FC = () => {
     });
 
     devolucoes.forEach(d => {
-      const vId = d.usuarioResponsavelId || 'admin';
-      const vNome = usuarios[vId] || d.vendedorNome || 'Administrador';
+      const vId = d.vendedorId || d.usuarioResponsavelId || 'admin';
+      const vNome = d.vendedorNome || usuarios[vId] || 'Administrador';
 
       if (!map[vId]) {
         map[vId] = {
@@ -467,8 +473,8 @@ const PrintRelatorioVendas: React.FC = () => {
             <div style={{ marginTop: '40px', pageBreakBefore: 'always' }}>
               <div className="section-title">Detalhamento das Operações por Vendedor</div>
               {sellerStats.map(s => {
-                const sellerVendas = pedidos.filter(p => (p.usuarioResponsavelId || 'admin') === s.vendedorId);
-                const sellerDevolucoes = devolucoes.filter(d => (d.usuarioResponsavelId || 'admin') === s.vendedorId);
+                const sellerVendas = pedidos.filter(p => (p.vendedorId || p.usuarioResponsavelId || 'admin') === s.vendedorId);
+                const sellerDevolucoes = devolucoes.filter(d => (d.vendedorId || d.usuarioResponsavelId || 'admin') === s.vendedorId);
 
                 if (sellerVendas.length === 0 && sellerDevolucoes.length === 0) return null;
 

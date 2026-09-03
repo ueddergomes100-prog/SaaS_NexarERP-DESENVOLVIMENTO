@@ -478,6 +478,15 @@ body.light-theme textarea:disabled {
   color: var(--text-primary) !important;
 }
 
+/* SweetAlert2 (NexusSwal) tem que ficar SEMPRE por cima de qualquer modal
+ * proprio do app -- o z-index padrao dele (1060) fica atras de modais como
+ * CadastroRapidoClienteModal (1200), o que deixava showError() rodando sem
+ * o usuario ver nada na tela. 100000 fica acima do maior z-index usado no
+ * app hoje (99999, overlay de loading global). */
+.swal2-container {
+  z-index: 100000 !important;
+}
+
 /* Global Table & Status Badge Styles */
 .card {
   background-color: var(--bg-secondary);

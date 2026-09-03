@@ -25,6 +25,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/estoque/ajuste')) routeModule = 'estoque.ajusteManual';
   else if (path.startsWith('/estoque/relatorio-ajustes')) routeModule = 'estoque.relatorioAjustes';
   else if (path.startsWith('/estoque/relatorio')) routeModule = 'estoque.relatorio';
+  else if (path.startsWith('/estoque/notas-avulsas')) routeModule = 'estoque.nota_avulsa';
   else if (path.startsWith('/estoque')) routeModule = 'cadastros.estoque';
   else if (path.startsWith('/servicos')) routeModule = 'cadastros.servicos';
   else if (path.startsWith('/categorias')) routeModule = 'cadastros.categorias';
@@ -39,6 +40,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/pedidos-venda')) routeModule = 'comercial.pedidos';
   else if (path.startsWith('/minhas-vendas')) routeModule = 'comercial.pedidos';
   else if (path.startsWith('/orcamentos')) routeModule = 'comercial.orcamentos';
+  else if (path.startsWith('/vendas/devolucoes')) routeModule = 'comercial.devolucoes';
   else if (path.startsWith('/pre-vendas')) routeModule = 'comercial.relatorios';
   else if (path.startsWith('/relatorios-vendas')) routeModule = 'comercial.relatorios';
   else if (path.startsWith('/os')) routeModule = 'mecanica.os';
@@ -78,6 +80,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/estoque/ajuste')) routePermission = 'estoque.ajusteManual';
   else if (path.startsWith('/estoque/relatorio-ajustes')) routePermission = 'estoque.relatorioAjustes';
   else if (path.startsWith('/estoque/relatorio')) routePermission = 'estoque.relatorio';
+  else if (path.startsWith('/estoque/notas-avulsas')) routePermission = 'estoque.nota_avulsa';
   else if (path.startsWith('/estoque')) routePermission = 'cadastros.estoque';
   else if (path.startsWith('/servicos')) routePermission = 'cadastros.servicos';
   else if (path.startsWith('/categorias')) routePermission = 'cadastros.categorias';
@@ -101,6 +104,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   // id de Pedidos de Venda, sem controle independente.
   else if (path.startsWith('/minhas-vendas')) routePermission = 'vendas.minhas_vendas';
   else if (path.startsWith('/orcamentos')) routePermission = 'vendas.orcamentos';
+  else if (path.startsWith('/vendas/devolucoes')) routePermission = 'vendas.devolucao';
   else if (path.startsWith('/pre-vendas')) routePermission = 'vendas.pre_venda_relatorio';
   else if (path.startsWith('/relatorios-vendas')) routePermission = 'vendas.relatorios';
   else if (path.startsWith('/os')) routePermission = 'mecanica.os';

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { UserCog, Plus, Search, Edit2, Trash2, Shield } from 'lucide-react';
-import { collection, query, where, onSnapshot, doc, deleteDoc, getDocs, limit } from 'firebase/firestore';
+import { UserCog, Plus, Search, Edit2, Power, Shield } from 'lucide-react';
+import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isTenantManagerRole } from '../../utils/roles';
 import {
   NIVEL_ACESSO_LABELS,
@@ -31,6 +32,7 @@ interface UsuarioData {
 
 const UsuariosList: React.FC = () => {
   const {
+    currentUser,
     tenantId,
     userRole,
     restringirVendasPorUsuario,
@@ -68,38 +70,37 @@ const UsuariosList: React.FC = () => {
     return () => unsubscribe();
   }, [tenantId]);
 
-  const handleDelete = async (id: string, username: string) => {
+  const handleToggleStatus = async (user: UsuarioData) => {
     if (!isTenantManagerRole(userRole)) {
-      showError('Negado', 'Apenas o administrador pode excluir usuários.');
+      showError('Negado', 'Apenas o administrador pode alterar o acesso de usuários.');
       return;
     }
+    if (!currentUser) return;
+
+    const statusAtual = user.status || 'Ativo';
+    const novoStatus = statusAtual === 'Ativo' ? 'Inativo' : 'Ativo';
+    const nome = user.nome || user.nomeResponsavel || user.username || 'este usuário';
+
+    const confirm = await NexusSwal.fire({
+      title: novoStatus === 'Ativo' ? `Ativar ${nome}?` : `Inativar ${nome}?`,
+      text: novoStatus === 'Ativo'
+        ? `${nome} volta a conseguir entrar no sistema.`
+        : `${nome} é desconectado na hora e não consegue mais entrar no sistema, mas o histórico dele (OS, vendas, comissões) continua intacto. Pode ser reativado quando quiser.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: novoStatus === 'Ativo' ? 'Sim, ativar' : 'Sim, inativar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirm.isConfirmed) return;
 
     try {
-      // Verificar se o funcionário já possui Movimentação (Ordens de Serviço, etc.)
-      const qOS = query(collection(db, 'ordens_de_servico'), where('mecanicoId', '==', id), limit(1));
-      const snapOS = await getDocs(qOS);
-
-      if (!snapOS.empty) {
-        showError('Ação Bloqueada', 'Este funcionário possui Ordens de Serviço vinculadas. Não é possível excluí-lo para não corromper relatórios. Por favor, apenas altere o nome dele ou desative-o.');
-        return;
-      }
-    } catch (err) {
-      console.error("Erro ao verificar movimentações:", err);
-    }
-
-    const confirmed = await confirmDelete('este usuário');
-    if (confirmed) {
-      try {
-        // Exclui do firestore (O Auth deve ser excluído idealmente por Cloud Function, mas para o app, excluir o documento já barra o acesso no ACL)
-        await deleteDoc(doc(db, 'usuarios', id));
-        // Remove do índice global
-        if (username) {
-          await deleteDoc(doc(db, 'usernames', username));
-        }
-        showSuccess('Usuário excluído com sucesso!');
-      } catch {
-        showError('Erro', 'Não foi possível excluir o usuário.');
-      }
+      await updateDoc(doc(db, 'usuarios', user.id), {
+        status: novoStatus,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus === 'Ativo' ? 'Usuário reativado' : 'Usuário inativado'),
+      });
+      showSuccess(novoStatus === 'Ativo' ? 'Usuário ativado!' : 'Usuário inativado!');
+    } catch {
+      showError('Erro', 'Não foi possível atualizar o status do usuário.');
     }
   };
 
@@ -209,10 +210,15 @@ const UsuariosList: React.FC = () => {
                     <td style={{ padding: '16px' }}>{getRoleBadge(user.role)}</td>
                     <td style={{ padding: '16px' }}>{getNivelBadge(user)}</td>
                     <td style={{ padding: '16px' }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '13px' }}>
-                        <span style={{ width: '8px', height: '8px', backgroundColor: '#10b981', borderRadius: '50%' }}></span>
-                        Ativo
-                      </span>
+                      {(() => {
+                        const ativo = (user.status || 'Ativo') === 'Ativo';
+                        return (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: ativo ? '#10b981' : '#6b7280', fontSize: '13px' }}>
+                            <span style={{ width: '8px', height: '8px', backgroundColor: ativo ? '#10b981' : '#6b7280', borderRadius: '50%' }}></span>
+                            {ativo ? 'Ativo' : 'Inativo'}
+                          </span>
+                        );
+                      })()}
                     </td>
                     {canManageUsers && (
                       <td style={{ padding: '16px', textAlign: 'right' }}>
@@ -229,8 +235,13 @@ const UsuariosList: React.FC = () => {
                             <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => openTab(`/usuarios/editar/${user.id}`)} title="Editar Usuário">
                               <Edit2 size={18} />
                             </button>
-                            <button className="icon-btn" style={{ color: '#ef4444' }} onClick={() => handleDelete(user.id, user.username)} title="Remover Acesso">
-                              <Trash2 size={18} />
+                            <button
+                              className="icon-btn"
+                              style={{ color: (user.status || 'Ativo') === 'Ativo' ? '#ef4444' : '#10b981' }}
+                              onClick={() => handleToggleStatus(user)}
+                              title={(user.status || 'Ativo') === 'Ativo' ? 'Inativar Usuário' : 'Ativar Usuário'}
+                            >
+                              <Power size={18} />
                             </button>
                           </div>
                         )}

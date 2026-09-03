@@ -8,6 +8,7 @@ import { DEFAULT_OS_PRINT_MODEL } from '../../utils/osPrintModels';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import { getCompanyAddressRows } from '../../utils/companyAddress';
 import { resolverDescontoImpressaoOS, totalComDescontoOS } from '../../utils/osDescontoImpressao';
+import { usePrintAndClose } from '../../hooks/usePrintAndClose';
 import OsPrintPersonalizado01 from './OsPrintPersonalizado01';
 import './OsPrint.css';
 
@@ -75,9 +76,7 @@ const OsPrint: React.FC = () => {
     fetchOS();
   }, [id, navigate, currentUser, tenantId]);
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = usePrintAndClose('/os');
 
   if (loading) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando dados para impressão...</div>;

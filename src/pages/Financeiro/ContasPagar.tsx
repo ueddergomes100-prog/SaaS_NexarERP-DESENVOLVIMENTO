@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { toCents } from '../../utils/financeDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
-import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, Trash2, ChevronDown, ChevronRight, Search, Truck, Tag } from 'lucide-react';
+import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag } from 'lucide-react';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import './Financeiro.css';
 
@@ -16,7 +16,7 @@ interface TransacaoData {
   categoria: string;
   valor: number;
   tipo: 'entrada' | 'saida';
-  status: 'Paga' | 'Pendente';
+  status: 'Paga' | 'Pendente' | 'Cancelada';
   formaPagamento?: string;
   osId?: string;
   vendaId?: string;
@@ -236,25 +236,26 @@ const ContasPagar: React.FC = () => {
       data: t.data,
       valor: t.valor.toString().replace('.', ','),
       categoria: t.categoria,
-      status: t.status
+      status: t.status === 'Paga' ? 'Paga' : 'Pendente'
     });
     setEditingId(t.id);
     setIsModalOpen(true);
   };
 
-  const handleExcluir = async (t: TransacaoData) => {
+  const handleCancelar = async (t: TransacaoData) => {
+    if (!currentUser) return;
     const result = await NexusSwal.fire({
-      title: 'Excluir Lançamento?',
-      text: `Para excluir a despesa "${t.descricao}", digite o motivo (mínimo 12 caracteres):`,
+      title: 'Cancelar Lançamento?',
+      text: `Para cancelar a despesa "${t.descricao}", digite o motivo (mínimo 12 caracteres). O lançamento continua registrado, só sai da lista de pendentes/pagas.`,
       input: 'text',
       inputAttributes: {
         minlength: '12',
         required: 'true',
-        placeholder: 'Motivo da exclusão...'
+        placeholder: 'Motivo do cancelamento...'
       },
       showCancelButton: true,
-      confirmButtonText: 'Confirmar Exclusão',
-      cancelButtonText: 'Cancelar',
+      confirmButtonText: 'Confirmar Cancelamento',
+      cancelButtonText: 'Voltar',
       confirmButtonColor: '#ef4444',
       preConfirm: (motivo) => {
         if (!motivo || motivo.trim().length < 12) {
@@ -267,10 +268,29 @@ const ContasPagar: React.FC = () => {
 
     if (result.isConfirmed) {
       try {
-        await deleteDoc(doc(db, 'transacoes', t.id));
-        showSuccess('Despesa excluída com sucesso!');
+        await updateDoc(doc(db, 'transacoes', t.id), {
+          status: 'Cancelada',
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Lançamento cancelado: ${result.value}`),
+        });
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'financeiro',
+            acao: 'cancelamento',
+            descricao: `Despesa "${t.descricao}" cancelada. Motivo: ${result.value}`,
+            registroRelacionadoId: t.id,
+            status: 'sucesso',
+            critical: true,
+          });
+        } catch {
+          // ignore audit log error
+        }
+        showSuccess('Despesa cancelada com sucesso!');
       } catch (err) {
-        showError('Erro', 'Não foi possível excluir o lançamento.');
+        showError('Erro', 'Não foi possível cancelar o lançamento.');
       }
     }
   };
@@ -532,13 +552,13 @@ const ContasPagar: React.FC = () => {
                                               <Edit size={14} />
                                             </button>
                                             <button
-                                              onClick={() => handleExcluir(t)}
+                                              onClick={() => handleCancelar(t)}
                                               style={{ backgroundColor: '#ef4444', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
-                                              title="Excluir Despesa"
+                                              title="Cancelar Despesa"
                                               onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
                                               onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
                                             >
-                                              <Trash2 size={14} />
+                                              <XCircle size={14} />
                                             </button>
                                           </>
                                         )}

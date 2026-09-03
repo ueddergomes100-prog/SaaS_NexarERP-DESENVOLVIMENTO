@@ -8,6 +8,7 @@ import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
 import { mensagemDocumentoInvalido } from '../../utils/documentoValidacao';
+import { buscarClienteDuplicadoPorDocumento } from '../../utils/clienteDuplicadoCheck';
 import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton';
 import type { ConsultaCnpjResultado, ConsultaCpfResultado } from '../../services/documentoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -121,10 +122,19 @@ const ClienteForm: React.FC = () => {
       return;
     }
 
-    if (!currentUser) return;
+    if (!currentUser || !tenantId) return;
     setIsLoading(true);
 
     try {
+      if (formData.documento) {
+        const duplicado = await buscarClienteDuplicadoPorDocumento(tenantId, formData.documento, isEditing ? id : undefined);
+        if (duplicado) {
+          showError('CPF/CNPJ já cadastrado', `Este documento já está cadastrado para o cliente "${duplicado.nome}". Edite o cadastro existente em vez de criar um novo, ou corrija o número digitado.`);
+          setIsLoading(false);
+          return;
+        }
+      }
+
       const limiteDeCreditoParsed = formData.limiteDeCredito.trim() === ''
         ? null
         : Number(formData.limiteDeCredito);

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  FileText, Plus, Search, Filter, Edit2, Trash2, 
-  CheckCircle, XCircle, Wrench, Share2, Printer, ShoppingCart 
+import {
+  FileText, Plus, Search, Filter, Edit2,
+  CheckCircle, XCircle, Wrench, Share2, Printer, ShoppingCart
 } from 'lucide-react';
-import { collection, query, where, getDocs, deleteDoc, doc, updateDoc, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -60,28 +60,34 @@ const Orcamentos: React.FC = () => {
     fetchOrcamentos();
   }, [tenantId]);
 
-  const handleDelete = async (orcamento: Orcamento) => {
-    // Ja foi convertido em Venda/OS -- excluir deixaria orcamentoId orfao
-    // apontando pra um documento inexistente (achado na auditoria do
-    // Modulo 18).
+  const handleRecusar = async (orcamento: Orcamento) => {
+    // Ja foi convertido em Venda/OS -- recusar aqui nao desfaz a conversao.
+    // Cancele a Venda/OS gerada, nao o orcamento que so registrou a origem.
     if (orcamento.status === 'Finalizado') {
-      showError('Não é possível excluir', 'Este orçamento já foi convertido em Venda ou Ordem de Serviço. Cancele a Venda/OS gerada primeiro, se for o caso.');
+      showError('Não é possível recusar', 'Este orçamento já foi convertido em Venda ou Ordem de Serviço. Cancele a Venda/OS gerada primeiro, se for o caso.');
+      return;
+    }
+    if (orcamento.status === 'Recusado') {
+      showError('Já recusado', 'Este orçamento já está com status Recusado.');
       return;
     }
 
     const confirm = await NexusSwal.fire({
-      title: 'Excluir Orçamento?',
-      text: 'Esta ação não pode ser desfeita.',
+      title: 'Recusar Orçamento?',
+      text: 'O orçamento fica registrado como recusado, sem apagar nada -- pode reabrir depois se o cliente mudar de ideia.',
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonText: 'Sim, excluir',
+      confirmButtonText: 'Sim, recusar',
       cancelButtonText: 'Cancelar',
       confirmButtonColor: '#ef4444'
     });
 
     if (confirm.isConfirmed) {
       try {
-        await deleteDoc(doc(db, 'orcamentos', orcamento.id));
+        await updateDoc(doc(db, 'orcamentos', orcamento.id), {
+          status: 'Recusado',
+          updatedAt: serverTimestamp(),
+        });
         try {
           const { createAuditLog } = await import('../../services/logService');
           createAuditLog({
@@ -89,8 +95,8 @@ const Orcamentos: React.FC = () => {
             usuarioId: currentUser?.uid || '',
             usuarioEmail: currentUser?.email || '',
             modulo: 'vendas',
-            acao: 'exclusao',
-            descricao: `Orçamento #${orcamento.numeroOrcamento} excluído.`,
+            acao: 'cancelamento',
+            descricao: `Orçamento #${orcamento.numeroOrcamento} recusado.`,
             registroRelacionadoId: orcamento.id,
             status: 'sucesso',
             critical: true,
@@ -98,10 +104,10 @@ const Orcamentos: React.FC = () => {
         } catch {
           // ignore audit log error
         }
-        showSuccess('Orçamento excluído!');
+        showSuccess('Orçamento recusado!');
         fetchOrcamentos();
       } catch (error) {
-        showError('Erro', 'Não foi possível excluir.');
+        showError('Erro', 'Não foi possível atualizar o orçamento.');
       }
     }
   };
@@ -252,13 +258,13 @@ const Orcamentos: React.FC = () => {
                               <Edit2 size={18} />
                             </button>
                           )}
-                          {canDeleteOrcamento && (
-                            <button 
-                              title="Excluir"
-                              onClick={() => handleDelete(orc)}
+                          {canDeleteOrcamento && orc.status !== 'Recusado' && orc.status !== 'Finalizado' && (
+                            <button
+                              title="Recusar Orçamento"
+                              onClick={() => handleRecusar(orc)}
                               style={{ padding: '8px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}
                             >
-                              <Trash2 size={18} />
+                              <XCircle size={18} />
                             </button>
                           )}
                         </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { collection, deleteDoc, doc, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
 export interface TenantCollectionItem {
@@ -17,7 +17,6 @@ export interface UseTenantCollectionResult<T> {
   items: T[];
   loading: boolean;
   error: Error | null;
-  removeItem: (id: string) => Promise<void>;
 }
 
 /**
@@ -67,9 +66,5 @@ export function useTenantCollection<T extends TenantCollectionItem>(
     return () => unsubscribe();
   }, [collectionName, tenantId, enabled, sortField]);
 
-  const removeItem = async (id: string) => {
-    await deleteDoc(doc(db, collectionName, id));
-  };
-
-  return { items, loading, error, removeItem };
+  return { items, loading, error };
 }

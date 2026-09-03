@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, Plus, Search, FileText, Printer, Trash2, XCircle, UserCheck } from 'lucide-react';
-import { collection, query, where, onSnapshot, deleteDoc, doc, getDoc, updateDoc, getDocs, serverTimestamp } from 'firebase/firestore';
+import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck } from 'lucide-react';
+import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
-import { computeBankCreditsMap } from '../../utils/financeDomain';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { spedyService } from '../../services/spedyService';
 import { isPlatformAdminRole } from '../../utils/roles';
@@ -67,9 +66,8 @@ const CONFERENCIA_STATUS_COLORS: Record<string, string> = {
 const PedidoVendas: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, nivelAcesso } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, nivelAcesso, trabalhaComPreVenda, agenteDigitalAtivo, controlaFiscal } = useAuth();
 
-  const canDeleteVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.excluir'));
   // Mesma permissao cobre editar/finalizar E recusar um pedido pendente do
   // agente -- nao criar uma permissao a mais so pra recusar.
   const canEditPendenteVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_editar'));
@@ -82,6 +80,10 @@ const PedidoVendas: React.FC = () => {
   /** Linha destacada por um clique simples (distinta de selectedIds, que sao
    * os checkboxes de impressao em lote). Abrir exige duplo clique ou Enter. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Previa dos itens do pedido, aberta pelo botao "Ver Itens" na barra de
+   * acoes -- so aparece com exatamente 1 pedido marcado no checkbox. Fecha
+   * sozinha se a selecao deixar de ser exatamente 1. */
+  const [showItemPreview, setShowItemPreview] = useState(false);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(false);
   const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(false);
 
@@ -158,195 +160,6 @@ const PedidoVendas: React.FC = () => {
 
     return () => unsubscribe();
   }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
-
-  const handleDelete = async (pedido: PedidoVendaData) => {
-    // Verifica se há nota fiscal ativa vinculada
-    try {
-      const qNotas = query(
-        collection(db, 'notas_fiscais'),
-        where('tenantId', '==', tenantId),
-        where('pedidoId', '==', pedido.id)
-      );
-      const notasSnap = await getDocs(qNotas);
-      const activeNotas = notasSnap.docs.filter(d => d.data().status !== 'canceled');
-
-      if (activeNotas.length > 0) {
-        const nota = activeNotas[0].data();
-        await NexusSwal.fire({
-          title: 'Não é possível excluir',
-          text: `Existe uma nota fiscal ativa (${nota.tipo} nº ${nota.number || 'Aguardando'}) associada a este pedido. Cancele ou exclua a nota fiscal primeiro no painel fiscal.`,
-          icon: 'error',
-          confirmButtonText: 'Entendido'
-        });
-        return;
-      }
-    } catch (err) {
-      // Falha na checagem NAO pode virar "pode excluir" -- excluir uma venda
-      // com nota fiscal ativa deixaria a nota orfa e sem como cancelar pela
-      // origem. Sem conseguir verificar, recusa.
-      console.error("Erro ao verificar notas vinculadas ao pedido:", err);
-      await NexusSwal.fire({
-        title: 'Não foi possível verificar',
-        text: 'Não deu para conferir se este pedido tem nota fiscal emitida. Por segurança a exclusão foi cancelada. Verifique sua conexão e tente de novo.',
-        icon: 'error',
-        confirmButtonText: 'Entendido'
-      });
-      return;
-    }
-
-    const confirm = await NexusSwal.fire({
-      title: 'Excluir Pedido?',
-      text: 'Se excluir, os relatórios serão afetados permanentemente. Deseja retornar o estoque dos produtos desta venda?',
-      icon: 'warning',
-      showDenyButton: true,
-      showCancelButton: true,
-      confirmButtonText: 'Sim, retornar estoque',
-      denyButtonText: 'Não, apenas excluir',
-      cancelButtonText: 'Cancelar'
-    });
-
-    if (confirm.isConfirmed || confirm.isDenied) {
-      try {
-        // Reverte o credito bancario (Pix/Cartao/Transferencia) que a venda
-        // aplicou ao ser criada -- excluir sem isso deixava o saldo do banco
-        // inflado pra sempre, incondicional as opcoes de estoque acima
-        // (excluir sem devolver dinheiro esta sempre errado).
-        // Pedido em aberto nunca creditou banco nenhum (nao gerou
-        // financeiro), entao nao ha credito a estornar aqui.
-        if (pedido.status !== 'Cancelada' && !isPedidoAberto(pedido.status)) {
-          try {
-            const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', pedido.id));
-            const bankDebitsByBanco = computeBankCreditsMap(pedidoSnap.data()?.pagamentos || []);
-            for (const [bancoId, deltaCents] of bankDebitsByBanco) {
-              const bancoRef = doc(db, 'bancos', bancoId);
-              const bancoSnap = await getDoc(bancoRef);
-              if (!bancoSnap.exists()) continue;
-              await updateDoc(bancoRef, {
-                saldoCentavos: Number(bancoSnap.data().saldoCentavos || 0) - deltaCents,
-                updatedAt: serverTimestamp(),
-                ...buildDocumentUpdateMetadata(currentUser?.uid || '', serverTimestamp(), `Estorno da exclusão do pedido #${pedido.numeroPedido}`),
-              });
-            }
-          } catch (err) {
-            console.error('Erro ao reverter crédito bancário do pedido excluído:', err);
-          }
-        }
-
-        // Pedido em aberto (pre-venda / pendente do agente) NAO baixou
-        // estoque: ele so RESERVOU. Devolver quantidade aqui criaria
-        // mercadoria do nada -- o certo e' soltar a reserva. Sem esta
-        // separacao, excluir uma pre-venda inflava o estoque real e ainda
-        // deixava a reserva pendurada, tirando o produto do disponivel pra
-        // sempre.
-        if (isPedidoAberto(pedido.status) && pedido.itens) {
-          for (const item of pedido.itens) {
-            if (item.id === 'avulso') continue;
-            try {
-              const pecaRef = doc(db, 'estoque', item.id);
-              const pecaSnap = await getDoc(pecaRef);
-              if (pecaSnap.exists()) {
-                const reservadaAtual = Number(pecaSnap.data().quantidadeReservada || 0);
-                await updateDoc(pecaRef, {
-                  quantidadeReservada: Math.max(0, reservadaAtual - Number(item.quantidade || 0)),
-                  updatedAt: serverTimestamp(),
-                });
-              }
-            } catch (e) {
-              console.error('Erro ao liberar reserva de estoque:', e);
-            }
-          }
-        } else if (confirm.isConfirmed && pedido.status !== 'Cancelada' && pedido.itens) {
-          for (const item of pedido.itens) {
-            if (item.id !== 'avulso') {
-              try {
-                const pecaRef = doc(db, 'estoque', item.id);
-                const pecaSnap = await getDoc(pecaRef);
-                if (pecaSnap.exists()) {
-                  const atual = pecaSnap.data().quantidade || 0;
-                  await updateDoc(pecaRef, { quantidade: atual + item.quantidade });
-                }
-              } catch (e) {
-                console.error("Erro ao retornar estoque:", e);
-              }
-            }
-          }
-        }
-        // Captura o documento inteiro antes de apagar: a exclusao aqui e'
-        // fisica (sem soft-delete), entao esse snapshot no log e' a UNICA
-        // forma de saber depois como o pedido era.
-        let snapshotAntesExclusao: Record<string, unknown> | null = null;
-        try {
-          const snapAntes = await getDoc(doc(db, 'pedidos_venda', pedido.id));
-          snapshotAntesExclusao = snapAntes.exists() ? snapAntes.data() : null;
-        } catch (err) {
-          console.error('Erro ao capturar snapshot do pedido antes da exclusão:', err);
-        }
-
-        await deleteDoc(doc(db, 'pedidos_venda', pedido.id));
-        try {
-          // Uma venda em cartao parcelado grava uma transacao por
-          // parcela (pedidoId igual, id diferente) -- excluir so o doc
-          // com id == pedido.id deixava as demais parcelas orfas,
-          // ainda visiveis em Contas a Receber/Banco.
-          const qTransacoes = query(
-            collection(db, 'transacoes'),
-            where('tenantId', '==', tenantId),
-            where('pedidoId', '==', pedido.id)
-          );
-          const transacoesSnap = await getDocs(qTransacoes);
-          await Promise.all(transacoesSnap.docs.map((transacaoDoc) => deleteDoc(transacaoDoc.ref)));
-        } catch (err) {
-          console.error('Erro ao excluir transações vinculadas ao pedido:', err);
-        }
-
-        try {
-          // Notas CANCELADAS do pedido excluido -- as ativas ja barraram a
-          // exclusao la em cima, entao o que sobra aqui e' so nota cancelada.
-          // Sem isso ela ficava orfa no painel fiscal, apontando pra um
-          // pedido que nao existe mais. A sincronizacao com a Spedy so
-          // ATUALIZA nota local existente (NFE.tsx/syncPendingInvoices), nunca
-          // recria -- entao apagar aqui nao volta atras no proximo sync.
-          const qNotasCanceladas = query(
-            collection(db, 'notas_fiscais'),
-            where('tenantId', '==', tenantId),
-            where('pedidoId', '==', pedido.id)
-          );
-          const notasCanceladasSnap = await getDocs(qNotasCanceladas);
-          await Promise.all(notasCanceladasSnap.docs.map((notaDoc) => deleteDoc(notaDoc.ref)));
-        } catch (err) {
-          console.error('Erro ao excluir notas fiscais canceladas vinculadas ao pedido:', err);
-        }
-
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId: tenantId || '',
-            usuarioId: currentUser?.uid || '',
-            usuarioEmail: currentUser?.email || '',
-            modulo: 'vendas',
-            acao: 'exclusao',
-            descricao: `Pedido de Venda #${pedido.numeroPedido} excluído permanentemente. Cliente: ${pedido.clienteNome || 'Geral'}. Valor: R$ ${(pedido.valorTotal || 0).toFixed(2)}.`,
-            registroRelacionadoId: pedido.id,
-            vendedorId: pedido.vendedorId || (snapshotAntesExclusao?.vendedorId as string | undefined),
-            // Mesmo plano B do id acima: o snapshot pode ter falhado (o catch
-            // dele nao interrompe a exclusao), e sem isto o log gravava id sem
-            // nome -- a coluna Vendedor mostrava "-" numa exclusao que tinha
-            // vendedor identificado.
-            vendedorNome: pedido.vendedorNome || (snapshotAntesExclusao?.vendedorNome as string | undefined),
-            snapshotExcluido: snapshotAntesExclusao,
-            status: 'sucesso',
-            critical: true
-          });
-        } catch {
-          // ignore audit log error
-        }
-
-        showSuccess('Pedido excluído!');
-      } catch {
-        showError('Erro', 'Não foi possível excluir.');
-      }
-    }
-  };
 
   // Pedido "Em Analise" so e gravado por integracao externa (agente de
   // WhatsApp) -- nenhuma tela deste sistema grava esse status (ver
@@ -514,18 +327,22 @@ const PedidoVendas: React.FC = () => {
             >
               Ativos / Faturados
             </button>
-            <button
-              onClick={() => setActiveTab('PreVendas')}
-              style={{ padding: '8px 16px', backgroundColor: activeTab === 'PreVendas' ? 'rgba(245, 158, 11, 0.2)' : 'transparent', color: activeTab === 'PreVendas' ? '#f59e0b' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
-            >
-              Pré-vendas
-            </button>
-            <button
-              onClick={() => setActiveTab('Pendentes')}
-              style={{ padding: '8px 16px', backgroundColor: activeTab === 'Pendentes' ? 'rgba(245, 158, 11, 0.2)' : 'transparent', color: activeTab === 'Pendentes' ? '#f59e0b' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
-            >
-              Pendentes
-            </button>
+            {trabalhaComPreVenda && (
+              <button
+                onClick={() => setActiveTab('PreVendas')}
+                style={{ padding: '8px 16px', backgroundColor: activeTab === 'PreVendas' ? 'rgba(245, 158, 11, 0.2)' : 'transparent', color: activeTab === 'PreVendas' ? '#f59e0b' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
+              >
+                Pré-vendas
+              </button>
+            )}
+            {agenteDigitalAtivo && (
+              <button
+                onClick={() => setActiveTab('Pendentes')}
+                style={{ padding: '8px 16px', backgroundColor: activeTab === 'Pendentes' ? 'rgba(245, 158, 11, 0.2)' : 'transparent', color: activeTab === 'Pendentes' ? '#f59e0b' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
+              >
+                Pendentes
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('Cancelados')}
               style={{ padding: '8px 16px', backgroundColor: activeTab === 'Cancelados' ? 'rgba(239, 68, 68, 0.2)' : 'transparent', color: activeTab === 'Cancelados' ? '#ef4444' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
@@ -533,6 +350,16 @@ const PedidoVendas: React.FC = () => {
               Cancelados
             </button>
           </div>
+          {selectedIds.size === 1 && (
+            <button
+              onClick={() => setShowItemPreview((atual) => !atual)}
+              className="btn-secondary"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}
+            >
+              <FileText size={18} />
+              {showItemPreview ? 'Ocultar Itens' : 'Ver Itens'}
+            </button>
+          )}
           {selectedIds.size > 0 && (
             <button
               onClick={handlePrintSelected}
@@ -544,6 +371,30 @@ const PedidoVendas: React.FC = () => {
             </button>
           )}
         </div>
+
+        {showItemPreview && selectedIds.size === 1 && (() => {
+          const pedidoPreview = filteredPedidos.find((p) => selectedIds.has(p.id));
+          if (!pedidoPreview) return null;
+          return (
+            <div style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '16px', marginBottom: '24px' }}>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600 }}>
+                Itens do pedido #{pedidoPreview.numeroPedido}
+              </p>
+              {(pedidoPreview.itens || []).length === 0 ? (
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Nenhum item encontrado neste pedido.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {(pedidoPreview.itens || []).map((item, index) => (
+                    <div key={`${item.id}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', padding: '4px 0', borderBottom: index < (pedidoPreview.itens || []).length - 1 ? '1px solid var(--border-color)' : 'none' }}>
+                      <span>{item.nome}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{item.quantidade}x</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -562,6 +413,7 @@ const PedidoVendas: React.FC = () => {
                 <th style={{ padding: '16px' }}>Nº Pedido</th>
                 <th style={{ padding: '16px' }}>Data</th>
                 <th style={{ padding: '16px' }}>Cliente</th>
+                <th style={{ padding: '16px' }}>Vendedor</th>
                 <th style={{ padding: '16px' }}>Forma Pgto</th>
                 <th style={{ padding: '16px' }}>Status</th>
                 {conferenciaMercadoriaAtiva && <th style={{ padding: '16px' }}>Conferência</th>}
@@ -572,11 +424,11 @@ const PedidoVendas: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={conferenciaMercadoriaAtiva ? 9 : 8} style={{ textAlign: 'center', padding: '40px' }}>Carregando pedidos...</td>
+                  <td colSpan={conferenciaMercadoriaAtiva ? 10 : 9} style={{ textAlign: 'center', padding: '40px' }}>Carregando pedidos...</td>
                 </tr>
               ) : filteredPedidos.length === 0 ? (
                 <tr>
-                  <td colSpan={conferenciaMercadoriaAtiva ? 9 : 8} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={conferenciaMercadoriaAtiva ? 10 : 9} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <ShoppingCart size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>Nenhum pedido de venda encontrado.</p>
                   </td>
@@ -612,6 +464,7 @@ const PedidoVendas: React.FC = () => {
                     <td style={{ padding: '16px', fontWeight: 600 }}>#{p.numeroPedido}</td>
                     <td style={{ padding: '16px' }}>{p.createdAt?.seconds ? new Date(p.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : '-'}</td>
                     <td style={{ padding: '16px' }}>{p.clienteNome}</td>
+                    <td style={{ padding: '16px' }}>{p.vendedorNome || '-'}</td>
                     <td style={{ padding: '16px' }}>
                       <span style={{ backgroundColor: 'var(--bg-tertiary)', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>
                         {p.formaPagamento}
@@ -650,7 +503,7 @@ const PedidoVendas: React.FC = () => {
                       <button onClick={() => openTab(`/pedidos-venda/visualizar/${p.id}`)} className="icon-btn" title="Visualizar Pedido" style={{ color: '#3b82f6' }}>
                         <FileText size={18} />
                       </button>
-                      {authorizedCupons[p.id] && authorizedCupons[p.id].status === 'authorized' ? (
+                      {controlaFiscal && authorizedCupons[p.id] && authorizedCupons[p.id].status === 'authorized' ? (
                         <button
                           onClick={() => {
                             const cupom = authorizedCupons[p.id];
@@ -671,11 +524,6 @@ const PedidoVendas: React.FC = () => {
                       {p.status === 'Em Análise' && canEditPendenteVenda && (
                         <button onClick={() => handleRecusar(p)} className="icon-btn" title="Recusar Pedido Pendente" style={{ color: '#ef4444' }}>
                           <XCircle size={18} />
-                        </button>
-                      )}
-                      {canDeleteVenda && (
-                        <button onClick={() => handleDelete(p)} className="icon-btn" title="Excluir" style={{ color: '#ef4444' }}>
-                          <Trash2 size={18} />
                         </button>
                       )}
                     </td>

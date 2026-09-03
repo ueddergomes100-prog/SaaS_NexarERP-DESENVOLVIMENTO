@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Factory, Edit, Trash2, AlertTriangle } from 'lucide-react';
-import { collection, query, onSnapshot, doc, deleteDoc, where } from 'firebase/firestore';
+import { Search, Plus, Factory, Edit, Power, AlertTriangle } from 'lucide-react';
+import { collection, query, onSnapshot, doc, updateDoc, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { confirmDelete, showSuccess, showError } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialStock';
 import { computeEstoquePrevisto } from '../../utils/producaoDomain';
 
@@ -18,6 +19,7 @@ interface MateriaPrimaData {
   estoqueMinimo: number;
   precoCusto: number;
   fornecedor: string;
+  ativo?: boolean;
 }
 
 const MateriasPrimasList: React.FC = () => {
@@ -50,16 +52,31 @@ const MateriasPrimasList: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser, tenantId]);
 
-  const handleDelete = async (id: string) => {
-    const isConfirmed = await confirmDelete('esta matéria-prima');
-    if (isConfirmed) {
-      try {
-        await deleteDoc(doc(db, 'materias_primas', id));
-        showSuccess('Matéria-prima excluída!');
-      } catch (error) {
-        console.error("Erro ao excluir matéria-prima:", error);
-        showError('Erro ao excluir', 'Tente novamente mais tarde.');
-      }
+  const handleToggleAtivo = async (item: MateriaPrimaData) => {
+    if (!currentUser) return;
+    const novoStatus = item.ativo === false;
+
+    const confirm = await NexusSwal.fire({
+      title: novoStatus ? `Ativar "${item.nome}"?` : `Inativar "${item.nome}"?`,
+      text: novoStatus
+        ? 'A matéria-prima volta a aparecer na hora de montar composição de produção.'
+        : 'A matéria-prima some da hora de montar composição de produção, mas o histórico continua intacto. Pode ser reativada quando quiser.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: novoStatus ? 'Sim, ativar' : 'Sim, inativar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      await updateDoc(doc(db, 'materias_primas', item.id), {
+        ativo: novoStatus,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Matéria-prima reativada' : 'Matéria-prima inativada'),
+      });
+      showSuccess(novoStatus ? 'Matéria-prima ativada!' : 'Matéria-prima inativada!');
+    } catch (error) {
+      console.error("Erro ao atualizar status da matéria-prima:", error);
+      showError('Erro ao atualizar', 'Tente novamente mais tarde.');
     }
   };
 
@@ -112,17 +129,18 @@ const MateriasPrimasList: React.FC = () => {
                 <th>Estoque Previsto</th>
                 <th>Custo Unitário</th>
                 <th>Fornecedor</th>
+                <th>Status</th>
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '20px' }}>Carregando matérias-primas...</td>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '20px' }}>Carregando matérias-primas...</td>
                 </tr>
               ) : filteredMateriasPrimas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
                     <Factory size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>{searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhuma matéria-prima cadastrada."}</p>
                   </td>
@@ -160,12 +178,26 @@ const MateriasPrimasList: React.FC = () => {
                       <td>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.precoCusto || 0)}</td>
                       <td>{item.fornecedor || '-'}</td>
                       <td>
+                        <span style={{
+                          backgroundColor: item.ativo === false ? 'rgba(255,255,255,0.05)' : '#10b98120',
+                          color: item.ativo === false ? 'var(--text-muted)' : '#10b981',
+                          padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
+                        }}>
+                          {item.ativo === false ? 'Inativa' : 'Ativa'}
+                        </span>
+                      </td>
+                      <td>
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button className="icon-btn" title="Editar" onClick={() => openTab(`/materias-primas/editar/${item.id}`)}>
                             <Edit size={16} />
                           </button>
-                          <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(item.id)}>
-                            <Trash2 size={16} />
+                          <button
+                            className="icon-btn"
+                            title={item.ativo === false ? 'Ativar' : 'Inativar'}
+                            style={{ color: item.ativo === false ? '#10b981' : '#ef4444' }}
+                            onClick={() => handleToggleAtivo(item)}
+                          >
+                            <Power size={16} />
                           </button>
                         </div>
                       </td>

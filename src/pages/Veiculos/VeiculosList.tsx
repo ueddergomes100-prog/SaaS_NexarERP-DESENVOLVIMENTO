@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, deleteDoc, doc, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { Plus, Search, Edit, Trash2, Car, MapPin, Calendar, Hash } from 'lucide-react';
+import { Plus, Search, Edit, Power, Car, MapPin, Calendar, Hash } from 'lucide-react';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isPlatformAdminRole } from '../../utils/roles';
 import '../OS/OS.css'; // Reusing OS styles
 
@@ -19,6 +20,7 @@ interface Veiculo {
   clienteId: string;
   clienteNome?: string;
   tenantId: string;
+  ativo?: boolean;
 }
 
 const VeiculosList: React.FC = () => {
@@ -26,7 +28,7 @@ const VeiculosList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const { openTab } = useTabs();
-  const { tenantId, userPermissions, userRole, isOwner } = useAuth();
+  const { currentUser, tenantId, userPermissions, userRole, isOwner } = useAuth();
   
   const canEdit = isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('cadastros.veiculos');
 
@@ -58,29 +60,35 @@ const VeiculosList: React.FC = () => {
     fetchVeiculos();
   }, [tenantId]);
 
-  const handleDelete = async (id: string, placa: string) => {
+  const handleToggleAtivo = async (veiculo: Veiculo) => {
     if (!canEdit) {
-      showError('Acesso Negado', 'Você não tem permissão para excluir veículos.');
+      showError('Acesso Negado', 'Você não tem permissão para alterar veículos.');
       return;
     }
-    
+    if (!currentUser) return;
+    const novoStatus = veiculo.ativo === false;
+
     const confirm = await NexusSwal.fire({
-      title: 'Excluir Veículo?',
-      text: `Tem certeza que deseja excluir o veículo placa ${placa}? Esta ação não pode ser desfeita.`,
-      icon: 'warning',
+      title: novoStatus ? `Ativar o veículo ${veiculo.placa}?` : `Inativar o veículo ${veiculo.placa}?`,
+      text: novoStatus
+        ? 'O veículo volta a aparecer na hora de montar uma OS.'
+        : 'O veículo some da hora de montar uma OS, mas o histórico de atendimentos continua intacto. Pode ser reativado quando quiser.',
+      icon: 'question',
       showCancelButton: true,
-      confirmButtonColor: '#ef4444',
-      confirmButtonText: 'Sim, excluir',
-      cancelButtonText: 'Cancelar'
+      confirmButtonText: novoStatus ? 'Sim, ativar' : 'Sim, inativar',
+      cancelButtonText: 'Cancelar',
     });
 
     if (confirm.isConfirmed) {
       try {
-        await deleteDoc(doc(db, 'veiculos', id));
-        showSuccess('Veículo excluído com sucesso!');
-        setVeiculos(veiculos.filter(v => v.id !== id));
+        await updateDoc(doc(db, 'veiculos', veiculo.id), {
+          ativo: novoStatus,
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Veículo reativado' : 'Veículo inativado'),
+        });
+        showSuccess(novoStatus ? 'Veículo ativado!' : 'Veículo inativado!');
+        setVeiculos(veiculos.map(v => v.id === veiculo.id ? { ...v, ativo: novoStatus } : v));
       } catch (error) {
-        showError('Erro', 'Não foi possível excluir o veículo.');
+        showError('Erro', 'Não foi possível atualizar o status do veículo.');
       }
     }
   };
@@ -152,6 +160,7 @@ const VeiculosList: React.FC = () => {
                   <th style={{ padding: '16px' }}>Placa / Modelo</th>
                   <th style={{ padding: '16px' }}>Dono (Cliente)</th>
                   <th style={{ padding: '16px', textAlign: 'center' }}>Ano/Cor</th>
+                  <th style={{ padding: '16px' }}>Status</th>
                   <th style={{ padding: '16px', textAlign: 'right' }}>Ações</th>
                 </tr>
               </thead>
@@ -177,25 +186,36 @@ const VeiculosList: React.FC = () => {
                         <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--text-muted)' }}><MapPin size={14}/> {veiculo.cor || '-'}</span>
                       </div>
                     </td>
+                    <td style={{ padding: '16px' }}>
+                      <span style={{
+                        backgroundColor: veiculo.ativo === false ? 'rgba(255,255,255,0.05)' : '#10b98120',
+                        color: veiculo.ativo === false ? 'var(--text-muted)' : '#10b981',
+                        padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
+                      }}>
+                        {veiculo.ativo === false ? 'Inativo' : 'Ativo'}
+                      </span>
+                    </td>
                     <td style={{ padding: '16px', textAlign: 'right' }}>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                         {canEdit && (
                           <>
-                            <button 
-                              className="icon-btn edit-btn" 
+                            <button
+                              className="icon-btn edit-btn"
                               onClick={() => openTab(`/veiculos/editar/${veiculo.id}`)}
                               title="Editar Veículo"
                               style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '8px', borderRadius: '8px' }}
                             >
                               <Edit size={18} />
                             </button>
-                            <button 
-                              className="icon-btn delete-btn" 
-                              onClick={() => handleDelete(veiculo.id, veiculo.placa)}
-                              title="Excluir Veículo"
-                              style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '8px', borderRadius: '8px' }}
+                            <button
+                              className="icon-btn"
+                              onClick={() => handleToggleAtivo(veiculo)}
+                              title={veiculo.ativo === false ? 'Ativar Veículo' : 'Inativar Veículo'}
+                              style={veiculo.ativo === false
+                                ? { backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '8px', borderRadius: '8px' }
+                                : { backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '8px', borderRadius: '8px' }}
                             >
-                              <Trash2 size={18} />
+                              <Power size={18} />
                             </button>
                           </>
                         )}

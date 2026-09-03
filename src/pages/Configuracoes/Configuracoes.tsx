@@ -33,8 +33,10 @@ import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTribut
 import { spedyService, type SpedyCity } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
 import {
+  DEFAULT_AGENTE_DIGITAL_ATIVO,
   DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
   DEFAULT_TRABALHA_COM_PRE_VENDA,
+  parseAgenteDigitalAtivo,
   parseAlterarPagamentoVendaFinalizada,
   parseTrabalhaComPreVenda,
 } from '../../utils/preVendaDomain';
@@ -169,8 +171,10 @@ const Configuracoes: React.FC = () => {
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     trabalhaComPreVenda: DEFAULT_TRABALHA_COM_PRE_VENDA,
+    agenteDigitalAtivo: DEFAULT_AGENTE_DIGITAL_ATIVO,
     alterarPagamentoVendaFinalizada: DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
     exigirIdentificacaoVendedor: DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
+    devolucaoBotaoSeparado: false,
     // Usado so quando o vendedor/mecanico tem "Recebe comissao?" marcado
     // sim mas nao preencheu um percentual proprio -- ver
     // resolveComissaoPercentual em financeDomain.ts.
@@ -271,8 +275,10 @@ const Configuracoes: React.FC = () => {
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             trabalhaComPreVenda: parseTrabalhaComPreVenda(data.trabalhaComPreVenda),
+            agenteDigitalAtivo: parseAgenteDigitalAtivo(data.agenteDigitalAtivo),
             alterarPagamentoVendaFinalizada: parseAlterarPagamentoVendaFinalizada(data.alterarPagamentoVendaFinalizada),
             exigirIdentificacaoVendedor: parseExigirIdentificacaoVendedor(data.exigirIdentificacaoVendedor),
+            devolucaoBotaoSeparado: data.devolucaoBotaoSeparado === true,
             comissaoPadraoPecas: data.comissaoPadraoPecas != null ? String(data.comissaoPadraoPecas) : '',
             comissaoPadraoServicos: data.comissaoPadraoServicos != null ? String(data.comissaoPadraoServicos) : '',
             // 0 (sem meta) volta como campo vazio, nao como "0" -- o campo
@@ -1737,6 +1743,41 @@ const Configuracoes: React.FC = () => {
                 </p>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                   Ligar aqui libera o recurso para a empresa. <strong>Quem pode gravar, editar, finalizar ou cancelar pré-venda é definido usuário a usuário</strong>, nas permissões de cada funcionário.
+                </p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Agente Digital</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.agenteDigitalAtivo === true}
+                    onChange={(e) => setFormData({ ...formData, agenteDigitalAtivo: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Faz vendas com agente digital (WhatsApp)
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Desligado (padrão): a aba <strong>Pendentes</strong> some da listagem de Pedidos de Venda, já que não existe pedido chegando pelo agente. Ligue aqui se a empresa recebe pedido em análise vindo do agente de WhatsApp.
+                </p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Devolução de Venda</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.devolucaoBotaoSeparado === true}
+                    onChange={(e) => setFormData({ ...formData, devolucaoBotaoSeparado: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Trabalhar com botão de devolução separado (menu próprio)
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Desligado (padrão): a devolução é feita pelo botão <strong>Devolução</strong> dentro da própria tela do pedido finalizado.
+                  Ligado: o botão some do pedido e aparece um item de menu <strong>Devolução de Venda</strong> em Comercial, com uma tela própria para buscar o pedido e devolver.
                 </p>
               </div>
 

@@ -222,7 +222,11 @@ const NotasFiscaisEntradaList: React.FC = () => {
           });
         });
 
-        titulosExistentes.forEach((snap) => transaction.delete(snap.ref));
+        titulosExistentes.forEach((snap) => transaction.update(snap.ref, {
+          status: 'Cancelada',
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), resumoMotivo),
+        }));
 
         transaction.update(notaRef, {
           status: 'excluida',

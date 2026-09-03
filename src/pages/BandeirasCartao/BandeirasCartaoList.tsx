@@ -1,10 +1,10 @@
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, CreditCard, Edit, Percent, Trash2, X, Loader2, AlertTriangle } from 'lucide-react';
-import { addDoc, collection, deleteDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { Search, Plus, CreditCard, Edit, Percent, Power, X, Loader2, AlertTriangle } from 'lucide-react';
+import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { hasModuleAccess } from '../../utils/roles';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import { pickMissingDefaults } from '../../utils/catalogDefaults';
@@ -87,16 +87,30 @@ const BandeirasCartaoList: React.FC = () => {
     { key: 'F6', handler: () => openNewModal() },
   ]);
 
-  const handleDelete = async (id: string, nome: string) => {
-    const isConfirmed = await confirmDelete(`a bandeira (${nome})`);
-    if (!isConfirmed) return;
+  const handleToggleAtivo = async (bandeira: BandeiraCartao) => {
+    const novoStatus = !bandeira.ativo;
+    const confirm = await NexusSwal.fire({
+      title: novoStatus ? `Ativar "${bandeira.nome}"?` : `Inativar "${bandeira.nome}"?`,
+      text: novoStatus
+        ? 'A bandeira volta a aparecer na hora de escolher a forma de pagamento.'
+        : 'A bandeira some da hora de escolher a forma de pagamento, mas o histórico dela continua intacto. Pode ser reativada quando quiser.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: novoStatus ? 'Sim, ativar' : 'Sim, inativar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirm.isConfirmed || !currentUser) return;
 
     try {
-      await deleteDoc(doc(db, 'bandeiras_cartao', id));
-      showSuccess('Bandeira excluída!');
+      await updateDoc(doc(db, 'bandeiras_cartao', bandeira.id), {
+        ativo: novoStatus,
+        updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Bandeira reativada' : 'Bandeira inativada'),
+      });
+      showSuccess(novoStatus ? 'Bandeira ativada!' : 'Bandeira inativada!');
     } catch (error) {
       console.error(error);
-      showError('Erro', 'Não foi possível excluir a bandeira.');
+      showError('Erro', 'Não foi possível atualizar o status da bandeira.');
     }
   };
 
@@ -388,8 +402,8 @@ const BandeirasCartaoList: React.FC = () => {
                         <button className="icon-btn" title="Configurar taxas" style={{ color: '#8b5cf6' }} onClick={() => openFeesModal(bandeira)}>
                           <Percent size={16} />
                         </button>
-                        <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(bandeira.id, bandeira.nome)}>
-                          <Trash2 size={16} />
+                        <button className="icon-btn" title={bandeira.ativo ? 'Inativar' : 'Ativar'} style={{ color: bandeira.ativo ? '#ef4444' : '#10b981' }} onClick={() => handleToggleAtivo(bandeira)}>
+                          <Power size={16} />
                         </button>
                       </div>
                     </td>

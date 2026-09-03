@@ -336,7 +336,7 @@ const PedidoVendaForm: React.FC = () => {
   // (gravar/finalizar/cancelar). State aqui seria uma segunda copia da
   // verdade, que envelhece se outra aba mexer na mesma pre-venda.
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado } = useAuth();
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
   const canReturnVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao'));
   // Pedido pendente do agente de WhatsApp: nasce com status "Em Analise"
@@ -1669,11 +1669,16 @@ const PedidoVendaForm: React.FC = () => {
         });
 
         // A composicao nova pode ter MENOS lancamentos que a antiga (ex:
-        // 3 parcelas viraram 1 a vista). Os que sobraram tem que sumir,
-        // senao a venda passaria a ter recebimento a mais no financeiro.
+        // 3 parcelas viraram 1 a vista). Os que sobraram nao podem mais
+        // contar no financeiro, senao a venda passaria a ter recebimento a
+        // mais -- mas o registro fica (status Cancelada), nunca apagado.
         snapshotsAntigos.forEach((snapshot) => {
           if (snapshot.exists() && !idsNovos.has(snapshot.id)) {
-            transaction.delete(snapshot.ref);
+            transaction.update(snapshot.ref, {
+              status: 'Cancelada',
+              updatedAt: serverTimestamp(),
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Substituída por correção de forma de pagamento'),
+            });
           }
         });
 
@@ -3292,8 +3297,9 @@ const PedidoVendaForm: React.FC = () => {
         <div style={{ display: 'flex', gap: '12px' }}>
           {isViewing && status === 'Finalizada' && (
             <>
-              {/* Botão de NFC-e (Cupom Fiscal) */}
-              {!nfeDoc ? (
+              {/* Botão de NFC-e (Cupom Fiscal) -- some inteiro quando a
+                  empresa nao controla fiscal (Configuracoes.tsx). */}
+              {controlaFiscal && (!nfeDoc ? (
                 <button
                   className="btn-primary"
                   onClick={handleEmitirCupomVendaExistente}
@@ -3319,7 +3325,7 @@ const PedidoVendaForm: React.FC = () => {
                 >
                   <RefreshCw size={18} /> Consultar Cupom (NFC-e)
                 </button>
-              )}
+              ))}
 
               <button className="btn-secondary" onClick={() => navigate(`/pedidos-venda/print/${id}`)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Printer size={18} /> Imprimir Recibo
@@ -3356,7 +3362,7 @@ const PedidoVendaForm: React.FC = () => {
                   <XCircle size={18} /> Estornar/Cancelar
                 </button>
               )}
-              {canReturnVenda && (
+              {canReturnVenda && !devolucaoBotaoSeparado && (
                 <button
                   className="btn-secondary"
                   onClick={() => setShowDevolucaoModal(true)}

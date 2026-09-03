@@ -1,16 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, Scale, Edit, Trash2, X, Loader2, AlertTriangle, Lock } from 'lucide-react';
-import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc, addDoc, getDocs, serverTimestamp } from 'firebase/firestore';
+import { Search, Plus, Scale, Edit, Power, X, Loader2, AlertTriangle } from 'lucide-react';
+import { collection, query, onSnapshot, doc, where, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { pickMissingDefaults } from '../../utils/catalogDefaults';
 import {
   UNIDADES_MEDIDA_PADRAO,
-  findUnidadeEmUso,
   isSiglaPadrao,
 } from '../../utils/unidadeMedidaDomain';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
@@ -22,8 +21,11 @@ interface UnidadeData {
   nome: string;
   casasDecimais: number;
   permiteFracionado: boolean;
-  /** Unidade do catalogo padrao do sistema -- nao pode ser excluida. */
+  /** Unidade do catalogo padrao do sistema -- so identifica pra exibir o
+   *  selo "Padrão"; nao trava mais nenhuma acao (inativar e sempre seguro,
+   *  diferente do que excluir era). */
   isPadrao?: boolean;
+  ativo?: boolean;
 }
 
 const UnidadesMedidaList: React.FC = () => {
@@ -111,52 +113,30 @@ const UnidadesMedidaList: React.FC = () => {
     void semearPadroes();
   }, [loading, unidades, currentUser, tenantId, canAccess]);
 
-  const handleDelete = async (unidade: UnidadeData) => {
-    // 1) Padrao do sistema nunca sai. A checagem e' por sigla, nao pela flag:
-    // tenants antigos criaram UN/KG/LTS/MT a mao, antes da flag existir.
-    if (unidade.isPadrao || isSiglaPadrao(unidade.sigla)) {
-      showError(
-        'Unidade padrão',
-        `${unidade.sigla} faz parte do catálogo padrão do sistema e não pode ser excluída. Se não usa esta unidade, basta ignorá-la.`,
-      );
-      return;
-    }
+  const handleToggleAtivo = async (unidade: UnidadeData) => {
+    if (!currentUser) return;
+    const novoStatus = unidade.ativo === false;
 
-    // 2) Unidade em uso nunca sai. Sem isso, todo produto que a referenciava
-    // fica orfao e cai no fallback 'UN'/0 casas -- o que quebra em silencio a
-    // venda fracionada de um produto vendido em quilo.
-    setLoading(true);
+    const confirm = await NexusSwal.fire({
+      title: novoStatus ? `Ativar "${unidade.sigla}"?` : `Inativar "${unidade.sigla}"?`,
+      text: novoStatus
+        ? 'A unidade volta a aparecer na hora de cadastrar produto.'
+        : 'A unidade some da hora de cadastrar produto novo. Produtos que já usam essa unidade continuam funcionando exatamente como antes. Pode ser reativada quando quiser.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: novoStatus ? 'Sim, ativar' : 'Sim, inativar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirm.isConfirmed) return;
+
     try {
-      const produtosSnap = await getDocs(
-        query(collection(db, 'estoque'), where('tenantId', '==', tenantId)),
-      );
-      const produtos = produtosSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const emUso = findUnidadeEmUso(unidade.id, produtos);
-      if (emUso) {
-        showError(
-          'Unidade em uso',
-          emUso.origem === 'base'
-            ? `A unidade ${unidade.sigla} está em uso pelo produto ${emUso.produtoNome}${produtos.length > 1 ? ' (entre outros)' : ''}. Troque a unidade desses produtos antes de excluir.`
-            : `A unidade ${unidade.sigla} está em uso como embalagem do produto ${emUso.produtoNome}. Remova essa embalagem antes de excluir.`,
-        );
-        return;
-      }
+      await updateDoc(doc(db, 'unidades_medida', unidade.id), {
+        ativo: novoStatus,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Unidade reativada' : 'Unidade inativada'),
+      });
+      showSuccess(novoStatus ? 'Unidade ativada!' : 'Unidade inativada!');
     } catch (error) {
-      console.error('Erro ao verificar uso da unidade de medida:', error);
-      showError('Erro', 'Não foi possível verificar se a unidade está em uso. Tente novamente.');
-      return;
-    } finally {
-      setLoading(false);
-    }
-
-    const isConfirmed = await confirmDelete(`a unidade de medida (${unidade.sigla})`);
-    if (isConfirmed) {
-      try {
-        await deleteDoc(doc(db, 'unidades_medida', unidade.id));
-        showSuccess('Unidade de medida excluída!');
-      } catch (error) {
-        showError('Erro', 'Não foi possível excluir a unidade.');
-      }
+      showError('Erro', 'Não foi possível atualizar o status da unidade.');
     }
   };
 
@@ -342,15 +322,16 @@ const UnidadesMedidaList: React.FC = () => {
                 <th>Nome da Unidade</th>
                 <th style={{ width: '20%' }}>Casas Decimais</th>
                 <th style={{ width: '20%' }}>Venda Fracionada</th>
+                <th>Status</th>
                 <th style={{ width: '15%' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
+                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : filteredUnidades.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     <Scale size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>Nenhuma unidade de medida encontrada.</p>
                   </td>
@@ -377,23 +358,27 @@ const UnidadesMedidaList: React.FC = () => {
                       </span>
                     </td>
                     <td>
+                      <span style={{
+                        backgroundColor: unidade.ativo === false ? 'rgba(255,255,255,0.05)' : '#10b98120',
+                        color: unidade.ativo === false ? 'var(--text-muted)' : '#10b981',
+                        padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
+                      }}>
+                        {unidade.ativo === false ? 'Inativa' : 'Ativa'}
+                      </span>
+                    </td>
+                    <td>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button className="icon-btn" title="Editar" onClick={() => openEditModal(unidade)}>
                           <Edit size={16} />
                         </button>
-                        {(unidade.isPadrao || isSiglaPadrao(unidade.sigla)) ? (
-                          <span
-                            className="icon-btn"
-                            title="Unidade padrão do sistema — não pode ser excluída"
-                            style={{ color: 'var(--text-muted)', cursor: 'not-allowed', opacity: 0.5 }}
-                          >
-                            <Lock size={16} />
-                          </span>
-                        ) : (
-                          <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(unidade)}>
-                            <Trash2 size={16} />
-                          </button>
-                        )}
+                        <button
+                          className="icon-btn"
+                          title={unidade.ativo === false ? 'Ativar' : 'Inativar'}
+                          style={{ color: unidade.ativo === false ? '#10b981' : '#ef4444' }}
+                          onClick={() => handleToggleAtivo(unidade)}
+                        >
+                          <Power size={16} />
+                        </button>
                       </div>
                     </td>
                   </tr>

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Filter, Plus, Users, Edit, Trash2, Upload } from 'lucide-react';
-import { collection, query, onSnapshot, doc, deleteDoc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { Search, Filter, Plus, Users, Edit, Power, Upload } from 'lucide-react';
+import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import ValidarDocumentoButton from '../../components/common/ValidarDocumentoButton';
 
@@ -20,6 +20,7 @@ interface ClienteData {
   bairro?: string;
   cidade?: string;
   isPadrao?: boolean;
+  ativo?: boolean;
   createdAt: any;
 }
 
@@ -55,16 +56,31 @@ const ClientesList: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  const handleDelete = async (id: string) => {
-    const isConfirmed = await confirmDelete('este cliente');
-    if (isConfirmed) {
-      try {
-        await deleteDoc(doc(db, 'clientes', id));
-        showSuccess('Cliente excluído!');
-      } catch (error) {
-        console.error("Erro ao excluir cliente:", error);
-        showError('Erro ao excluir', 'Tente novamente mais tarde.');
-      }
+  const handleToggleAtivo = async (cliente: ClienteData) => {
+    if (!currentUser) return;
+    const novoStatus = cliente.ativo === false;
+
+    const confirm = await NexusSwal.fire({
+      title: novoStatus ? `Ativar ${cliente.nome}?` : `Inativar ${cliente.nome}?`,
+      text: novoStatus
+        ? `${cliente.nome} volta a aparecer nas buscas de venda, OS e orçamento.`
+        : `${cliente.nome} some das buscas de venda, OS e orçamento, mas o histórico dele continua intacto. Pode ser reativado quando quiser.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: novoStatus ? 'Sim, ativar' : 'Sim, inativar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      await updateDoc(doc(db, 'clientes', cliente.id), {
+        ativo: novoStatus,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Cliente reativado' : 'Cliente inativado'),
+      });
+      showSuccess(novoStatus ? 'Cliente ativado!' : 'Cliente inativado!');
+    } catch (error) {
+      console.error('Erro ao atualizar status do cliente:', error);
+      showError('Erro ao atualizar', 'Tente novamente mais tarde.');
     }
   };
 
@@ -163,17 +179,18 @@ const ClientesList: React.FC = () => {
                 <th>Telefone</th>
                 <th>CPF / CNPJ</th>
                 <th>E-mail</th>
+                <th>Status</th>
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando clientes...</td>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>Carregando clientes...</td>
                 </tr>
               ) : filteredClientes.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
                     <Users size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>{searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhum cliente cadastrado."}</p>
                   </td>
@@ -199,6 +216,17 @@ const ClientesList: React.FC = () => {
                     <td>{cliente.documento || '-'}</td>
                     <td>{cliente.email || '-'}</td>
                     <td>
+                      {!cliente.isPadrao && (
+                        <span style={{
+                          backgroundColor: cliente.ativo === false ? 'rgba(255,255,255,0.05)' : '#10b98120',
+                          color: cliente.ativo === false ? 'var(--text-muted)' : '#10b981',
+                          padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
+                        }}>
+                          {cliente.ativo === false ? 'Inativo' : 'Ativo'}
+                        </span>
+                      )}
+                    </td>
+                    <td>
                       {cliente.isPadrao ? (
                         <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Sistema Padrão</span>
                       ) : (
@@ -207,8 +235,13 @@ const ClientesList: React.FC = () => {
                           <button className="icon-btn" title="Editar" onClick={() => openTab(`/clientes/editar/${cliente.id}`)}>
                             <Edit size={16} />
                           </button>
-                          <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(cliente.id)}>
-                            <Trash2 size={16} />
+                          <button
+                            className="icon-btn"
+                            title={cliente.ativo === false ? 'Ativar' : 'Inativar'}
+                            style={{ color: cliente.ativo === false ? '#10b981' : '#ef4444' }}
+                            onClick={() => handleToggleAtivo(cliente)}
+                          >
+                            <Power size={16} />
                           </button>
                         </div>
                       )}

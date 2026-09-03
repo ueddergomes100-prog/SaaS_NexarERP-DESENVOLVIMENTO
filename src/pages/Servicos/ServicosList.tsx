@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Wrench, Edit, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { Search, Plus, Wrench, Edit, Power } from 'lucide-react';
+import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 interface ServicoData {
@@ -13,6 +13,7 @@ interface ServicoData {
   nome: string;
   categoria: string;
   preco: number;
+  ativo?: boolean;
 }
 
 const ServicosList: React.FC = () => {
@@ -35,15 +36,30 @@ const ServicosList: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser]);
 
-  const handleDelete = async (id: string) => {
-    const isConfirmed = await confirmDelete('este serviço');
-    if (isConfirmed) {
-      try {
-        await deleteDoc(doc(db, 'servicos', id));
-        showSuccess('Serviço excluído!');
-      } catch (error) {
-        showError('Erro', 'Não foi possível excluir o serviço.');
-      }
+  const handleToggleAtivo = async (servico: ServicoData) => {
+    if (!currentUser) return;
+    const novoStatus = servico.ativo === false;
+
+    const confirm = await NexusSwal.fire({
+      title: novoStatus ? `Ativar "${servico.nome}"?` : `Inativar "${servico.nome}"?`,
+      text: novoStatus
+        ? 'O serviço volta a aparecer na hora de montar uma OS.'
+        : 'O serviço some da hora de montar uma OS, mas o histórico continua intacto. Pode ser reativado quando quiser.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: novoStatus ? 'Sim, ativar' : 'Sim, inativar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      await updateDoc(doc(db, 'servicos', servico.id), {
+        ativo: novoStatus,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Serviço reativado' : 'Serviço inativado'),
+      });
+      showSuccess(novoStatus ? 'Serviço ativado!' : 'Serviço inativado!');
+    } catch (error) {
+      showError('Erro', 'Não foi possível atualizar o status do serviço.');
     }
   };
 
@@ -117,14 +133,15 @@ const ServicosList: React.FC = () => {
                 <th>Nome do Serviço</th>
                 <th>Categoria</th>
                 <th style={{ textAlign: 'right' }}>Valor / Hora</th>
+                <th>Status</th>
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
+                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : servicos.length === 0 ? (
-                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><Wrench size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} /><p>Nenhum serviço cadastrado.</p></td></tr>
+                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><Wrench size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} /><p>Nenhum serviço cadastrado.</p></td></tr>
               ) : (
                 servicos.map((servico) => (
                   <tr key={servico.id}>
@@ -135,12 +152,26 @@ const ServicosList: React.FC = () => {
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(servico.preco || 0)}
                     </td>
                     <td>
+                      <span style={{
+                        backgroundColor: servico.ativo === false ? 'rgba(255,255,255,0.05)' : '#10b98120',
+                        color: servico.ativo === false ? 'var(--text-muted)' : '#10b981',
+                        padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
+                      }}>
+                        {servico.ativo === false ? 'Inativo' : 'Ativo'}
+                      </span>
+                    </td>
+                    <td>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button className="icon-btn" title="Editar" onClick={() => openTab(`/servicos/editar/${servico.id}`)}>
                           <Edit size={16} />
                         </button>
-                        <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(servico.id)}>
-                          <Trash2 size={16} />
+                        <button
+                          className="icon-btn"
+                          title={servico.ativo === false ? 'Ativar' : 'Inativar'}
+                          style={{ color: servico.ativo === false ? '#10b981' : '#ef4444' }}
+                          onClick={() => handleToggleAtivo(servico)}
+                        >
+                          <Power size={16} />
                         </button>
                       </div>
                     </td>

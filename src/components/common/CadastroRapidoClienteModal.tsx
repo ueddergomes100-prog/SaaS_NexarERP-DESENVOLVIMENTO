@@ -6,6 +6,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showError } from '../../utils/alerts';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
+import { mensagemDocumentoInvalido } from '../../utils/documentoValidacao';
+import { buscarClienteDuplicadoPorDocumento } from '../../utils/clienteDuplicadoCheck';
 
 export interface ClienteCadastradoRapido {
   id: string;
@@ -70,14 +72,23 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
       showError('Campo obrigatório', 'Informe o nome do cliente.');
       return;
     }
-    if (documento && documento.length !== 11 && documento.length !== 14) {
-      showError('Documento inválido', 'O CPF deve ter 11 dígitos e o CNPJ 14 dígitos (apenas números).');
+    const erroDocumento = mensagemDocumentoInvalido(documento);
+    if (erroDocumento) {
+      showError('Documento inválido', erroDocumento);
       return;
     }
     if (!currentUser || !tenantId) return;
 
     setIsSaving(true);
     try {
+      if (documento) {
+        const duplicado = await buscarClienteDuplicadoPorDocumento(tenantId, documento);
+        if (duplicado) {
+          showError('CPF/CNPJ já cadastrado', `Este documento já está cadastrado para o cliente "${duplicado.nome}". Busque o cliente existente em vez de cadastrar de novo.`);
+          setIsSaving(false);
+          return;
+        }
+      }
       const codigo = await getProximoCodigoCliente(tenantId);
       const novoClienteRef = await addDoc(collection(db, 'clientes'), {
         codigo,
@@ -125,7 +136,7 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
     }}>
       <div className="card" style={{
         backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)',
-        width: '100%', maxWidth: '440px', overflow: 'hidden',
+        width: '100%', maxWidth: '680px', overflow: 'hidden',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
       }}>
         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-primary)' }}>

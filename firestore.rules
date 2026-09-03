@@ -118,8 +118,10 @@ service cloud.firestore {
         (collectionName in ['produtos', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'entregas'] && hasPermission('cadastros.estoque')) ||
         // estoque (o cadastro do produto em si, com custo/margem/fornecedor)
         // saiu do grupo acima em 2026-08-28: cadastros.estoque virou "ver a
-        // lista", so cadastros.estoque_alterar cria/edita o produto.
-        (collectionName == 'estoque' && hasPermission('cadastros.estoque_alterar')) ||
+        // lista", so cadastros.estoque_alterar cria/edita o produto. Nota
+        // Avulsa tambem grava aqui (soma quantidade + atualiza precoCusto),
+        // por isso aceita estoque.nota_avulsa como alternativa.
+        (collectionName == 'estoque' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.nota_avulsa'])) ||
         // estoque_lotes: mesma logica -- exige a permissao de alterar cadastro
         // ou a de Ajuste Manual de Estoque, nunca so "ver a lista".
         (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.ajusteManual'])) ||
@@ -135,7 +137,7 @@ service cloud.firestore {
         (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
         (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
         (collectionName == 'bandeiras_cartao' && hasPermission('cadastros.bandeiras_cartao')) ||
-        (collectionName == 'bancos' && hasAnyPermission(['cadastros.bancos', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'financeiro.banco', 'financeiro.receber', 'financeiro.pagar'])) ||
+        (collectionName == 'bancos' && hasAnyPermission(['cadastros.bancos', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'financeiro.banco', 'financeiro.receber', 'financeiro.pagar', 'estoque.nota_avulsa'])) ||
         (collectionName == 'lancamentos_bancarios' && hasPermission('cadastros.bancos')) ||
         (collectionName == 'ordens_de_servico' && hasAnyPermission(['mecanica.os', 'mecanica.os_alterar'])) ||
         // vendas.pedidos_pendentes_editar cobre tanto editar/finalizar quanto
@@ -156,40 +158,22 @@ service cloud.firestore {
         (collectionName == 'notas_fiscais' && hasAnyPermission(['fiscal.emitir', 'fiscal.excluir'])) ||
         (collectionName == 'notas_fiscais_entrada' && hasPermission('fiscal.entrada')) ||
         (collectionName == 'creditos_cliente' && hasAnyPermission(['vendas.pedidos', 'financeiro.receber'])) ||
-        (collectionName == 'transacoes' && hasAnyPermission(['financeiro.caixa', 'financeiro.banco', 'financeiro.receber', 'financeiro.pagar', 'financeiro.estornar', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os'])) ||
+        (collectionName == 'transacoes' && hasAnyPermission(['financeiro.caixa', 'financeiro.banco', 'financeiro.receber', 'financeiro.pagar', 'financeiro.estornar', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'estoque.nota_avulsa'])) ||
         (collectionName == 'caixas_pdv' && hasAnyPermission(['vendas.pedidos', 'financeiro.caixa_registros'])) ||
+        (collectionName == 'notas_avulsas' && hasPermission('estoque.nota_avulsa')) ||
         (collectionName in ['integracoes_canais', 'integracoes_produtos', 'integracoes_fila', 'pedidos_externos', 'integracoes_logs'] && hasPermission('cadastros.estoque'));
     }
 
+    // Fechado pra so SuperAdmin (2026-09-03: "nada do sistema pode
+    // excluir"). Toda tela do app trocou exclusao fisica por
+    // cancelar/inativar (status/ativo); o unico delete fisico que sobra e'
+    // o wipe de tenant do SuperAdmin (SuperAdmin.tsx), que roda como
+    // SuperAdmin mesmo. Antes disto, Tenant Admin (dono/gestor da propria
+    // empresa) tambem passava por aqui com permissao granular -- agora,
+    // mesmo sem UI nenhuma chamando mais deleteDoc nessas colecoes, o
+    // caminho ficava aberto pra quem soubesse chamar a API direto.
     function canDeleteTenantCollection(collectionName) {
-      return canManageTenantData() ||
-        (collectionName in ['clientes', 'veiculos'] && hasPermission('cadastros.clientes')) ||
-        (collectionName in ['produtos', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'entregas'] && hasPermission('cadastros.estoque')) ||
-        (collectionName == 'estoque' && hasPermission('cadastros.estoque_alterar')) ||
-        (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.ajusteManual'])) ||
-        // Excluir fornecedor exige a permissao propria -- quem so tem
-        // fiscal.entrada pode CRIAR pela importacao de XML, mas nao apagar.
-        (collectionName == 'fornecedores' && hasPermission('cadastros.fornecedores')) ||
-        (collectionName == 'materias_primas' && hasPermission('cadastros.materia_prima')) ||
-        (collectionName == 'ordens_producao' && hasPermission('operacoes.producao')) ||
-        (collectionName == 'expedicoes' && hasPermission('operacoes.expedicao')) ||
-        (collectionName == 'categorias' && hasPermission('cadastros.categorias')) ||
-        (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
-        (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
-        (collectionName == 'bandeiras_cartao' && hasPermission('cadastros.bandeiras_cartao')) ||
-        (collectionName == 'bancos' && hasPermission('cadastros.bancos')) ||
-        (collectionName == 'ordens_de_servico' && hasPermission('mecanica.os_excluir')) ||
-        (collectionName == 'pedidos_venda' && hasPermission('vendas.excluir')) ||
-        (collectionName == 'orcamentos' && hasPermission('vendas.orcamentos_excluir')) ||
-        (collectionName == 'devolucoes_venda' && hasPermission('vendas.devolucao')) ||
-        (collectionName == 'lembretes' && hasPermission('crm.alertas')) ||
-        (collectionName == 'agendamentos' && hasPermission('crm.agenda')) ||
-        (collectionName == 'notas_fiscais' && hasPermission('fiscal.excluir')) ||
-        (collectionName == 'notas_fiscais_entrada' && hasPermission('fiscal.entrada')) ||
-        (collectionName == 'creditos_cliente' && hasAnyPermission(['vendas.pedidos', 'financeiro.receber'])) ||
-        (collectionName == 'transacoes' && hasPermission('financeiro.estornar')) ||
-        (collectionName == 'caixas_pdv' && hasPermission('financeiro.caixa_registros')) ||
-        (collectionName in ['integracoes_canais', 'integracoes_produtos', 'integracoes_fila', 'pedidos_externos', 'integracoes_logs'] && hasPermission('cadastros.estoque'));
+      return isSuperAdmin();
     }
 
     function canAccessTenant(tenantId) {
@@ -281,12 +265,11 @@ service cloud.firestore {
             .hasOnly(['activeSessionId', 'activeSession', 'lastSessionEndedAt', 'nome'].concat(documentAuditFields()))
         );
 
-      allow delete: if isSuperAdmin() ||
-        (
-          isTenantAdmin() &&
-          resource.data.tenantId == currentTenantId() &&
-          resource.data.role == 'Funcionario'
-        );
+      // So SuperAdmin apaga usuario -- nenhuma tela do app apaga mais
+      // conta de funcionario, so inativa (status: 'Inativo', ver
+      // UsuariosList.tsx). Antes o Tenant Admin tambem podia; fechado pra
+      // nao sobrar um caminho de exclusao fisica sem UI nenhuma usando.
+      allow delete: if isSuperAdmin();
     }
 
     match /usernames/{username} {
@@ -297,11 +280,9 @@ service cloud.firestore {
           isTenantAdmin() &&
           request.resource.data.tenantId == currentTenantId()
         );
-      allow delete: if isSuperAdmin() ||
-        (
-          isTenantAdmin() &&
-          resource.data.tenantId == currentTenantId()
-        );
+      // Mesmo motivo do /usuarios acima -- so SuperAdmin (usado no wipe de
+      // tenant do SuperAdmin.tsx).
+      allow delete: if isSuperAdmin();
     }
 
     match /configuracoes/{tenantId} {
@@ -345,7 +326,7 @@ service cloud.firestore {
     // em "Missing or insufficient permissions" ao criar a ordem.
     function canConsumeTenantSequence() {
       return canManageTenantData() ||
-        hasAnyPermission(['mecanica.os', 'vendas.pedidos', 'vendas.orcamentos', 'operacoes.producao']);
+        hasAnyPermission(['mecanica.os', 'vendas.pedidos', 'vendas.orcamentos', 'operacoes.producao', 'estoque.nota_avulsa']);
     }
 
     match /contadores/{tenantId} {
@@ -470,7 +451,8 @@ service cloud.firestore {
         'estoque_lotes',
         'expedicoes',
         'entregas',
-        'caixas_pdv'
+        'caixas_pdv',
+        'notas_avulsas'
       ] && canReadTenantDocument();
 
       allow create: if collectionName in [
@@ -510,7 +492,8 @@ service cloud.firestore {
         'estoque_lotes',
         'expedicoes',
         'entregas',
-        'caixas_pdv'
+        'caixas_pdv',
+        'notas_avulsas'
       ] && canCreateTenantDocument() && canWriteTenantCollection(collectionName);
 
       allow update: if collectionName in [
@@ -549,7 +532,8 @@ service cloud.firestore {
         'estoque_lotes',
         'expedicoes',
         'entregas',
-        'caixas_pdv'
+        'caixas_pdv',
+        'notas_avulsas'
       ] && canUpdateTenantDocument() && (
         canWriteTenantCollection(collectionName) ||
         (collectionName == 'estoque' && canAdjustStockQuantity()) ||

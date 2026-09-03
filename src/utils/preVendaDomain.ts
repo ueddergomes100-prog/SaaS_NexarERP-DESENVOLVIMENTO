@@ -104,3 +104,10 @@ export const parseTrabalhaComPreVenda = (value: unknown): boolean => value === t
 export const DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA = false;
 
 export const parseAlterarPagamentoVendaFinalizada = (value: unknown): boolean => value === true;
+
+/** Config do tenant: a empresa recebe pedido pelo agente digital (WhatsApp).
+ * Desligado (padrao) = a aba "Pendentes" nem aparece na listagem de Pedidos
+ * de Venda, ja que nunca vai existir pedido 'Em Análise' pra mostrar la. */
+export const DEFAULT_AGENTE_DIGITAL_ATIVO = false;
+
+export const parseAgenteDigitalAtivo = (value: unknown): boolean => value === true;

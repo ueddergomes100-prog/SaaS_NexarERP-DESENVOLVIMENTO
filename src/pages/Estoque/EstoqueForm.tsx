@@ -417,7 +417,7 @@ const EstoqueForm: React.FC = () => {
   const [validarCadastroProduto, setValidarCadastroProduto] = useState(false);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
   const [regimeTributario, setRegimeTributario] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
-  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, controlaFiscal } = useAuth();
 
   const fallbackUnidades: UnidadeMedida[] = [
     { id: 'un', sigla: 'UN', nome: 'UNIDADE', casasDecimais: 0, permiteFracionado: false },
@@ -864,7 +864,7 @@ const EstoqueForm: React.FC = () => {
         return false;
       }
 
-      if (formData.ncm && !/^\d{8}$/.test(formData.ncm.replace(/\D/g, ''))) {
+      if (controlaFiscal && formData.ncm && !/^\d{8}$/.test(formData.ncm.replace(/\D/g, ''))) {
         setActiveTab('fiscal');
         showError('NCM inválido', 'O NCM deve conter exatamente 8 dígitos.');
         return false;
@@ -891,16 +891,21 @@ const EstoqueForm: React.FC = () => {
       return false;
     }
 
-    if (formData.ncm && !/^\d{8}$/.test(formData.ncm.replace(/\D/g, ''))) {
-      setActiveTab('fiscal');
-      showError('NCM inválido', 'O NCM deve conter exatamente 8 dígitos.');
-      return false;
-    }
+    // Empresa sem controle fiscal nao ve a aba Fiscal (Tributação) -- os
+    // 4 campos abaixo ficam opcionais nesse caso, junto com a validacao de
+    // formato do NCM.
+    if (controlaFiscal) {
+      if (formData.ncm && !/^\d{8}$/.test(formData.ncm.replace(/\D/g, ''))) {
+        setActiveTab('fiscal');
+        showError('NCM inválido', 'O NCM deve conter exatamente 8 dígitos.');
+        return false;
+      }
 
-    if (!formData.ncm.trim() || !formData.cfop.trim() || !formData.csosn.trim() || !formData.origem.trim()) {
-      setActiveTab('fiscal');
-      showError('Dados fiscais obrigatórios', 'Preencha NCM, CFOP padrão de saída, origem e CSOSN/CST.');
-      return false;
+      if (!formData.ncm.trim() || !formData.cfop.trim() || !formData.csosn.trim() || !formData.origem.trim()) {
+        setActiveTab('fiscal');
+        showError('Dados fiscais obrigatórios', 'Preencha NCM, CFOP padrão de saída, origem e CSOSN/CST.');
+        return false;
+      }
     }
 
     if (formData.impedirVendaAbaixoCusto && precoVenda > 0 && precoCusto > 0 && precoVenda < precoCusto) {
@@ -1303,6 +1308,11 @@ const EstoqueForm: React.FC = () => {
             // Configuracoes. Desligar so esconde: nenhuma embalagem ja
             // cadastrada e apagada, e religar traz tudo de volta.
             .filter(tab => tab.id !== 'embalagens' || venderPorEmbalagem)
+            // Empresa que nao controla fiscal nao ve a aba -- os campos
+            // continuam gravados se ja existiam, so nao sao mais pedidos
+            // nem exibidos. Ver validateForm() mais abaixo, que tambem
+            // pula a validacao obrigatoria desses campos nesse caso.
+            .filter(tab => tab.id !== 'fiscal' || controlaFiscal)
             .map((tab) => (
               <button
                 key={tab.id}

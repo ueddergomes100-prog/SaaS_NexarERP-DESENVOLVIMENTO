@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Receipt, Plus, Search, CheckCircle,
-  XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings, Trash2,
+  XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings,
   ChevronLeft, ChevronRight, MessageCircle
 } from 'lucide-react';
-import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { spedyService } from '../../services/spedyService';
@@ -112,7 +112,6 @@ interface OrdemServicoParaImportar {
 const NFE: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
 
-  const canDeleteInvoice = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.excluir'));
   const canEmitirNota = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.emitir'));
   const canCancelarNota = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.excluir'));
 
@@ -896,43 +895,6 @@ const NFE: React.FC = () => {
     }
   };
 
-  const handleDeleteInvoice = async (note: LocalInvoice) => {
-    const confirm = await NexusSwal.fire({
-      title: 'Excluir Nota do Sistema?',
-      text: 'Isso removerá o registro local da nota fiscal do banco de dados do ERP. Essa ação NÃO cancela a nota na SEFAZ. Tem certeza?',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Sim, excluir',
-      cancelButtonText: 'Cancelar'
-    });
-
-    if (confirm.isConfirmed) {
-      try {
-        await deleteDoc(doc(db, 'notas_fiscais', note.id));
-        showSuccess('Nota excluída do sistema!');
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId: tenantId || '',
-            usuarioId: currentUser?.uid || '',
-            usuarioEmail: currentUser?.email || '',
-            modulo: 'fiscal',
-            acao: 'exclusao',
-            descricao: `Nota Fiscal #${note.number || note.spedyId.substring(0, 6)} (${note.tipo}) excluída do registro local. Valor: R$ ${note.valor.toFixed(2)}.`,
-            registroRelacionadoId: note.id,
-            status: 'sucesso',
-            critical: true
-          });
-        } catch {
-          // ignore audit log error
-        }
-        loadLocalInvoices(false);
-      } catch {
-        showError('Erro', 'Não foi possível excluir o registro da nota.');
-      }
-    }
-  };
-
   // Emissão de nova nota
   const handleEmitir = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1582,17 +1544,6 @@ const NFE: React.FC = () => {
                           </button>
                         )}
 
-                        {/* Excluir Registro da Nota */}
-                        {canDeleteInvoice && (
-                          <button
-                            className="icon-btn"
-                            title="Excluir Nota Fiscal"
-                            onClick={() => handleDeleteInvoice(note)}
-                            style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        )}
                       </div>
                     </td>
                   </tr>

@@ -1,14 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, Printer, Edit, MessageCircle, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, where, doc, deleteDoc, getDocs, runTransaction } from 'firebase/firestore';
+import { Plus, Search, Filter, Printer, Edit, MessageCircle } from 'lucide-react';
+import { collection, query, onSnapshot, where, doc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
-import { applyStockFieldDeltas } from '../../utils/firestoreAtomic';
-import { computeReservationRelease } from '../../utils/estoqueReservaDomain';
 import {
   DEFAULT_MOSTRAR_VALOR_LISTA_OS,
   formatarValorListaOS,
@@ -47,7 +44,6 @@ const OSList: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
 
   const canEditOS = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('mecanica.os_alterar'));
-  const canDeleteOS = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('mecanica.os_excluir'));
 
   useEffect(() => {
     if (!currentUser) return;
@@ -110,73 +106,6 @@ const OSList: React.FC = () => {
     );
 
     window.open(`https://wa.me/55${telLimpado}?text=${mensagem}`, '_blank');
-  };
-
-  const handleDeleteOS = async (os: OSData) => {
-    const confirm = await NexusSwal.fire({
-      title: 'Excluir Definitivamente?',
-      text: 'Esta ação removerá a OS do sistema para sempre. Não pode ser desfeita.',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Sim, excluir',
-      cancelButtonText: 'Cancelar',
-      confirmButtonColor: '#ef4444'
-    });
-
-    if (confirm.isConfirmed) {
-      try {
-        // Antes de excluir, libera qualquer reserva de estoque pendente
-        // desta OS (Modulo 13) -- sem isso, quantidadeReservada em
-        // estoque/{id} ficaria travada pra sempre (reserva orfa). No-op
-        // pra qualquer OS que nunca usou o modo 'Reservar no Pedido'.
-        await runTransaction(db, async (transaction) => {
-          const osRef = doc(db, 'ordens_de_servico', os.id);
-          const osSnap = await transaction.get(osRef);
-          if (osSnap.exists()) {
-            const osData = osSnap.data();
-            if (osData.estoqueReservado === true && Array.isArray(osData.pecas) && osData.pecas.length > 0) {
-              const deltas = computeReservationRelease(osData.pecas);
-              if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, true);
-            }
-          }
-          transaction.delete(osRef);
-        });
-        try {
-          // Uma OS com cartao parcelado grava uma transacao por parcela
-          // (osId igual, id diferente) -- excluir so o doc com id == osId
-          // deixava as demais parcelas orfas, ainda visiveis em Contas a
-          // Receber/Banco.
-          const qTransacoes = query(
-            collection(db, 'transacoes'),
-            where('tenantId', '==', tenantId),
-            where('osId', '==', os.id)
-          );
-          const transacoesSnap = await getDocs(qTransacoes);
-          await Promise.all(transacoesSnap.docs.map((transacaoDoc) => deleteDoc(transacaoDoc.ref)));
-        } catch (e) {
-          console.error('Erro ao excluir transações vinculadas à OS:', e);
-        }
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId: tenantId || '',
-            usuarioId: currentUser?.uid || '',
-            usuarioEmail: currentUser?.email || '',
-            modulo: 'mecanica',
-            acao: 'exclusao',
-            descricao: `OS #${os.numeroOS || os.id.substring(0, 6).toUpperCase()} excluída permanentemente. Cliente: ${os.clienteNome || 'Geral'}.`,
-            registroRelacionadoId: os.id,
-            status: 'sucesso',
-            critical: true,
-          });
-        } catch {
-          // ignore audit log error
-        }
-        showSuccess('OS excluída com sucesso!');
-      } catch(err) {
-        showError('Erro', 'Não foi possível excluir a Ordem de Serviço.');
-      }
-    }
   };
 
   const filteredOsList = osList.filter(os => {
@@ -357,16 +286,6 @@ const OSList: React.FC = () => {
                         >
                           <Printer size={18} />
                         </button>
-                        {os.status === 'Cancelada' && canDeleteOS && (
-                          <button 
-                            className="icon-btn" 
-                            onClick={() => handleDeleteOS(os)}
-                            title="Excluir Definitivamente"
-                            style={{ color: '#ef4444' }}
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        )}
                       </div>
                     </td>
                   </tr>

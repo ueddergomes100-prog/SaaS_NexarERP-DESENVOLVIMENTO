@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
   onSnapshot,
   query,
@@ -12,10 +11,10 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { Search, Plus, Building2, Edit, Trash2, X, Loader2, AlertTriangle, History, ArrowLeftRight } from 'lucide-react';
+import { Search, Plus, Building2, Edit, Power, X, Loader2, AlertTriangle, History, ArrowLeftRight } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { hasModuleAccess } from '../../utils/roles';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import { fromCents, toCents, validateBankTransfer } from '../../utils/financeDomain';
@@ -227,20 +226,30 @@ const BancosList: React.FC = () => {
     }
   };
 
-  const handleDelete = async (banco: Banco) => {
-    if ((banco.saldoCentavos || 0) !== 0) {
-      showError('Não é possível excluir', 'Este banco tem saldo diferente de zero. Faça uma transferência ou ajuste para zerar o saldo antes de excluir.');
-      return;
-    }
-    const isConfirmed = await confirmDelete(`o banco (${banco.nome})`);
-    if (!isConfirmed) return;
+  const handleToggleAtivo = async (banco: Banco) => {
+    const novoStatus = !banco.ativo;
+    const confirm = await NexusSwal.fire({
+      title: novoStatus ? `Ativar "${banco.nome}"?` : `Inativar "${banco.nome}"?`,
+      text: novoStatus
+        ? 'O banco volta a aparecer nas telas de pagamento e transferência.'
+        : 'O banco some das telas de pagamento e transferência, mas o histórico dele continua intacto. Pode ser reativado quando quiser.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: novoStatus ? 'Sim, ativar' : 'Sim, inativar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirm.isConfirmed || !currentUser) return;
 
     try {
-      await deleteDoc(doc(db, 'bancos', banco.id));
-      showSuccess('Banco excluído!');
+      await updateDoc(doc(db, 'bancos', banco.id), {
+        ativo: novoStatus,
+        updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Banco reativado' : 'Banco inativado'),
+      });
+      showSuccess(novoStatus ? 'Banco ativado!' : 'Banco inativado!');
     } catch (error) {
       console.error(error);
-      showError('Erro', 'Não foi possível excluir o banco.');
+      showError('Erro', 'Não foi possível atualizar o status do banco.');
     }
   };
 
@@ -507,8 +516,8 @@ const BancosList: React.FC = () => {
                         <button className="icon-btn" title="Lançamentos" style={{ color: '#37d7ff' }} onClick={() => openLedger(banco)}>
                           <History size={16} />
                         </button>
-                        <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(banco)}>
-                          <Trash2 size={16} />
+                        <button className="icon-btn" title={banco.ativo ? 'Inativar' : 'Ativar'} style={{ color: banco.ativo ? '#ef4444' : '#10b981' }} onClick={() => handleToggleAtivo(banco)}>
+                          <Power size={16} />
                         </button>
                       </div>
                     </td>

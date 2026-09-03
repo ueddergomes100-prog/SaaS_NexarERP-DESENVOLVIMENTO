@@ -1,13 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BadgeCheck, Edit, KeyRound, Plus, Search, Trash2, UserCheck, X } from 'lucide-react';
+import { BadgeCheck, Edit, KeyRound, Plus, Power, Search, UserCheck, X } from 'lucide-react';
 import {
   addDoc,
   collection,
-  deleteDoc,
   deleteField,
   doc,
   getDocs,
-  limit,
   onSnapshot,
   query,
   serverTimestamp,
@@ -16,7 +14,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { confirmDelete, showError, showSuccess, showWarning, NexusSwal } from '../../utils/alerts';
+import { showError, showSuccess, showWarning, NexusSwal } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { isTenantManagerRole } from '../../utils/roles';
@@ -317,36 +315,37 @@ const VendedoresList: React.FC = () => {
     }
   };
 
-  const handleExcluir = async (vendedor: VendedorData) => {
+  const handleToggleStatus = async (vendedor: VendedorData) => {
     if (!podeGerenciar) {
-      showError('Sem permissão', 'Apenas o administrador da empresa pode excluir vendedores.');
+      showError('Sem permissão', 'Apenas o administrador da empresa pode alterar o status de vendedores.');
       return;
     }
+    if (!currentUser) return;
+
+    const statusAtual = vendedor.status || 'Ativo';
+    const novoStatus = statusAtual === 'Ativo' ? 'Inativo' : 'Ativo';
+
+    const confirm = await NexusSwal.fire({
+      title: novoStatus === 'Ativo' ? `Ativar ${vendedor.nome}?` : `Inativar ${vendedor.nome}?`,
+      text: novoStatus === 'Ativo'
+        ? `${vendedor.nome} volta a conseguir vender no balcão.`
+        : `${vendedor.nome} para de conseguir vender no balcão na hora, mas o histórico de vendas e comissões continua intacto. Pode ser reativado quando quiser.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: novoStatus === 'Ativo' ? 'Sim, ativar' : 'Sim, inativar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirm.isConfirmed) return;
 
     try {
-      const snapVendas = await getDocs(query(
-        collection(db, 'pedidos_venda'),
-        where('vendedorId', '==', vendedor.id),
-        limit(1),
-      ));
-      if (!snapVendas.empty) {
-        showError(
-          'Não dá para excluir',
-          `${vendedor.nome} já tem vendas registradas, e excluí-lo deixaria essas vendas sem vendedor no relatório de comissões. Se ele saiu da empresa, mude o status para Inativo — ele para de conseguir vender na hora, e o histórico continua certo.`,
-        );
-        return;
-      }
-    } catch (error) {
-      console.error('Erro ao verificar vendas do vendedor:', error);
-    }
-
-    if (!(await confirmDelete(`o vendedor ${vendedor.nome}`))) return;
-
-    try {
-      await deleteDoc(doc(db, 'usuarios', vendedor.id));
-      showSuccess('Vendedor excluído.');
+      await updateDoc(doc(db, 'usuarios', vendedor.id), {
+        status: novoStatus,
+        updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus === 'Ativo' ? 'Vendedor reativado' : 'Vendedor inativado'),
+      });
+      showSuccess(novoStatus === 'Ativo' ? 'Vendedor ativado!' : 'Vendedor inativado!');
     } catch {
-      showError('Não foi possível excluir', 'O vendedor continua cadastrado. Tente de novo em instantes.');
+      showError('Não foi possível atualizar', 'O status do vendedor não foi alterado. Tente de novo em instantes.');
     }
   };
 
@@ -466,11 +465,11 @@ const VendedoresList: React.FC = () => {
                           </button>
                           <button
                             className="icon-btn"
-                            style={{ color: '#ef4444' }}
-                            title="Excluir vendedor"
-                            onClick={() => void handleExcluir(vendedor)}
+                            style={{ color: (vendedor.status || 'Ativo') === 'Ativo' ? '#ef4444' : '#10b981' }}
+                            title={(vendedor.status || 'Ativo') === 'Ativo' ? 'Inativar vendedor' : 'Ativar vendedor'}
+                            onClick={() => void handleToggleStatus(vendedor)}
                           >
-                            <Trash2 size={18} />
+                            <Power size={18} />
                           </button>
                         </div>
                       </td>

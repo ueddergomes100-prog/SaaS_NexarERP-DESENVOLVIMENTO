@@ -24,9 +24,11 @@ import {
   Link2,
   LogOut,
   Package,
+  PackagePlus,
   PieChart,
   Plus,
   Receipt,
+  RotateCcw,
   Scale,
   Search,
   Settings,
@@ -83,6 +85,7 @@ const Sidebar: React.FC = () => {
     selectedTenant,
     exigirIdentificacaoVendedor,
     controlaFiscal,
+    devolucaoBotaoSeparado,
     temVendedorCadastrado
   } = useAuth();
   const navigate = useNavigate();
@@ -123,10 +126,18 @@ const Sidebar: React.FC = () => {
     // Empresa que nao emite documento fiscal nao ve menu de nota. Nao e'
     // permissao: e' a empresa dizendo que essa parte do sistema nao existe
     // pra ela. Ver DEFAULT_CONTROLA_FISCAL em fiscalDomain.ts.
-    if (!controlaFiscal && item.module?.startsWith('fiscal.')) return false;
+    // SINTEGRA e' obrigacao fiscal mas guarda o module 'utilitarios.sintegra'
+    // (bloqueio de plano do SuperAdmin ja usa esse id em producao -- renomear
+    // pra 'fiscal.*' orfanaria esse bloqueio existente). Por isso o gate
+    // fiscal checa os dois casos em vez de so o prefixo.
+    if (!controlaFiscal && (item.module?.startsWith('fiscal.') || item.module === 'utilitarios.sintegra')) return false;
+    // Devolucao de Venda separada so aparece no menu quando a empresa liga
+    // esse modo em Configuracoes -- por padrao a devolucao continua so como
+    // botao dentro do proprio pedido (ver PedidoVendaForm.tsx).
+    if (!devolucaoBotaoSeparado && item.module === 'comercial.devolucoes') return false;
     if (item.managerOnly && !hasFullAccess) return false;
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [controlaFiscal, hasFullAccess, isBlocked, userPermissions]);
+  }, [controlaFiscal, devolucaoBotaoSeparado, hasFullAccess, isBlocked, userPermissions]);
 
   const groups = useMemo<NavGroup[]>(() => [
     {
@@ -146,6 +157,7 @@ const Sidebar: React.FC = () => {
         { label: 'Pedidos de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
         { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.minhas_vendas' },
         { label: 'Orçamentos', to: '/orcamentos', icon: FileText, module: 'comercial.orcamentos', permission: 'vendas.orcamentos' },
+        { label: 'Devolução de Venda', to: '/vendas/devolucoes', icon: RotateCcw, module: 'comercial.devolucoes', permission: 'vendas.devolucao' },
         { label: 'Relatório de Vendas', to: '/relatorios-vendas', icon: BarChart2, module: 'comercial.relatorios', permission: 'vendas.relatorios' },
         { label: 'Pré-vendas em Aberto', to: '/pre-vendas', icon: ClipboardList, module: 'comercial.relatorios', permission: 'vendas.pre_venda_relatorio' }
       ]
@@ -181,7 +193,13 @@ const Sidebar: React.FC = () => {
         { label: 'Produtos', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
         { label: 'Ajuste Manual', to: '/estoque/ajuste', icon: SlidersHorizontal, module: 'estoque.ajusteManual', permission: 'estoque.ajusteManual' },
         { label: 'Relatório de Estoque', to: '/estoque/relatorio', icon: PieChart, module: 'estoque.relatorio', permission: 'estoque.relatorio' },
-        { label: 'Relatório de Ajustes', to: '/estoque/relatorio-ajustes', icon: History, module: 'estoque.relatorioAjustes', permission: 'estoque.relatorioAjustes' }
+        { label: 'Relatório de Ajustes', to: '/estoque/relatorio-ajustes', icon: History, module: 'estoque.relatorioAjustes', permission: 'estoque.relatorioAjustes' },
+        // De proposito FORA do prefixo 'fiscal.' -- Nota Avulsa e a
+        // ferramenta pra quem NAO controla fiscal (compra sem XML). Ficar
+        // atras do gate de controlaFiscal contradiria o proprio motivo
+        // dela existir. Ver Fase 2 do plano (esconder fiscal) e
+        // notaAvulsaDomain.ts.
+        { label: 'Nota Avulsa', to: '/estoque/notas-avulsas', icon: PackagePlus, module: 'estoque.nota_avulsa', permission: 'estoque.nota_avulsa' }
       ]
     },
     {

@@ -34,7 +34,8 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'cadastros.estoque', label: 'Estoque / Produtos' },
     { id: 'estoque.ajusteManual', label: 'Ajuste Manual de Estoque' },
     { id: 'estoque.relatorio', label: 'Relatório de Estoque' },
-    { id: 'estoque.relatorioAjustes', label: 'Relatório de Ajustes de Estoque' }
+    { id: 'estoque.relatorioAjustes', label: 'Relatório de Ajustes de Estoque' },
+    { id: 'estoque.nota_avulsa', label: 'Nota Avulsa (Compra Manual)' }
   ]},
   { group: 'Cadastros Auxiliares', items: [
     { id: 'cadastros.categorias', label: 'Categorias' },
@@ -48,6 +49,7 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
   { group: 'Comercial & Vendas', items: [
     { id: 'comercial.pedidos', label: 'Pedido de Vendas' },
     { id: 'comercial.orcamentos', label: 'Orçamentos' },
+    { id: 'comercial.devolucoes', label: 'Devolução de Venda' },
     { id: 'comercial.relatorios', label: 'Relatório de Vendas' }
   ]},
   { group: 'Serviços & Operações', items: [

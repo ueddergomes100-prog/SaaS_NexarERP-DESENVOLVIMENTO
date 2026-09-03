@@ -14,6 +14,7 @@ import {
 } from '../../utils/visibilidadeVendasDomain';
 import { showError } from '../../utils/alerts';
 import { parcelasParaImpressao } from '../../utils/parcelasExibicaoDomain';
+import { usePrintAndClose } from '../../hooks/usePrintAndClose';
 import '../OS/OsPrint.css'; // Reusing OS print styles
 
 const PedidoPrint: React.FC = () => {
@@ -100,9 +101,7 @@ const PedidoPrint: React.FC = () => {
     fetchPedido();
   }, [id, navigate, currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = usePrintAndClose('/pedidos-venda');
 
   if (loading) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando dados para impressão...</div>;

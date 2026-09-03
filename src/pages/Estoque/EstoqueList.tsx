@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Filter, AlertCircle, Package, Edit, Trash2, Upload } from 'lucide-react';
-import { collection, query, onSnapshot, doc, deleteDoc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Upload } from 'lucide-react';
+import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms } from '../../utils/textSearch';
@@ -20,6 +20,7 @@ interface PecaData {
   precoVenda: number;
   unidadeMedidaSigla?: string;
   unidadeMedidaCasasDecimais?: number;
+  ativo?: boolean;
 }
 
 const EstoqueList: React.FC = () => {
@@ -75,31 +76,45 @@ const EstoqueList: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser]);
 
-  const handleDelete = async (id: string) => {
-    const isConfirmed = await confirmDelete('este produto do estoque');
-    if (isConfirmed) {
+  const handleToggleAtivo = async (peca: PecaData) => {
+    if (!currentUser) return;
+    const novoStatus = peca.ativo === false;
+
+    const confirm = await NexusSwal.fire({
+      title: novoStatus ? `Ativar "${peca.nome}"?` : `Inativar "${peca.nome}"?`,
+      text: novoStatus
+        ? 'O produto volta a aparecer nas buscas de venda, OS e orçamento.'
+        : 'O produto some das buscas de venda, OS e orçamento, mas o histórico e o estoque continuam intactos. Pode ser reativado quando quiser.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: novoStatus ? 'Sim, ativar' : 'Sim, inativar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      await updateDoc(doc(db, 'estoque', peca.id), {
+        ativo: novoStatus,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Produto reativado' : 'Produto inativado'),
+      });
       try {
-        const nomePeca = pecasList.find(p => p.id === id)?.nome || 'Desconhecido';
-        await deleteDoc(doc(db, 'estoque', id));
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId: tenantId || '',
-            usuarioId: currentUser?.uid || '',
-            usuarioEmail: currentUser?.email || '',
-            modulo: 'estoque',
-            acao: 'exclusao',
-            descricao: `Produto ${nomePeca} excluído do estoque.`,
-            registroRelacionadoId: id,
-            status: 'sucesso',
-            critical: true
-          });
-        } catch (logErr) {}
-        showSuccess('Produto excluído!');
-      } catch (error) {
-        console.error("Erro ao excluir produto:", error);
-        showError('Erro ao excluir', 'Tente novamente mais tarde.');
-      }
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || '',
+          modulo: 'estoque',
+          acao: novoStatus ? 'ativacao' : 'inativacao',
+          descricao: `Produto ${peca.nome} ${novoStatus ? 'reativado' : 'inativado'}.`,
+          registroRelacionadoId: peca.id,
+          alteracoes: [{ campo: 'ativo', valorAnterior: !novoStatus, valorNovo: novoStatus }],
+          status: 'sucesso',
+        });
+      } catch (logErr) {}
+      showSuccess(novoStatus ? 'Produto ativado!' : 'Produto inativado!');
+    } catch (error) {
+      console.error("Erro ao atualizar status do produto:", error);
+      showError('Erro ao atualizar', 'Tente novamente mais tarde.');
     }
   };
 
@@ -265,17 +280,18 @@ const EstoqueList: React.FC = () => {
                 <th>Qtd.</th>
                 <th>Preço (Venda)</th>
                 <th>Status</th>
+                <th>Ativo</th>
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>Carregando Estoque...</td>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '20px' }}>Carregando Estoque...</td>
                 </tr>
               ) : filteredPecas.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '20px' }}>
                     {searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhum produto cadastrado no estoque.'}
                   </td>
                 </tr>
@@ -307,15 +323,29 @@ const EstoqueList: React.FC = () => {
                     </td>
                     <td>{getStatusBadge(Number(peca.quantidade))}</td>
                     <td>
+                      <span style={{
+                        backgroundColor: peca.ativo === false ? 'rgba(255,255,255,0.05)' : '#10b98120',
+                        color: peca.ativo === false ? 'var(--text-muted)' : '#10b981',
+                        padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
+                      }}>
+                        {peca.ativo === false ? 'Inativo' : 'Ativo'}
+                      </span>
+                    </td>
+                    <td>
                       {canEditProduto && (
                         // stopPropagation: sem isso, um duplo clique acidental
-                        // em cima da lixeira tambem abriria a tela de edicao.
+                        // em cima do botao tambem abriria a tela de edicao.
                         <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                           <button className="icon-btn" title="Editar" onClick={() => openTab(`/estoque/editar/${peca.id}`)}>
                             <Edit size={16} />
                           </button>
-                          <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(peca.id)}>
-                            <Trash2 size={16} />
+                          <button
+                            className="icon-btn"
+                            title={peca.ativo === false ? 'Ativar' : 'Inativar'}
+                            style={{ color: peca.ativo === false ? '#10b981' : '#ef4444' }}
+                            onClick={() => handleToggleAtivo(peca)}
+                          >
+                            <Power size={16} />
                           </button>
                         </div>
                       )}

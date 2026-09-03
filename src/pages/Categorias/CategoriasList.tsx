@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Search, Plus, Tags, Edit, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, deleteDoc, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { Search, Plus, Tags, Edit, Power } from 'lucide-react';
+import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { confirmDelete, showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
@@ -13,6 +13,7 @@ interface CategoriaData {
   id: string;
   nome: string;
   tipo: string;
+  ativo?: boolean;
 }
 
 const TIPO_COLORS: Record<string, string> = {
@@ -48,15 +49,30 @@ const CategoriasList: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser]);
 
-  const handleDelete = async (id: string) => {
-    const isConfirmed = await confirmDelete('esta categoria');
-    if (isConfirmed) {
-      try {
-        await deleteDoc(doc(db, 'categorias', id));
-        showSuccess('Categoria excluída!');
-      } catch (error) {
-        showError('Erro', 'Não foi possível excluir a categoria.');
-      }
+  const handleToggleAtivo = async (categoria: CategoriaData) => {
+    if (!currentUser) return;
+    const novoStatus = categoria.ativo === false;
+
+    const confirm = await NexusSwal.fire({
+      title: novoStatus ? `Ativar "${categoria.nome}"?` : `Inativar "${categoria.nome}"?`,
+      text: novoStatus
+        ? 'A categoria volta a aparecer na hora de cadastrar produto/serviço.'
+        : 'A categoria some da hora de cadastrar produto/serviço, mas continua valendo para quem já usa. Pode ser reativada quando quiser.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: novoStatus ? 'Sim, ativar' : 'Sim, inativar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      await updateDoc(doc(db, 'categorias', categoria.id), {
+        ativo: novoStatus,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Categoria reativada' : 'Categoria inativada'),
+      });
+      showSuccess(novoStatus ? 'Categoria ativada!' : 'Categoria inativada!');
+    } catch (error) {
+      showError('Erro', 'Não foi possível atualizar o status da categoria.');
     }
   };
 
@@ -137,14 +153,15 @@ const CategoriasList: React.FC = () => {
               <tr>
                 <th>Nome da Categoria</th>
                 <th>Tipo</th>
+                <th>Status</th>
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={3} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
+                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : filteredCategorias.length === 0 ? (
-                <tr><td colSpan={3} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><Tags size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} /><p>Nenhuma categoria encontrada.</p></td></tr>
+                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><Tags size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} /><p>Nenhuma categoria encontrada.</p></td></tr>
               ) : (
                 filteredCategorias.map((cat) => (
                   <tr key={cat.id}>
@@ -160,12 +177,26 @@ const CategoriasList: React.FC = () => {
                       })()}
                     </td>
                     <td>
+                      <span style={{
+                        backgroundColor: cat.ativo === false ? 'rgba(255,255,255,0.05)' : '#10b98120',
+                        color: cat.ativo === false ? 'var(--text-muted)' : '#10b981',
+                        padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
+                      }}>
+                        {cat.ativo === false ? 'Inativa' : 'Ativa'}
+                      </span>
+                    </td>
+                    <td>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button className="icon-btn" title="Editar" onClick={() => openTab(`/categorias/editar/${cat.id}`)}>
                           <Edit size={16} />
                         </button>
-                        <button className="icon-btn" title="Excluir" style={{ color: '#ef4444' }} onClick={() => handleDelete(cat.id)}>
-                          <Trash2 size={16} />
+                        <button
+                          className="icon-btn"
+                          title={cat.ativo === false ? 'Ativar' : 'Inativar'}
+                          style={{ color: cat.ativo === false ? '#10b981' : '#ef4444' }}
+                          onClick={() => handleToggleAtivo(cat)}
+                        >
+                          <Power size={16} />
                         </button>
                       </div>
                     </td>

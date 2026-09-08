@@ -16,7 +16,7 @@ import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import CadastroRapidoProdutoModal, { type ProdutoCadastradoRapido } from '../../components/common/CadastroRapidoProdutoModal';
 import { calcularValorTotalNotaAvulsa, custoUnitarioComRateio, itemNotaAvulsaValido, quantidadeEstoqueNotaAvulsaItem, ratearValorPorPesos, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
-import { getDateInputInTimeZone, addMonthsToDateInput, formatDateInputPtBr } from '../../utils/dateTime';
+import { getDateInputInTimeZone, addDaysToDateInput, addMonthsToDateInput } from '../../utils/dateTime';
 import { toCents, splitCents } from '../../utils/financeDomain';
 import { buildOpcoesUnidadeVenda, findOpcaoUnidadeVenda, toBaseQuantity, DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
@@ -139,8 +139,12 @@ const NotaAvulsaForm: React.FC = () => {
     return unsubscribe;
   }, [tenantId]);
 
+  // Padrao de boleto: 30 dias da data de hoje (mesmo prazo padrao usado no
+  // crediario de venda). So vale pro 1o vencimento -- o usuario ainda pode
+  // trocar livremente, e as parcelas seguintes continuam 1 mes de calendario
+  // apos essa data.
   useEffect(() => {
-    setDataVencimento(getDateInputInTimeZone());
+    setDataVencimento(addDaysToDateInput(getDateInputInTimeZone(), 30));
   }, []);
 
   const valorItens = useMemo(() => calcularValorTotalNotaAvulsa(itens), [itens]);
@@ -166,20 +170,50 @@ const NotaAvulsaForm: React.FC = () => {
     }));
   }, [itens, freteValor, descontoValor]);
 
-  /** Preview das parcelas (so exibicao) -- mesma divisao que vai rodar no
-   * save: splitCents (financeDomain.ts, ja usado pra parcela de cartao)
-   * garante soma exata; addMonthsToDateInput (dateTime.ts) espaca cada
-   * parcela em 1 mes de calendario a partir da primeira, convencao padrao
-   * de boleto (dia fixo do mes, nao "+30 dias corridos"). */
+  /** Ajuste manual de uma parcela (valor e/ou data) -- por numero da
+   * parcela, nao por indice de array, pra sobreviver a re-renders. Limpo
+   * sempre que o NUMERO de parcelas ou a data da 1a mudam (estrutura nova,
+   * os ajustes antigos nao fazem mais sentido); sobrevive a mudanca de
+   * valorTotal de proposito, pra editar frete/desconto depois de comecar a
+   * digitar as parcelas nao apagar o que a pessoa ja tinha ajustado -- o
+   * aviso de "nao fecha" abaixo cobre esse caso. */
+  const [parcelaOverrides, setParcelaOverrides] = useState<Record<number, { valor?: string; data?: string }>>({});
+  useEffect(() => {
+    setParcelaOverrides({});
+  }, [formaPagamento, numeroParcelasValido, dataVencimento]);
+
+  /** Parcelas editaveis: parte de uma divisao igual (splitCents, mesma
+   * usada pra parcela de cartao) e sobrepoe qualquer ajuste manual guardado
+   * em parcelaOverrides. addMonthsToDateInput espaca cada parcela em 1 mes
+   * de calendario a partir da primeira, convencao padrao de boleto (dia
+   * fixo do mes, nao "+30 dias corridos"). */
   const parcelasPreview = useMemo(() => {
     if (formaPagamento !== 'pendente' || numeroParcelasValido <= 1 || !dataVencimento) return [];
     const valoresCentavos = splitCents(toCents(valorTotal), numeroParcelasValido);
-    return valoresCentavos.map((centavos, index) => ({
-      numero: index + 1,
-      valor: centavos / 100,
-      data: index === 0 ? dataVencimento : addMonthsToDateInput(dataVencimento, index),
-    }));
-  }, [formaPagamento, numeroParcelasValido, dataVencimento, valorTotal]);
+    return valoresCentavos.map((centavos, index) => {
+      const numero = index + 1;
+      const override = parcelaOverrides[numero];
+      return {
+        numero,
+        valor: override?.valor ?? (centavos / 100).toFixed(2).replace('.', ','),
+        data: override?.data ?? (index === 0 ? dataVencimento : addMonthsToDateInput(dataVencimento, index)),
+      };
+    });
+  }, [formaPagamento, numeroParcelasValido, dataVencimento, valorTotal, parcelaOverrides]);
+
+  const somaParcelasCentavos = useMemo(
+    () => parcelasPreview.reduce((soma, parcela) => soma + toCents(parcela.valor), 0),
+    [parcelasPreview],
+  );
+  const parcelasTemAjusteManual = Object.keys(parcelaOverrides).length > 0;
+  const parcelasDivergem = parcelasPreview.length > 0 && somaParcelasCentavos !== toCents(valorTotal);
+
+  const ajustarValorParcela = (numero: number, valor: string) => {
+    setParcelaOverrides((atual) => ({ ...atual, [numero]: { ...atual[numero], valor } }));
+  };
+  const ajustarDataParcela = (numero: number, data: string) => {
+    setParcelaOverrides((atual) => ({ ...atual, [numero]: { ...atual[numero], data } }));
+  };
 
   /** Opcoes do seletor "Unidade": a base do produto sempre, mais as
    * embalagens ativas quando a chave venderPorEmbalagem esta ligada. Mesma
@@ -281,6 +315,13 @@ const NotaAvulsaForm: React.FC = () => {
       showError('Data de vencimento obrigatória', 'Informe a data de vencimento do pagamento pendente.');
       return;
     }
+    if (formaPagamento === 'pendente' && numeroParcelasValido > 1 && parcelasDivergem) {
+      showError(
+        'Parcelas não fecham o total da nota',
+        `As parcelas somam ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(somaParcelasCentavos / 100)}, mas a nota é de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotal)}. Ajuste os valores das parcelas até fechar o total.`,
+      );
+      return;
+    }
     if (formaPagamento === 'a_vista' && destinoPagamento === 'banco' && !bancoId) {
       showError('Banco obrigatório', 'Selecione de qual banco o pagamento vai sair.');
       return;
@@ -357,16 +398,21 @@ const NotaAvulsaForm: React.FC = () => {
         // Parcela unica (a vista, ou pendente sem parcelar) e' um caso
         // particular de "1 parcela" -- monta sempre a lista de transacoes a
         // criar, pra nao duplicar a logica de campos entre os dois casos.
-        const valoresParcelasCentavos = formaPagamento === 'pendente'
-          ? splitCents(toCents(totalNota), numParcelasFinal)
-          : [toCents(totalNota)];
-        const transacoesParaCriar = valoresParcelasCentavos.map((valorCentavos, index) => ({
-          ref: doc(collection(db, 'transacoes')),
-          valorCentavos,
-          data: formaPagamento === 'pendente'
-            ? (index === 0 ? dataVencimento : addMonthsToDateInput(dataVencimento, index))
-            : getDateInputInTimeZone(),
-        }));
+        // Com mais de 1 parcela, usa os valores/datas que a pessoa viu e
+        // pode ter ajustado na tela (parcelasPreview), ja validados acima
+        // pra fechar exatamente o total -- nao recalcula um split novo aqui,
+        // senao um ajuste manual salvo na tela seria jogado fora no save.
+        const transacoesParaCriar = formaPagamento === 'pendente' && numParcelasFinal > 1
+          ? parcelasPreview.map((parcela) => ({
+              ref: doc(collection(db, 'transacoes')),
+              valorCentavos: toCents(parcela.valor),
+              data: parcela.data,
+            }))
+          : [{
+              ref: doc(collection(db, 'transacoes')),
+              valorCentavos: toCents(totalNota),
+              data: formaPagamento === 'pendente' ? dataVencimento : getDateInputInTimeZone(),
+            }];
         const sufixoParcela = (index: number) => (numParcelasFinal > 1 ? ` (parcela ${index + 1}/${numParcelasFinal})` : '');
 
         if (formaPagamento === 'a_vista') {
@@ -686,13 +732,39 @@ const NotaAvulsaForm: React.FC = () => {
             </div>
 
             {parcelasPreview.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
                 {parcelasPreview.map((parcela) => (
-                  <div key={parcela.numero} style={{ display: 'flex', justifyContent: 'space-between', maxWidth: '320px', color: 'var(--text-secondary)' }}>
-                    <span>Parcela {parcela.numero}/{parcelasPreview.length} — {formatDateInputPtBr(parcela.data)}</span>
-                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parcela.valor)}</span>
+                  <div key={parcela.numero} style={{ display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '420px' }}>
+                    <span style={{ color: 'var(--text-secondary)', minWidth: '68px' }}>Parcela {parcela.numero}/{parcelasPreview.length}</span>
+                    <input
+                      type="date"
+                      value={parcela.data}
+                      onChange={(e) => ajustarDataParcela(parcela.numero, e.target.value)}
+                      style={{ ...inputStyle, padding: '6px 8px', width: '150px' }}
+                    />
+                    <input
+                      type="text"
+                      value={parcela.valor}
+                      onChange={(e) => ajustarValorParcela(parcela.numero, e.target.value)}
+                      style={{ ...inputStyle, padding: '6px 8px', width: '110px', textAlign: 'right' }}
+                    />
                   </div>
                 ))}
+                {parcelasDivergem ? (
+                  <p style={{ fontSize: '12px', color: '#ef4444', margin: '4px 0 0', maxWidth: '420px' }}>
+                    As parcelas somam {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(somaParcelasCentavos / 100)},
+                    mas a nota é de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotal)}.
+                    Ajuste os valores das parcelas até fechar o total antes de salvar.
+                  </p>
+                ) : parcelasTemAjusteManual ? (
+                  <button
+                    type="button"
+                    onClick={() => setParcelaOverrides({})}
+                    style={{ fontSize: '12px', color: 'var(--accent-purple)', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, width: 'fit-content' }}
+                  >
+                    Redistribuir igualmente
+                  </button>
+                ) : null}
               </div>
             )}
           </div>

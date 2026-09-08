@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, PackagePlus, Plus, Save, Trash2 } from 'lucide-react';
-import { collection, doc, getDocs, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
@@ -15,9 +15,11 @@ import {
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import CadastroRapidoProdutoModal, { type ProdutoCadastradoRapido } from '../../components/common/CadastroRapidoProdutoModal';
-import { calcularValorTotalNotaAvulsa, itemNotaAvulsaValido, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
+import { calcularValorTotalNotaAvulsa, itemNotaAvulsaValido, quantidadeEstoqueNotaAvulsaItem, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { toCents } from '../../utils/financeDomain';
+import { buildOpcoesUnidadeVenda, findOpcaoUnidadeVenda, toBaseQuantity, DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
+import { isValidSaleQuantity } from '../../utils/saleQuantity';
 
 interface FornecedorBasico {
   id: string;
@@ -32,6 +34,10 @@ interface ProdutoBasico {
   categoria?: string;
   precoCusto?: number;
   precoVenda?: number;
+  unidadeMedidaSigla?: string;
+  unidadeMedidaCasasDecimais?: number;
+  unidadeMedidaFracionado?: boolean;
+  embalagens?: unknown;
 }
 
 interface BancoBasico {
@@ -59,6 +65,8 @@ const NotaAvulsaForm: React.FC = () => {
   const [quantidadeAtual, setQuantidadeAtual] = useState('');
   const [custoAtual, setCustoAtual] = useState('');
   const [vendaAtual, setVendaAtual] = useState('');
+  const [embalagemSelecionadaId, setEmbalagemSelecionadaId] = useState('');
+  const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [showCadastroProduto, setShowCadastroProduto] = useState(false);
 
   const [itens, setItens] = useState<NotaAvulsaItem[]>([]);
@@ -74,30 +82,57 @@ const NotaAvulsaForm: React.FC = () => {
 
   useEffect(() => {
     if (!tenantId) return;
-    getDocs(query(collection(db, 'fornecedores'), where('tenantId', '==', tenantId)))
-      .then((snap) => setFornecedores(snap.docs.map((d) => ({ id: d.id, nome: d.data().nome || '', codigo: d.data().codigo }))))
-      .catch((error) => console.error('Erro ao carregar fornecedores:', error));
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'fornecedores'), where('tenantId', '==', tenantId)),
+      (snap) => setFornecedores(snap.docs.map((d) => ({ id: d.id, nome: d.data().nome || '', codigo: d.data().codigo }))),
+      (error) => console.error('Erro ao carregar fornecedores:', error),
+    );
+    return unsubscribe;
   }, [tenantId]);
 
+  // onSnapshot (nao getDocs) de proposito: a aba de Nota Avulsa fica aberta
+  // enquanto o usuario cadastra um produto novo em outra aba/tela (Estoque
+  // ou o modal "Cadastrar Produto" abaixo) -- sem live update, o produto
+  // recem-criado so aparecia na busca depois de fechar e reabrir esta aba.
   useEffect(() => {
     if (!tenantId) return;
-    getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)))
-      .then((snap) => setProdutos(snap.docs.map((d) => ({
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'estoque'), where('tenantId', '==', tenantId)),
+      (snap) => setProdutos(snap.docs.map((d) => ({
         id: d.id,
         nome: d.data().nome || '',
         codigo: d.data().codigo,
         categoria: d.data().categoria,
         precoCusto: Number(d.data().precoCusto) || 0,
         precoVenda: Number(d.data().precoVenda) || 0,
-      }))))
-      .catch((error) => console.error('Erro ao carregar produtos:', error));
+        unidadeMedidaSigla: d.data().unidadeMedidaSigla,
+        unidadeMedidaCasasDecimais: d.data().unidadeMedidaCasasDecimais,
+        unidadeMedidaFracionado: d.data().unidadeMedidaFracionado,
+        embalagens: d.data().embalagens,
+      }))),
+      (error) => console.error('Erro ao carregar produtos:', error),
+    );
+    return unsubscribe;
   }, [tenantId]);
 
   useEffect(() => {
     if (!tenantId) return;
-    getDocs(query(collection(db, 'bancos'), where('tenantId', '==', tenantId), where('ativo', '==', true)))
-      .then((snap) => setBancos(snap.docs.map((d) => ({ id: d.id, nome: d.data().nome || '' }))))
-      .catch((error) => console.error('Erro ao carregar bancos:', error));
+    const unsubscribe = onSnapshot(
+      doc(db, 'configuracoes', tenantId),
+      (snap) => setVenderPorEmbalagem(snap.data()?.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM),
+      (error) => console.error('Erro ao carregar configuração de embalagem:', error),
+    );
+    return unsubscribe;
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'bancos'), where('tenantId', '==', tenantId), where('ativo', '==', true)),
+      (snap) => setBancos(snap.docs.map((d) => ({ id: d.id, nome: d.data().nome || '' }))),
+      (error) => console.error('Erro ao carregar bancos:', error),
+    );
+    return unsubscribe;
   }, [tenantId]);
 
   useEffect(() => {
@@ -105,6 +140,25 @@ const NotaAvulsaForm: React.FC = () => {
   }, []);
 
   const valorTotal = useMemo(() => calcularValorTotalNotaAvulsa(itens), [itens]);
+
+  /** Opcoes do seletor "Unidade": a base do produto sempre, mais as
+   * embalagens ativas quando a chave venderPorEmbalagem esta ligada. Mesma
+   * chave e mesmo comportamento da venda (PDV/Pedido) -- entrada e saida do
+   * mesmo estoque seguem a mesma configuracao do tenant. */
+  const opcoesUnidadeVenda = useMemo(() => {
+    const opcoes = buildOpcoesUnidadeVenda(produtoSelecionado);
+    return venderPorEmbalagem ? opcoes : opcoes.slice(0, 1);
+  }, [produtoSelecionado, venderPorEmbalagem]);
+  const opcaoUnidadeSelecionada = findOpcaoUnidadeVenda(opcoesUnidadeVenda, embalagemSelecionadaId);
+
+  /** Trocar de embalagem reseta custo/venda de proposito: o custo do saco
+   * nao tem relacao com o custo do quilo que o usuario possa ter digitado
+   * antes -- nao ha como sugerir um valor confiavel. */
+  const handleSelecionarEmbalagem = (embalagemId: string) => {
+    setEmbalagemSelecionadaId(embalagemId);
+    setCustoAtual('');
+    setVendaAtual(String(findOpcaoUnidadeVenda(opcoesUnidadeVenda, embalagemId).precoVenda || ''));
+  };
 
   const adicionarItem = () => {
     if (!produtoSelecionado) {
@@ -114,8 +168,10 @@ const NotaAvulsaForm: React.FC = () => {
     const quantidade = Number(quantidadeAtual.replace(',', '.'));
     const custo = Number(custoAtual.replace(',', '.'));
     const venda = Number(vendaAtual.replace(',', '.')) || 0;
-    if (!Number.isFinite(quantidade) || quantidade <= 0) {
-      showError('Quantidade inválida', 'Informe uma quantidade maior que zero.');
+    if (!isValidSaleQuantity(quantidade, opcaoUnidadeSelecionada.permiteFracionado, opcaoUnidadeSelecionada.casasDecimais)) {
+      showError('Quantidade inválida', opcaoUnidadeSelecionada.permiteFracionado
+        ? `A quantidade aceita no máximo ${opcaoUnidadeSelecionada.casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${opcaoUnidadeSelecionada.sigla}.`
+        : `${produtoSelecionado.nome} está sendo recebido na unidade ${opcaoUnidadeSelecionada.sigla}, que não permite quantidade fracionada. Utilize uma quantidade inteira.`);
       return;
     }
     if (!Number.isFinite(custo) || custo <= 0) {
@@ -123,14 +179,31 @@ const NotaAvulsaForm: React.FC = () => {
       return;
     }
 
+    const fatorConversao = opcaoUnidadeSelecionada.fatorConversao;
+    const quantidadeBase = toBaseQuantity(quantidade, fatorConversao);
+    const dadosEmbalagem = opcaoUnidadeSelecionada.embalagemId
+      ? { embalagemId: opcaoUnidadeSelecionada.embalagemId, unidadeSigla: opcaoUnidadeSelecionada.sigla, fatorConversao, quantidadeBase }
+      : {};
+
     setItens((atual) => {
-      const existenteIndex = atual.findIndex((item) => item.produtoId === produtoSelecionado.id);
+      const existenteIndex = atual.findIndex((item) => (
+        item.produtoId === produtoSelecionado.id && (item.embalagemId || '') === (opcaoUnidadeSelecionada.embalagemId || '')
+      ));
       if (existenteIndex >= 0) {
         const copia = [...atual];
-        copia[existenteIndex] = { ...copia[existenteIndex], quantidade: copia[existenteIndex].quantidade + quantidade, precoCusto: custo, precoVenda: venda };
+        const anterior = copia[existenteIndex];
+        copia[existenteIndex] = {
+          ...anterior,
+          quantidade: anterior.quantidade + quantidade,
+          precoCusto: custo,
+          precoVenda: venda,
+          ...(dadosEmbalagem.quantidadeBase !== undefined
+            ? { ...dadosEmbalagem, quantidadeBase: (anterior.quantidadeBase || 0) + quantidadeBase }
+            : {}),
+        };
         return copia;
       }
-      return [...atual, { produtoId: produtoSelecionado.id, produtoNome: produtoSelecionado.nome, quantidade, precoCusto: custo, precoVenda: venda }];
+      return [...atual, { produtoId: produtoSelecionado.id, produtoNome: produtoSelecionado.nome, quantidade, precoCusto: custo, precoVenda: venda, ...dadosEmbalagem }];
     });
 
     setProdutoBusca('');
@@ -138,10 +211,11 @@ const NotaAvulsaForm: React.FC = () => {
     setQuantidadeAtual('');
     setCustoAtual('');
     setVendaAtual('');
+    setEmbalagemSelecionadaId('');
   };
 
-  const removerItem = (produtoId: string) => {
-    setItens((atual) => atual.filter((item) => item.produtoId !== produtoId));
+  const removerItem = (produtoId: string, embalagemId?: string) => {
+    setItens((atual) => atual.filter((item) => !(item.produtoId === produtoId && (item.embalagemId || '') === (embalagemId || ''))));
   };
 
   const handleProdutoCriado = (produto: ProdutoCadastradoRapido) => {
@@ -149,6 +223,7 @@ const NotaAvulsaForm: React.FC = () => {
     setProdutos((atual) => [...atual, novo]);
     setProdutoBusca(produto.nome);
     setProdutoSelecionado(novo);
+    setEmbalagemSelecionadaId('');
   };
 
   const handleSalvar = async () => {
@@ -189,14 +264,34 @@ const NotaAvulsaForm: React.FC = () => {
         }
         const saldoBancoCentavos = bancoSnap ? Number(bancoSnap.data()?.saldoCentavos || 0) : 0;
 
-        const produtoRefs = itensValidos.map((item) => ({ item, ref: doc(db, 'estoque', item.produtoId) }));
+        // Agrupado por produto (nao por item): o mesmo produto pode entrar
+        // duas vezes na nota, uma em cada unidade (KG e SC) -- sem agrupar,
+        // a segunda escrita sobrescreveria a primeira em vez de somar, ja
+        // que as duas leem o mesmo snapshot original.
+        const incrementoPorProduto = new Map<string, { quantidadeBase: number; precoCusto: number }>();
+        itensValidos.forEach((item) => {
+          const anterior = incrementoPorProduto.get(item.produtoId);
+          // O custo do item e' "por unidade escolhida" (por saco, se foi
+          // comprado em saco), mas o precoCusto do produto no Estoque e'
+          // sempre por unidade BASE (por kg) -- e' dele que sai o preco das
+          // embalagens sem custo proprio. Sem dividir pelo fator, comprar em
+          // saco deixaria o custo por kg do produto 20x maior que o real.
+          const precoCustoBase = item.fatorConversao ? item.precoCusto / item.fatorConversao : item.precoCusto;
+          incrementoPorProduto.set(item.produtoId, {
+            quantidadeBase: (anterior?.quantidadeBase || 0) + quantidadeEstoqueNotaAvulsaItem(item),
+            precoCusto: precoCustoBase,
+          });
+        });
+        const produtoRefs = Array.from(incrementoPorProduto.entries()).map(([produtoId, dados]) => ({
+          produtoId, ref: doc(db, 'estoque', produtoId), ...dados,
+        }));
         const produtoSnaps = await Promise.all(produtoRefs.map(({ ref }) => transaction.get(ref)));
 
         // 2. ESCRITAS.
         numeroFinal = formatSequenceValue(nextNumero, 4);
         writeTenantSequenceValue(transaction, db, tenantId, 'notas_avulsas', nextNumero);
 
-        produtoRefs.forEach(({ item, ref }, index) => {
+        produtoRefs.forEach(({ ref, quantidadeBase, precoCusto }, index) => {
           const snap = produtoSnaps[index];
           // Produto apagado entre a busca e a confirmacao (bem raro): o item
           // fica registrado na nota do mesmo jeito, so nao ha estoque pra
@@ -204,8 +299,8 @@ const NotaAvulsaForm: React.FC = () => {
           if (!snap.exists()) return;
           const quantidadeAtualEstoque = Number(snap.data()?.quantidade || 0);
           transaction.update(ref, {
-            quantidade: quantidadeAtualEstoque + item.quantidade,
-            precoCusto: item.precoCusto,
+            quantidade: quantidadeAtualEstoque + quantidadeBase,
+            precoCusto,
             updatedAt: serverTimestamp(),
           });
         });
@@ -348,7 +443,7 @@ const NotaAvulsaForm: React.FC = () => {
           </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: '12px', alignItems: 'flex-end' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: opcoesUnidadeVenda.length > 1 ? '2fr 0.8fr 1fr 1fr 1fr auto' : '2fr 1fr 1fr 1fr auto', gap: '12px', alignItems: 'flex-end' }}>
           <div className="input-group" style={{ position: 'relative' }}>
             <label style={labelStyle}>Produto</label>
             <ProductAutocomplete
@@ -358,10 +453,12 @@ const NotaAvulsaForm: React.FC = () => {
                 setProdutoBusca(value);
                 const existe = produtos.find((p) => p.nome.toLowerCase() === value.toLowerCase() || p.codigo === value);
                 setProdutoSelecionado(existe || null);
+                setEmbalagemSelecionadaId('');
               }}
               onSelect={(p) => {
                 setProdutoBusca(p.nome);
                 setProdutoSelecionado(p);
+                setEmbalagemSelecionadaId('');
                 if (p.precoCusto) setCustoAtual(String(p.precoCusto));
                 if (p.precoVenda) setVendaAtual(String(p.precoVenda));
               }}
@@ -370,9 +467,41 @@ const NotaAvulsaForm: React.FC = () => {
               renderItem={(p) => (<><span>{p.codigo ? `#${p.codigo} — ${p.nome}` : p.nome}</span><span style={{ color: 'var(--text-muted)' }}>{p.categoria}</span></>)}
             />
           </div>
+
+          {/* Seletor de embalagem: so aparece quando a chave "vender por
+              embalagem" esta ligada E o produto tem mais de uma unidade de
+              compra cadastrada -- mesma condicao da venda (PDV/Pedido). */}
+          {opcoesUnidadeVenda.length > 1 && (
+            <div className="input-group">
+              <label style={labelStyle}>Unidade</label>
+              <select
+                value={embalagemSelecionadaId}
+                onChange={(e) => handleSelecionarEmbalagem(e.target.value)}
+                className="form-select"
+                style={inputStyle}
+              >
+                {opcoesUnidadeVenda.map((opcao) => (
+                  <option key={opcao.embalagemId || 'base'} value={opcao.embalagemId}>{opcao.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="input-group">
-            <label style={labelStyle}>Quantidade</label>
-            <input type="number" min="0" step="any" value={quantidadeAtual} onChange={(e) => setQuantidadeAtual(e.target.value)} style={inputStyle} />
+            <label style={labelStyle}>Quantidade {produtoSelecionado ? `(${opcaoUnidadeSelecionada.sigla})` : ''}</label>
+            <input
+              type="number"
+              min="0"
+              step={opcaoUnidadeSelecionada.permiteFracionado ? 'any' : '1'}
+              value={quantidadeAtual}
+              onChange={(e) => setQuantidadeAtual(e.target.value)}
+              style={inputStyle}
+            />
+            {opcaoUnidadeSelecionada.fatorConversao !== 1 && Number(quantidadeAtual.replace(',', '.')) > 0 && (
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Soma {toBaseQuantity(quantidadeAtual.replace(',', '.'), opcaoUnidadeSelecionada.fatorConversao)} {produtoSelecionado?.unidadeMedidaSigla || 'UN'} no estoque
+              </span>
+            )}
           </div>
           <div className="input-group">
             <label style={labelStyle}>Custo Unit. (R$)</label>
@@ -401,14 +530,19 @@ const NotaAvulsaForm: React.FC = () => {
             </thead>
             <tbody>
               {itens.map((item) => (
-                <tr key={item.produtoId} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                <tr key={`${item.produtoId}::${item.embalagemId || ''}`} style={{ borderBottom: '1px solid var(--border-color)' }}>
                   <td style={{ padding: '10px' }}>{item.produtoNome}</td>
-                  <td style={{ padding: '10px', textAlign: 'right' }}>{item.quantidade}</td>
+                  <td style={{ padding: '10px', textAlign: 'right' }}>
+                    {item.quantidade} {item.unidadeSigla || ''}
+                    {item.quantidadeBase !== undefined && (
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({item.quantidadeBase} no estoque)</div>
+                    )}
+                  </td>
                   <td style={{ padding: '10px', textAlign: 'right' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.precoCusto)}</td>
                   <td style={{ padding: '10px', textAlign: 'right' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.precoVenda)}</td>
                   <td style={{ padding: '10px', textAlign: 'right', fontWeight: 600 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.quantidade * item.precoCusto)}</td>
                   <td style={{ padding: '10px', textAlign: 'center' }}>
-                    <button type="button" onClick={() => removerItem(item.produtoId)} className="icon-btn" title="Remover item" style={{ color: '#ef4444' }}>
+                    <button type="button" onClick={() => removerItem(item.produtoId, item.embalagemId)} className="icon-btn" title="Remover item" style={{ color: '#ef4444' }}>
                       <Trash2 size={16} />
                     </button>
                   </td>

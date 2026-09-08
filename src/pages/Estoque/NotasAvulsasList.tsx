@@ -6,7 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showError, showSuccess, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
-import { STATUS_NOTA_AVULSA_ATIVA, STATUS_NOTA_AVULSA_CANCELADA, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
+import { STATUS_NOTA_AVULSA_ATIVA, STATUS_NOTA_AVULSA_CANCELADA, quantidadeEstoqueNotaAvulsaItem, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
 
 interface NotaAvulsaData {
   id: string;
@@ -81,19 +81,33 @@ const NotasAvulsasList: React.FC = () => {
         const bancoRef = nota.destinoPagamento === 'banco' && nota.bancoId ? doc(db, 'bancos', nota.bancoId) : null;
         const bancoSnap = bancoRef ? await transaction.get(bancoRef) : null;
 
-        const produtoRefs = nota.itens.map((item) => ({ item, ref: doc(db, 'estoque', item.produtoId) }));
+        // Agrupado por produto (nao por item): o mesmo produto pode ter
+        // entrado duas vezes na nota, uma em cada unidade (KG e SC) -- sem
+        // agrupar, a segunda escrita sobrescreveria a primeira em vez de
+        // subtrair as duas, ja que ambas leem o mesmo snapshot original.
+        const retiradaPorProduto = new Map<string, { quantidadeBase: number; produtoNome: string }>();
+        nota.itens.forEach((item) => {
+          const anterior = retiradaPorProduto.get(item.produtoId);
+          retiradaPorProduto.set(item.produtoId, {
+            quantidadeBase: (anterior?.quantidadeBase || 0) + quantidadeEstoqueNotaAvulsaItem(item),
+            produtoNome: item.produtoNome,
+          });
+        });
+        const produtoRefs = Array.from(retiradaPorProduto.entries()).map(([produtoId, dados]) => ({
+          produtoId, ref: doc(db, 'estoque', produtoId), ...dados,
+        }));
         const produtoSnaps = await Promise.all(produtoRefs.map(({ ref }) => transaction.get(ref)));
 
         // Reverte o estoque -- bloqueia se ja foi vendido/usado mais do que
         // esta nota trouxe (ficaria negativo). Mesma logica de qualquer
         // estorno do sistema: nao deixa o dado ficar inconsistente.
-        produtoRefs.forEach(({ item, ref }, index) => {
+        produtoRefs.forEach(({ ref, quantidadeBase, produtoNome }, index) => {
           const snap = produtoSnaps[index];
           if (!snap.exists()) return;
           const quantidadeAtual = Number(snap.data()?.quantidade || 0);
-          const quantidadeDepois = quantidadeAtual - item.quantidade;
+          const quantidadeDepois = quantidadeAtual - quantidadeBase;
           if (quantidadeDepois < 0) {
-            throw new Error(`Não é possível cancelar: o estoque de "${item.produtoNome}" recebido por esta nota já foi parcial ou totalmente utilizado (disponível: ${quantidadeAtual}, a retirar: ${item.quantidade}).`);
+            throw new Error(`Não é possível cancelar: o estoque de "${produtoNome}" recebido por esta nota já foi parcial ou totalmente utilizado (disponível: ${quantidadeAtual}, a retirar: ${quantidadeBase}).`);
           }
           transaction.update(ref, { quantidade: quantidadeDepois, updatedAt: serverTimestamp() });
         });

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   calcularValorTotalNotaAvulsa,
+  custoUnitarioComRateio,
   itemNotaAvulsaValido,
   quantidadeEstoqueNotaAvulsaItem,
   ratearValorPorPesos,
@@ -59,4 +60,28 @@ test('ratearValorPorPesos com soma de pesos zero ou lista vazia devolve tudo zer
 
 test('ratearValorPorPesos com valor zero pra ratear devolve tudo zero, mesmo com pesos validos', () => {
   assert.deepEqual(ratearValorPorPesos(0, [10, 20, 30]), [0, 0, 0]);
+});
+
+test('custoUnitarioComRateio sem frete nem desconto e o proprio custo digitado', () => {
+  const item: NotaAvulsaItem = { produtoId: 'p1', produtoNome: 'ARROZ', quantidade: 10, precoCusto: 40, precoVenda: 0 };
+  assert.equal(custoUnitarioComRateio(item), 40);
+});
+
+test('custoUnitarioComRateio soma a parte do frete por unidade', () => {
+  // 10 unidades a R$ 40 = R$ 400; frete rateado de R$ 40 -> R$ 4 por unidade
+  const item: NotaAvulsaItem = { produtoId: 'p1', produtoNome: 'ADUBO', quantidade: 10, precoCusto: 40, precoVenda: 0, freteRateado: 40 };
+  assert.equal(custoUnitarioComRateio(item), 44);
+});
+
+test('custoUnitarioComRateio subtrai o desconto e soma o frete na mesma conta', () => {
+  const item: NotaAvulsaItem = {
+    produtoId: 'p1', produtoNome: 'ADUBO', quantidade: 10, precoCusto: 40, precoVenda: 0,
+    freteRateado: 40, descontoRateado: 20,
+  };
+  assert.equal(custoUnitarioComRateio(item), 42);
+});
+
+test('custoUnitarioComRateio com quantidade zero nao divide por zero -- cai no custo digitado', () => {
+  const item: NotaAvulsaItem = { produtoId: 'p1', produtoNome: 'X', quantidade: 0, precoCusto: 40, precoVenda: 0, freteRateado: 40 };
+  assert.equal(custoUnitarioComRateio(item), 40);
 });

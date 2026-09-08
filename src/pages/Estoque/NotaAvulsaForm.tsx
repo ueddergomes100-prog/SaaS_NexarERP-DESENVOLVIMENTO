@@ -15,7 +15,7 @@ import {
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import CadastroRapidoProdutoModal, { type ProdutoCadastradoRapido } from '../../components/common/CadastroRapidoProdutoModal';
-import { calcularValorTotalNotaAvulsa, itemNotaAvulsaValido, quantidadeEstoqueNotaAvulsaItem, ratearValorPorPesos, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
+import { calcularValorTotalNotaAvulsa, custoUnitarioComRateio, itemNotaAvulsaValido, quantidadeEstoqueNotaAvulsaItem, ratearValorPorPesos, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
 import { getDateInputInTimeZone, addMonthsToDateInput, formatDateInputPtBr } from '../../utils/dateTime';
 import { toCents, splitCents } from '../../utils/financeDomain';
 import { buildOpcoesUnidadeVenda, findOpcaoUnidadeVenda, toBaseQuantity, DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
@@ -149,6 +149,22 @@ const NotaAvulsaForm: React.FC = () => {
   const valorTotal = Math.max(0, valorItens + freteValor - descontoValor);
 
   const numeroParcelasValido = Math.max(1, Number.parseInt(numeroParcelas, 10) || 1);
+
+  /** Itens com a parte do frete/desconto ja distribuida em cada um. Fica
+   * aqui (e nao so dentro do save) porque a tabela mostra o CMV ao vivo --
+   * assim a coluna "CMV Unit." e o custo que vai pro estoque saem do MESMO
+   * calculo, sem chance de divergir. */
+  const itensComRateio = useMemo(() => {
+    const validos = itens.filter(itemNotaAvulsaValido);
+    const pesos = validos.map((item) => item.quantidade * item.precoCusto);
+    const freteRateado = ratearValorPorPesos(freteValor, pesos);
+    const descontoRateado = ratearValorPorPesos(descontoValor, pesos);
+    return validos.map((item, index) => ({
+      ...item,
+      ...(freteValor > 0 ? { freteRateado: freteRateado[index] } : {}),
+      ...(descontoValor > 0 ? { descontoRateado: descontoRateado[index] } : {}),
+    }));
+  }, [itens, freteValor, descontoValor]);
 
   /** Preview das parcelas (so exibicao) -- mesma divisao que vai rodar no
    * save: splitCents (financeDomain.ts, ja usado pra parcela de cartao)
@@ -284,19 +300,6 @@ const NotaAvulsaForm: React.FC = () => {
       const usaBanco = formaPagamento === 'a_vista' && destinoPagamento === 'banco';
       const numParcelasFinal = formaPagamento === 'pendente' ? numeroParcelasValido : 1;
 
-      // Frete e desconto sao rateados entre os itens, proporcional ao valor
-      // de cada um (quantidade x custo) -- e' o que faz o CMV (custo que
-      // vai pro estoque) refletir o custo real da mercadoria entregue, nao
-      // so o preco de tabela digitado por item.
-      const pesosRateio = itensValidos.map((item) => item.quantidade * item.precoCusto);
-      const freteRateadoPorItem = ratearValorPorPesos(freteValor, pesosRateio);
-      const descontoRateadoPorItem = ratearValorPorPesos(descontoValor, pesosRateio);
-      const itensComRateio: NotaAvulsaItem[] = itensValidos.map((item, index) => ({
-        ...item,
-        ...(freteValor > 0 ? { freteRateado: freteRateadoPorItem[index] } : {}),
-        ...(descontoValor > 0 ? { descontoRateado: descontoRateadoPorItem[index] } : {}),
-      }));
-
       await runTransaction(db, async (transaction) => {
         // 1. LEITURAS -- todas antes de qualquer escrita (regra do Firestore).
         const nextNumero = await getNextTenantSequenceValue(transaction, db, tenantId, 'notas_avulsas', currentMax);
@@ -314,15 +317,13 @@ const NotaAvulsaForm: React.FC = () => {
         const incrementoPorProduto = new Map<string, { quantidadeBase: number; precoCusto: number }>();
         itensComRateio.forEach((item) => {
           const anterior = incrementoPorProduto.get(item.produtoId);
-          // Custo unitario (na unidade escolhida) JA com a parte do
-          // frete/desconto deste item embutida -- e' o CMV real, nao so o
-          // preco de tabela digitado. So depois disso converte pra unidade
-          // BASE do estoque (por kg, nao por saco): sem dividir pelo fator,
-          // comprar em saco deixaria o custo por kg do produto 20x maior
-          // que o real.
-          const custoUnitarioComRateio = item.precoCusto
-            + ((item.freteRateado || 0) - (item.descontoRateado || 0)) / item.quantidade;
-          const precoCustoBase = item.fatorConversao ? custoUnitarioComRateio / item.fatorConversao : custoUnitarioComRateio;
+          // CMV do item (custo + parte do frete - parte do desconto), na
+          // unidade em que foi comprado. So depois disso converte pra
+          // unidade BASE do estoque (por kg, nao por saco): sem dividir
+          // pelo fator, comprar em saco deixaria o custo por kg do produto
+          // 20x maior que o real.
+          const cmv = custoUnitarioComRateio(item);
+          const precoCustoBase = item.fatorConversao ? cmv / item.fatorConversao : cmv;
           incrementoPorProduto.set(item.produtoId, {
             quantidadeBase: (anterior?.quantidadeBase || 0) + quantidadeEstoqueNotaAvulsaItem(item),
             precoCusto: precoCustoBase,
@@ -589,13 +590,14 @@ const NotaAvulsaForm: React.FC = () => {
                 <th style={{ padding: '10px' }}>Produto</th>
                 <th style={{ padding: '10px', textAlign: 'right' }}>Qtd</th>
                 <th style={{ padding: '10px', textAlign: 'right' }}>Custo Unit.</th>
+                <th style={{ padding: '10px', textAlign: 'right' }}>CMV Unit.</th>
                 <th style={{ padding: '10px', textAlign: 'right' }}>Venda Unit.</th>
                 <th style={{ padding: '10px', textAlign: 'right' }}>Subtotal</th>
                 <th style={{ padding: '10px', textAlign: 'center' }}>Ação</th>
               </tr>
             </thead>
             <tbody>
-              {itens.map((item) => (
+              {itensComRateio.map((item) => (
                 <tr key={`${item.produtoId}::${item.embalagemId || ''}`} style={{ borderBottom: '1px solid var(--border-color)' }}>
                   <td style={{ padding: '10px' }}>{item.produtoNome}</td>
                   <td style={{ padding: '10px', textAlign: 'right' }}>
@@ -605,6 +607,19 @@ const NotaAvulsaForm: React.FC = () => {
                     )}
                   </td>
                   <td style={{ padding: '10px', textAlign: 'right' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.precoCusto)}</td>
+                  {/* CMV: custo real da mercadoria, ja com a parte do frete e
+                      do desconto que couberam a este item. Recalcula sozinho
+                      conforme o frete/desconto sao digitados. */}
+                  <td style={{ padding: '10px', textAlign: 'right' }}>
+                    <span style={{ fontWeight: 600, color: 'var(--accent-purple)' }}>
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(custoUnitarioComRateio(item))}
+                    </span>
+                    {item.fatorConversao ? (
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(custoUnitarioComRateio(item) / item.fatorConversao)} por unidade base
+                      </div>
+                    ) : null}
+                  </td>
                   <td style={{ padding: '10px', textAlign: 'right' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.precoVenda)}</td>
                   <td style={{ padding: '10px', textAlign: 'right', fontWeight: 600 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.quantidade * item.precoCusto)}</td>
                   <td style={{ padding: '10px', textAlign: 'center' }}>

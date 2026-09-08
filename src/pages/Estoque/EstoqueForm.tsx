@@ -462,6 +462,9 @@ const EstoqueForm: React.FC = () => {
   const precoPromocional = toNumber(formData.precoPromocional);
   const margemLucro = precoCusto > 0 ? ((precoVenda - precoCusto) / precoCusto) * 100 : 0;
   const lucroEstimado = precoVenda - precoCusto;
+  /** Texto do campo de margem enquanto ele esta sendo editado; `null`
+   * significa "mostre a margem derivada do preco de venda atual". */
+  const [margemDigitada, setMargemDigitada] = useState<string | null>(null);
   const sugestaoSlug = useMemo(() => slugify(formData.nome), [formData.nome]);
   const skuCalculado = useMemo(() => makeSku(tenantId, formData.codigo), [tenantId, formData.codigo]);
   const quantidadeEstoqueEditavel = !isEditing || permitirVendaSemEstoque;
@@ -1464,9 +1467,42 @@ const EstoqueForm: React.FC = () => {
               </div>
 
               <div className="product-metrics">
+                {/* Margem editavel nos dois sentidos: digitar o preco de venda
+                    atualiza a margem (calculo derivado), e digitar a margem
+                    reescreve o preco de venda (custo x (1 + margem)). O texto
+                    digitado fica num estado proprio enquanto o campo tem foco
+                    -- sem isso, o valor derivado brigaria com quem esta
+                    digitando "8" a caminho de "80". */}
                 <div>
                   <span>Margem de lucro</span>
-                  <strong className={margemLucro >= 0 ? 'metric-positive' : 'metric-negative'}>{margemLucro.toFixed(1)}%</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input
+                      type="number"
+                      step="0.1"
+                      className={margemLucro >= 0 ? 'metric-positive' : 'metric-negative'}
+                      disabled={precoCusto <= 0}
+                      title={precoCusto <= 0 ? 'Informe o custo do produto para calcular o preço pela margem.' : 'Digite a margem desejada para o sistema calcular o preço de venda.'}
+                      value={margemDigitada ?? (precoCusto > 0 ? margemLucro.toFixed(1) : '')}
+                      onChange={(e) => {
+                        setMargemDigitada(e.target.value);
+                        const margem = toNumber(e.target.value);
+                        if (precoCusto > 0 && Number.isFinite(margem)) {
+                          setFormData(prev => ({ ...prev, precoVenda: (precoCusto * (1 + margem / 100)).toFixed(2) }));
+                        }
+                      }}
+                      onBlur={() => setMargemDigitada(null)}
+                      style={{
+                        width: '90px', background: 'transparent', border: '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius-sm)', padding: '2px 6px', fontWeight: 700, fontSize: 'inherit',
+                      }}
+                    />
+                    <strong className={margemLucro >= 0 ? 'metric-positive' : 'metric-negative'}>%</strong>
+                  </div>
+                  <span className="field-hint">
+                    {precoCusto > 0
+                      ? 'Sobre o custo: 80% = custo × 1,80.'
+                      : 'Informe o custo para calcular o preço pela margem.'}
+                  </span>
                 </div>
                 <div>
                   <span>Lucro líquido estimado</span>

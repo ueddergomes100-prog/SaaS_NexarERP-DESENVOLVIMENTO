@@ -62,6 +62,21 @@ export const quantidadeEstoqueNotaAvulsaItem = (item: NotaAvulsaItem): number =>
   item.quantidadeBase ?? item.quantidade
 );
 
+/** Custo unitario REAL do item (o CMV): o que foi pago por unidade mais a
+ * parte do frete, menos a parte do desconto, que couberam a ele. Fica na
+ * MESMA unidade em que a compra foi lancada (por saco, se comprou em saco)
+ * -- a conversao pra unidade base do estoque acontece depois, dividindo
+ * pelo fator da embalagem.
+ *
+ * Uma funcao so pra tela e pro save usarem a mesma conta: e' este numero
+ * que aparece na coluna "CMV Unit." da Nota Avulsa e que vira o
+ * `precoCusto` do produto. */
+export const custoUnitarioComRateio = (item: NotaAvulsaItem): number => {
+  if (!(item.quantidade > 0)) return item.precoCusto;
+  const ajuste = (item.freteRateado || 0) - (item.descontoRateado || 0);
+  return item.precoCusto + ajuste / item.quantidade;
+};
+
 /** Distribui um valor (frete ou desconto da nota) entre pesos -- o valor de
  * cada item (quantidade x custo) -- proporcional a cada peso. Trabalha em
  * centavos e usa o metodo do maior resto: a soma das partes bate SEMPRE

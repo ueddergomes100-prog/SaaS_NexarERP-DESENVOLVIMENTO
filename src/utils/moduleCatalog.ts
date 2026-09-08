@@ -36,7 +36,8 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'estoque.relatorio', label: 'Relatório de Estoque' },
     { id: 'estoque.relatorioAjustes', label: 'Relatório de Ajustes de Estoque' },
     { id: 'estoque.nota_avulsa', label: 'Nota Avulsa (Compra Manual)' },
-    { id: 'estoque.precificacao', label: 'Precificação (preços em lote)' }
+    { id: 'estoque.precificacao', label: 'Precificação (preços em lote)' },
+    { id: 'estoque.etiquetas', label: 'Etiquetas (gerar e imprimir)' }
   ]},
   { group: 'Cadastros Auxiliares', items: [
     { id: 'cadastros.categorias', label: 'Categorias' },

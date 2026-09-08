@@ -1,0 +1,25 @@
+.etiqueta-print-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.etiqueta-print-page + .etiqueta-print-page {
+  margin-top: 12px;
+}
+
+@media screen {
+  .etiqueta-print-page .etiqueta-label {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+}
+
+@media print {
+  .etiqueta-print-page {
+    page-break-after: always;
+  }
+
+  .etiqueta-print-page:last-child {
+    page-break-after: auto;
+  }
+}

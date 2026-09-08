@@ -1,0 +1,45 @@
+.etiqueta-label {
+  position: relative;
+  box-sizing: border-box;
+  background: #ffffff;
+  color: #000000;
+  overflow: hidden;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.etiqueta-campo {
+  position: absolute;
+  white-space: pre-wrap;
+  line-height: 1.15;
+  max-width: calc(100% - 2mm);
+}
+
+.etiqueta-campo--editavel {
+  cursor: grab;
+  touch-action: none;
+  outline: 1px dashed transparent;
+  outline-offset: 2px;
+  border-radius: 2px;
+  user-select: none;
+}
+
+.etiqueta-campo--editavel:hover {
+  outline-color: rgba(139, 92, 246, 0.6);
+}
+
+.etiqueta-campo--editavel:active {
+  cursor: grabbing;
+  outline-color: #8b5cf6;
+}
+
+.etiqueta-barcode {
+  display: block;
+  max-height: 14mm;
+}
+
+.etiqueta-sem-codigo {
+  display: block;
+  font-size: 7pt;
+  color: #888888;
+  max-width: 30mm;
+}

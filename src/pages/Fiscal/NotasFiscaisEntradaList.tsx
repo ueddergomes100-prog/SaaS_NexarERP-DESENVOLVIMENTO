@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, FileText, History, Inbox, Loader2, Package, Search, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Barcode, FileText, History, Inbox, Loader2, Package, Search, Trash2, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, doc, documentId, onSnapshot, query, where, getDocs, runTransaction, serverTimestamp, type Timestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTabs } from '../../contexts/TabsContext';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { formatDateInputPtBr } from '../../utils/dateTime';
@@ -57,6 +58,7 @@ const TIPO_ITEM_LABEL: Record<NotaFiscalEntradaItemRecord['tipo'], string> = {
 const NotasFiscaisEntradaList: React.FC = () => {
   const navigate = useNavigate();
   const { tenantId, currentUser } = useAuth();
+  const { openTab } = useTabs();
   const [notas, setNotas] = useState<NotaFiscalEntradaDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -333,6 +335,13 @@ const NotasFiscaisEntradaList: React.FC = () => {
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button className="icon-btn" title="Ver detalhes" onClick={() => handleVerDetalhes(nota)}>
                           <FileText size={16} />
+                        </button>
+                        <button
+                          className="icon-btn"
+                          title="Gerar etiquetas dos produtos desta nota"
+                          onClick={() => openTab(`/estoque/etiquetas?notaFiscalId=${nota.id}`, 'Etiquetas')}
+                        >
+                          <Barcode size={16} />
                         </button>
                         {nota.status === 'ativa' && (
                           <button

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
 import {
   BarChart2,
+  Barcode,
   Bell,
   Briefcase,
   Building2,
@@ -204,7 +205,8 @@ const Sidebar: React.FC = () => {
         // dela existir. Ver Fase 2 do plano (esconder fiscal) e
         // notaAvulsaDomain.ts.
         { label: 'Nota Avulsa', to: '/estoque/notas-avulsas', icon: PackagePlus, module: 'estoque.nota_avulsa', permission: 'estoque.nota_avulsa' },
-        { label: 'Precificação', to: '/estoque/precificacao', icon: Tags, module: 'estoque.precificacao', permission: 'estoque.precificacao' }
+        { label: 'Precificação', to: '/estoque/precificacao', icon: Tags, module: 'estoque.precificacao', permission: 'estoque.precificacao' },
+        { label: 'Etiquetas', to: '/estoque/etiquetas', icon: Barcode, module: 'estoque.etiquetas', permission: 'estoque.etiquetas' }
       ]
     },
     {

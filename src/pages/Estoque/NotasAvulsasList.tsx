@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { PackagePlus, Plus, RotateCcw, Search } from 'lucide-react';
+import { Barcode, PackagePlus, Plus, RotateCcw, Search } from 'lucide-react';
 import { collection, doc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -274,17 +274,26 @@ const NotasAvulsasList: React.FC = () => {
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n.valorTotal)}
                     </td>
                     <td style={{ padding: '16px', textAlign: 'center' }}>
-                      {n.status === STATUS_NOTA_AVULSA_ATIVA && (
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
                         <button
-                          onClick={() => void handleCancelar(n)}
+                          onClick={() => openTab(`/estoque/etiquetas?notaAvulsaId=${n.id}`, 'Etiquetas')}
                           className="icon-btn"
-                          title="Cancelar Nota Avulsa"
-                          disabled={cancelandoId === n.id}
-                          style={{ color: '#ef4444' }}
+                          title="Gerar etiquetas dos produtos desta nota"
                         >
-                          <RotateCcw size={18} />
+                          <Barcode size={18} />
                         </button>
-                      )}
+                        {n.status === STATUS_NOTA_AVULSA_ATIVA && (
+                          <button
+                            onClick={() => void handleCancelar(n)}
+                            className="icon-btn"
+                            title="Cancelar Nota Avulsa"
+                            disabled={cancelandoId === n.id}
+                            style={{ color: '#ef4444' }}
+                          >
+                            <RotateCcw size={18} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))

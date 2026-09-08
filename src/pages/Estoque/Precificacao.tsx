@@ -121,21 +121,32 @@ const Precificacao: React.FC = () => {
   });
 
   const adicionarProdutos = (ids: string[]) => {
+    // A montagem acontece FORA do setLinhas, e o updater fica puro. Encher
+    // um array declarado fora dele duplicaria as linhas: o React em modo
+    // estrito chama a funcao de atualizacao duas vezes de proposito, e na
+    // segunda passada o array ja vinha preenchido da primeira.
+    const existentes = new Set(linhas.map((l) => l.produtoId));
     const novos: LinhaGrade[] = [];
     let jaNaGrade = 0;
     let semCadastro = 0;
 
-    setLinhas((atual) => {
-      const existentes = new Set(atual.map((l) => l.produtoId));
-      ids.forEach((id) => {
-        if (existentes.has(id)) { jaNaGrade += 1; return; }
-        const produto = produtos.get(id);
-        if (!produto) { semCadastro += 1; return; }
-        existentes.add(id);
-        novos.push(linhaDoProduto(produto));
-      });
-      return [...atual, ...novos];
+    ids.forEach((id) => {
+      if (existentes.has(id)) { jaNaGrade += 1; return; }
+      const produto = produtos.get(id);
+      if (!produto) { semCadastro += 1; return; }
+      existentes.add(id);
+      novos.push(linhaDoProduto(produto));
     });
+
+    if (novos.length > 0) {
+      // A dedupe se repete aqui dentro (agora sem efeito colateral) porque
+      // `linhas` do closure pode estar defasado se algo mudar entre o
+      // clique e a aplicacao do estado.
+      setLinhas((atual) => {
+        const jaNaLista = new Set(atual.map((l) => l.produtoId));
+        return [...atual, ...novos.filter((linha) => !jaNaLista.has(linha.produtoId))];
+      });
+    }
 
     if (semCadastro > 0) {
       showWarning(`${semCadastro} item da nota não está mais no estoque e ficou de fora da lista.`);
@@ -194,10 +205,14 @@ const Precificacao: React.FC = () => {
       return;
     }
 
-    let semCusto = 0;
+    // Contagem fora do updater pelo mesmo motivo de adicionarProdutos: o
+    // React chama a funcao de atualizacao duas vezes no modo estrito, e o
+    // contador sairia dobrado no aviso.
+    const semCusto = linhas.filter((linha) => selecionados.has(linha.produtoId) && !(linha.custoAtual > 0)).length;
+
     setLinhas((atual) => atual.map((linha) => {
       if (!selecionados.has(linha.produtoId)) return linha;
-      if (!(linha.custoAtual > 0)) { semCusto += 1; return linha; }
+      if (!(linha.custoAtual > 0)) return linha;
       return {
         ...linha,
         margem: String(margem),

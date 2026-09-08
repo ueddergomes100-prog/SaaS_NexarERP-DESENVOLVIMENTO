@@ -120,8 +120,10 @@ service cloud.firestore {
         // saiu do grupo acima em 2026-08-28: cadastros.estoque virou "ver a
         // lista", so cadastros.estoque_alterar cria/edita o produto. Nota
         // Avulsa tambem grava aqui (soma quantidade + atualiza precoCusto),
-        // por isso aceita estoque.nota_avulsa como alternativa.
-        (collectionName == 'estoque' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.nota_avulsa'])) ||
+        // por isso aceita estoque.nota_avulsa como alternativa. Precificacao
+        // grava preco/margem em lote na mesma colecao -- sem ela na lista, a
+        // tela apareceria e o save seria recusado pelo backend.
+        (collectionName == 'estoque' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.nota_avulsa', 'estoque.precificacao'])) ||
         // estoque_lotes: mesma logica -- exige a permissao de alterar cadastro
         // ou a de Ajuste Manual de Estoque, nunca so "ver a lista".
         (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.ajusteManual'])) ||

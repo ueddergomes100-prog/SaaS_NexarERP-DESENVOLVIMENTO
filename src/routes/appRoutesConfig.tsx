@@ -29,6 +29,7 @@ const RelatorioEstoque = lazy(() => import('../pages/Estoque/RelatorioEstoque'))
 const RelatorioAjustesEstoque = lazy(() => import('../pages/Estoque/RelatorioAjustesEstoque'));
 const NotasAvulsasList = lazy(() => import('../pages/Estoque/NotasAvulsasList'));
 const NotaAvulsaForm = lazy(() => import('../pages/Estoque/NotaAvulsaForm'));
+const Precificacao = lazy(() => import('../pages/Estoque/Precificacao'));
 const LembretesList = lazy(() => import('../pages/Lembretes/LembretesList'));
 const LembreteForm = lazy(() => import('../pages/Lembretes/LembreteForm'));
 const Caixa = lazy(() => import('../pages/Financeiro/Caixa'));
@@ -111,6 +112,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'estoque/relatorio-ajustes', element: <RelatorioAjustesEstoque /> },
   { path: 'estoque/notas-avulsas', element: <NotasAvulsasList /> },
   { path: 'estoque/notas-avulsas/nova', element: <NotaAvulsaForm /> },
+  { path: 'estoque/precificacao', element: <Precificacao /> },
 
   { path: 'servicos', element: <ServicosList /> },
   { path: 'servicos/novo', element: <ServicoForm /> },

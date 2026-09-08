@@ -175,6 +175,7 @@ const Configuracoes: React.FC = () => {
     alterarPagamentoVendaFinalizada: DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
     exigirIdentificacaoVendedor: DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
     devolucaoBotaoSeparado: false,
+    habilitarTelaPrecificacao: false,
     // Usado so quando o vendedor/mecanico tem "Recebe comissao?" marcado
     // sim mas nao preencheu um percentual proprio -- ver
     // resolveComissaoPercentual em financeDomain.ts.
@@ -279,6 +280,7 @@ const Configuracoes: React.FC = () => {
             alterarPagamentoVendaFinalizada: parseAlterarPagamentoVendaFinalizada(data.alterarPagamentoVendaFinalizada),
             exigirIdentificacaoVendedor: parseExigirIdentificacaoVendedor(data.exigirIdentificacaoVendedor),
             devolucaoBotaoSeparado: data.devolucaoBotaoSeparado === true,
+            habilitarTelaPrecificacao: data.habilitarTelaPrecificacao === true,
             comissaoPadraoPecas: data.comissaoPadraoPecas != null ? String(data.comissaoPadraoPecas) : '',
             comissaoPadraoServicos: data.comissaoPadraoServicos != null ? String(data.comissaoPadraoServicos) : '',
             // 0 (sem meta) volta como campo vazio, nao como "0" -- o campo
@@ -1778,6 +1780,24 @@ const Configuracoes: React.FC = () => {
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                   Desligado (padrão): a devolução é feita pelo botão <strong>Devolução</strong> dentro da própria tela do pedido finalizado.
                   Ligado: o botão some do pedido e aparece um item de menu <strong>Devolução de Venda</strong> em Comercial, com uma tela própria para buscar o pedido e devolver.
+                </p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Precificação</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.habilitarTelaPrecificacao === true}
+                    onChange={(e) => setFormData({ ...formData, habilitarTelaPrecificacao: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Habilitar a tela de Precificação (preços em lote)
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Desligado (padrão): o preço continua sendo definido no cadastro do produto ou no campo <strong>Venda Unit.</strong> da Nota Avulsa.
+                  Ligado: aparece o item <strong>Precificação</strong> em Estoque, com uma tela para precificar vários produtos de uma vez — importando os itens de uma nota avulsa ou fiscal, aplicando margem em lote e vendo quando a margem mudou desde a última precificação.
                 </p>
               </div>
 

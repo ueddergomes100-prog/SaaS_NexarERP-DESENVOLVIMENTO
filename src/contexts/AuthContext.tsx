@@ -27,6 +27,7 @@ import {
 } from '../utils/vendedorPinDomain';
 import { isRegistroDeVendedor } from '../utils/vendedorCadastroDomain';
 import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../utils/fiscalDomain';
+import { DEFAULT_HABILITAR_TELA_PRECIFICACAO } from '../utils/precificacaoDomain';
 import {
   DEFAULT_AGENTE_DIGITAL_ATIVO,
   DEFAULT_TRABALHA_COM_PRE_VENDA,
@@ -69,6 +70,10 @@ interface AuthContextType {
    *  proprios (busca o pedido) em vez do botao dentro da tela do pedido.
    *  Mutuamente exclusivo com o botao inline -- ver PedidoVendaForm.tsx. */
   devolucaoBotaoSeparado: boolean;
+  /** Config da empresa: liga a tela de Precificacao (precos em lote) no
+   *  menu. Nasce desligada -- ver DEFAULT_HABILITAR_TELA_PRECIFICACAO em
+   *  precificacaoDomain.ts. */
+  habilitarTelaPrecificacao: boolean;
   /** Config da empresa: "trabalha com pré-venda" -- ver DEFAULT_TRABALHA_COM_PRE_VENDA
    *  em preVendaDomain.ts. Governa se a aba "Pré-vendas" aparece na
    *  listagem de Pedidos de Venda. */
@@ -149,6 +154,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR);
   const [controlaFiscal, setControlaFiscal] = useState(DEFAULT_CONTROLA_FISCAL);
   const [devolucaoBotaoSeparado, setDevolucaoBotaoSeparado] = useState(false);
+  const [habilitarTelaPrecificacao, setHabilitarTelaPrecificacao] = useState(DEFAULT_HABILITAR_TELA_PRECIFICACAO);
   const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
   const [agenteDigitalAtivo, setAgenteDigitalAtivo] = useState(DEFAULT_AGENTE_DIGITAL_ATIVO);
   const [temVendedorCadastrado, setTemVendedorCadastrado] = useState(false);
@@ -411,6 +417,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Mesma leitura: decide se a Devolucao de Venda vira tela/menu
       // separados ou continua so como botao dentro do pedido.
       setDevolucaoBotaoSeparado(Boolean(snap.exists() && snap.data().devolucaoBotaoSeparado === true));
+      // Mesma leitura: liga a tela de Precificacao no menu (nasce desligada).
+      setHabilitarTelaPrecificacao(Boolean(snap.exists() && snap.data().habilitarTelaPrecificacao === true));
       // Mesma leitura: governam as abas "Pré-vendas" e "Pendentes" na
       // listagem de Pedidos de Venda (PedidoVendas.tsx).
       setTrabalhaComPreVenda(parseTrabalhaComPreVenda(snap.exists() ? snap.data().trabalhaComPreVenda : undefined));
@@ -578,7 +586,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, trabalhaComPreVenda, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId }}>
       {children}
     </AuthContext.Provider>
   );

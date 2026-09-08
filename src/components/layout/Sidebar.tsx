@@ -86,6 +86,7 @@ const Sidebar: React.FC = () => {
     exigirIdentificacaoVendedor,
     controlaFiscal,
     devolucaoBotaoSeparado,
+    habilitarTelaPrecificacao,
     temVendedorCadastrado
   } = useAuth();
   const navigate = useNavigate();
@@ -135,9 +136,12 @@ const Sidebar: React.FC = () => {
     // esse modo em Configuracoes -- por padrao a devolucao continua so como
     // botao dentro do proprio pedido (ver PedidoVendaForm.tsx).
     if (!devolucaoBotaoSeparado && item.module === 'comercial.devolucoes') return false;
+    // Tela de Precificacao so aparece pra empresa que ligou a chave em
+    // Configuracoes -- nasce desligada, como toda chave nova.
+    if (!habilitarTelaPrecificacao && item.module === 'estoque.precificacao') return false;
     if (item.managerOnly && !hasFullAccess) return false;
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [controlaFiscal, devolucaoBotaoSeparado, hasFullAccess, isBlocked, userPermissions]);
+  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, hasFullAccess, isBlocked, userPermissions]);
 
   const groups = useMemo<NavGroup[]>(() => [
     {
@@ -199,7 +203,8 @@ const Sidebar: React.FC = () => {
         // atras do gate de controlaFiscal contradiria o proprio motivo
         // dela existir. Ver Fase 2 do plano (esconder fiscal) e
         // notaAvulsaDomain.ts.
-        { label: 'Nota Avulsa', to: '/estoque/notas-avulsas', icon: PackagePlus, module: 'estoque.nota_avulsa', permission: 'estoque.nota_avulsa' }
+        { label: 'Nota Avulsa', to: '/estoque/notas-avulsas', icon: PackagePlus, module: 'estoque.nota_avulsa', permission: 'estoque.nota_avulsa' },
+        { label: 'Precificação', to: '/estoque/precificacao', icon: Tags, module: 'estoque.precificacao', permission: 'estoque.precificacao' }
       ]
     },
     {

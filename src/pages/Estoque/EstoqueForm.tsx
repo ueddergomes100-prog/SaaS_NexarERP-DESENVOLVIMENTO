@@ -13,6 +13,7 @@ import { DEFAULT_VENDER_POR_EMBALAGEM, formatFatorConversao, normalizeEmbalagens
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { compararMargem, precoParaMargem } from '../../utils/precificacaoDomain';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -89,6 +90,10 @@ interface ProdutoOriginalData {
    * alteracao de preco tambem precisa. */
   precos?: { venda?: number; custo?: number };
   ultimaAlteracaoPreco?: string | null;
+  /** Quanto o produto CUSTAVA no dia em que este preco de venda foi
+   * definido. Base da comparacao de margem (ver precificacaoDomain.ts) --
+   * ausente em produto precificado antes deste recurso existir. */
+  custoNaUltimaPrecificacao?: number | null;
   quantidadeReservada?: number;
 }
 
@@ -465,6 +470,14 @@ const EstoqueForm: React.FC = () => {
   /** Texto do campo de margem enquanto ele esta sendo editado; `null`
    * significa "mostre a margem derivada do preco de venda atual". */
   const [margemDigitada, setMargemDigitada] = useState<string | null>(null);
+  /** Comparacao entre a margem de hoje e a do dia em que o preco foi
+   * definido. `null` = nao ha o que comparar (produto novo, sem custo, ou
+   * precificado antes deste recurso). O sistema so avisa -- nunca reajusta
+   * preco sozinho. */
+  const comparacaoMargem = useMemo(
+    () => compararMargem(precoVenda, produtoOriginal?.custoNaUltimaPrecificacao, precoCusto),
+    [precoVenda, produtoOriginal?.custoNaUltimaPrecificacao, precoCusto],
+  );
   const sugestaoSlug = useMemo(() => slugify(formData.nome), [formData.nome]);
   const skuCalculado = useMemo(() => makeSku(tenantId, formData.codigo), [tenantId, formData.codigo]);
   const quantidadeEstoqueEditavel = !isEditing || permitirVendaSemEstoque;
@@ -971,6 +984,14 @@ const EstoqueForm: React.FC = () => {
       const originalVenda = Number(produtoOriginal?.precoVenda ?? produtoOriginal?.precos?.venda ?? 0);
       const originalCusto = Number(produtoOriginal?.precoCusto ?? produtoOriginal?.precos?.custo ?? 0);
       const mudouPreco = isEditing && (originalVenda !== precoVenda || originalCusto !== precoCusto);
+      // Base da comparacao de margem: so e' reescrita quando o PRECO DE
+      // VENDA muda (produto novo tambem grava). Compra que muda so o custo
+      // NAO mexe nela de proposito -- e' justamente a diferenca entre as
+      // duas que faz o aviso "a margem caiu" aparecer.
+      const mudouPrecoVenda = !isEditing || originalVenda !== precoVenda;
+      const custoNaUltimaPrecificacao = mudouPrecoVenda
+        ? precoCusto
+        : (produtoOriginal?.custoNaUltimaPrecificacao ?? null);
 
       if (mudouPreco) {
         ultimoHistorico.unshift({
@@ -1013,6 +1034,7 @@ const EstoqueForm: React.FC = () => {
         precoPromocional,
         precoAVista: precoAVistaValor,
         precoAPrazo: precoAPrazoValor,
+        custoNaUltimaPrecificacao,
         margemLucro,
         lucroEstimado,
         comissaoPercentual: comissaoPercentualValor,
@@ -1513,6 +1535,46 @@ const EstoqueForm: React.FC = () => {
                   <strong>{precoPromocional > 0 ? formatCurrency(precoPromocional) : 'Inativo'}</strong>
                 </div>
               </div>
+
+              {/* Aviso de margem defasada: o custo mudou depois que este preco
+                  foi definido (compra nova, por exemplo). O sistema NAO corrige
+                  o preco -- so mostra o que aconteceu e deixa o botao pronto
+                  pra quem decidir voltar a margem antiga. */}
+              {comparacaoMargem && comparacaoMargem.direcao !== 'manteve' && (
+                <div
+                  className="card"
+                  style={{
+                    marginTop: '16px', padding: '12px 16px',
+                    borderLeft: `4px solid ${comparacaoMargem.direcao === 'caiu' ? '#ef4444' : '#10b981'}`,
+                    backgroundColor: 'var(--bg-tertiary)',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    <strong style={{ color: comparacaoMargem.direcao === 'caiu' ? '#ef4444' : '#10b981' }}>
+                      A margem {comparacaoMargem.direcao} desde a última precificação.
+                    </strong>
+                    <div>
+                      Quando você definiu {formatCurrency(precoVenda)}, o custo era{' '}
+                      {formatCurrency(Number(produtoOriginal?.custoNaUltimaPrecificacao || 0))}
+                      {' '}({comparacaoMargem.margemAnterior.toFixed(1).replace('.', ',')}%). Hoje o custo é{' '}
+                      {formatCurrency(precoCusto)}, então a margem está em{' '}
+                      {comparacaoMargem.margemAtual.toFixed(1).replace('.', ',')}%. O preço de venda não foi alterado.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ whiteSpace: 'nowrap' }}
+                    onClick={() => setFormData(prev => ({
+                      ...prev,
+                      precoVenda: precoParaMargem(precoCusto, comparacaoMargem.margemAnterior).toFixed(2),
+                    }))}
+                  >
+                    Voltar para {comparacaoMargem.margemAnterior.toFixed(1).replace('.', ',')}%
+                  </button>
+                </div>
+              )}
 
               <div className="form-grid-3">
                 <div className="input-group">

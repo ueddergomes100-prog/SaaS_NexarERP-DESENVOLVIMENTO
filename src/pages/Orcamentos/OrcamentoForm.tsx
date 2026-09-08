@@ -1057,7 +1057,7 @@ const OrcamentoForm: React.FC = () => {
                     <input
                       type="number"
                       className="item-qty-input"
-                      min="0.001"
+                      min={item.tipo === 'peca' && item.unidadeMedidaFracionado ? '0.001' : '1'}
                       step={item.tipo === 'peca' && item.unidadeMedidaFracionado ? 'any' : '1'}
                       value={item.quantidade}
                       onChange={(e) => updateItemQtd(index, Number(e.target.value))}

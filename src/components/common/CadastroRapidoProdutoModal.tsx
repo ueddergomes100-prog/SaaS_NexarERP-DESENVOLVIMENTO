@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { addDoc, collection, getCountFromServer, getDocs, query, serverTimestamp, where } from 'firebase/firestore';
-import { X, PackagePlus } from 'lucide-react';
+import { X, PackagePlus, Plus, Trash2 } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError } from '../../utils/alerts';
@@ -24,10 +24,33 @@ interface UnidadeOpcao {
 }
 
 const UNIDADE_FALLBACK: UnidadeOpcao = { id: '', sigla: 'UN', nome: 'UNIDADE', casasDecimais: 0, permiteFracionado: false };
+const CATEGORIA_FALLBACK = 'DIVERSOS';
+
+/** Linha de embalagem no rascunho do modal -- mesmo espirito do
+ * EmbalagemFormRow de EstoqueForm.tsx, so que sem toggle de ativo/inativo
+ * (aqui tudo nasce ativo) e sem descricao (campo raramente usado, cabe
+ * editar depois no cadastro completo se precisar). */
+interface EmbalagemRapidaRow {
+  id: string;
+  unidadeMedidaId: string;
+  fatorConversao: string;
+  precoVenda: string;
+  codigoBarras: string;
+}
+
+const makeEmbalagemRowId = () => `emb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const emptyEmbalagemRapida = (): EmbalagemRapidaRow => ({
+  id: '', unidadeMedidaId: '', fatorConversao: '1', precoVenda: '', codigoBarras: '',
+});
 
 interface CadastroRapidoProdutoModalProps {
   open: boolean;
   nomeInicial?: string;
+  /** So mostra a secao de embalagem quando o tenant tem a chave "vender por
+   * embalagem" ligada -- mesma config que a tela chamadora (Nota Avulsa)
+   * ja le, passada por prop pra nao abrir um segundo listener duplicado. */
+  venderPorEmbalagem?: boolean;
   onClose: () => void;
   onCriado: (produto: ProdutoCadastradoRapido) => void;
 }
@@ -35,22 +58,27 @@ interface CadastroRapidoProdutoModalProps {
 /**
  * Cadastro rapido de produto -- mesmo espirito do CadastroRapidoClienteModal,
  * so que pro Estoque: campos essenciais pra identificar o item (nome,
- * categoria, unidade). Preco de custo/venda NAO entram aqui de proposito --
- * quem usa este modal e' a Nota Avulsa, que ja pede custo/venda por item na
- * propria tela; duplicar o campo aqui so criaria duas fontes pro mesmo dado.
- * Quantidade nasce 0: quem incrementa e' a operacao que chamou este modal.
+ * categoria, unidade, embalagem opcional). Preco de custo/venda NAO entram
+ * aqui de proposito -- quem usa este modal e' a Nota Avulsa, que ja pede
+ * custo/venda por item na propria tela; duplicar o campo aqui so criaria
+ * duas fontes pro mesmo dado. Quantidade nasce 0: quem incrementa e' a
+ * operacao que chamou este modal.
  */
 const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
   open,
   nomeInicial,
+  venderPorEmbalagem = false,
   onClose,
   onCriado,
 }) => {
   const { currentUser, tenantId } = useAuth();
   const [nome, setNome] = useState('');
+  const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
   const [categoria, setCategoria] = useState('');
   const [unidades, setUnidades] = useState<UnidadeOpcao[]>([]);
   const [unidadeId, setUnidadeId] = useState('');
+  const [embalagens, setEmbalagens] = useState<EmbalagemRapidaRow[]>([]);
+  const [novaEmbalagem, setNovaEmbalagem] = useState<EmbalagemRapidaRow>(emptyEmbalagemRapida);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -58,7 +86,26 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
     setNome(nomeInicial?.trim() || '');
     setCategoria('');
     setUnidadeId('');
+    setEmbalagens([]);
+    setNovaEmbalagem(emptyEmbalagemRapida());
   }, [open, nomeInicial]);
+
+  useEffect(() => {
+    if (!open || !tenantId) return;
+    getDocs(query(collection(db, 'categorias'), where('tenantId', '==', tenantId)))
+      .then((snap) => {
+        // Mesmo filtro de EstoqueForm.tsx: categoria de servico nao entra
+        // na lista de um cadastro rapido que so cria produto.
+        const nomes = snap.docs
+          .map((d) => d.data())
+          .filter((data) => data.tipo === 'Peça' || data.tipo === 'Produto' || !data.tipo)
+          .map((data) => String(data.nome || ''))
+          .filter(Boolean);
+        setCategoriasDB(nomes);
+        setCategoria((atual) => atual || nomes[0] || '');
+      })
+      .catch((error) => console.error('Erro ao carregar categorias:', error));
+  }, [open, tenantId]);
 
   useEffect(() => {
     if (!open || !tenantId) return;
@@ -84,7 +131,35 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
 
   if (!open) return null;
 
+  const opcoesCategoria = categoriasDB.length > 0 ? categoriasDB : [CATEGORIA_FALLBACK];
   const opcoesUnidade = unidades.length > 0 ? unidades : [UNIDADE_FALLBACK];
+
+  const handleAddEmbalagem = () => {
+    const fator = Number(novaEmbalagem.fatorConversao.replace(',', '.'));
+    if (!novaEmbalagem.unidadeMedidaId) {
+      showError('Embalagem incompleta', 'Selecione a unidade de medida da embalagem.');
+      return;
+    }
+    if (!Number.isFinite(fator) || fator <= 0) {
+      showError('Embalagem inválida', 'O fator de conversão deve ser maior que zero.');
+      return;
+    }
+    if (novaEmbalagem.unidadeMedidaId === unidadeId) {
+      showError('Unidade repetida', 'Esta já é a unidade base do produto — ela sempre aparece na venda, sem precisar de embalagem.');
+      return;
+    }
+    if (embalagens.some((e) => e.unidadeMedidaId === novaEmbalagem.unidadeMedidaId)) {
+      showError('Unidade repetida', 'Já existe uma embalagem adicionada nesta unidade de medida.');
+      return;
+    }
+
+    setEmbalagens((atual) => [...atual, { ...novaEmbalagem, id: makeEmbalagemRowId() }]);
+    setNovaEmbalagem(emptyEmbalagemRapida());
+  };
+
+  const handleRemoveEmbalagem = (id: string) => {
+    setEmbalagens((atual) => atual.filter((e) => e.id !== id));
+  };
 
   const handleSalvar = async () => {
     const nomeLimpo = nome.toUpperCase().trim();
@@ -102,10 +177,28 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
       const countSnap = await getCountFromServer(qCount);
       const codigo = String(countSnap.data().count + 1);
 
+      const embalagensParaSalvar = venderPorEmbalagem
+        ? embalagens.map((e) => {
+            const unidadeEmb = unidades.find((u) => u.id === e.unidadeMedidaId);
+            return {
+              id: e.id,
+              unidadeMedidaId: e.unidadeMedidaId,
+              unidadeMedidaSigla: unidadeEmb?.sigla || 'UN',
+              unidadeMedidaCasasDecimais: unidadeEmb ? Number(unidadeEmb.casasDecimais) : 0,
+              unidadeMedidaFracionado: Boolean(unidadeEmb?.permiteFracionado),
+              descricao: '',
+              fatorConversao: Number(e.fatorConversao.replace(',', '.')) || 1,
+              precoVenda: Number(e.precoVenda.replace(',', '.')) || 0,
+              codigoBarras: e.codigoBarras.trim(),
+              ativo: true,
+            };
+          })
+        : [];
+
       const novoProdutoRef = await addDoc(collection(db, 'estoque'), {
         codigo,
         nome: nomeLimpo,
-        categoria: categoria.trim().toUpperCase() || 'DIVERSOS',
+        categoria: categoria.trim().toUpperCase() || CATEGORIA_FALLBACK,
         quantidade: 0,
         estoqueMinimo: 0,
         precoCusto: 0,
@@ -114,6 +207,7 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
         unidadeMedidaSigla: unidadeEscolhida.sigla,
         unidadeMedidaCasasDecimais: unidadeEscolhida.casasDecimais,
         unidadeMedidaFracionado: unidadeEscolhida.permiteFracionado,
+        ...(embalagensParaSalvar.length > 0 ? { embalagens: embalagensParaSalvar } : {}),
         tenantId,
         createdAt: serverTimestamp(),
         ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
@@ -144,7 +238,7 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
     }}>
       <div className="card" style={{
         backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)',
-        width: '100%', maxWidth: '480px', overflow: 'hidden',
+        width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
       }}>
         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-primary)' }}>
@@ -172,13 +266,14 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Categoria</label>
-              <input
-                type="text"
-                placeholder="DIVERSOS"
+              <select
                 value={categoria}
                 onChange={(e) => setCategoria(e.target.value)}
-                style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
-              />
+                className="form-select"
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+              >
+                {opcoesCategoria.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+              </select>
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Unidade</label>
@@ -192,6 +287,66 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
               </select>
             </div>
           </div>
+
+          {venderPorEmbalagem && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                Embalagem (opcional) — só se este produto também for vendido em outra unidade
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '8px', alignItems: 'flex-end' }}>
+                <select
+                  value={novaEmbalagem.unidadeMedidaId}
+                  onChange={(e) => setNovaEmbalagem((atual) => ({ ...atual, unidadeMedidaId: e.target.value }))}
+                  className="form-select"
+                  style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}
+                >
+                  <option value="">Unidade...</option>
+                  {unidades.map((u) => <option key={u.id} value={u.id}>{u.sigla}</option>)}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Fator (ex: 20)"
+                  value={novaEmbalagem.fatorConversao}
+                  onChange={(e) => setNovaEmbalagem((atual) => ({ ...atual, fatorConversao: e.target.value }))}
+                  style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}
+                />
+                <input
+                  type="text"
+                  placeholder="Preço venda"
+                  value={novaEmbalagem.precoVenda}
+                  onChange={(e) => setNovaEmbalagem((atual) => ({ ...atual, precoVenda: e.target.value }))}
+                  style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}
+                />
+                <input
+                  type="text"
+                  placeholder="Cód. barras"
+                  value={novaEmbalagem.codigoBarras}
+                  onChange={(e) => setNovaEmbalagem((atual) => ({ ...atual, codigoBarras: e.target.value }))}
+                  style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}
+                />
+                <button type="button" className="btn-secondary" onClick={handleAddEmbalagem} style={{ padding: '8px 10px' }} title="Adicionar embalagem">
+                  <Plus size={16} />
+                </button>
+              </div>
+
+              {embalagens.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {embalagens.map((e) => {
+                    const unidadeEmb = unidades.find((u) => u.id === e.unidadeMedidaId);
+                    return (
+                      <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', padding: '4px 8px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)' }}>
+                        <span>1 {unidadeEmb?.sigla || '?'} = {e.fatorConversao || '1'} {opcoesUnidade.find((u) => u.id === unidadeId)?.sigla || 'UN'}</span>
+                        <button type="button" onClick={() => handleRemoveEmbalagem(e.id)} className="icon-btn" title="Remover embalagem" style={{ color: '#ef4444' }}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
             Preço de custo e de venda são informados na própria nota avulsa. Quem precisar de mais (NCM, estoque mínimo, fornecedor padrão...) edita o cadastro completo depois em Estoque.
           </p>

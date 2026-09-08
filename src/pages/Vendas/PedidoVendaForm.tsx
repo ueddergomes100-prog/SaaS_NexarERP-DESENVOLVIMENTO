@@ -3690,7 +3690,7 @@ const PedidoVendaForm: React.FC = () => {
                   </label>
                   <input
                     type="number"
-                    min="0.001"
+                    min={opcaoUnidadeSelecionada.permiteFracionado ? "0.001" : "1"}
                     step={opcaoUnidadeSelecionada.permiteFracionado ? "any" : "1"}
                     value={produtoQtd}
                     onChange={(e) => setProdutoQtd(e.target.value)}

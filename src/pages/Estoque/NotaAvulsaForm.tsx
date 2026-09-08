@@ -15,9 +15,9 @@ import {
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import CadastroRapidoProdutoModal, { type ProdutoCadastradoRapido } from '../../components/common/CadastroRapidoProdutoModal';
-import { calcularValorTotalNotaAvulsa, itemNotaAvulsaValido, quantidadeEstoqueNotaAvulsaItem, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
-import { getDateInputInTimeZone } from '../../utils/dateTime';
-import { toCents } from '../../utils/financeDomain';
+import { calcularValorTotalNotaAvulsa, itemNotaAvulsaValido, quantidadeEstoqueNotaAvulsaItem, ratearValorPorPesos, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
+import { getDateInputInTimeZone, addMonthsToDateInput, formatDateInputPtBr } from '../../utils/dateTime';
+import { toCents, splitCents } from '../../utils/financeDomain';
 import { buildOpcoesUnidadeVenda, findOpcaoUnidadeVenda, toBaseQuantity, DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 
@@ -71,11 +71,15 @@ const NotaAvulsaForm: React.FC = () => {
 
   const [itens, setItens] = useState<NotaAvulsaItem[]>([]);
 
+  const [frete, setFrete] = useState('');
+  const [desconto, setDesconto] = useState('');
+
   const [formaPagamento, setFormaPagamento] = useState<'a_vista' | 'pendente'>('pendente');
   const [destinoPagamento, setDestinoPagamento] = useState<'caixa' | 'banco'>('caixa');
   const [bancos, setBancos] = useState<BancoBasico[]>([]);
   const [bancoId, setBancoId] = useState('');
   const [dataVencimento, setDataVencimento] = useState('');
+  const [numeroParcelas, setNumeroParcelas] = useState('1');
   const [observacao, setObservacao] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
@@ -139,7 +143,27 @@ const NotaAvulsaForm: React.FC = () => {
     setDataVencimento(getDateInputInTimeZone());
   }, []);
 
-  const valorTotal = useMemo(() => calcularValorTotalNotaAvulsa(itens), [itens]);
+  const valorItens = useMemo(() => calcularValorTotalNotaAvulsa(itens), [itens]);
+  const freteValor = Number(frete.replace(',', '.')) || 0;
+  const descontoValor = Number(desconto.replace(',', '.')) || 0;
+  const valorTotal = Math.max(0, valorItens + freteValor - descontoValor);
+
+  const numeroParcelasValido = Math.max(1, Number.parseInt(numeroParcelas, 10) || 1);
+
+  /** Preview das parcelas (so exibicao) -- mesma divisao que vai rodar no
+   * save: splitCents (financeDomain.ts, ja usado pra parcela de cartao)
+   * garante soma exata; addMonthsToDateInput (dateTime.ts) espaca cada
+   * parcela em 1 mes de calendario a partir da primeira, convencao padrao
+   * de boleto (dia fixo do mes, nao "+30 dias corridos"). */
+  const parcelasPreview = useMemo(() => {
+    if (formaPagamento !== 'pendente' || numeroParcelasValido <= 1 || !dataVencimento) return [];
+    const valoresCentavos = splitCents(toCents(valorTotal), numeroParcelasValido);
+    return valoresCentavos.map((centavos, index) => ({
+      numero: index + 1,
+      valor: centavos / 100,
+      data: index === 0 ? dataVencimento : addMonthsToDateInput(dataVencimento, index),
+    }));
+  }, [formaPagamento, numeroParcelasValido, dataVencimento, valorTotal]);
 
   /** Opcoes do seletor "Unidade": a base do produto sempre, mais as
    * embalagens ativas quando a chave venderPorEmbalagem esta ligada. Mesma
@@ -245,14 +269,33 @@ const NotaAvulsaForm: React.FC = () => {
       showError('Banco obrigatório', 'Selecione de qual banco o pagamento vai sair.');
       return;
     }
+    const valorItensValidos = calcularValorTotalNotaAvulsa(itensValidos);
+    if (descontoValor > valorItensValidos + freteValor) {
+      showError('Desconto maior que o total', 'O desconto não pode ser maior que itens + frete. Revise os valores.');
+      return;
+    }
 
     setIsSaving(true);
     let numeroFinal = '';
     try {
       const currentMax = await getCurrentMaxSequence(db, 'notas_avulsas', tenantId, 'numero').catch(() => 0);
-      const totalNota = calcularValorTotalNotaAvulsa(itensValidos);
+      const totalNota = Math.max(0, valorItensValidos + freteValor - descontoValor);
       const bancoNomeEscolhido = bancos.find((b) => b.id === bancoId)?.nome || '';
       const usaBanco = formaPagamento === 'a_vista' && destinoPagamento === 'banco';
+      const numParcelasFinal = formaPagamento === 'pendente' ? numeroParcelasValido : 1;
+
+      // Frete e desconto sao rateados entre os itens, proporcional ao valor
+      // de cada um (quantidade x custo) -- e' o que faz o CMV (custo que
+      // vai pro estoque) refletir o custo real da mercadoria entregue, nao
+      // so o preco de tabela digitado por item.
+      const pesosRateio = itensValidos.map((item) => item.quantidade * item.precoCusto);
+      const freteRateadoPorItem = ratearValorPorPesos(freteValor, pesosRateio);
+      const descontoRateadoPorItem = ratearValorPorPesos(descontoValor, pesosRateio);
+      const itensComRateio: NotaAvulsaItem[] = itensValidos.map((item, index) => ({
+        ...item,
+        ...(freteValor > 0 ? { freteRateado: freteRateadoPorItem[index] } : {}),
+        ...(descontoValor > 0 ? { descontoRateado: descontoRateadoPorItem[index] } : {}),
+      }));
 
       await runTransaction(db, async (transaction) => {
         // 1. LEITURAS -- todas antes de qualquer escrita (regra do Firestore).
@@ -269,14 +312,17 @@ const NotaAvulsaForm: React.FC = () => {
         // a segunda escrita sobrescreveria a primeira em vez de somar, ja
         // que as duas leem o mesmo snapshot original.
         const incrementoPorProduto = new Map<string, { quantidadeBase: number; precoCusto: number }>();
-        itensValidos.forEach((item) => {
+        itensComRateio.forEach((item) => {
           const anterior = incrementoPorProduto.get(item.produtoId);
-          // O custo do item e' "por unidade escolhida" (por saco, se foi
-          // comprado em saco), mas o precoCusto do produto no Estoque e'
-          // sempre por unidade BASE (por kg) -- e' dele que sai o preco das
-          // embalagens sem custo proprio. Sem dividir pelo fator, comprar em
-          // saco deixaria o custo por kg do produto 20x maior que o real.
-          const precoCustoBase = item.fatorConversao ? item.precoCusto / item.fatorConversao : item.precoCusto;
+          // Custo unitario (na unidade escolhida) JA com a parte do
+          // frete/desconto deste item embutida -- e' o CMV real, nao so o
+          // preco de tabela digitado. So depois disso converte pra unidade
+          // BASE do estoque (por kg, nao por saco): sem dividir pelo fator,
+          // comprar em saco deixaria o custo por kg do produto 20x maior
+          // que o real.
+          const custoUnitarioComRateio = item.precoCusto
+            + ((item.freteRateado || 0) - (item.descontoRateado || 0)) / item.quantidade;
+          const precoCustoBase = item.fatorConversao ? custoUnitarioComRateio / item.fatorConversao : custoUnitarioComRateio;
           incrementoPorProduto.set(item.produtoId, {
             quantidadeBase: (anterior?.quantidadeBase || 0) + quantidadeEstoqueNotaAvulsaItem(item),
             precoCusto: precoCustoBase,
@@ -306,18 +352,33 @@ const NotaAvulsaForm: React.FC = () => {
         });
 
         const notaRef = doc(collection(db, 'notas_avulsas'));
-        const transacaoRef = doc(collection(db, 'transacoes'));
+
+        // Parcela unica (a vista, ou pendente sem parcelar) e' um caso
+        // particular de "1 parcela" -- monta sempre a lista de transacoes a
+        // criar, pra nao duplicar a logica de campos entre os dois casos.
+        const valoresParcelasCentavos = formaPagamento === 'pendente'
+          ? splitCents(toCents(totalNota), numParcelasFinal)
+          : [toCents(totalNota)];
+        const transacoesParaCriar = valoresParcelasCentavos.map((valorCentavos, index) => ({
+          ref: doc(collection(db, 'transacoes')),
+          valorCentavos,
+          data: formaPagamento === 'pendente'
+            ? (index === 0 ? dataVencimento : addMonthsToDateInput(dataVencimento, index))
+            : getDateInputInTimeZone(),
+        }));
+        const sufixoParcela = (index: number) => (numParcelasFinal > 1 ? ` (parcela ${index + 1}/${numParcelasFinal})` : '');
 
         if (formaPagamento === 'a_vista') {
+          const [{ ref: transacaoRef, valorCentavos, data }] = transacoesParaCriar;
           transaction.set(transacaoRef, {
             descricao: `Nota Avulsa #${numeroFinal} - ${fornecedorSelecionado.nome}`,
             categoria: 'FORNECEDORES DE PEÇAS',
-            valor: totalNota,
-            valorCentavos: toCents(totalNota),
+            valor: valorCentavos / 100,
+            valorCentavos,
             tipo: 'saida',
             status: 'Paga',
-            data: getDateInputInTimeZone(),
-            dataPagamento: getDateInputInTimeZone(),
+            data,
+            dataPagamento: data,
             formaPagamento: destinoPagamento === 'banco' ? 'Transferência' : 'Dinheiro',
             naturezaFinanceira: destinoPagamento === 'banco' ? 'bancario_digital' : 'caixa_fisico',
             movimentaCaixaFisico: destinoPagamento === 'caixa',
@@ -338,20 +399,23 @@ const NotaAvulsaForm: React.FC = () => {
             });
           }
         } else {
-          transaction.set(transacaoRef, {
-            descricao: `Nota Avulsa #${numeroFinal} - ${fornecedorSelecionado.nome}`,
-            categoria: 'FORNECEDORES DE PEÇAS',
-            valor: totalNota,
-            valorCentavos: toCents(totalNota),
-            tipo: 'saida',
-            status: 'Pendente',
-            data: dataVencimento,
-            fornecedorId: fornecedorSelecionado.id,
-            fornecedorNome: fornecedorSelecionado.nome,
-            notaAvulsaId: notaRef.id,
-            tenantId,
-            createdAt: serverTimestamp(),
-            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          transacoesParaCriar.forEach(({ ref, valorCentavos, data }, index) => {
+            transaction.set(ref, {
+              descricao: `Nota Avulsa #${numeroFinal} - ${fornecedorSelecionado.nome}${sufixoParcela(index)}`,
+              categoria: 'FORNECEDORES DE PEÇAS',
+              valor: valorCentavos / 100,
+              valorCentavos,
+              tipo: 'saida',
+              status: 'Pendente',
+              data,
+              ...(numParcelasFinal > 1 ? { parcela: index + 1, totalParcelas: numParcelasFinal } : {}),
+              fornecedorId: fornecedorSelecionado.id,
+              fornecedorNome: fornecedorSelecionado.nome,
+              notaAvulsaId: notaRef.id,
+              tenantId,
+              createdAt: serverTimestamp(),
+              ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+            });
           });
         }
 
@@ -359,14 +423,16 @@ const NotaAvulsaForm: React.FC = () => {
           numero: numeroFinal,
           fornecedorId: fornecedorSelecionado.id,
           fornecedorNome: fornecedorSelecionado.nome,
-          itens: itensValidos,
+          itens: itensComRateio,
+          ...(freteValor > 0 ? { frete: freteValor } : {}),
+          ...(descontoValor > 0 ? { desconto: descontoValor } : {}),
           valorTotal: totalNota,
           valorTotalCentavos: toCents(totalNota),
           formaPagamento,
           ...(formaPagamento === 'a_vista'
             ? { destinoPagamento, ...(destinoPagamento === 'banco' ? { bancoId, bancoNome: bancoNomeEscolhido } : {}) }
             : { dataVencimento }),
-          transacaoId: transacaoRef.id,
+          transacaoId: transacoesParaCriar[0].ref.id,
           observacao: observacao.trim() || null,
           status: 'ativa',
           tenantId,
@@ -552,8 +618,27 @@ const NotaAvulsaForm: React.FC = () => {
           </table>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '18px', fontWeight: 700 }}>
-          Total: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotal)}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: 'var(--text-secondary)' }}>Itens:</span>
+            <span style={{ minWidth: '110px', textAlign: 'right' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorItens)}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ color: 'var(--text-secondary)' }}>Frete (R$):</label>
+            <input type="text" value={frete} onChange={(e) => setFrete(e.target.value)} placeholder="0,00" style={{ ...inputStyle, width: '110px', textAlign: 'right' }} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ color: 'var(--text-secondary)' }}>Desconto (R$):</label>
+            <input type="text" value={desconto} onChange={(e) => setDesconto(e.target.value)} placeholder="0,00" style={{ ...inputStyle, width: '110px', textAlign: 'right' }} />
+          </div>
+          <div style={{ fontSize: '18px', fontWeight: 700 }}>
+            Total: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotal)}
+          </div>
+          {(freteValor > 0 || descontoValor > 0) && (
+            <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0, maxWidth: '320px', textAlign: 'right' }}>
+              Frete e desconto são diluídos entre os itens (proporcional ao valor de cada um) e entram no custo que vai pro estoque.
+            </p>
+          )}
         </div>
       </div>
 
@@ -573,9 +658,28 @@ const NotaAvulsaForm: React.FC = () => {
         </div>
 
         {formaPagamento === 'pendente' ? (
-          <div className="input-group" style={{ maxWidth: '240px' }}>
-            <label style={labelStyle}>Data de vencimento *</label>
-            <input type="date" value={dataVencimento} onChange={(e) => setDataVencimento(e.target.value)} style={inputStyle} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '16px' }}>
+              <div className="input-group" style={{ maxWidth: '240px' }}>
+                <label style={labelStyle}>{numeroParcelasValido > 1 ? 'Data da 1ª parcela *' : 'Data de vencimento *'}</label>
+                <input type="date" value={dataVencimento} onChange={(e) => setDataVencimento(e.target.value)} style={inputStyle} />
+              </div>
+              <div className="input-group" style={{ maxWidth: '160px' }}>
+                <label style={labelStyle}>Nº de parcelas (boleto)</label>
+                <input type="number" min="1" step="1" value={numeroParcelas} onChange={(e) => setNumeroParcelas(e.target.value)} style={inputStyle} />
+              </div>
+            </div>
+
+            {parcelasPreview.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px' }}>
+                {parcelasPreview.map((parcela) => (
+                  <div key={parcela.numero} style={{ display: 'flex', justifyContent: 'space-between', maxWidth: '320px', color: 'var(--text-secondary)' }}>
+                    <span>Parcela {parcela.numero}/{parcelasPreview.length} — {formatDateInputPtBr(parcela.data)}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parcela.valor)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -610,6 +714,7 @@ const NotaAvulsaForm: React.FC = () => {
       <CadastroRapidoProdutoModal
         open={showCadastroProduto}
         nomeInicial={produtoBusca}
+        venderPorEmbalagem={venderPorEmbalagem}
         onClose={() => setShowCadastroProduto(false)}
         onCriado={handleProdutoCriado}
       />

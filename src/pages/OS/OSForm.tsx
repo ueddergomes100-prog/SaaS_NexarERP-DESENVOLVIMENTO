@@ -2014,7 +2014,7 @@ const OSForm: React.FC = () => {
                             ref={(el) => { if (index === pecasSelecionadas.length - 1) pecaQtdLastRowRef.current = el; }}
                             onChange={e => updateQuantidadePeca(index, Number(e.target.value))}
                             style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '4px', fontSize: '13px' }}
-                            min="0.001"
+                            min={p.unidadeMedidaFracionado ? '0.001' : '1'}
                             step={p.unidadeMedidaFracionado ? 'any' : '1'}
                           />
                         </td>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { PackagePlus, Plus, RotateCcw, Search } from 'lucide-react';
-import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
+import { collection, doc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -69,17 +69,46 @@ const NotasAvulsasList: React.FC = () => {
 
     setCancelandoId(nota.id);
     try {
+      // Busca TODAS as transacoes desta nota (pode ser mais de uma, se foi
+      // parcelada em boletos) FORA da transacao -- Firestore nao permite
+      // Query dentro de uma transacao, so leitura de documento por ref
+      // (mesmo padrao do cancelamento de venda/OS, ver
+      // PedidoVendaForm.tsx). `notaAvulsaId` e' gravado em toda transacao
+      // de nota avulsa desde que a feature existe -- nao precisa de
+      // fallback pro campo antigo `nota.transacaoId`.
+      const transacoesSnap = await getDocs(query(
+        collection(db, 'transacoes'),
+        where('tenantId', '==', tenantId),
+        where('notaAvulsaId', '==', nota.id),
+      ));
+      const transacaoRefsExternos = transacoesSnap.docs.map((d) => d.ref);
+
       await runTransaction(db, async (transaction) => {
         const notaRef = doc(db, 'notas_avulsas', nota.id);
         const notaSnap = await transaction.get(notaRef);
         if (!notaSnap.exists()) throw new Error('Esta nota avulsa não existe mais.');
         if (notaSnap.data().status !== STATUS_NOTA_AVULSA_ATIVA) throw new Error('Esta nota avulsa já está cancelada.');
 
-        const transacaoRef = nota.transacaoId ? doc(db, 'transacoes', nota.transacaoId) : null;
-        const transacaoSnap = transacaoRef ? await transaction.get(transacaoRef) : null;
+        const transacaoSnaps = await Promise.all(transacaoRefsExternos.map((ref) => transaction.get(ref)));
 
-        const bancoRef = nota.destinoPagamento === 'banco' && nota.bancoId ? doc(db, 'bancos', nota.bancoId) : null;
-        const bancoSnap = bancoRef ? await transaction.get(bancoRef) : null;
+        // Le o banco do estado ATUAL de cada transacao, nunca dos campos da
+        // nota (nota.destinoPagamento/nota.bancoId): esses dois so existem
+        // quando a nota nasceu "a vista". Nota criada "pendente" nao os
+        // grava nela mesma -- se foi baixada depois em Contas a Pagar (que
+        // grava bancoId/status:'Paga' direto na transacao), so a transacao
+        // sabe disso. Agrupado por banco (nao por transacao): duas parcelas
+        // pagas no MESMO banco tem que somar o credito, nao sobrescrever.
+        const creditoPorBanco = new Map<string, number>();
+        transacaoSnaps.forEach((snap) => {
+          const data = snap.data();
+          if (data?.status === 'Paga' && data?.bancoId) {
+            creditoPorBanco.set(data.bancoId, (creditoPorBanco.get(data.bancoId) || 0) + Number(data.valorCentavos || 0));
+          }
+        });
+        const bancoRefsComCredito = Array.from(creditoPorBanco.entries()).map(([bancoId, valorCentavos]) => ({
+          bancoId, ref: doc(db, 'bancos', bancoId), valorCentavos,
+        }));
+        const bancoSnaps = await Promise.all(bancoRefsComCredito.map(({ ref }) => transaction.get(ref)));
 
         // Agrupado por produto (nao por item): o mesmo produto pode ter
         // entrado duas vezes na nota, uma em cada unidade (KG e SC) -- sem
@@ -120,26 +149,31 @@ const NotasAvulsasList: React.FC = () => {
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Nota avulsa cancelada'),
         });
 
-        if (transacaoRef && transacaoSnap?.exists()) {
-          transaction.update(transacaoRef, {
+        // Cancela TODAS as parcelas encontradas (uma so, no caso comum) --
+        // caixa fisico nao tem saldo guardado em documento (so aparece
+        // agregado em relatorio por status 'Paga'), entao cancelar a
+        // transacao ja e suficiente ali.
+        transacaoSnaps.forEach((snap, index) => {
+          if (!snap.exists()) return;
+          transaction.update(transacaoRefsExternos[index], {
             status: 'Cancelada',
             updatedAt: serverTimestamp(),
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Nota Avulsa #${nota.numero} cancelada`),
           });
+        });
 
-          // Se ja tinha sido pago via banco, devolve o saldo -- simetrico ao
-          // debito feito no lancamento. Caixa fisico nao tem saldo guardado
-          // em documento (so aparece agregado em relatorio por status
-          // 'Paga'), entao cancelar a transacao ja e suficiente ali.
-          if (bancoRef && bancoSnap?.exists()) {
-            const saldoAtualCentavos = Number(bancoSnap.data().saldoCentavos || 0);
-            transaction.update(bancoRef, {
-              saldoCentavos: saldoAtualCentavos + Number(transacaoSnap.data().valorCentavos || 0),
-              updatedAt: serverTimestamp(),
-              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Cancelamento da Nota Avulsa #${nota.numero}`),
-            });
-          }
-        }
+        // Devolve o saldo de cada banco que recebeu debito -- simetrico ao
+        // debito feito no lancamento (ou na baixa manual em Contas a Pagar).
+        bancoRefsComCredito.forEach(({ ref, valorCentavos }, index) => {
+          const snap = bancoSnaps[index];
+          if (!snap.exists()) return;
+          const saldoAtualCentavos = Number(snap.data().saldoCentavos || 0);
+          transaction.update(ref, {
+            saldoCentavos: saldoAtualCentavos + valorCentavos,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Cancelamento da Nota Avulsa #${nota.numero}`),
+          });
+        });
       });
 
       try {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Ban, Search, ExternalLink, Edit2, Trash2, Megaphone, Blocks, Wallet } from 'lucide-react';
+import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Ban, Search, ExternalLink, Edit2, Trash2, Megaphone, Blocks, Wallet, ShieldCheck, ChevronDown, ChevronUp, KeyRound } from 'lucide-react';
 import { collection, query, getDocs, updateDoc, doc, deleteDoc, where, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -9,6 +9,9 @@ import Swal from 'sweetalert2';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { moduleLabelMap } from '../../utils/moduleCatalog';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { showError, showSuccess } from '../../utils/alerts';
+import { spedyAdminService, type SpedyMasterKeyStatus } from '../../services/spedyAdminService';
+import CadastrarEmpresaSpedyModal from '../../components/admin/CadastrarEmpresaSpedyModal';
 
 interface TenantInfo {
   id: string;
@@ -65,8 +68,15 @@ const SuperAdmin: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const filteredTenants = tenants.filter(t => 
-    (t.nomeOficina || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const [showSpedyConfig, setShowSpedyConfig] = useState(false);
+  const [spedyMasterKeyStatus, setSpedyMasterKeyStatus] = useState<SpedyMasterKeyStatus | null>(null);
+  const [spedyMasterKeySandbox, setSpedyMasterKeySandbox] = useState('');
+  const [spedyMasterKeyProducao, setSpedyMasterKeyProducao] = useState('');
+  const [salvandoMasterKey, setSalvandoMasterKey] = useState<'sandbox' | 'production' | null>(null);
+  const [empresaSpedyModal, setEmpresaSpedyModal] = useState<{ tenantId: string; tenantNome: string } | null>(null);
+
+  const filteredTenants = tenants.filter(t =>
+    (t.nomeOficina || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (t.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     t.id.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -77,6 +87,34 @@ const SuperAdmin: React.FC = () => {
       navigate('/dashboard');
     }
   }, [userRole, navigate]);
+
+  useEffect(() => {
+    if (!userRole || !isPlatformAdminRole(userRole)) return;
+    spedyAdminService.getMasterKeyStatus()
+      .then(setSpedyMasterKeyStatus)
+      .catch((error) => console.error('Erro ao carregar status da chave mestra da Spedy:', error));
+  }, [userRole]);
+
+  const handleSalvarSpedyMasterKey = async (environment: 'sandbox' | 'production') => {
+    const apiKey = environment === 'production' ? spedyMasterKeyProducao : spedyMasterKeySandbox;
+    if (!apiKey.trim()) {
+      showError('Chave em branco', 'Cole a chave mestra antes de salvar.');
+      return;
+    }
+    setSalvandoMasterKey(environment);
+    try {
+      await spedyAdminService.saveMasterKey(environment, apiKey.trim());
+      const status = await spedyAdminService.getMasterKeyStatus();
+      setSpedyMasterKeyStatus(status);
+      if (environment === 'production') setSpedyMasterKeyProducao(''); else setSpedyMasterKeySandbox('');
+      showSuccess('Chave mestra da Spedy salva!');
+    } catch (error) {
+      console.error('Erro ao salvar chave mestra da Spedy:', error);
+      showError('Erro ao salvar', error instanceof Error ? error.message : 'Não foi possível salvar a chave mestra.');
+    } finally {
+      setSalvandoMasterKey(null);
+    }
+  };
 
   useEffect(() => {
     const fetchSaaSTenants = async () => {
@@ -509,6 +547,63 @@ const SuperAdmin: React.FC = () => {
         </div>
       </div>
 
+      {/* Configuração da Spedy (chave mestra da plataforma, nao de tenant) */}
+      <div className="card" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+        <div
+          style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+          onClick={() => setShowSpedyConfig((atual) => !atual)}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <ShieldCheck size={20} color="#8b5cf6" />
+            <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Chave mestra da Spedy (plataforma)</h3>
+          </div>
+          {showSpedyConfig ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+        </div>
+        {showSpedyConfig && (
+          <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+              Chave da SUA conta na Spedy (não a de um cliente) -- usada só pra chamar o cadastro automático de empresa+certificado de cada tenant, botão "Cadastrar na Spedy" na lista abaixo.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div className="input-group">
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <KeyRound size={14} /> Sandbox {spedyMasterKeyStatus?.sandboxConfigured && <CheckCircle size={14} color="#10b981" />}
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="password"
+                    placeholder={spedyMasterKeyStatus?.sandboxConfigured ? 'Já configurada — cole uma nova pra trocar' : 'Cole a chave mestra de sandbox'}
+                    value={spedyMasterKeySandbox}
+                    onChange={(e) => setSpedyMasterKeySandbox(e.target.value)}
+                    style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
+                  />
+                  <button className="btn-secondary" onClick={() => handleSalvarSpedyMasterKey('sandbox')} disabled={salvandoMasterKey === 'sandbox'}>
+                    {salvandoMasterKey === 'sandbox' ? 'Salvando...' : 'Salvar'}
+                  </button>
+                </div>
+              </div>
+              <div className="input-group">
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <KeyRound size={14} /> Produção {spedyMasterKeyStatus?.productionConfigured && <CheckCircle size={14} color="#10b981" />}
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="password"
+                    placeholder={spedyMasterKeyStatus?.productionConfigured ? 'Já configurada — cole uma nova pra trocar' : 'Cole a chave mestra de produção'}
+                    value={spedyMasterKeyProducao}
+                    onChange={(e) => setSpedyMasterKeyProducao(e.target.value)}
+                    style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
+                  />
+                  <button className="btn-secondary" onClick={() => handleSalvarSpedyMasterKey('production')} disabled={salvandoMasterKey === 'production'}>
+                    {salvandoMasterKey === 'production' ? 'Salvando...' : 'Salvar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Gráficos */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)' }}>
@@ -745,8 +840,16 @@ const SuperAdmin: React.FC = () => {
                             Acessar Dados <ExternalLink size={14} />
                           </button>
                         )}
-                        <button 
-                          className="icon-btn" 
+                        <button
+                          className="icon-btn"
+                          onClick={() => setEmpresaSpedyModal({ tenantId: tenant.id, tenantNome: tenant.nomeOficina })}
+                          style={{ padding: '8px', color: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)', borderRadius: 'var(--radius-md)', border: 'none', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          title="Cadastrar na Spedy (nota fiscal)"
+                        >
+                          <ShieldCheck size={16} />
+                        </button>
+                        <button
+                          className="icon-btn"
                           onClick={() => handleDeleteTenant(tenant)}
                           style={{ padding: '8px', color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--radius-md)', border: 'none', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                           title="Excluir Empresa"
@@ -770,6 +873,15 @@ const SuperAdmin: React.FC = () => {
           </div>
         )}
       </div>
+
+      {empresaSpedyModal && (
+        <CadastrarEmpresaSpedyModal
+          aberto={!!empresaSpedyModal}
+          tenantId={empresaSpedyModal.tenantId}
+          tenantNome={empresaSpedyModal.tenantNome}
+          onFechar={() => setEmpresaSpedyModal(null)}
+        />
+      )}
     </div>
   );
 };

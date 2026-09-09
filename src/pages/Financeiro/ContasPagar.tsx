@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { toCents } from '../../utils/financeDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
-import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag } from 'lucide-react';
+import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload } from 'lucide-react';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import './Financeiro.css';
 
@@ -46,6 +47,7 @@ interface GrupoDespesa {
 }
 
 const ContasPagar: React.FC = () => {
+  const { openTab } = useTabs();
   const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -429,6 +431,14 @@ const ContasPagar: React.FC = () => {
               </div>
             </div>
           </div>
+          <button
+            className="btn-secondary"
+            onClick={() => openTab('/financeiro/contas-pagar/importar', 'Importar Contas a Pagar')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Upload size={18} />
+            Importar títulos
+          </button>
           <button className="btn-primary" onClick={handleOpenModal} style={{ backgroundColor: '#ef4444', borderColor: '#ef4444', boxShadow: '0 0 15px rgba(239, 68, 68, 0.4)' }}>
             <Plus size={18} style={{ marginRight: 8 }} />
             Lançar Despesa

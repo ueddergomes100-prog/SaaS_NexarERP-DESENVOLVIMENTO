@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Search, Plus, Tags, Edit, Power } from 'lucide-react';
+import { Search, Plus, Tags, Edit, Power, Upload } from 'lucide-react';
 import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -121,6 +121,14 @@ const CategoriasList: React.FC = () => {
         <div style={{ display: 'flex', gap: '12px' }}>
           <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
             Padronizar (A-Z)
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={() => openTab('/categorias/importar', 'Importar Categorias')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Upload size={18} />
+            Importar categorias
           </button>
           <button className="btn-primary" onClick={() => openTab('/categorias/nova')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Nova Categoria

@@ -487,9 +487,15 @@ const OSForm: React.FC = () => {
                 operadora: payment.cartao?.operadora || '',
                 autorizacao: payment.cartao?.autorizacao || '',
                 parcelas: String(payment.cartao?.parcelas || 1),
-                dataPrevistaRecebimento: payment.dataPrevistaRecebimento || payment.cartao?.dataPrevistaRecebimento || '',
+                dataPrevistaRecebimento: payment.dataPrevistaRecebimento || payment.cartao?.dataPrevistaRecebimento || payment.cheque?.dataCompensacao || '',
                 bancoId: payment.bancoId || '',
                 bancoNome: payment.bancoNome || '',
+                chequeBancoEmissor: payment.cheque?.bancoEmissor || '',
+                chequeAgencia: payment.cheque?.agencia || '',
+                chequeTitular: payment.cheque?.titular || '',
+                chequeEmitente: payment.cheque?.emitente || '',
+                chequeDocumentoEmitente: payment.cheque?.documentoEmitente || '',
+                chequeNumero: payment.cheque?.numeroCheque || '',
               })));
               paymentDraftCounter.current = os.pagamentos.length;
             } else {

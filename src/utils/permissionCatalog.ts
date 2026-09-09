@@ -148,6 +148,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'financeiro.caixa', label: 'Financeiro: Fluxo de Caixa', color: '#10b981' },
       { id: 'financeiro.caixa_registros', label: 'Financeiro: Caixa (Sessões PDV)', color: '#10b981' },
       { id: 'financeiro.banco', label: 'Financeiro: Banco (Conciliação de Cartão)', color: '#10b981' },
+      { id: 'financeiro.cheques', label: 'Financeiro: Cheques (Compensação)', color: '#10b981' },
       { id: 'financeiro.receber', label: 'Financeiro: Contas a Receber', color: '#10b981' },
       { id: 'financeiro.pagar', label: 'Financeiro: Contas a Pagar', color: '#10b981' },
       { id: 'financeiro.faturamento', label: 'Financeiro: Faturamento', color: '#10b981' },

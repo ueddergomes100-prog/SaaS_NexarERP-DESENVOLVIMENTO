@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   CreditCard,
+  FileCheck2,
   Landmark,
   QrCode,
   Receipt,
@@ -24,6 +25,7 @@ import {
   type PaymentMethod,
 } from '../../utils/financeDomain';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
+import ChequeCaptureModal from './ChequeCaptureModal';
 import './PaymentsEditor.css';
 
 interface BandeiraCartao extends TenantCollectionItem {
@@ -125,6 +127,10 @@ const PAYMENT_METHOD_PRESENTATION: Record<PaymentMethod, {
   Boleto: {
     description: 'Cobrança bancária',
     icon: Receipt,
+  },
+  Cheque: {
+    description: 'Aguarda compensação bancária',
+    icon: FileCheck2,
   },
   Outros: {
     description: 'Outra forma de recebimento',
@@ -334,6 +340,8 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
     sortField: 'ordem',
   });
   const bancosAtivos = bancos.filter((b) => b.ativo);
+  const [chequeModalPaymentId, setChequeModalPaymentId] = useState<string | null>(null);
+  const paymentDoModalCheque = drafts.find((d) => d.id === chequeModalPaymentId) || null;
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeiras);
   const informedCents = drafts.reduce((sum, payment) => sum + toCents(payment.valor), 0);
   const isFinalConsumer = customerName.toLowerCase().includes('consumidor final');
@@ -342,7 +350,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   const availableMethods: PaymentMethod[] = [
     ...(isFinalConsumer
       ? (['Dinheiro', 'Pix'] as PaymentMethod[])
-      : (['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Pagamento a Prazo'] as PaymentMethod[])),
+      : (['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Pagamento a Prazo'] as PaymentMethod[])),
     ...(temCreditoDisponivel ? (['Crédito de Devolução'] as PaymentMethod[]) : []),
   ];
 
@@ -603,6 +611,33 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
               </div>
             )}
 
+            {payment.forma === 'Cheque' && (
+              <div className="payments-editor__card-fields">
+                {payment.chequeNumero && payment.chequeBancoEmissor ? (
+                  <div className="payments-editor__card-summary">
+                    <span>
+                      Cheque nº <strong>{payment.chequeNumero}</strong> — {payment.chequeBancoEmissor}
+                      {payment.dataPrevistaRecebimento && <> — compensa em <strong>{formatDateInputPtBr(payment.dataPrevistaRecebimento)}</strong></>}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="payments-editor__term-notice">Preencha os dados do cheque antes de finalizar.</span>
+                )}
+                <button
+                  className="btn-secondary"
+                  disabled={disabled}
+                  onClick={() => setChequeModalPaymentId(payment.id)}
+                  style={{ marginTop: '8px' }}
+                  type="button"
+                >
+                  {payment.chequeNumero ? 'Editar dados do cheque' : 'Preencher dados do cheque'}
+                </button>
+                <span className="payments-editor__pending-notice">
+                  Só entra no saldo do banco quando compensar, em Financeiro → Cheques.
+                </span>
+              </div>
+            )}
+
             {payment.forma === 'Dinheiro' ? (
               <span className="payments-editor__cash-notice">Este pagamento movimenta o caixa físico.</span>
             ) : (payment.forma === 'Pix' || payment.forma === 'Transferência') ? (
@@ -622,6 +657,35 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
       <span className="payments-editor__source-note">
         Os lançamentos financeiros desta {sourceLabel} serão individualizados por forma de pagamento.
       </span>
+
+      <ChequeCaptureModal
+        aberto={paymentDoModalCheque !== null}
+        dataMinima={transactionDate}
+        onConfirmar={(dados) => {
+          if (!paymentDoModalCheque) return;
+          onUpdatePayment(paymentDoModalCheque.id, {
+            chequeBancoEmissor: dados.bancoEmissor,
+            chequeAgencia: dados.agencia || '',
+            chequeTitular: dados.titular || '',
+            chequeEmitente: dados.emitente || '',
+            chequeDocumentoEmitente: dados.documentoEmitente || '',
+            chequeNumero: dados.numeroCheque,
+            dataPrevistaRecebimento: dados.dataCompensacao,
+          });
+          setChequeModalPaymentId(null);
+        }}
+        onFechar={() => setChequeModalPaymentId(null)}
+        valorSugerido={paymentDoModalCheque ? Number(paymentDoModalCheque.valor.replace(',', '.')) || 0 : 0}
+        valoresIniciais={paymentDoModalCheque ? {
+          bancoEmissor: paymentDoModalCheque.chequeBancoEmissor,
+          agencia: paymentDoModalCheque.chequeAgencia,
+          titular: paymentDoModalCheque.chequeTitular,
+          emitente: paymentDoModalCheque.chequeEmitente,
+          documentoEmitente: paymentDoModalCheque.chequeDocumentoEmitente,
+          numeroCheque: paymentDoModalCheque.chequeNumero,
+          dataCompensacao: paymentDoModalCheque.dataPrevistaRecebimento,
+        } : undefined}
+      />
     </div>
   );
 };

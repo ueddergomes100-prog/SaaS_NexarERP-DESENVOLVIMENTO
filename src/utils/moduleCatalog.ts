@@ -66,6 +66,7 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'financeiro.caixa', label: 'Fluxo de Caixa' },
     { id: 'financeiro.caixa_registros', label: 'Caixa (Sessões PDV)' },
     { id: 'financeiro.banco', label: 'Banco (Conciliação de Cartão)' },
+    { id: 'financeiro.cheques', label: 'Cheques (Compensação)' },
     { id: 'financeiro.receber', label: 'Contas a Receber' },
     { id: 'financeiro.pagar', label: 'Contas a Pagar' },
     { id: 'financeiro.faturamento', label: 'Painel de Faturamento' },

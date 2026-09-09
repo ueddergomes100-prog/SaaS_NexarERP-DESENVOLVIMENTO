@@ -14,6 +14,7 @@ export type PaymentMethod =
   | 'Cartão de Débito'
   | 'Transferência'
   | 'Boleto'
+  | 'Cheque'
   | 'Pagamento a Prazo'
   | 'Crédito de Devolução'
   | 'Outros';
@@ -34,9 +35,17 @@ export interface PaymentDraft {
   autorizacao: string;
   parcelas: string;
   dataPrevistaRecebimento: string;
-  /** Banco de destino (Modulo Bancos, F18) -- exigido para Pix/Transferencia/Cartao. */
+  /** Banco de destino (Modulo Bancos, F18) -- exigido para Pix/Transferencia/Cartao/Cheque. */
   bancoId: string;
   bancoNome: string;
+  /** So usados quando forma === 'Cheque'. Data de compensacao reaproveita
+   * dataPrevistaRecebimento acima -- nao duplicar campo de data aqui. */
+  chequeBancoEmissor: string;
+  chequeAgencia: string;
+  chequeTitular: string;
+  chequeEmitente: string;
+  chequeDocumentoEmitente: string;
+  chequeNumero: string;
 }
 
 export interface CardInstallment {
@@ -69,6 +78,21 @@ export interface CardPaymentDetails {
   totalParcelas?: number;
 }
 
+/** Dados do cheque, capturados no modal de digitacao de cheque (ver
+ * src/components/finance/ChequeCaptureModal.tsx). bancoEmissor/numeroCheque/
+ * dataCompensacao sao obrigatorios -- sem eles nao da pra conciliar o
+ * cheque depois. O resto e' complementar, omitido quando em branco (nunca
+ * gravamos undefined no Firestore). */
+export interface ChequeDetails {
+  bancoEmissor: string;
+  numeroCheque: string;
+  dataCompensacao: string;
+  agencia?: string;
+  titular?: string;
+  emitente?: string;
+  documentoEmitente?: string;
+}
+
 export interface PaymentRecord {
   id: string;
   indice: number;
@@ -83,6 +107,7 @@ export interface PaymentRecord {
   dataVencimento?: string;
   dataPrevistaRecebimento?: string;
   cartao?: CardPaymentDetails;
+  cheque?: ChequeDetails;
   transactionId?: string;
   formaRecebimento?: PaymentMethod;
   naturezaRecebimento?: FinancialNature;
@@ -321,7 +346,7 @@ export const isPhysicalCashPayment = (method?: string) => method === 'Dinheiro';
  * incerto ate a baixa) ficam de fora.
  */
 export const paymentRequiresBankAccount = (method: PaymentMethod) => (
-  method === 'Pix' || method === 'Transferência' || isCardPayment(method)
+  method === 'Pix' || method === 'Transferência' || method === 'Cheque' || isCardPayment(method)
 );
 
 /**
@@ -463,6 +488,44 @@ export const formaPagamentoInicial = (exigirEscolha: boolean): PaymentMethod | '
   exigirEscolha ? '' : 'Dinheiro'
 );
 
+/** Monta os dados do cheque a partir do que foi digitado no modal (ver
+ * ChequeCaptureModal). Banco emissor, numero do cheque e data de
+ * compensacao sao obrigatorios -- sem eles nao da pra conciliar o cheque
+ * depois (regra 2 do CLAUDE.md: erro claro, em portugues, dizendo o que
+ * falta). O resto e' complementar, omitido do objeto quando em branco. */
+export const buildChequeDetails = (args: {
+  bancoEmissor: string;
+  numeroCheque: string;
+  dataCompensacao: string;
+  agencia?: string;
+  titular?: string;
+  emitente?: string;
+  documentoEmitente?: string;
+}): ChequeDetails => {
+  const bancoEmissor = args.bancoEmissor?.trim();
+  const numeroCheque = args.numeroCheque?.trim();
+  if (!bancoEmissor) throw new Error('Informe o banco emissor do cheque.');
+  if (!numeroCheque) throw new Error('Informe o número do cheque.');
+  if (!args.dataCompensacao || !parseDateInput(args.dataCompensacao)) {
+    throw new Error('Informe a data de compensação do cheque.');
+  }
+
+  const agencia = args.agencia?.trim();
+  const titular = args.titular?.trim();
+  const emitente = args.emitente?.trim();
+  const documentoEmitente = args.documentoEmitente?.replace(/\D/g, '');
+
+  return {
+    bancoEmissor,
+    numeroCheque,
+    dataCompensacao: args.dataCompensacao,
+    ...(agencia ? { agencia } : {}),
+    ...(titular ? { titular } : {}),
+    ...(emitente ? { emitente } : {}),
+    ...(documentoEmitente ? { documentoEmitente } : {}),
+  };
+};
+
 export const createEmptyPaymentDraft = (
   id: string,
   amountCents: number,
@@ -481,6 +544,12 @@ export const createEmptyPaymentDraft = (
   dataPrevistaRecebimento: '',
   bancoId: '',
   bancoNome: '',
+  chequeBancoEmissor: '',
+  chequeAgencia: '',
+  chequeTitular: '',
+  chequeEmitente: '',
+  chequeDocumentoEmitente: '',
+  chequeNumero: '',
 });
 
 export const normalizePayments = (
@@ -638,6 +707,27 @@ export const normalizePayments = (
         operadora: draft.operadora,
         autorizacao: draft.autorizacao,
       });
+    } else if (draft.forma === 'Cheque') {
+      // Compensacao reaproveita dataPrevistaRecebimento (mesmo campo que o
+      // cartao usa pro "primeiro recebimento previsto") -- nunca antes da
+      // data da venda, senao a data nao faz sentido pra compensar depois.
+      const dataCompensacao = draft.dataPrevistaRecebimento;
+      if (!dataCompensacao || !parseDateInput(dataCompensacao)) {
+        throw new Error(`Informe a data de compensação do cheque do pagamento ${index + 1}.`);
+      }
+      if (Number(differenceInCalendarDays(saleDate, dataCompensacao)) < 0) {
+        throw new Error(`A data de compensação do cheque do pagamento ${index + 1} não pode ser anterior à data da venda.`);
+      }
+      record.dataPrevistaRecebimento = dataCompensacao;
+      record.cheque = buildChequeDetails({
+        bancoEmissor: draft.chequeBancoEmissor,
+        numeroCheque: draft.chequeNumero,
+        dataCompensacao,
+        agencia: draft.chequeAgencia,
+        titular: draft.chequeTitular,
+        emitente: draft.chequeEmitente,
+        documentoEmitente: draft.chequeDocumentoEmitente,
+      });
     }
 
     return record;
@@ -731,6 +821,46 @@ export const summarizePayments = (payments: PaymentRecord[]) => {
       ? 'aprazo' as const
       : 'avista' as const,
   };
+};
+
+/**
+ * Marca um PaymentRecord existente como Cheque aguardando compensação --
+ * usado quando uma baixa em Contas a Receber é feita em cheque pra um
+ * título que já estava pendente por outro motivo (ex: Pagamento a Prazo).
+ * Ao contrário de applyPaymentReceipt, NÃO confirma o pagamento -- só troca
+ * a forma e anexa os dados do cheque, mantendo status 'pendente' até a
+ * compensação de verdade (ver Financeiro > Cheques). Mesma lógica de
+ * localizar o pagamento-alvo que applyPaymentReceipt já usa.
+ */
+export const tagPaymentAsChequeAwaitingClearance = (
+  payments: PaymentRecord[],
+  args: {
+    transactionId: string;
+    paymentIndex?: number;
+    cheque: ChequeDetails;
+    bancoId?: string;
+    bancoNome?: string;
+  },
+): PaymentRecord[] => {
+  const targetIndex = payments.findIndex((payment) => (
+    payment.transactionId === args.transactionId ||
+    (
+      args.paymentIndex !== undefined &&
+      payment.indice === args.paymentIndex &&
+      payment.status !== 'confirmado'
+    )
+  ));
+  if (targetIndex < 0) {
+    throw new Error('O pagamento vinculado à conta a receber não foi encontrado na venda.');
+  }
+
+  return payments.map((payment, index) => (index === targetIndex ? {
+    ...payment,
+    formaPagamento: 'Cheque' as const,
+    cheque: args.cheque,
+    dataPrevistaRecebimento: args.cheque.dataCompensacao,
+    ...(args.bancoId ? { bancoId: args.bancoId, bancoNome: args.bancoNome || '' } : {}),
+  } : payment));
 };
 
 export const applyPaymentReceipt = (

@@ -389,7 +389,7 @@ export const resolverSiglaUnidade = (textoUnidade: string): string => {
  * interpretarQuantidade (sem "+", sem sufixo de unidade): so troca virgula
  * decimal brasileira por ponto. Devolve null quando a celula esta vazia ou
  * nao e um numero, sem tentar adivinhar. */
-const parseValorMonetario = (bruto: string | undefined): number | null => {
+export const parseValorMonetario = (bruto: string | undefined): number | null => {
   // Remove "R$", espaco e qualquer letra -- planilha de preco costuma vir
   // formatada como moeda ("R$ 14,00"), nao so o numero cru.
   const limpo = (bruto || '').trim().replace(/r\$\s*/i, '').replace(/\s/g, '');

@@ -139,7 +139,7 @@ service cloud.firestore {
         (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
         (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
         (collectionName == 'bandeiras_cartao' && hasPermission('cadastros.bandeiras_cartao')) ||
-        (collectionName == 'bancos' && hasAnyPermission(['cadastros.bancos', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'financeiro.banco', 'financeiro.receber', 'financeiro.pagar', 'estoque.nota_avulsa'])) ||
+        (collectionName == 'bancos' && hasAnyPermission(['cadastros.bancos', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'financeiro.banco', 'financeiro.cheques', 'financeiro.receber', 'financeiro.pagar', 'estoque.nota_avulsa'])) ||
         (collectionName == 'lancamentos_bancarios' && hasPermission('cadastros.bancos')) ||
         (collectionName == 'ordens_de_servico' && hasAnyPermission(['mecanica.os', 'mecanica.os_alterar'])) ||
         // vendas.pedidos_pendentes_editar cobre tanto editar/finalizar quanto
@@ -160,7 +160,7 @@ service cloud.firestore {
         (collectionName == 'notas_fiscais' && hasAnyPermission(['fiscal.emitir', 'fiscal.excluir'])) ||
         (collectionName == 'notas_fiscais_entrada' && hasPermission('fiscal.entrada')) ||
         (collectionName == 'creditos_cliente' && hasAnyPermission(['vendas.pedidos', 'financeiro.receber'])) ||
-        (collectionName == 'transacoes' && hasAnyPermission(['financeiro.caixa', 'financeiro.banco', 'financeiro.receber', 'financeiro.pagar', 'financeiro.estornar', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'estoque.nota_avulsa'])) ||
+        (collectionName == 'transacoes' && hasAnyPermission(['financeiro.caixa', 'financeiro.banco', 'financeiro.cheques', 'financeiro.receber', 'financeiro.pagar', 'financeiro.estornar', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'estoque.nota_avulsa'])) ||
         (collectionName == 'caixas_pdv' && hasAnyPermission(['vendas.pedidos', 'financeiro.caixa_registros'])) ||
         (collectionName == 'notas_avulsas' && hasPermission('estoque.nota_avulsa')) ||
         (collectionName in ['integracoes_canais', 'integracoes_produtos', 'integracoes_fila', 'pedidos_externos', 'integracoes_logs'] && hasPermission('cadastros.estoque'));
@@ -304,6 +304,15 @@ service cloud.firestore {
           doesNotChangePlatformManagedFields()
         );
       allow delete: if isSuperAdmin();
+    }
+
+    // Configuracao de plataforma, nao de tenant -- hoje so guarda a chave
+    // mestra da conta Spedy (usada pra cadastrar empresa+certificado de
+    // cada cliente novo). So o SuperAdmin/NexarAdmin le e escreve; o
+    // backend usa Admin SDK e ignora essa regra, mas a tela de
+    // administracao (SuperAdmin.tsx) escreve direto pelo client SDK.
+    match /plataforma/{docId} {
+      allow read, write: if isSuperAdmin();
     }
 
     match /configuracoes_privadas/{tenantId} {

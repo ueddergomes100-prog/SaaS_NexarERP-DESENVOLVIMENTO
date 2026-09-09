@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { collection, query, onSnapshot, where, doc, getDocs, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
-import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search } from 'lucide-react';
+import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload } from 'lucide-react';
 import {
   applyPaymentReceipt,
   financialNatureForPayment,
@@ -11,15 +12,18 @@ import {
   paymentRequiresBankAccount,
   settledFinancialNatureForPayment,
   summarizePayments,
+  tagPaymentAsChequeAwaitingClearance,
   toCents,
   transactionDueDateInput,
   transactionNetAmount,
+  type ChequeDetails,
   type PaymentMethod,
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
+import ChequeCaptureModal from '../../components/finance/ChequeCaptureModal';
 import './Financeiro.css';
 
 interface TransacaoData {
@@ -104,6 +108,7 @@ const legacyPaymentForTransaction = (
 };
 
 const ContasReceber: React.FC = () => {
+  const { openTab } = useTabs();
   const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
   const [loading, setLoading] = useState(true);
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
@@ -113,6 +118,7 @@ const ContasReceber: React.FC = () => {
   });
   const [valorAbater, setValorAbater] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [chequeBaixaState, setChequeBaixaState] = useState<{ transacao: TransacaoData; bancoId?: string; bancoNome?: string } | null>(null);
   const [clientesExpandidos, setClientesExpandidos] = useState<Set<string>>(new Set());
   const [buscaCliente, setBuscaCliente] = useState('');
 
@@ -254,6 +260,79 @@ const ContasReceber: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
+  /**
+   * Baixa em cheque NÃO pode confirmar na hora, diferente de
+   * confirmarRecebimento (que marca Paga e credita o banco na mesma
+   * transação, sempre). Cheque só é Paga de verdade quando compensa --
+   * até lá fica Pendente, com os dados do cheque anexados, e aparece na
+   * fila de Financeiro > Cheques (mesmo caminho de um cheque capturado já
+   * na venda/OS).
+   */
+  const registrarChequeParaCompensar = async (
+    t: TransacaoData,
+    dadosCheque: ChequeDetails,
+    bancoId?: string,
+    bancoNome?: string,
+  ) => {
+    if (!tenantId || !currentUser) return;
+    const transactionRef = doc(db, 'transacoes', t.id);
+
+    await runTransaction(db, async (transaction) => {
+      const transactionSnap = await transaction.get(transactionRef);
+      if (!transactionSnap.exists()) throw new Error('Conta a receber não encontrada.');
+      const transactionData = transactionSnap.data();
+      if (transactionData.status === 'Paga') return;
+      if (transactionData.status === 'Cancelada') {
+        throw new Error('Uma conta cancelada não pode ser recebida.');
+      }
+
+      let sourceRef = null;
+      let sourceSnap = null;
+      const saleId = transactionData.pedidoId || t.pedidoId;
+      const serviceOrderId = transactionData.osId || t.osId;
+      if (saleId) {
+        sourceRef = doc(db, 'pedidos_venda', saleId);
+        sourceSnap = await transaction.get(sourceRef);
+      } else if (serviceOrderId) {
+        sourceRef = doc(db, 'ordens_de_servico', serviceOrderId);
+        sourceSnap = await transaction.get(sourceRef);
+      }
+      if (sourceSnap?.exists() && sourceSnap.data().status === 'Cancelada') {
+        throw new Error(saleId ? 'A venda vinculada está cancelada.' : 'A OS vinculada está cancelada.');
+      }
+
+      transaction.update(transactionRef, {
+        formaPagamentoOriginal: transactionData.formaPagamentoOriginal || transactionData.formaPagamento || null,
+        formaPagamento: 'Cheque',
+        cheque: dadosCheque,
+        dataPrevistaRecebimento: dadosCheque.dataCompensacao,
+        ...(bancoId ? { bancoId, bancoNome: bancoNome || null } : {}),
+        updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Baixa registrada em cheque, aguardando compensação'),
+      });
+
+      if (sourceRef && sourceSnap?.exists()) {
+        const sourceData = sourceSnap.data();
+        const payments: PaymentRecord[] = Array.isArray(sourceData.pagamentos) && sourceData.pagamentos.length > 0
+          ? sourceData.pagamentos
+          : [legacyPaymentForTransaction(t.id, transactionData)];
+        const updatedPayments = tagPaymentAsChequeAwaitingClearance(payments, {
+          transactionId: t.id,
+          paymentIndex: transactionData.paymentIndex,
+          cheque: dadosCheque,
+          bancoId,
+          bancoNome,
+        });
+
+        transaction.update(sourceRef, {
+          pagamentos: updatedPayments,
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Baixa registrada em cheque, aguardando compensação'),
+        });
+      }
+    });
+  };
+
   const solicitarFormaRecebimento = async (t: TransacaoData) => {
     const result = await NexusSwal.fire({
       title: 'Confirmar Recebimento?',
@@ -266,10 +345,11 @@ const ContasReceber: React.FC = () => {
         'Cartão de Crédito': 'Cartão de Crédito',
         'Cartão de Débito': 'Cartão de Débito',
         'Transferência': 'Transferência',
+        'Cheque': 'Cheque',
         'Outros': 'Outros'
       },
       inputPlaceholder: 'Selecione a forma de recebimento',
-      inputValue: t.formaPagamento && ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Outros'].includes(t.formaPagamento) ? t.formaPagamento : '',
+      inputValue: t.formaPagamento && ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Outros'].includes(t.formaPagamento) ? t.formaPagamento : '',
       showCancelButton: true,
       confirmButtonText: 'Confirmar recebimento',
       cancelButtonText: 'Cancelar',
@@ -294,7 +374,7 @@ const ContasReceber: React.FC = () => {
         return;
       }
       const bancoResult = await NexusSwal.fire({
-        title: 'Em qual banco caiu?',
+        title: formaPgto === 'Cheque' ? 'Em qual banco vai cair quando compensar?' : 'Em qual banco caiu?',
         input: 'select',
         inputOptions: Object.fromEntries(bancosDisponiveis.map((b) => [b.id, b.nome])),
         inputPlaceholder: 'Selecione o banco',
@@ -306,6 +386,14 @@ const ContasReceber: React.FC = () => {
       if (!bancoResult.isConfirmed) return;
       bancoId = bancoResult.value as string;
       bancoNome = bancosDisponiveis.find((b) => b.id === bancoId)?.nome;
+    }
+
+    // Cheque nunca confirma na hora -- abre o modal de digitação, e só
+    // quando confirmado lá é que registra (Pendente, aguardando
+    // compensação em Financeiro > Cheques). Ver registrarChequeParaCompensar.
+    if (formaPgto === 'Cheque') {
+      setChequeBaixaState({ transacao: t, bancoId, bancoNome });
+      return;
     }
 
     try {
@@ -610,7 +698,15 @@ const ContasReceber: React.FC = () => {
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700 }}>Contas a Receber</h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Clientes com débito em aberto (Boleto, a Prazo) — cartão fica na tela Banco</p>
         </div>
-        <div style={{ display: 'flex', gap: '16px' }}>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+          <button
+            className="btn-secondary"
+            onClick={() => openTab('/financeiro/contas-receber/importar', 'Importar Contas a Receber')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Upload size={18} />
+            Importar títulos
+          </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
             <Clock size={24} color="#10b981" />
             <div>
@@ -849,6 +945,25 @@ const ContasReceber: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ChequeCaptureModal
+        aberto={chequeBaixaState !== null}
+        dataMinima={getDateInputInTimeZone()}
+        valorSugerido={chequeBaixaState ? transactionNetAmount(chequeBaixaState.transacao) : 0}
+        onFechar={() => setChequeBaixaState(null)}
+        onConfirmar={async (dados) => {
+          if (!chequeBaixaState) return;
+          try {
+            await registrarChequeParaCompensar(chequeBaixaState.transacao, dados, chequeBaixaState.bancoId, chequeBaixaState.bancoNome);
+            showSuccess('Cheque registrado! Ele aparece em Financeiro → Cheques até ser compensado.');
+          } catch (error) {
+            console.error('Erro ao registrar cheque para baixa:', error);
+            showError('Erro', error instanceof Error ? error.message : 'Não foi possível registrar o cheque.');
+          } finally {
+            setChequeBaixaState(null);
+          }
+        }}
+      />
     </div>
   );
 };

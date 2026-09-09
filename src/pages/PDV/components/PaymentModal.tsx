@@ -10,6 +10,8 @@ import {
   type PaymentMethod,
 } from '../../../utils/financeDomain';
 import { useTenantCollection, type TenantCollectionItem } from '../../../hooks/useTenantCollection';
+import ChequeCaptureModal from '../../../components/finance/ChequeCaptureModal';
+import { getDateInputInTimeZone } from '../../../utils/dateTime';
 import type { PdvFinanceConfig } from '../pdvHelpers';
 import { currency } from '../pdvHelpers';
 
@@ -34,6 +36,7 @@ const paymentMethods: PaymentMethod[] = [
   'Pix',
   'Cartão de Débito',
   'Cartão de Crédito',
+  'Cheque',
 ];
 
 const makePaymentDraft = (id: string, amountCents: number, defaultTermDays: number): PaymentDraft => ({
@@ -53,8 +56,10 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
 }) => {
   const [drafts, setDrafts] = useState<PaymentDraft[]>([]);
   const [observation, setObservation] = useState('');
+  const [chequeModalDraftId, setChequeModalDraftId] = useState<string | null>(null);
   const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
   const bancosAtivos = bancos.filter((b) => b.ativo);
+  const draftDoModalCheque = drafts.find((d) => d.id === chequeModalDraftId) || null;
 
   useEffect(() => {
     if (open) {
@@ -175,7 +180,15 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </label>
               )}
 
-              {(draft.forma !== 'Cartão de Crédito' || financeConfig.pagamentoCartaoSimplificadoAtivo) && (
+              {draft.forma === 'Cheque' && (
+                <div className="pdv-payment-placeholder">
+                  <button type="button" className="btn-secondary" onClick={() => setChequeModalDraftId(draft.id)}>
+                    {draft.chequeNumero ? `Cheque nº ${draft.chequeNumero}` : 'Preencher dados do cheque'}
+                  </button>
+                </div>
+              )}
+
+              {draft.forma !== 'Cheque' && (draft.forma !== 'Cartão de Crédito' || financeConfig.pagamentoCartaoSimplificadoAtivo) && (
                 <div className="pdv-payment-placeholder">
                   <span>
                     {isCardPayment(draft.forma) && financeConfig.pagamentoCartaoSimplificadoAtivo
@@ -217,6 +230,35 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
           {saving ? 'Finalizando...' : 'Finalizar venda'}
         </button>
       </div>
+
+      <ChequeCaptureModal
+        aberto={draftDoModalCheque !== null}
+        dataMinima={getDateInputInTimeZone()}
+        onConfirmar={(dados) => {
+          if (!draftDoModalCheque) return;
+          updateDraft(draftDoModalCheque.id, {
+            chequeBancoEmissor: dados.bancoEmissor,
+            chequeAgencia: dados.agencia || '',
+            chequeTitular: dados.titular || '',
+            chequeEmitente: dados.emitente || '',
+            chequeDocumentoEmitente: dados.documentoEmitente || '',
+            chequeNumero: dados.numeroCheque,
+            dataPrevistaRecebimento: dados.dataCompensacao,
+          });
+          setChequeModalDraftId(null);
+        }}
+        onFechar={() => setChequeModalDraftId(null)}
+        valorSugerido={draftDoModalCheque ? Number(draftDoModalCheque.valor.replace(',', '.')) || 0 : 0}
+        valoresIniciais={draftDoModalCheque ? {
+          bancoEmissor: draftDoModalCheque.chequeBancoEmissor,
+          agencia: draftDoModalCheque.chequeAgencia,
+          titular: draftDoModalCheque.chequeTitular,
+          emitente: draftDoModalCheque.chequeEmitente,
+          documentoEmitente: draftDoModalCheque.chequeDocumentoEmitente,
+          numeroCheque: draftDoModalCheque.chequeNumero,
+          dataCompensacao: draftDoModalCheque.dataPrevistaRecebimento,
+        } : undefined}
+      />
     </div>
   );
 };

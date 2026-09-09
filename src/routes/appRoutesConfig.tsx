@@ -37,9 +37,12 @@ const LembreteForm = lazy(() => import('../pages/Lembretes/LembreteForm'));
 const Caixa = lazy(() => import('../pages/Financeiro/Caixa'));
 const CaixaRegistros = lazy(() => import('../pages/Financeiro/CaixaRegistros'));
 const Banco = lazy(() => import('../pages/Financeiro/Banco'));
+const Cheques = lazy(() => import('../pages/Financeiro/Cheques'));
 const Faturamento = lazy(() => import('../pages/Financeiro/Faturamento'));
 const ContasReceber = lazy(() => import('../pages/Financeiro/ContasReceber'));
 const ContasPagar = lazy(() => import('../pages/Financeiro/ContasPagar'));
+const ImportarContasReceber = lazy(() => import('../pages/Financeiro/ImportarContasReceber'));
+const ImportarContasPagar = lazy(() => import('../pages/Financeiro/ImportarContasPagar'));
 const RelatorioComissoes = lazy(() => import('../pages/Financeiro/RelatorioComissoes'));
 const ClientesList = lazy(() => import('../pages/Clientes/ClientesList'));
 const ClienteForm = lazy(() => import('../pages/Clientes/ClienteForm'));
@@ -50,6 +53,7 @@ const ServicosList = lazy(() => import('../pages/Servicos/ServicosList'));
 const ServicoForm = lazy(() => import('../pages/Servicos/ServicoForm'));
 const CategoriasList = lazy(() => import('../pages/Categorias/CategoriasList'));
 const CategoriaForm = lazy(() => import('../pages/Categorias/CategoriaForm'));
+const ImportarCategorias = lazy(() => import('../pages/Categorias/ImportarCategorias'));
 const Agenda = lazy(() => import('../pages/CRM/Agenda'));
 const NFE = lazy(() => import('../pages/Fiscal/NFE'));
 const EntradaNFE = lazy(() => import('../pages/Fiscal/EntradaNFE'));
@@ -72,6 +76,7 @@ const LogsSistema = lazy(() => import('../pages/Configuracoes/LogsSistema'));
 const RoadmapModule = lazy(() => import('../pages/Roadmap/RoadmapModule'));
 const FornecedoresList = lazy(() => import('../pages/Fornecedores/FornecedoresList'));
 const FornecedorForm = lazy(() => import('../pages/Fornecedores/FornecedorForm'));
+const ImportarFornecedores = lazy(() => import('../pages/Fornecedores/ImportarFornecedores'));
 const MateriasPrimasList = lazy(() => import('../pages/Producao/MateriasPrimasList'));
 const MateriaPrimaForm = lazy(() => import('../pages/Producao/MateriaPrimaForm'));
 const OrdensProducaoList = lazy(() => import('../pages/Producao/OrdensProducaoList'));
@@ -130,8 +135,11 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'financeiro/caixa', element: <Caixa /> },
   { path: 'financeiro/caixa-registros', element: <CaixaRegistros /> },
   { path: 'financeiro/banco', element: <Banco /> },
+  { path: 'financeiro/cheques', element: <Cheques /> },
   { path: 'financeiro/contas-receber', element: <ContasReceber /> },
+  { path: 'financeiro/contas-receber/importar', element: <ImportarContasReceber /> },
   { path: 'financeiro/contas-pagar', element: <ContasPagar /> },
+  { path: 'financeiro/contas-pagar/importar', element: <ImportarContasPagar /> },
   { path: 'financeiro/faturamento', element: <Faturamento /> },
   { path: 'financeiro/comissoes', element: <RelatorioComissoes /> },
 
@@ -156,6 +164,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'categorias', element: <CategoriasList /> },
   { path: 'categorias/nova', element: <CategoriaForm /> },
   { path: 'categorias/editar/:id', element: <CategoriaForm /> },
+  { path: 'categorias/importar', element: <ImportarCategorias /> },
 
   { path: 'unidades-medida', element: <UnidadesMedidaList /> },
   { path: 'bandeiras-cartao', element: <BandeirasCartaoList /> },
@@ -164,6 +173,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'fornecedores', element: <FornecedoresList /> },
   { path: 'fornecedores/novo', element: <FornecedorForm /> },
   { path: 'fornecedores/editar/:id', element: <FornecedorForm /> },
+  { path: 'fornecedores/importar', element: <ImportarFornecedores /> },
 
   { path: 'materias-primas', element: <MateriasPrimasList /> },
   { path: 'materias-primas/nova', element: <MateriaPrimaForm /> },

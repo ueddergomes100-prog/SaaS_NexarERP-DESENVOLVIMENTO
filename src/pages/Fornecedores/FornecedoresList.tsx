@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Truck, Edit, Power } from 'lucide-react';
+import { Search, Plus, Truck, Edit, Power, Upload } from 'lucide-react';
 import { collection, query, onSnapshot, doc, updateDoc, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -101,6 +101,14 @@ const FornecedoresList: React.FC = () => {
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Cadastro de fornecedores usados na entrada de notas fiscais e compras</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
+          <button
+            className="btn-secondary"
+            onClick={() => openTab('/fornecedores/importar', 'Importar Fornecedores')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Upload size={18} />
+            Importar fornecedores
+          </button>
           <button className="btn-primary" onClick={() => openTab('/fornecedores/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Novo Fornecedor
           </button>

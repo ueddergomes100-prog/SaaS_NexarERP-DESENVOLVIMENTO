@@ -65,7 +65,11 @@ const buildCompanyPayload = (config) => {
     federalTaxNumber: cnpj,
     ...(config.inscricaoEstadual ? { stateTaxNumber: String(config.inscricaoEstadual).trim() } : {}),
     ...(config.email ? { email: String(config.email).trim() } : {}),
-    ...(config.telefone ? { phone: String(config.telefone).trim() } : {}),
+    // A doc da Spedy nao especifica o formato exato de "phone" -- mandar
+    // formatado ("(27) 3735-5002") deu "The field Phone is invalid" na
+    // pratica (2026-09-09). So digitos e a tentativa seguinte mais obvia;
+    // se ainda rejeitar, conferir com o suporte da Spedy o padrao exato.
+    ...(config.telefone && String(config.telefone).replace(/\D/g, '') ? { phone: String(config.telefone).replace(/\D/g, '') } : {}),
     address: {
       ...(config.rua || config.endereco ? { street: String(config.rua || config.endereco).trim() } : {}),
       ...(config.numero ? { number: String(config.numero).trim() } : {}),

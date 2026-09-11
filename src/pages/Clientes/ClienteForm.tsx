@@ -82,6 +82,45 @@ const ClienteForm: React.FC = () => {
     setShowCidadeDropdown(false);
   };
 
+  const [isCepSearching, setIsCepSearching] = useState(false);
+  const [cepSearchError, setCepSearchError] = useState('');
+
+  // Busca o endereco completo pelo CEP (ViaCEP -- publico, sem chave, e ja
+  // devolve o codigo IBGE da cidade direto, sem depender da Spedy estar
+  // configurada). Preenche rua/bairro/cidade/estado/codigoIbge de uma vez
+  // -- numero continua manual, o CEP nao sabe o numero da casa.
+  const buscarEnderecoPorCep = async () => {
+    const cepLimpo = formData.cep.replace(/\D/g, '');
+    if (cepLimpo.length !== 8) {
+      if (cepLimpo.length > 0) setCepSearchError('CEP precisa ter 8 dígitos.');
+      return;
+    }
+    setIsCepSearching(true);
+    setCepSearchError('');
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+      const data = await response.json();
+      if (data.erro) {
+        setCepSearchError('CEP não encontrado. Confira o número ou preencha o endereço manualmente.');
+        return;
+      }
+      setFormData(prev => ({
+        ...prev,
+        endereco: data.logradouro || prev.endereco,
+        bairro: data.bairro || prev.bairro,
+        cidade: data.localidade || prev.cidade,
+        estado: data.uf || prev.estado,
+        codigoIbge: data.ibge || prev.codigoIbge,
+      }));
+      setCidadeSearchTerm('');
+    } catch (error) {
+      console.error('Erro ao buscar CEP:', error);
+      setCepSearchError('Não foi possível consultar o CEP agora. Preencha o endereço manualmente.');
+    } finally {
+      setIsCepSearching(false);
+    }
+  };
+
   useEffect(() => {
     const fetchInitialData = async () => {
       if (!tenantId) return;
@@ -292,25 +331,36 @@ const ClienteForm: React.FC = () => {
             <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Endereço</h3>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', alignItems: 'start' }}>
+            <div className="input-group">
+              <label>CEP</label>
+              <input
+                type="text"
+                name="cep"
+                placeholder="36900-000"
+                value={formData.cep}
+                onChange={handleChange}
+                onBlur={buscarEnderecoPorCep}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+              />
+              {isCepSearching && <small style={{ color: 'var(--text-muted)' }}>Buscando endereço...</small>}
+              {!isCepSearching && cepSearchError && <small style={{ color: '#ef4444' }}>{cepSearchError}</small>}
+              {!isCepSearching && !cepSearchError && <small style={{ color: 'var(--text-muted)' }}>Digite o CEP e saia do campo pra preencher o endereço automaticamente.</small>}
+            </div>
             <div className="input-group">
               <label>Rua / Logradouro</label>
               <input type="text" name="endereco" placeholder="Av. Central" value={formData.endereco} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
-            </div>
-            <div className="input-group">
-              <label>Número</label>
-              <input type="text" name="numero" placeholder="123" value={formData.numero} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group">
-              <label>Bairro</label>
-              <input type="text" name="bairro" placeholder="Centro" value={formData.bairro} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <label>Número</label>
+              <input type="text" name="numero" placeholder="123" value={formData.numero} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
             <div className="input-group">
-              <label>CEP</label>
-              <input type="text" name="cep" placeholder="36900-000" value={formData.cep} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <label>Bairro</label>
+              <input type="text" name="bairro" placeholder="Centro" value={formData.bairro} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
 
@@ -346,7 +396,7 @@ const ClienteForm: React.FC = () => {
                 ))}
               </div>
             )}
-            <small style={{ color: 'var(--text-muted)' }}>Necessária com código IBGE pra emitir NF-e de produto pra este cliente.</small>
+            <small style={{ color: 'var(--text-muted)' }}>Já vem preenchida ao buscar o CEP acima. Use esta busca só se não tiver o CEP em mãos -- necessária com código IBGE pra emitir NF-e de produto pra este cliente.</small>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)', marginTop: '12px' }}>

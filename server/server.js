@@ -15,6 +15,7 @@ const spedyWebhookRoutes = require('./routes/spedyWebhook.routes');
 const sessionRoutes = require('./routes/session.routes');
 const onboardingRoutes = require('./routes/onboarding.routes');
 const vendedorPinRoutes = require('./routes/vendedorPin.routes');
+const vendedorMobileAuthRoutes = require('./routes/vendedorMobileAuth.routes');
 const documentosRoutes = require('./routes/documentos.routes');
 
 const app = express();
@@ -91,6 +92,7 @@ app.use('/api/onboarding', onboardingRoutes);
 // Identificacao do vendedor na venda (codigo + PIN). Todas as rotas exigem
 // token Firebase -- ver vendedorPin.routes.js.
 app.use('/api/vendedor-pin', vendedorPinRoutes);
+app.use('/api/vendedor', vendedorMobileAuthRoutes);
 // Consulta de CNPJ (Receita Federal) pra validar Cliente/Fornecedor ja
 // cadastrado. Todas as rotas exigem token Firebase -- ver documentos.routes.js.
 app.use('/api/documentos', documentosRoutes);

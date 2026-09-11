@@ -61,6 +61,10 @@ service cloud.firestore {
         'plano',
         'valorMensalidade',
         'limiteUsuarios',
+        // Limite de acessos ao aplicativo mobile (vendedor externo). Mesmo
+        // motivo do limiteUsuarios: contratado a parte, so o SuperAdmin
+        // altera. Padrao quando ausente e' 0 -- ver acessoMobileDomain.ts.
+        'limiteAcessoMobile',
         'limites',
         'statusSaas',
         'billingStatus',
@@ -104,7 +108,13 @@ service cloud.firestore {
         'comissaoPercentualServicos',
         'recebeComissaoPecas',
         'comissaoPercentualPecas',
-        'status'
+        'status',
+        // Acesso ao aplicativo mobile (vendedor externo). So liga se a
+        // empresa tiver limiteAcessoMobile contratado -- ver
+        // acessoMobileDomain.ts. Nao e' platformManagedFields: quem liga/
+        // desliga por pessoa e' o Admin/Master da propria empresa, dentro
+        // do limite que so o SuperAdmin controla.
+        'acessoAppMobile'
       ].concat(documentAuditFields());
     }
 
@@ -285,6 +295,27 @@ service cloud.firestore {
       // Mesmo motivo do /usuarios acima -- so SuperAdmin (usado no wipe de
       // tenant do SuperAdmin.tsx).
       allow delete: if isSuperAdmin();
+    }
+
+    // Indice publico de login do vendedor de balcao no aplicativo mobile:
+    // doc id = "{cnpj}-{codigoVendedor}" -> {tenantId, vendedorId}. So o
+    // backend (Admin SDK, ignora estas regras) le -- o app mobile chama o
+    // endpoint /api/vendedor/mobile-login, nunca le esta colecao direto.
+    // Escrita e' do mesmo jeito que /usernames: o Admin/Master da propria
+    // empresa mantem o indice ao ligar/desligar "Usa o aplicativo mobile"
+    // em VendedoresList.tsx.
+    match /vendedores_mobile_login/{chave} {
+      allow get, list: if isSuperAdmin();
+      allow create, update: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          request.resource.data.tenantId == currentTenantId()
+        );
+      allow delete: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          resource.data.tenantId == currentTenantId()
+        );
     }
 
     match /configuracoes/{tenantId} {

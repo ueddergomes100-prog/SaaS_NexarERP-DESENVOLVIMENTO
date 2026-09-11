@@ -3,12 +3,15 @@ import { BadgeCheck, Edit, KeyRound, Plus, Power, Search, UserCheck, X } from 'l
 import {
   addDoc,
   collection,
+  deleteDoc,
   deleteField,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -22,6 +25,8 @@ import { DEFAULT_NIVEL_ACESSO } from '../../utils/visibilidadeVendasDomain';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { PERMISSAO_LIBERAR_DESCONTO } from '../../utils/permissionCatalog';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
+import { checarLimiteAcessoMobile, montarChaveVendedorMobileLogin } from '../../utils/acessoMobileDomain';
+import { checarPrefixoDaEmpresa } from '../../utils/loginIdentidadeDomain';
 import {
   CODIGO_VENDEDOR_DIGITOS,
   isPinVendedorFraco,
@@ -68,6 +73,9 @@ interface VendedorData {
    *  avisar ANTES do vendedor descobrir isso no balcao com cliente na
    *  frente. Ver server/services/vendedorPin.js. */
   pinDefinidoEm?: unknown;
+  /** Acesso ao aplicativo mobile do vendedor externo, com o mesmo codigo+PIN
+   *  do balcao. Ver acessoMobileDomain.ts. */
+  acessoAppMobile?: boolean;
 }
 
 interface FormState {
@@ -81,6 +89,8 @@ interface FormState {
   comissaoPercentualPecas: string;
   /** Pode liberar desconto acima do limite, digitando o proprio PIN. */
   liberaDesconto: boolean;
+  /** Usa o aplicativo mobile do vendedor externo, com o mesmo codigo+PIN. */
+  acessoAppMobile: boolean;
 }
 
 const FORM_VAZIO: FormState = {
@@ -93,7 +103,17 @@ const FORM_VAZIO: FormState = {
   recebeComissaoPecas: false,
   comissaoPercentualPecas: '',
   liberaDesconto: false,
+  acessoAppMobile: false,
 };
+
+/** Permissoes minimas pra o vendedor de balcao operar no aplicativo mobile
+ *  (montar pre-venda/orcamento, consultar cliente). Uniao com o que a
+ *  pessoa ja tem -- nunca remove nada que ja estivesse liberado.
+ *  `vendas.pre_venda_criar`, nao `vendas.pedidos`: o pedido do vendedor
+ *  externo SEMPRE nasce como pre-venda (ver vendedorExternoVendaService.ts),
+ *  nunca fecha venda direto -- entao a permissao concedida e' exatamente a
+ *  que ele usa, nada a mais. */
+const PERMISSOES_MINIMAS_APP_MOBILE = ['vendas.pre_venda_criar', 'vendas.orcamentos', 'cadastros.clientes'];
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -118,6 +138,18 @@ const VendedoresList: React.FC = () => {
   const buscaRef = useRef<HTMLInputElement>(null);
 
   const podeGerenciar = isTenantManagerRole(userRole);
+  /** CNPJ da empresa, precisado so' quando o admin liga "Usa o aplicativo
+   *  mobile" -- e' a chave do indice de login (ver montarChaveVendedorMobileLogin
+   *  em acessoMobileDomain.ts). Mesma fonte que UsuarioForm.tsx usa pro login
+   *  do funcionario. */
+  const [cnpjEmpresa, setCnpjEmpresa] = useState('');
+
+  useEffect(() => {
+    if (!tenantId) return;
+    getDoc(doc(db, 'configuracoes', tenantId))
+      .then((snap) => setCnpjEmpresa(snap.exists() ? (snap.data().cnpj || '') : ''))
+      .catch(() => setCnpjEmpresa(''));
+  }, [tenantId]);
 
   useKeyboardShortcuts([
     { key: 'F2', handler: () => buscaRef.current?.focus() },
@@ -172,6 +204,7 @@ const VendedoresList: React.FC = () => {
       recebeComissaoPecas: vendedor.recebeComissaoPecas === true,
       comissaoPercentualPecas: vendedor.comissaoPercentualPecas != null ? String(vendedor.comissaoPercentualPecas) : '',
       liberaDesconto: (vendedor.permissoes || []).includes(PERMISSAO_LIBERAR_DESCONTO),
+      acessoAppMobile: vendedor.acessoAppMobile === true,
     });
     setModalAberto(true);
   };
@@ -232,6 +265,23 @@ const VendedoresList: React.FC = () => {
     }
     if (definindoPin && !(await pinLiberado(form.pin))) return;
 
+    // "Usa o aplicativo mobile" so cobra vaga do limite quando esta LIGANDO
+    // agora -- editar outro campo de quem ja tinha acesso nao passa por
+    // aqui. Ver acessoMobileDomain.ts.
+    const ligandoAcessoMobileAgora = form.acessoAppMobile && editando?.acessoAppMobile !== true;
+    if (ligandoAcessoMobileAgora) {
+      const checagemCnpj = checarPrefixoDaEmpresa(cnpjEmpresa);
+      if (!checagemCnpj.ok) {
+        showError('Cadastro da empresa incompleto', checagemCnpj.motivo);
+        return;
+      }
+      const checagemLimite = await checarLimiteAcessoMobile(tenantId);
+      if (!checagemLimite.ok) {
+        showError('Limite de acesso mobile atingido', checagemLimite.motivo);
+        return;
+      }
+    }
+
     setSalvando(true);
     try {
       if (await codigoJaEmUso(codigo, editando?.id ?? null)) {
@@ -253,7 +303,13 @@ const VendedoresList: React.FC = () => {
       // Mesma permissao do usuario com login -- conceito unico no sistema, so
       // que este aqui aprova digitando o PIN em vez da senha. Ver
       // SolicitarAprovacaoDescontoModal.
-      const permissoes = form.liberaDesconto ? [PERMISSAO_LIBERAR_DESCONTO] : [];
+      // Com o app mobile ligado, entram tambem as permissoes minimas pra
+      // operar nele (montar pedido/orcamento, consultar cliente) -- uniao
+      // com o que ja existia, nunca remove nada.
+      const permissoesBase = form.liberaDesconto ? [PERMISSAO_LIBERAR_DESCONTO] : [];
+      const permissoes = form.acessoAppMobile
+        ? Array.from(new Set([...permissoesBase, ...PERMISSOES_MINIMAS_APP_MOBILE]))
+        : permissoesBase;
 
       let vendedorId = editando?.id || '';
 
@@ -263,6 +319,7 @@ const VendedoresList: React.FC = () => {
           codigoVendedor: codigo,
           status: form.status,
           permissoes,
+          acessoAppMobile: form.acessoAppMobile,
           ...comissao,
           comissaoPercentualServicos: percentualServicos === undefined ? deleteField() : percentualServicos,
           comissaoPercentualPecas: percentualPecas === undefined ? deleteField() : percentualPecas,
@@ -279,6 +336,7 @@ const VendedoresList: React.FC = () => {
           tipoRegistro: 'vendedor',
           role: 'Funcionario',
           permissoes,
+          acessoAppMobile: form.acessoAppMobile,
           nivelAcesso: DEFAULT_NIVEL_ACESSO,
           status: form.status,
           tenantId,
@@ -290,6 +348,29 @@ const VendedoresList: React.FC = () => {
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         vendedorId = novo.id;
+      }
+
+      // Indice de login do app mobile: apaga a chave antiga (se o codigo
+      // mudou ou o acesso foi desligado) e grava a nova (se o acesso esta
+      // ligado agora). Nao trava o salvamento do vendedor se isto falhar --
+      // o cadastro ja foi gravado, e' so o atalho de login que ficaria
+      // pendente (o admin pode reabrir e salvar de novo).
+      try {
+        const chaveAntiga = editando?.acessoAppMobile
+          ? montarChaveVendedorMobileLogin(cnpjEmpresa, editando.codigoVendedor)
+          : '';
+        const chaveNova = form.acessoAppMobile
+          ? montarChaveVendedorMobileLogin(cnpjEmpresa, codigo)
+          : '';
+        if (chaveAntiga && chaveAntiga !== chaveNova) {
+          await deleteDoc(doc(db, 'vendedores_mobile_login', chaveAntiga));
+        }
+        if (chaveNova) {
+          await setDoc(doc(db, 'vendedores_mobile_login', chaveNova), { tenantId, vendedorId });
+        }
+      } catch (error) {
+        console.error('Erro ao atualizar índice de login do app mobile:', error);
+        showWarning(`${nome} foi salvo, mas o acesso ao aplicativo mobile pode não ter sido atualizado. Abra a edição e salve de novo.`);
       }
 
       if (definindoPin) {
@@ -343,6 +424,19 @@ const VendedoresList: React.FC = () => {
         updatedAt: serverTimestamp(),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus === 'Ativo' ? 'Vendedor reativado' : 'Vendedor inativado'),
       });
+
+      // Inativou com o app mobile ligado: apaga o indice de login. O
+      // backend ja recusaria (validarPin confere status Ativo), isto so
+      // evita deixar a chave velha pendurada apontando pra alguem inativo.
+      if (novoStatus === 'Inativo' && vendedor.acessoAppMobile) {
+        try {
+          const chave = montarChaveVendedorMobileLogin(cnpjEmpresa, vendedor.codigoVendedor);
+          if (chave) await deleteDoc(doc(db, 'vendedores_mobile_login', chave));
+        } catch (error) {
+          console.error('Erro ao limpar índice de login do app mobile:', error);
+        }
+      }
+
       showSuccess(novoStatus === 'Ativo' ? 'Vendedor ativado!' : 'Vendedor inativado!');
     } catch {
       showError('Não foi possível atualizar', 'O status do vendedor não foi alterado. Tente de novo em instantes.');
@@ -591,6 +685,27 @@ const VendedoresList: React.FC = () => {
                   senha, o nome dele aparece na lista de quem pode liberar — e ele confirma com o <strong>próprio código e
                   PIN</strong>, o mesmo que usa em cada venda. Não precisa de login no sistema e não ocupa vaga do plano.
                   Toda liberação (e toda tentativa recusada) fica registrada nos Logs.
+                </p>
+              </div>
+
+              <div style={{ gridColumn: 'span 2', borderTop: '1px solid var(--border-color)', paddingTop: '18px' }}>
+                <h4 style={{ margin: '0 0 4px 0', fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-purple)' }}></span>
+                  Aplicativo Mobile (Vendedor Externo)
+                </h4>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', marginTop: '10px' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.acessoAppMobile}
+                    onChange={(e) => setForm({ ...form, acessoAppMobile: e.target.checked })}
+                    style={{ width: '18px', height: '18px', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
+                  />
+                  Usa o aplicativo mobile
+                </label>
+                <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Libera este vendedor pra entrar no aplicativo mobile fora do balcão, com o <strong>mesmo código e
+                  PIN</strong> que já usa aqui. Consome uma vaga do limite de acesso mobile contratado pela empresa —
+                  fale com o suporte se precisar contratar ou aumentar.
                 </p>
               </div>
 

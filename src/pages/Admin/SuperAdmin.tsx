@@ -23,6 +23,9 @@ interface TenantInfo {
   nomeOficina: string;
   modulosBloqueados?: string[];
   limiteUsuarios?: number;
+  /** Vagas de acesso ao aplicativo mobile (vendedor externo), contratadas a
+   *  parte. Padrao quando ausente e' 0 -- ver acessoMobileDomain.ts. */
+  limiteAcessoMobile?: number;
   createdAt?: any;
 }
 
@@ -146,6 +149,7 @@ const SuperAdmin: React.FC = () => {
               nomeOficina: data.nomeOficina || 'Sem Nome',
               modulosBloqueados: data.modulosBloqueados || [],
               limiteUsuarios: data.limiteUsuarios !== undefined ? data.limiteUsuarios : 3,
+              limiteAcessoMobile: data.limiteAcessoMobile !== undefined ? data.limiteAcessoMobile : 0,
               createdAt: data.createdAt
             });
           }
@@ -394,6 +398,56 @@ const SuperAdmin: React.FC = () => {
       } catch (err) {
         console.error(err);
         Swal.fire('Erro', 'Não foi possível atualizar o limite de usuários.', 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  // Limite de acesso ao aplicativo mobile (vendedor externo) -- contratado a
+  // parte, por isso aceita 0 (ninguem tem, diferente do limite de usuarios
+  // que exige pelo menos 1) e o padrao quando ausente e' 0, nao 3.
+  const handleEditLimiteAcessoMobile = async (tenantId: string, currentLimit: number) => {
+    const { value: novoLimite } = await Swal.fire({
+      title: 'Editar Limite de Acesso Mobile',
+      input: 'number',
+      inputLabel: 'Quantidade de vendedores externos com acesso ao aplicativo mobile, para esta empresa',
+      inputValue: String(currentLimit),
+      showCancelButton: true,
+      confirmButtonColor: '#8b5cf6',
+      inputValidator: (value) => {
+        if (value === '' || isNaN(Number(value)) || Number(value) < 0) {
+          return 'Informe um limite maior ou igual a 0!';
+        }
+      }
+    });
+
+    if (novoLimite !== undefined && novoLimite !== null && currentUser) {
+      setLoading(true);
+      try {
+        const val = Number(novoLimite);
+        await updateDoc(doc(db, 'usuarios', tenantId), {
+          limiteAcessoMobile: val,
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Limite de acesso mobile alterado pelo admin da plataforma'),
+        });
+
+        try {
+          await updateDoc(doc(db, 'configuracoes', tenantId), {
+            limiteAcessoMobile: val,
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Limite de acesso mobile alterado pelo admin da plataforma'),
+          });
+        } catch {
+          await setDoc(doc(db, 'configuracoes', tenantId), {
+            limiteAcessoMobile: val,
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Limite de acesso mobile alterado pelo admin da plataforma'),
+          }, { merge: true });
+        }
+
+        setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, limiteAcessoMobile: val } : t));
+        Swal.fire('Atualizado!', 'Limite de acesso mobile atualizado com sucesso.', 'success');
+      } catch (err) {
+        console.error(err);
+        Swal.fire('Erro', 'Não foi possível atualizar o limite de acesso mobile.', 'error');
       } finally {
         setLoading(false);
       }
@@ -754,6 +808,7 @@ const SuperAdmin: React.FC = () => {
                   <th style={{ padding: '16px 0' }}>Plano</th>
                   <th style={{ padding: '16px 0' }}>Mensalidade</th>
                   <th style={{ padding: '16px 0' }}>Usuários</th>
+                  <th style={{ padding: '16px 0' }}>Acesso Mobile</th>
                   <th style={{ padding: '16px 0' }}>Status Fatura</th>
                   <th style={{ padding: '16px 0', textAlign: 'right' }}>Ação</th>
                 </tr>
@@ -805,6 +860,21 @@ const SuperAdmin: React.FC = () => {
                           onClick={() => handleEditLimit(tenant.id, tenant.limiteUsuarios !== undefined ? tenant.limiteUsuarios : 3)}
                           style={{ padding: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
                           title="Editar Limite de Usuários"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                    <td style={{ padding: '16px 0', fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={!tenant.limiteAcessoMobile ? { color: 'var(--text-muted)' } : undefined}>
+                          L: {tenant.limiteAcessoMobile !== undefined ? tenant.limiteAcessoMobile : 0}
+                        </span>
+                        <button
+                          className="icon-btn"
+                          onClick={() => handleEditLimiteAcessoMobile(tenant.id, tenant.limiteAcessoMobile !== undefined ? tenant.limiteAcessoMobile : 0)}
+                          style={{ padding: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          title="Editar Limite de Acesso Mobile"
                         >
                           <Edit2 size={14} />
                         </button>

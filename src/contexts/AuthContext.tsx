@@ -91,6 +91,9 @@ interface AuthContextType {
   /** Id pra filtrar vendas, ou null quando o usuario ve todas. Passe
    *  direto pra filtrarVendasVisiveis() -- ela ja trata o null. */
   vendasVisiveisDeUsuarioId: string | null;
+  /** Este login (Usuario ou Vendedor de balcao) tem acesso ao aplicativo
+   *  mobile do vendedor externo liberado. Ver acessoMobileDomain.ts. */
+  acessoAppMobile: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -158,6 +161,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
   const [agenteDigitalAtivo, setAgenteDigitalAtivo] = useState(DEFAULT_AGENTE_DIGITAL_ATIVO);
   const [temVendedorCadastrado, setTemVendedorCadastrado] = useState(false);
+  const [acessoAppMobile, setAcessoAppMobile] = useState(false);
   const [loading, setLoading] = useState(true);
   const sessionCloseTokenRef = useRef('');
 
@@ -200,6 +204,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsOwner(false);
         setTenantOptions([]);
         setSelectedTenant(null);
+        setAcessoAppMobile(false);
         clearStoredSessionId();
       };
 
@@ -329,6 +334,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             const finalTenant = typeof data.tenantId === 'string' && data.tenantId ? data.tenantId : user.uid;
             const finalPermissions = toStringArray(data.permissoes);
+            setAcessoAppMobile(data.acessoAppMobile === true);
             let finalBlockedModules: string[] = [];
 
             if (user.uid === finalTenant) {
@@ -374,6 +380,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsOwner(false);
         setTenantOptions([]);
         setSelectedTenant(null);
+        setAcessoAppMobile(false);
         setLoading(false);
       }
     });
@@ -586,7 +593,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile }}>
       {children}
     </AuthContext.Provider>
   );

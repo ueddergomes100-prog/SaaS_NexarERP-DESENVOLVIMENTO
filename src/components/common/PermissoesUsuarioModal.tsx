@@ -14,6 +14,7 @@ import {
   parseNivelAcesso,
   type NivelAcesso,
 } from '../../utils/visibilidadeVendasDomain';
+import { checarLimiteAcessoMobile } from '../../utils/acessoMobileDomain';
 
 interface PermissoesUsuarioModalProps {
   usuarioId: string;
@@ -33,12 +34,17 @@ interface PermissoesUsuarioModalProps {
  * bateria numa parede. O popup funciona pra quem ja esta na tela.
  */
 const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuarioId, usuarioNome, onClose, onSaved }) => {
-  const { currentUser, restringirVendasPorUsuario } = useAuth();
+  const { currentUser, tenantId, restringirVendasPorUsuario } = useAuth();
   const [permissoes, setPermissoes] = useState<string[]>([]);
   const [nivelAcesso, setNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
   const [busca, setBusca] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [acessoAppMobile, setAcessoAppMobile] = useState(false);
+  /** O que estava gravado quando o popup abriu -- so cobra vaga do limite
+   *  quando o admin esta LIGANDO agora, nao quando so salva outra coisa
+   *  de quem ja tinha acesso. Ver acessoMobileDomain.ts. */
+  const [acessoAppMobileOriginal, setAcessoAppMobileOriginal] = useState(false);
 
   useEscapeLayer(true, onClose);
 
@@ -50,6 +56,9 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
         const atuais = snap.exists() ? snap.data().permissoes : [];
         setPermissoes(Array.isArray(atuais) ? atuais.filter((p): p is string => typeof p === 'string') : []);
         setNivelAcesso(parseNivelAcesso(snap.exists() ? snap.data().nivelAcesso : undefined));
+        const acessoMobileAtual = snap.exists() && snap.data().acessoAppMobile === true;
+        setAcessoAppMobile(acessoMobileAtual);
+        setAcessoAppMobileOriginal(acessoMobileAtual);
       } catch (err) {
         console.error('Erro ao carregar permissões do usuário:', err);
         showError('Erro', 'Não foi possível carregar as permissões deste usuário.');
@@ -74,11 +83,22 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
 
   const handleSalvar = async () => {
     if (!currentUser) return;
+
+    const ligandoAcessoMobileAgora = acessoAppMobile && !acessoAppMobileOriginal;
+    if (ligandoAcessoMobileAgora && tenantId) {
+      const checagem = await checarLimiteAcessoMobile(tenantId);
+      if (!checagem.ok) {
+        showError('Limite de acesso mobile atingido', checagem.motivo);
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
       await updateDoc(doc(db, 'usuarios', usuarioId), {
         permissoes,
         nivelAcesso,
+        acessoAppMobile,
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Permissões atualizadas'),
       });
       showSuccess('Permissões salvas!');
@@ -144,6 +164,22 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
                 ? 'Sua empresa está com "Não visualizar vendas de outro usuário" ligado: este usuário verá somente as vendas em que ele é o vendedor.'
                 : 'Este usuário verá as vendas de todos os vendedores, mesmo com a restrição ligada.')
               : 'O nível só decide quais vendas a pessoa enxerga, e hoje ele não muda nada: a opção "Não visualizar vendas de outro usuário" está desligada em Configurações → Configurações Avançadas.'}
+          </p>
+        </div>
+
+        <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: isLoading ? 'default' : 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+            <input
+              type="checkbox"
+              checked={acessoAppMobile}
+              disabled={isLoading}
+              onChange={(e) => setAcessoAppMobile(e.target.checked)}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
+            />
+            Acesso ao aplicativo mobile
+          </label>
+          <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+            Libera este usuário pra entrar no aplicativo do vendedor externo, com o mesmo login (CNPJ, usuário e senha) que ele já usa aqui. Consome uma vaga do limite de acesso mobile contratado pela empresa.
           </p>
         </div>
 

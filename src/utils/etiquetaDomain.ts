@@ -2,10 +2,17 @@
 // fica em Etiquetas.tsx/EtiquetasPrint.tsx, mesmo padrao de
 // precificacaoDomain.ts/unidadeMedidaDomain.ts.
 
-/** Os cinco campos que podem ser posicionados livremente na etiqueta. */
-export type CampoEtiquetaId = 'nome' | 'unidade' | 'codigoBarras' | 'precoAVista' | 'precoAPrazo';
+/** Os campos que podem ser posicionados livremente na etiqueta -- os
+ * cinco principais (ligados por padrao) mais sete extras opcionais
+ * (desligados por padrao, pra quem precisa de rastreabilidade). */
+export type CampoEtiquetaId =
+  | 'nome' | 'unidade' | 'codigoBarras' | 'precoAVista' | 'precoAPrazo'
+  | 'lote' | 'validade' | 'dataProducao' | 'pesoLiquido' | 'marca' | 'categoria' | 'referencia';
 
-const CAMPOS_ETIQUETA_ID: CampoEtiquetaId[] = ['nome', 'unidade', 'codigoBarras', 'precoAVista', 'precoAPrazo'];
+const CAMPOS_ETIQUETA_ID: CampoEtiquetaId[] = [
+  'nome', 'unidade', 'codigoBarras', 'precoAVista', 'precoAPrazo',
+  'lote', 'validade', 'dataProducao', 'pesoLiquido', 'marca', 'categoria', 'referencia',
+];
 
 /** Posicao de UM campo dentro da etiqueta, em mm a partir do canto
  * superior-esquerdo -- mesma unidade da etiqueta inteira, funciona igual
@@ -39,6 +46,17 @@ export const MODELO_ETIQUETA_PADRAO: ModeloEtiqueta = {
     codigoBarras: { xMm: 6, yMm: 18, visivel: true },
     precoAVista: { xMm: 28, yMm: 29, visivel: true, fontePt: 16 },
     precoAPrazo: { xMm: 28, yMm: 35, visivel: false, fontePt: 9 },
+    // Extras opcionais (2026-09-11) -- todos desligados por padrao, so pra
+    // quem precisa de rastreabilidade (perecivel/industrializado).
+    // Posicoes so espalhadas pra nao nascerem empilhadas quando o usuario
+    // liga mais de uma de uma vez; sem uso ate o checkbox ser marcado.
+    lote: { xMm: 2, yMm: 30, visivel: false, fontePt: 7 },
+    validade: { xMm: 20, yMm: 30, visivel: false, fontePt: 7 },
+    dataProducao: { xMm: 2, yMm: 35, visivel: false, fontePt: 7 },
+    pesoLiquido: { xMm: 20, yMm: 35, visivel: false, fontePt: 7 },
+    marca: { xMm: 2, yMm: 22, visivel: false, fontePt: 7 },
+    categoria: { xMm: 20, yMm: 22, visivel: false, fontePt: 7 },
+    referencia: { xMm: 2, yMm: 26, visivel: false, fontePt: 7 },
   },
 };
 
@@ -63,9 +81,10 @@ const sanearPosicaoCampo = (
 
 /**
  * Le um modelo possivelmente incompleto ou no formato antigo (Firestore, ou
- * rascunho digitado na tela) e devolve sempre os cinco campos com posicao
- * concreta dentro dos limites da etiqueta -- nunca undefined, nunca fora do
- * papel. Campo ausente (documento salvo antes do editor visual, ou so
+ * rascunho digitado na tela) e devolve sempre TODOS os campos de
+ * CAMPOS_ETIQUETA_ID com posicao concreta dentro dos limites da etiqueta --
+ * nunca undefined, nunca fora do papel. Campo ausente (documento salvo
+ * antes do editor visual ou antes dos campos extras existirem, ou so
  * parcialmente preenchido) cai na posicao padrao daquele campo especifico,
  * um a um -- nao existe "formato antigo inteiro" pra detectar, so campos
  * que faltam.

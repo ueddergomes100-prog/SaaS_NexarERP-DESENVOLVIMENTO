@@ -51,6 +51,14 @@ const EtiquetasPrint: React.FC = () => {
             precoAVista: data.precoAVista ?? data.precos?.aVista ?? null,
             precoAPrazo: data.precoAPrazo ?? data.precos?.aPrazo ?? null,
             unidadeMedidaSigla: unidade.unidadeMedidaSigla,
+            lote: data.lote || undefined,
+            validade: data.validade || undefined,
+            dataProducao: data.ultimaProducaoData || undefined,
+            pesoLiquidoKg: data.pesoLiquidoUnitarioKg != null && data.pesoLiquidoUnitarioKg !== ''
+              ? Number(data.pesoLiquidoUnitarioKg) : null,
+            marca: data.marca || undefined,
+            categoria: data.categoria || undefined,
+            referencia: data.referencia || undefined,
           };
         });
         setProdutosPorId(mapa);

@@ -6,6 +6,7 @@ import {
   type ModeloEtiqueta,
   type ProdutoParaCodigoBarras,
 } from '../../utils/etiquetaDomain';
+import { formatDateInputPtBr } from '../../utils/dateTime';
 import './EtiquetaLabel.css';
 
 export interface ProdutoEtiquetaDados extends ProdutoParaCodigoBarras {
@@ -14,6 +15,18 @@ export interface ProdutoEtiquetaDados extends ProdutoParaCodigoBarras {
   precoAVista?: number | null;
   precoAPrazo?: number | null;
   unidadeMedidaSigla: string;
+  /** Extras opcionais (2026-09-11), todos desligados por padrao no
+   * modelo -- so aparecem quando o campo tem valor E o checkbox liga.
+   * `dataProducao` vem denormalizado de estoque.ultimaProducaoData,
+   * gravado quando uma Ordem de Producao e' finalizada (ver
+   * OrdemProducaoForm.tsx) -- produto comprado pronto nao tem esse campo. */
+  lote?: string;
+  validade?: string;
+  dataProducao?: string;
+  pesoLiquidoKg?: number | null;
+  marca?: string;
+  categoria?: string;
+  referencia?: string;
 }
 
 interface EtiquetaLabelProps {
@@ -129,6 +142,20 @@ const EtiquetaLabel: React.FC<EtiquetaLabelProps> = ({ produto, modelo, editable
       {renderCampo('precoAVista', formatBRL(precoPrincipal), { fontSize: `${modelo.campos.precoAVista.fontePt}pt`, fontWeight: 700 })}
       {produto.precoAPrazo != null
         && renderCampo('precoAPrazo', `${formatBRL(produto.precoAPrazo)} a prazo`, { fontSize: `${modelo.campos.precoAPrazo.fontePt}pt`, color: '#444444' })}
+      {produto.lote
+        && renderCampo('lote', `Lote: ${produto.lote}`, { fontSize: `${modelo.campos.lote.fontePt}pt`, color: '#333333' })}
+      {produto.validade
+        && renderCampo('validade', `Val: ${formatDateInputPtBr(produto.validade)}`, { fontSize: `${modelo.campos.validade.fontePt}pt`, color: '#333333' })}
+      {produto.dataProducao
+        && renderCampo('dataProducao', `Fab: ${formatDateInputPtBr(produto.dataProducao)}`, { fontSize: `${modelo.campos.dataProducao.fontePt}pt`, color: '#333333' })}
+      {produto.pesoLiquidoKg != null
+        && renderCampo('pesoLiquido', `${produto.pesoLiquidoKg} kg`, { fontSize: `${modelo.campos.pesoLiquido.fontePt}pt`, color: '#333333' })}
+      {produto.marca
+        && renderCampo('marca', produto.marca, { fontSize: `${modelo.campos.marca.fontePt}pt`, color: '#333333' })}
+      {produto.categoria
+        && renderCampo('categoria', produto.categoria, { fontSize: `${modelo.campos.categoria.fontePt}pt`, color: '#333333' })}
+      {produto.referencia
+        && renderCampo('referencia', `Ref: ${produto.referencia}`, { fontSize: `${modelo.campos.referencia.fontePt}pt`, color: '#333333' })}
     </div>
   );
 };

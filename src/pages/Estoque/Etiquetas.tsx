@@ -23,7 +23,6 @@ import {
  * preço/cadastro aqui (isso é papel do cadastro e da Precificação). */
 interface ProdutoEtiquetaEstoque extends ProdutoEtiquetaDados {
   id: string;
-  categoria?: string;
   /** True quando o produto chegou sem unidade cadastrada de verdade -- so
    * pra decidir se avisa o usuario ao adicionar, ver resolveUnidadeMedidaProduto. */
   unidadeFaltando: boolean;
@@ -106,6 +105,15 @@ const Etiquetas: React.FC = () => {
             precoAPrazo: data.precoAPrazo ?? data.precos?.aPrazo ?? null,
             unidadeMedidaSigla: unidade.unidadeMedidaSigla,
             unidadeFaltando: !temUnidadeMedidaCadastrada(data),
+            lote: data.lote || undefined,
+            validade: data.validade || undefined,
+            // Gravado quando uma Ordem de Producao e' finalizada (ver
+            // OrdemProducaoForm.tsx) -- produto comprado pronto nao tem.
+            dataProducao: data.ultimaProducaoData || undefined,
+            pesoLiquidoKg: data.pesoLiquidoUnitarioKg != null && data.pesoLiquidoUnitarioKg !== ''
+              ? Number(data.pesoLiquidoUnitarioKg) : null,
+            marca: data.marca || undefined,
+            referencia: data.referencia || undefined,
           });
         });
         setProdutos(mapa);
@@ -548,6 +556,32 @@ const Etiquetas: React.FC = () => {
                     ['precoAPrazo', 'Mostrar preço a prazo (se cadastrado)'],
                     ['unidade', 'Mostrar unidade de medida'],
                     ['codigoBarras', 'Mostrar código de barras'],
+                  ] as Array<[CampoEtiquetaId, string]>).map(([campo, texto]) => (
+                    <label key={campo} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      <input
+                        type="checkbox"
+                        checked={modelo.campos[campo].visivel}
+                        onChange={(e) => setModelo((m) => ({ ...m, campos: { ...m.campos, [campo]: { ...m.campos[campo], visivel: e.target.checked } } }))}
+                      /> {texto}
+                    </label>
+                  ))}
+
+                  <div style={{ margin: '8px 0 0' }}>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, fontWeight: 600 }}>
+                      Campos extras (opcional)
+                    </p>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '2px 0 0' }}>
+                      Só aparece na etiqueta quando o produto tem esse dado cadastrado.
+                    </p>
+                  </div>
+                  {([
+                    ['lote', 'Mostrar lote'],
+                    ['validade', 'Mostrar validade'],
+                    ['dataProducao', 'Mostrar data de produção'],
+                    ['pesoLiquido', 'Mostrar peso líquido'],
+                    ['marca', 'Mostrar marca'],
+                    ['categoria', 'Mostrar categoria'],
+                    ['referencia', 'Mostrar referência / código interno'],
                   ] as Array<[CampoEtiquetaId, string]>).map(([campo, texto]) => (
                     <label key={campo} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
                       <input

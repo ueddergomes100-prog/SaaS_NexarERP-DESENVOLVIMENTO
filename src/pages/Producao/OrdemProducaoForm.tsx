@@ -10,6 +10,7 @@ import { reserveTenantSequence, formatSequenceValue, getCurrentMaxSequence } fro
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
@@ -556,6 +557,11 @@ const OrdemProducaoForm: React.FC = () => {
           const quantidadeProdutoAtual = Number(produtoSnap.data().quantidade || 0);
           transaction.update(produtoRef, {
             quantidade: quantidadeProdutoAtual + quantidadeProduzida,
+            // Denormalizado pra tela de Etiquetas mostrar "data de producao"
+            // sem consulta cruzada por produto (mesmo padrao de precoCusto/
+            // unidadeMedidaSigla) -- nao revertido no estorno, mesma decisao
+            // ja tomada pra precoCusto (ultimo valor manda, nao versionado).
+            ultimaProducaoData: getDateInputInTimeZone(),
             updatedAt: serverTimestamp(),
           });
         }

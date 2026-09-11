@@ -63,6 +63,56 @@ export const buscarIdsProdutosMaisVendidos = async (tenantId: string): Promise<s
     .map(([id]) => id);
 };
 
+const JANELA_CONTAGEM_HOJE = 50;
+
+const ehHoje = (value: unknown): boolean => {
+  const withToDate = value as { toDate?: () => Date } | undefined;
+  const data = typeof withToDate?.toDate === 'function' ? withToDate.toDate() : null;
+  if (!data) return false;
+  const hoje = new Date();
+  return data.getFullYear() === hoje.getFullYear()
+    && data.getMonth() === hoje.getMonth()
+    && data.getDate() === hoje.getDate();
+};
+
+/** Quantos pedidos (pre-venda) e orcamentos ESTE vendedor gravou hoje --
+ *  pro resumo do dia na Home. Janela recente + filtro no cliente, no
+ *  mesmo espirito das outras consultas deste arquivo (evita exigir um
+ *  indice composto novo so' pra este numero). */
+export const buscarResumoHojeDoVendedor = async (
+  tenantId: string,
+  vendedorId: string,
+): Promise<{ pedidos: number; orcamentos: number }> => {
+  const [pedidosSnap, orcamentosSnap] = await Promise.all([
+    getDocs(query(
+      collection(db, 'pedidos_venda'),
+      where('tenantId', '==', tenantId),
+      orderBy('createdAt', 'desc'),
+      limit(JANELA_CONTAGEM_HOJE),
+    )).catch(() => null),
+    getDocs(query(
+      collection(db, 'orcamentos'),
+      where('tenantId', '==', tenantId),
+      orderBy('createdAt', 'desc'),
+      limit(JANELA_CONTAGEM_HOJE),
+    )).catch(() => null),
+  ]);
+
+  const pedidos = (pedidosSnap?.docs || []).filter((docSnap) => {
+    const data = docSnap.data();
+    return data.vendedorId === vendedorId && ehHoje(data.createdAt);
+  }).length;
+
+  const orcamentos = (orcamentosSnap?.docs || []).filter((docSnap) => {
+    const data = docSnap.data();
+    // Orcamentos gravam quem criou em `criadoPor` (buildDocumentMetadata),
+    // nao em `usuarioResponsavelId` -- esse campo e' so de pedidos_venda.
+    return data.criadoPor === vendedorId && ehHoje(data.createdAt);
+  }).length;
+
+  return { pedidos, orcamentos };
+};
+
 /** Ids de cliente ordenados de quem mais pediu pra quem menos pediu,
  *  olhando os ultimos pedidos_venda + orcamentos do tenant (nao cancelados). */
 export const buscarIdsClientesMaisFrequentes = async (tenantId: string): Promise<string[]> => {

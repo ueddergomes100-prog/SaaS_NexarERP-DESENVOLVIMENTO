@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Box, FileText, LogOut, Tag, Users } from 'lucide-react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
+import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { buscarResumoHojeDoVendedor } from '../../services/vendedorRankingService';
 import './vendedorMobile.css';
 
 interface PedidoRecente {
@@ -26,6 +28,22 @@ const VendedorHome: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId, logout, userNome } = useAuth();
   const [recentes, setRecentes] = useState<PedidoRecente[]>([]);
+  const [resumoHoje, setResumoHoje] = useState<{ pedidos: number; orcamentos: number } | null>(null);
+
+  useEffect(() => {
+    if (!tenantId || !currentUser) return;
+    let cancelado = false;
+    buscarResumoHojeDoVendedor(tenantId, currentUser.uid)
+      .then((resumo) => { if (!cancelado) setResumoHoje(resumo); })
+      .catch(() => setResumoHoje({ pedidos: 0, orcamentos: 0 }));
+    return () => { cancelado = true; };
+  }, [tenantId, currentUser]);
+
+  const totalHoje = (resumoHoje?.pedidos || 0) + (resumoHoje?.orcamentos || 0);
+  const dadosGrafico = useMemo(() => [
+    { nome: 'Pedidos', valor: resumoHoje?.pedidos || 0, cor: '#9964f0' },
+    { nome: 'Orçamentos', valor: resumoHoje?.orcamentos || 0, cor: '#3b82f6' },
+  ], [resumoHoje]);
 
   useEffect(() => {
     if (!tenantId || !currentUser) return;
@@ -121,6 +139,59 @@ const VendedorHome: React.FC = () => {
             <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Consultar Cliente</span>
           </button>
         </div>
+
+        {resumoHoje && totalHoje > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Resumo de hoje
+            </div>
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', gap: '20px', padding: '18px', borderRadius: '18px',
+                backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+              }}
+            >
+              <div style={{ position: 'relative', width: '110px', height: '110px', flexShrink: 0 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={dadosGrafico}
+                      dataKey="valor"
+                      nameKey="nome"
+                      innerRadius={32}
+                      outerRadius={50}
+                      paddingAngle={dadosGrafico.some((d) => d.valor > 0) ? 3 : 0}
+                      startAngle={90}
+                      endAngle={-270}
+                      stroke="none"
+                    >
+                      {dadosGrafico.map((entrada) => (
+                        <Cell key={entrada.nome} fill={entrada.cor} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                  <span style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>{totalHoje}</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600 }}>hoje</span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ width: '10px', height: '10px', borderRadius: '3px', backgroundColor: '#9964f0', flexShrink: 0 }} />
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)', flex: 1 }}>Pedidos</span>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{resumoHoje.pedidos}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ width: '10px', height: '10px', borderRadius: '3px', backgroundColor: '#3b82f6', flexShrink: 0 }} />
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)', flex: 1 }}>Orçamentos</span>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{resumoHoje.orcamentos}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {recentes.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

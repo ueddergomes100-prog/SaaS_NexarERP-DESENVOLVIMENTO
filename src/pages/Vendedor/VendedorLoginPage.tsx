@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, KeyRound, Loader2, Lock, LogIn, User } from 'lucide-react';
-import { signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth';
+import { browserLocalPersistence, setPersistence, signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import { auth, authPersistenceReady, db } from '../../services/firebase';
+import { auth, db } from '../../services/firebase';
 import { loginVendedorMobile, VendedorMobileAuthError } from '../../services/vendedorMobileAuthService';
+import { useVendedorAppTags } from './useVendedorAppTags';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
 import wordmarkLight from '../../assets/hennder-wordmark-light.png';
 import '../Auth/Auth.css';
@@ -28,6 +29,7 @@ import '../Auth/Auth.css';
 type Modo = 'vendedor' | 'usuario';
 
 const VendedorLoginPage: React.FC = () => {
+  useVendedorAppTags();
   const navigate = useNavigate();
   const [modo, setModo] = useState<Modo>('vendedor');
   const [cnpj, setCnpj] = useState('');
@@ -48,7 +50,11 @@ const VendedorLoginPage: React.FC = () => {
     setCarregando(true);
     try {
       const { token } = await loginVendedorMobile(cnpj, codigo, pin);
-      await authPersistenceReady;
+      // Persistencia LOCAL (nao a sessionStorage padrao do resto do
+      // sistema, ver services/firebase.ts): o app instalado na tela de
+      // inicio do celular precisa continuar logado depois de fechado e
+      // reaberto, diferente do desktop compartilhado.
+      await setPersistence(auth, browserLocalPersistence);
       await signInWithCustomToken(auth, token);
       navigate('/vendedor', { replace: true });
     } catch (error) {
@@ -75,7 +81,7 @@ const VendedorLoginPage: React.FC = () => {
         setErro('Usuário ou CNPJ da empresa não encontrado.');
         return;
       }
-      await authPersistenceReady;
+      await setPersistence(auth, browserLocalPersistence);
       await signInWithEmailAndPassword(auth, usernameDoc.data().email, senha);
       navigate('/vendedor', { replace: true });
     } catch {

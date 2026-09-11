@@ -1,12 +1,16 @@
 import React from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useVendedorAppTags } from './useVendedorAppTags';
 import VendedorHome from './VendedorHome';
 import VendedorNovoPedido from './VendedorNovoPedido';
 import VendedorNovoOrcamento from './VendedorNovoOrcamento';
 import VendedorConsultarCliente from './VendedorConsultarCliente';
 import VendedorConsultarPreco from './VendedorConsultarPreco';
+import VendedorMeusPedidos from './VendedorMeusPedidos';
+import VendedorPerfil from './VendedorPerfil';
+import VendedorBottomNav from './VendedorBottomNav';
 
 /**
  * Guarda de acesso do aplicativo do vendedor externo, separada da
@@ -19,7 +23,14 @@ import VendedorConsultarPreco from './VendedorConsultarPreco';
  * PermissoesUsuarioModal.tsx / VendedoresList.tsx) -- alguem com login
  * normal do sistema, sem essa permissao, nao entra so por acertar a URL.
  */
+
+// A navbar fica escondida nas telas de montar pedido/orcamento -- ja tem
+// botao de acao fixo embaixo, sem espaco (nem sentido) pra navegacao.
+const SEM_NAVBAR = ['/vendedor/pedido/novo', '/vendedor/orcamento/novo'];
+
 const VendedorShell: React.FC = () => {
+  useVendedorAppTags();
+  const location = useLocation();
   const { currentUser, loading, acessoAppMobile, logout } = useAuth();
 
   if (loading) {
@@ -54,16 +65,23 @@ const VendedorShell: React.FC = () => {
     );
   }
 
+  const mostraNavbar = !SEM_NAVBAR.includes(location.pathname);
+
   return (
-    <div style={{ height: '100dvh', width: '100vw', overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
-      <Routes>
-        <Route index element={<VendedorHome />} />
-        <Route path="pedido/novo" element={<VendedorNovoPedido />} />
-        <Route path="orcamento/novo" element={<VendedorNovoOrcamento />} />
-        <Route path="cliente" element={<VendedorConsultarCliente />} />
-        <Route path="preco" element={<VendedorConsultarPreco />} />
-        <Route path="*" element={<Navigate to="/vendedor" replace />} />
-      </Routes>
+    <div style={{ height: '100dvh', width: '100vw', overflow: 'hidden', backgroundColor: 'var(--bg-primary)', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <Routes>
+          <Route index element={<VendedorHome />} />
+          <Route path="pedido/novo" element={<VendedorNovoPedido />} />
+          <Route path="orcamento/novo" element={<VendedorNovoOrcamento />} />
+          <Route path="pedidos" element={<VendedorMeusPedidos />} />
+          <Route path="cliente" element={<VendedorConsultarCliente />} />
+          <Route path="preco" element={<VendedorConsultarPreco />} />
+          <Route path="perfil" element={<VendedorPerfil />} />
+          <Route path="*" element={<Navigate to="/vendedor" replace />} />
+        </Routes>
+      </div>
+      {mostraNavbar && <VendedorBottomNav />}
     </div>
   );
 };

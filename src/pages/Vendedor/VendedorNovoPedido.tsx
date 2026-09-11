@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -9,6 +9,7 @@ import type { SearchableClient } from '../../utils/clientSearch';
 import VendedorHeader from './VendedorHeader';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
 import { criarPreVendaExterna, type ItemVendaExterna } from '../../services/vendedorExternoVendaService';
+import type { VendedorNovoPedidoNavState } from './vendedorNavState';
 
 interface ClienteVendedor extends SearchableClient {
   id: string;
@@ -18,13 +19,21 @@ interface ClienteVendedor extends SearchableClient {
 
 const VendedorNovoPedido: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const estadoNavegacao = (location.state as VendedorNovoPedidoNavState | null) || null;
   const { tenantId, currentUser, trabalhaComPreVenda } = useAuth();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
 
   const [clienteBusca, setClienteBusca] = useState('');
-  const [clienteSelecionado, setClienteSelecionado] = useState<ClienteVendedor | null>(null);
-  const [itens, setItens] = useState<ItemVendaExterna[]>([]);
+  const [clienteSelecionado, setClienteSelecionado] = useState<ClienteVendedor | null>(
+    estadoNavegacao?.clientePreSelecionado
+      ? { id: estadoNavegacao.clientePreSelecionado.id, nome: estadoNavegacao.clientePreSelecionado.nome }
+      : null,
+  );
+  const [itens, setItens] = useState<ItemVendaExterna[]>(
+    estadoNavegacao?.itemPreAdicionado ? [estadoNavegacao.itemPreAdicionado] : [],
+  );
   const [salvando, setSalvando] = useState(false);
 
   const produtosAtivos = produtos.filter((p) => p.ativo !== false);

@@ -1,12 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { Phone, MapPin, Mail } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Phone, MapPin, Mail, Plus } from 'lucide-react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { calcularSaldoEmAbertoClienteCents } from '../../utils/contasReceberQuery';
+import { buscarIdsClientesMaisFrequentes } from '../../services/vendedorRankingService';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import type { SearchableClient } from '../../utils/clientSearch';
+import type { VendedorNovoPedidoNavState } from './vendedorNavState';
 import VendedorHeader from './VendedorHeader';
 
 interface ClienteVendedor extends SearchableClient {
@@ -37,6 +40,7 @@ const toMillis = (value: unknown): number => {
 };
 
 const VendedorConsultarCliente: React.FC = () => {
+  const navigate = useNavigate();
   const { tenantId } = useAuth();
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
 
@@ -45,6 +49,24 @@ const VendedorConsultarCliente: React.FC = () => {
   const [saldoCents, setSaldoCents] = useState<number | null>(null);
   const [historico, setHistorico] = useState<HistoricoItem[]>([]);
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
+  const [idsFrequentes, setIdsFrequentes] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelado = false;
+    buscarIdsClientesMaisFrequentes(tenantId).then((ids) => { if (!cancelado) setIdsFrequentes(ids); }).catch(() => {});
+    return () => { cancelado = true; };
+  }, [tenantId]);
+
+  const clientesFrequentes = useMemo(() => {
+    const porId = new Map(clientes.map((c) => [c.id, c]));
+    return idsFrequentes.map((id) => porId.get(id)).filter((c): c is ClienteVendedor => !!c);
+  }, [idsFrequentes, clientes]);
+
+  const irParaNovoPedido = (cliente: ClienteVendedor) => {
+    const state: VendedorNovoPedidoNavState = { clientePreSelecionado: { id: cliente.id, nome: cliente.nome } };
+    navigate('/vendedor/pedido/novo', { state });
+  };
 
   useEffect(() => {
     if (!selecionado || !tenantId) {
@@ -126,8 +148,45 @@ const VendedorConsultarCliente: React.FC = () => {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {!selecionado ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-            Busque um cliente pra ver os dados.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {clientesFrequentes.length > 0 && (
+              <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>
+                Clientes frequentes
+              </div>
+            )}
+            {clientesFrequentes.map((cliente) => (
+              <div
+                key={cliente.id}
+                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setSelecionado(cliente)}
+                  style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                >
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {cliente.nome}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => irParaNovoPedido(cliente)}
+                  aria-label={`Novo pedido para ${cliente.nome}`}
+                  style={{
+                    width: '36px', height: '36px', borderRadius: '10px', border: 'none', flexShrink: 0,
+                    background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
+                    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                  }}
+                >
+                  <Plus size={18} />
+                </button>
+              </div>
+            ))}
+            {clientesFrequentes.length === 0 && (
+              <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                Busque um cliente pra ver os dados.
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -160,6 +219,25 @@ const VendedorConsultarCliente: React.FC = () => {
                   Saldo em aberto: {formatarMoeda(saldoCents / 100)}
                 </div>
               )}
+
+              <button
+                type="button"
+                onClick={() => irParaNovoPedido(selecionado)}
+                style={{
+                  height: '46px', borderRadius: '14px', border: 'none', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', fontWeight: 700,
+                  color: '#fff', cursor: 'pointer', background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
+                }}
+              >
+                <Plus size={18} /> Novo pedido para este cliente
+              </button>
+              <button
+                type="button"
+                onClick={() => { setSelecionado(null); setBusca(''); }}
+                style={{ fontSize: '12.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, alignSelf: 'center' }}
+              >
+                Buscar outro cliente
+              </button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

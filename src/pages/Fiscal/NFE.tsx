@@ -66,6 +66,11 @@ interface PedidoVendaItem {
   precoUnitario: number;
   desconto: number;
   valorTotal: number;
+  /** Codigo interno do produto (Estoque -> Codigo interno, ex: "1") --
+   * distinto de `id` (o id do documento no Firestore). A NF-e manda isso
+   * como "codigo do produto" na DANFE; usar o id do documento ali confunde
+   * o cliente, que nunca viu esse id em lugar nenhum do sistema. */
+  codigoProduto?: string;
   ncm?: string;
   cfop?: string;
   csosn?: string;
@@ -419,6 +424,7 @@ const NFE: React.FC = () => {
             const pData = docSnap.data();
             mapped.push({
               ...item,
+              codigoProduto: pData.codigo || item.id,
               ncm: pData.ncm || '87082999',
               cfop: pData.cfop || '5102',
               csosn: pData.csosn || '400',
@@ -1101,7 +1107,7 @@ const NFE: React.FC = () => {
                 throw new Error(`${item.nome}: ${unitFields.error}`);
               }
               return {
-                code: item.id || `PROD-${index}`,
+                code: item.codigoProduto || item.id || `PROD-${index}`,
                 description: item.nome,
                 ncm: item.ncm || '87082999',
                 cfop,

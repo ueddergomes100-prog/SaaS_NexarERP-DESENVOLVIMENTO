@@ -55,15 +55,29 @@ const spedyErrorMessage = async (response, fallback) => {
  * plataforma alem do CNPJ da empresa (que ja esta la). Endereco e cidade
  * IBGE reaproveitam os mesmos campos que a tela de Configuracoes do
  * tenant ja preenche pra NFS-e (nfseCidadeCodigo/Nome/Estado). */
+// O elemento <IE> da NFe (tipo TIe do schema da Sefaz) so aceita digitos --
+// achado ao vivo (2026-09-11): "002131194.00-14" (formato que o usuario
+// digitou em Configuracoes) foi rejeitado com "The Pattern constraint
+// failed". "ISENTO" (texto livre no campo, convencao ja usada na tela pra
+// empresa sem IE) fica de fora dessa limpeza -- so os numeros/pontuacao
+// digitados por engano no meio de uma IE numerica sao removidos.
+const sanitizarInscricaoEstadual = (valor) => {
+  const raw = String(valor || '').trim();
+  if (!raw) return '';
+  if (/^isento$/i.test(raw)) return raw.toUpperCase();
+  return raw.replace(/\D/g, '');
+};
+
 const buildCompanyPayload = (config) => {
   const nome = String(config.nomeOficina || '').trim();
   const cnpj = String(config.cnpj || '').replace(/\D/g, '');
+  const inscricaoEstadual = sanitizarInscricaoEstadual(config.inscricaoEstadual);
 
   return {
     name: nome,
     legalName: nome,
     federalTaxNumber: cnpj,
-    ...(config.inscricaoEstadual ? { stateTaxNumber: String(config.inscricaoEstadual).trim() } : {}),
+    ...(inscricaoEstadual ? { stateTaxNumber: inscricaoEstadual } : {}),
     ...(config.email ? { email: String(config.email).trim() } : {}),
     // Campo "phone" DESLIGADO de proposito (2026-09-11). A doc da Spedy so
     // diz "string, max 15 caracteres" -- sem regex nem exemplo. Ja testamos

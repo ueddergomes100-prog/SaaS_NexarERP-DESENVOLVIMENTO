@@ -29,10 +29,11 @@ const EstoqueList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   /** "Ativos" (padrao) esconde produto inativado da lista e da busca;
-   * "Todos" mostra os dois. Produto inativado continua existindo (historico
-   * e estoque intactos), so nao aparece aqui por padrao pra nao confundir
-   * com o que da pra vender de verdade. */
-  const [mostrarInativos, setMostrarInativos] = useState(false);
+   * "Inativos" mostra so os inativados; "Todos" mostra os dois. Produto
+   * inativado continua existindo (historico e estoque intactos), so nao
+   * aparece aqui por padrao pra nao confundir com o que da pra vender de
+   * verdade. */
+  const [filtroStatus, setFiltroStatus] = useState<'ativos' | 'inativos' | 'todos'>('ativos');
   /** Linha destacada por um clique simples. Editar exige duplo clique (ou
    * Enter), pra um clique de leitura nao abrir uma aba sem querer. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -158,10 +159,11 @@ const EstoqueList: React.FC = () => {
 
   // Mesma busca das telas de venda: acento nao conta e "+" exige todas as
   // palavras ("Racao+Quatree+20KG"). Ver matchesAllSearchTerms.
-  const filteredPecas = pecasList.filter((peca) => (
-    (mostrarInativos || peca.ativo !== false) &&
-    matchesAllSearchTerms([peca.nome, peca.codigo, peca.categoria], searchTerm)
-  ));
+  const filteredPecas = pecasList.filter((peca) => {
+    const ativo = peca.ativo !== false;
+    const passaNoStatus = filtroStatus === 'todos' || (filtroStatus === 'ativos' ? ativo : !ativo);
+    return passaNoStatus && matchesAllSearchTerms([peca.nome, peca.codigo, peca.categoria], searchTerm);
+  });
 
   const getStatusBadge = (quantidade: number) => {
     if (quantidade <= 0) {
@@ -276,11 +278,12 @@ const EstoqueList: React.FC = () => {
           >
             <Filter size={18} />
             <select
-              value={mostrarInativos ? 'todos' : 'ativos'}
-              onChange={(e) => setMostrarInativos(e.target.value === 'todos')}
+              value={filtroStatus}
+              onChange={(e) => setFiltroStatus(e.target.value as 'ativos' | 'inativos' | 'todos')}
               style={{ background: 'transparent', border: 'none', color: 'inherit', font: 'inherit', cursor: 'pointer' }}
             >
               <option value="ativos">Ativos</option>
+              <option value="inativos">Inativos</option>
               <option value="todos">Todos</option>
             </select>
           </label>

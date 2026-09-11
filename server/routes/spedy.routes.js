@@ -200,6 +200,61 @@ router.get('/:type/cities', async (req, res) => {
   }
 });
 
+// Nao ha rota generica PUT /:type hoje, entao a ordem aqui nao importa
+// pra colisao de path -- fica perto de /:type/cities so por organizacao.
+router.put('/numbering', async (req, res) => {
+  try {
+    if (!canUseFiscal(req.user)) {
+      return res.status(403).json({ error: 'Acesso negado ao modulo fiscal.' });
+    }
+
+    const tenantId = resolveTenantId(req);
+    const { apiKey, baseUrl } = await loadSpedyConfig(tenantId);
+
+    const configSnap = await db.collection('configuracoes').doc(tenantId).get();
+    const companyId = configSnap.exists ? configSnap.data().spedyCompanyId : null;
+    if (!companyId) {
+      const error = new Error('Esta empresa ainda não foi cadastrada na Spedy -- fale com um administrador da plataforma antes de configurar a numeração.');
+      error.status = 400;
+      throw error;
+    }
+
+    const { productInvoice, consumerInvoice, serviceInvoice } = req.body || {};
+    const payload = {};
+    if (productInvoice) payload.productInvoice = productInvoice;
+    if (consumerInvoice) payload.consumerInvoice = consumerInvoice;
+    if (serviceInvoice) payload.serviceInvoice = serviceInvoice;
+    if (Object.keys(payload).length === 0) {
+      return res.status(400).json({ error: 'Informe ao menos um bloco de numeração (NF-e, NFC-e ou NFS-e) para atualizar.' });
+    }
+
+    const response = await fetch(`${baseUrl}/companies/${companyId}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return res.status(response.status).json({
+        error: data.errors?.[0]?.message || data.error || 'Erro ao atualizar a numeração fiscal na Spedy.'
+      });
+    }
+
+    await db.collection('configuracoes').doc(tenantId).set({
+      spedyNumeracao: payload,
+      atualizadoEm: new Date().toISOString()
+    }, { merge: true });
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('[Spedy Numbering]', error);
+    return res.status(error.status || 500).json({
+      error: error.message || 'Erro interno ao atualizar a numeração fiscal.'
+    });
+  }
+});
+
 router.get('/:type/:id', (req, res) => handleSpedyRequest(req, res, 'GET', ({ apiKey, baseUrl, typePath }) => {
   return fetch(`${baseUrl}/${typePath}/${req.params.id}`, {
     method: 'GET',

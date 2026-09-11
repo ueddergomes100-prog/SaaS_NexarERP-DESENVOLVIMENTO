@@ -107,6 +107,19 @@ export interface SpedyInvoice {
   };
 }
 
+/** Blocos de numeracao fiscal por tipo de documento (schema
+ * CompanySettingsDto da Spedy, confirmado via openapi/v1.json 2026-09-11).
+ * `series`/`nextNumber` sao a serie e o PROXIMO numero que a Spedy vai
+ * usar -- pensados pra continuar a numeracao de uma migracao de outro
+ * ERP, nunca pra "zerar" (SEFAZ nao aceita reemitir numero ja usado).
+ * NFC-e tambem carrega o numero ATUAL (nao o proximo) e o CSC (Codigo de
+ * Seguranca do Contribuinte) exigido pra gerar o QR Code do cupom. */
+export interface SpedyNumberingUpdate {
+  productInvoice?: { series: string; nextNumber: number };
+  consumerInvoice?: { series: string; currentNumber: number; csc?: string; tokenId?: string };
+  serviceInvoice?: { series: string; nextNumber: number };
+}
+
 export interface SpedyInvoiceListResponse {
   items: SpedyInvoice[];
   totalCount: number;
@@ -208,6 +221,17 @@ export const spedyService = {
       method: 'DELETE',
       body: JSON.stringify({ justification })
     }, 'Erro ao solicitar cancelamento da nota fiscal.');
+  },
+
+  /** Atualiza serie/numeracao de NF-e, NFC-e e/ou NFS-e na empresa ja
+   * cadastrada na Spedy (PUT /companies/{id}/settings da Spedy, blocos
+   * productInvoice/consumerInvoice/serviceInvoice). So manda os blocos
+   * informados -- os outros ficam como ja estavam la. */
+  async updateNumbering(blocks: SpedyNumberingUpdate): Promise<{ success: boolean }> {
+    return requestJson<{ success: boolean }>('/api/spedy/numbering', {
+      method: 'PUT',
+      body: JSON.stringify(blocks)
+    }, 'Erro ao atualizar a numeração fiscal na Spedy.');
   },
 
   getPdfUrl(id: string, type: SpedyType): string {

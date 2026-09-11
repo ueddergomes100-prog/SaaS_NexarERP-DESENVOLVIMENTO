@@ -30,7 +30,7 @@ import {
   parseTipoDescontoPadrao,
 } from '../../utils/descontoDomain';
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
-import { spedyService, type SpedyCity } from '../../services/spedyService';
+import { spedyService, type SpedyCity, type SpedyNumberingUpdate } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
 import {
   DEFAULT_AGENTE_DIGITAL_ATIVO,
@@ -234,6 +234,17 @@ const Configuracoes: React.FC = () => {
   const [spedyPrivateConfigLoadFailed, setSpedyPrivateConfigLoadFailed] = useState(false);
   const [mostrarSpedyApiKey, setMostrarSpedyApiKey] = useState(false);
 
+  // Numeracao fiscal (serie + sequencial) por tipo de documento -- existe
+  // pra empresa migrando de outro ERP continuar a numeracao de onde parou
+  // (SEFAZ nao aceita reemitir numero ja usado, entao nao da pra so comecar
+  // do 1). Fica separado do resto do formData porque salva direto na Spedy
+  // (PUT /companies/{id}/settings) via botao proprio, nao junto do
+  // "Salvar Configuracoes" geral.
+  const [numeracaoNfe, setNumeracaoNfe] = useState({ serie: '', proximoNumero: '' });
+  const [numeracaoNfce, setNumeracaoNfce] = useState({ serie: '', numeroAtual: '', csc: '', cscId: '' });
+  const [numeracaoNfse, setNumeracaoNfse] = useState({ serie: '', proximoNumero: '' });
+  const [salvandoNumeracao, setSalvandoNumeracao] = useState(false);
+
   useEffect(() => {
     const fetchConfig = async () => {
       if (!currentUser || !tenantId) return;
@@ -336,6 +347,21 @@ const Configuracoes: React.FC = () => {
             nfseCodigoServicoFederal: data.nfseCodigoServicoFederal ?? '',
             nfseAliquotaIssPadrao: String(data.nfseAliquotaIssPadrao ?? 0)
           } as any);
+          const numeracao = data.spedyNumeracao || {};
+          setNumeracaoNfe({
+            serie: numeracao.productInvoice?.series ?? '',
+            proximoNumero: numeracao.productInvoice?.nextNumber != null ? String(numeracao.productInvoice.nextNumber) : '',
+          });
+          setNumeracaoNfce({
+            serie: numeracao.consumerInvoice?.series ?? '',
+            numeroAtual: numeracao.consumerInvoice?.currentNumber != null ? String(numeracao.consumerInvoice.currentNumber) : '',
+            csc: numeracao.consumerInvoice?.csc ?? '',
+            cscId: numeracao.consumerInvoice?.tokenId ?? '',
+          });
+          setNumeracaoNfse({
+            serie: numeracao.serviceInvoice?.series ?? '',
+            proximoNumero: numeracao.serviceInvoice?.nextNumber != null ? String(numeracao.serviceInvoice.nextNumber) : '',
+          });
           setIsEditingMode(false);
         } else {
           const userProfileSnap = await getDoc(doc(db, 'usuarios', currentUser.uid));
@@ -419,6 +445,51 @@ const Configuracoes: React.FC = () => {
     }, 400);
     return () => clearTimeout(timer);
   }, [cidadeSearchTerm]);
+
+  const handleSalvarNumeracao = async () => {
+    const blocks: SpedyNumberingUpdate = {};
+    if (numeracaoNfe.serie.trim() || numeracaoNfe.proximoNumero.trim()) {
+      if (!numeracaoNfe.serie.trim() || !numeracaoNfe.proximoNumero.trim()) {
+        showError('Numeração de NF-e incompleta', 'Preencha série e próximo número da NF-e juntos, ou deixe os dois em branco.');
+        return;
+      }
+      blocks.productInvoice = { series: numeracaoNfe.serie.trim(), nextNumber: Number(numeracaoNfe.proximoNumero) };
+    }
+    if (numeracaoNfce.serie.trim() || numeracaoNfce.numeroAtual.trim()) {
+      if (!numeracaoNfce.serie.trim() || !numeracaoNfce.numeroAtual.trim()) {
+        showError('Numeração de NFC-e incompleta', 'Preencha série e número atual da NFC-e juntos, ou deixe os dois em branco.');
+        return;
+      }
+      blocks.consumerInvoice = {
+        series: numeracaoNfce.serie.trim(),
+        currentNumber: Number(numeracaoNfce.numeroAtual),
+        ...(numeracaoNfce.csc.trim() ? { csc: numeracaoNfce.csc.trim() } : {}),
+        ...(numeracaoNfce.cscId.trim() ? { tokenId: numeracaoNfce.cscId.trim() } : {}),
+      };
+    }
+    if (numeracaoNfse.serie.trim() || numeracaoNfse.proximoNumero.trim()) {
+      if (!numeracaoNfse.serie.trim() || !numeracaoNfse.proximoNumero.trim()) {
+        showError('Numeração de NFS-e incompleta', 'Preencha série e próximo número da NFS-e juntos, ou deixe os dois em branco.');
+        return;
+      }
+      blocks.serviceInvoice = { series: numeracaoNfse.serie.trim(), nextNumber: Number(numeracaoNfse.proximoNumero) };
+    }
+    if (Object.keys(blocks).length === 0) {
+      showError('Nada para salvar', 'Preencha ao menos um bloco de numeração (NF-e, NFC-e ou NFS-e) antes de salvar.');
+      return;
+    }
+
+    setSalvandoNumeracao(true);
+    try {
+      await spedyService.updateNumbering(blocks);
+      showSuccess('Numeração fiscal atualizada na Spedy!');
+    } catch (error) {
+      console.error('Erro ao salvar numeração fiscal:', error);
+      showError('Erro ao salvar numeração', error instanceof Error ? error.message : 'Não foi possível atualizar a numeração na Spedy.');
+    } finally {
+      setSalvandoNumeracao(false);
+    }
+  };
 
   const handleSelectCidade = (cidade: SpedyCity) => {
     setFormData(prev => ({
@@ -2436,6 +2507,54 @@ const Configuracoes: React.FC = () => {
                       </button>
                     </div>
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Esta chave é única por empresa (CNPJ) e pode ser encontrada no painel da Spedy.</p>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
+                    <div>
+                      <h4 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>Numeração Fiscal (Série e Sequencial)</h4>
+                      <p style={{ fontSize: '12px', color: '#f59e0b', margin: 0 }}>
+                        Só preencha isto ao migrar de outro sistema, pra continuar a numeração exata de onde ele parou -- a SEFAZ não aceita reemitir um número já usado. Depois que a empresa já emitiu notas por aqui, não mude estes campos pra trás; pra "resetar", use uma série nova. Confirme os números certos antes de salvar: isso vai direto pra Spedy.
+                      </p>
+                    </div>
+
+                    <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>NF-e (Produtos)</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
+                        <input type="text" placeholder="Série (ex: 1)" value={numeracaoNfe.serie} onChange={(e) => setNumeracaoNfe(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="number" min="1" placeholder="Próximo número" value={numeracaoNfe.proximoNumero} onChange={(e) => setNumeracaoNfe(prev => ({ ...prev, proximoNumero: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                      </div>
+                    </div>
+
+                    <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>NFC-e (Consumidor / Cupom)</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
+                        <input type="text" placeholder="Série (ex: 1)" value={numeracaoNfce.serie} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="number" min="1" placeholder="Número atual" value={numeracaoNfce.numeroAtual} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, numeroAtual: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <input type="text" placeholder="CSC (Código de Segurança do Contribuinte)" value={numeracaoNfce.csc} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, csc: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="text" placeholder="Id do CSC" value={numeracaoNfce.cscId} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, cscId: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>CSC e Id do CSC vêm do painel da Sefaz do seu estado -- necessários pra gerar o QR Code do cupom.</p>
+                    </div>
+
+                    <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>NFS-e (Serviço)</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
+                        <input type="text" placeholder="Série" value={numeracaoNfse.serie} onChange={(e) => setNumeracaoNfse(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="number" min="1" placeholder="Próximo número" value={numeracaoNfse.proximoNumero} onChange={(e) => setNumeracaoNfse(prev => ({ ...prev, proximoNumero: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={handleSalvarNumeracao}
+                      disabled={!isEditingMode || salvandoNumeracao}
+                      style={{ alignSelf: 'flex-start', opacity: (!isEditingMode || salvandoNumeracao) ? 0.7 : 1 }}
+                    >
+                      {salvandoNumeracao ? 'Salvando na Spedy...' : 'Salvar numeração na Spedy'}
+                    </button>
                   </div>
                 </>
               )}

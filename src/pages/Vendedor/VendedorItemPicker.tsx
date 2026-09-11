@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import { resolveUnidadeMedidaProduto, temUnidadeMedidaCadastrada, avisoUnidadeMedidaAusente } from '../../utils/unidadeMedidaDomain';
@@ -91,20 +91,17 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-        <div style={{ position: 'relative', flex: 1 }}>
-          <Search size={16} style={{ position: 'absolute', left: '14px', top: '17px', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-          <div style={{ paddingLeft: '30px' }}>
-            <ProductAutocomplete
-              value={produtoBusca}
-              onChange={setProdutoBusca}
-              products={produtos}
-              onSelect={(produto) => setProdutoSelecionado(produto)}
-              renderItem={renderProdutoOpcaoBusca}
-              variant="inline"
-              placeholder="Buscar produto por nome ou código"
-              ariaLabel="Buscar produto"
-            />
-          </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <ProductAutocomplete
+            value={produtoBusca}
+            onChange={setProdutoBusca}
+            products={produtos}
+            onSelect={(produto) => setProdutoSelecionado(produto)}
+            renderItem={renderProdutoOpcaoBusca}
+            variant="inline"
+            placeholder="Buscar produto por nome ou código"
+            ariaLabel="Buscar produto"
+          />
         </div>
         <input
           type="text"

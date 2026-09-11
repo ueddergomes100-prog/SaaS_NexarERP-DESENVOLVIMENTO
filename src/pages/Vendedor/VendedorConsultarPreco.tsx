@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Search } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
@@ -25,19 +24,16 @@ const VendedorConsultarPreco: React.FC = () => {
       <VendedorHeader titulo="Consultar Preço" />
 
       <div style={{ padding: '16px 20px 0' }}>
-        <div style={{ position: 'relative' }}>
-          <Search size={16} style={{ position: 'absolute', left: '14px', top: '16px', color: 'var(--text-muted)', pointerEvents: 'none', zIndex: 1 }} />
-          <ProductAutocomplete
-            value={busca}
-            onChange={setBusca}
-            products={produtosAtivos}
-            onSelect={(produto) => setSelecionado(produto)}
-            renderItem={renderProdutoOpcaoBusca}
-            variant="inline"
-            placeholder="Buscar produto por nome ou código"
-            ariaLabel="Buscar produto"
-          />
-        </div>
+        <ProductAutocomplete
+          value={busca}
+          onChange={setBusca}
+          products={produtosAtivos}
+          onSelect={(produto) => setSelecionado(produto)}
+          renderItem={renderProdutoOpcaoBusca}
+          variant="inline"
+          placeholder="Buscar produto por nome ou código"
+          ariaLabel="Buscar produto"
+        />
       </div>
 
       <div style={{ flex: 1, padding: '16px 20px 24px' }}>

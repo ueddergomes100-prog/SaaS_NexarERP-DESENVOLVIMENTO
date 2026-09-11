@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Phone, MapPin, Mail, Search } from 'lucide-react';
+import { Phone, MapPin, Mail } from 'lucide-react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -113,18 +113,15 @@ const VendedorConsultarCliente: React.FC = () => {
       <VendedorHeader titulo="Consultar Cliente" />
 
       <div style={{ padding: '16px 20px 0' }}>
-        <div style={{ position: 'relative' }}>
-          <Search size={16} style={{ position: 'absolute', left: '14px', top: '16px', color: 'var(--text-muted)', pointerEvents: 'none', zIndex: 1 }} />
-          <ClientAutocomplete
-            value={busca}
-            onChange={setBusca}
-            clients={clientes}
-            onSelect={(cliente) => setSelecionado(cliente)}
-            renderItem={(cliente) => <span style={{ paddingLeft: '20px' }}>{cliente.nome}</span>}
-            placeholder="Buscar cliente por nome"
-            ariaLabel="Buscar cliente"
-          />
-        </div>
+        <ClientAutocomplete
+          value={busca}
+          onChange={setBusca}
+          clients={clientes}
+          onSelect={(cliente) => setSelecionado(cliente)}
+          renderItem={(cliente) => <span>{cliente.nome}</span>}
+          placeholder="Buscar cliente por nome"
+          ariaLabel="Buscar cliente"
+        />
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Search } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { showError, showSuccess } from '../../utils/alerts';
@@ -84,18 +84,15 @@ const VendedorNovoOrcamento: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div style={{ position: 'relative' }}>
-            <Search size={16} style={{ position: 'absolute', left: '14px', top: '16px', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-            <ClientAutocomplete
-              value={clienteBusca}
-              onChange={setClienteBusca}
-              clients={clientes}
-              onSelect={(cliente) => setClienteSelecionado(cliente)}
-              renderItem={(cliente) => <span style={{ paddingLeft: '20px' }}>{cliente.nome}</span>}
-              placeholder="Buscar cliente por nome"
-              ariaLabel="Buscar cliente"
-            />
-          </div>
+          <ClientAutocomplete
+            value={clienteBusca}
+            onChange={setClienteBusca}
+            clients={clientes}
+            onSelect={(cliente) => setClienteSelecionado(cliente)}
+            renderItem={(cliente) => <span>{cliente.nome}</span>}
+            placeholder="Buscar cliente por nome"
+            ariaLabel="Buscar cliente"
+          />
         )}
       </div>
 

@@ -215,6 +215,63 @@ router.post('/companies', async (req, res) => {
   }
 });
 
+/** PUT /companies/:tenantId/settings -- reenvia os dados atuais de
+ * Configuracoes pra empresa JA cadastrada na Spedy (endpoint deles:
+ * PUT /v1/companies/:id/settings, docs.spedy.com.br/api-reference/
+ * empresas/editar-empresa). Criado porque nao existia forma de corrigir
+ * a Spedy depois do cadastro inicial -- descoberto ao vivo quando uma
+ * empresa cadastrada sem Inscricao Estadual preenchida gerou rejeicao
+ * SPD003 na hora de emitir (schema da NFe exige IE no bloco do emitente,
+ * mesmo cadastro de empresa aceitando sem). Reaproveita buildCompanyPayload,
+ * so troca o metodo/URL pro endpoint de edicao. */
+router.put('/companies/:tenantId/settings', async (req, res) => {
+  if (!requirePlatformAdmin(req, res)) return;
+  try {
+    const { tenantId } = req.params;
+    const { environment } = req.body;
+    if (environment !== 'sandbox' && environment !== 'production') {
+      return res.status(400).json({ error: 'Ambiente inválido -- use "sandbox" ou "production".' });
+    }
+
+    const configSnap = await db.collection('configuracoes').doc(tenantId).get();
+    if (!configSnap.exists) {
+      return res.status(404).json({ error: 'Configurações desta empresa não foram encontradas.' });
+    }
+    const config = configSnap.data();
+    const companyId = config.spedyCompanyId;
+    if (!companyId) {
+      return res.status(400).json({ error: 'Esta empresa ainda não foi cadastrada na Spedy. Cadastre a empresa antes de atualizar os dados.' });
+    }
+
+    const masterApiKey = await loadMasterApiKey(environment);
+    const payload = buildCompanyPayload(config);
+
+    const response = await fetch(`${BASE_URLS[environment]}/companies/${companyId}/settings`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': masterApiKey,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const message = await spedyErrorMessage(response, 'Erro ao atualizar os dados da empresa na Spedy.');
+      return res.status(response.status).json({ error: message });
+    }
+
+    await db.collection('configuracoes').doc(tenantId).set({
+      atualizadoPor: req.user.uid,
+      atualizadoEm: new Date().toISOString(),
+    }, { merge: true });
+
+    return res.json({ companyId, environment });
+  } catch (error) {
+    console.error('[Spedy Company Update]', error);
+    return res.status(error.status || 500).json({ error: error.message || 'Erro interno ao atualizar empresa na Spedy.' });
+  }
+});
+
 /** POST /companies/:tenantId/certificate -- recebe o .pfx em base64 (o
  * navegador nao tem FormData nativo pra arquivo binario grande sem
  * complicar o front, entao o certificado chega em JSON como base64 e so

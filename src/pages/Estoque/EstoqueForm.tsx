@@ -1877,8 +1877,14 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>{usesCsosn(regimeTributario) ? 'CSOSN *' : 'CST de ICMS *'}</label>
                   <select name="csosn" value={formData.csosn} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
+                    <option value="">-- Selecione --</option>
                     {(usesCsosn(regimeTributario) ? CSOSN_OPTIONS : ICMS_CST_OPTIONS).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
+                  {formData.csosn && !(usesCsosn(regimeTributario) ? CSOSN_OPTIONS : ICMS_CST_OPTIONS).some(opt => opt.value === formData.csosn) && (
+                    <span className="field-hint" style={{ color: '#ef4444' }}>
+                      O código salvo ("{formData.csosn}") não é válido pro regime tributário atual ({usesCsosn(regimeTributario) ? 'CSOSN de Simples Nacional' : 'CST de ICMS'}) -- selecione o código correto acima antes de salvar, senão a nota fiscal deste produto é rejeitada pela Spedy.
+                    </span>
+                  )}
                 </div>
               </div>
 

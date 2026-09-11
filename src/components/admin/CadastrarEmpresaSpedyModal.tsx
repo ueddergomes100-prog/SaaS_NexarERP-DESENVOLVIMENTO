@@ -44,6 +44,7 @@ const CadastrarEmpresaSpedyModal: React.FC<CadastrarEmpresaSpedyModalProps> = ({
   const [estado, setEstado] = useState<EstadoSpedyTenant | null>(null);
   const [ambiente, setAmbiente] = useState<SpedyEnv>('sandbox');
   const [criandoEmpresa, setCriandoEmpresa] = useState(false);
+  const [atualizandoEmpresa, setAtualizandoEmpresa] = useState(false);
   const [certificadoArquivo, setCertificadoArquivo] = useState<File | null>(null);
   const [certificadoSenha, setCertificadoSenha] = useState('');
   const [enviandoCertificado, setEnviandoCertificado] = useState(false);
@@ -90,6 +91,19 @@ const CadastrarEmpresaSpedyModal: React.FC<CadastrarEmpresaSpedyModalProps> = ({
       showError('Erro ao cadastrar empresa', error instanceof Error ? error.message : 'Não foi possível cadastrar a empresa na Spedy.');
     } finally {
       setCriandoEmpresa(false);
+    }
+  };
+
+  const atualizarDadosEmpresa = async () => {
+    setAtualizandoEmpresa(true);
+    try {
+      await spedyAdminService.updateCompanySettings(tenantId, ambiente);
+      showSuccess('Dados reenviados pra Spedy! CNPJ, endereço, regime e Inscrição Estadual atuais de Configurações foram atualizados lá.');
+    } catch (error) {
+      console.error('Erro ao atualizar dados da empresa na Spedy:', error);
+      showError('Erro ao atualizar', error instanceof Error ? error.message : 'Não foi possível atualizar os dados da empresa na Spedy.');
+    } finally {
+      setAtualizandoEmpresa(false);
     }
   };
 
@@ -168,7 +182,16 @@ const CadastrarEmpresaSpedyModal: React.FC<CadastrarEmpresaSpedyModalProps> = ({
                   <strong>Passo 1 — Cadastrar empresa</strong>
                 </div>
                 {estado?.spedyCompanyId ? (
-                  <p style={{ fontSize: '13px', color: '#10b981', margin: 0 }}>Empresa já cadastrada na Spedy (id {estado.spedyCompanyId}).</p>
+                  <>
+                    <p style={{ fontSize: '13px', color: '#10b981', margin: 0 }}>Empresa já cadastrada na Spedy (id {estado.spedyCompanyId}).</p>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                      Mudou CNPJ, endereço, regime tributário ou Inscrição Estadual em Configurações depois do cadastro? Reenvie pra Spedy atualizar lá também.
+                    </p>
+                    <button className="btn-secondary" onClick={atualizarDadosEmpresa} disabled={atualizandoEmpresa} style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center', opacity: atualizandoEmpresa ? 0.7 : 1 }}>
+                      {atualizandoEmpresa ? <Loader2 size={16} className="spin-animation" /> : <Building2 size={16} />}
+                      {atualizandoEmpresa ? 'Atualizando...' : 'Reenviar dados atuais pra Spedy'}
+                    </button>
+                  </>
                 ) : (
                   <>
                     <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>

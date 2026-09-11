@@ -90,6 +90,13 @@ export const spedyAdminService = {
     }, 'Erro ao cadastrar a empresa na Spedy.');
   },
 
+  async updateCompanySettings(tenantId: string, environment: SpedyEnv): Promise<SpedyCompanyCreated> {
+    return requestJson<SpedyCompanyCreated>(`/api/spedy-admin/companies/${tenantId}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify({ environment }),
+    }, 'Erro ao atualizar os dados da empresa na Spedy.');
+  },
+
   async uploadCertificate(tenantId: string, environment: SpedyEnv, certificado: File, senha: string): Promise<SpedyCertificateResult> {
     const certificadoBase64 = await readFileAsBase64(certificado);
     return requestJson<SpedyCertificateResult>(`/api/spedy-admin/companies/${tenantId}/certificate`, {

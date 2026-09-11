@@ -84,6 +84,9 @@ interface PecaOrcamento {
   unidadeMedidaSigla?: string;
   unidadeMedidaFracionado?: boolean;
   unidadeMedidaCasasDecimais?: number;
+  /** `false` = produto inativado -- searchProducts() ja exclui isso da
+   * busca (src/utils/productSearch.ts), precisa vir junto do Firestore. */
+  ativo?: boolean;
 }
 interface VeiculoBasico { id: string; placa: string; modelo: string; ano: string; cor: string; clienteId: string; }
 
@@ -225,6 +228,7 @@ const OrcamentoForm: React.FC = () => {
             unidadeMedidaSigla: data.unidadeMedidaSigla,
             unidadeMedidaFracionado: data.unidadeMedidaFracionado,
             unidadeMedidaCasasDecimais: data.unidadeMedidaCasasDecimais,
+            ativo: data.ativo ?? data.statusAtivo ?? true,
           });
         });
         setPecasEstoque(dataE);

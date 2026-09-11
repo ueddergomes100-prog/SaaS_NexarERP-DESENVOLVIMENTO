@@ -119,6 +119,9 @@ interface PecaData {
   /** Comissao propria da peca -- vence o percentual do mecanico/sistema
    * quando configurada. Ver resolveComissaoPercentual em financeDomain.ts. */
   comissaoPercentual?: number;
+  /** `false` = produto inativado -- searchProducts() ja exclui isso da
+   * busca (src/utils/productSearch.ts), precisa vir junto do Firestore. */
+  ativo?: boolean;
 }
 interface PecaSelecionada {
   id: string;
@@ -350,6 +353,7 @@ const OSForm: React.FC = () => {
         unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
         unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
         comissaoPercentual: doc.data().comissaoPercentual,
+        ativo: doc.data().ativo ?? doc.data().statusAtivo ?? true,
       }));
       setPecasEstoque(dataE);
 

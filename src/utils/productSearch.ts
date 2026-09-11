@@ -15,6 +15,11 @@ export interface SearchableProduct {
   /** Array cru de embalagens do documento de estoque. Cada embalagem pode ter
    * codigo de barras proprio (o EAN do saco, diferente do EAN da unidade). */
   embalagens?: unknown;
+  /** `false` = produto inativado (Estoque -> botao de ativar/inativar).
+   * Ausente ou `true` = ativo. searchProducts() exclui `false` daqui --
+   * produto inativado nao pode ser oferecido pra adicionar numa venda/OS/
+   * orcamento nova, mesmo que ainda exista no catalogo. */
+  ativo?: boolean | null;
 }
 
 export interface ProductSearchOptions {
@@ -116,6 +121,12 @@ export const productMatchesSearch = <T extends SearchableProduct>(
   term: string,
   mode: ProductSearchMode = DEFAULT_MODE,
 ): boolean => {
+  // Produto inativado nunca "bate" numa busca -- ver comentario em
+  // SearchableProduct.ativo. Usado direto (sem passar por searchProducts())
+  // pela busca global da TopBar, entao o corte precisa estar aqui tambem,
+  // nao so no filtro de origem que searchProducts() ja faz.
+  if (product.ativo === false) return false;
+
   const termos = splitSearchTerms(term);
   if (termos.length === 0) return false;
 
@@ -146,14 +157,22 @@ export const searchProducts = <T extends SearchableProduct>(
 ): ProductSearchResult<T> => {
   const mode = options.mode ?? DEFAULT_MODE;
   const limit = options.limit ?? DEFAULT_LIMIT;
+  // Produto inativado (Estoque -> botao de ativar/inativar) nunca aparece
+  // pra ADICIONAR numa venda/OS/orcamento nova -- continua existindo de
+  // verdade (historico e estoque intactos), so some da busca. Filtrado aqui
+  // (nao no array de origem que as telas guardam) pra nao quebrar lookup
+  // de item ja adicionado a um documento antigo, que pode referenciar um
+  // produto ja inativado desde entao.
+  const produtosAtivos = products.filter((product) => product.ativo !== false);
+
   // Curinga antes de qualquer filtro: `#` nao e' termo de busca, e' "me
   // mostra tudo". `total` traz o catalogo inteiro, entao o "Ver mais" do
   // autocomplete continua aparecendo e leva pra lista completa no popup.
   if (isListarTudoTerm(term)) {
     return {
-      items: products.slice(0, limit),
-      total: products.length,
-      truncated: products.length > limit,
+      items: produtosAtivos.slice(0, limit),
+      total: produtosAtivos.length,
+      truncated: produtosAtivos.length > limit,
     };
   }
 
@@ -167,12 +186,12 @@ export const searchProducts = <T extends SearchableProduct>(
   // leitor manda o EAN inteiro e nunca manda "+", entao busca com "+" pula
   // direto pro filtro de texto.
   const exactMatches = termos.length === 1
-    ? products.filter((product) => productMatchesExactCode(product, termos[0]))
+    ? produtosAtivos.filter((product) => productMatchesExactCode(product, termos[0]))
     : [];
 
   const matches = exactMatches.length > 0
     ? exactMatches
-    : products.filter((product) => productMatchesSearch(product, term, mode));
+    : produtosAtivos.filter((product) => productMatchesSearch(product, term, mode));
 
   return {
     items: matches.slice(0, limit),

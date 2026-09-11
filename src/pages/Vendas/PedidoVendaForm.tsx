@@ -149,6 +149,9 @@ interface ProdutoEstoque {
   /** Comissao propria do produto -- vence o percentual do vendedor/sistema
    * quando configurada. Ver resolveComissaoPercentual em financeDomain.ts. */
   comissaoPercentual?: number;
+  /** `false` = produto inativado -- searchProducts() ja exclui isso da
+   * busca (src/utils/productSearch.ts), precisa vir junto do Firestore. */
+  ativo?: boolean;
 }
 interface ItemVenda {
   id: string;
@@ -511,7 +514,8 @@ const PedidoVendaForm: React.FC = () => {
         unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
         embalagens: doc.data().embalagens,
         descontoMaximoPercentual: doc.data().descontoMaximoPercentual,
-        comissaoPercentual: doc.data().comissaoPercentual
+        comissaoPercentual: doc.data().comissaoPercentual,
+        ativo: doc.data().ativo ?? doc.data().statusAtivo ?? true
       }));
       setProdutosCatalogo(dataE);
 

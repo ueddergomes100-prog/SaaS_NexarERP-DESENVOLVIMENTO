@@ -38,6 +38,9 @@ interface ProdutoBasico {
   unidadeMedidaCasasDecimais?: number;
   unidadeMedidaFracionado?: boolean;
   embalagens?: unknown;
+  /** `false` = produto inativado -- searchProducts() ja exclui isso da
+   * busca (src/utils/productSearch.ts), precisa vir junto do Firestore. */
+  ativo?: boolean;
 }
 
 interface BancoBasico {
@@ -113,6 +116,7 @@ const NotaAvulsaForm: React.FC = () => {
         unidadeMedidaCasasDecimais: d.data().unidadeMedidaCasasDecimais,
         unidadeMedidaFracionado: d.data().unidadeMedidaFracionado,
         embalagens: d.data().embalagens,
+        ativo: d.data().ativo ?? d.data().statusAtivo ?? true,
       }))),
       (error) => console.error('Erro ao carregar produtos:', error),
     );

@@ -130,7 +130,15 @@ const OrdemProducaoForm: React.FC = () => {
         const qProdutos = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
         const snapProdutos = await getDocs(qProdutos);
         const produtos: OpcaoSimples[] = [];
-        snapProdutos.forEach(d => produtos.push({ id: d.id, nome: d.data().nome || '' }));
+        snapProdutos.forEach(d => {
+          // Produto inativado nao aparece pra escolher em ordem de producao
+          // nova -- mesmo criterio das buscas de venda/OS/orcamento (ver
+          // src/utils/productSearch.ts). So sem <select> aqui, filtra antes
+          // de montar a lista mesmo.
+          const dados = d.data();
+          if ((dados.ativo ?? dados.statusAtivo ?? true) === false) return;
+          produtos.push({ id: d.id, nome: dados.nome || '' });
+        });
         produtos.sort((a, b) => a.nome.localeCompare(b.nome));
         setProdutosDisponiveis(produtos);
 

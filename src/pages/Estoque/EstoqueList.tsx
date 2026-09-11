@@ -28,6 +28,11 @@ const EstoqueList: React.FC = () => {
   const [pecasList, setPecasList] = useState<PecaData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  /** "Ativos" (padrao) esconde produto inativado da lista e da busca;
+   * "Todos" mostra os dois. Produto inativado continua existindo (historico
+   * e estoque intactos), so nao aparece aqui por padrao pra nao confundir
+   * com o que da pra vender de verdade. */
+  const [mostrarInativos, setMostrarInativos] = useState(false);
   /** Linha destacada por um clique simples. Editar exige duplo clique (ou
    * Enter), pra um clique de leitura nao abrir uma aba sem querer. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -154,6 +159,7 @@ const EstoqueList: React.FC = () => {
   // Mesma busca das telas de venda: acento nao conta e "+" exige todas as
   // palavras ("Racao+Quatree+20KG"). Ver matchesAllSearchTerms.
   const filteredPecas = pecasList.filter((peca) => (
+    (mostrarInativos || peca.ativo !== false) &&
     matchesAllSearchTerms([peca.nome, peca.codigo, peca.categoria], searchTerm)
   ));
 
@@ -264,10 +270,20 @@ const EstoqueList: React.FC = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <button className="btn-secondary filter-btn">
-            <Filter size={18} style={{ marginRight: 8 }} />
-            Filtros
-          </button>
+          <label
+            className="btn-secondary filter-btn"
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+          >
+            <Filter size={18} />
+            <select
+              value={mostrarInativos ? 'todos' : 'ativos'}
+              onChange={(e) => setMostrarInativos(e.target.value === 'todos')}
+              style={{ background: 'transparent', border: 'none', color: 'inherit', font: 'inherit', cursor: 'pointer' }}
+            >
+              <option value="ativos">Ativos</option>
+              <option value="todos">Todos</option>
+            </select>
+          </label>
         </div>
 
         <div className="table-wrapper">

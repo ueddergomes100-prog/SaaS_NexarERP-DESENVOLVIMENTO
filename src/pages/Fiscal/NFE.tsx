@@ -91,6 +91,7 @@ interface PedidoVendaItem {
 interface PedidoVenda {
   id: string;
   numeroPedido: string;
+  clienteId: string;
   clienteNome: string;
   valorTotal: number;
   itens: PedidoVendaItem[];
@@ -292,6 +293,7 @@ const NFE: React.FC = () => {
           pedidosList.push({
             id: d.id,
             numeroPedido: dData.numeroPedido || '',
+            clienteId: dData.clienteId || '',
             clienteNome: dData.clienteNome || '',
             valorTotal: dData.valorTotal || 0,
             itens: dData.itens || [],
@@ -490,7 +492,13 @@ const NFE: React.FC = () => {
     try {
       let itemsWithTaxes = await fetchPedidoItensTaxes(pedido.itens);
 
-      const foundClient = clients.find(c => c.nome.toUpperCase() === pedido.clienteNome.toUpperCase());
+      // Casa pelo clienteId primeiro (mesmo padrao ja usado em
+      // handleSelectOS abaixo) -- so pelo nome e fragil: cliente renomeado
+      // depois do pedido, acento/espaco diferente, ou dois clientes com
+      // nome parecido, e o pedido silenciosamente pega o endereco errado
+      // (ou o endereco de exemplo deixado no formulario) na nota fiscal.
+      const foundClient = clients.find(c => c.id === pedido.clienteId)
+        || clients.find(c => c.nome.toUpperCase() === pedido.clienteNome.toUpperCase());
       const descItens = pedido.itens.map((it: PedidoVendaItem) => `${it.quantidade}x ${it.nome}`).join(', ');
 
       // Procura cupom fiscal (NFC-e) associado a este pedido que esteja autorizado
@@ -903,6 +911,31 @@ const NFE: React.FC = () => {
     if (!formData.clienteNome || !formData.documento || !formData.valor || !formData.descricao) {
       showError('Campos Incompletos', 'Preencha Nome do Cliente, Documento, Descrição e Valor.');
       return;
+    }
+
+    // NF-e de produto manda o endereco completo do destinatario na XML --
+    // ao contrario da NFS-e (endereco da nota vem da config da propria
+    // empresa), aqui nada disso era conferido antes de enviar pra Spedy.
+    // Cliente sem CEP/numero/bairro/cidade/codigo IBGE saia silenciosamente
+    // com o endereco de exemplo que fica no formulario (Rua Principal,
+    // Sao Paulo...) ou com o endereco do ultimo cliente importado, e so
+    // aparecia como erro generico da Spedy (SPD003) depois de enviado.
+    if (formData.tipo !== 'NFS-e') {
+      const camposEnderecoFaltando: string[] = [];
+      if (!formData.rua) camposEnderecoFaltando.push('Endereço');
+      if (!formData.numero) camposEnderecoFaltando.push('Número');
+      if (!formData.bairro) camposEnderecoFaltando.push('Bairro');
+      if (!formData.cep) camposEnderecoFaltando.push('CEP');
+      if (!formData.cidade) camposEnderecoFaltando.push('Cidade');
+      if (!formData.estado) camposEnderecoFaltando.push('Estado');
+      if (!formData.codigoIbge) camposEnderecoFaltando.push('Código IBGE da cidade');
+      if (camposEnderecoFaltando.length > 0) {
+        showError(
+          'Endereço do cliente incompleto',
+          `Falta ${camposEnderecoFaltando.join(', ')} no endereço de "${formData.clienteNome}" para emitir a NF-e. Edite o cadastro deste cliente em Clientes e preencha o endereço completo antes de emitir -- sem isso a Spedy rejeita a nota (SPD003).`
+        );
+        return;
+      }
     }
 
     setIsSubmitting(true);

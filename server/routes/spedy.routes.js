@@ -296,6 +296,10 @@ router.post('/:type', (req, res) => handleSpedyRequest(req, res, 'POST', ({ apiK
   });
 }));
 
+// A Spedy espera o campo "reason" (CancelInvoiceRequestDto, confirmado
+// via openapi/v1.json) -- mandavamos "justification" (nome usado no
+// nosso proprio front/tela), que ela ignorava e devolvia "The Reason
+// field is required", achado ao vivo cancelando uma nota de teste.
 router.delete('/:type/:id', (req, res) => handleSpedyRequest(req, res, 'DELETE', ({ apiKey, baseUrl, typePath }) => {
   return fetch(`${baseUrl}/${typePath}/${req.params.id}`, {
     method: 'DELETE',
@@ -303,7 +307,7 @@ router.delete('/:type/:id', (req, res) => handleSpedyRequest(req, res, 'DELETE',
       'Content-Type': 'application/json',
       'X-Api-Key': apiKey
     },
-    body: JSON.stringify({ justification: req.body.justification })
+    body: JSON.stringify({ reason: req.body.justification })
   });
 }));
 

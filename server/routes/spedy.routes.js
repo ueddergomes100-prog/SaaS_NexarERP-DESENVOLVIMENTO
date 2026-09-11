@@ -202,6 +202,14 @@ router.get('/:type/cities', async (req, res) => {
 
 // Nao ha rota generica PUT /:type hoje, entao a ordem aqui nao importa
 // pra colisao de path -- fica perto de /:type/cities so por organizacao.
+//
+// Usa a chave MESTRA da plataforma, nao a chave da propria empresa --
+// achado ao vivo (2026-09-11): a Spedy devolve 403 "Acesso nao
+// autorizado" quando PUT /companies/{id}/settings e chamado com a chave
+// por-empresa, mesmo padrao de POST /companies (criacao), que so aceita
+// a chave mestra (ver spedyCompanies.routes.js). A chave mestra nunca
+// sai do servidor -- so usada aqui, escopada ao companyId do tenant que
+// esta pedindo.
 router.put('/numbering', async (req, res) => {
   try {
     if (!canUseFiscal(req.user)) {
@@ -209,12 +217,27 @@ router.put('/numbering', async (req, res) => {
     }
 
     const tenantId = resolveTenantId(req);
-    const { apiKey, baseUrl } = await loadSpedyConfig(tenantId);
-
     const configSnap = await db.collection('configuracoes').doc(tenantId).get();
-    const companyId = configSnap.exists ? configSnap.data().spedyCompanyId : null;
+    if (!configSnap.exists) {
+      const error = new Error('Configurações desta empresa não foram encontradas.');
+      error.status = 404;
+      throw error;
+    }
+    const config = configSnap.data();
+    const companyId = config.spedyCompanyId;
     if (!companyId) {
       const error = new Error('Esta empresa ainda não foi cadastrada na Spedy -- fale com um administrador da plataforma antes de configurar a numeração.');
+      error.status = 400;
+      throw error;
+    }
+    const environment = config.spedyEnvironment === 'production' ? 'production' : 'sandbox';
+    const baseUrl = BASE_URLS[environment];
+
+    const masterSnap = await db.collection('plataforma').doc('spedy').get();
+    const masterData = masterSnap.exists ? masterSnap.data() : {};
+    const masterApiKey = environment === 'production' ? masterData.masterApiKeyProducao : masterData.masterApiKeySandbox;
+    if (!masterApiKey) {
+      const error = new Error(`Chave mestra da Spedy (${environment === 'production' ? 'produção' : 'sandbox'}) ainda não foi configurada -- fale com um administrador da plataforma.`);
       error.status = 400;
       throw error;
     }
@@ -230,7 +253,7 @@ router.put('/numbering', async (req, res) => {
 
     const response = await fetch(`${baseUrl}/companies/${companyId}/settings`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': masterApiKey },
       body: JSON.stringify(payload)
     });
 

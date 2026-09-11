@@ -504,14 +504,20 @@ const NFE: React.FC = () => {
       // Procura cupom fiscal (NFC-e) associado a este pedido que esteja autorizado
       const cupom = invoices.find(inv => inv.pedidoId === pedidoId && inv.tipo === 'NFC-e' && inv.status === 'authorized');
 
+      // UF da empresa vem da cidade resolvida em Configuracoes ->
+      // Nota Fiscal (Spedy) (nfseCidadeEstado, mesmo campo usado pra
+      // cadastrar a empresa na Spedy) -- ja tentamos "adivinhar" isso
+      // com regex em cima do campo Rua (texto livre), que quase nunca
+      // acha um estado de verdade e sempre caia no default 'SP', fazendo
+      // uma venda dentro do mesmo estado ser marcada como interestadual
+      // por engano (rejeicao 772 da Sefaz).
       let companyState = 'SP';
       try {
         const confRef = doc(db, 'configuracoes', tenantId || '');
         const confSnap = await getDoc(confRef);
         if (confSnap.exists()) {
-          const addr = confSnap.data().endereco || '';
-          const match = addr.match(/(?:^|\s|-|\/)([A-Z]{2})(?:\s|$)/i);
-          if (match) companyState = match[1].toUpperCase();
+          const estadoConfig = String(confSnap.data().nfseCidadeEstado || '').trim();
+          if (estadoConfig) companyState = estadoConfig.toUpperCase();
         }
       } catch (err) {
         console.warn("Erro ao buscar estado da oficina:", err);
@@ -1084,14 +1090,18 @@ const NFE: React.FC = () => {
               }
             ];
 
+        // UF da empresa vem da cidade resolvida em Configuracoes -> Nota
+        // Fiscal (Spedy) (nfseCidadeEstado) -- ver mesmo comentario em
+        // handleSelectPedido acima. Regex em cima do campo Rua livre
+        // (versao antiga) quase sempre caia no default 'SP' e marcava
+        // venda dentro do mesmo estado como interestadual (rejeicao 772).
         let companyState = 'SP';
         try {
           const confRef = doc(db, 'configuracoes', tenantId || '');
           const confSnap = await getDoc(confRef);
           if (confSnap.exists()) {
-            const addr = confSnap.data().endereco || '';
-            const match = addr.match(/(?:^|\s|-|\/)([A-Z]{2})(?:\s|$)/i);
-            if (match) companyState = match[1].toUpperCase();
+            const estadoConfig = String(confSnap.data().nfseCidadeEstado || '').trim();
+            if (estadoConfig) companyState = estadoConfig.toUpperCase();
           }
         } catch (err) {
           console.warn("Erro ao buscar estado da oficina:", err);

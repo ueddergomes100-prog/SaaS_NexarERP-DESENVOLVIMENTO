@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, User, Loader2, MapPin, CreditCard } from 'lucide-react';
+import { ArrowLeft, Save, User, Loader2, MapPin, CreditCard, CheckCircle } from 'lucide-react';
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -12,6 +12,7 @@ import { buscarClienteDuplicadoPorDocumento } from '../../utils/clienteDuplicado
 import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton';
 import type { ConsultaCnpjResultado, ConsultaCpfResultado } from '../../services/documentoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { spedyService, type SpedyCity } from '../../services/spedyService';
 
 const ClienteForm: React.FC = () => {
   const navigate = useNavigate();
@@ -27,13 +28,59 @@ const ClienteForm: React.FC = () => {
     endereco: '',
     bairro: '',
     numero: '',
+    cep: '',
     cidade: '',
+    estado: '',
+    codigoIbge: '',
     limiteDeCredito: '',
   });
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const { currentUser, tenantId } = useAuth();
+
+  // Busca ao vivo de cidades pra pegar o codigo IBGE -- mesmo mecanismo de
+  // Configuracoes.tsx (cidade da empresa), reaproveitado aqui porque a
+  // NF-e de produto manda o endereco do CLIENTE completo na XML (ver
+  // fiscalDomain.ts/NFE.tsx), e sem codigo IBGE a Spedy rejeita a nota
+  // (SPD003) -- antes deste campo, nao existia como o usuario preencher
+  // isso no cadastro de cliente.
+  const [cidadeSearchTerm, setCidadeSearchTerm] = useState('');
+  const [cidadeSearchResults, setCidadeSearchResults] = useState<SpedyCity[]>([]);
+  const [isCidadeSearching, setIsCidadeSearching] = useState(false);
+  const [showCidadeDropdown, setShowCidadeDropdown] = useState(false);
+
+  useEffect(() => {
+    if (cidadeSearchTerm.trim().length < 3) {
+      setCidadeSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsCidadeSearching(true);
+      try {
+        const result = await spedyService.searchServiceInvoiceCities('', 'sandbox', cidadeSearchTerm.trim());
+        setCidadeSearchResults(result.items || []);
+      } catch (error) {
+        console.error('Erro ao buscar cidades:', error);
+        setCidadeSearchResults([]);
+      } finally {
+        setIsCidadeSearching(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [cidadeSearchTerm]);
+
+  const handleSelectCidade = (cidade: SpedyCity) => {
+    setFormData(prev => ({
+      ...prev,
+      cidade: cidade.name || prev.cidade,
+      estado: cidade.state || prev.estado,
+      codigoIbge: cidade.code || '',
+    }));
+    setCidadeSearchTerm('');
+    setCidadeSearchResults([]);
+    setShowCidadeDropdown(false);
+  };
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -100,6 +147,7 @@ const ClienteForm: React.FC = () => {
       numero: dados.numero || prev.numero,
       bairro: dados.bairro || prev.bairro,
       cidade: dados.municipio || prev.cidade,
+      estado: dados.uf || prev.estado,
       telefone: prev.telefone || dados.telefone || prev.telefone,
       email: prev.email || dados.email || prev.email,
     }));
@@ -261,9 +309,44 @@ const ClienteForm: React.FC = () => {
               <input type="text" name="bairro" placeholder="Centro" value={formData.bairro} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
             <div className="input-group">
-              <label>Cidade</label>
-              <input type="text" name="cidade" placeholder="Manhuaçu" value={formData.cidade} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <label>CEP</label>
+              <input type="text" name="cep" placeholder="36900-000" value={formData.cep} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
+          </div>
+
+          <div className="input-group" style={{ position: 'relative' }}>
+            <label>Cidade</label>
+            {formData.cidade && formData.codigoIbge && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                <CheckCircle size={16} style={{ color: '#10b981' }} />
+                {formData.cidade} / {formData.estado} (IBGE {formData.codigoIbge})
+              </div>
+            )}
+            <input
+              type="text"
+              placeholder="Digite o nome da cidade pra buscar (ex: Manhuaçu)"
+              value={cidadeSearchTerm || formData.cidade}
+              onChange={(e) => { setCidadeSearchTerm(e.target.value); setFormData(prev => ({ ...prev, codigoIbge: '' })); setShowCidadeDropdown(true); }}
+              onFocus={(e) => { e.target.select(); setShowCidadeDropdown(true); }}
+              onBlur={() => setTimeout(() => setShowCidadeDropdown(false), 150)}
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+            />
+            {isCidadeSearching && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Buscando...</p>}
+            {showCidadeDropdown && cidadeSearchResults.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.25)' }}>
+                {cidadeSearchResults.map((cidade, index) => (
+                  <button
+                    key={`${cidade.code}-${index}`}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); handleSelectCidade(cidade); }}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 16px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px' }}
+                  >
+                    {cidade.name} / {cidade.state}
+                  </button>
+                ))}
+              </div>
+            )}
+            <small style={{ color: 'var(--text-muted)' }}>Necessária com código IBGE pra emitir NF-e de produto pra este cliente.</small>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)', marginTop: '12px' }}>

@@ -157,6 +157,14 @@ router.post('/companies', async (req, res) => {
     if (!config.cnpj || String(config.cnpj).replace(/\D/g, '').length !== 14) {
       return res.status(400).json({ error: 'Esta empresa não tem um CNPJ válido cadastrado em Configurações. Cadastre o CNPJ antes de continuar.' });
     }
+    // A Spedy exige cidade (codigo IBGE) no endereco pra cadastrar a
+    // empresa, mesmo a AddressDto marcando o campo como opcional na doc --
+    // sem isso ela devolve "A cidade é obrigatória", que não diz pro admin
+    // ONDE resolver. nfseCidadeCodigo so existe depois que alguem busca e
+    // seleciona a cidade na aba Nota Fiscal (Spedy) de Configuracoes.
+    if (!config.nfseCidadeCodigo) {
+      return res.status(400).json({ error: 'Esta empresa não tem cidade cadastrada para a Spedy. Vá em Configurações → Nota Fiscal (Spedy), busque e selecione a cidade antes de cadastrar a empresa.' });
+    }
 
     const masterApiKey = await loadMasterApiKey(environment);
     const payload = buildCompanyPayload(config);

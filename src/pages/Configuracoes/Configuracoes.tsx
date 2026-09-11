@@ -224,6 +224,7 @@ const Configuracoes: React.FC = () => {
   const [cidadeSearchResults, setCidadeSearchResults] = useState<SpedyCity[]>([]);
   const [isCidadeSearching, setIsCidadeSearching] = useState(false);
   const [showCidadeDropdown, setShowCidadeDropdown] = useState(false);
+  const [cidadeSearchError, setCidadeSearchError] = useState('');
   // true quando a leitura de configuracoes_privadas falhou (ex: erro de
   // permissao/rede) -- nesse caso o campo spedyApiKey no formData fica vazio
   // sem sabermos se e' porque o tenant realmente nao tem chave, ou porque so
@@ -399,16 +400,19 @@ const Configuracoes: React.FC = () => {
   useEffect(() => {
     if (cidadeSearchTerm.trim().length < 3) {
       setCidadeSearchResults([]);
+      setCidadeSearchError('');
       return;
     }
     const timer = setTimeout(async () => {
       setIsCidadeSearching(true);
+      setCidadeSearchError('');
       try {
         const result = await spedyService.searchServiceInvoiceCities('', 'sandbox', cidadeSearchTerm.trim());
         setCidadeSearchResults(result.items || []);
       } catch (error) {
         console.error('Erro ao buscar cidades da Spedy:', error);
         setCidadeSearchResults([]);
+        setCidadeSearchError(error instanceof Error ? error.message : 'Erro ao buscar cidades integradas.');
       } finally {
         setIsCidadeSearching(false);
       }
@@ -1293,8 +1297,11 @@ const Configuracoes: React.FC = () => {
                 ))}
               </div>
             )}
-            {showCidadeDropdown && !isCidadeSearching && cidadeSearchTerm.trim().length >= 3 && cidadeSearchResults.length === 0 && (
-              <p style={{ fontSize: '12px', color: '#ef4444', margin: 0 }}>Nenhuma cidade integrada encontrada com esse nome — a busca depende da chave da Spedy estar salva (mais abaixo), mesmo que essa empresa só use SINTEGRA/SPED e não emita NFS-e.</p>
+            {!isCidadeSearching && cidadeSearchTerm.trim().length >= 3 && cidadeSearchError && (
+              <p style={{ fontSize: '12px', color: '#ef4444', margin: 0 }}>{cidadeSearchError}</p>
+            )}
+            {showCidadeDropdown && !isCidadeSearching && !cidadeSearchError && cidadeSearchTerm.trim().length >= 3 && cidadeSearchResults.length === 0 && (
+              <p style={{ fontSize: '12px', color: '#ef4444', margin: 0 }}>Nenhuma cidade integrada encontrada com esse nome.</p>
             )}
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Usada na emissão de NFS-e e nos utilitários fiscais (SINTEGRA, SPED).</p>
           </div>

@@ -215,15 +215,23 @@ router.post('/companies', async (req, res) => {
   }
 });
 
-/** PUT /companies/:tenantId/settings -- reenvia os dados atuais de
- * Configuracoes pra empresa JA cadastrada na Spedy (endpoint deles:
- * PUT /v1/companies/:id/settings, docs.spedy.com.br/api-reference/
- * empresas/editar-empresa). Criado porque nao existia forma de corrigir
- * a Spedy depois do cadastro inicial -- descoberto ao vivo quando uma
- * empresa cadastrada sem Inscricao Estadual preenchida gerou rejeicao
- * SPD003 na hora de emitir (schema da NFe exige IE no bloco do emitente,
- * mesmo cadastro de empresa aceitando sem). Reaproveita buildCompanyPayload,
- * so troca o metodo/URL pro endpoint de edicao. */
+/** PUT /companies/:tenantId/settings (nosso path interno) -- reenvia os
+ * dados atuais de Configuracoes pra empresa JA cadastrada na Spedy.
+ * Criado porque nao existia forma de corrigir a Spedy depois do cadastro
+ * inicial -- descoberto ao vivo quando uma empresa cadastrada sem
+ * Inscricao Estadual preenchida gerou rejeicao SPD003 na hora de emitir
+ * (schema da NFe exige IE no bloco do emitente, mesmo cadastro de
+ * empresa aceitando sem).
+ *
+ * Bug ja corrigido uma vez e ainda errado (2026-09-11): o fetch chamava
+ * PUT /v1/companies/{id}/settings da Spedy, que e' o endpoint de
+ * CONFIGURACAO DE EMISSAO (serie/numeracao/ambiente/CSC -- ver
+ * PUT /numbering em spedy.routes.js, esse sim usa /settings
+ * corretamente), nao o de dados cadastrais. Por isso a chamada
+ * retornava sucesso mas a IE nunca era atualizada de verdade -- a Spedy
+ * so ignorava os campos que nao pertencem aquele endpoint. O endpoint
+ * certo pra editar CNPJ/endereco/regime/IE e' PUT /v1/companies/{id}
+ * (sem o /settings), confirmado via openapi/v1.json. */
 router.put('/companies/:tenantId/settings', async (req, res) => {
   if (!requirePlatformAdmin(req, res)) return;
   try {
@@ -246,7 +254,7 @@ router.put('/companies/:tenantId/settings', async (req, res) => {
     const masterApiKey = await loadMasterApiKey(environment);
     const payload = buildCompanyPayload(config);
 
-    const response = await fetch(`${BASE_URLS[environment]}/companies/${companyId}/settings`, {
+    const response = await fetch(`${BASE_URLS[environment]}/companies/${companyId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',

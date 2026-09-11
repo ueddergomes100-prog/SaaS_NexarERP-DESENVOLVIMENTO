@@ -4,6 +4,7 @@ import { Box, FileText, LogOut, Tag, Users } from 'lucide-react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import './vendedorMobile.css';
 
 interface PedidoRecente {
   id: string;
@@ -23,7 +24,7 @@ const atalhoStyle: React.CSSProperties = {
 
 const VendedorHome: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, tenantId, logout } = useAuth();
+  const { currentUser, tenantId, logout, userNome } = useAuth();
   const [recentes, setRecentes] = useState<PedidoRecente[]>([]);
 
   useEffect(() => {
@@ -54,7 +55,7 @@ const VendedorHome: React.FC = () => {
     return () => { cancelado = true; };
   }, [tenantId, currentUser]);
 
-  const nome = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Vendedor';
+  const nome = userNome || currentUser?.displayName || 'Vendedor';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
@@ -83,7 +84,7 @@ const VendedorHome: React.FC = () => {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '6px 22px 22px', display: 'flex', flexDirection: 'column', gap: '22px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: '14px' }}>
+        <div className="vendedor-atalhos-grid">
           <button
             type="button"
             onClick={() => navigate('/vendedor/pedido/novo')}

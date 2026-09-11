@@ -1,0 +1,14 @@
+/*
+ * Classes proprias do app do vendedor externo -- de proposito NAO usa
+ * `style={{ gridTemplateColumns: ... }}` inline: index.css tem uma regra
+ * global (@media max-width:768px, `div[style*="grid-template-columns"]`)
+ * que colapsa QUALQUER grid inline pra 1 coluna, pensada pro fallback
+ * responsivo do sistema desktop. Ela pega qualquer div com esse texto no
+ * atributo `style`, sem saber se e' um grid do desktop ou deste app --
+ * usando classe aqui em vez de inline, a regra nunca enxerga o grid.
+ */
+.vendedor-atalhos-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}

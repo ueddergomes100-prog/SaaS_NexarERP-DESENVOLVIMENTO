@@ -94,6 +94,10 @@ interface AuthContextType {
   /** Este login (Usuario ou Vendedor de balcao) tem acesso ao aplicativo
    *  mobile do vendedor externo liberado. Ver acessoMobileDomain.ts. */
   acessoAppMobile: boolean;
+  /** Nome de verdade do login (campo `nome` do doc usuarios/{uid}), nao o
+   *  e-mail sintetico (`{cnpj}-{usuario}@nexar.app`) que auth.currentUser
+   *  carrega pra login de Funcionario. */
+  userNome: string;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -162,6 +166,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [agenteDigitalAtivo, setAgenteDigitalAtivo] = useState(DEFAULT_AGENTE_DIGITAL_ATIVO);
   const [temVendedorCadastrado, setTemVendedorCadastrado] = useState(false);
   const [acessoAppMobile, setAcessoAppMobile] = useState(false);
+  const [userNome, setUserNome] = useState('');
   const [loading, setLoading] = useState(true);
   const sessionCloseTokenRef = useRef('');
 
@@ -205,6 +210,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTenantOptions([]);
         setSelectedTenant(null);
         setAcessoAppMobile(false);
+        setUserNome('');
         clearStoredSessionId();
       };
 
@@ -335,6 +341,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const finalTenant = typeof data.tenantId === 'string' && data.tenantId ? data.tenantId : user.uid;
             const finalPermissions = toStringArray(data.permissoes);
             setAcessoAppMobile(data.acessoAppMobile === true);
+            setUserNome(typeof data.nome === 'string' && data.nome ? data.nome : (typeof data.nomeResponsavel === 'string' ? data.nomeResponsavel : ''));
             let finalBlockedModules: string[] = [];
 
             if (user.uid === finalTenant) {
@@ -381,6 +388,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTenantOptions([]);
         setSelectedTenant(null);
         setAcessoAppMobile(false);
+        setUserNome('');
         setLoading(false);
       }
     });
@@ -593,7 +601,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
       {children}
     </AuthContext.Provider>
   );

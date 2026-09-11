@@ -769,6 +769,22 @@ const NFE: React.FC = () => {
     return () => unsubscribe();
   }, [tenantId]);
 
+  // Consulta a Spedy sozinho enquanto existir nota "processando" -- antes
+  // disso, o unico jeito de saber que uma nota saiu de processamento pra
+  // autorizada/rejeitada era clicar em "Sincronizar Notas" na mao ou
+  // recarregar a pagina (o onSnapshot acima so pega mudanca que ja
+  // aconteceu no Firestore, nao consulta a Spedy sozinho). So fica ativo
+  // com nota pendente na tela -- sem nenhuma, nao bate na API a toa.
+  useEffect(() => {
+    if (!config?.spedyEnabled || !config?.spedyApiKey) return;
+    const pending = invoices.filter(n => ['enqueued', 'processing', 'created'].includes(n.status));
+    if (pending.length === 0) return;
+    const interval = setInterval(() => {
+      syncPendingInvoices(pending);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [invoices, config, syncPendingInvoices]);
+
   const handleManualSyncAll = async () => {
     if (!config?.spedyApiKey) return;
     setSyncing(true);

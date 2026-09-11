@@ -661,6 +661,27 @@ const NFE: React.FC = () => {
             processingMessage: spedyNote.processingDetail?.message || null,
             processingCode: spedyNote.processingDetail?.code || null
           } : item));
+
+          // Nota acabou de sair de processamento e foi autorizada agora --
+          // oferece a DANFE na hora, em vez do usuario ter que ir procurar
+          // o icone dela na lista depois. So dispara pra transicao REAL
+          // (nao repete se a nota ja estava autorizada antes deste sync).
+          if (spedyNote.status === 'authorized' && note.status !== 'authorized') {
+            const tipoArquivo = note.tipo === 'NFS-e' ? 'service' : note.tipo === 'NFC-e' ? 'consumer' : 'product';
+            NexusSwal.fire({
+              icon: 'success',
+              title: 'Nota autorizada!',
+              text: `${note.tipo} Nº ${spedyNote.number ?? ''} de ${note.clienteNome} foi autorizada pela Sefaz.`,
+              confirmButtonText: 'Ver / Imprimir DANFE',
+              showCancelButton: true,
+              cancelButtonText: 'Fechar',
+            }).then((result) => {
+              if (result.isConfirmed) {
+                spedyService.openFiscalFile(note.spedyId, tipoArquivo, 'pdf')
+                  .catch(err => showError('Erro ao abrir PDF', (err as Error).message));
+              }
+            });
+          }
         }
       } catch (err) {
         console.warn(`Falha ao sincronizar nota ${note.spedyId}:`, err);

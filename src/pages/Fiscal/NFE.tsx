@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Receipt, Plus, Search, CheckCircle,
   XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings,
-  ChevronLeft, ChevronRight, MessageCircle
+  ChevronLeft, ChevronRight, MessageCircle, Loader2
 } from 'lucide-react';
 import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -127,6 +127,11 @@ const NFE: React.FC = () => {
   const [clients, setClients] = useState<ClienteOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  // Id da nota com o PDF (DANFE) sendo buscado agora -- so pra trocar o
+  // iconezinho de olho por um spinner enquanto o fetch do PDF roda, que
+  // sem isso parecia o sistema ter travado (nenhum feedback ate a aba
+  // nova abrir).
+  const [carregandoPdfId, setCarregandoPdfId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTab, setSelectedTab] = useState<'Todas' | 'NFC-e' | 'NF-e' | 'NFS-e'>('Todas');
   const [page, setPage] = useState(1);
@@ -675,11 +680,14 @@ const NFE: React.FC = () => {
               confirmButtonText: 'Ver / Imprimir DANFE',
               showCancelButton: true,
               cancelButtonText: 'Fechar',
-            }).then((result) => {
-              if (result.isConfirmed) {
-                spedyService.openFiscalFile(note.spedyId, tipoArquivo, 'pdf')
-                  .catch(err => showError('Erro ao abrir PDF', (err as Error).message));
-              }
+              // Spinner no proprio botao enquanto o PDF carrega -- sem
+              // isso o alerta so fechava e nada parecia acontecer ate a
+              // aba nova abrir, dava impressao de sistema travado.
+              showLoaderOnConfirm: true,
+              preConfirm: () => spedyService.openFiscalFile(note.spedyId, tipoArquivo, 'pdf')
+                .catch(err => {
+                  showError('Erro ao abrir PDF', (err as Error).message);
+                }),
             });
           }
         }
@@ -857,6 +865,18 @@ const NFE: React.FC = () => {
     } catch (err) {
       Swal.close();
       showError('Erro na sincronização', (err as Error).message || 'Erro ao consultar nota.');
+    }
+  };
+
+  const abrirDanfe = async (note: LocalInvoice) => {
+    setCarregandoPdfId(note.id);
+    try {
+      const tipoArquivo = note.tipo === 'NFS-e' ? 'service' : note.tipo === 'NFC-e' ? 'consumer' : 'product';
+      await spedyService.openFiscalFile(note.spedyId, tipoArquivo, 'pdf');
+    } catch (err) {
+      showError('Erro ao abrir PDF', (err as Error).message);
+    } finally {
+      setCarregandoPdfId(null);
     }
   };
 
@@ -1586,16 +1606,13 @@ const NFE: React.FC = () => {
                         {note.status === 'authorized' && (
                           <button
                             type="button"
-                            onClick={() => spedyService.openFiscalFile(
-                              note.spedyId,
-                              note.tipo === 'NFS-e' ? 'service' : note.tipo === 'NFC-e' ? 'consumer' : 'product',
-                              'pdf'
-                            ).catch(err => showError('Erro ao abrir PDF', (err as Error).message))}
+                            onClick={() => abrirDanfe(note)}
+                            disabled={carregandoPdfId === note.id}
                             className="icon-btn"
                             title="Visualizar PDF (DANFE)"
-                            style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'inline-flex' }}
+                            style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: carregandoPdfId === note.id ? 'default' : 'pointer', display: 'inline-flex' }}
                           >
-                            <Eye size={18} />
+                            {carregandoPdfId === note.id ? <Loader2 size={18} className="spin-animation" /> : <Eye size={18} />}
                           </button>
                         )}
 

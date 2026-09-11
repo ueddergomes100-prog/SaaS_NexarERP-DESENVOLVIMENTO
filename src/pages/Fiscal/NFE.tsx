@@ -14,8 +14,8 @@ import { isPlatformAdminRole } from '../../utils/roles';
 import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import {
-  DEFAULT_REGIME_TRIBUTARIO, buildTaxesPayload, buildServiceInvoicePayload,
-  buildServiceInvoiceDescription, sumServiceInvoiceAmount,
+  DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, buildTaxesPayload, buildServiceInvoicePayload,
+  buildServiceInvoiceDescription, sumServiceInvoiceAmount, usesCsosn,
   isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields,
   type RegimeTributario, type NfseConfig, type OsServicoParaFatura, type ClienteParaFatura,
 } from '../../utils/fiscalDomain';
@@ -933,6 +933,23 @@ const NFE: React.FC = () => {
         showError(
           'Endereço do cliente incompleto',
           `Falta ${camposEnderecoFaltando.join(', ')} no endereço de "${formData.clienteNome}" para emitir a NF-e. Edite o cadastro deste cliente em Clientes e preencha o endereço completo antes de emitir -- sem isso a Spedy rejeita a nota (SPD003).`
+        );
+        return;
+      }
+
+      // Lançamento avulso (sem Pedido de Venda importado) só monta o bloco
+      // de impostos no formato de Simples Nacional (CSOSN) -- formato
+      // MINIMO documentado assim em fiscalDomain.ts/buildTaxesPayload.
+      // Empresa em Lucro Presumido/Real manda CST real (nao CSOSN) pro
+      // ICMS, senao a Spedy rejeita o payload (SPD003, "formato invalido").
+      // Importar de um Pedido de Venda ja usa buildTaxesPayload com o CST
+      // real vindo do cadastro do produto -- e o unico caminho correto pra
+      // esses regimes hoje.
+      const semPedidoImportado = !(importedPedidoId && importedPedidoItens.length > 0);
+      if (semPedidoImportado && !usesCsosn(regimeTributario)) {
+        showError(
+          'Lançamento avulso não suporta este regime tributário',
+          `A empresa está no regime "${REGIME_TRIBUTARIO_OPTIONS.find(r => r.value === regimeTributario)?.label || regimeTributario}", que exige CST real de ICMS/PIS/COFINS por produto -- o lançamento avulso só monta o formato simplificado de Simples Nacional (CSOSN) e a Spedy vai rejeitar (SPD003). Importe um Pedido de Venda pronto em vez de lançar avulso: ele já usa os dados fiscais reais cadastrados em cada produto.`
         );
         return;
       }

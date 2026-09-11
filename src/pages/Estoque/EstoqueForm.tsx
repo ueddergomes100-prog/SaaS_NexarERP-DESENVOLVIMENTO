@@ -1325,7 +1325,7 @@ const EstoqueForm: React.FC = () => {
         </div>
       </div>
 
-      <form className="product-form" onSubmit={handleSave}>
+      <form className="product-form" onSubmit={handleSave} autoComplete="off">
         <div className="product-tabs">
           {tabs
             .filter(tab => modoCadastro === 'avancado' || ['geral', 'precos', 'historico', 'estoque', 'fiscal'].includes(tab.id))

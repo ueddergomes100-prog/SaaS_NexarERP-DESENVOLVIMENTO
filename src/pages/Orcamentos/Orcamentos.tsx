@@ -4,7 +4,7 @@ import {
   FileText, Plus, Search, Filter, Edit2,
   CheckCircle, XCircle, Wrench, Share2, Printer, ShoppingCart
 } from 'lucide-react';
-import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, getDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -23,6 +23,11 @@ interface Orcamento {
   servicos?: any[];
   pecas?: any[];
   clienteTelefone?: string;
+  /** Vinculo reverso gravado por handleConvertToOS/handleConvertToVenda
+   * (OrcamentoForm.tsx) -- permite checar, ao recusar, se o registro gerado
+   * ja foi finalizado ou ainda pode ser cancelado junto. */
+  geradoTipo?: 'OS' | 'Venda';
+  geradoId?: string;
 }
 
 const Orcamentos: React.FC = () => {
@@ -61,20 +66,68 @@ const Orcamentos: React.FC = () => {
   }, [tenantId]);
 
   const handleRecusar = async (orcamento: Orcamento) => {
-    // Ja foi convertido em Venda/OS -- recusar aqui nao desfaz a conversao.
-    // Cancele a Venda/OS gerada, nao o orcamento que so registrou a origem.
-    if (orcamento.status === 'Finalizado') {
-      showError('Não é possível recusar', 'Este orçamento já foi convertido em Venda ou Ordem de Serviço. Cancele a Venda/OS gerada primeiro, se for o caso.');
-      return;
-    }
     if (orcamento.status === 'Recusado') {
       showError('Já recusado', 'Este orçamento já está com status Recusado.');
       return;
     }
 
+    // Cascata da conversao (Modulo "Auditoria", 2026-09-13): so a OS pode
+    // ficar "convertida mas nao finalizada" -- handleConvertToVenda ja baixa
+    // estoque e gera financeiro 'Paga' na hora, entao um Pedido de Venda
+    // gerado por orcamento SEMPRE nasce Finalizada. Por isso o bloqueio por
+    // "Finalizada" na pratica so libera cascata pro lado da OS.
+    let cancelarOsJunto = false;
+    if (orcamento.status === 'Finalizado') {
+      if (!orcamento.geradoTipo || !orcamento.geradoId) {
+        // Orcamento convertido antes desta feature existir -- sem o vinculo
+        // reverso nao ha como checar o status gerado. Mantem o bloqueio
+        // antigo (seguro) em vez de arriscar liberar errado.
+        showError('Não é possível recusar', 'Este orçamento já foi convertido em Venda ou Ordem de Serviço. Cancele a Venda/OS gerada primeiro, se for o caso.');
+        return;
+      }
+
+      const colecaoGerado = orcamento.geradoTipo === 'OS' ? 'ordens_de_servico' : 'pedidos_venda';
+      let geradoData: any = null;
+      try {
+        const geradoSnap = await getDoc(doc(db, colecaoGerado, orcamento.geradoId));
+        geradoData = geradoSnap.exists() ? geradoSnap.data() : null;
+      } catch (err) {
+        console.error('Erro ao verificar status do registro gerado pelo orçamento:', err);
+        showError('Erro', 'Não foi possível verificar o status da Venda/OS gerada. Tente novamente.');
+        return;
+      }
+
+      const geradoStatus = geradoData?.status || null;
+      const label = orcamento.geradoTipo === 'OS' ? 'a Ordem de Serviço' : 'o Pedido de Venda';
+
+      if (geradoStatus === 'Finalizada') {
+        showError('Não é possível recusar', `Este orçamento já virou ${label} e ela já foi finalizada. Cancele ${label} primeiro para poder recusar o orçamento.`);
+        return;
+      }
+
+      // Estoque ja reservado nao-finalizada (raro: usuario abriu a OS gerada
+      // e salvou pelo menos uma vez) -- estornar isso direito exige o fluxo
+      // completo do OSForm (pergunta se retorna estoque, reverte financeiro
+      // se houver). Nao reimplementa aqui: pede pra cancelar por la.
+      if (geradoStatus && geradoStatus !== 'Cancelada' && (geradoData?.estoqueReservado === true || geradoData?.estoqueBaixado === true)) {
+        showError('Não é possível recusar', `${label} gerada por este orçamento já reservou/baixou estoque. Cancele-a diretamente na tela dela para que o estoque seja devolvido corretamente.`);
+        return;
+      }
+
+      // Gerado ainda aberto (nem finalizado, nem com estoque mexido) ou ja
+      // cancelado -- libera recusar. Se ainda estiver aberto, cancela junto
+      // pra nao deixar OS orfa "pendurada" na tela depois que o orcamento de
+      // origem foi recusado.
+      if (orcamento.geradoTipo === 'OS' && geradoStatus && geradoStatus !== 'Cancelada') {
+        cancelarOsJunto = true;
+      }
+    }
+
     const confirm = await NexusSwal.fire({
       title: 'Recusar Orçamento?',
-      text: 'O orçamento fica registrado como recusado, sem apagar nada -- pode reabrir depois se o cliente mudar de ideia.',
+      text: cancelarOsJunto
+        ? 'A Ordem de Serviço gerada por este orçamento ainda não foi finalizada e será cancelada junto.'
+        : 'O orçamento fica registrado como recusado, sem apagar nada -- pode reabrir depois se o cliente mudar de ideia.',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonText: 'Sim, recusar',
@@ -84,10 +137,23 @@ const Orcamentos: React.FC = () => {
 
     if (confirm.isConfirmed) {
       try {
-        await updateDoc(doc(db, 'orcamentos', orcamento.id), {
-          status: 'Recusado',
-          updatedAt: serverTimestamp(),
-        });
+        if (cancelarOsJunto && orcamento.geradoId) {
+          await runTransaction(db, async (transaction) => {
+            transaction.update(doc(db, 'orcamentos', orcamento.id), {
+              status: 'Recusado',
+              updatedAt: serverTimestamp(),
+            });
+            transaction.update(doc(db, 'ordens_de_servico', orcamento.geradoId as string), {
+              status: 'Cancelada',
+              updatedAt: serverTimestamp(),
+            });
+          });
+        } else {
+          await updateDoc(doc(db, 'orcamentos', orcamento.id), {
+            status: 'Recusado',
+            updatedAt: serverTimestamp(),
+          });
+        }
         try {
           const { createAuditLog } = await import('../../services/logService');
           createAuditLog({
@@ -96,15 +162,28 @@ const Orcamentos: React.FC = () => {
             usuarioEmail: currentUser?.email || '',
             modulo: 'vendas',
             acao: 'cancelamento',
-            descricao: `Orçamento #${orcamento.numeroOrcamento} recusado.`,
+            descricao: `Orçamento #${orcamento.numeroOrcamento} recusado.${cancelarOsJunto ? ' OS gerada cancelada junto (ainda não estava finalizada).' : ''}`,
             registroRelacionadoId: orcamento.id,
             status: 'sucesso',
             critical: true,
           });
+          if (cancelarOsJunto && orcamento.geradoId) {
+            createAuditLog({
+              tenantId: tenantId || '',
+              usuarioId: currentUser?.uid || '',
+              usuarioEmail: currentUser?.email || '',
+              modulo: 'mecanica',
+              acao: 'cancelamento',
+              descricao: `OS cancelada automaticamente: o Orçamento #${orcamento.numeroOrcamento} que a gerou foi recusado antes de ela ser finalizada.`,
+              registroRelacionadoId: orcamento.geradoId,
+              status: 'sucesso',
+              critical: true,
+            });
+          }
         } catch {
           // ignore audit log error
         }
-        showSuccess('Orçamento recusado!');
+        showSuccess(cancelarOsJunto ? 'Orçamento recusado e OS cancelada!' : 'Orçamento recusado!');
         fetchOrcamentos();
       } catch (error) {
         showError('Erro', 'Não foi possível atualizar o orçamento.');
@@ -258,7 +337,11 @@ const Orcamentos: React.FC = () => {
                               <Edit2 size={18} />
                             </button>
                           )}
-                          {canDeleteOrcamento && orc.status !== 'Recusado' && orc.status !== 'Finalizado' && (
+                          {/* 'Finalizado' (convertido em OS/Venda) agora pode tentar
+                              recusar tambem -- handleRecusar decide se bloqueia
+                              (gerado ja finalizado/com estoque mexido) ou libera
+                              e cascateia o cancelamento da OS ainda aberta. */}
+                          {canDeleteOrcamento && orc.status !== 'Recusado' && (
                             <button
                               title="Recusar Orçamento"
                               onClick={() => handleRecusar(orc)}

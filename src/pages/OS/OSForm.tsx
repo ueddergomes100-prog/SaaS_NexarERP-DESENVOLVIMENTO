@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X } from 'lucide-react';
+import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X, History } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -15,7 +15,8 @@ import {
   DEFAULT_MOMENTO_BAIXA_ESTOQUE,
   type MomentoBaixaEstoque,
 } from '../../utils/estoqueReservaDomain';
-import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
+import { isPlatformAdminRole, isTenantManagerRole, hasModuleAccess } from '../../utils/roles';
+import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaModal';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import {
   calcularDescontoCents,
@@ -253,7 +254,9 @@ const OSForm: React.FC = () => {
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
 
-  const { currentUser, tenantId, userRole } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const canVerAuditoria = hasModuleAccess({ role: userRole, isOwner, permissions: userPermissions, requiredPermission: 'administrativo.logs' });
+  const [auditoriaAberta, setAuditoriaAberta] = useState(false);
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
   const { items: bancosDisponiveis } = useTenantCollection<Banco>('bancos', tenantId);
@@ -1060,6 +1063,7 @@ const OSForm: React.FC = () => {
         ? await getCurrentMaxSequence(db, 'ordens_de_servico', tenantId, 'numeroOS').catch(() => 0)
         : 0;
       let didCancelJustNow = false;
+      let savedOsId = id || '';
 
       await runTransaction(db, async (transaction) => {
         let nextOs: number | null = null;
@@ -1069,6 +1073,7 @@ const OSForm: React.FC = () => {
         }
 
         const osRef = isEditing && id ? doc(db, 'ordens_de_servico', id) : doc(collection(db, 'ordens_de_servico'));
+        savedOsId = osRef.id;
         const existingOsSnap = isEditing ? await transaction.get(osRef) : null;
         const existingOsData = existingOsSnap?.exists() ? existingOsSnap.data() : null;
         const mechanicSnap = formData.mecanicoId
@@ -1466,6 +1471,22 @@ const OSForm: React.FC = () => {
         } catch (logError) {
           console.error('Erro ao registrar log de cancelamento da OS:', logError);
         }
+      } else {
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'mecanica',
+            acao: isEditing ? 'edicao' : 'criacao',
+            descricao: `OS #${finalNumeroOS} ${isEditing ? 'atualizada' : 'criada'} (cliente: ${formData.clienteNome.toUpperCase().trim()}).`,
+            registroRelacionadoId: savedOsId,
+            status: 'sucesso',
+          });
+        } catch (logError) {
+          console.error('Erro ao registrar log de auditoria da OS:', logError);
+        }
       }
 
       setFormData(prev => ({
@@ -1535,11 +1556,26 @@ const OSForm: React.FC = () => {
             <p className="page-subtitle">{isEditing ? `Gerenciando OS #${formData.numeroOS || id?.substring(0,6).toUpperCase()}` : 'Preencha os dados — o número da OS é definido ao salvar'}</p>
           </div>
         </div>
-        <button className="btn-primary" onClick={handleSave} disabled={isLoading} style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center' }}>
-          {isLoading ? <Loader2 size={18} className="spin-icon" style={{ marginRight: 8 }} /> : <Save size={18} style={{ marginRight: 8 }} />}
-          {isLoading ? 'Salvando...' : 'Salvar OS'}
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          {isEditing && canVerAuditoria && (
+            <button className="btn-secondary" onClick={() => setAuditoriaAberta(true)} title="Ver histórico de auditoria">
+              <History size={18} />
+            </button>
+          )}
+          <button className="btn-primary" onClick={handleSave} disabled={isLoading} style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center' }}>
+            {isLoading ? <Loader2 size={18} className="spin-icon" style={{ marginRight: 8 }} /> : <Save size={18} style={{ marginRight: 8 }} />}
+            {isLoading ? 'Salvando...' : 'Salvar OS'}
+          </button>
+        </div>
       </div>
+
+      <HistoricoAuditoriaModal
+        open={auditoriaAberta}
+        onClose={() => setAuditoriaAberta(false)}
+        tenantId={tenantId}
+        registroId={id || ''}
+        titulo={`Auditoria — OS #${formData.numeroOS || id?.substring(0, 6).toUpperCase() || ''}`}
+      />
 
       <div className="form-grid">
         <div className="form-column">

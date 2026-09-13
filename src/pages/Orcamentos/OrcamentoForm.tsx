@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { 
   ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, 
-  Calendar, Package, Wrench, Printer, ShoppingCart, Share2, X
+  Calendar, Package, Wrench, Printer, ShoppingCart, Share2, X, History
 } from 'lucide-react';
 import {
   addDoc, collection, updateDoc, doc, getDoc, getDocs,
@@ -51,6 +51,8 @@ import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import '../OS/OS.css';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
+import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaModal';
+import { hasModuleAccess } from '../../utils/roles';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; }
 interface ServicoData { id: string; nome: string; preco: number; }
@@ -152,8 +154,10 @@ const OrcamentoForm: React.FC = () => {
 
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
 
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
+  const canVerAuditoria = hasModuleAccess({ role: userRole, isOwner, permissions: userPermissions, requiredPermission: 'administrativo.logs' });
+  const [auditoriaAberta, setAuditoriaAberta] = useState(false);
 
   const [isServicoDropdownOpen, setIsServicoDropdownOpen] = useState(false);
 
@@ -560,14 +564,23 @@ const OrcamentoForm: React.FC = () => {
           ...dataToSave,
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId, usuarioId: currentUser.uid, usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'vendas', acao: 'edicao',
+          descricao: `Orçamento #${formData.numeroOrcamento} atualizado (cliente: ${nomeClienteFormatado}, total: R$ ${totalGeral.toFixed(2)}).`,
+          registroRelacionadoId: id, status: 'sucesso',
+        });
       } else {
         let finalNumeroOrcamento = formData.numeroOrcamento;
+        let novoOrcamentoId = '';
         const currentMaxOrcamento = await getCurrentMaxSequence(db, 'orcamentos', tenantId, 'numeroOrcamento').catch(() => 0);
 
         await runTransaction(db, async (transaction) => {
           const nextOrcamento = await reserveTenantSequence(transaction, db, tenantId, 'orcamentos', currentMaxOrcamento);
           finalNumeroOrcamento = formatSequenceValue(nextOrcamento, 4);
           const newOrcamentoRef = doc(collection(db, 'orcamentos'));
+          novoOrcamentoId = newOrcamentoRef.id;
           transaction.set(newOrcamentoRef, {
             ...dataToSave,
             numeroOrcamento: finalNumeroOrcamento,
@@ -576,6 +589,13 @@ const OrcamentoForm: React.FC = () => {
           });
         });
         setFormData(prev => ({ ...prev, numeroOrcamento: finalNumeroOrcamento }));
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId, usuarioId: currentUser.uid, usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'vendas', acao: 'criacao',
+          descricao: `Orçamento #${finalNumeroOrcamento} criado (cliente: ${nomeClienteFormatado}, total: R$ ${totalGeral.toFixed(2)}).`,
+          registroRelacionadoId: novoOrcamentoId, status: 'sucesso',
+        });
       }
 
       showSuccess(`Orçamento ${isEditing ? 'atualizado' : 'criado'}!`);
@@ -625,7 +645,13 @@ const OrcamentoForm: React.FC = () => {
             modelo: formData.modelo,
             ano: formData.ano,
             cor: formData.cor,
-            status: 'Orçamento Aprovado',
+            // 'Orçamento Aprovado' nao e' opcao do <select> de status da OS
+            // (OSForm.tsx so tem Orçamento Pendente/Aguardando Peça/Em
+            // Manutenção/Finalizada/Cancelada) -- o select controlado caia
+            // silenciosamente na primeira opcao, mostrando "Orçamento
+            // Pendente" pro usuario enquanto o valor real gravado era outro
+            // (mesma classe de bug do CSOSN, corrigida antes nesta sessao).
+            status: 'Orçamento Pendente',
             servicos: itens.filter(i => i.tipo === 'servico'),
             pecas: itens.filter(i => i.tipo === 'peca'),
             valorTotal: totalGeral,
@@ -638,10 +664,34 @@ const OrcamentoForm: React.FC = () => {
           if (id) {
             transaction.update(doc(db, 'orcamentos', id), {
               status: 'Finalizado',
+              // Vinculo reverso -- sem isso, recusar o orcamento depois nao
+              // teria como checar se a OS gerada ja foi finalizada ou nao
+              // (ver handleRecusar em Orcamentos.tsx).
+              geradoTipo: 'OS',
+              geradoId: newOsId,
               ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Convertido em OS'),
             });
           }
         });
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId, usuarioId: currentUser.uid, usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'mecanica', acao: 'criacao',
+            descricao: `OS gerada a partir do Orçamento #${formData.numeroOrcamento} (cliente: ${formData.clienteNome.toUpperCase()}).`,
+            registroRelacionadoId: newOsId, status: 'sucesso',
+          });
+          if (id) {
+            createAuditLog({
+              tenantId, usuarioId: currentUser.uid, usuarioEmail: currentUser.email || currentUser.uid,
+              modulo: 'vendas', acao: 'edicao',
+              descricao: `Orçamento #${formData.numeroOrcamento} convertido em OS.`,
+              registroRelacionadoId: id, status: 'sucesso',
+            });
+          }
+        } catch (logError) {
+          console.error('Erro ao registrar log de auditoria da conversão em OS:', logError);
+        }
         showSuccess('Convertido em OS!');
         navigate(`/os/editar/${newOsId}`);
       } catch {
@@ -681,10 +731,12 @@ const OrcamentoForm: React.FC = () => {
         if (!tenantId) throw new Error('Tenant nao carregado.');
         if (!currentUser) throw new Error('Usuário não autenticado.');
         const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
+        let novaVendaId = '';
 
         await runTransaction(db, async (transaction) => {
           const nextPedido = await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
           const newVendaRef = doc(collection(db, 'pedidos_venda'));
+          novaVendaId = newVendaRef.id;
           const vendaItens = soPecas.map(i => ({
             id: i.id,
             nome: i.nome,
@@ -744,10 +796,31 @@ const OrcamentoForm: React.FC = () => {
           if (id) {
             transaction.update(doc(db, 'orcamentos', id), {
               status: 'Finalizado',
+              geradoTipo: 'Venda',
+              geradoId: newVendaRef.id,
               ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Convertido em venda'),
             });
           }
         });
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId, usuarioId: currentUser.uid, usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'vendas', acao: 'criacao',
+            descricao: `Pedido de Venda gerado a partir do Orçamento #${formData.numeroOrcamento} (cliente: ${formData.clienteNome.toUpperCase()}, total: R$ ${valorProdutos.toFixed(2)}).`,
+            registroRelacionadoId: novaVendaId, status: 'sucesso',
+          });
+          if (id) {
+            createAuditLog({
+              tenantId, usuarioId: currentUser.uid, usuarioEmail: currentUser.email || currentUser.uid,
+              modulo: 'vendas', acao: 'edicao',
+              descricao: `Orçamento #${formData.numeroOrcamento} convertido em Pedido de Venda.`,
+              registroRelacionadoId: id, status: 'sucesso',
+            });
+          }
+        } catch (logError) {
+          console.error('Erro ao registrar log de auditoria da conversão em venda:', logError);
+        }
         showSuccess('Venda realizada com sucesso!');
         navigate('/pedidos-venda');
       } catch {
@@ -796,7 +869,16 @@ const OrcamentoForm: React.FC = () => {
               <button className="btn-secondary" onClick={() => navigate(`/orcamentos/print/${id}`)}>
                 <Printer size={18} />
               </button>
-              {formData.status !== 'Convertido' && (
+              {canVerAuditoria && (
+                <button className="btn-secondary" onClick={() => setAuditoriaAberta(true)} title="Ver histórico de auditoria">
+                  <History size={18} />
+                </button>
+              )}
+              {/* handleConvertToOS/handleConvertToVenda gravam status
+                  'Finalizado' (nao 'Convertido') -- sem checar o valor certo
+                  aqui, os botoes nunca sumiam e dava pra converter o mesmo
+                  orcamento duas vezes, quebrando o vinculo unico geradoId. */}
+              {formData.status !== 'Finalizado' && formData.status !== 'Convertido' && (
                 <>
                   <button className="btn-secondary" onClick={handleConvertToOS} style={{ color: '#8b5cf6', borderColor: 'rgba(139, 92, 246, 0.3)' }}>
                     <Wrench size={18} style={{ marginRight: 8 }} /> OS
@@ -936,6 +1018,7 @@ const OrcamentoForm: React.FC = () => {
                   <option value="Aprovado">Aprovado</option>
                   <option value="Recusado">Recusado</option>
                   {formData.status === 'Convertido' && <option value="Convertido">Convertido</option>}
+                  {formData.status === 'Finalizado' && <option value="Finalizado">Finalizado (convertido em OS/Venda)</option>}
                 </select>
               </div>
             </div>
@@ -1142,6 +1225,14 @@ const OrcamentoForm: React.FC = () => {
             nomeInicial={formData.clienteNome}
             onClose={() => setCadastroRapidoAberto(false)}
             onCriado={(cliente: ClienteCadastradoRapido) => setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone || formData.clienteTelefone })}
+          />
+
+          <HistoricoAuditoriaModal
+            open={auditoriaAberta}
+            onClose={() => setAuditoriaAberta(false)}
+            tenantId={tenantId}
+            registroId={id || ''}
+            titulo={`Auditoria — Orçamento #${formData.numeroOrcamento}`}
           />
 
           <div className="card form-section">

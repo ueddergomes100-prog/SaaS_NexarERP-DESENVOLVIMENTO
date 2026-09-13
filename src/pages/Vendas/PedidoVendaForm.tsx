@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -122,6 +122,7 @@ import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../c
 import Swal from 'sweetalert2';
 import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
+import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaModal';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
@@ -363,6 +364,8 @@ const PedidoVendaForm: React.FC = () => {
   const temPermissao = (permissao: string) => (
     isOwner || isPlatformAdminRole(userRole) || Boolean(userPermissions && userPermissions.includes(permissao))
   );
+  const canVerAuditoria = temPermissao('administrativo.logs');
+  const [auditoriaAberta, setAuditoriaAberta] = useState(false);
 
   // Pedido pendente do agente de WhatsApp: nasce com status "Em Analise".
   // Fica editavel/finalizavel atras da permissao mestre; as 4 granulares
@@ -3317,6 +3320,11 @@ const PedidoVendaForm: React.FC = () => {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
+          {isViewing && canVerAuditoria && (
+            <button className="btn-secondary" onClick={() => setAuditoriaAberta(true)} title="Ver histórico de auditoria">
+              <History size={18} />
+            </button>
+          )}
           {isViewing && status === 'Finalizada' && (
             <>
               {/* Botão de NFC-e (Cupom Fiscal) -- some inteiro quando a
@@ -3430,6 +3438,14 @@ const PedidoVendaForm: React.FC = () => {
           )}
         </div>
       </div>
+
+      <HistoricoAuditoriaModal
+        open={auditoriaAberta}
+        onClose={() => setAuditoriaAberta(false)}
+        tenantId={tenantId}
+        registroId={id || ''}
+        titulo={`Auditoria — ${isPreVendaAberta ? 'Pré-venda' : 'Pedido de Venda'} #${numeroPedido}`}
+      />
 
       {/* Identificacao do vendedor. Fechar ou errar aqui NAO mexe na venda:
           o modal so devolve quem e' o vendedor. */}

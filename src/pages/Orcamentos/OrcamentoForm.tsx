@@ -688,6 +688,11 @@ const OrcamentoForm: React.FC = () => {
           const vendaItens = soPecas.map(i => ({
             id: i.id,
             nome: i.nome,
+            // Codigo real do produto (nao o id do Firestore) -- e' o que a
+            // NF-e usa como "Codigo Produto" na DANFE quando este pedido for
+            // importado na tela Fiscal. Mesmo campo que fetchPedidoItensTaxes
+            // grava no fluxo normal do Pedido de Venda (NFE.tsx).
+            codigoProduto: pecasEstoque.find(p => p.id === i.id)?.codigo || i.id,
             precoUnitario: i.preco,
             quantidade: i.quantidade,
             desconto: 0,
@@ -706,6 +711,9 @@ const OrcamentoForm: React.FC = () => {
 
           transaction.set(newVendaRef, {
             numeroPedido: formatSequenceValue(nextPedido, 4),
+            // Sem isso, a tela de NF-e casava o cliente so pelo nome ao
+            // importar este pedido -- clienteId e' o vinculo confiavel.
+            ...(formData.clienteId ? { clienteId: formData.clienteId } : {}),
             clienteNome: formData.clienteNome.toUpperCase(),
             itens: vendaItens,
             valorTotalItens: valorProdutos,
@@ -825,15 +833,15 @@ const OrcamentoForm: React.FC = () => {
                   const vDoCliente = veiculosDisponiveis.filter(v => v.clienteId === cliente.id);
                   if (vDoCliente.length === 1) {
                     const v = vDoCliente[0];
-                    setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone, placa: v.placa || '', modelo: v.modelo || '', ano: v.ano || '', cor: v.cor || '' });
+                    setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone || '', placa: v.placa || '', modelo: v.modelo || '', ano: v.ano || '', cor: v.cor || '' });
                     setVeiculosDoCliente([]);
                     setIsVeiculoDropdownOpen(false);
                   } else if (vDoCliente.length > 1) {
-                    setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone });
+                    setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone || '' });
                     setVeiculosDoCliente(vDoCliente);
                     setIsVeiculoDropdownOpen(true);
                   } else {
-                    setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone });
+                    setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone || '' });
                     setVeiculosDoCliente([]);
                     setIsVeiculoDropdownOpen(false);
                   }

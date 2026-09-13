@@ -5,7 +5,6 @@ import { browserLocalPersistence, setPersistence, signInWithCustomToken, signInW
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../services/firebase';
 import { loginVendedorMobile, VendedorMobileAuthError } from '../../services/vendedorMobileAuthService';
-import { useVendedorAppTags } from './useVendedorAppTags';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
 import wordmarkLight from '../../assets/hennder-wordmark-light.png';
 import '../Auth/Auth.css';
@@ -29,7 +28,6 @@ import '../Auth/Auth.css';
 type Modo = 'vendedor' | 'usuario';
 
 const VendedorLoginPage: React.FC = () => {
-  useVendedorAppTags();
   const navigate = useNavigate();
   const [modo, setModo] = useState<Modo>('vendedor');
   const [cnpj, setCnpj] = useState('');

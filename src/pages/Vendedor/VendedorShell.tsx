@@ -2,7 +2,6 @@ import React from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useVendedorAppTags } from './useVendedorAppTags';
 import VendedorHome from './VendedorHome';
 import VendedorNovoPedido from './VendedorNovoPedido';
 import VendedorNovoOrcamento from './VendedorNovoOrcamento';
@@ -29,7 +28,6 @@ import VendedorBottomNav from './VendedorBottomNav';
 const SEM_NAVBAR = ['/vendedor/pedido/novo', '/vendedor/orcamento/novo'];
 
 const VendedorShell: React.FC = () => {
-  useVendedorAppTags();
   const location = useLocation();
   const { currentUser, loading, acessoAppMobile, logout } = useAuth();
 

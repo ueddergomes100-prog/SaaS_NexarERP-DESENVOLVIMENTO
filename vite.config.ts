@@ -1,3 +1,4 @@
+import { resolve } from 'path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -6,6 +7,16 @@ export default defineConfig({
   plugins: [react()],
   build: {
     rollupOptions: {
+      // Duas entradas HTML pro mesmo app React (src/main.tsx): vendedor.html
+      // e' o shell estatico proprio do app do vendedor externo, com
+      // manifest/icone/apple-meta-tags DELE desde a primeira linha do HTML
+      // -- ver o comentario no proprio arquivo pro motivo. firebase.json
+      // reescreve /vendedor/** pra servir este arquivo em vez do index.html
+      // padrao.
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        vendedor: resolve(__dirname, 'vendedor.html'),
+      },
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {

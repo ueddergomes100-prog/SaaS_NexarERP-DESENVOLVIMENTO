@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR" translate="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="google" content="notranslate" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      Shell ESTATICO proprio pro app do vendedor externo -- nao e' so o
+      index.html do sistema desktop com outra rota client-side.
+
+      Motivo: "Adicionar a Tela de Inicio" no iPhone le manifest/icone da
+      pagina de verdade (o HTML puro, antes de qualquer JS rodar) -- uma
+      troca via JavaScript depois que a pagina carrega (o que este projeto
+      tentou primeiro) chega tarde demais, o Safari ja capturou os dados do
+      index.html original (manifest do desktop, start_url "/"). Por isso
+      este arquivo tem sua PROPRIA tag de manifest/icone desde a primeira
+      linha do HTML -- ver firebase.json (rewrite de /vendedor/** pra este
+      arquivo) e vite.config.ts (entrada separada no build).
+
+      O React/roteador continua o MESMO app (src/main.tsx) -- e' so' o
+      involucro HTML que muda.
+    -->
+    <link rel="manifest" href="/manifest-vendedor.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-vendedor-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Hennder Vendas" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#7c3aed" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Hennder Vendas</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

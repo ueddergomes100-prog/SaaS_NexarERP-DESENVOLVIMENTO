@@ -4,6 +4,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/vendedor",
+      "destination": "/vendedor.html"
+    },
+    {
+      "source": "/vendedor/(.*)",
+      "destination": "/vendedor.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

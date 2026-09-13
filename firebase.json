@@ -26,6 +26,15 @@
         ]
       },
       {
+        "source": "/vendedor.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store, no-cache, must-revalidate, max-age=0"
+          }
+        ]
+      },
+      {
         "source": "/assets/**",
         "headers": [
           {
@@ -36,6 +45,14 @@
       }
     ],
     "rewrites": [
+      {
+        "source": "/vendedor",
+        "destination": "/vendedor.html"
+      },
+      {
+        "source": "/vendedor/**",
+        "destination": "/vendedor.html"
+      },
       {
         "source": "**",
         "destination": "/index.html"

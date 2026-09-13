@@ -11,12 +11,21 @@ import { useEffect } from 'react';
  */
 const MANIFEST_VENDEDOR = '/manifest-vendedor.webmanifest';
 const MANIFEST_DESKTOP = '/manifest.webmanifest';
+const APPLE_ICON_VENDEDOR = '/icon-vendedor-192.png';
+const APPLE_ICON_DESKTOP = '/icon-192.png';
 
 export const useVendedorAppTags = () => {
   useEffect(() => {
     const linkManifest = document.querySelector('link[rel="manifest"]');
     const hrefOriginal = linkManifest?.getAttribute('href') || MANIFEST_DESKTOP;
     linkManifest?.setAttribute('href', MANIFEST_VENDEDOR);
+
+    // iOS le o icone do "Adicionar a Tela de Inicio" desta tag, nao do
+    // manifest -- sem trocar aqui tambem, o atalho do vendedor sairia com
+    // o icone do sistema desktop.
+    const linkAppleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+    const appleIconOriginal = linkAppleIcon?.getAttribute('href') || APPLE_ICON_DESKTOP;
+    linkAppleIcon?.setAttribute('href', APPLE_ICON_VENDEDOR);
 
     const metaCapable = document.createElement('meta');
     metaCapable.name = 'apple-mobile-web-app-capable';
@@ -35,6 +44,7 @@ export const useVendedorAppTags = () => {
 
     return () => {
       linkManifest?.setAttribute('href', hrefOriginal);
+      linkAppleIcon?.setAttribute('href', appleIconOriginal);
       metaCapable.remove();
       metaTitle.remove();
       metaStatusBar.remove();

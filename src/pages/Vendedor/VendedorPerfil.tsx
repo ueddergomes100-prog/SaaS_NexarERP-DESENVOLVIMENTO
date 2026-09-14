@@ -1,11 +1,13 @@
 import React from 'react';
-import { LogOut } from 'lucide-react';
+import { LogOut, SquarePlus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import VendedorHeader from './VendedorHeader';
+import { CAMINHO_INSTALACAO, estaInstalado } from './pwa';
 
 const VendedorPerfil: React.FC = () => {
   const { userNome, currentUser, logout } = useAuth();
   const nome = userNome || currentUser?.displayName || 'Vendedor';
+  const podeInstalar = !estaInstalado();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
@@ -17,6 +19,24 @@ const VendedorPerfil: React.FC = () => {
             {nome.trim().charAt(0).toUpperCase() || 'V'}
           </div>
           <div style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', textAlign: 'center' }}>{nome}</div>
+
+          {podeInstalar && (
+            <button
+              type="button"
+              // Navegacao REAL (nao React Router): so' um carregamento de
+              // verdade do /vendedor.html traz o <head> certo do app, que e'
+              // o que o iPhone le ao adicionar a tela de inicio.
+              onClick={() => window.location.assign(CAMINHO_INSTALACAO)}
+              style={{
+                marginTop: '10px', width: '100%', height: '48px', borderRadius: '14px', border: 'none',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', fontWeight: 700,
+                color: '#fff', cursor: 'pointer',
+                background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
+              }}
+            >
+              <SquarePlus size={18} /> Instalar na tela de início
+            </button>
+          )}
 
           <button
             type="button"

@@ -24,6 +24,7 @@ const SuperAdminBackup = lazy(() => import('./pages/Admin/SuperAdminBackup'));
 // com o fluxo padrao do sistema.
 const VendedorLoginPage = lazy(() => import('./pages/Vendedor/VendedorLoginPage'));
 const VendedorShell = lazy(() => import('./pages/Vendedor/VendedorShell'));
+const VendedorInstalar = lazy(() => import('./pages/Vendedor/VendedorInstalar'));
 
 function App() {
   return (
@@ -37,6 +38,10 @@ function App() {
                 <Route path="/login" element={<AuthPage />} />
                 <Route path="/cadastro" element={<AuthPage />} />
                 <Route path="/vendedor/login" element={<VendedorLoginPage />} />
+                {/* Arquivo real servido pela hospedagem (unico caminho com o
+                    <head> do app do vendedor) -- e' o start_url do manifest e
+                    a pagina de instalacao. Ver VendedorInstalar.tsx. */}
+                <Route path="/vendedor.html" element={<VendedorInstalar />} />
 
                 {/* App do vendedor externo -- shell com guarda propria (ver
                     comentario no import acima), por isso fica FORA de

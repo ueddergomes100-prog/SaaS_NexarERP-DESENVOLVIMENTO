@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, FileText, LogOut, Tag, Users } from 'lucide-react';
+import { Box, FileText, LogOut, SquarePlus, Tag, Users } from 'lucide-react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { buscarResumoHojeDoVendedor } from '../../services/vendedorRankingService';
+import { CAMINHO_INSTALACAO, estaInstalado } from './pwa';
 import './vendedorMobile.css';
 
 interface PedidoRecente {
@@ -102,6 +103,27 @@ const VendedorHome: React.FC = () => {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '6px 22px 22px', display: 'flex', flexDirection: 'column', gap: '22px' }}>
+        {!estaInstalado() && (
+          <button
+            type="button"
+            // Navegacao REAL de proposito: so' carregando /vendedor.html o
+            // <head> certo chega no navegador, que e' o que o iPhone le ao
+            // adicionar a tela de inicio. Ver VendedorInstalar.tsx.
+            onClick={() => window.location.assign(CAMINHO_INSTALACAO)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', borderRadius: '14px',
+              backgroundColor: 'var(--brand-soft)', border: '1px solid var(--brand-ring)', cursor: 'pointer',
+              textAlign: 'left', width: '100%',
+            }}
+          >
+            <SquarePlus size={20} color="var(--brand-400)" style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+              <strong style={{ color: 'var(--text-primary)' }}>Instalar na tela de início</strong><br />
+              Abre como aplicativo, em tela cheia
+            </span>
+          </button>
+        )}
+
         <div className="vendedor-atalhos-grid">
           <button
             type="button"

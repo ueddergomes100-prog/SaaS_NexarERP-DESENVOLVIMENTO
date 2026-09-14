@@ -1,13 +1,19 @@
-import React from 'react';
-import { LogOut, SquarePlus } from 'lucide-react';
+import React, { useState } from 'react';
+import { LogOut, RefreshCw, SquarePlus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import VendedorHeader from './VendedorHeader';
-import { CAMINHO_INSTALACAO, estaInstalado } from './pwa';
+import { CAMINHO_INSTALACAO, estaInstalado, sincronizarApp } from './pwa';
 
 const VendedorPerfil: React.FC = () => {
   const { userNome, currentUser, logout } = useAuth();
   const nome = userNome || currentUser?.displayName || 'Vendedor';
   const podeInstalar = !estaInstalado();
+  const [sincronizando, setSincronizando] = useState(false);
+
+  const handleSincronizar = () => {
+    setSincronizando(true);
+    void sincronizarApp();
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
@@ -40,9 +46,24 @@ const VendedorPerfil: React.FC = () => {
 
           <button
             type="button"
+            onClick={handleSincronizar}
+            disabled={sincronizando}
+            style={{
+              marginTop: '10px', width: '100%', height: '48px', borderRadius: '14px', border: '1px solid var(--border-color)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', fontWeight: 700,
+              color: 'var(--text-primary)', cursor: sincronizando ? 'default' : 'pointer', backgroundColor: 'var(--bg-tertiary)',
+              opacity: sincronizando ? 0.7 : 1,
+            }}
+          >
+            <RefreshCw size={18} className={sincronizando ? 'spin-icon' : undefined} />
+            {sincronizando ? 'Sincronizando...' : 'Sincronizar agora'}
+          </button>
+
+          <button
+            type="button"
             onClick={() => void logout()}
             style={{
-              marginTop: '10px', width: '100%', height: '48px', borderRadius: '14px', border: '1px solid rgba(239,68,68,0.35)',
+              marginTop: '2px', width: '100%', height: '48px', borderRadius: '14px', border: '1px solid rgba(239,68,68,0.35)',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', fontWeight: 700,
               color: '#f87171', cursor: 'pointer', backgroundColor: 'rgba(239,68,68,0.10)',
             }}

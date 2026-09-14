@@ -26,6 +26,7 @@ import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { PERMISSAO_LIBERAR_DESCONTO } from '../../utils/permissionCatalog';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { checarLimiteAcessoMobile, montarChaveVendedorMobileLogin } from '../../utils/acessoMobileDomain';
+import { MODULOS_MOBILE_EXTRAS } from '../../utils/vendedorModulosMobileDomain';
 import { checarPrefixoDaEmpresa } from '../../utils/loginIdentidadeDomain';
 import {
   CODIGO_VENDEDOR_DIGITOS,
@@ -91,6 +92,9 @@ interface FormState {
   liberaDesconto: boolean;
   /** Usa o aplicativo mobile do vendedor externo, com o mesmo codigo+PIN. */
   acessoAppMobile: boolean;
+  /** Modulos extras liberados no app mobile (ids de MODULOS_MOBILE_EXTRAS,
+   *  que sao os MESMOS ids de permissionCatalog.ts). So vale com acessoAppMobile. */
+  modulosExtras: string[];
 }
 
 const FORM_VAZIO: FormState = {
@@ -104,6 +108,7 @@ const FORM_VAZIO: FormState = {
   comissaoPercentualPecas: '',
   liberaDesconto: false,
   acessoAppMobile: false,
+  modulosExtras: [],
 };
 
 /** Permissoes minimas pra o vendedor de balcao operar no aplicativo mobile
@@ -205,6 +210,9 @@ const VendedoresList: React.FC = () => {
       comissaoPercentualPecas: vendedor.comissaoPercentualPecas != null ? String(vendedor.comissaoPercentualPecas) : '',
       liberaDesconto: (vendedor.permissoes || []).includes(PERMISSAO_LIBERAR_DESCONTO),
       acessoAppMobile: vendedor.acessoAppMobile === true,
+      modulosExtras: MODULOS_MOBILE_EXTRAS
+        .map((modulo) => modulo.id)
+        .filter((id) => (vendedor.permissoes || []).includes(id)),
     });
     setModalAberto(true);
   };
@@ -304,11 +312,13 @@ const VendedoresList: React.FC = () => {
       // que este aqui aprova digitando o PIN em vez da senha. Ver
       // SolicitarAprovacaoDescontoModal.
       // Com o app mobile ligado, entram tambem as permissoes minimas pra
-      // operar nele (montar pedido/orcamento, consultar cliente) -- uniao
-      // com o que ja existia, nunca remove nada.
+      // operar nele (montar pedido/orcamento, consultar cliente) e os
+      // modulos extras marcados no checklist (Nota Fiscal, Contas a Pagar,
+      // Contas a Receber) -- uniao com o que ja existia, nunca remove nada
+      // que nao seja gerenciado por este formulario.
       const permissoesBase = form.liberaDesconto ? [PERMISSAO_LIBERAR_DESCONTO] : [];
       const permissoes = form.acessoAppMobile
-        ? Array.from(new Set([...permissoesBase, ...PERMISSOES_MINIMAS_APP_MOBILE]))
+        ? Array.from(new Set([...permissoesBase, ...PERMISSOES_MINIMAS_APP_MOBILE, ...form.modulosExtras]))
         : permissoesBase;
 
       let vendedorId = editando?.id || '';
@@ -707,6 +717,28 @@ const VendedoresList: React.FC = () => {
                   PIN</strong> que já usa aqui. Consome uma vaga do limite de acesso mobile contratado pela empresa —
                   fale com o suporte se precisar contratar ou aumentar.
                 </p>
+
+                {form.acessoAppMobile && (
+                  <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>Módulos extras liberados no app:</span>
+                    {MODULOS_MOBILE_EXTRAS.map((modulo) => (
+                      <label key={modulo.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px' }}>
+                        <input
+                          type="checkbox"
+                          checked={form.modulosExtras.includes(modulo.id)}
+                          onChange={(e) => setForm({
+                            ...form,
+                            modulosExtras: e.target.checked
+                              ? [...form.modulosExtras, modulo.id]
+                              : form.modulosExtras.filter((id) => id !== modulo.id),
+                          })}
+                          style={{ width: '18px', height: '18px', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
+                        />
+                        {modulo.label}
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div style={{ gridColumn: 'span 2', borderTop: '1px solid var(--border-color)', paddingTop: '18px' }}>

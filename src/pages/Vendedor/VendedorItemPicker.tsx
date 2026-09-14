@@ -110,7 +110,10 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
           onChange={(e) => setQuantidadeInput(e.target.value.replace(/[^0-9,.]/g, ''))}
           style={{
             width: '64px', height: '48px', borderRadius: '14px', border: '1px solid var(--border-color)',
-            backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', textAlign: 'center', fontSize: '15px', fontWeight: 700,
+            backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', textAlign: 'center',
+            // 16px e' o minimo que impede o Safari do iOS de dar zoom sozinho
+            // ao focar o campo -- ver vendedorMobile.css.
+            fontSize: '16px', fontWeight: 700,
           }}
         />
         <button

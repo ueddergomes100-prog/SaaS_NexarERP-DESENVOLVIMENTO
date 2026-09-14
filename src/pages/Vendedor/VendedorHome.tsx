@@ -80,7 +80,9 @@ const VendedorHome: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
       <div
         style={{
-          padding: '52px 22px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          // Sem compensacao manual de barra de status aqui: quem cuida do
+          // notch e' a safe-area do .vendedor-app (vendedorMobile.css).
+          padding: '20px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           background: 'linear-gradient(180deg, color-mix(in srgb, var(--brand-700) 22%, var(--bg-primary)) 0%, var(--bg-primary) 100%)',
         }}
       >

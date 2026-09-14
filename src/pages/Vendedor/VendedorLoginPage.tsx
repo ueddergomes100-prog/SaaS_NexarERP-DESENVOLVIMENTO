@@ -5,9 +5,11 @@ import { browserLocalPersistence, setPersistence, signInWithCustomToken, signInW
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../services/firebase';
 import { loginVendedorMobile, VendedorMobileAuthError } from '../../services/vendedorMobileAuthService';
+import { CNPJ_LEMBRADO_STORAGE_KEY, formatarCnpj, normalizarCnpj } from '../../utils/loginIdentidadeDomain';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
 import wordmarkLight from '../../assets/hennder-wordmark-light.png';
 import '../Auth/Auth.css';
+import './vendedorMobile.css';
 
 /**
  * Login do aplicativo do vendedor externo. Dois caminhos, os MESMOS dois
@@ -30,13 +32,27 @@ type Modo = 'vendedor' | 'usuario';
 const VendedorLoginPage: React.FC = () => {
   const navigate = useNavigate();
   const [modo, setModo] = useState<Modo>('vendedor');
-  const [cnpj, setCnpj] = useState('');
+  // O CNPJ do aparelho quase nunca muda (o vendedor e' sempre da mesma
+  // empresa) -- vem preenchido do ultimo acesso, mesma chave que a tela de
+  // login do sistema usa.
+  const [cnpj, setCnpj] = useState(() => formatarCnpj(localStorage.getItem(CNPJ_LEMBRADO_STORAGE_KEY) || ''));
   const [codigo, setCodigo] = useState('');
   const [pin, setPin] = useState('');
   const [usuario, setUsuario] = useState('');
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
+
+  /** Mascara + corte nos 14 digitos, e guarda assim que o CNPJ fica completo
+   *  (sem esperar o login dar certo -- se a senha estiver errada, o CNPJ ja
+   *  ficou lembrado do mesmo jeito). */
+  const handleCnpjChange = (valor: string) => {
+    const formatado = formatarCnpj(valor);
+    setCnpj(formatado);
+    if (normalizarCnpj(formatado).length === 14) {
+      localStorage.setItem(CNPJ_LEMBRADO_STORAGE_KEY, formatado);
+    }
+  };
 
   const handleEntrarVendedor = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,7 +106,13 @@ const VendedorLoginPage: React.FC = () => {
   };
 
   return (
-    <div className="auth-container">
+    <div
+      className="auth-container vendedor-app"
+      style={{
+        paddingTop: 'calc(20px + env(safe-area-inset-top))',
+        paddingBottom: 'calc(20px + env(safe-area-inset-bottom))',
+      }}
+    >
       <div className="auth-aurora" aria-hidden="true">
         <span className="auth-aurora-blob one" />
         <span className="auth-aurora-blob two" />
@@ -146,7 +168,7 @@ const VendedorLoginPage: React.FC = () => {
                 inputMode="numeric"
                 placeholder="00.000.000/0000-00"
                 value={cnpj}
-                onChange={(e) => setCnpj(e.target.value)}
+                onChange={(e) => handleCnpjChange(e.target.value)}
                 disabled={carregando}
                 autoFocus
               />

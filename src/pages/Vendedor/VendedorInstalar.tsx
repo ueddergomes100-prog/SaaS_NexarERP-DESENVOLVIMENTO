@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { ArrowRight, Share, SquarePlus } from 'lucide-react';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
 import { estaInstalado } from './pwa';
+import './vendedorMobile.css';
 
 /**
  * Porta de entrada da INSTALACAO do app do vendedor (`/vendedor.html`).
@@ -44,9 +45,11 @@ const VendedorInstalar: React.FC = () => {
 
   return (
     <div
+      className="vendedor-app"
       style={{
         minHeight: '100dvh', backgroundColor: 'var(--bg-primary)', display: 'flex', flexDirection: 'column',
-        gap: '22px', padding: '56px 24px 32px',
+        gap: '22px',
+        padding: 'calc(28px + env(safe-area-inset-top)) 24px calc(32px + env(safe-area-inset-bottom))',
         background: 'linear-gradient(180deg, color-mix(in srgb, var(--brand-700) 24%, var(--bg-primary)) 0%, var(--bg-primary) 46%)',
       }}
     >

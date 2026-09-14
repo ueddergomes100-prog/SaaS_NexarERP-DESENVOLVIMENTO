@@ -33,6 +33,22 @@
 export const normalizarCnpj = (valor: unknown): string =>
   String(valor ?? '').replace(/\D/g, '');
 
+/** CNPJ com máscara (00.000.000/0000-00), cortado nos 14 dígitos -- é o que
+ *  limita o que dá pra digitar no campo. Vive aqui, e não em cada tela, pra
+ *  login do sistema e app do vendedor mascararem igual. */
+export const formatarCnpj = (valor: unknown): string =>
+  normalizarCnpj(valor)
+    .slice(0, 14)
+    .replace(/^(\d{2})(\d)/, '$1.$2')
+    .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/\.(\d{3})(\d)/, '.$1/$2')
+    .replace(/(\d{4})(\d)/, '$1-$2');
+
+/** Chave do CNPJ lembrado entre logins (o mesmo aparelho costuma ser sempre
+ *  da mesma empresa). Compartilhada pelo login do sistema e pelo app do
+ *  vendedor de propósito: quem já entrou num, não redigita no outro. */
+export const CNPJ_LEMBRADO_STORAGE_KEY = 'nexus_login_cnpj';
+
 /** Usuário como o funcionário digita: sem espaços, minúsculo. */
 export const normalizarUsername = (valor: unknown): string =>
   String(valor ?? '').trim().toLowerCase().replace(/\s+/g, '');

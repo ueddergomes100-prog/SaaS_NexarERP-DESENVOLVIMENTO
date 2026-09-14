@@ -10,6 +10,7 @@ import VendedorConsultarPreco from './VendedorConsultarPreco';
 import VendedorMeusPedidos from './VendedorMeusPedidos';
 import VendedorPerfil from './VendedorPerfil';
 import VendedorBottomNav from './VendedorBottomNav';
+import './vendedorMobile.css';
 
 /**
  * Guarda de acesso do aplicativo do vendedor externo, separada da
@@ -66,7 +67,10 @@ const VendedorShell: React.FC = () => {
   const mostraNavbar = !SEM_NAVBAR.includes(location.pathname);
 
   return (
-    <div style={{ height: '100dvh', width: '100vw', overflow: 'hidden', backgroundColor: 'var(--bg-primary)', display: 'flex', flexDirection: 'column' }}>
+    <div
+      className="vendedor-app vendedor-safe-area"
+      style={{ height: '100dvh', width: '100vw', overflow: 'hidden', backgroundColor: 'var(--bg-primary)', display: 'flex', flexDirection: 'column' }}
+    >
       <div style={{ flex: 1, minHeight: 0 }}>
         <Routes>
           <Route index element={<VendedorHome />} />

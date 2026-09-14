@@ -29,6 +29,7 @@ import {
   type ActiveSessionInfo
 } from '../../utils/sessionInfo';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { CNPJ_LEMBRADO_STORAGE_KEY, formatarCnpj } from '../../utils/loginIdentidadeDomain';
 import {
   onboardingService,
   type PublicCnpjData,
@@ -94,14 +95,9 @@ const hasIncompleteOnboarding = (data: Record<string, unknown>) => {
 type AuthMode = 'login' | 'signup';
 type RegisterStep = 'company' | 'codes' | 'password';
 
-const formatCnpj = (value: string) => {
-  const digits = value.replace(/\D/g, '').slice(0, 14);
-  return digits
-    .replace(/^(\d{2})(\d)/, '$1.$2')
-    .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
-    .replace(/\.(\d{3})(\d)/, '.$1/$2')
-    .replace(/(\d{4})(\d)/, '$1-$2');
-};
+// A mascara mora em loginIdentidadeDomain.ts pro app do vendedor usar a
+// mesma -- aqui fica so' o apelido curto que o resto desta tela ja usava.
+const formatCnpj = formatarCnpj;
 
 const formatPhone = (value: string) => {
   const digits = value.replace(/\D/g, '').slice(0, 11);
@@ -171,7 +167,7 @@ const AuthPage: React.FC = () => {
   // ---------------------------------------------------------------------
   // Login (logica identica a antiga Login.tsx)
   // ---------------------------------------------------------------------
-  const [empresa, setEmpresa] = useState(() => localStorage.getItem('nexus_login_cnpj') || '');
+  const [empresa, setEmpresa] = useState(() => localStorage.getItem(CNPJ_LEMBRADO_STORAGE_KEY) || '');
   const [loginStr, setLoginStr] = useState('');
   const [password, setPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
@@ -355,7 +351,7 @@ const AuthPage: React.FC = () => {
 
       // Save CNPJ if employee login
       if (!loginStr.trim().includes('@')) {
-        localStorage.setItem('nexus_login_cnpj', empresa);
+        localStorage.setItem(CNPJ_LEMBRADO_STORAGE_KEY, empresa);
       }
 
       // Splash de transicao. Antes daqui saia um setTimeout fixo de 2s --

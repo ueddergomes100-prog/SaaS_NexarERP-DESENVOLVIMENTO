@@ -26,7 +26,14 @@
     <meta name="apple-mobile-web-app-title" content="Hennder Vendas" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#7c3aed" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!--
+      `user-scalable=no`/`maximum-scale` cobrem Android e o app instalado; o
+      Safari do iOS ignora os dois desde o iOS 10, e la quem trava a pinca e'
+      o `touch-action` da classe .vendedor-app (src/pages/Vendedor/vendedorMobile.css).
+      `viewport-fit=cover` faz o app ocupar a tela inteira -- a margem do
+      notch volta pelas env(safe-area-inset-*), na mesma folha.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Hennder Vendas</title>
   </head>
   <body>

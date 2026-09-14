@@ -25,6 +25,7 @@ import {
   PIN_VENDEDOR_MAX_DIGITOS,
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
+import { redefinirSenhaAcesso, UsuarioAcessoError } from '../../services/usuarioAcessoService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { DEFAULT_NIVEL_ACESSO } from '../../utils/visibilidadeVendasDomain';
 import { isRegistroComLogin } from '../../utils/vendedorCadastroDomain';
@@ -51,6 +52,8 @@ const UsuarioForm: React.FC = () => {
   const [checagemPrefixo, setChecagemPrefixo] = useState<ChecagemPrefixo | null>(null);
   const [pinVendedor, setPinVendedor] = useState('');
   const [salvandoPin, setSalvandoPin] = useState(false);
+  const [novaSenhaAcesso, setNovaSenhaAcesso] = useState('');
+  const [salvandoSenhaAcesso, setSalvandoSenhaAcesso] = useState(false);
 
   React.useEffect(() => {
     if (isEditing && id) {
@@ -148,6 +151,33 @@ const UsuarioForm: React.FC = () => {
       showError('Erro ao salvar senha', mensagem);
     } finally {
       setSalvandoPin(false);
+    }
+  };
+
+  /**
+   * Troca a SENHA DE ACESSO (login no sistema) -- diferente da senha do
+   * vendedor acima. So o Admin SDK troca a senha de outro usuario no
+   * Firebase Auth, por isso passa pelo backend (usuarioAcessoService.ts).
+   */
+  const handleSalvarSenhaAcesso = async () => {
+    if (!id) return;
+    if (novaSenhaAcesso.length < 6) {
+      showError('Senha inválida', 'A senha de acesso deve ter pelo menos 6 caracteres.');
+      return;
+    }
+
+    setSalvandoSenhaAcesso(true);
+    try {
+      await redefinirSenhaAcesso(id, novaSenhaAcesso);
+      setNovaSenhaAcesso('');
+      showSuccess('Senha de acesso atualizada!');
+    } catch (error) {
+      const mensagem = error instanceof UsuarioAcessoError
+        ? error.message
+        : 'Não foi possível atualizar a senha de acesso.';
+      showError('Erro ao salvar senha', mensagem);
+    } finally {
+      setSalvandoSenhaAcesso(false);
     }
   };
 
@@ -314,7 +344,7 @@ const UsuarioForm: React.FC = () => {
           <button className="icon-btn back-btn" onClick={() => navigate('/usuarios')} title="Voltar"><ArrowLeft size={20} /></button>
           <div>
             <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px 0' }}>{isEditing ? 'Editar Usuário' : 'Novo Usuário'}</h1>
-            <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>{isEditing ? 'Altere o nome do funcionário' : 'Cadastre um funcionário para acessar o sistema'}</p>
+            <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>{isEditing ? 'Altere o nome, a senha de acesso ou os dados de vendedor' : 'Cadastre um funcionário para acessar o sistema'}</p>
           </div>
         </div>
       </div>
@@ -382,6 +412,34 @@ const UsuarioForm: React.FC = () => {
               />
             </div>
           </>
+        )}
+
+        {isEditing && (
+          <div className="input-group" style={{ gridColumn: 'span 6' }}>
+            <label>Senha de Acesso (login no sistema)</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="password"
+                placeholder="Nova senha (mín. 6 caracteres)"
+                value={novaSenhaAcesso}
+                onChange={(e) => setNovaSenhaAcesso(e.target.value)}
+                minLength={6}
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={salvandoSenhaAcesso || novaSenhaAcesso.length < 6}
+                onClick={() => void handleSalvarSenhaAcesso()}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                {salvandoSenhaAcesso ? 'Salvando...' : 'Salvar senha'}
+              </button>
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              É a senha que ele usa pra entrar no sistema (junto com o CNPJ e o usuário) -- diferente da senha do vendedor abaixo, usada só na identificação da venda.
+            </span>
+          </div>
         )}
 
         {/* Identificacao do vendedor na venda: codigo publico + PIN secreto.

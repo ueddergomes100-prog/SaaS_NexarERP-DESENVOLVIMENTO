@@ -11,6 +11,8 @@ import VendedorMeusPedidos from './VendedorMeusPedidos';
 import VendedorPerfil from './VendedorPerfil';
 import VendedorBottomNav from './VendedorBottomNav';
 import VendedorEmBreve from './VendedorEmBreve';
+import VendedorContasPagar from './VendedorContasPagar';
+import VendedorContasReceber from './VendedorContasReceber';
 import './vendedorMobile.css';
 
 /**
@@ -81,6 +83,8 @@ const VendedorShell: React.FC = () => {
           <Route path="cliente" element={<VendedorConsultarCliente />} />
           <Route path="preco" element={<VendedorConsultarPreco />} />
           <Route path="perfil" element={<VendedorPerfil />} />
+          <Route path="contas-pagar" element={<VendedorContasPagar />} />
+          <Route path="contas-receber" element={<VendedorContasReceber />} />
           <Route
             path="balanco"
             element={(

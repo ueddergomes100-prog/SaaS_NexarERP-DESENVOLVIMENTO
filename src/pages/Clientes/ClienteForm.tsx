@@ -22,9 +22,16 @@ const ClienteForm: React.FC = () => {
   const [formData, setFormData] = useState({
     codigo: '',
     nome: '',
+    fantasia: '',
     telefone: '',
+    celular: '',
     email: '',
+    emailNfe: '',
     documento: '',
+    // Inscricao Estadual (pessoa juridica) ou RG (pessoa fisica) -- mesmo
+    // campo unico do cadastro antigo migrado na importacao em massa
+    // (Sol Natus, 2026-09-14). Nao valida formato: IE varia por estado.
+    identidade: '',
     endereco: '',
     bairro: '',
     numero: '',
@@ -32,8 +39,30 @@ const ClienteForm: React.FC = () => {
     cidade: '',
     estado: '',
     codigoIbge: '',
+    referencia: '',
+    // Endereco de cobranca e de entrega: so existem quando diferem do
+    // principal (boa parte dos clientes importados nao tem os dois --
+    // campo em branco significa "usa o principal mesmo").
+    enderecoCobranca: '',
+    numeroCobranca: '',
+    bairroCobranca: '',
+    cidadeCobranca: '',
+    estadoCobranca: '',
+    cepCobranca: '',
+    enderecoEntrega: '',
+    numeroEntrega: '',
+    bairroEntrega: '',
+    cidadeEntrega: '',
+    estadoEntrega: '',
+    cepEntrega: '',
+    referenciaEntrega: '',
     limiteDeCredito: '',
   });
+
+  // Dado historico da importacao (data da ultima compra no sistema
+  // anterior) -- so leitura, nunca editado aqui. Guardado fora do
+  // formData porque nao faz parte do que o Salvar grava de volta.
+  const [dtUltimaCompraSistemaAntigo, setDtUltimaCompraSistemaAntigo] = useState('');
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
@@ -121,6 +150,70 @@ const ClienteForm: React.FC = () => {
     }
   };
 
+  const [isCepCobrancaSearching, setIsCepCobrancaSearching] = useState(false);
+  const [cepCobrancaSearchError, setCepCobrancaSearchError] = useState('');
+  const [isCepEntregaSearching, setIsCepEntregaSearching] = useState(false);
+  const [cepEntregaSearchError, setCepEntregaSearchError] = useState('');
+
+  // Mesma busca do endereco principal (buscarEnderecoPorCep), generalizada
+  // pros dois enderecos extras -- cobranca e entrega nao mandam codigo
+  // IBGE pra nenhum lugar hoje (so o endereco PRINCIPAL vai na NF-e), entao
+  // nao precisa resolver/guardar IBGE aqui.
+  const buscarEnderecoGenerico = async (
+    cepValor: string,
+    aplicar: (dados: { endereco: string; bairro: string; cidade: string; estado: string }) => void,
+    setBuscando: (valor: boolean) => void,
+    setErro: (valor: string) => void,
+  ) => {
+    const cepLimpo = cepValor.replace(/\D/g, '');
+    if (cepLimpo.length !== 8) {
+      if (cepLimpo.length > 0) setErro('CEP precisa ter 8 dígitos.');
+      return;
+    }
+    setBuscando(true);
+    setErro('');
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+      const data = await response.json();
+      if (data.erro) {
+        setErro('CEP não encontrado. Confira o número ou preencha o endereço manualmente.');
+        return;
+      }
+      aplicar({ endereco: data.logradouro || '', bairro: data.bairro || '', cidade: data.localidade || '', estado: data.uf || '' });
+    } catch (error) {
+      console.error('Erro ao buscar CEP:', error);
+      setErro('Não foi possível consultar o CEP agora. Preencha o endereço manualmente.');
+    } finally {
+      setBuscando(false);
+    }
+  };
+
+  const buscarEnderecoCobrancaPorCep = () => buscarEnderecoGenerico(
+    formData.cepCobranca,
+    (d) => setFormData((prev) => ({
+      ...prev,
+      enderecoCobranca: d.endereco || prev.enderecoCobranca,
+      bairroCobranca: d.bairro || prev.bairroCobranca,
+      cidadeCobranca: d.cidade || prev.cidadeCobranca,
+      estadoCobranca: d.estado || prev.estadoCobranca,
+    })),
+    setIsCepCobrancaSearching,
+    setCepCobrancaSearchError,
+  );
+
+  const buscarEnderecoEntregaPorCep = () => buscarEnderecoGenerico(
+    formData.cepEntrega,
+    (d) => setFormData((prev) => ({
+      ...prev,
+      enderecoEntrega: d.endereco || prev.enderecoEntrega,
+      bairroEntrega: d.bairro || prev.bairroEntrega,
+      cidadeEntrega: d.cidade || prev.cidadeEntrega,
+      estadoEntrega: d.estado || prev.estadoEntrega,
+    })),
+    setIsCepEntregaSearching,
+    setCepEntregaSearchError,
+  );
+
   useEffect(() => {
     const fetchInitialData = async () => {
       if (!tenantId) return;
@@ -145,6 +238,7 @@ const ClienteForm: React.FC = () => {
                 ? ''
                 : String(data.limiteDeCredito),
             }));
+            setDtUltimaCompraSistemaAntigo(data.dtUltimaCompraSistemaAntigo || '');
           }
         } else {
           const proximoCodigo = await getProximoCodigoCliente(tenantId);
@@ -304,11 +398,30 @@ const ClienteForm: React.FC = () => {
             </div>
           </div>
 
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div className="input-group">
+              <label>Nome Fantasia</label>
+              <input type="text" name="fantasia" placeholder="Ex: MERCEARIA DO JOÃO" value={formData.fantasia} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+            <div className="input-group">
+              <label>Inscrição Estadual / RG</label>
+              <input type="text" name="identidade" placeholder="Isento, se não houver" value={formData.identidade} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '20px', alignItems: 'start' }}>
             <div className="input-group">
-              <label>Telefone / WhatsApp</label>
-              <input type="text" name="telefone" placeholder="(00) 00000-0000" value={formData.telefone} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <label>Telefone Fixo</label>
+              <input type="text" name="telefone" placeholder="(00) 0000-0000" value={formData.telefone} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
+            <div className="input-group">
+              <label>Celular / WhatsApp</label>
+              <input type="text" name="celular" placeholder="(00) 00000-0000" value={formData.celular} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+            <div />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '20px', alignItems: 'start' }}>
             <div className="input-group">
               <label>CPF / CNPJ (Apenas números)</label>
               <input type="text" name="documento" placeholder="00000000000" value={formData.documento} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
@@ -321,10 +434,22 @@ const ClienteForm: React.FC = () => {
             <BuscarDocumentoButton documento={formData.documento} onEncontrarCnpj={preencherDeCnpj} onEncontrarCpf={preencherDeCpf} />
           </div>
 
-          <div className="input-group">
-            <label>E-mail</label>
-            <input type="email" name="email" placeholder="joao@email.com" value={formData.email} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div className="input-group">
+              <label>E-mail</label>
+              <input type="email" name="email" placeholder="joao@email.com" value={formData.email} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+            <div className="input-group">
+              <label>E-mail para Nota Fiscal</label>
+              <input type="email" name="emailNfe" placeholder="Deixe em branco pra usar o e-mail acima" value={formData.emailNfe} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
           </div>
+
+          {dtUltimaCompraSistemaAntigo && (
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+              Última compra no sistema anterior: {dtUltimaCompraSistemaAntigo}
+            </p>
+          )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)', marginTop: '12px' }}>
             <MapPin size={20} style={{ color: 'var(--accent-purple)' }} />
@@ -397,6 +522,87 @@ const ClienteForm: React.FC = () => {
               </div>
             )}
             <small style={{ color: 'var(--text-muted)' }}>Já vem preenchida ao buscar o CEP acima. Use esta busca só se não tiver o CEP em mãos -- necessária com código IBGE pra emitir NF-e de produto pra este cliente.</small>
+          </div>
+
+          <div className="input-group">
+            <label>Ponto de Referência</label>
+            <input type="text" name="referencia" placeholder="Ex: Próximo à praça" value={formData.referencia} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)', marginTop: '12px' }}>
+            <MapPin size={20} style={{ color: 'var(--accent-purple)' }} />
+            <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Endereço de Cobrança</h3>
+          </div>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '-12px 0 0' }}>Só preencha se for diferente do endereço acima.</p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', alignItems: 'start' }}>
+            <div className="input-group">
+              <label>CEP</label>
+              <input type="text" name="cepCobranca" placeholder="36900-000" value={formData.cepCobranca} onChange={handleChange} onBlur={buscarEnderecoCobrancaPorCep} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              {isCepCobrancaSearching && <small style={{ color: 'var(--text-muted)' }}>Buscando endereço...</small>}
+              {!isCepCobrancaSearching && cepCobrancaSearchError && <small style={{ color: '#ef4444' }}>{cepCobrancaSearchError}</small>}
+            </div>
+            <div className="input-group">
+              <label>Rua / Logradouro</label>
+              <input type="text" name="enderecoCobranca" placeholder="Av. Central" value={formData.enderecoCobranca} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
+            <div className="input-group">
+              <label>Número</label>
+              <input type="text" name="numeroCobranca" placeholder="123" value={formData.numeroCobranca} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+            <div className="input-group">
+              <label>Bairro</label>
+              <input type="text" name="bairroCobranca" placeholder="Centro" value={formData.bairroCobranca} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+            <div className="input-group">
+              <label>Cidade / UF</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input type="text" name="cidadeCobranca" placeholder="Cidade" value={formData.cidadeCobranca} onChange={handleChange} style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                <input type="text" name="estadoCobranca" placeholder="UF" maxLength={2} value={formData.estadoCobranca} onChange={handleChange} style={{ width: '64px', textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)', marginTop: '12px' }}>
+            <MapPin size={20} style={{ color: 'var(--accent-purple)' }} />
+            <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Endereço de Entrega</h3>
+          </div>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '-12px 0 0' }}>Só preencha se for diferente do endereço acima. Usado na Minuta de Entrega.</p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', alignItems: 'start' }}>
+            <div className="input-group">
+              <label>CEP</label>
+              <input type="text" name="cepEntrega" placeholder="36900-000" value={formData.cepEntrega} onChange={handleChange} onBlur={buscarEnderecoEntregaPorCep} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              {isCepEntregaSearching && <small style={{ color: 'var(--text-muted)' }}>Buscando endereço...</small>}
+              {!isCepEntregaSearching && cepEntregaSearchError && <small style={{ color: '#ef4444' }}>{cepEntregaSearchError}</small>}
+            </div>
+            <div className="input-group">
+              <label>Rua / Logradouro</label>
+              <input type="text" name="enderecoEntrega" placeholder="Av. Central" value={formData.enderecoEntrega} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
+            <div className="input-group">
+              <label>Número</label>
+              <input type="text" name="numeroEntrega" placeholder="123" value={formData.numeroEntrega} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+            <div className="input-group">
+              <label>Bairro</label>
+              <input type="text" name="bairroEntrega" placeholder="Centro" value={formData.bairroEntrega} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+            <div className="input-group">
+              <label>Cidade / UF</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input type="text" name="cidadeEntrega" placeholder="Cidade" value={formData.cidadeEntrega} onChange={handleChange} style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                <input type="text" name="estadoEntrega" placeholder="UF" maxLength={2} value={formData.estadoEntrega} onChange={handleChange} style={{ width: '64px', textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              </div>
+            </div>
+          </div>
+          <div className="input-group">
+            <label>Ponto de Referência (Entrega)</label>
+            <input type="text" name="referenciaEntrega" placeholder="Ex: Portão azul, fundos do mercado" value={formData.referenciaEntrega} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)', marginTop: '12px' }}>

@@ -21,6 +21,7 @@ import {
   montarClienteImportado,
   processarLinhasClientes,
   removerPrefixoCodigoAntigo,
+  MAPEAMENTO_CLIENTE_VAZIO,
   type ClienteImportado,
   type MapeamentoColunasCliente,
 } from '../../utils/importacaoClientesDomain';
@@ -31,9 +32,141 @@ import {
  * (ImportarProdutos.tsx): mapeamento de colunas confirmado pelo usuario,
  * linha com dado ambiguo fica destacada pra revisao, nada e' gravado sem
  * o usuario confirmar a tela final.
+ *
+ * Cobre dois formatos reais de planilha: Shopping Rural (2026-08-29, so 4
+ * colunas, endereco empacotado num campo so) e Sol Natus (2026-09-14, 33
+ * colunas ja separadas, incluindo endereco de cobranca/entrega). Ver o
+ * cabecalho de src/utils/importacaoClientesDomain.ts pros detalhes.
  */
 
 type Passo = 'upload' | 'mapeamento' | 'confirmacao' | 'concluido';
+
+interface CampoMapeamento {
+  campo: keyof MapeamentoColunasCliente;
+  rotulo: string;
+  obrigatorio?: boolean;
+}
+
+const GRUPOS_MAPEAMENTO: Array<{ titulo: string; campos: CampoMapeamento[] }> = [
+  {
+    titulo: 'Dados básicos',
+    campos: [
+      { campo: 'nome', rotulo: 'Nome / Razão Social', obrigatorio: true },
+      { campo: 'fantasia', rotulo: 'Nome Fantasia' },
+      { campo: 'documento', rotulo: 'CPF/CNPJ' },
+      { campo: 'identidade', rotulo: 'Inscrição Estadual / RG' },
+    ],
+  },
+  {
+    titulo: 'Contato',
+    campos: [
+      { campo: 'telefoneDdd', rotulo: 'DDD do Telefone Fixo' },
+      { campo: 'telefone', rotulo: 'Telefone Fixo' },
+      { campo: 'celularDdd', rotulo: 'DDD do Celular' },
+      { campo: 'celular', rotulo: 'Celular' },
+      { campo: 'email', rotulo: 'E-mail' },
+      { campo: 'emailNfe', rotulo: 'E-mail para Nota Fiscal' },
+    ],
+  },
+  {
+    titulo: 'Endereço Principal',
+    campos: [
+      { campo: 'endereco', rotulo: 'Rua (ou endereço completo, se vier tudo junto)' },
+      { campo: 'numero', rotulo: 'Número' },
+      { campo: 'bairro', rotulo: 'Bairro' },
+      { campo: 'cidade', rotulo: 'Cidade' },
+      { campo: 'estado', rotulo: 'Estado (UF)' },
+      { campo: 'cep', rotulo: 'CEP' },
+      { campo: 'referencia', rotulo: 'Ponto de Referência' },
+    ],
+  },
+  {
+    titulo: 'Endereço de Cobrança (opcional -- só se vier na planilha)',
+    campos: [
+      { campo: 'enderecoCobranca', rotulo: 'Rua' },
+      { campo: 'numeroCobranca', rotulo: 'Número' },
+      { campo: 'bairroCobranca', rotulo: 'Bairro' },
+      { campo: 'cidadeCobranca', rotulo: 'Cidade' },
+      { campo: 'estadoCobranca', rotulo: 'UF' },
+      { campo: 'cepCobranca', rotulo: 'CEP' },
+    ],
+  },
+  {
+    titulo: 'Endereço de Entrega (opcional -- só se vier na planilha)',
+    campos: [
+      { campo: 'enderecoEntrega', rotulo: 'Rua' },
+      { campo: 'numeroEntrega', rotulo: 'Número' },
+      { campo: 'bairroEntrega', rotulo: 'Bairro' },
+      { campo: 'cidadeEntrega', rotulo: 'Cidade' },
+      { campo: 'estadoEntrega', rotulo: 'UF' },
+      { campo: 'cepEntrega', rotulo: 'CEP' },
+      { campo: 'referenciaEntrega', rotulo: 'Ponto de Referência' },
+    ],
+  },
+  {
+    titulo: 'Outros',
+    campos: [
+      { campo: 'dtUltimaCompra', rotulo: 'Data da Última Compra (só histórico, não editável depois)' },
+    ],
+  },
+];
+
+/** Consulta o codigo IBGE de cada CEP unico (ViaCEP, publico), com
+ * concorrencia limitada -- 813 clientes reais chegam a ter so ~350 CEPs
+ * distintos, e consultar um de cada vez levaria minutos. CEP que falha
+ * (invalido, fora do ar) fica sem IBGE e NAO trava a importacao -- o
+ * cliente entra do mesmo jeito, so sem o codigo que a NF-e exige (da pra
+ * completar depois, editando o cadastro). */
+const resolverCodigosIbgePorCep = async (
+  ceps: string[],
+  aoProgredir: (atual: number, total: number) => void,
+): Promise<Map<string, string>> => {
+  const unicos = Array.from(new Set(ceps.filter((cep) => cep.length === 8)));
+  const resultado = new Map<string, string>();
+  if (unicos.length === 0) return resultado;
+
+  let indice = 0;
+  let concluidos = 0;
+  const CONCORRENCIA = 8;
+
+  const worker = async () => {
+    while (indice < unicos.length) {
+      const meu = indice;
+      indice += 1;
+      const cep = unicos[meu];
+      try {
+        const resposta = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+        const dados = await resposta.json();
+        if (!dados.erro && dados.ibge) resultado.set(cep, String(dados.ibge));
+      } catch (error) {
+        console.error(`Erro ao resolver código IBGE do CEP ${cep}:`, error);
+      } finally {
+        concluidos += 1;
+        aoProgredir(concluidos, unicos.length);
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(CONCORRENCIA, unicos.length) }, worker));
+  return resultado;
+};
+
+/** Entre linhas com o mesmo documento (CPF/CNPJ), mantem so a PRIMEIRA
+ * marcada pra importar -- as demais entram pre-marcadas como "não
+ * importar" (o usuario ainda pode desmarcar se quiser mesmo assim). */
+const linhasIdsDuplicadosParaExcluir = (processados: ClienteImportado[]): Set<number> => {
+  const vistos = new Set<string>();
+  const excluidos = new Set<number>();
+  processados.forEach((cliente) => {
+    if (!cliente.documento) return;
+    if (vistos.has(cliente.documento)) {
+      excluidos.add(cliente.linhaId);
+    } else {
+      vistos.add(cliente.documento);
+    }
+  });
+  return excluidos;
+};
 
 const ImportarClientes: React.FC = () => {
   const navigate = useNavigate();
@@ -44,7 +177,7 @@ const ImportarClientes: React.FC = () => {
   const [nomeArquivo, setNomeArquivo] = useState('');
   const [cabecalho, setCabecalho] = useState<string[]>([]);
   const [linhasDados, setLinhasDados] = useState<string[][]>([]);
-  const [mapeamento, setMapeamento] = useState<MapeamentoColunasCliente>({ nome: 0, documento: null, endereco: null, telefone: null });
+  const [mapeamento, setMapeamento] = useState<MapeamentoColunasCliente>(MAPEAMENTO_CLIENTE_VAZIO);
 
   const [clientes, setClientes] = useState<ClienteImportado[]>([]);
   const [itensExcluidos, setItensExcluidos] = useState<Set<number>>(new Set());
@@ -52,6 +185,7 @@ const ImportarClientes: React.FC = () => {
   const [documentosExistentes, setDocumentosExistentes] = useState<Set<string>>(new Set());
 
   const [salvando, setSalvando] = useState(false);
+  const [progressoIbge, setProgressoIbge] = useState<{ atual: number; total: number } | null>(null);
   const [resultadoImportacao, setResultadoImportacao] = useState<{ criados: number } | null>(null);
 
   const handleArquivoSelecionado = async (file: File) => {
@@ -123,7 +257,7 @@ const ImportarClientes: React.FC = () => {
 
     setClientes(processados);
     setIgnoradosConsumidorFinal(totalConsumidorFinal);
-    setItensExcluidos(new Set());
+    setItensExcluidos(linhasIdsDuplicadosParaExcluir(processados));
     setPasso('confirmacao');
   };
 
@@ -146,6 +280,10 @@ const ImportarClientes: React.FC = () => {
     if (!cliente.documento) return '';
     if ((contagemDocumentosNoLote.get(cliente.documento) || 0) > 1) return 'CPF/CNPJ repetido em mais de uma linha desta planilha.';
     if (documentosExistentes.has(cliente.documento)) return 'Já existe um cliente cadastrado com este CPF/CNPJ.';
+    // Documento repetido mas ja excluido (nao entra em linhasAtivas) --
+    // ainda vale avisar o motivo de ter sido pre-marcado.
+    const outrasOcorrencias = clientes.filter((c) => c.documento === cliente.documento).length;
+    if (outrasOcorrencias > 1 && itensExcluidos.has(cliente.linhaId)) return 'CPF/CNPJ repetido nesta planilha -- pré-marcado para não importar (mantido só o primeiro registro).';
     return '';
   };
 
@@ -167,7 +305,14 @@ const ImportarClientes: React.FC = () => {
     }
 
     setSalvando(true);
+    setProgressoIbge({ atual: 0, total: 0 });
     try {
+      const mapaIbgePorCep = await resolverCodigosIbgePorCep(
+        linhasAtivas.map((c) => c.cep),
+        (atual, total) => setProgressoIbge({ atual, total }),
+      );
+      setProgressoIbge(null);
+
       let proximoCodigo = Number.parseInt(await getProximoCodigoCliente(tenantId), 10);
       if (!Number.isFinite(proximoCodigo)) proximoCodigo = 1;
       const timestamp = serverTimestamp();
@@ -187,12 +332,35 @@ const ImportarClientes: React.FC = () => {
               {
                 codigo,
                 nome: cliente.nome,
+                fantasia: cliente.fantasia,
+                identidade: cliente.identidade,
                 telefone: cliente.telefone,
+                celular: cliente.celular,
+                email: cliente.email,
+                emailNfe: cliente.emailNfe,
                 documento: cliente.documento,
                 endereco: cliente.endereco,
                 numero: cliente.numero,
                 bairro: cliente.bairro,
                 cidade: cliente.cidade,
+                estado: cliente.estado,
+                cep: cliente.cep,
+                codigoIbge: mapaIbgePorCep.get(cliente.cep) || '',
+                referencia: cliente.referencia,
+                enderecoCobranca: cliente.enderecoCobranca,
+                numeroCobranca: cliente.numeroCobranca,
+                bairroCobranca: cliente.bairroCobranca,
+                cidadeCobranca: cliente.cidadeCobranca,
+                estadoCobranca: cliente.estadoCobranca,
+                cepCobranca: cliente.cepCobranca,
+                enderecoEntrega: cliente.enderecoEntrega,
+                numeroEntrega: cliente.numeroEntrega,
+                bairroEntrega: cliente.bairroEntrega,
+                cidadeEntrega: cliente.cidadeEntrega,
+                estadoEntrega: cliente.estadoEntrega,
+                cepEntrega: cliente.cepEntrega,
+                referenciaEntrega: cliente.referenciaEntrega,
+                dtUltimaCompra: cliente.dtUltimaCompra,
               },
               tenantId,
               currentUser.uid,
@@ -213,6 +381,7 @@ const ImportarClientes: React.FC = () => {
       showError('Erro ao importar', 'Não foi possível concluir a importação. Nenhum cliente foi gravado neste lote com erro -- tente novamente.');
     } finally {
       setSalvando(false);
+      setProgressoIbge(null);
     }
   };
 
@@ -238,7 +407,7 @@ const ImportarClientes: React.FC = () => {
           <div>
             <h2 style={{ fontSize: '18px', marginBottom: '6px' }}>Selecione a planilha</h2>
             <p style={{ color: 'var(--text-muted)', maxWidth: '440px' }}>
-              Aceita .csv e .xlsx. A próxima tela deixa você confirmar qual coluna é o nome, o CPF/CNPJ, o endereço e o telefone.
+              Aceita .csv e .xlsx. A próxima tela deixa você confirmar qual coluna é cada campo -- nome, documento, contato e os três endereços possíveis (principal, cobrança e entrega).
             </p>
           </div>
           <label className="btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
@@ -265,30 +434,35 @@ const ImportarClientes: React.FC = () => {
             <h2 style={{ fontSize: '18px', marginBottom: '4px' }}>Confirme as colunas</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Arquivo: {nomeArquivo} — {linhasDados.length} linha(s) de dado encontrada(s).</p>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-            {(['nome', 'documento', 'endereco', 'telefone'] as const).map((campo) => {
-              const obrigatorio = campo === 'nome';
-              const rotulos: Record<typeof campo, string> = {
-                nome: 'Nome / Razão Social', documento: 'CPF/CNPJ (opcional)',
-                endereco: 'Endereço completo (opcional)', telefone: 'Telefone (opcional)',
-              };
-              return (
-                <div className="input-group" key={campo}>
-                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Coluna de {rotulos[campo]}</label>
-                  <select
-                    value={mapeamento[campo] === null ? '' : mapeamento[campo]!}
-                    onChange={(e) => setMapeamento((atual) => ({ ...atual, [campo]: e.target.value === '' ? null : Number(e.target.value) }))}
-                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
-                  >
-                    {!obrigatorio && <option value="">-- Nenhuma --</option>}
-                    {cabecalho.map((h, idx) => <option key={idx} value={idx}>{h || `Coluna ${idx + 1}`}</option>)}
-                  </select>
-                </div>
-              );
-            })}
-          </div>
+
+          {GRUPOS_MAPEAMENTO.map((grupo) => (
+            <div key={grupo.titulo} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <h3 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', margin: 0, borderBottom: '1px solid var(--border-color)', paddingBottom: '6px' }}>
+                {grupo.titulo}
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                {grupo.campos.map(({ campo, rotulo, obrigatorio }) => (
+                  <div className="input-group" key={campo}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{rotulo}{obrigatorio ? ' *' : ''}</label>
+                    <select
+                      value={mapeamento[campo] === null ? '' : (mapeamento[campo] as number)}
+                      onChange={(e) => {
+                        const valor = e.target.value === '' ? null : Number(e.target.value);
+                        setMapeamento((atual) => ({ ...atual, [campo]: valor }));
+                      }}
+                      style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
+                    >
+                      {!obrigatorio && <option value="">-- Nenhuma --</option>}
+                      {cabecalho.map((h, idx) => <option key={idx} value={idx}>{h || `Coluna ${idx + 1}`}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
           <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
-            Se o endereço vier todo junto num campo só ("Rua, Número, Bairro - Cidade"), a próxima tela já tenta separar automaticamente — confira o resultado linha por linha antes de importar. O código do cliente é sempre gerado automaticamente pelo sistema (1, 2, 3...).
+            Se o endereço principal vier todo junto num campo só ("Rua, Número, Bairro - Cidade"), deixe Número/Bairro/Cidade sem coluna que a próxima tela tenta separar automaticamente -- confira o resultado linha por linha antes de importar. O código do cliente é sempre gerado automaticamente pelo sistema (1, 2, 3...). O código IBGE (necessário pra NF-e) é resolvido a partir do CEP na hora de importar, não precisa vir na planilha.
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
             <button className="btn-secondary" onClick={() => setPasso('upload')}>Voltar</button>
@@ -306,6 +480,7 @@ const ImportarClientes: React.FC = () => {
             <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
               {clientes.length} cliente(s) encontrado(s){totalComProblema > 0 ? `, ${totalComProblema} precisam de atenção (destacados abaixo)` : ''}.
               {ignoradosConsumidorFinal > 0 && ` ${ignoradosConsumidorFinal} linha(s) chamada(s) "Consumidor Final" foram ignoradas — esse cliente já existe por padrão no sistema.`}
+              {itensExcluidos.size > 0 && ` ${itensExcluidos.size} linha(s) com CPF/CNPJ repetido na planilha já vêm pré-marcadas para não importar (mantido o primeiro registro de cada) -- desmarque se quiser importar mesmo assim.`}
             </p>
           </div>
           <div style={{ overflowX: 'auto', maxHeight: '560px', overflowY: 'auto' }}>
@@ -330,7 +505,7 @@ const ImportarClientes: React.FC = () => {
                   const aviso = avisoDuplicado(cliente);
                   const motivos = [cliente.motivo, aviso].filter(Boolean).join(' ');
                   return (
-                    <tr key={cliente.linhaId} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: (problema && !excluido) ? 'rgba(245,158,11,0.08)' : undefined, opacity: excluido ? 0.4 : 1 }}>
+                    <tr key={cliente.linhaId} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: (problema && !excluido) ? 'rgba(245,158,11,0.08)' : undefined, opacity: excluido ? 0.5 : 1 }}>
                       <td style={{ padding: '8px' }}>
                         <input type="text" value={cliente.nome} onChange={(e) => atualizarCliente(cliente.linhaId, { nome: e.target.value })} style={{ ...inputStyle, width: '220px' }} title={cliente.prefixoCodigoRemovido ? `Código "${cliente.prefixoCodigoRemovido}" do sistema antigo removido do nome` : undefined} />
                       </td>
@@ -353,12 +528,12 @@ const ImportarClientes: React.FC = () => {
                         <input type="text" placeholder="-" value={cliente.cidade} onChange={(e) => atualizarCliente(cliente.linhaId, { cidade: e.target.value })} style={{ ...inputStyle, width: '120px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        {problema && !excluido ? (
-                          <span style={{ color: '#f59e0b', fontWeight: 600 }} title={motivos}>REVISAR</span>
+                        {problema ? (
+                          <span style={{ color: excluido ? 'var(--text-muted)' : '#f59e0b', fontWeight: 600 }} title={motivos}>{excluido ? 'IGNORADO' : 'REVISAR'}</span>
                         ) : (
                           <span style={{ color: 'var(--text-muted)' }}>OK</span>
                         )}
-                        {motivos && !excluido && <div style={{ fontSize: '11px', color: 'var(--text-muted)', maxWidth: '200px' }}>{motivos}</div>}
+                        {motivos && <div style={{ fontSize: '11px', color: 'var(--text-muted)', maxWidth: '200px' }}>{motivos}</div>}
                       </td>
                       <td style={{ padding: '8px', textAlign: 'center' }}>
                         <input
@@ -377,6 +552,11 @@ const ImportarClientes: React.FC = () => {
               </tbody>
             </table>
           </div>
+          {progressoIbge && (
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Loader2 size={14} className="spin-animation" /> Resolvendo código IBGE pelo CEP... {progressoIbge.atual}/{progressoIbge.total || '?'}
+            </p>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
             <button className="btn-secondary" onClick={() => setPasso('mapeamento')} disabled={salvando}>Voltar</button>
             <button className="btn-primary" onClick={executarImportacao} disabled={salvando || !clientesProntos} style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: (salvando || !clientesProntos) ? 0.6 : 1 }}>

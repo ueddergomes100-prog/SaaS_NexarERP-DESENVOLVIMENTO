@@ -49,6 +49,11 @@ export const formatarCnpj = (valor: unknown): string =>
  *  vendedor de propósito: quem já entrou num, não redigita no outro. */
 export const CNPJ_LEMBRADO_STORAGE_KEY = 'nexus_login_cnpj';
 
+/** Código do vendedor de balcão lembrado no app do vendedor externo (o
+ *  celular é sempre do mesmo vendedor). Só o código -- é o "usuário", não a
+ *  senha/PIN, que continua sem gravar. */
+export const CODIGO_VENDEDOR_LEMBRADO_STORAGE_KEY = 'nexus_vendedor_codigo';
+
 /** Usuário como o funcionário digita: sem espaços, minúsculo. */
 export const normalizarUsername = (valor: unknown): string =>
   String(valor ?? '').trim().toLowerCase().replace(/\s+/g, '');

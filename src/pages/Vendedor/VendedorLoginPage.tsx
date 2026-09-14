@@ -5,7 +5,7 @@ import { browserLocalPersistence, setPersistence, signInWithCustomToken, signInW
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../services/firebase';
 import { loginVendedorMobile, VendedorMobileAuthError } from '../../services/vendedorMobileAuthService';
-import { CNPJ_LEMBRADO_STORAGE_KEY, formatarCnpj, normalizarCnpj } from '../../utils/loginIdentidadeDomain';
+import { CNPJ_LEMBRADO_STORAGE_KEY, CODIGO_VENDEDOR_LEMBRADO_STORAGE_KEY, formatarCnpj, normalizarCnpj } from '../../utils/loginIdentidadeDomain';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
 import wordmarkLight from '../../assets/hennder-wordmark-light.png';
 import '../Auth/Auth.css';
@@ -36,12 +36,17 @@ const VendedorLoginPage: React.FC = () => {
   // empresa) -- vem preenchido do ultimo acesso, mesma chave que a tela de
   // login do sistema usa.
   const [cnpj, setCnpj] = useState(() => formatarCnpj(localStorage.getItem(CNPJ_LEMBRADO_STORAGE_KEY) || ''));
-  const [codigo, setCodigo] = useState('');
+  // Mesma logica do CNPJ: o codigo e' o "usuario" deste login, nao a senha
+  // -- guarda pra nao redigitar toda vez, o PIN continua sem gravar.
+  const [codigo, setCodigo] = useState(() => localStorage.getItem(CODIGO_VENDEDOR_LEMBRADO_STORAGE_KEY) || '');
   const [pin, setPin] = useState('');
   const [usuario, setUsuario] = useState('');
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
+  // CNPJ e codigo ja vieram lembrados do aparelho: pula direto pro campo que
+  // falta preencher (a senha), em vez de focar um CNPJ que ja esta certo.
+  const foquePin = modo === 'vendedor' && normalizarCnpj(cnpj).length === 14 && codigo.length > 0;
 
   /** Mascara + corte nos 14 digitos, e guarda assim que o CNPJ fica completo
    *  (sem esperar o login dar certo -- se a senha estiver errada, o CNPJ ja
@@ -170,7 +175,7 @@ const VendedorLoginPage: React.FC = () => {
                 value={cnpj}
                 onChange={(e) => handleCnpjChange(e.target.value)}
                 disabled={carregando}
-                autoFocus
+                autoFocus={!foquePin}
               />
             </div>
           </div>
@@ -187,7 +192,15 @@ const VendedorLoginPage: React.FC = () => {
                     inputMode="numeric"
                     placeholder="Ex: 07"
                     value={codigo}
-                    onChange={(e) => setCodigo(e.target.value.replace(/\D/g, '').slice(0, 2))}
+                    onChange={(e) => {
+                      const valor = e.target.value.replace(/\D/g, '').slice(0, 2);
+                      setCodigo(valor);
+                      if (valor) {
+                        localStorage.setItem(CODIGO_VENDEDOR_LEMBRADO_STORAGE_KEY, valor);
+                      } else {
+                        localStorage.removeItem(CODIGO_VENDEDOR_LEMBRADO_STORAGE_KEY);
+                      }
+                    }}
                     disabled={carregando}
                     style={{ letterSpacing: '4px', fontWeight: 700 }}
                   />
@@ -205,6 +218,7 @@ const VendedorLoginPage: React.FC = () => {
                     value={pin}
                     onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 10))}
                     disabled={carregando}
+                    autoFocus={foquePin}
                     style={{ letterSpacing: '4px', fontWeight: 700 }}
                   />
                 </div>

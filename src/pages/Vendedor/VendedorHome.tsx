@@ -20,6 +20,13 @@ interface PedidoRecente {
 
 const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+const saudacaoPorHora = () => {
+  const hora = new Date().getHours();
+  if (hora < 12) return 'Bom dia,';
+  if (hora < 18) return 'Boa tarde,';
+  return 'Boa noite,';
+};
+
 const atalhoStyle: React.CSSProperties = {
   aspectRatio: '1', borderRadius: '18px', padding: '18px', display: 'flex', flexDirection: 'column',
   justifyContent: 'space-between', cursor: 'pointer', border: 'none', textAlign: 'left',
@@ -87,7 +94,7 @@ const VendedorHome: React.FC = () => {
         }}
       >
         <div>
-          <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', fontWeight: 500 }}>Olá,</div>
+          <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', fontWeight: 500 }}>{saudacaoPorHora()}</div>
           <div style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)' }}>{nome}</div>
         </div>
         <button

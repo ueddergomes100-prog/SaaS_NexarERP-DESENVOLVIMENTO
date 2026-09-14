@@ -119,7 +119,7 @@ const VendedorNovoPedido: React.FC = () => {
         <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque={false} />
       </div>
 
-      <div style={{ padding: '16px 20px 24px', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
+      <div style={{ padding: '16px 20px calc(24px + env(safe-area-inset-bottom))', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
         <button
           type="button"
           onClick={handleFinalizar}

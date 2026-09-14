@@ -16,8 +16,12 @@ const VendedorBottomNav: React.FC = () => {
   return (
     <div
       style={{
-        height: '72px', flexShrink: 0, borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-around', paddingBottom: '10px',
+        minHeight: '72px', flexShrink: 0, borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-around',
+        // A cor da navbar precisa ir ate a borda real do celular -- se a
+        // margem da barra de gestos ficasse no shell (fundo primario), em
+        // vez de aqui, sobrava uma faixa de outra cor embaixo da barra.
+        paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
       }}
     >
       {ITENS.map(({ path, label, Icon, match }) => {

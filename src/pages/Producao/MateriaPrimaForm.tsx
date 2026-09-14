@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Factory, Loader2 } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, getDoc, getDocs, serverTimestamp, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { getProximoCodigoMateriaPrima } from '../../utils/materiaPrimaCodigo';
 import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialStock';
 import { computeEstoquePrevisto } from '../../utils/producaoDomain';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
@@ -78,11 +79,9 @@ const MateriaPrimaForm: React.FC = () => {
               precoCusto: String(data.precoCusto ?? 0),
             }));
           }
-        } else {
-          const q = query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId));
-          const snap = await getCountFromServer(q);
-          const nextId = snap.data().count + 1;
-          setFormData(prev => ({ ...prev, codigo: String(nextId) }));
+        } else if (tenantId) {
+          const proximoCodigo = await getProximoCodigoMateriaPrima(tenantId);
+          setFormData(prev => ({ ...prev, codigo: proximoCodigo }));
         }
       } catch (error) {
         console.error("Erro ao carregar dados:", error);
@@ -227,7 +226,8 @@ const MateriaPrimaForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
             <div className="input-group">
               <label>Código *</label>
-              <input type="text" name="codigo" value={formData.codigo} onChange={handleChange} style={inputStyle} />
+              <input type="text" name="codigo" value={formData.codigo} readOnly required style={inputStyle} />
+              <span className="field-hint">Gerado automaticamente pelo sistema a cada nova matéria-prima. Não pode ser alterado manualmente.</span>
             </div>
             <div className="input-group">
               <label>Nome *</label>

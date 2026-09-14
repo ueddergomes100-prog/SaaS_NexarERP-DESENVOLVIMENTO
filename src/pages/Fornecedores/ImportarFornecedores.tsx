@@ -2,8 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import {
-  collection, query, where, getDocs, getCountFromServer, writeBatch, doc, serverTimestamp,
+  collection, query, where, getDocs, writeBatch, doc, serverTimestamp,
 } from 'firebase/firestore';
+import { getProximoCodigoFornecedor } from '../../utils/fornecedorCodigo';
 import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Truck, Upload } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -222,8 +223,8 @@ const ImportarFornecedores: React.FC = () => {
 
     setSalvando(true);
     try {
-      const contagemSnap = await getCountFromServer(query(collection(db, 'fornecedores'), where('tenantId', '==', tenantId)));
-      let proximoCodigo = contagemSnap.data().count + 1;
+      let proximoCodigo = Number.parseInt(await getProximoCodigoFornecedor(tenantId), 10);
+      if (!Number.isFinite(proximoCodigo)) proximoCodigo = 1;
       const timestamp = serverTimestamp();
 
       const LOTE_MAXIMO = 400;

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Truck, Loader2, MapPin } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, getDoc, getCountFromServer, serverTimestamp, query, where } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
+import { getProximoCodigoFornecedor } from '../../utils/fornecedorCodigo';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { mensagemDocumentoInvalido } from '../../utils/documentoValidacao';
 import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton';
@@ -86,11 +87,9 @@ const FornecedorForm: React.FC = () => {
             const data = docSnap.data() as any;
             setFormData(prev => ({ ...prev, ...data }));
           }
-        } else {
-          const q = query(collection(db, 'fornecedores'), where('tenantId', '==', tenantId));
-          const snap = await getCountFromServer(q);
-          const nextId = snap.data().count + 1;
-          setFormData(prev => ({ ...prev, codigo: String(nextId) }));
+        } else if (tenantId) {
+          const proximoCodigo = await getProximoCodigoFornecedor(tenantId);
+          setFormData(prev => ({ ...prev, codigo: proximoCodigo }));
         }
       } catch (error) {
         console.error("Erro ao carregar dados:", error);
@@ -223,7 +222,8 @@ const FornecedorForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
             <div className="input-group">
               <label>Código *</label>
-              <input type="text" name="codigo" value={formData.codigo} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="codigo" value={formData.codigo} readOnly required style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <span className="field-hint">Gerado automaticamente pelo sistema a cada novo fornecedor. Não pode ser alterado manualmente.</span>
             </div>
             <div className="input-group">
               <label>Nome / Razão Social *</label>

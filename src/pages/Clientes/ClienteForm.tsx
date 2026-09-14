@@ -390,7 +390,8 @@ const ClienteForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
             <div className="input-group">
               <label>Código do Cliente *</label>
-              <input type="text" name="codigo" value={formData.codigo} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="codigo" value={formData.codigo} readOnly required style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <span className="field-hint">Gerado automaticamente pelo sistema a cada novo cliente. Não pode ser alterado manualmente.</span>
             </div>
             <div className="input-group">
               <label>Nome Completo *</label>

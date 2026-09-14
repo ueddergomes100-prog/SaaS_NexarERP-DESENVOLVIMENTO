@@ -45,7 +45,9 @@ const ClientesList: React.FC = () => {
       querySnapshot.forEach((doc) => {
         data.push({ id: doc.id, ...doc.data() } as ClienteData);
       });
-      data.sort((a, b) => a.nome.localeCompare(b.nome));
+      // Por codigo (numerico, nao alfabetico) -- e' a sequencia que o
+      // usuario reconhece do sistema antigo/papel, nao a ordem do nome.
+      data.sort((a, b) => (Number(a.codigo) || 0) - (Number(b.codigo) || 0));
       setClientes(data);
       setLoading(false);
     }, (error) => {

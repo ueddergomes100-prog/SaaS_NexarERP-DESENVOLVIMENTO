@@ -29,7 +29,9 @@ const ServicosList: React.FC = () => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data: ServicoData[] = [];
       snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as ServicoData));
-      data.sort((a, b) => a.nome.localeCompare(b.nome));
+      // Por codigo (numerico, nao alfabetico) -- sequencia que o usuario
+      // reconhece do sistema antigo/papel, nao a ordem do nome.
+      data.sort((a, b) => (Number(a.codigo) || 0) - (Number(b.codigo) || 0));
       setServicos(data);
       setLoading(false);
     });

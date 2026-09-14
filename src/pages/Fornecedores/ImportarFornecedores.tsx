@@ -18,6 +18,7 @@ import {
   inferirMapeamentoColunasFornecedor,
   montarFornecedorImportado,
   processarLinhasFornecedores,
+  MAPEAMENTO_FORNECEDOR_VAZIO,
   type FornecedorImportado,
   type MapeamentoColunasFornecedor,
 } from '../../utils/importacaoFornecedoresDomain';
@@ -32,6 +33,69 @@ import {
 
 type Passo = 'upload' | 'mapeamento' | 'confirmacao' | 'concluido';
 
+interface CampoMapeamento {
+  campo: keyof MapeamentoColunasFornecedor;
+  rotulo: string;
+  obrigatorio?: boolean;
+}
+
+const GRUPOS_MAPEAMENTO: Array<{ titulo: string; campos: CampoMapeamento[] }> = [
+  {
+    titulo: 'Dados básicos',
+    campos: [
+      { campo: 'nome', rotulo: 'Nome / Razão Social', obrigatorio: true },
+      { campo: 'documento', rotulo: 'CNPJ/CPF' },
+      { campo: 'identidade', rotulo: 'Inscrição Estadual / C.I.' },
+      { campo: 'tipo', rotulo: 'Tipo (Fornecedor/Transportadora/Serviços/Impostos)' },
+      { campo: 'ativo', rotulo: 'Ativo' },
+    ],
+  },
+  {
+    titulo: 'Contato',
+    campos: [
+      { campo: 'telefone', rotulo: 'Telefone Fixo' },
+      { campo: 'celular', rotulo: 'Celular' },
+      { campo: 'email', rotulo: 'E-mail' },
+    ],
+  },
+  {
+    titulo: 'Endereço',
+    campos: [
+      { campo: 'endereco', rotulo: 'Rua (com número junto ou não, tanto faz)' },
+      { campo: 'numero', rotulo: 'Número (se vier em coluna própria)' },
+      { campo: 'bairro', rotulo: 'Bairro' },
+      { campo: 'cidade', rotulo: 'Cidade' },
+      { campo: 'estado', rotulo: 'Estado (UF)' },
+      { campo: 'cep', rotulo: 'CEP' },
+    ],
+  },
+  {
+    titulo: 'Outros',
+    campos: [
+      { campo: 'observacoes', rotulo: 'Observações' },
+    ],
+  },
+];
+
+/** Entre linhas com o mesmo documento (CNPJ/CPF), mantem so a PRIMEIRA
+ * marcada pra importar -- as demais entram pre-marcadas como "não
+ * importar" (o usuario ainda pode desmarcar se quiser mesmo assim). Nao
+ * afeta as linhas sem documento (fornecedor "generico" tipo categoria de
+ * despesa do sistema antigo) -- essas nunca colidem entre si. */
+const linhasIdsDuplicadosParaExcluir = (processados: FornecedorImportado[]): Set<number> => {
+  const vistos = new Set<string>();
+  const excluidos = new Set<number>();
+  processados.forEach((fornecedor) => {
+    if (!fornecedor.documento) return;
+    if (vistos.has(fornecedor.documento)) {
+      excluidos.add(fornecedor.linhaId);
+    } else {
+      vistos.add(fornecedor.documento);
+    }
+  });
+  return excluidos;
+};
+
 const ImportarFornecedores: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId } = useAuth();
@@ -41,7 +105,7 @@ const ImportarFornecedores: React.FC = () => {
   const [nomeArquivo, setNomeArquivo] = useState('');
   const [cabecalho, setCabecalho] = useState<string[]>([]);
   const [linhasDados, setLinhasDados] = useState<string[][]>([]);
-  const [mapeamento, setMapeamento] = useState<MapeamentoColunasFornecedor>({ nome: 0, documento: null, endereco: null, telefone: null, email: null });
+  const [mapeamento, setMapeamento] = useState<MapeamentoColunasFornecedor>(MAPEAMENTO_FORNECEDOR_VAZIO);
 
   const [fornecedores, setFornecedores] = useState<FornecedorImportado[]>([]);
   const [itensExcluidos, setItensExcluidos] = useState<Set<number>>(new Set());
@@ -111,7 +175,7 @@ const ImportarFornecedores: React.FC = () => {
     }
 
     setFornecedores(processados);
-    setItensExcluidos(new Set());
+    setItensExcluidos(linhasIdsDuplicadosParaExcluir(processados));
     setPasso('confirmacao');
   };
 
@@ -132,8 +196,10 @@ const ImportarFornecedores: React.FC = () => {
 
   const avisoDuplicado = (fornecedor: FornecedorImportado): string => {
     if (!fornecedor.documento) return '';
-    if ((contagemDocumentosNoLote.get(fornecedor.documento) || 0) > 1) return 'CPF/CNPJ repetido em mais de uma linha desta planilha.';
-    if (documentosExistentes.has(fornecedor.documento)) return 'Já existe um fornecedor cadastrado com este CPF/CNPJ.';
+    if ((contagemDocumentosNoLote.get(fornecedor.documento) || 0) > 1) return 'CNPJ/CPF repetido em mais de uma linha desta planilha.';
+    if (documentosExistentes.has(fornecedor.documento)) return 'Já existe um fornecedor cadastrado com este CNPJ/CPF.';
+    const outrasOcorrencias = fornecedores.filter((f) => f.documento === fornecedor.documento).length;
+    if (outrasOcorrencias > 1 && itensExcluidos.has(fornecedor.linhaId)) return 'CNPJ/CPF repetido nesta planilha -- pré-marcado para não importar (mantido só o primeiro registro).';
     return '';
   };
 
@@ -175,13 +241,20 @@ const ImportarFornecedores: React.FC = () => {
               {
                 codigo,
                 nome: fornecedor.nome,
-                telefone: fornecedor.telefone,
-                email: fornecedor.email,
                 documento: fornecedor.documento,
+                identidade: fornecedor.identidade,
+                telefone: fornecedor.telefone,
+                celular: fornecedor.celular,
+                email: fornecedor.email,
                 endereco: fornecedor.endereco,
                 numero: fornecedor.numero,
                 bairro: fornecedor.bairro,
                 cidade: fornecedor.cidade,
+                estado: fornecedor.estado,
+                cep: fornecedor.cep,
+                tipo: fornecedor.tipo,
+                ativo: fornecedor.ativo,
+                observacoes: fornecedor.observacoes,
               },
               tenantId,
               currentUser.uid,
@@ -227,7 +300,7 @@ const ImportarFornecedores: React.FC = () => {
           <div>
             <h2 style={{ fontSize: '18px', marginBottom: '6px' }}>Selecione a planilha</h2>
             <p style={{ color: 'var(--text-muted)', maxWidth: '440px' }}>
-              Aceita .csv e .xlsx. A próxima tela deixa você confirmar qual coluna é o nome, o CNPJ/CPF, o endereço, o telefone e o e-mail.
+              Aceita .csv e .xlsx. A próxima tela deixa você confirmar qual coluna é cada campo -- nome, documento, contato, endereço, tipo e observações.
             </p>
           </div>
           <label className="btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
@@ -254,31 +327,35 @@ const ImportarFornecedores: React.FC = () => {
             <h2 style={{ fontSize: '18px', marginBottom: '4px' }}>Confirme as colunas</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Arquivo: {nomeArquivo} — {linhasDados.length} linha(s) de dado encontrada(s).</p>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-            {(['nome', 'documento', 'endereco', 'telefone', 'email'] as const).map((campo) => {
-              const obrigatorio = campo === 'nome';
-              const rotulos: Record<typeof campo, string> = {
-                nome: 'Nome / Razão Social', documento: 'CNPJ/CPF (opcional)',
-                endereco: 'Endereço completo (opcional)', telefone: 'Telefone (opcional)',
-                email: 'E-mail (opcional)',
-              };
-              return (
-                <div className="input-group" key={campo}>
-                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Coluna de {rotulos[campo]}</label>
-                  <select
-                    value={mapeamento[campo] === null ? '' : mapeamento[campo]!}
-                    onChange={(e) => setMapeamento((atual) => ({ ...atual, [campo]: e.target.value === '' ? null : Number(e.target.value) }))}
-                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
-                  >
-                    {!obrigatorio && <option value="">-- Nenhuma --</option>}
-                    {cabecalho.map((h, idx) => <option key={idx} value={idx}>{h || `Coluna ${idx + 1}`}</option>)}
-                  </select>
-                </div>
-              );
-            })}
-          </div>
+
+          {GRUPOS_MAPEAMENTO.map((grupo) => (
+            <div key={grupo.titulo} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <h3 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', margin: 0, borderBottom: '1px solid var(--border-color)', paddingBottom: '6px' }}>
+                {grupo.titulo}
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                {grupo.campos.map(({ campo, rotulo, obrigatorio }) => (
+                  <div className="input-group" key={campo}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{rotulo}{obrigatorio ? ' *' : ''}</label>
+                    <select
+                      value={mapeamento[campo] === null ? '' : (mapeamento[campo] as number)}
+                      onChange={(e) => {
+                        const valor = e.target.value === '' ? null : Number(e.target.value);
+                        setMapeamento((atual) => ({ ...atual, [campo]: valor }));
+                      }}
+                      style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
+                    >
+                      {!obrigatorio && <option value="">-- Nenhuma --</option>}
+                      {cabecalho.map((h, idx) => <option key={idx} value={idx}>{h || `Coluna ${idx + 1}`}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
           <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
-            Se o endereço vier todo junto num campo só ("Rua, Número, Bairro - Cidade"), a próxima tela já tenta separar automaticamente — confira o resultado linha por linha antes de importar. O código do fornecedor é sempre gerado automaticamente pelo sistema (1, 2, 3...).
+            Se o endereço vier todo junto num campo só ("Rua, Número, Bairro - Cidade"), deixe Bairro/Cidade sem coluna que a próxima tela tenta separar tudo automaticamente. Se só a rua e o número vierem juntos ("Rua X, 51") mas bairro/cidade já tiverem coluna própria, deixe Número sem coluna que ele é separado da rua sozinho. O código do fornecedor é sempre gerado automaticamente pelo sistema (1, 2, 3...).
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
             <button className="btn-secondary" onClick={() => setPasso('upload')}>Voltar</button>
@@ -295,6 +372,7 @@ const ImportarFornecedores: React.FC = () => {
             <h2 style={{ fontSize: '18px', marginBottom: '4px' }}>Confira e corrija cada fornecedor</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
               {fornecedores.length} fornecedor(es) encontrado(s){totalComProblema > 0 ? `, ${totalComProblema} precisam de atenção (destacados abaixo)` : ''}.
+              {itensExcluidos.size > 0 && ` ${itensExcluidos.size} linha(s) com CNPJ/CPF repetido na planilha já vêm pré-marcadas para não importar (mantido o primeiro registro de cada) -- desmarque se quiser importar mesmo assim.`}
             </p>
           </div>
           <div style={{ overflowX: 'auto', maxHeight: '560px', overflowY: 'auto' }}>
@@ -303,11 +381,10 @@ const ImportarFornecedores: React.FC = () => {
                 <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '11px' }}>
                   <th style={{ padding: '8px' }}>Nome</th>
                   <th style={{ padding: '8px' }}>CNPJ/CPF</th>
+                  <th style={{ padding: '8px' }}>Tipo</th>
                   <th style={{ padding: '8px' }}>Telefone</th>
-                  <th style={{ padding: '8px' }}>E-mail</th>
                   <th style={{ padding: '8px' }}>Rua</th>
                   <th style={{ padding: '8px' }}>Nº</th>
-                  <th style={{ padding: '8px' }}>Bairro</th>
                   <th style={{ padding: '8px' }}>Cidade</th>
                   <th style={{ padding: '8px' }}>Situação</th>
                   <th style={{ padding: '8px', textAlign: 'center' }}>Não importar</th>
@@ -320,18 +397,16 @@ const ImportarFornecedores: React.FC = () => {
                   const aviso = avisoDuplicado(fornecedor);
                   const motivos = [fornecedor.motivo, aviso].filter(Boolean).join(' ');
                   return (
-                    <tr key={fornecedor.linhaId} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: (problema && !excluido) ? 'rgba(245,158,11,0.08)' : undefined, opacity: excluido ? 0.4 : 1 }}>
+                    <tr key={fornecedor.linhaId} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: (problema && !excluido) ? 'rgba(245,158,11,0.08)' : undefined, opacity: excluido ? 0.5 : 1 }}>
                       <td style={{ padding: '8px' }}>
                         <input type="text" value={fornecedor.nome} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { nome: e.target.value })} style={{ ...inputStyle, width: '220px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
                         <input type="text" placeholder="-" value={fornecedor.documento} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { documento: e.target.value.replace(/\D/g, '') })} style={{ ...inputStyle, width: '130px' }} />
                       </td>
+                      <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{fornecedor.tipo}</td>
                       <td style={{ padding: '8px' }}>
                         <input type="text" placeholder="-" value={fornecedor.telefone} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { telefone: e.target.value })} style={{ ...inputStyle, width: '120px' }} />
-                      </td>
-                      <td style={{ padding: '8px' }}>
-                        <input type="text" placeholder="-" value={fornecedor.email} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { email: e.target.value })} style={{ ...inputStyle, width: '160px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
                         <input type="text" placeholder="-" value={fornecedor.endereco} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { endereco: e.target.value })} style={{ ...inputStyle, width: '180px' }} />
@@ -340,18 +415,15 @@ const ImportarFornecedores: React.FC = () => {
                         <input type="text" placeholder="-" value={fornecedor.numero} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { numero: e.target.value })} style={{ ...inputStyle, width: '60px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" placeholder="-" value={fornecedor.bairro} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { bairro: e.target.value })} style={{ ...inputStyle, width: '120px' }} />
-                      </td>
-                      <td style={{ padding: '8px' }}>
                         <input type="text" placeholder="-" value={fornecedor.cidade} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { cidade: e.target.value })} style={{ ...inputStyle, width: '120px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        {problema && !excluido ? (
-                          <span style={{ color: '#f59e0b', fontWeight: 600 }} title={motivos}>REVISAR</span>
+                        {problema ? (
+                          <span style={{ color: excluido ? 'var(--text-muted)' : '#f59e0b', fontWeight: 600 }} title={motivos}>{excluido ? 'IGNORADO' : 'REVISAR'}</span>
                         ) : (
                           <span style={{ color: 'var(--text-muted)' }}>OK</span>
                         )}
-                        {motivos && !excluido && <div style={{ fontSize: '11px', color: 'var(--text-muted)', maxWidth: '200px' }}>{motivos}</div>}
+                        {motivos && <div style={{ fontSize: '11px', color: 'var(--text-muted)', maxWidth: '200px' }}>{motivos}</div>}
                       </td>
                       <td style={{ padding: '8px', textAlign: 'center' }}>
                         <input

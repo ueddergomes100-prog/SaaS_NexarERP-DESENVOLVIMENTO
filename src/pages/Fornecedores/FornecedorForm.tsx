@@ -20,17 +20,61 @@ const FornecedorForm: React.FC = () => {
     codigo: '',
     nome: '',
     telefone: '',
+    celular: '',
     email: '',
     cnpj: '',
+    // Inscricao Estadual (pessoa juridica) ou C.I./RG (pessoa fisica) --
+    // mesmo campo unico do cadastro antigo, mesmo padrao do Cliente.
+    identidade: '',
     endereco: '',
     bairro: '',
     numero: '',
     cidade: '',
+    estado: '',
+    cep: '',
+    tipo: 'Fornecedor',
+    observacoes: '',
   });
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const { currentUser, tenantId } = useAuth();
+
+  const [isCepSearching, setIsCepSearching] = useState(false);
+  const [cepSearchError, setCepSearchError] = useState('');
+
+  // Busca o endereco completo pelo CEP (ViaCEP) -- mesmo mecanismo do
+  // ClienteForm.tsx. Fornecedor nao emite NF-e (e' quem VENDE pra gente,
+  // nao o contrario), entao nao precisa de codigo IBGE aqui.
+  const buscarEnderecoPorCep = async () => {
+    const cepLimpo = formData.cep.replace(/\D/g, '');
+    if (cepLimpo.length !== 8) {
+      if (cepLimpo.length > 0) setCepSearchError('CEP precisa ter 8 dígitos.');
+      return;
+    }
+    setIsCepSearching(true);
+    setCepSearchError('');
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+      const data = await response.json();
+      if (data.erro) {
+        setCepSearchError('CEP não encontrado. Confira o número ou preencha o endereço manualmente.');
+        return;
+      }
+      setFormData((prev) => ({
+        ...prev,
+        endereco: data.logradouro || prev.endereco,
+        bairro: data.bairro || prev.bairro,
+        cidade: data.localidade || prev.cidade,
+        estado: data.uf || prev.estado,
+      }));
+    } catch (error) {
+      console.error('Erro ao buscar CEP:', error);
+      setCepSearchError('Não foi possível consultar o CEP agora. Preencha o endereço manualmente.');
+    } finally {
+      setIsCepSearching(false);
+    }
+  };
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -57,7 +101,7 @@ const FornecedorForm: React.FC = () => {
     fetchInitialData();
   }, [id, isEditing, tenantId]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name } = e.target;
     // Caixa alta na digitacao: o que se ve e o que se grava.
     // textarea, select, e-mail, senha e chave ficam de fora --
@@ -187,11 +231,35 @@ const FornecedorForm: React.FC = () => {
             </div>
           </div>
 
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div className="input-group">
+              <label>Tipo</label>
+              <select name="tipo" value={formData.tipo} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}>
+                <option value="Fornecedor">Fornecedor</option>
+                <option value="Transportadora">Transportadora</option>
+                <option value="Serviços">Serviços</option>
+                <option value="Impostos">Impostos</option>
+              </select>
+            </div>
+            <div className="input-group">
+              <label>Inscrição Estadual / C.I.</label>
+              <input type="text" name="identidade" placeholder="Isento, se não houver" value={formData.identidade} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '20px', alignItems: 'start' }}>
             <div className="input-group">
-              <label>Telefone / WhatsApp</label>
-              <input type="text" name="telefone" placeholder="(00) 00000-0000" value={formData.telefone} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <label>Telefone Fixo</label>
+              <input type="text" name="telefone" placeholder="(00) 0000-0000" value={formData.telefone} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
+            <div className="input-group">
+              <label>Celular / WhatsApp</label>
+              <input type="text" name="celular" placeholder="(00) 00000-0000" value={formData.celular} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+            <div />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '20px', alignItems: 'start' }}>
             <div className="input-group">
               <label>CNPJ / CPF (Apenas números)</label>
               <input type="text" name="cnpj" placeholder="00000000000000" value={formData.cnpj} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
@@ -214,26 +282,45 @@ const FornecedorForm: React.FC = () => {
             <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Endereço</h3>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', alignItems: 'start' }}>
+            <div className="input-group">
+              <label>CEP</label>
+              <input type="text" name="cep" placeholder="36900-000" value={formData.cep} onChange={handleChange} onBlur={buscarEnderecoPorCep} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              {isCepSearching && <small style={{ color: 'var(--text-muted)' }}>Buscando endereço...</small>}
+              {!isCepSearching && cepSearchError && <small style={{ color: '#ef4444' }}>{cepSearchError}</small>}
+              {!isCepSearching && !cepSearchError && <small style={{ color: 'var(--text-muted)' }}>Digite o CEP e saia do campo pra preencher o endereço automaticamente.</small>}
+            </div>
             <div className="input-group">
               <label>Rua / Logradouro</label>
               <input type="text" name="endereco" placeholder="Av. Central" value={formData.endereco} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
-            </div>
-            <div className="input-group">
-              <label>Número</label>
-              <input type="text" name="numero" placeholder="123" value={formData.numero} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group">
+              <label>Número</label>
+              <input type="text" name="numero" placeholder="123" value={formData.numero} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+            <div className="input-group">
               <label>Bairro</label>
               <input type="text" name="bairro" placeholder="Centro" value={formData.bairro} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Cidade</label>
               <input type="text" name="cidade" placeholder="Manhuaçu" value={formData.cidade} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
+            <div className="input-group">
+              <label>Estado (UF)</label>
+              <input type="text" name="estado" placeholder="MG" maxLength={2} value={formData.estado} onChange={handleChange} style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+          </div>
+
+          <div className="input-group">
+            <label>Observações</label>
+            <textarea name="observacoes" placeholder="Anotações gerais sobre este fornecedor" value={formData.observacoes} onChange={handleChange} rows={3} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }} />
           </div>
 
         </div>

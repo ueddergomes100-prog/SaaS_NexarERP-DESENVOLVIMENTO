@@ -71,7 +71,9 @@ const EstoqueList: React.FC = () => {
       querySnapshot.forEach((doc) => {
         pecas.push({ id: doc.id, ...doc.data() } as PecaData);
       });
-      pecas.sort((a, b) => a.nome.localeCompare(b.nome));
+      // Por codigo (numerico, nao alfabetico) -- sequencia que o usuario
+      // reconhece do sistema antigo/papel, nao a ordem do nome.
+      pecas.sort((a, b) => (Number(a.codigo) || 0) - (Number(b.codigo) || 0));
       setPecasList(pecas);
       setLoading(false);
     }, (error) => {

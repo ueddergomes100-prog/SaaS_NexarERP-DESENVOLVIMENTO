@@ -1,6 +1,6 @@
 import React from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { ShieldAlert } from 'lucide-react';
+import { ClipboardList, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import VendedorHome from './VendedorHome';
 import VendedorNovoPedido from './VendedorNovoPedido';
@@ -10,6 +10,7 @@ import VendedorConsultarPreco from './VendedorConsultarPreco';
 import VendedorMeusPedidos from './VendedorMeusPedidos';
 import VendedorPerfil from './VendedorPerfil';
 import VendedorBottomNav from './VendedorBottomNav';
+import VendedorEmBreve from './VendedorEmBreve';
 import './vendedorMobile.css';
 
 /**
@@ -80,6 +81,16 @@ const VendedorShell: React.FC = () => {
           <Route path="cliente" element={<VendedorConsultarCliente />} />
           <Route path="preco" element={<VendedorConsultarPreco />} />
           <Route path="perfil" element={<VendedorPerfil />} />
+          <Route
+            path="balanco"
+            element={(
+              <VendedorEmBreve
+                titulo="Balanço"
+                descricao="A contagem de estoque direto pelo celular está a caminho. Em breve dá pra fazer o balanço sem precisar do computador."
+                Icon={ClipboardList}
+              />
+            )}
+          />
           <Route path="*" element={<Navigate to="/vendedor" replace />} />
         </Routes>
       </div>

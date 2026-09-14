@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, FileText, LogOut, SquarePlus, Tag, Users } from 'lucide-react';
+import { Box, ClipboardList, FileText, LogOut, SquarePlus, Tag, Users } from 'lucide-react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
 import { db } from '../../services/firebase';
@@ -169,6 +169,22 @@ const VendedorHome: React.FC = () => {
             <Users size={28} color="var(--brand-400)" strokeWidth={1.7} />
             <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Consultar Cliente</span>
           </button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Mais módulos
+          </div>
+          <div className="vendedor-atalhos-grid">
+            <button
+              type="button"
+              onClick={() => navigate('/vendedor/balanco')}
+              style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+            >
+              <ClipboardList size={28} color="var(--brand-400)" strokeWidth={1.7} />
+              <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Balanço</span>
+            </button>
+          </div>
         </div>
 
         {resumoHoje && totalHoje > 0 && (

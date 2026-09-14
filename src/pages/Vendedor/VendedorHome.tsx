@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowDownCircle, ArrowUpCircle, Box, ClipboardList, FileText, LogOut, SquarePlus, Tag, Users } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Box, ClipboardList, FileText, LogOut, Receipt, SquarePlus, Tag, Users } from 'lucide-react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
 import { db } from '../../services/firebase';
@@ -34,7 +34,7 @@ const atalhoStyle: React.CSSProperties = {
 
 const VendedorHome: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, tenantId, logout, userNome, userPermissions } = useAuth();
+  const { currentUser, tenantId, logout, userNome, userPermissions, controlaFiscal } = useAuth();
   const [recentes, setRecentes] = useState<PedidoRecente[]>([]);
   const [resumoHoje, setResumoHoje] = useState<{ pedidos: number; orcamentos: number } | null>(null);
 
@@ -176,6 +176,17 @@ const VendedorHome: React.FC = () => {
             Mais módulos
           </div>
           <div className="vendedor-atalhos-grid">
+            {controlaFiscal && userPermissions.includes('fiscal.emitir') && (
+              <button
+                type="button"
+                onClick={() => navigate('/vendedor/pedidos')}
+                style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+              >
+                <Receipt size={28} color="var(--brand-400)" strokeWidth={1.7} />
+                <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Emitir Nota Fiscal</span>
+              </button>
+            )}
+
             {userPermissions.includes('financeiro.pagar') && (
               <button
                 type="button"

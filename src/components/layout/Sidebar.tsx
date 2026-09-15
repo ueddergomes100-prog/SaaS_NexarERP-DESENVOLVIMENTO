@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
 import {
+  Award,
   BarChart2,
   Barcode,
   Bell,
@@ -79,6 +80,7 @@ const Sidebar: React.FC = () => {
   const {
     logout,
     userRole,
+    userNome,
     userPermissions,
     blockedModules,
     isOwner,
@@ -184,6 +186,7 @@ const Sidebar: React.FC = () => {
       icon: Users,
       items: [
         { label: 'Clientes', to: '/clientes', icon: Users, module: 'cadastros.clientes', permission: 'cadastros.clientes' },
+        { label: 'Fornecedores', to: '/fornecedores', icon: Truck, module: 'cadastros.fornecedores', permission: 'cadastros.fornecedores' },
         { label: 'Veículos', to: '/veiculos', icon: Car, module: 'cadastros.veiculos', permission: 'cadastros.veiculos' },
         { label: 'Serviços', to: '/servicos', icon: Briefcase, module: 'cadastros.servicos', permission: 'cadastros.servicos' }
       ]
@@ -216,10 +219,10 @@ const Sidebar: React.FC = () => {
       icon: Tags,
       items: [
         { label: 'Categorias', to: '/categorias', icon: Tags, module: 'cadastros.categorias', permission: 'cadastros.categorias' },
+        { label: 'Marcas', to: '/marcas', icon: Award, module: 'cadastros.marcas', permission: 'cadastros.marcas' },
         { label: 'Unidades de Medida', to: '/unidades-medida', icon: Scale, module: 'cadastros.unidades_medida', permission: 'cadastros.unidades_medida' },
         { label: 'Bandeiras de Cartão', to: '/bandeiras-cartao', icon: CreditCard, module: 'cadastros.bandeiras_cartao', permission: 'cadastros.bandeiras_cartao' },
         { label: 'Bancos', to: '/bancos', icon: Building2, module: 'cadastros.bancos', permission: 'cadastros.bancos' },
-        { label: 'Fornecedores', to: '/fornecedores', icon: Truck, module: 'cadastros.fornecedores', permission: 'cadastros.fornecedores' },
         { label: 'Matéria-Prima', to: '/materias-primas', icon: Factory, module: 'cadastros.materia_prima', permission: 'cadastros.materia_prima' },
         // Vendedores de balcao so faz sentido pra quem trabalha com estacao
         // compartilhada. Aparece com o checkbox ligado OU enquanto houver
@@ -476,7 +479,11 @@ const Sidebar: React.FC = () => {
   }, [actionMenuOpen]);
 
   const tenantName = selectedTenant?.nomeOficina || 'Hennder Company';
-  const userName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Usuário';
+  /* Nome do cadastro (usuarios.nome) primeiro. O fallback pelo e-mail
+   * existia sozinho e mostrava coisa como "17926066000100-d..." pra
+   * quem entra com login derivado do CNPJ -- o usuario nao se reconhece
+   * ali. So cai no e-mail quando nao ha nome nenhum cadastrado. */
+  const userName = userNome || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Usuário';
   const userInitial = userName.trim().charAt(0).toUpperCase() || 'N';
 
   return (
@@ -672,7 +679,7 @@ const Sidebar: React.FC = () => {
               <span className="nexus-user-avatar" aria-hidden="true">{userInitial}</span>
               <div className="nexus-user-meta">
                 <strong>{userName}</strong>
-                <span title={tenantName}>{userRole || 'Operador'} · {tenantName}</span>
+                <span title={tenantName}>{tenantName}</span>
               </div>
               <button type="button" onClick={handleLogout} title="Sair do sistema" aria-label="Sair do sistema">
                 <LogOut size={15} />

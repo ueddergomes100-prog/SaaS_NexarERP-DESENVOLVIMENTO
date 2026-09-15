@@ -70,9 +70,17 @@ const MateriaPrimaForm: React.FC = () => {
         });
         setCategoriasDB(cats);
 
-        const qMarca = query(collection(db, 'marcas'), where('tenantId', '==', tenantId));
-        const snapMarca = await getDocs(qMarca);
-        setMarcasDB(snapMarca.docs.map(d => d.data().nome).filter(Boolean));
+        // Try proprio: marca e' so' sugestao do campo. Ver o comentario em
+        // EstoqueForm.tsx -- esta mesma consulta derrubou o cadastro inteiro
+        // em producao quando a colecao `marcas` ainda nao tinha permissao.
+        try {
+          const qMarca = query(collection(db, 'marcas'), where('tenantId', '==', tenantId));
+          const snapMarca = await getDocs(qMarca);
+          setMarcasDB(snapMarca.docs.map(d => d.data().nome).filter(Boolean));
+        } catch (marcaError) {
+          console.error('Erro ao carregar as marcas (sugestão do campo Marca):', marcaError);
+          setMarcasDB([]);
+        }
 
         if (isEditing && id) {
           const docSnap = await getDoc(doc(db, 'materias_primas', id));

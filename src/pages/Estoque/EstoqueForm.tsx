@@ -521,9 +521,21 @@ const EstoqueForm: React.FC = () => {
         });
         setCategoriasDB(cats);
 
-        const qMarca = query(collection(db, 'marcas'), where('tenantId', '==', tenantId));
-        const snapMarca = await getDocs(qMarca);
-        setMarcasDB(snapMarca.docs.map(d => d.data().nome).filter(Boolean));
+        // Marca so' alimenta a lista de sugestoes do campo -- e' acessorio.
+        // Fica num try proprio porque ja' derrubou o cadastro inteiro: a
+        // colecao `marcas` e' nova, as regras do Firestore de producao ainda
+        // nao tinham permissao pra ela, e o permission-denied dessa consulta
+        // caia no catch geral e virava "Nao foi possivel carregar os dados
+        // do produto" em TODO tenant. Uma lista de sugestao que falha deve
+        // ficar vazia, nao impedir de abrir o produto.
+        try {
+          const qMarca = query(collection(db, 'marcas'), where('tenantId', '==', tenantId));
+          const snapMarca = await getDocs(qMarca);
+          setMarcasDB(snapMarca.docs.map(d => d.data().nome).filter(Boolean));
+        } catch (marcaError) {
+          console.error('Erro ao carregar as marcas (sugestão do campo Marca):', marcaError);
+          setMarcasDB([]);
+        }
 
         const qUni = query(collection(db, 'unidades_medida'), where('tenantId', '==', tenantId));
         const snapUni = await getDocs(qUni);

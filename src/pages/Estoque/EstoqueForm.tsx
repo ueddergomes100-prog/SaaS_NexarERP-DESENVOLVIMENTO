@@ -4,7 +4,7 @@ import { ArrowLeft, Save, Package, DollarSign, Loader2, Factory, Plus, Trash2 } 
 import { collection, addDoc, updateDoc, doc, getDoc, getDocs, serverTimestamp, query, where, setDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
@@ -16,6 +16,8 @@ import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { compararMargem, precoParaMargem } from '../../utils/precificacaoDomain';
 import { ROTULO_POR_ORIGEM, chaveComponente, normalizarComponente, type ComponenteComposicao, type OrigemComponente } from '../../utils/producaoDomain';
+import { ajustePararZerar, avisoInativacaoComSaldo, precisaZerarParaInativar } from '../../utils/estoqueInativacaoDomain';
+import { buildAjusteEstoqueDoc } from '../../utils/ajusteEstoqueDomain';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -93,6 +95,12 @@ interface ProdutoOriginalData {
    * ausente em produto precificado antes deste recurso existir. */
   custoNaUltimaPrecificacao?: number | null;
   quantidadeReservada?: number;
+  /** Estado no banco ANTES desta edicao -- usado pra detectar que esta
+   * edicao e' que esta inativando o produto (ver handleSave). Os dois campos
+   * porque produto antigo guarda so `ativo` e o novo guarda `statusAtivo`,
+   * mesma leitura que a carga do formulario ja faz. */
+  ativo?: boolean;
+  statusAtivo?: boolean;
 }
 
 interface ProdutoFormData {
@@ -985,6 +993,25 @@ const EstoqueForm: React.FC = () => {
     if (!validateForm()) return;
     if (!currentUser) return;
 
+    // Inativar produto com saldo zera o estoque junto -- mesma regra da lista
+    // de produtos (ver estoqueInativacaoDomain.ts). Perguntado ANTES de
+    // gravar qualquer coisa: o usuario ainda pode desistir e voltar o
+    // "Produto ativo".
+    const quantidadeAtual = toNumber(formData.quantidade);
+    const estavaAtivo = (produtoOriginal?.statusAtivo ?? produtoOriginal?.ativo) !== false;
+    const estaInativando = isEditing && !formData.statusAtivo && estavaAtivo;
+    const vaiZerarNaInativacao = estaInativando && precisaZerarParaInativar(quantidadeAtual);
+    if (vaiZerarNaInativacao) {
+      const aviso = avisoInativacaoComSaldo(formData.nome, quantidadeAtual, baseUnidadeSigla);
+      const confirma = await NexusSwal.fire({
+        ...aviso,
+        icon: 'warning',
+        showCancelButton: true,
+        cancelButtonText: 'Cancelar',
+      });
+      if (!confirma.isConfirmed) return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -1066,7 +1093,7 @@ const EstoqueForm: React.FC = () => {
         statusAtivo: formData.statusAtivo,
         ativo: formData.statusAtivo,
         permitirEstoqueNegativo: false,
-        quantidade: toNumber(formData.quantidade),
+        quantidade: vaiZerarNaInativacao ? 0 : toNumber(formData.quantidade),
         estoqueMinimo: toNumber(formData.estoqueMinimo),
         estoqueMaximo: toNumber(formData.estoqueMaximo),
         precoCusto,
@@ -1264,6 +1291,35 @@ const EstoqueForm: React.FC = () => {
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Zerar saldo na inativacao TEM que deixar rastro no Relatorio de
+        // Ajustes -- saldo que some sem registro e' pior que o problema que
+        // a regra resolve. Falha aqui nao desfaz o save: o produto ja' esta
+        // inativo e zerado, e derrubar isso por causa do log deixaria o
+        // usuario sem saber o que valeu.
+        if (vaiZerarNaInativacao) {
+          try {
+            const ajuste = ajustePararZerar(quantidadeAtual);
+            await addDoc(collection(db, 'ajustes_estoque'), {
+              ...buildAjusteEstoqueDoc({
+                tenantId: tenantId || '',
+                produtoId: id,
+                produtoNome: formData.nome,
+                produtoCodigo: formData.codigo,
+                tipo: ajuste.tipo,
+                quantidade: Math.abs(quantidadeAtual),
+                motivo: ajuste.motivo,
+                observacao: 'Estoque zerado automaticamente na inativação do produto.',
+                quantidadeAntes: quantidadeAtual,
+                quantidadeDepois: 0,
+                usuarioId: currentUser.uid,
+                usuarioNome: currentUser.email || currentUser.uid,
+              }),
+              createdAt: serverTimestamp(),
+            });
+          } catch (ajusteErr) {
+            console.error('Erro ao registrar o ajuste de zeramento na inativação:', ajusteErr);
+          }
+        }
         try {
           const { createAuditLog } = await import('../../services/logService');
           createAuditLog({

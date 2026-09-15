@@ -11,12 +11,14 @@ import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { chaveComponente, colecaoDoComponente, normalizarComponente, type OrigemComponente } from '../../utils/producaoDomain';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
 interface ItemConsumido {
-  materiaPrimaId: string;
-  materiaPrimaNome: string;
+  componenteId: string;
+  componenteNome: string;
+  origem: OrigemComponente;
   unidade: string;
   quantidadeNecessaria: number;
   perdaExtra: number;
@@ -25,8 +27,9 @@ interface ItemConsumido {
 }
 
 interface ItemComposicaoPreview {
-  materiaPrimaId: string;
-  materiaPrimaNome: string;
+  componenteId: string;
+  componenteNome: string;
+  origem: OrigemComponente;
   unidade: string;
   quantidadePorUnidade: number;
   perdaExtra: string;
@@ -167,7 +170,25 @@ const OrdemProducaoForm: React.FC = () => {
               responsavelId: data.responsavelId || '',
               responsavelNome: data.responsavelNome || '',
               observacoes: data.observacoes || '',
-              itensConsumidos: Array.isArray(data.itensConsumidos) ? data.itensConsumidos : [],
+              // Ordem finalizada ANTES da composicao aceitar componente do
+              // estoque gravou `materiaPrimaId`/`materiaPrimaNome` sem
+              // `origem` -- normalizarComponente le os dois formatos, entao
+              // estorno de ordem antiga continua funcionando.
+              itensConsumidos: Array.isArray(data.itensConsumidos)
+                ? data.itensConsumidos.map((item: any) => {
+                  const componente = normalizarComponente(item);
+                  return {
+                    componenteId: componente.componenteId,
+                    componenteNome: componente.componenteNome,
+                    origem: componente.origem,
+                    unidade: componente.unidade,
+                    quantidadeNecessaria: Number(item.quantidadeNecessaria || 0),
+                    perdaExtra: Number(item.perdaExtra || 0),
+                    sobra: Number(item.sobra || 0),
+                    quantidadeConsumida: Number(item.quantidadeConsumida || 0),
+                  };
+                })
+                : [],
               dataInicio: data.dataInicio || null,
               dataFim: data.dataFim || null,
               dataEstorno: data.dataEstorno || null,
@@ -337,7 +358,7 @@ const OrdemProducaoForm: React.FC = () => {
     }
     const confirm = await NexusSwal.fire({
       title: 'Cancelar ordem de produção?',
-      text: 'Nenhuma matéria-prima será debitada e nenhum estoque será creditado. Esta ação não pode ser desfeita.',
+      text: 'Nenhum componente será debitado e nenhum estoque será creditado. Esta ação não pode ser desfeita.',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonText: 'Sim, cancelar ordem',
@@ -377,7 +398,7 @@ const OrdemProducaoForm: React.FC = () => {
     }
   };
 
-  // Estorno de uma ordem ja finalizada -- devolve a materia-prima
+  // Estorno de uma ordem ja finalizada -- devolve os componentes
   // debitada, retira a quantidade creditada no produto acabado, e marca
   // a ordem como 'estornada' (mantem o registro, nao apaga -- mesmo
   // padrao do cancelamento de OS/venda ja usado no sistema).
@@ -389,7 +410,7 @@ const OrdemProducaoForm: React.FC = () => {
     }
     const confirm = await NexusSwal.fire({
       title: 'Estornar produção?',
-      text: `A matéria-prima debitada será devolvida ao estoque e ${ordem.quantidadeProduzida} unidade(s) de "${ordem.produtoNome}" serão retiradas do estoque de produtos. O registro da ordem é mantido, com status "Estornada". Esta ação não pode ser desfeita.`,
+      text: `Os componentes debitados serão devolvidos ao estoque e ${ordem.quantidadeProduzida} unidade(s) de "${ordem.produtoNome}" serão retiradas do estoque de produtos. O registro da ordem é mantido, com status "Estornada". Esta ação não pode ser desfeita.`,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonText: 'Sim, estornar produção',
@@ -402,10 +423,11 @@ const OrdemProducaoForm: React.FC = () => {
       await runTransaction(db, async (transaction) => {
         const ordemRef = doc(db, 'ordens_producao', id);
         const produtoRef = doc(db, 'estoque', ordem.produtoId);
-        const materiaPrimaRefs = ordem.itensConsumidos.map(item => doc(db, 'materias_primas', item.materiaPrimaId));
+        // Devolve cada componente na colecao de onde ele foi debitado.
+        const componenteRefs = ordem.itensConsumidos.map(item => doc(db, colecaoDoComponente(item.origem), item.componenteId));
 
         const produtoSnap = await transaction.get(produtoRef);
-        const materiaPrimaSnaps = await Promise.all(materiaPrimaRefs.map((ref) => transaction.get(ref)));
+        const componenteSnaps = await Promise.all(componenteRefs.map((ref) => transaction.get(ref)));
 
         const quantidadeProduzida = ordem.quantidadeProduzida || 0;
         if (produtoSnap.exists()) {
@@ -421,10 +443,10 @@ const OrdemProducaoForm: React.FC = () => {
 
         for (let i = 0; i < ordem.itensConsumidos.length; i++) {
           const item = ordem.itensConsumidos[i];
-          const snap = materiaPrimaSnaps[i];
-          if (!snap.exists()) continue; // materia-prima pode ter sido excluida desde a finalizacao
+          const snap = componenteSnaps[i];
+          if (!snap.exists()) continue; // componente pode ter sido excluido desde a finalizacao
           const quantidadeAtual = Number(snap.data().quantidade || 0);
-          transaction.update(materiaPrimaRefs[i], {
+          transaction.update(componenteRefs[i], {
             quantidade: quantidadeAtual + item.quantidadeConsumida,
             updatedAt: serverTimestamp(),
           });
@@ -454,7 +476,7 @@ const OrdemProducaoForm: React.FC = () => {
       } catch (logError) {
         console.error('Erro ao registrar log de estorno da ordem:', logError);
       }
-      showSuccess('Produção estornada! Matéria-prima devolvida e estoque do produto atualizado.');
+      showSuccess('Produção estornada! Componentes devolvidos e estoque do produto atualizado.');
     } catch (error) {
       console.error('Erro ao estornar produção:', error);
       showError('Erro ao estornar', (error as Error).message || 'Não foi possível estornar a produção.');
@@ -472,18 +494,22 @@ const OrdemProducaoForm: React.FC = () => {
       const composicaoSnap = await getDoc(doc(db, 'produtos_composicao', ordem.produtoId));
       const itensComposicao = composicaoSnap.exists() && Array.isArray(composicaoSnap.data().itens) ? composicaoSnap.data().itens : [];
       if (itensComposicao.length === 0) {
-        showError('Sem composição cadastrada', 'Este produto não tem composição de matéria-prima cadastrada. Defina a composição em Estoque → editar produto → aba "Composição" antes de finalizar.');
+        showError('Sem composição cadastrada', 'Este produto não tem composição cadastrada. Defina a composição em Estoque → editar produto → aba "Composição" antes de finalizar.');
         return;
       }
 
-      setComposicaoPreview(itensComposicao.map((item: any) => ({
-        materiaPrimaId: item.materiaPrimaId,
-        materiaPrimaNome: item.materiaPrimaNome,
-        unidade: item.unidade,
-        quantidadePorUnidade: Number(item.quantidade || 0),
-        perdaExtra: '0',
-        sobra: '0',
-      })));
+      setComposicaoPreview(itensComposicao.map((item: any) => {
+        const componente = normalizarComponente(item);
+        return {
+          componenteId: componente.componenteId,
+          componenteNome: componente.componenteNome,
+          origem: componente.origem,
+          unidade: componente.unidade,
+          quantidadePorUnidade: componente.quantidade,
+          perdaExtra: '0',
+          sobra: '0',
+        };
+      }));
       setQuantidadeProduzidaInput(String(ordem.quantidadePlanejada));
       setShowRevisaoFinalizacao(true);
     } catch (error) {
@@ -494,15 +520,15 @@ const OrdemProducaoForm: React.FC = () => {
     }
   };
 
-  const handleAlterarPerdaExtra = (materiaPrimaId: string, valor: string) => {
+  const handleAlterarPerdaExtra = (chave: string, valor: string) => {
     setComposicaoPreview(prev => prev.map(item => (
-      item.materiaPrimaId === materiaPrimaId ? { ...item, perdaExtra: valor } : item
+      chaveComponente(item.origem, item.componenteId) === chave ? { ...item, perdaExtra: valor } : item
     )));
   };
 
-  const handleAlterarSobra = (materiaPrimaId: string, valor: string) => {
+  const handleAlterarSobra = (chave: string, valor: string) => {
     setComposicaoPreview(prev => prev.map(item => (
-      item.materiaPrimaId === materiaPrimaId ? { ...item, sobra: valor } : item
+      chaveComponente(item.origem, item.componenteId) === chave ? { ...item, sobra: valor } : item
     )));
   };
 
@@ -523,36 +549,40 @@ const OrdemProducaoForm: React.FC = () => {
 
       await runTransaction(db, async (transaction) => {
         const ordemRef = doc(db, 'ordens_producao', id);
-        const materiaPrimaRefs = composicaoPreview.map(item => doc(db, 'materias_primas', item.materiaPrimaId));
-        const materiaPrimaSnaps = await Promise.all(materiaPrimaRefs.map((ref) => transaction.get(ref)));
+        // Cada componente e' baixado na SUA colecao: matéria-prima em
+        // `materias_primas`, semiacabado/granel em `estoque` (as duas
+        // guardam o saldo no mesmo campo `quantidade`).
+        const componenteRefs = composicaoPreview.map(item => doc(db, colecaoDoComponente(item.origem), item.componenteId));
+        const componenteSnaps = await Promise.all(componenteRefs.map((ref) => transaction.get(ref)));
         const produtoRef = doc(db, 'estoque', ordem.produtoId);
         const produtoSnap = await transaction.get(produtoRef);
 
         const itensConsumidos: ItemConsumido[] = [];
         for (let i = 0; i < composicaoPreview.length; i++) {
           const itemPreview = composicaoPreview[i];
-          const snap = materiaPrimaSnaps[i];
+          const snap = componenteSnaps[i];
           if (!snap.exists()) {
-            throw new Error(`Matéria-prima "${itemPreview.materiaPrimaNome}" não foi encontrada (pode ter sido excluída).`);
+            throw new Error(`"${itemPreview.componenteNome}" não foi encontrado no cadastro (pode ter sido excluído). Revise a composição em Estoque → editar produto → aba "Composição".`);
           }
           const quantidadeNecessaria = itemPreview.quantidadePorUnidade * quantidadeProduzida;
           const perdaExtra = Math.max(0, Number(itemPreview.perdaExtra) || 0);
           const sobra = Math.max(0, Number(itemPreview.sobra) || 0);
           const quantidadeConsumida = quantidadeNecessaria + perdaExtra - sobra;
           if (quantidadeConsumida < 0) {
-            throw new Error(`Sobra informada para "${itemPreview.materiaPrimaNome}" é maior do que o necessário + perda extra (não é possível devolver mais do que foi retirado do estoque).`);
+            throw new Error(`Sobra informada para "${itemPreview.componenteNome}" é maior do que o necessário + perda extra (não é possível devolver mais do que foi retirado do estoque).`);
           }
           const quantidadeAtual = Number(snap.data().quantidade || 0);
           if (quantidadeAtual < quantidadeConsumida) {
-            throw new Error(`Estoque insuficiente de "${itemPreview.materiaPrimaNome}". Necessário: ${quantidadeConsumida} ${itemPreview.unidade}, disponível: ${quantidadeAtual} ${itemPreview.unidade}.`);
+            throw new Error(`Estoque insuficiente de "${itemPreview.componenteNome}". Necessário: ${quantidadeConsumida} ${itemPreview.unidade}, disponível: ${quantidadeAtual} ${itemPreview.unidade}.`);
           }
-          transaction.update(materiaPrimaRefs[i], {
+          transaction.update(componenteRefs[i], {
             quantidade: quantidadeAtual - quantidadeConsumida,
             updatedAt: serverTimestamp(),
           });
           itensConsumidos.push({
-            materiaPrimaId: itemPreview.materiaPrimaId,
-            materiaPrimaNome: itemPreview.materiaPrimaNome,
+            componenteId: itemPreview.componenteId,
+            componenteNome: itemPreview.componenteNome,
+            origem: itemPreview.origem,
             unidade: itemPreview.unidade,
             quantidadeNecessaria,
             perdaExtra,
@@ -593,7 +623,7 @@ const OrdemProducaoForm: React.FC = () => {
         dataFim: new Date(),
       } : prev);
       setShowRevisaoFinalizacao(false);
-      showSuccess('Produção finalizada! Matéria-prima debitada e estoque do produto atualizado.');
+      showSuccess('Produção finalizada! Componentes debitados e estoque do produto atualizado.');
       return true;
     } catch (error) {
       console.error('Erro ao finalizar produção:', error);
@@ -735,13 +765,13 @@ const OrdemProducaoForm: React.FC = () => {
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', marginBottom: '12px' }}>
                   <Package size={18} color="var(--accent-purple)" />
-                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>Matéria-prima consumida</h3>
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>Componentes consumidos</h3>
                 </div>
                 <div className="table-wrapper">
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Matéria-Prima</th>
+                        <th>Componente</th>
                         <th>Necessário (receita)</th>
                         <th>Perda extra</th>
                         <th>Sobra</th>
@@ -750,8 +780,8 @@ const OrdemProducaoForm: React.FC = () => {
                     </thead>
                     <tbody>
                       {ordem.itensConsumidos.map(item => (
-                        <tr key={item.materiaPrimaId}>
-                          <td>{item.materiaPrimaNome}</td>
+                        <tr key={chaveComponente(item.origem, item.componenteId)}>
+                          <td>{item.componenteNome}</td>
                           <td>{item.quantidadeNecessaria} {item.unidade}</td>
                           <td>{item.perdaExtra > 0 ? `${item.perdaExtra} ${item.unidade}` : '-'}</td>
                           <td>{item.sobra > 0 ? `${item.sobra} ${item.unidade}` : '-'}</td>
@@ -771,7 +801,7 @@ const OrdemProducaoForm: React.FC = () => {
                   <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>Conferência antes de finalizar</h3>
                 </div>
                 <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
-                  Confira a quantidade produzida e a matéria-prima que será debitada. Se houve refugo/desperdício além do previsto na receita, informe a perda extra por item; se sobrou material que volta pro estoque, informe a sobra.
+                  Confira a quantidade produzida e os componentes que serão debitados. Se houve refugo/desperdício além do previsto na receita, informe a perda extra por item; se sobrou material que volta pro estoque, informe a sobra.
                 </p>
 
                 <div className="input-group" style={{ maxWidth: '260px' }}>
@@ -790,7 +820,7 @@ const OrdemProducaoForm: React.FC = () => {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Matéria-Prima</th>
+                        <th>Componente</th>
                         <th>Necessário (receita × produzido)</th>
                         <th>Perda extra</th>
                         <th>Sobra</th>
@@ -800,9 +830,10 @@ const OrdemProducaoForm: React.FC = () => {
                       {composicaoPreview.map(item => {
                         const quantidadeProduzidaNum = Number(quantidadeProduzidaInput) || 0;
                         const necessario = item.quantidadePorUnidade * quantidadeProduzidaNum;
+                        const chave = chaveComponente(item.origem, item.componenteId);
                         return (
-                          <tr key={item.materiaPrimaId}>
-                            <td>{item.materiaPrimaNome}</td>
+                          <tr key={chave}>
+                            <td>{item.componenteNome}</td>
                             <td>{necessario} {item.unidade}</td>
                             <td style={{ maxWidth: '140px' }}>
                               <input
@@ -810,7 +841,7 @@ const OrdemProducaoForm: React.FC = () => {
                                 step="any"
                                 min="0"
                                 value={item.perdaExtra}
-                                onChange={(e) => handleAlterarPerdaExtra(item.materiaPrimaId, e.target.value)}
+                                onChange={(e) => handleAlterarPerdaExtra(chave, e.target.value)}
                                 style={{ ...inputStyle, padding: '8px 12px' }}
                               />
                             </td>
@@ -820,7 +851,7 @@ const OrdemProducaoForm: React.FC = () => {
                                 step="any"
                                 min="0"
                                 value={item.sobra}
-                                onChange={(e) => handleAlterarSobra(item.materiaPrimaId, e.target.value)}
+                                onChange={(e) => handleAlterarSobra(chave, e.target.value)}
                                 style={{ ...inputStyle, padding: '8px 12px' }}
                               />
                             </td>

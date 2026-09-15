@@ -506,20 +506,26 @@ const PedidoVendaForm: React.FC = () => {
       const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
       const snapE = await getDocs(qE);
       const dataE: ProdutoEstoque[] = [];
-      snapE.forEach((doc) => dataE.push({
-        id: doc.id,
-        nome: doc.data().nome,
-        precoVenda: doc.data().precoVenda,
-        quantidade: doc.data().quantidade || 0,
-        codigo: doc.data().codigo || '',
-        unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
-        unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
-        unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
-        embalagens: doc.data().embalagens,
-        descontoMaximoPercentual: doc.data().descontoMaximoPercentual,
-        comissaoPercentual: doc.data().comissaoPercentual,
-        ativo: doc.data().ativo ?? doc.data().statusAtivo ?? true
-      }));
+      snapE.forEach((doc) => {
+        // produtoRevenda === false = item de uso interno (peca de veiculo,
+        // embalagem, insumo a granel...) -- nunca entra em venda, so
+        // continua no controle de estoque.
+        if (doc.data().produtoRevenda === false) return;
+        dataE.push({
+          id: doc.id,
+          nome: doc.data().nome,
+          precoVenda: doc.data().precoVenda,
+          quantidade: doc.data().quantidade || 0,
+          codigo: doc.data().codigo || '',
+          unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
+          unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
+          unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
+          embalagens: doc.data().embalagens,
+          descontoMaximoPercentual: doc.data().descontoMaximoPercentual,
+          comissaoPercentual: doc.data().comissaoPercentual,
+          ativo: doc.data().ativo ?? doc.data().statusAtivo ?? true
+        });
+      });
       setProdutosCatalogo(dataE);
 
       // Fetch Configurações

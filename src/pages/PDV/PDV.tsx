@@ -225,11 +225,15 @@ const PDV: React.FC = () => {
               unidadeMedidaCasasDecimais: Number(data.unidadeMedidaCasasDecimais ?? 0),
               unidadeMedidaFracionado: data.unidadeMedidaFracionado,
               statusAtivo: data.statusAtivo ?? data.ativo ?? true,
+              produtoRevenda: data.produtoRevenda,
               embalagens: data.embalagens,
               descontoMaximoPercentual: data.descontoMaximoPercentual,
             } as PdvProduct;
           })
-          .filter((product) => product.nome && product.statusAtivo !== false)
+          // produtoRevenda === false = item de uso interno (peca de veiculo,
+          // embalagem, insumo a granel...), nunca aparece pra venda -- so o
+          // "false" explicito exclui; ausente/true continua vendavel.
+          .filter((product) => product.nome && product.statusAtivo !== false && product.produtoRevenda !== false)
           .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
         const nextClients = clientsSnap.docs

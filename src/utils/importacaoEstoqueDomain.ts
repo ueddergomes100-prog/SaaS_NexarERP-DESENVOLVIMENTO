@@ -101,11 +101,14 @@ export const parseDelimitedText = (texto: string, delimitador: string): string[]
 // Mapeamento de colunas
 // ---------------------------------------------------------------------------
 
-export type CampoColuna = 'codigo' | 'descricao' | 'quantidade' | 'observacao' | 'custo' | 'precoAVista' | 'precoAPrazo' | 'codigoBarras' | 'unidade';
+export type CampoColuna = 'codigo' | 'descricao' | 'quantidade' | 'observacao' | 'custo' | 'precoAVista' | 'precoAPrazo' | 'valorVenda' | 'codigoBarras' | 'unidade' | 'marca' | 'referencia';
 
 /** codigo/descricao/quantidade sempre tem uma coluna (mesmo que seja um
- * chute errado); os outros 6 sao realmente opcionais -- planilha de
- * contagem pura nao traz preco nem codigo de barras. */
+ * chute errado); os outros sao realmente opcionais -- planilha de
+ * contagem pura nao traz preco, marca nem codigo de barras. valorVenda e'
+ * o preco de venda vindo PRONTO do export do sistema antigo (distinto de
+ * precoAVista/precoAPrazo, que sao dois precos condicionais a forma de
+ * pagamento -- planilha pode trazer so um, so o outro, ou nenhum). */
 export interface MapeamentoColunas {
   codigo: number;
   descricao: number;
@@ -114,8 +117,11 @@ export interface MapeamentoColunas {
   custo: number | null;
   precoAVista: number | null;
   precoAPrazo: number | null;
+  valorVenda: number | null;
   codigoBarras: number | null;
   unidade: number | null;
+  marca: number | null;
+  referencia: number | null;
 }
 
 /** Sinonimos de cabecalho pra pre-preencher o mapeamento -- planilha de
@@ -123,15 +129,20 @@ export interface MapeamentoColunas {
  * contada;Observação", entao a tela sempre mostra o mapeamento pro
  * usuario confirmar, isto aqui e so um chute inicial razoavel. */
 const SINONIMOS: Record<CampoColuna, string[]> = {
-  codigo: ['cod. interno', 'codigo interno', 'cod', 'codigo', 'referencia', 'ref'],
+  codigo: ['cod. interno', 'codigo interno', 'matric', 'cod', 'codigo'],
   descricao: ['descricao', 'descr', 'produto', 'nome', 'item'],
   quantidade: ['quantidade', 'quant', 'qtd', 'qtde', 'contada', 'contagem'],
   observacao: ['observacao', 'observ', 'obs', 'nota'],
-  custo: ['custo'],
+  // "vr custo" tem que vir ANTES de "valor custo" nao colidir -- ver
+  // encontrar(), que testa sinonimo por ORDEM dentro do campo.
+  custo: ['vr custo', 'valor custo', 'custo'],
   precoAVista: ['vista', 'avista'],
   precoAPrazo: ['prazo', 'aprazo'],
+  valorVenda: ['valor venda', 'vr venda', 'preco venda'],
   codigoBarras: ['barras', 'ean', 'gtin'],
   unidade: ['unidade', 'und', 'un.', 'medida'],
+  marca: ['marca'],
+  referencia: ['referencia', 'ref.', 'ref'],
 };
 
 const normalizarTextoComparacao = (valor: string): string => valor
@@ -152,9 +163,23 @@ const normalizarTextoComparacao = (valor: string): string => valor
 export const inferirMapeamentoColunas = (cabecalho: string[]): MapeamentoColunas => {
   const normalizados = cabecalho.map(normalizarTextoComparacao);
 
-  const encontrar = (campo: CampoColuna, evitar: number[] = []): number => normalizados.findIndex(
-    (col, idx) => !evitar.includes(idx) && SINONIMOS[campo].some((sin) => col.includes(sin)),
-  );
+  // EXATO primeiro, substring so como fallback -- senao um sinonimo generico
+  // ("custo") rouba a coluna certa de um mais especifico ("vr custo") so
+  // porque aparece antes na planilha. A ORDEM dos sinonimos dentro de cada
+  // campo em SINONIMOS tambem decide a prioridade quando mais de uma coluna
+  // bate exato (ex: "Vr Custo" e "Valor Custo" no mesmo arquivo).
+  const encontrar = (campo: CampoColuna, evitar: number[] = []): number => {
+    const sinonimos = SINONIMOS[campo];
+    for (const sin of sinonimos) {
+      const idx = normalizados.findIndex((col, i) => !evitar.includes(i) && col === sin);
+      if (idx >= 0) return idx;
+    }
+    for (const sin of sinonimos) {
+      const idx = normalizados.findIndex((col, i) => !evitar.includes(i) && col.includes(sin));
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
 
   const codigoBarras = encontrar('codigoBarras');
   const descricao = encontrar('descricao');
@@ -163,21 +188,35 @@ export const inferirMapeamentoColunas = (cabecalho: string[]): MapeamentoColunas
   const custo = encontrar('custo');
   const precoAVista = encontrar('precoAVista');
   const precoAPrazo = encontrar('precoAPrazo');
+  const valorVenda = encontrar('valorVenda');
   const unidade = encontrar('unidade');
-  // So agora, sabendo qual coluna JA e' o codigo de barras, evita ela pra
-  // "codigo" (interno) nao colidir com "Cód. Barras".
-  const codigo = encontrar('codigo', codigoBarras >= 0 ? [codigoBarras] : []);
+  const marca = encontrar('marca');
+  // "referencia" tambem pode colidir com "codigo" (o codigo original do
+  // cliente as vezes e chamado de "referencia") -- resolve referencia
+  // ANTES e evita a coluna dela pro codigo, igual ja se faz com codigoBarras.
+  const referencia = encontrar('referencia');
+  const evitarNoCodigo = [codigoBarras, referencia].filter((idx) => idx >= 0);
+  // So agora, sabendo qual coluna JA e' o codigo de barras/referencia, evita
+  // elas pra "codigo" (interno) nao colidir.
+  const codigo = encontrar('codigo', evitarNoCodigo);
 
   return {
     codigo: codigo >= 0 ? codigo : 0,
     descricao: descricao >= 0 ? descricao : 1,
     quantidade: quantidade >= 0 ? quantidade : 2,
-    observacao: observacao >= 0 ? observacao : (cabecalho.length > 3 ? 3 : null),
+    // Chute de coluna 3 so quando a planilha tem EXATAMENTE 4 colunas (o
+    // formato antigo de contagem manual "codigo;descricao;quantidade;
+    // observacao") -- numa planilha mais larga (export estruturado, com
+    // marca/referencia/etc.) esse index 3 quase certamente e' outra coisa.
+    observacao: observacao >= 0 ? observacao : (cabecalho.length === 4 ? 3 : null),
     custo: custo >= 0 ? custo : null,
     precoAVista: precoAVista >= 0 ? precoAVista : null,
     precoAPrazo: precoAPrazo >= 0 ? precoAPrazo : null,
+    valorVenda: valorVenda >= 0 ? valorVenda : null,
     codigoBarras: codigoBarras >= 0 ? codigoBarras : null,
     unidade: unidade >= 0 ? unidade : null,
+    marca: marca >= 0 ? marca : null,
+    referencia: referencia >= 0 ? referencia : null,
   };
 };
 
@@ -195,7 +234,29 @@ export interface QuantidadeInterpretada {
   unidadeSugerida: string;
   status: StatusItemImportado;
   motivo: string;
+  /** true quando o valor lido e' negativo E veio de um numero "limpo" de
+   * export de sistema (nao de anotacao manual) -- sinaliza que o produto
+   * precisa nascer com "permitir estoque negativo" ligado, pra nao travar
+   * nada. Nunca setado pelo parser de contagem manual (ali um "-" na
+   * frente e' tratado como duvida de anotacao, nao estoque negativo real). */
+  estoqueNegativo?: boolean;
 }
+
+/** Numero cru de EXPORT DE SISTEMA (nao anotacao manual digitada): sempre
+ * ponto como separador decimal, negativo permitido, sem a ambiguidade
+ * milhar-vs-decimal que so existe em anotacao a mao (ver interpretarTermo).
+ * E' assim que planilha/Excel exporta numero de verdade -- se bater este
+ * formato, e' um numero confiavel, nao precisa (e nao deve) passar pela
+ * heuristica de contagem manual abaixo. */
+export const parseNumeroExportado = (bruto: string): number | null => {
+  const limpo = bruto.trim();
+  // "\.\d*" (nao "\.\d+") de proposito -- planilha real desta fonte traz
+  // valor com ponto decimal solto, sem nada depois ("0.", "497."), quando o
+  // sistema antigo exporta um inteiro como float e trunca o ".0".
+  if (!limpo || !/^-?\d+(\.\d*)?$/.test(limpo)) return null;
+  const numero = Number(limpo);
+  return Number.isFinite(numero) ? numero : null;
+};
 
 const MARCACOES_NAO_NUMERICAS = ['variados', 'cancelar'];
 
@@ -269,6 +330,22 @@ export const interpretarQuantidade = (
     return {
       valor: null, unidadeSugerida: '', status: 'REVISAR',
       motivo: obs ? `Quantidade em branco -- ${obs}` : 'Quantidade em branco',
+    };
+  }
+
+  // Numero limpo de export de sistema (ex: "-3749", "4138.56") -- aceito
+  // direto, sem passar pelas heuristicas de anotacao manual abaixo (que
+  // tratariam o "-" na frente como duvida de digitacao, nao estoque
+  // negativo de verdade). So' resolvido aqui quando o formato bate exato;
+  // qualquer coisa com "+", "?", virgula etc. cai pro parser de baixo.
+  const direto = parseNumeroExportado(q);
+  if (direto !== null) {
+    return {
+      valor: direto,
+      unidadeSugerida: '',
+      status: 'OK',
+      motivo: '',
+      ...(direto < 0 ? { estoqueNegativo: true } : {}),
     };
   }
 
@@ -356,6 +433,14 @@ export interface ItemImportado {
   custo: number | null;
   precoAVista: number | null;
   precoAPrazo: number | null;
+  /** Preco de venda PRONTO vindo do export do sistema antigo (coluna
+   * dedicada) -- distinto de precoAVista/precoAPrazo. */
+  valorVenda: number | null;
+  marca: string;
+  referencia: string;
+  /** Espelha QuantidadeInterpretada.estoqueNegativo -- produto nasce com
+   * "permitir estoque negativo" ligado quando true, pra nao travar nada. */
+  estoqueNegativo: boolean;
 }
 
 /** Sinonimos de nome escrito por extenso -> sigla que o sistema usa
@@ -370,9 +455,11 @@ const SINONIMOS_UNIDADE: Record<string, string> = {
   MILILITRO: 'ML', MILILITROS: 'ML',
   METRO: 'MT', METROS: 'MT',
   CAIXA: 'CX', CAIXAS: 'CX',
-  PACOTE: 'PC', PACOTES: 'PC',
+  PACOTE: 'PC', PACOTES: 'PC', PT: 'PC',
   SACO: 'SC', SACOS: 'SC',
   CONJUNTO: 'CJ', CONJUNTOS: 'CJ',
+  KIT: 'KT', KITS: 'KT',
+  PECA: 'UN', PECAS: 'UN',
 };
 
 /** Resolve o texto de unidade da planilha pra sigla do sistema -- tenta o
@@ -396,6 +483,19 @@ export const parseValorMonetario = (bruto: string | undefined): number | null =>
   if (!limpo) return null;
   const numero = Number(limpo.replace(/\./g, '').replace(',', '.'));
   return Number.isFinite(numero) ? numero : null;
+};
+
+/** Preco/custo vindo de export ESTRUTURADO de sistema (nao anotacao
+ * manual): tenta primeiro como numero "limpo" (ponto decimal, igual
+ * parseNumeroExportado) -- e' assim que celula numerica sem formatacao de
+ * moeda aparece quando a planilha exporta o valor cru (ex: "226.1571").
+ * So cai pro parser de moeda brasileira (parseValorMonetario) quando esse
+ * formato nao bate, cobrindo planilha que already vem com "R$"/virgula. */
+const parseNumeroOuMonetario = (bruto: string | undefined): number | null => {
+  const limpo = (bruto || '').trim();
+  if (!limpo) return null;
+  const direto = parseNumeroExportado(limpo);
+  return direto !== null ? direto : parseValorMonetario(limpo);
 };
 
 export const processarLinhas = (
@@ -423,9 +523,13 @@ export const processarLinhas = (
       motivo: interpretada.motivo,
       observacao,
       codigoBarras: mapeamento.codigoBarras !== null ? (linha[mapeamento.codigoBarras] || '').trim() : '',
-      custo: mapeamento.custo !== null ? parseValorMonetario(linha[mapeamento.custo]) : null,
-      precoAVista: mapeamento.precoAVista !== null ? parseValorMonetario(linha[mapeamento.precoAVista]) : null,
-      precoAPrazo: mapeamento.precoAPrazo !== null ? parseValorMonetario(linha[mapeamento.precoAPrazo]) : null,
+      custo: mapeamento.custo !== null ? parseNumeroOuMonetario(linha[mapeamento.custo]) : null,
+      precoAVista: mapeamento.precoAVista !== null ? parseNumeroOuMonetario(linha[mapeamento.precoAVista]) : null,
+      precoAPrazo: mapeamento.precoAPrazo !== null ? parseNumeroOuMonetario(linha[mapeamento.precoAPrazo]) : null,
+      valorVenda: mapeamento.valorVenda !== null ? parseNumeroOuMonetario(linha[mapeamento.valorVenda]) : null,
+      marca: mapeamento.marca !== null ? (linha[mapeamento.marca] || '').trim() : '',
+      referencia: mapeamento.referencia !== null ? (linha[mapeamento.referencia] || '').trim() : '',
+      estoqueNegativo: interpretada.estoqueNegativo === true,
     };
   })
   .filter((item) => item.descricao);
@@ -551,6 +655,18 @@ export interface ProdutoParaImportar {
   precoAVista?: number;
   precoAPrazo?: number;
   codigoBarras?: string;
+  marca?: string;
+  referencia?: string;
+  /** true quando a linha de origem veio com quantidade negativa de um
+   * export de sistema (ver ItemImportado.estoqueNegativo) -- produto nasce
+   * com "permitir estoque negativo" ligado, senao qualquer operação
+   * futura travaria num estoque que ja nasceu abaixo de zero. */
+  permitirEstoqueNegativo?: boolean;
+  /** false = item de uso interno (peça de veículo, embalagem, insumo a
+   * granel...), não é vendido -- fica de fora de PDV/Pedido de Venda/OS/
+   * Orçamento/Nota Avulsa, mas continua no controle de estoque normal.
+   * Default true (produto de revenda normal) quando ausente. */
+  produtoRevenda?: boolean;
 }
 
 /** Monta o documento final pra gravar em `estoque`, no MESMO formato
@@ -584,6 +700,7 @@ export const montarProdutoImportado = (
   // diferente de precoAVista/precoAPrazo (campos NOVOS, ninguem le ainda,
   // entao ficam de fora do documento quando a planilha nao trouxer).
   const precoCustoFinal = produto.precoCusto ?? 0;
+  const permitirEstoqueNegativoFinal = produto.permitirEstoqueNegativo ?? false;
 
   return {
     codigo: produto.codigo,
@@ -591,9 +708,12 @@ export const montarProdutoImportado = (
     nome: produto.nome.toUpperCase().trim(),
     categoria: produto.categoria.trim(),
     codigoBarras: produto.codigoBarras?.trim() || '',
+    marca: produto.marca?.trim() || '',
+    referencia: produto.referencia?.trim() || '',
     statusAtivo: true,
     ativo: true,
-    permitirEstoqueNegativo: false,
+    produtoRevenda: produto.produtoRevenda ?? true,
+    permitirEstoqueNegativo: permitirEstoqueNegativoFinal,
     quantidade: produto.quantidade,
     precoVenda: produto.precoVenda,
     precoCusto: precoCustoFinal,
@@ -628,7 +748,7 @@ export const montarProdutoImportado = (
       quantidadeAtual: produto.quantidade,
       minimo: 0,
       maximo: 0,
-      permitirNegativo: false,
+      permitirNegativo: permitirEstoqueNegativoFinal,
       reservarEmOrcamento: true,
       fracionado: unidadeFracionado,
     },

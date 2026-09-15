@@ -1,12 +1,13 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Package, DollarSign, Loader2, Factory, Plus, Trash2 } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, setDoc, deleteField } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, getDoc, getDocs, serverTimestamp, query, where, setDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
 import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, CSOSN_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
 import { computeAvailableStock } from '../../utils/estoqueReservaDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM, formatFatorConversao, normalizeEmbalagens } from '../../utils/embalagemDomain';
@@ -14,6 +15,7 @@ import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { compararMargem, precoParaMargem } from '../../utils/precificacaoDomain';
+import { ROTULO_POR_ORIGEM, chaveComponente, normalizarComponente, type ComponenteComposicao, type OrigemComponente } from '../../utils/producaoDomain';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -51,18 +53,14 @@ const emptyEmbalagemRow = (): EmbalagemFormRow => ({
   ativo: true,
 });
 
-interface MateriaPrimaOption {
+/** Uma opcao do seletor de componente da composicao. Vem de
+ * `materias_primas` ou de `estoque` -- ver producaoDomain.ts. */
+interface ComponenteOption {
   id: string;
+  origem: OrigemComponente;
   nome: string;
   unidade: string;
   precoCusto: number;
-}
-
-interface ComposicaoItem {
-  materiaPrimaId: string;
-  materiaPrimaNome: string;
-  unidade: string;
-  quantidade: number;
 }
 
 interface AtacadoFaixa {
@@ -409,15 +407,18 @@ const EstoqueForm: React.FC = () => {
   // quantidade sao consumidas pra produzir 1 unidade deste produto.
   // Guardado num documento proprio em produtos_composicao/{produtoId} --
   // colecao separada, nao mexe no documento de estoque em si.
-  const [materiasPrimasDisponiveis, setMateriasPrimasDisponiveis] = useState<MateriaPrimaOption[]>([]);
-  const [composicaoItens, setComposicaoItens] = useState<ComposicaoItem[]>([]);
+  const [componentesDisponiveis, setComponentesDisponiveis] = useState<ComponenteOption[]>([]);
+  const [composicaoItens, setComposicaoItens] = useState<ComponenteComposicao[]>([]);
   const [composicaoLoading, setComposicaoLoading] = useState(false);
   const [isSavingComposicao, setIsSavingComposicao] = useState(false);
-  const [novaMateriaPrimaId, setNovaMateriaPrimaId] = useState('');
+  /** Guarda a opcao escolhida como `chaveComponente(origem, id)`, nao so'
+   * o id -- id de materia-prima e id de produto podem coincidir. */
+  const [novoComponenteChave, setNovoComponenteChave] = useState('');
   const [novaQuantidade, setNovaQuantidade] = useState('1');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
+  const [marcasDB, setMarcasDB] = useState<string[]>([]);
   const [unidadesDB, setUnidadesDB] = useState<UnidadeMedida[]>([]);
   const [validarCadastroProduto, setValidarCadastroProduto] = useState(false);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
@@ -457,10 +458,12 @@ const EstoqueForm: React.FC = () => {
   // sempre foi.
   const custoComposicao = useMemo(() => (
     composicaoItens.reduce((soma, item) => {
-      const materiaPrima = materiasPrimasDisponiveis.find(mp => mp.id === item.materiaPrimaId);
-      return soma + item.quantidade * (materiaPrima?.precoCusto || 0);
+      const componente = componentesDisponiveis.find(c => (
+        c.id === item.componenteId && c.origem === item.origem
+      ));
+      return soma + item.quantidade * (componente?.precoCusto || 0);
     }, 0)
-  ), [composicaoItens, materiasPrimasDisponiveis]);
+  ), [composicaoItens, componentesDisponiveis]);
   const custoCalculadoPelaComposicao = formData.produzidoInternamente && composicaoItens.length > 0;
   const precoCusto = custoCalculadoPelaComposicao ? custoComposicao : toNumber(formData.precoCusto);
   const precoVenda = toNumber(formData.precoVenda);
@@ -509,6 +512,10 @@ const EstoqueForm: React.FC = () => {
           if (data.tipo === 'Peça' || data.tipo === 'Produto' || !data.tipo) cats.push(data.nome);
         });
         setCategoriasDB(cats);
+
+        const qMarca = query(collection(db, 'marcas'), where('tenantId', '==', tenantId));
+        const snapMarca = await getDocs(qMarca);
+        setMarcasDB(snapMarca.docs.map(d => d.data().nome).filter(Boolean));
 
         const qUni = query(collection(db, 'unidades_medida'), where('tenantId', '==', tenantId));
         const snapUni = await getDocs(qUni);
@@ -628,13 +635,11 @@ const EstoqueForm: React.FC = () => {
             });
           }
         } else {
-          const q = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
-          const snap = await getCountFromServer(q);
-          const nextId = snap.data().count + 1;
+          const nextId = await getProximoCodigoProduto(tenantId || '');
           setFormData({
             ...emptyFormData,
-            codigo: String(nextId),
-            skuSistema: makeSku(tenantId, String(nextId))
+            codigo: nextId,
+            skuSistema: makeSku(tenantId, nextId)
           });
         }
       } catch (error) {
@@ -674,28 +679,56 @@ const EstoqueForm: React.FC = () => {
   }, [tenantId, currentUser, historicoPrecos.length, nomesUsuarios]);
 
   // Composicao: so faz sentido pra um produto ja salvo (precisa do id).
-  // Carrega o catalogo de materias-primas do tenant e a composicao ja
-  // salva pra este produto, se existir.
+  // Carrega o catalogo de componentes do tenant e a composicao ja salva
+  // pra este produto, se existir.
+  //
+  // O catalogo junta as DUAS colecoes com saldo (materias_primas e
+  // estoque) porque uma receita pode consumir as duas -- semiacabado e
+  // granel que tambem e' vendido moram em `estoque`. Ver producaoDomain.ts.
   useEffect(() => {
     if (!isEditing || !id || !tenantId || !currentUser) return;
 
     const fetchComposicao = async () => {
       setComposicaoLoading(true);
       try {
-        const qMp = query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId));
-        const snapMp = await getDocs(qMp);
-        const materiasPrimas: MateriaPrimaOption[] = [];
+        const [snapMp, snapEstoque] = await Promise.all([
+          getDocs(query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId))),
+          getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId))),
+        ]);
+
+        const componentes: ComponenteOption[] = [];
         snapMp.forEach(d => {
           const data = d.data();
-          materiasPrimas.push({ id: d.id, nome: data.nome || '', unidade: data.unidade || 'UN', precoCusto: Number(data.precoCusto || 0) });
+          if (data.ativo === false) return;
+          componentes.push({
+            id: d.id,
+            origem: 'materia_prima',
+            nome: data.nome || '',
+            unidade: data.unidade || 'UN',
+            precoCusto: Number(data.precoCusto || 0),
+          });
         });
-        materiasPrimas.sort((a, b) => a.nome.localeCompare(b.nome));
-        setMateriasPrimasDisponiveis(materiasPrimas);
+        snapEstoque.forEach(d => {
+          // O proprio produto nunca entra na propria receita, e produto
+          // inativo nao deve aparecer pra ser escolhido de novo.
+          if (d.id === id) return;
+          const data = d.data();
+          if (data.ativo === false) return;
+          componentes.push({
+            id: d.id,
+            origem: 'estoque',
+            nome: data.nome || '',
+            unidade: data.unidadeMedidaSigla || data.unidade || 'UN',
+            precoCusto: Number(data.precoCusto || 0),
+          });
+        });
+        componentes.sort((a, b) => a.nome.localeCompare(b.nome));
+        setComponentesDisponiveis(componentes);
 
         const composicaoSnap = await getDoc(doc(db, 'produtos_composicao', id));
         if (composicaoSnap.exists()) {
           const data = composicaoSnap.data();
-          setComposicaoItens(Array.isArray(data.itens) ? data.itens : []);
+          setComposicaoItens(Array.isArray(data.itens) ? data.itens.map(normalizarComponente) : []);
         } else {
           setComposicaoItens([]);
         }
@@ -710,8 +743,8 @@ const EstoqueForm: React.FC = () => {
   }, [id, isEditing, tenantId, currentUser]);
 
   const handleAdicionarItemComposicao = () => {
-    if (!novaMateriaPrimaId) {
-      showError('Selecione uma matéria-prima', 'Escolha qual matéria-prima entra na composição.');
+    if (!novoComponenteChave) {
+      showError('Selecione um componente', 'Escolha qual matéria-prima ou produto entra na composição.');
       return;
     }
     const quantidadeNum = Number(novaQuantidade);
@@ -719,25 +752,26 @@ const EstoqueForm: React.FC = () => {
       showError('Quantidade inválida', 'Informe uma quantidade maior que zero.');
       return;
     }
-    if (composicaoItens.some(item => item.materiaPrimaId === novaMateriaPrimaId)) {
-      showError('Já adicionada', 'Essa matéria-prima já está na composição. Remova antes de adicionar de novo.');
+    const componente = componentesDisponiveis.find(c => chaveComponente(c.origem, c.id) === novoComponenteChave);
+    if (!componente) return;
+    if (composicaoItens.some(item => chaveComponente(item.origem, item.componenteId) === novoComponenteChave)) {
+      showError('Já adicionado', `"${componente.nome}" já está na composição. Remova antes de adicionar de novo.`);
       return;
     }
-    const materiaPrima = materiasPrimasDisponiveis.find(mp => mp.id === novaMateriaPrimaId);
-    if (!materiaPrima) return;
 
     setComposicaoItens(prev => [...prev, {
-      materiaPrimaId: materiaPrima.id,
-      materiaPrimaNome: materiaPrima.nome,
-      unidade: materiaPrima.unidade,
-      quantidade: quantidadeNum
+      componenteId: componente.id,
+      componenteNome: componente.nome,
+      origem: componente.origem,
+      unidade: componente.unidade,
+      quantidade: quantidadeNum,
     }]);
-    setNovaMateriaPrimaId('');
+    setNovoComponenteChave('');
     setNovaQuantidade('1');
   };
 
-  const handleRemoverItemComposicao = (materiaPrimaId: string) => {
-    setComposicaoItens(prev => prev.filter(item => item.materiaPrimaId !== materiaPrimaId));
+  const handleRemoverItemComposicao = (chave: string) => {
+    setComposicaoItens(prev => prev.filter(item => chaveComponente(item.origem, item.componenteId) !== chave));
   };
 
   const handleSalvarComposicao = async () => {
@@ -868,9 +902,15 @@ const EstoqueForm: React.FC = () => {
     }
 
     if (validarCadastroProduto) {
-      if (precoVenda <= 0) {
+      // Item de uso interno (produtoRevenda: false -- embalagem, peca de
+      // veiculo, material de consumo) nao tem preco de venda porque nao
+      // vai pra venda nenhuma: ele e' filtrado do PDV, do pedido, da OS,
+      // do orcamento e da nota avulsa. Exigir preco dele obrigaria o
+      // usuario a inventar um numero que nao significa nada. Mesma regra
+      // ja aplicada na importacao de produtos (ImportarProdutos.tsx).
+      if (formData.produtoRevenda && precoVenda <= 0) {
         setActiveTab('precos');
-        showError('Preço obrigatório', 'Informe o preço de venda do produto.');
+        showError('Preço obrigatório', 'Informe o preço de venda do produto. Se este item não é vendido (embalagem, material de consumo interno), desmarque "Produto de revenda" em Configurações Avançadas.');
         return false;
       }
 
@@ -1400,7 +1440,10 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-3">
                 <div className="input-group">
                   <label>Marca</label>
-                  <input type="text" name="marca" value={formData.marca} onChange={handleChange} />
+                  <input type="text" name="marca" list="marcas-produto" value={formData.marca} onChange={handleChange} />
+                  <datalist id="marcas-produto">
+                    {marcasDB.map((m, idx) => <option key={idx} value={m} />)}
+                  </datalist>
                 </div>
                 <div className="input-group">
                   <label>Referência</label>
@@ -2208,7 +2251,7 @@ const EstoqueForm: React.FC = () => {
                 <Factory size={20} className="section-icon" />
                 <div>
                   <h3>Composição (Produção)</h3>
-                  <p>Matérias-primas e quantidades necessárias para produzir 1 unidade deste produto.</p>
+                  <p>Matérias-primas, semiacabados e quantidades necessárias para produzir 1 unidade deste produto.</p>
                 </div>
               </div>
 
@@ -2221,7 +2264,7 @@ const EstoqueForm: React.FC = () => {
                 <p>Carregando composição...</p>
               ) : (
                 <>
-                  {materiasPrimasDisponiveis.length === 0 ? (
+                  {componentesDisponiveis.length === 0 ? (
                     <div className="info-panel">
                       <strong>Nenhuma matéria-prima cadastrada</strong>
                       <p>Cadastre matérias-primas em Cadastros → Matéria-Prima antes de montar a composição.</p>
@@ -2230,14 +2273,23 @@ const EstoqueForm: React.FC = () => {
                     <>
                       <div className="form-grid-3" style={{ alignItems: 'flex-end' }}>
                         <div className="input-group">
-                          <label>Matéria-Prima</label>
-                          <select value={novaMateriaPrimaId} onChange={(e) => setNovaMateriaPrimaId(e.target.value)}>
+                          <label>Componente</label>
+                          <select value={novoComponenteChave} onChange={(e) => setNovoComponenteChave(e.target.value)}>
                             <option value="">Selecione...</option>
-                            {materiasPrimasDisponiveis
-                              .filter(mp => !composicaoItens.some(item => item.materiaPrimaId === mp.id))
-                              .map(mp => (
-                                <option key={mp.id} value={mp.id}>{mp.nome}</option>
-                              ))}
+                            {(['materia_prima', 'estoque'] as OrigemComponente[]).map(origem => {
+                              const opcoes = componentesDisponiveis.filter(c => (
+                                c.origem === origem
+                                && !composicaoItens.some(item => item.origem === c.origem && item.componenteId === c.id)
+                              ));
+                              if (opcoes.length === 0) return null;
+                              return (
+                                <optgroup key={origem} label={origem === 'materia_prima' ? 'Matérias-primas' : 'Produtos do estoque (semiacabado / granel)'}>
+                                  {opcoes.map(c => (
+                                    <option key={chaveComponente(c.origem, c.id)} value={chaveComponente(c.origem, c.id)}>{c.nome}</option>
+                                  ))}
+                                </optgroup>
+                              );
+                            })}
                           </select>
                         </div>
                         <div className="input-group">
@@ -2253,7 +2305,8 @@ const EstoqueForm: React.FC = () => {
                         <table className="data-table">
                           <thead>
                             <tr>
-                              <th>Matéria-Prima</th>
+                              <th>Componente</th>
+                              <th>Origem</th>
                               <th>Quantidade por unidade</th>
                               <th>Ações</th>
                             </tr>
@@ -2261,17 +2314,18 @@ const EstoqueForm: React.FC = () => {
                           <tbody>
                             {composicaoItens.length === 0 ? (
                               <tr>
-                                <td colSpan={3} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
-                                  Nenhuma matéria-prima adicionada ainda.
+                                <td colSpan={4} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
+                                  Nenhum componente adicionado ainda.
                                 </td>
                               </tr>
                             ) : (
                               composicaoItens.map(item => (
-                                <tr key={item.materiaPrimaId}>
-                                  <td>{item.materiaPrimaNome}</td>
+                                <tr key={chaveComponente(item.origem, item.componenteId)}>
+                                  <td>{item.componenteNome}</td>
+                                  <td style={{ color: 'var(--text-muted)' }}>{ROTULO_POR_ORIGEM[item.origem]}</td>
                                   <td>{item.quantidade} {item.unidade}</td>
                                   <td>
-                                    <button type="button" className="icon-btn" style={{ color: '#ef4444' }} title="Remover" onClick={() => handleRemoverItemComposicao(item.materiaPrimaId)}>
+                                    <button type="button" className="icon-btn" style={{ color: '#ef4444' }} title="Remover" onClick={() => handleRemoverItemComposicao(chaveComponente(item.origem, item.componenteId))}>
                                       <Trash2 size={16} />
                                     </button>
                                   </td>
@@ -2289,7 +2343,7 @@ const EstoqueForm: React.FC = () => {
                       <strong>Custo total da composição: {formatCurrency(custoComposicao)}</strong>
                       <p>
                         {formData.produzidoInternamente
-                          ? 'Este valor substitui automaticamente o "Custo do produto" na aba Preços e Custos, somando (quantidade × custo unitário) de cada matéria-prima.'
+                          ? 'Este valor substitui automaticamente o "Custo do produto" na aba Preços e Custos, somando (quantidade × custo unitário) de cada componente.'
                           : 'Marque "Produto produzido internamente" na aba Configurações Avançadas para este valor ser usado como custo do produto.'}
                       </p>
                     </div>

@@ -108,6 +108,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'cadastros.veiculos', label: 'Cadastros: Veículos', color: '#8b5cf6' },
       { id: 'cadastros.servicos', label: 'Cadastros: Serviços', color: '#8b5cf6' },
       { id: 'cadastros.categorias', label: 'Cadastros: Categorias', color: '#8b5cf6' },
+      { id: 'cadastros.marcas', label: 'Cadastros: Marcas', color: '#8b5cf6' },
       { id: 'cadastros.unidades_medida', label: 'Cadastros: Unidades de Medida', color: '#8b5cf6' },
       { id: 'cadastros.bandeiras_cartao', label: 'Cadastros: Bandeiras de Cartão', color: '#8b5cf6' },
       { id: 'cadastros.bancos', label: 'Cadastros: Bancos', color: '#8b5cf6' },

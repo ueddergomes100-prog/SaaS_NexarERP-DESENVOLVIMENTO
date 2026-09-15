@@ -61,6 +61,7 @@ import {
   temUnidadeMedidaCadastrada,
   UNIDADE_MEDIDA_FALLBACK,
 } from '../../utils/unidadeMedidaDomain';
+import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -341,23 +342,29 @@ const OSForm: React.FC = () => {
       const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
       const snapE = await getDocs(qE);
       const dataE: PecaData[] = [];
-      snapE.forEach((doc) => dataE.push({
-        id: doc.id,
-        nome: doc.data().nome,
-        precoVenda: doc.data().precoVenda,
-        quantidade: doc.data().quantidade || 0,
-        codigo: doc.data().codigo || '',
-        codigoBarras: doc.data().codigoBarras || '',
-        // De proposito CRU aqui, sem cair no fallback 'UN': e' em
-        // handleAddPeca que o item ganha a unidade padrao, e la ainda
-        // precisamos saber se ela veio do cadastro ou do fallback pra
-        // avisar o usuario. Ver unidadeMedidaDomain.ts.
-        unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
-        unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
-        unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
-        comissaoPercentual: doc.data().comissaoPercentual,
-        ativo: doc.data().ativo ?? doc.data().statusAtivo ?? true,
-      }));
+      snapE.forEach((doc) => {
+        // produtoRevenda === false = item de uso interno (peca de veiculo,
+        // embalagem, insumo a granel...) -- nunca entra em OS, so continua
+        // no controle de estoque.
+        if (doc.data().produtoRevenda === false) return;
+        dataE.push({
+          id: doc.id,
+          nome: doc.data().nome,
+          precoVenda: doc.data().precoVenda,
+          quantidade: doc.data().quantidade || 0,
+          codigo: doc.data().codigo || '',
+          codigoBarras: doc.data().codigoBarras || '',
+          // De proposito CRU aqui, sem cair no fallback 'UN': e' em
+          // handleAddPeca que o item ganha a unidade padrao, e la ainda
+          // precisamos saber se ela veio do cadastro ou do fallback pra
+          // avisar o usuario. Ver unidadeMedidaDomain.ts.
+          unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
+          unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
+          unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
+          comissaoPercentual: doc.data().comissaoPercentual,
+          ativo: doc.data().ativo ?? doc.data().statusAtivo ?? true,
+        });
+      });
       setPecasEstoque(dataE);
 
       // Fetch Configurações
@@ -726,12 +733,10 @@ const OSForm: React.FC = () => {
     if (!peca && currentUser) {
       setIsLoading(true);
       try {
-        const q = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
-        const snap = await getCountFromServer(q);
-        const nextId = snap.data().count + 1;
-        
+        const nextId = await getProximoCodigoProduto(tenantId || '');
+
         const newRef = await addDoc(collection(db, 'estoque'), {
-          codigo: String(nextId),
+          codigo: nextId,
           nome: pecaNomeInput,
           precoVenda: precoNum,
           categoria: 'Peças Adicionais',

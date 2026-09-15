@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Upload } from 'lucide-react';
+import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Upload, Factory } from 'lucide-react';
 import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -210,6 +210,14 @@ const EstoqueList: React.FC = () => {
           >
             <Upload size={18} />
             Importar produtos
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={() => openTab('/estoque/importar-composicao', 'Importar Composição')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Factory size={18} />
+            Importar composição
           </button>
           {canEditProduto && (
             <button

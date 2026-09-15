@@ -105,7 +105,10 @@ const NotaAvulsaForm: React.FC = () => {
     if (!tenantId) return;
     const unsubscribe = onSnapshot(
       query(collection(db, 'estoque'), where('tenantId', '==', tenantId)),
-      (snap) => setProdutos(snap.docs.map((d) => ({
+      // produtoRevenda === false = item de uso interno (peca de veiculo,
+      // embalagem, insumo a granel...) -- nunca entra em nota avulsa, so
+      // continua no controle de estoque.
+      (snap) => setProdutos(snap.docs.filter((d) => d.data().produtoRevenda !== false).map((d) => ({
         id: d.id,
         nome: d.data().nome || '',
         codigo: d.data().codigo,

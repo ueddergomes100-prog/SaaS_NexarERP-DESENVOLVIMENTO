@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Factory, Edit, Power, AlertTriangle } from 'lucide-react';
+import { Search, Plus, Factory, Edit, Power, AlertTriangle, Upload } from 'lucide-react';
 import { collection, query, onSnapshot, doc, updateDoc, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -7,7 +7,7 @@ import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialStock';
-import { computeEstoquePrevisto } from '../../utils/producaoDomain';
+import { chaveComponente, computeEstoquePrevisto } from '../../utils/producaoDomain';
 
 interface MateriaPrimaData {
   id: string;
@@ -100,6 +100,9 @@ const MateriasPrimasList: React.FC = () => {
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Estoque de matéria-prima, separado do estoque de produtos acabados e itens que não dependem de produção</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn-secondary" onClick={() => openTab('/materias-primas/importar', 'Importar Matérias-Primas')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Upload size={18} /> Importar matérias-primas
+          </button>
           <button className="btn-primary" onClick={() => openTab('/materias-primas/nova')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Nova Matéria-Prima
           </button>
@@ -150,7 +153,7 @@ const MateriasPrimasList: React.FC = () => {
               ) : (
                 filteredMateriasPrimas.map((item) => {
                   const abaixoDoMinimo = item.estoqueMinimo > 0 && item.quantidade <= item.estoqueMinimo;
-                  const reservado = reservedMap.get(item.id) || 0;
+                  const reservado = reservedMap.get(chaveComponente('materia_prima', item.id)) || 0;
                   const emProducao = reservado > 0;
                   const estoquePrevisto = computeEstoquePrevisto(item.quantidade, reservado);
                   return (

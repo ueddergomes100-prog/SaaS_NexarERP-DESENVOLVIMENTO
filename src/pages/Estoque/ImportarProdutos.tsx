@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import {
-  collection, doc, getCountFromServer, getDoc, getDocs, query, where,
+  collection, doc, getDoc, getDocs, query, where,
   writeBatch, serverTimestamp,
 } from 'firebase/firestore';
 import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, PackageSearch, Upload } from 'lucide-react';
@@ -10,6 +10,8 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
 import { DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
+import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
+import { garantirMarcasCadastradas } from '../../utils/marcaDomain';
 import {
   decodificarArquivoTexto,
   detectarDelimitador,
@@ -61,6 +63,16 @@ interface ProdutoConfirmar {
   precoAVista: string;
   precoAPrazo: string;
   codigoBarras: string;
+  marca: string;
+  referencia: string;
+  /** true = linha veio com quantidade negativa de um export de sistema --
+   * produto nasce com "permitir estoque negativo" ligado, senao trava a
+   * primeira operação que mexer nesse estoque que já nasceu abaixo de zero. */
+  permitirEstoqueNegativo: boolean;
+  /** false = item de uso interno (peça de veículo, embalagem, insumo a
+   * granel...) -- não aparece em PDV/Pedido de Venda/OS/Orçamento, e não
+   * exige preço de venda maior que zero pra importar. */
+  produtoRevenda: boolean;
   origemLinhaIds: number[];
   embalagem?: { unidadeId: string; fatorConversao: number };
 }
@@ -76,7 +88,7 @@ const ImportarProdutos: React.FC = () => {
   const [nomeArquivo, setNomeArquivo] = useState('');
   const [cabecalho, setCabecalho] = useState<string[]>([]);
   const [linhasDados, setLinhasDados] = useState<string[][]>([]);
-  const [mapeamento, setMapeamento] = useState<MapeamentoColunas>({ codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null });
+  const [mapeamento, setMapeamento] = useState<MapeamentoColunas>({ codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: null, precoAVista: null, precoAPrazo: null, valorVenda: null, codigoBarras: null, unidade: null, marca: null, referencia: null });
 
   const [itens, setItens] = useState<ItemImportado[]>([]);
   const [itensExcluidos, setItensExcluidos] = useState<Set<number>>(new Set());
@@ -249,20 +261,25 @@ const ImportarProdutos: React.FC = () => {
         ? (CONTAINER_WORD.exec(itensEmbalagem[0].descricao)?.[1]?.toUpperCase() === 'SACO' ? 'SC' : (acharUnidadePorSigla(itensEmbalagem[0].unidadeSugerida || 'SC')?.sigla || 'SC'))
         : '';
 
-      // Preco (custo/a vista/a prazo) vem do item BASE (o granel) -- nao
-      // faz sentido somar/mesclar preco entre os itens do grupo, so
-      // quantidade.
+      // Preco (custo/a vista/a prazo/venda) e marca/referencia vem do item
+      // BASE (o granel) -- nao faz sentido somar/mesclar entre os itens do
+      // grupo, so quantidade. Estoque negativo tambem vem do item base --
+      // e' ele que carrega a quantidade final do produto mesclado.
       resultado.push({
         chave: `grupo-${chaveGrupo(grupo)}`,
         nome: grupo.descricaoBase,
         categoria: categoriaCompartilhada,
         unidadeId: acharUnidadePorSigla(unidadeBaseSugerida)?.id || '',
         quantidade: String(quantidadeBase),
-        precoVenda: paraTexto(itemBase.precoAVista),
+        precoVenda: paraTexto(itemBase.valorVenda ?? itemBase.precoAVista),
         custo: paraTexto(itemBase.custo),
         precoAVista: paraTexto(itemBase.precoAVista),
         precoAPrazo: paraTexto(itemBase.precoAPrazo),
         codigoBarras: itemBase.codigoBarras,
+        marca: itemBase.marca,
+        referencia: itemBase.referencia,
+        permitirEstoqueNegativo: itemBase.estoqueNegativo,
+        produtoRevenda: true,
         origemLinhaIds: grupo.itens.map((i) => i.linhaId),
         embalagem: fator > 0 ? { unidadeId: acharUnidadePorSigla(unidadeEmbalagemSugerida)?.id || '', fatorConversao: fator } : undefined,
       });
@@ -275,11 +292,15 @@ const ImportarProdutos: React.FC = () => {
         categoria: categoriaCompartilhada,
         unidadeId: acharUnidadePorSigla(item.unidadeSugerida || 'UN')?.id || '',
         quantidade: String(quantidadeFinalDoItem(item)),
-        precoVenda: paraTexto(item.precoAVista),
+        precoVenda: paraTexto(item.valorVenda ?? item.precoAVista),
         custo: paraTexto(item.custo),
         precoAVista: paraTexto(item.precoAVista),
         precoAPrazo: paraTexto(item.precoAPrazo),
         codigoBarras: item.codigoBarras,
+        marca: item.marca,
+        referencia: item.referencia,
+        permitirEstoqueNegativo: item.estoqueNegativo,
+        produtoRevenda: true,
         origemLinhaIds: [item.linhaId],
       };
     }
@@ -309,7 +330,9 @@ const ImportarProdutos: React.FC = () => {
   };
 
   const produtosProntos = produtos.every((p) => (
-    p.nome.trim() && p.unidadeId && Number(p.precoVenda.replace(',', '.')) > 0
+    // Item de uso interno (produtoRevenda false) nao exige preco de venda
+    // -- ele nunca vai ser vendido, so fica no controle de estoque.
+    p.nome.trim() && p.unidadeId && (p.produtoRevenda === false || Number(p.precoVenda.replace(',', '.')) > 0)
   ));
 
   const executarImportacao = async () => {
@@ -321,8 +344,7 @@ const ImportarProdutos: React.FC = () => {
 
     setSalvando(true);
     try {
-      const contagemSnap = await getCountFromServer(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)));
-      let proximoCodigo = contagemSnap.data().count + 1;
+      let proximoCodigo = Number(await getProximoCodigoProduto(tenantId));
       const timestamp = serverTimestamp();
       const precisaLigarEmbalagem = !venderPorEmbalagemAtivo && produtos.some((p) => p.embalagem);
 
@@ -355,6 +377,10 @@ const ImportarProdutos: React.FC = () => {
               precoAVista: paraNumeroOpcional(produto.precoAVista),
               precoAPrazo: paraNumeroOpcional(produto.precoAPrazo),
               codigoBarras: produto.codigoBarras,
+              marca: produto.marca,
+              referencia: produto.referencia,
+              permitirEstoqueNegativo: produto.permitirEstoqueNegativo,
+              produtoRevenda: produto.produtoRevenda,
               embalagem: (produto.embalagem && unidadeEmbalagem) ? {
                 unidade: { id: unidadeEmbalagem.id, sigla: unidadeEmbalagem.sigla, casasDecimais: unidadeEmbalagem.casasDecimais, fracionado: unidadeEmbalagem.permiteFracionado },
                 fatorConversao: produto.embalagem.fatorConversao,
@@ -373,6 +399,11 @@ const ImportarProdutos: React.FC = () => {
 
         await batch.commit();
       }
+
+      // Cadastro de Marcas ja nasce completo -- cria as que a planilha
+      // trouxe e ainda nao existiam, sem o usuario ter que digitar cada
+      // uma de novo depois em Cadastros Auxiliares > Marcas.
+      await garantirMarcasCadastradas(produtos.map((p) => p.marca), tenantId, currentUser.uid, timestamp);
 
       setResultadoImportacao({ criados: produtos.length, ligouEmbalagem: precisaLigarEmbalagem });
       setPasso('concluido');
@@ -436,13 +467,15 @@ const ImportarProdutos: React.FC = () => {
             <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Arquivo: {nomeArquivo} — {linhasDados.length} linha(s) de dado encontrada(s).</p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-            {(['codigo', 'descricao', 'quantidade', 'unidade', 'observacao', 'codigoBarras', 'custo', 'precoAVista', 'precoAPrazo'] as const).map((campo) => {
+            {(['codigo', 'descricao', 'quantidade', 'unidade', 'marca', 'referencia', 'observacao', 'codigoBarras', 'custo', 'precoAVista', 'precoAPrazo', 'valorVenda'] as const).map((campo) => {
               const obrigatorio = campo === 'codigo' || campo === 'descricao' || campo === 'quantidade';
               const rotulos: Record<typeof campo, string> = {
                 codigo: 'Código interno (referência)', descricao: 'Descrição', quantidade: 'Quantidade',
-                unidade: 'Unidade (opcional)', observacao: 'Observação (opcional)',
+                unidade: 'Unidade (opcional)', marca: 'Marca (opcional)', referencia: 'Referência (opcional)',
+                observacao: 'Observação (opcional)',
                 codigoBarras: 'Código de barras (opcional)', custo: 'Custo (opcional)',
                 precoAVista: 'Preço à vista (opcional)', precoAPrazo: 'Preço a prazo (opcional)',
+                valorVenda: 'Preço de venda pronto (opcional)',
               };
               return (
                 <div className="input-group" key={campo}>
@@ -460,7 +493,7 @@ const ImportarProdutos: React.FC = () => {
             })}
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
-            Unidade, código de barras, custo, preço à vista e preço a prazo são opcionais — se o export do sistema antigo trouxer essas colunas, elas já vêm pré-preenchidas na tela de confirmação (ainda editáveis). O código interno da planilha é só referência: o código do produto no sistema é sempre gerado automaticamente (1, 2, 3...).
+            Unidade, marca, referência, código de barras, custo, preço à vista, preço a prazo e preço de venda são opcionais — se o export do sistema antigo trouxer essas colunas, elas já vêm pré-preenchidas na tela de confirmação (ainda editáveis). O código interno da planilha é só referência: o código do produto no sistema é sempre gerado automaticamente (1, 2, 3...).
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
             <button className="btn-secondary" onClick={() => setPasso('upload')}>Voltar</button>
@@ -621,12 +654,15 @@ const ImportarProdutos: React.FC = () => {
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '11px' }}>
                   <th style={{ padding: '8px' }}>Nome</th>
+                  <th style={{ padding: '8px' }}>Marca</th>
+                  <th style={{ padding: '8px' }}>Referência</th>
                   <th style={{ padding: '8px' }}>Unidade</th>
                   <th style={{ padding: '8px' }}>Quantidade</th>
                   <th style={{ padding: '8px' }}>Custo</th>
                   <th style={{ padding: '8px' }}>Preço à vista</th>
                   <th style={{ padding: '8px' }}>Preço a prazo</th>
                   <th style={{ padding: '8px' }}>Preço de venda *</th>
+                  <th style={{ padding: '8px', textAlign: 'center' }}>Uso interno<br />(não vender)</th>
                 </tr>
               </thead>
               <tbody>
@@ -636,13 +672,24 @@ const ImportarProdutos: React.FC = () => {
                       <input type="text" value={produto.nome} onChange={(e) => atualizarProduto(produto.chave, { nome: e.target.value })} style={{ width: '220px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
+                      <input type="text" placeholder="-" value={produto.marca} onChange={(e) => atualizarProduto(produto.chave, { marca: e.target.value })} style={{ width: '110px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                    </td>
+                    <td style={{ padding: '8px' }}>
+                      <input type="text" placeholder="-" value={produto.referencia} onChange={(e) => atualizarProduto(produto.chave, { referencia: e.target.value })} style={{ width: '110px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                    </td>
+                    <td style={{ padding: '8px' }}>
                       <select value={produto.unidadeId} onChange={(e) => atualizarProduto(produto.chave, { unidadeId: e.target.value })} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }}>
                         <option value="">-- selecione --</option>
                         {unidadesDisponiveis.map((u) => <option key={u.id} value={u.id}>{u.sigla}</option>)}
                       </select>
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" value={produto.quantidade} onChange={(e) => atualizarProduto(produto.chave, { quantidade: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                      <input type="text" value={produto.quantidade} onChange={(e) => atualizarProduto(produto.chave, { quantidade: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: Number(produto.quantidade.replace(',', '.')) < 0 ? '#ef4444' : 'var(--text-primary)' }} />
+                      {produto.permitirEstoqueNegativo && (
+                        <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '2px' }} title="Este produto nasce com &quot;permitir estoque negativo&quot; ligado, porque veio negativo do sistema antigo.">
+                          estoque negativo
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="text" placeholder="-" value={produto.custo} onChange={(e) => atualizarProduto(produto.chave, { custo: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
@@ -654,7 +701,15 @@ const ImportarProdutos: React.FC = () => {
                       <input type="text" placeholder="-" value={produto.precoAPrazo} onChange={(e) => atualizarProduto(produto.chave, { precoAPrazo: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" placeholder="0,00" value={produto.precoVenda} onChange={(e) => atualizarProduto(produto.chave, { precoVenda: e.target.value })} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: !produto.precoVenda ? '1px solid #ef4444' : '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                      <input type="text" placeholder="0,00" value={produto.precoVenda} onChange={(e) => atualizarProduto(produto.chave, { precoVenda: e.target.value })} disabled={produto.produtoRevenda === false} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: (!produto.precoVenda && produto.produtoRevenda !== false) ? '1px solid #ef4444' : '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)', opacity: produto.produtoRevenda === false ? 0.5 : 1 }} />
+                    </td>
+                    <td style={{ padding: '8px', textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={produto.produtoRevenda === false}
+                        onChange={(e) => atualizarProduto(produto.chave, { produtoRevenda: !e.target.checked })}
+                        title="Marque pra item que nunca é vendido (peça de veículo, embalagem, insumo a granel...) -- fica de fora de PDV/Pedido de Venda/OS/Orçamento."
+                      />
                     </td>
                   </tr>
                 ))}

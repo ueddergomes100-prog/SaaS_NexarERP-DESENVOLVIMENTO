@@ -24,6 +24,7 @@ const PedidoPrintLote = lazy(() => import('../pages/Vendas/PedidoPrintLote'));
 const EstoqueList = lazy(() => import('../pages/Estoque/EstoqueList'));
 const EstoqueForm = lazy(() => import('../pages/Estoque/EstoqueForm'));
 const ImportarProdutos = lazy(() => import('../pages/Estoque/ImportarProdutos'));
+const ImportarComposicao = lazy(() => import('../pages/Estoque/ImportarComposicao'));
 const AjusteEstoque = lazy(() => import('../pages/Estoque/AjusteEstoque'));
 const RelatorioEstoque = lazy(() => import('../pages/Estoque/RelatorioEstoque'));
 const RelatorioAjustesEstoque = lazy(() => import('../pages/Estoque/RelatorioAjustesEstoque'));
@@ -53,6 +54,8 @@ const ServicosList = lazy(() => import('../pages/Servicos/ServicosList'));
 const ServicoForm = lazy(() => import('../pages/Servicos/ServicoForm'));
 const CategoriasList = lazy(() => import('../pages/Categorias/CategoriasList'));
 const CategoriaForm = lazy(() => import('../pages/Categorias/CategoriaForm'));
+const MarcasList = lazy(() => import('../pages/Marcas/MarcasList'));
+const MarcaForm = lazy(() => import('../pages/Marcas/MarcaForm'));
 const ImportarCategorias = lazy(() => import('../pages/Categorias/ImportarCategorias'));
 const Agenda = lazy(() => import('../pages/CRM/Agenda'));
 const NFE = lazy(() => import('../pages/Fiscal/NFE'));
@@ -79,6 +82,7 @@ const FornecedorForm = lazy(() => import('../pages/Fornecedores/FornecedorForm')
 const ImportarFornecedores = lazy(() => import('../pages/Fornecedores/ImportarFornecedores'));
 const MateriasPrimasList = lazy(() => import('../pages/Producao/MateriasPrimasList'));
 const MateriaPrimaForm = lazy(() => import('../pages/Producao/MateriaPrimaForm'));
+const ImportarMateriasPrimas = lazy(() => import('../pages/Producao/ImportarMateriasPrimas'));
 const OrdensProducaoList = lazy(() => import('../pages/Producao/OrdensProducaoList'));
 const OrdemProducaoForm = lazy(() => import('../pages/Producao/OrdemProducaoForm'));
 const RelatorioProducao = lazy(() => import('../pages/Producao/RelatorioProducao'));
@@ -114,6 +118,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'estoque/nova', element: <EstoqueForm /> },
   { path: 'estoque/editar/:id', element: <EstoqueForm /> },
   { path: 'estoque/importar', element: <ImportarProdutos /> },
+  { path: 'estoque/importar-composicao', element: <ImportarComposicao /> },
   { path: 'estoque/ajuste', element: <AjusteEstoque /> },
   { path: 'estoque/relatorio', element: <RelatorioEstoque /> },
   { path: 'estoque/relatorio-ajustes', element: <RelatorioAjustesEstoque /> },
@@ -166,6 +171,10 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'categorias/editar/:id', element: <CategoriaForm /> },
   { path: 'categorias/importar', element: <ImportarCategorias /> },
 
+  { path: 'marcas', element: <MarcasList /> },
+  { path: 'marcas/nova', element: <MarcaForm /> },
+  { path: 'marcas/editar/:id', element: <MarcaForm /> },
+
   { path: 'unidades-medida', element: <UnidadesMedidaList /> },
   { path: 'bandeiras-cartao', element: <BandeirasCartaoList /> },
   { path: 'bancos', element: <BancosList /> },
@@ -178,6 +187,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'materias-primas', element: <MateriasPrimasList /> },
   { path: 'materias-primas/nova', element: <MateriaPrimaForm /> },
   { path: 'materias-primas/editar/:id', element: <MateriaPrimaForm /> },
+  { path: 'materias-primas/importar', element: <ImportarMateriasPrimas /> },
 
   { path: 'producao/ordens', element: <OrdensProducaoList /> },
   { path: 'producao/ordens/nova', element: <OrdemProducaoForm /> },

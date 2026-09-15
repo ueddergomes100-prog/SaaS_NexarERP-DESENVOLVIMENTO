@@ -31,6 +31,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/estoque')) routeModule = 'cadastros.estoque';
   else if (path.startsWith('/servicos')) routeModule = 'cadastros.servicos';
   else if (path.startsWith('/categorias')) routeModule = 'cadastros.categorias';
+  else if (path.startsWith('/marcas')) routeModule = 'cadastros.marcas';
   else if (path.startsWith('/unidades-medida')) routeModule = 'cadastros.unidades_medida';
   else if (path.startsWith('/bandeiras-cartao')) routeModule = 'cadastros.bandeiras_cartao';
   else if (path.startsWith('/bancos')) routeModule = 'cadastros.bancos';
@@ -89,6 +90,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/estoque')) routePermission = 'cadastros.estoque';
   else if (path.startsWith('/servicos')) routePermission = 'cadastros.servicos';
   else if (path.startsWith('/categorias')) routePermission = 'cadastros.categorias';
+  else if (path.startsWith('/marcas')) routePermission = 'cadastros.marcas';
   else if (path.startsWith('/unidades-medida')) routePermission = 'cadastros.unidades_medida';
   else if (path.startsWith('/bandeiras-cartao')) routePermission = 'cadastros.bandeiras_cartao';
   else if (path.startsWith('/bancos')) routePermission = 'cadastros.bancos';

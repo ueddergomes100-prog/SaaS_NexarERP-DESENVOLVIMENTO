@@ -15,6 +15,10 @@ export interface PdvProduct {
   unidadeMedidaCasasDecimais?: number;
   unidadeMedidaFracionado?: boolean;
   statusAtivo?: boolean;
+  /** false = item de uso interno (peca de veiculo, embalagem, insumo a
+   * granel...) -- nunca aparece pra venda, so continua no controle de
+   * estoque. Ausente/true = vendavel normalmente. */
+  produtoRevenda?: boolean;
   /** Array cru do documento de estoque -- normalizado por embalagemDomain. */
   embalagens?: unknown;
   descontoMaximoPercentual?: number;

@@ -1,16 +1,21 @@
 import { useEffect, useState } from 'react';
 import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../services/firebase';
-import { computeReservedRawMaterialMap, type ItemComposicaoResumo, type OrdemAtivaResumo } from '../utils/producaoDomain';
+import { computeReservedRawMaterialMap, normalizarComponente, type ItemComposicaoResumo, type OrdemAtivaResumo } from '../utils/producaoDomain';
 
 export interface UseReservedRawMaterialStockResult {
-  /** materiaPrimaId -> quantidade reservada pelas ordens em producao. */
+  /**
+   * `chaveComponente(origem, id)` -> quantidade reservada pelas ordens em
+   * producao. A chave leva a origem porque a composicao pode consumir
+   * tanto `materias_primas` quanto `estoque` (ver producaoDomain.ts);
+   * consulte sempre via `chaveComponente`, nunca pelo id cru.
+   */
   reservedMap: Map<string, number>;
   loading: boolean;
 }
 
 /**
- * Quanto de cada materia-prima esta reservado por ordens de producao
+ * Quanto de cada componente esta reservado por ordens de producao
  * ATIVAS (status 'em_producao') no momento -- usado pra mostrar "Estoque
  * Previsto" no cadastro de materia-prima. Assina ordens_producao em
  * tempo real (Firestore onSnapshot); a composicao de cada produto
@@ -51,10 +56,14 @@ export function useReservedRawMaterialStock(tenantId: string | null | undefined)
           const itens = composicaoSnap.exists() && Array.isArray(composicaoSnap.data().itens)
             ? composicaoSnap.data().itens
             : [];
-          compositionsByProdutoId[produtoId] = itens.map((item: any) => ({
-            materiaPrimaId: item.materiaPrimaId,
-            quantidade: Number(item.quantidade || 0),
-          }));
+          compositionsByProdutoId[produtoId] = itens.map((item: any) => {
+            const componente = normalizarComponente(item);
+            return {
+              componenteId: componente.componenteId,
+              origem: componente.origem,
+              quantidade: componente.quantidade,
+            };
+          });
         } catch {
           compositionsByProdutoId[produtoId] = [];
         }

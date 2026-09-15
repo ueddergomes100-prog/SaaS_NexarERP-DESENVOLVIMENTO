@@ -8,7 +8,7 @@ import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoMateriaPrima } from '../../utils/materiaPrimaCodigo';
 import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialStock';
-import { computeEstoquePrevisto } from '../../utils/producaoDomain';
+import { chaveComponente, computeEstoquePrevisto } from '../../utils/producaoDomain';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 
@@ -37,11 +37,14 @@ const MateriaPrimaForm: React.FC = () => {
     fornecedor: '',
     lote: '',
     validade: '',
+    marca: '',
+    referencia: '',
   });
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
+  const [marcasDB, setMarcasDB] = useState<string[]>([]);
   // Decoupled de isFetching (que so controla o spinner de tela cheia, e
   // no modo "novo" ja comeca `false` mesmo com uma busca assincrona em
   // andamento pro codigo automatico) -- marca quando o carregamento
@@ -51,7 +54,7 @@ const MateriaPrimaForm: React.FC = () => {
   const initialSnapshotRef = useRef<string | null>(null);
   const { currentUser, tenantId } = useAuth();
   const { reservedMap } = useReservedRawMaterialStock(tenantId);
-  const reservado = isEditing && id ? (reservedMap.get(id) || 0) : 0;
+  const reservado = isEditing && id ? (reservedMap.get(chaveComponente('materia_prima', id)) || 0) : 0;
   const quantidadeAtual = Number(formData.quantidade) || 0;
   const estoquePrevisto = computeEstoquePrevisto(quantidadeAtual, reservado);
 
@@ -66,6 +69,10 @@ const MateriaPrimaForm: React.FC = () => {
           if (d.data().tipo === 'Matéria-Prima') cats.push(d.data().nome);
         });
         setCategoriasDB(cats);
+
+        const qMarca = query(collection(db, 'marcas'), where('tenantId', '==', tenantId));
+        const snapMarca = await getDocs(qMarca);
+        setMarcasDB(snapMarca.docs.map(d => d.data().nome).filter(Boolean));
 
         if (isEditing && id) {
           const docSnap = await getDoc(doc(db, 'materias_primas', id));
@@ -136,6 +143,8 @@ const MateriaPrimaForm: React.FC = () => {
         fornecedor: formData.fornecedor.toUpperCase().trim(),
         lote: formData.lote.trim(),
         validade: formData.validade,
+        marca: formData.marca.toUpperCase().trim(),
+        referencia: formData.referencia.toUpperCase().trim(),
         tenantId
       };
 
@@ -246,6 +255,20 @@ const MateriaPrimaForm: React.FC = () => {
             <div className="input-group">
               <label>Unidade de Medida</label>
               <input type="text" name="unidade" placeholder="KG, L, UN, M..." value={formData.unidade} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div className="input-group">
+              <label>Marca</label>
+              <input type="text" name="marca" list="marcas-materia-prima" placeholder="Ex: SOLNATUS" value={formData.marca} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+              <datalist id="marcas-materia-prima">
+                {marcasDB.map((m, idx) => <option key={idx} value={m} />)}
+              </datalist>
+            </div>
+            <div className="input-group">
+              <label>Referência</label>
+              <input type="text" name="referencia" placeholder="Referência do sistema antigo (opcional)" value={formData.referencia} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
             </div>
           </div>
 

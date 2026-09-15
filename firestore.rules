@@ -146,6 +146,11 @@ service cloud.firestore {
         (collectionName == 'ordens_producao' && hasPermission('operacoes.producao')) ||
         (collectionName == 'expedicoes' && hasPermission('operacoes.expedicao')) ||
         (collectionName == 'categorias' && hasPermission('cadastros.categorias')) ||
+        // Marcas ganha as MESMAS 3 permissoes que ja escrevem produto/materia-
+        // prima (alem do cadastro proprio) -- sem isso, importar Estoque ou
+        // Materia-Prima quebraria na hora de criar a marca que falta, ja que
+        // essas telas nao pedem cadastros.marcas separado.
+        (collectionName == 'marcas' && hasAnyPermission(['cadastros.marcas', 'cadastros.estoque_alterar', 'cadastros.materia_prima'])) ||
         (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
         (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
         (collectionName == 'bandeiras_cartao' && hasPermission('cadastros.bandeiras_cartao')) ||
@@ -463,6 +468,7 @@ service cloud.firestore {
         'estoque',
         'materias_primas',
         'categorias',
+        'marcas',
         'servicos',
         'transacoes',
         'ordens_de_servico',
@@ -504,6 +510,7 @@ service cloud.firestore {
         'estoque',
         'materias_primas',
         'categorias',
+        'marcas',
         'servicos',
         'transacoes',
         'ordens_de_servico',
@@ -545,6 +552,7 @@ service cloud.firestore {
         'estoque',
         'materias_primas',
         'categorias',
+        'marcas',
         'servicos',
         'transacoes',
         'ordens_de_servico',
@@ -589,6 +597,7 @@ service cloud.firestore {
         'estoque',
         'materias_primas',
         'categorias',
+        'marcas',
         'servicos',
         'transacoes',
         'ordens_de_servico',

@@ -217,6 +217,10 @@ const OrcamentoForm: React.FC = () => {
         const dataE: PecaOrcamento[] = [];
         snapE.forEach((doc) => {
           const data = doc.data();
+          // produtoRevenda === false = item de uso interno (peca de
+          // veiculo, embalagem, insumo a granel...) -- nunca entra em
+          // orcamento, so continua no controle de estoque.
+          if (data.produtoRevenda === false) return;
           dataE.push({
             id: doc.id,
             nome: data.nome || '',

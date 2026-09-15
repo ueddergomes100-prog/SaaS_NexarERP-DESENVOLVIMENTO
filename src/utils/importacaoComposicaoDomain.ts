@@ -117,26 +117,40 @@ export const construirIndiceCatalogo = (itens: ItemCatalogo[]): Map<string, Item
   return indice;
 };
 
-export type StatusResolucao = 'encontrado' | 'nao_encontrado' | 'ambiguo';
+export type StatusResolucao = 'encontrado' | 'resolvido_por_origem' | 'nao_encontrado' | 'ambiguo';
 
 export interface Resolucao {
   status: StatusResolucao;
   item: ItemCatalogo | null;
-  /** So preenchido quando `ambiguo`: os cadastros que disputam o mesmo nome,
-   * pro usuario escolher na conferencia. */
+  /** Preenchido quando ha' mais de um cadastro com o mesmo nome -- tanto no
+   * empate real (`ambiguo`) quanto no resolvido por origem, onde serve pro
+   * usuario poder trocar a escolha automatica na conferencia. */
   candidatos: ItemCatalogo[];
 }
 
-/** Resolve um nome da planilha contra o catalogo. Nome repetido NAO e'
- * desempatado por chute (nem por data de cadastro, nem por codigo menor):
- * dois cadastros com o mesmo nome sao dois produtos diferentes ate' alguem
- * dizer o contrario, e escolher errado aqui gravaria a receita no produto
- * errado sem ninguem perceber. */
+/** Resolve um nome da planilha contra o catalogo. Nome repetido nunca e'
+ * desempatado por chute (nem por data de cadastro, nem por codigo menor) --
+ * a unica excecao e' o empate entre colecoes, explicado abaixo. */
 export const resolverNome = (indice: Map<string, ItemCatalogo[]>, nome: string): Resolucao => {
   const chave = normalizarNomeCatalogo(nome);
   const achados = chave ? indice.get(chave) : undefined;
   if (!achados || achados.length === 0) return { status: 'nao_encontrado', item: null, candidatos: [] };
   if (achados.length === 1) return { status: 'encontrado', item: achados[0], candidatos: [] };
+
+  // Empate ENTRE colecoes (o mesmo nome cadastrado como materia-prima e como
+  // produto) tem leitura obvia numa receita: producao consome a
+  // materia-prima. Resolve sozinho e informa qual escolheu, em vez de
+  // empurrar a escolha pro usuario linha a linha -- numa planilha real isso
+  // vira mais de cem decisoes identicas.
+  const materiasPrimas = achados.filter((item) => item.origem === 'materia_prima');
+  if (materiasPrimas.length === 1) {
+    return { status: 'resolvido_por_origem', item: materiasPrimas[0], candidatos: achados };
+  }
+
+  // Empate DENTRO da mesma colecao e' ambiguidade de verdade: dois cadastros
+  // com o mesmo nome sao dois itens diferentes ate' alguem dizer o
+  // contrario, e escolher errado gravaria a receita no item errado sem
+  // ninguem perceber.
   return { status: 'ambiguo', item: null, candidatos: achados };
 };
 
@@ -218,8 +232,8 @@ export const processarLinhasComposicao = (
       unidadeArquivo: mapeamento.unidade !== null ? (linha[mapeamento.unidade] || '').trim().toUpperCase() : '',
       produto,
       componente,
-      produtoEscolhidoId: produto.status === 'encontrado' ? produto.item!.id : null,
-      componenteEscolhidoId: componente.status === 'encontrado' ? componente.item!.id : null,
+      produtoEscolhidoId: produto.item ? produto.item.id : null,
+      componenteEscolhidoId: componente.item ? componente.item.id : null,
       status: motivo ? 'REVISAR' : 'OK',
       motivo,
     } satisfies LinhaComposicaoImportada;

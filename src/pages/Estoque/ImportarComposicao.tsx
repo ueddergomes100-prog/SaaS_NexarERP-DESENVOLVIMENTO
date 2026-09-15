@@ -171,10 +171,10 @@ const ImportarComposicao: React.FC = () => {
       setComponentesCatalogo(materiasPrimas);
       setComposicoesExistentes(jaTemComposicao);
 
-      // Componente pode vir das duas colecoes. Materia-prima primeiro: o
-      // indice mantem a primeira entrada de cada nome, e insumo cadastrado
-      // como materia-prima e' a leitura mais provavel de um nome que existe
-      // nas duas.
+      // Componente pode vir das duas colecoes -- o indice guarda TODOS os
+      // cadastros de cada nome. Quando o mesmo nome existe nas duas,
+      // resolverNome fica com a materia-prima (producao consome dela) e a
+      // conferencia mostra a escolha pro usuario poder trocar.
       const indiceProdutos = construirIndiceCatalogo(produtos);
       const indiceComponentes = construirIndiceCatalogo([...materiasPrimas, ...produtos]);
 
@@ -259,10 +259,10 @@ const ImportarComposicao: React.FC = () => {
   };
 
   const opcoesProduto = (linha: LinhaComposicaoImportada): ItemCatalogo[] => (
-    linha.produto.status === 'ambiguo' ? linha.produto.candidatos : produtosCatalogo
+    linha.produto.candidatos.length > 0 ? linha.produto.candidatos : produtosCatalogo
   );
   const opcoesComponente = (linha: LinhaComposicaoImportada): ItemCatalogo[] => (
-    linha.componente.status === 'ambiguo' ? linha.componente.candidatos : [...componentesCatalogo, ...produtosCatalogo]
+    linha.componente.candidatos.length > 0 ? linha.componente.candidatos : [...componentesCatalogo, ...produtosCatalogo]
   );
 
   return (
@@ -427,7 +427,7 @@ const ImportarComposicao: React.FC = () => {
                         {/* Select so' onde precisa escolher. A lista tem mais de mil
                             cadastros e a planilha traz centenas de linhas -- renderizar
                             o select cheio em toda linha trava a aba. */}
-                        {produtoResolvido
+                        {produtoResolvido && linha.produto.status === 'encontrado'
                           ? <span>{produtoResolvido.codigo ? `${produtoResolvido.codigo} — ` : ''}{produtoResolvido.nome}</span>
                           : (
                             <select value={linha.produtoEscolhidoId || ''} onChange={(e) => escolher(linha.linhaId, 'produtoEscolhidoId', e.target.value)} style={celulaSelect}>
@@ -440,7 +440,7 @@ const ImportarComposicao: React.FC = () => {
                       </td>
                       <td style={{ padding: '8px', maxWidth: '210px' }}>{linha.componenteBruto}</td>
                       <td style={{ padding: '8px' }}>
-                        {componenteEscolhido
+                        {componenteEscolhido && linha.componente.status === 'encontrado'
                           ? <span>{componenteEscolhido.nome}</span>
                           : (
                             <select value={linha.componenteEscolhidoId || ''} onChange={(e) => escolher(linha.linhaId, 'componenteEscolhidoId', e.target.value)} style={celulaSelect}>
@@ -453,6 +453,7 @@ const ImportarComposicao: React.FC = () => {
                         {componenteEscolhido && (
                           <div style={{ fontSize: '11px', color: unidadeDivergente ? '#f59e0b' : 'var(--text-muted)' }}>
                             {ROTULO_POR_ORIGEM[componenteEscolhido.origem]} · {componenteEscolhido.unidade}
+                            {linha.componente.status === 'resolvido_por_origem' && ' · escolhido automaticamente'}
                             {unidadeDivergente && ` (planilha diz ${linha.unidadeArquivo})`}
                           </div>
                         )}

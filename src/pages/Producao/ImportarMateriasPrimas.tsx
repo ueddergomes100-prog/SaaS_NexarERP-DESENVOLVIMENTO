@@ -184,7 +184,15 @@ const ImportarMateriasPrimas: React.FC = () => {
       showSuccess(`${materiasPrimasValidas.length} matéria(s)-prima(s) importada(s) com sucesso!`);
     } catch (error) {
       console.error('Erro ao importar matérias-primas:', error);
-      showError('Erro ao importar', 'Não foi possível concluir a importação. Nenhuma matéria-prima foi gravada neste lote com erro -- tente novamente.');
+      showError(
+        'Erro ao importar',
+        `A importação parou antes de terminar. ${(error as Error)?.message || ''}
+
+`
+        + 'ANTES de tentar de novo, abra a lista de Matéria-Prima e confira se alguma parte já foi gravada: '
+        + 'a importação grava em lotes, e os lotes anteriores ao erro podem ter entrado. '
+        + 'Repetir sem conferir duplica o que já está lá.',
+      );
     } finally {
       setSalvando(false);
     }

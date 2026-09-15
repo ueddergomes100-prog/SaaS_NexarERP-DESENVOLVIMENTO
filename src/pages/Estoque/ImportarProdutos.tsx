@@ -394,7 +394,12 @@ const ImportarProdutos: React.FC = () => {
         });
 
         if (inicio === 0 && precisaLigarEmbalagem) {
-          batch.update(doc(db, 'configuracoes', tenantId), { venderPorEmbalagem: true });
+          // set+merge, nao update: `update` num documento que ainda NAO
+          // existe derruba o batch inteiro ("No document to update"), e com
+          // ele os produtos todos. Tenant novo costuma nao ter o documento
+          // de configuracoes criado ainda -- foi assim que uma importacao de
+          // 364 produtos falhou inteira num cliente novo.
+          batch.set(doc(db, 'configuracoes', tenantId), { venderPorEmbalagem: true }, { merge: true });
         }
 
         await batch.commit();
@@ -410,7 +415,15 @@ const ImportarProdutos: React.FC = () => {
       showSuccess(`${produtos.length} produto(s) importado(s) com sucesso!`);
     } catch (error) {
       console.error('Erro ao importar produtos:', error);
-      showError('Erro ao importar', 'Não foi possível concluir a importação. Nenhum produto foi gravado neste lote com erro -- tente novamente.');
+      showError(
+        'Erro ao importar',
+        `A importação parou antes de terminar. ${(error as Error)?.message || ''}
+
+`
+        + 'ANTES de tentar de novo, abra a lista de Produtos e confira se alguma parte já foi gravada: '
+        + 'a importação grava em lotes, e os lotes anteriores ao erro podem ter entrado. '
+        + 'Repetir sem conferir duplica o que já está lá.',
+      );
     } finally {
       setSalvando(false);
     }

@@ -185,3 +185,40 @@ export const avisoFaturarSemConferencia = (
     confirmButtonText: 'Sim, finalizar sem conferir',
   };
 };
+
+/**
+ * QUANDO O SISTEMA OFERECE A MINUTA DE ENTREGA (2026-09-15).
+ *
+ * A minuta e' o papel da SEPARACAO: lista os itens sem valores pra quem vai
+ * buscar a mercadoria na prateleira. Entao ela tem que sair ANTES de alguem
+ * separar -- oferecer depois de faturar e' oferecer o mapa quando a viagem
+ * ja' acabou.
+ *
+ * Ate aqui ela so' era oferecida ao FINALIZAR a venda, o que funcionava
+ * porque a conferencia tambem so' comecava ali. Com a pre-venda entrando na
+ * fila da expedicao ao ser gravada, o momento certo mudou junto.
+ *
+ * Quem NAO trabalha com pre-venda continua exatamente como antes: a venda
+ * nasce faturada, a conferencia comeca ali, e a minuta e' oferecida ali.
+ */
+export const ofereceMinutaAoGravarPreVenda = (
+  conferenciaAtiva: boolean,
+  imprimirMinutaAtiva: boolean,
+): boolean => conferenciaAtiva && imprimirMinutaAtiva;
+
+/**
+ * No fim da venda a minuta so' aparece pra pedido que NAO passou pela
+ * pre-venda -- ali ela ja' foi oferecida, e perguntar de novo e' clique a
+ * toa em cima de uma mercadoria que ja' foi separada e conferida.
+ *
+ * `minutaJaOferecidaNaPreVenda` e' passado pela tela, nao deduzido da config
+ * do tenant, de proposito: existe quem tenha a pre-venda LIGADA na empresa e
+ * mesmo assim fature direto (usuario sem a permissao de gravar pre-venda, e
+ * pedido que chegou pelo agente de WhatsApp). Esses nunca viram a minuta, e
+ * precisam ver.
+ */
+export const ofereceMinutaAoFinalizar = (
+  conferenciaAtiva: boolean,
+  imprimirMinutaAtiva: boolean,
+  minutaJaOferecidaNaPreVenda: boolean,
+): boolean => conferenciaAtiva && imprimirMinutaAtiva && !minutaJaOferecidaNaPreVenda;

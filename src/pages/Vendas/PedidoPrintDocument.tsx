@@ -1,5 +1,6 @@
 import React from 'react';
 import { getCompanyAddressRows } from '../../utils/companyAddress';
+import { ehPreVenda } from '../../utils/preVendaDomain';
 
 interface PedidoPrintDocumentProps {
   pedidoData: any;
@@ -33,7 +34,7 @@ const PedidoPrintDocument: React.FC<PedidoPrintDocumentProps> = ({ pedidoData, c
           <p>{configData?.telefone || ''} | {configData?.email || ''}</p>
         </div>
         <div className="a4-os-info">
-          <h1>RECIBO DE VENDA</h1>
+          <h1>{ehPreVenda(pedidoData.status) ? 'PRÉ-VENDA' : 'RECIBO DE VENDA'}</h1>
           <h2 className="os-number">Nº {pedidoData.numeroPedido || pedidoData.id.substring(0, 6).toUpperCase()}</h2>
           <p><strong>Data:</strong> {dataCriacao}</p>
         </div>

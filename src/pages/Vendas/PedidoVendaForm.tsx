@@ -8,7 +8,7 @@ import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/aler
 import { spedyService } from '../../services/spedyService';
 import { applyStockAdjustments, applyStockFieldDeltas, describeTransactionError, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isPlatformAdminRole } from '../../utils/roles';
-import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
@@ -17,6 +17,8 @@ import {
   avisoFaturarSemConferencia,
   conferenciaPendenteParaFaturar,
   DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
+  ofereceMinutaAoFinalizar,
+  ofereceMinutaAoGravarPreVenda,
   type StatusConferencia,
 } from '../../utils/conferenciaDomain';
 import {
@@ -247,6 +249,10 @@ const PedidoVendaForm: React.FC = () => {
   const [clienteNome, setClienteNome] = useState('');
   const [formaPagamento, setFormaPagamento] = useState('Dinheiro');
   const [dataVenda, setDataVenda] = useState(() => getDateInputInTimeZone());
+  // Separa "data que o usuario escolheu" de "data que a tela herdou do
+  // mount": so a primeira merece ser mantida sem perguntar (ver
+  // resolverDataVendaParaGravar).
+  const dataVendaEscolhidaPeloUsuario = useRef(false);
   const paymentDraftCounter = useRef(1);
   const submitLockRef = useRef(false);
   const produtoBuscaInputRef = useRef<HTMLInputElement>(null);
@@ -693,6 +699,11 @@ const PedidoVendaForm: React.FC = () => {
             setVendedorId(p.vendedorId || p.usuarioResponsavelId || currentUser.uid);
             setFormaPagamento(p.formaPagamento || 'Dinheiro');
             setDataVenda(p.dataVenda || getDateInputInTimeZone(p.createdAt?.toDate?.() || new Date()));
+            // Data que veio do documento nao e' data herdada do mount: nao
+            // pode ser trocada por hoje sem avisar. Faturar hoje uma
+            // pre-venda de ontem passa a PERGUNTAR qual das duas datas vale,
+            // em vez de decidir sozinho (ver resolverDataVendaParaGravar).
+            dataVendaEscolhidaPeloUsuario.current = true;
             setNumeroPedido(p.numeroPedido || '');
             setStatus(p.status || 'Finalizada');
             setOrigemPedido(resolveOrigemPedido(p));
@@ -1327,6 +1338,51 @@ const PedidoVendaForm: React.FC = () => {
    * segundo caso a reserva de estoque e' RECONCILIADA (delta entre o que ja
    * estava reservado e o que ficou), nunca somada por cima.
    */
+  /**
+   * A data que vale e' a do momento de gravar, nao a que a tela herdou do
+   * mount. Esta aba pode estar aberta desde ontem (elas nunca desmontam --
+   * ver TabPane.tsx), e foi assim que o pedido #0154 do Shopping Rural
+   * nasceu com dataVenda=09/09 tendo sido feito em 10/09: sumiu do
+   * relatorio do dia e inflou o faturamento da vespera.
+   *
+   * Data que o proprio usuario escolheu no campo e' respeitada -- venda
+   * lancada em outro dia e' legitima --, mas confirmada, porque uma seta
+   * do teclado no campo de data tira um dia sem avisar. Devolve a data a
+   * gravar, ou null quando o usuario decide voltar e conferir.
+   */
+  const resolverDataVendaParaGravar = async (): Promise<string | null> => {
+    const hoje = getDateInputInTimeZone();
+    if (dataVenda === hoje) return dataVenda;
+
+    if (!dataVendaEscolhidaPeloUsuario.current) {
+      setDataVenda(hoje);
+      showWarning(
+        'Data da venda atualizada',
+        `Esta tela estava aberta desde ${formatDateInputPtBr(dataVenda)}. A venda será lançada em ${formatDateInputPtBr(hoje)}.`,
+      );
+      return hoje;
+    }
+
+    const escolha = await NexusSwal.fire({
+      icon: 'warning',
+      title: 'A data desta venda não é a de hoje',
+      html: `O campo "Data da venda" está em <b>${formatDateInputPtBr(dataVenda)}</b>, mas hoje é <b>${formatDateInputPtBr(hoje)}</b>.`
+        + '<br><br>Lançada em outro dia, esta venda não vai aparecer no relatório de hoje.',
+      showDenyButton: true,
+      showCancelButton: true,
+      confirmButtonText: `Usar hoje (${formatDateInputPtBr(hoje)})`,
+      denyButtonText: `Manter ${formatDateInputPtBr(dataVenda)}`,
+      cancelButtonText: 'Voltar e conferir',
+    });
+
+    if (escolha.isConfirmed) {
+      setDataVenda(hoje);
+      return hoje;
+    }
+    if (escolha.isDenied) return dataVenda;
+    return null;
+  };
+
   const handleGravarPreVenda = async (): Promise<boolean> => {
     if (submitLockRef.current) return false;
     if (!currentUser || !tenantId) return false;
@@ -1370,6 +1426,9 @@ const PedidoVendaForm: React.FC = () => {
       if (confirmCadastro.isConfirmed) setCadastroRapidoAberto(true);
       return false;
     }
+
+    const dataVendaParaGravar = await resolverDataVendaParaGravar();
+    if (!dataVendaParaGravar) return false;
 
     submitLockRef.current = true;
     setIsLoading(true);
@@ -1476,7 +1535,7 @@ const PedidoVendaForm: React.FC = () => {
           encargos: Number(encargos || 0),
           valorTotal: valorTotalPedido,
           valorTotalCentavos: valorTotalPedidoCentavos,
-          dataVenda,
+          dataVenda: dataVendaParaGravar,
           status: STATUS_PRE_VENDA,
           origem: 'balcao' as OrigemPedido,
           // O que separa pre-venda de venda: o estoque esta SEPARADO, nao
@@ -1544,7 +1603,37 @@ const PedidoVendaForm: React.FC = () => {
       esquecerVendedorIdentificado();
       gravouComSucesso = true;
 
-      await showSuccess(`Pré-venda #${numeroGravado} gravada! O estoque foi reservado.`);
+      // A PRE-VENDA GRAVADA JA' OFERECE O PAPEL.
+      //
+      // Dois papeis diferentes, pra duas pessoas diferentes: a MINUTA vai
+      // pro estoque separar (itens, sem valores) e a PRE-VENDA vai pro
+      // cliente (valores, condicao de pagamento). Os dois tem que sair agora
+      // -- depois de faturar, a mercadoria ja' foi separada e o papel da
+      // separacao nao serve mais pra nada.
+      if (ofereceMinutaAoGravarPreVenda(conferenciaMercadoriaAtiva, imprimirMinutaAposVendaAtiva)) {
+        const escolha = await NexusSwal.fire({
+          title: `Pré-venda #${numeroGravado} gravada!`,
+          text: 'O estoque foi reservado. A minuta lista os itens sem valores, para a separação; a pré-venda traz valores e condição de pagamento, para o cliente.',
+          icon: 'success',
+          showDenyButton: true,
+          showCancelButton: true,
+          confirmButtonText: 'Imprimir Minuta',
+          denyButtonText: 'Imprimir Pré-venda',
+          cancelButtonText: 'Agora não',
+          confirmButtonColor: '#10b981',
+          denyButtonColor: '#3b82f6',
+        });
+        if (escolha.isConfirmed) {
+          navigate(`/operacoes/expedicao/minuta/${preVendaId}`);
+          return gravouComSucesso;
+        }
+        if (escolha.isDenied) {
+          navigate(`/pedidos-venda/print/${preVendaId}`);
+          return gravouComSucesso;
+        }
+      } else {
+        await showSuccess(`Pré-venda #${numeroGravado} gravada! O estoque foi reservado.`);
+      }
       if (!isPreVendaAberta) navigate(`/pedidos-venda/visualizar/${preVendaId}`);
     } catch (error) {
       console.error('Erro ao gravar pré-venda:', error);
@@ -1923,10 +2012,16 @@ const PedidoVendaForm: React.FC = () => {
       }
     }
 
+    // Resolvido aqui, e nao so' na hora de gravar, porque a data da venda e'
+    // a base dos vencimentos e das previsoes de recebimento calculados logo
+    // abaixo -- data velha contamina o financeiro junto com o relatorio.
+    const dataVendaParaGravar = await resolverDataVendaParaGravar();
+    if (!dataVendaParaGravar) return false;
+
     let paymentRecords: PaymentRecord[];
     try {
       paymentRecords = normalizePayments(valorTotalPedidoCentavos, paymentDrafts, {
-        saleDate: dataVenda,
+        saleDate: dataVendaParaGravar,
         maxCreditInstallments: financeConfig.maxCreditInstallments || undefined,
         creditFeePercentByInstallment: financeConfig.creditFeePercentByInstallment,
         debitFeePercent: financeConfig.debitFeePercent,
@@ -2230,7 +2325,7 @@ const PedidoVendaForm: React.FC = () => {
           totalTaxasPagamentoCentavos: paymentSummary.cardFeeCents,
           totalLiquidoFinanceiro: paymentSummary.financialNet,
           totalLiquidoFinanceiroCentavos: paymentSummary.financialNetCents,
-          dataVenda,
+          dataVenda: dataVendaParaGravar,
           status: 'Finalizada',
           // Modulo 12 (Conferencia de mercadoria): so grava o campo quando a
           // chave-mestra esta ligada -- Firestore rejeita `undefined` como
@@ -2343,7 +2438,7 @@ const PedidoVendaForm: React.FC = () => {
             bancoId: payment.bancoId || null,
             bancoNome: payment.bancoNome || null,
             prazoDias: payment.prazoDias || null,
-            data: payment.dataVencimento || dataVenda,
+            data: payment.dataVencimento || dataVendaParaGravar,
             dataVencimento: payment.dataVencimento || null,
             dataPrevistaRecebimento: payment.dataPrevistaRecebimento || null,
             cartao: payment.cartao || null,
@@ -2397,7 +2492,12 @@ const PedidoVendaForm: React.FC = () => {
       // erro NFC-e com/sem fallback de recibo, Imprimir Recibo, Apenas
       // Concluir) passam a chamar isto em vez de `navigate` direto.
       const askMinutaAndNavigate = async (destino: string) => {
-        if (conferenciaMercadoriaAtiva && imprimirMinutaAposVendaAtiva) {
+        // `finalizandoPedidoAberto && origemPedido === 'balcao'` e' exatamente
+        // a pre-venda do balcao -- a unica que ja' recebeu a oferta da minuta
+        // na hora de gravar. Pedido do agente e venda direta continuam sendo
+        // perguntados aqui.
+        const minutaJaOferecida = finalizandoPedidoAberto && origemPedido === 'balcao';
+        if (ofereceMinutaAoFinalizar(conferenciaMercadoriaAtiva, imprimirMinutaAposVendaAtiva, minutaJaOferecida)) {
           const minutaResult = await NexusSwal.fire({
             title: 'Imprimir minuta de entrega?',
             text: 'A minuta lista os itens do pedido, sem valores, para a separação no estoque.',
@@ -3500,6 +3600,34 @@ const PedidoVendaForm: React.FC = () => {
               <History size={18} />
             </button>
           )}
+          {/* Pre-venda em aberto tambem imprime. Ate aqui, papel nenhum
+              saia enquanto o pedido nao fosse faturado -- e' o inverso do
+              que a operacao precisa: e' JUSTAMENTE na pre-venda que o
+              estoque separa (minuta) e o cliente leva o documento com
+              valores (pré-venda). Reimprimir os dois tem que caber aqui,
+              porque o diálogo de gravação passa uma vez só. */}
+          {isPreVendaAberta && (
+            <>
+              <button
+                className="btn-secondary"
+                onClick={() => navigate(`/pedidos-venda/print/${id}`)}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                title="Imprime a pré-venda com valores e condição de pagamento, para o cliente"
+              >
+                <Printer size={18} /> Imprimir Pré-venda
+              </button>
+              {conferenciaMercadoriaAtiva && (
+                <button
+                  className="btn-secondary"
+                  onClick={() => navigate(`/operacoes/expedicao/minuta/${id}`)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                  title="Imprime a minuta de separação, com os itens e sem valores"
+                >
+                  <Truck size={18} /> Imprimir Minuta
+                </button>
+              )}
+            </>
+          )}
           {isViewing && status === 'Finalizada' && (
             <>
               {/* Botão de NFC-e (Cupom Fiscal) -- some inteiro quando a
@@ -4158,7 +4286,10 @@ const PedidoVendaForm: React.FC = () => {
               idPrefix="sale-payment"
               onAddPayment={addPaymentDraft}
               onRemovePayment={removePaymentDraft}
-              onTransactionDateChange={setDataVenda}
+              onTransactionDateChange={(novaData) => {
+                dataVendaEscolhidaPeloUsuario.current = true;
+                setDataVenda(novaData);
+              }}
               onUpdatePayment={updatePaymentDraft}
               pagamentoCartaoSimplificadoAtivo={pagamentoCartaoSimplificadoAtivo}
               creditoDisponivelCentavos={creditoDisponivelCentavos}

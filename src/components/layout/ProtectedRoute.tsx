@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import BootSplash from './BootSplash';
+import VerificadorDataDoSistema from './VerificadorDataDoSistema';
 
 const ProtectedRoute: React.FC = () => {
   const { currentUser, loading } = useAuth();
@@ -18,8 +19,15 @@ const ProtectedRoute: React.FC = () => {
     return <Navigate to="/login" replace />;
   }
 
-  // Se estiver logado, renderiza as rotas filhas (Dashboard, OS, etc)
-  return <Outlet />;
+  // Se estiver logado, renderiza as rotas filhas (Dashboard, OS, etc).
+  // O verificador de data mora aqui pra cobrir de uma vez o ERP inteiro
+  // (todas as abas) e o PDV, que sao irmaos dentro desta rota protegida.
+  return (
+    <>
+      <VerificadorDataDoSistema />
+      <Outlet />
+    </>
+  );
 };
 
 export default ProtectedRoute;

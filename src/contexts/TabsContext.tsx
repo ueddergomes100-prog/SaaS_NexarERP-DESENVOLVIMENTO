@@ -10,6 +10,10 @@ export interface Tab {
    * (ex: da lista de Clientes pra Editar Cliente, na mesma aba). */
   path: string;
   label: string;
+  /** O nome desta aba foi dado pela tela que a abriu (openTab com `label`),
+   * nao derivado do path. So esses sobrevivem intactos ao restaurar do
+   * localStorage -- ver reconciliarRotulos(). */
+  labelExplicito?: boolean;
   /** Id da aba de onde esta foi aberta, quando aberta de dentro de outra
    * aba (nao do menu lateral/superior) -- ver useTabs() abaixo, que injeta
    * isso automaticamente via TabIdContext. Usado por requestCloseTab pra
@@ -156,13 +160,32 @@ export const resolveTabLabel = (pathname: string): string => {
   return sectionLabel;
 };
 
+/**
+ * O NOME DA ABA E' RECALCULADO A CADA RESTAURACAO.
+ *
+ * O rotulo e' gravado junto com a aba no localStorage, entao um nome errado
+ * sobrevive pra sempre: consertar resolveTabLabel nao conserta a aba que a
+ * pessoa ja' tinha aberta -- ela reabre com o nome velho a cada F5, e so'
+ * sumiria se alguem fechasse a aba na mao. Foi o que aconteceu quando
+ * `/fiscal/nfe?pedido=<id>` virou "Nfe?Pedido=IXdGM8ifq..." na barra.
+ *
+ * Como o rotulo derivado e' funcao pura do path, recalcular na restauracao
+ * e' sempre seguro e faz toda correcao futura chegar sozinha.
+ *
+ * Nome dado pela tela que abriu a aba (`labelExplicito`) nao e' tocado: esse
+ * nao da' pra recalcular, porque nao esta no path.
+ */
+const reconciliarRotulos = (tabs: Tab[]): Tab[] => tabs.map((tab) => (
+  tab.labelExplicito ? tab : { ...tab, label: resolveTabLabel(tab.path) }
+));
+
 const loadStoredTabs = (): { tabs: Tab[]; activeTabId: string } | null => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed.tabs) || parsed.tabs.length === 0) return null;
-    return parsed;
+    return { ...parsed, tabs: reconciliarRotulos(parsed.tabs) };
   } catch {
     return null;
   }
@@ -247,7 +270,7 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setState((current) => ({
           ...current,
           tabs: current.tabs.map((tab) => (
-            tab.id === existingSameModule.id ? { ...tab, path, label: label || resolveTabLabel(path) } : tab
+            tab.id === existingSameModule.id ? { ...tab, path, label: label || resolveTabLabel(path), labelExplicito: Boolean(label) } : tab
           )),
           activeTabId: existingSameModule.id,
         }));
@@ -273,7 +296,7 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       if (current.tabs.length >= MAX_TABS) return current;
 
-      const newTab: Tab = { id: makeTabId(), path, label: label || resolveTabLabel(path), parentTabId };
+      const newTab: Tab = { id: makeTabId(), path, label: label || resolveTabLabel(path), labelExplicito: Boolean(label), parentTabId };
       return { tabs: [...current.tabs, newTab], activeTabId: newTab.id };
     });
   }, [navigate]);
@@ -321,7 +344,7 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       let nextTabs = current.tabs.map((tab) => (
-        tab.id === id ? { ...tab, path, label: label || resolveTabLabel(path) } : tab
+        tab.id === id ? { ...tab, path, label: label || resolveTabLabel(path), labelExplicito: Boolean(label) } : tab
       ));
 
       // Se a navegacao interna da propria aba (ex: botao "Voltar" de um

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   contaComoFaturamento,
+  ehPreVenda,
   isPedidoAberto,
   isPedidoCancelado,
   ocultarFinalizarEmPedidoNovo,
@@ -97,4 +98,13 @@ test('config desligada nao esconde nada', () => {
 test('sem permissao de gravar pre-venda, Finalizar CONTINUA aparecendo', () => {
   // Senao o usuario ficaria numa tela de venda sem nenhum botao de gravar.
   assert.equal(ocultarFinalizarEmPedidoNovo(true, false), false);
+});
+
+test('ehPreVenda distingue o papel que ainda nao e venda', () => {
+  assert.equal(ehPreVenda(STATUS_PRE_VENDA), true);
+  assert.equal(ehPreVenda('  Pré-venda '), true);
+  assert.equal(ehPreVenda(STATUS_FINALIZADA), false);
+  assert.equal(ehPreVenda(STATUS_EM_ANALISE), false);
+  assert.equal(ehPreVenda(STATUS_CANCELADA), false);
+  assert.equal(ehPreVenda(undefined), false);
 });

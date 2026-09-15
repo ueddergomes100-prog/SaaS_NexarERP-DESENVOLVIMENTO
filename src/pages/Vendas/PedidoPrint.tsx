@@ -14,6 +14,7 @@ import {
 } from '../../utils/visibilidadeVendasDomain';
 import { showError } from '../../utils/alerts';
 import { parcelasParaImpressao } from '../../utils/parcelasExibicaoDomain';
+import { ehPreVenda } from '../../utils/preVendaDomain';
 import { usePrintAndClose } from '../../hooks/usePrintAndClose';
 import '../OS/OsPrint.css'; // Reusing OS print styles
 
@@ -118,7 +119,7 @@ const PedidoPrint: React.FC = () => {
         </button>
         <button className="btn-primary" onClick={handlePrint}>
           <Printer size={18} style={{ marginRight: 8 }} />
-          Imprimir Recibo
+          {ehPreVenda(pedidoData.status) ? 'Imprimir Pré-venda' : 'Imprimir Recibo'}
         </button>
       </div>
 

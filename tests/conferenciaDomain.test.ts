@@ -14,6 +14,8 @@ import {
   type ConferenciaItem,
   conferenciaPendenteParaFaturar,
   avisoFaturarSemConferencia,
+  ofereceMinutaAoGravarPreVenda,
+  ofereceMinutaAoFinalizar,
 } from '../src/utils/conferenciaDomain';
 
 const item = (overrides: Partial<ConferenciaItem> & Pick<ConferenciaItem, 'produtoId' | 'nome' | 'quantidadePedida'>): ConferenciaItem => ({
@@ -290,4 +292,24 @@ test('o aviso muda conforme o estagio da separacao', () => {
 
 test('pedido sem conferencia cai no aviso padrao', () => {
   assert.equal(avisoFaturarSemConferencia(undefined).title, avisoFaturarSemConferencia('aguardando').title);
+});
+
+test('minuta e oferecida ao gravar a pre-venda quando conferencia e minuta estao ligadas', () => {
+  assert.equal(ofereceMinutaAoGravarPreVenda(true, true), true);
+  assert.equal(ofereceMinutaAoGravarPreVenda(false, true), false);
+  assert.equal(ofereceMinutaAoGravarPreVenda(true, false), false);
+});
+
+test('quem NAO usa pre-venda continua recebendo a minuta ao finalizar', () => {
+  assert.equal(ofereceMinutaAoFinalizar(true, true, false), true);
+});
+
+test('pedido que veio da pre-venda nao pede minuta de novo ao faturar', () => {
+  // Ali a mercadoria ja foi separada e conferida -- a minuta ja saiu.
+  assert.equal(ofereceMinutaAoFinalizar(true, true, true), false);
+});
+
+test('config desligada nao oferece minuta em momento nenhum', () => {
+  assert.equal(ofereceMinutaAoFinalizar(false, true, false), false);
+  assert.equal(ofereceMinutaAoFinalizar(true, false, false), false);
 });

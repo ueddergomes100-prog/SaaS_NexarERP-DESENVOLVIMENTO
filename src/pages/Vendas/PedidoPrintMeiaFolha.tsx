@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { formatarDocumento } from '../../utils/documentoValidacao';
-import { STATUS_PRE_VENDA, STATUS_EM_ANALISE, STATUS_FINALIZADA, STATUS_CANCELADA } from '../../utils/preVendaDomain';
+import { ehPreVenda, STATUS_PRE_VENDA, STATUS_EM_ANALISE, STATUS_FINALIZADA, STATUS_CANCELADA } from '../../utils/preVendaDomain';
 import './PedidoPrintMeiaFolha.css';
 
 interface Parcela {
@@ -117,7 +117,7 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
 
       <div className="mf-meta-row">
         <div className="mf-order-box">
-          <span className="mf-order-label">PEDIDO DE VENDA</span>
+          <span className="mf-order-label">{ehPreVenda(pedidoData.status) ? 'PRÉ-VENDA' : 'PEDIDO DE VENDA'}</span>
           <span className="mf-order-number">{pedidoData.numeroPedido || pedidoData.id?.substring(0, 6).toUpperCase()}</span>
         </div>
         <div className="mf-meta-info">

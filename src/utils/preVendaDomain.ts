@@ -58,6 +58,17 @@ export const isPedidoCancelado = (status: unknown): boolean =>
   String(status ?? '').trim() === STATUS_CANCELADA;
 
 /**
+ * Este documento ainda e' uma pre-venda?
+ *
+ * Usado pela IMPRESSAO. Papel de pre-venda nao pode se chamar "Recibo de
+ * Venda" nem "Pedido de Venda": nada foi vendido ainda, nao houve pagamento
+ * e o estoque so' esta reservado. Um papel que afirma venda numa mao que
+ * ainda nao comprou e' o tipo de erro que volta como reclamacao no balcao.
+ */
+export const ehPreVenda = (status: unknown): boolean =>
+  String(status ?? '').trim() === STATUS_PRE_VENDA;
+
+/**
  * Este pedido pode ser somado em faturamento, caixa, comissao e relatorio de
  * vendas?
  *

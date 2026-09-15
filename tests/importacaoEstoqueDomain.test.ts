@@ -88,7 +88,7 @@ test('decodificarArquivoTexto recupera texto Windows-1252 (cp1252) mal lido como
 
 test('inferirMapeamentoColunas reconhece o cabecalho real da planilha do cliente', () => {
   const mapeamento = inferirMapeamentoColunas(['Cód.', 'Descrição', 'Quantidade contada', 'Observação']);
-  assert.deepEqual(mapeamento, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null });
+  assert.deepEqual(mapeamento, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
 });
 
 test('processarLinhas ignora linhas vazias e devolve item por linha com descricao', () => {
@@ -97,7 +97,7 @@ test('processarLinhas ignora linhas vazias e devolve item por linha com descrica
     ['', '', '', ''],
     ['113', 'ADUBO 04-14-08 50KG SACO', '8', ''],
   ];
-  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null });
+  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
   assert.equal(itens.length, 2);
   assert.equal(itens[1].quantidadeCalculada, 8);
   assert.equal(itens[1].status, 'OK');
@@ -116,7 +116,7 @@ test('detectarGruposEmbalagem acha o par kg/saco e sugere o fator pelo peso na d
       ['84', 'ADUBO UREIA 45-00-00 50KG SACO', '44', ''],
       ['999', 'PRODUTO SEM PAR', '1', ''],
     ],
-    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null },
+    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null },
   );
   const grupos = detectarGruposEmbalagem(itens);
   assert.equal(grupos.length, 1);
@@ -130,7 +130,7 @@ test('detectarGruposEmbalagem nao sugere fator quando a descricao nao informa o 
       ['92', 'LONA BRANCA/PRETA FUZIL 8X50 -200 MC METRO', '0', ''],
       ['39', 'LONA BRANCA/PRETA FUZIL 8X50 -200 MC ROLO', '0', ''],
     ],
-    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null },
+    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null },
   );
   const grupos = detectarGruposEmbalagem(itens);
   assert.equal(grupos.length, 1);
@@ -182,7 +182,7 @@ test('inferirMapeamentoColunas acha custo/preco a vista/preco a prazo quando pre
 
 test('processarLinhas le custo/preco a vista/preco a prazo das colunas mapeadas', () => {
   const linhas = [['1', 'PRODUTO X', '10', '', '25,50', '39,90', '45,00']];
-  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: 4, precoAVista: 5, precoAPrazo: 6, codigoBarras: null, unidade: null });
+  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: 4, precoAVista: 5, precoAPrazo: 6, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
   assert.equal(itens[0].custo, 25.5);
   assert.equal(itens[0].precoAVista, 39.9);
   assert.equal(itens[0].precoAPrazo, 45);
@@ -240,6 +240,7 @@ test('processarLinhas usa a coluna Unidade explicita, mesmo com preco em formato
   const linhas = [['136', '000001', '100 PS SUPLEMENTO PARA PÁSSARO 10ML', '11,', 'UNID', 'R$ 14,00', 'R$ 14,00']];
   const itens = processarLinhas(linhas, {
     codigo: 0, codigoBarras: 1, descricao: 2, quantidade: 3, unidade: 4, precoAVista: 5, precoAPrazo: 6, observacao: null, custo: null,
+    valorVenda: null, marca: null, referencia: null,
   });
   assert.equal(itens[0].quantidadeCalculada, 11);
   assert.equal(itens[0].unidadeSugerida, 'UN');
@@ -272,4 +273,21 @@ test('montarProdutoImportado sem embalagem grava array vazio, sem quebrar', () =
     'TIMESTAMP',
   );
   assert.deepEqual(produto.embalagens, []);
+});
+
+test('numero limpo NAO escapa da contradicao com a observacao', () => {
+  // Regressao real: o atalho que passou a aceitar "0." devolvia OK antes de
+  // checar a observacao -- saldo entrava sem ninguem olhar.
+  const zero = interpretarQuantidade('0.', 'Sem quantidade anotada');
+  assert.equal(zero.status, 'REVISAR');
+  assert.match(zero.motivo, /contradição/i);
+
+  const negativo = interpretarQuantidade('-3749', 'Sem quantidade anotada');
+  assert.equal(negativo.status, 'REVISAR');
+});
+
+test('numero limpo sem observacao contraditoria segue OK, inclusive "0."', () => {
+  assert.equal(interpretarQuantidade('0.').status, 'OK');
+  assert.equal(interpretarQuantidade('0.').valor, 0);
+  assert.equal(interpretarQuantidade('4138.56', 'Conferido no depósito').status, 'OK');
 });

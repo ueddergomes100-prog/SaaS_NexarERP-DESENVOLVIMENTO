@@ -8,6 +8,8 @@ import {
   montarClienteImportado,
   processarLinhasClientes,
   removerPrefixoCodigoAntigo,
+  type ClienteParaImportar,
+  type MapeamentoColunasCliente,
 } from '../src/utils/importacaoClientesDomain';
 
 test('removerPrefixoCodigoAntigo tira codigo numerico colado no INICIO do nome', () => {
@@ -117,8 +119,34 @@ test('inferirMapeamentoColunasCliente NAO corrige quando a coluna de Nome do cab
   assert.equal(m.nome, 0);
 });
 
+// Os dois tipos abaixo cresceram muito (planilha da Sol Natus trouxe DDD
+// separado, endereco de cobranca e de entrega). Estas bases existem pra que
+// cada teste continue declarando SO o campo que ele esta exercitando.
+const MAPEAMENTO_VAZIO: MapeamentoColunasCliente = {
+  nome: 0, documento: null, fantasia: null, identidade: null,
+  telefoneDdd: null, telefone: null, celularDdd: null, celular: null,
+  email: null, emailNfe: null,
+  endereco: null, numero: null, bairro: null, cidade: null, estado: null, cep: null, referencia: null,
+  enderecoCobranca: null, numeroCobranca: null, bairroCobranca: null,
+  cidadeCobranca: null, estadoCobranca: null, cepCobranca: null,
+  enderecoEntrega: null, numeroEntrega: null, bairroEntrega: null,
+  cidadeEntrega: null, estadoEntrega: null, cepEntrega: null, referenciaEntrega: null,
+  dtUltimaCompra: null,
+};
+
+const CLIENTE_VAZIO: ClienteParaImportar = {
+  codigo: '', nome: '', documento: '', fantasia: '', identidade: '',
+  telefone: '', celular: '', email: '', emailNfe: '',
+  endereco: '', numero: '', bairro: '', cidade: '', estado: '', cep: '', referencia: '',
+  enderecoCobranca: '', numeroCobranca: '', bairroCobranca: '',
+  cidadeCobranca: '', estadoCobranca: '', cepCobranca: '',
+  enderecoEntrega: '', numeroEntrega: '', bairroEntrega: '',
+  cidadeEntrega: '', estadoEntrega: '', cepEntrega: '', referenciaEntrega: '',
+  dtUltimaCompra: '', codigoIbge: '',
+};
+
 test('processarLinhasClientes ignora linha em branco e a linha "CONSUMIDOR FINAL" (ja existe por padrao no sistema)', () => {
-  const mapeamento = { nome: 1, documento: 2, endereco: 3, telefone: 5 };
+  const mapeamento = { ...MAPEAMENTO_VAZIO, nome: 1, documento: 2, endereco: 3, telefone: 5 };
   const linhas = [
     ['', '', '', '', '', '', ''],
     ['', '5254 CONDOMINIO IMPERIAALLEE', '', '', '', '', ''],
@@ -140,7 +168,7 @@ test('processarLinhasClientes ignora linha em branco e a linha "CONSUMIDOR FINAL
 
 test('montarClienteImportado grava sem chave undefined e sem inventar dado', () => {
   const doc = montarClienteImportado(
-    { codigo: '12', nome: 'joao da silva', telefone: '', documento: '', endereco: '', numero: '', bairro: '', cidade: '' },
+    { ...CLIENTE_VAZIO, codigo: '12', nome: 'joao da silva' },
     'tenant-1',
     'user-1',
     'TS',

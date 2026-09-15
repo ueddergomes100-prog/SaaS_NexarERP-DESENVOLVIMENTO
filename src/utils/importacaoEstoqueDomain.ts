@@ -315,6 +315,15 @@ const interpretarTermo = (termoBruto: string): TermoInterpretado | null => {
  * anotacao incompleta (termina em "+"), ou contradicao entre a quantidade
  * e a observacao ("sem quantidade anotada" mas tem numero).
  */
+/** A observacao da planilha diz que a quantidade NAO foi contada -- o que
+ * contradiz qualquer numero na coluna de quantidade. Checado nos dois
+ * caminhos de leitura (numero limpo e anotacao manual). */
+const contradizObservacao = (obs: string): boolean => /sem quantidade anotada/i.test(obs);
+
+const motivoContradicaoObservacao = (total: number): string => (
+  `Observação diz "sem quantidade anotada" mas a planilha traz ${total} -- contradição, conferir`
+);
+
 export const interpretarQuantidade = (
   quantidadeBruta: string,
   observacao?: string,
@@ -340,6 +349,13 @@ export const interpretarQuantidade = (
   // qualquer coisa com "+", "?", virgula etc. cai pro parser de baixo.
   const direto = parseNumeroExportado(q);
   if (direto !== null) {
+    // A contradicao com a observacao vale AQUI TAMBEM. Numero limpo com a
+    // observacao dizendo que ninguem contou e' justamente o caso perigoso:
+    // entra como saldo certo, sem ninguem olhar, e vira inventario errado.
+    // (Este atalho nasceu pra aceitar "0." e quase engoliu a checagem.)
+    if (contradizObservacao(obs)) {
+      return { valor: direto, unidadeSugerida: '', status: 'REVISAR', motivo: motivoContradicaoObservacao(direto) };
+    }
     return {
       valor: direto,
       unidadeSugerida: '',
@@ -400,8 +416,8 @@ export const interpretarQuantidade = (
   if (termos.length > 1 && new Set(validos.map((t) => t.unidade || '')).size > 1) {
     return { valor: total, unidadeSugerida, status: 'REVISAR', motivo: `Soma com unidades possivelmente diferentes entre os termos (${quantidadeBruta}) -- soma deu ${total}, conferir` };
   }
-  if (/sem quantidade anotada/i.test(obs)) {
-    return { valor: total, unidadeSugerida, status: 'REVISAR', motivo: `Observação diz "sem quantidade anotada" mas a planilha traz ${total} -- contradição, conferir` };
+  if (contradizObservacao(obs)) {
+    return { valor: total, unidadeSugerida, status: 'REVISAR', motivo: motivoContradicaoObservacao(total) };
   }
 
   return { valor: total, unidadeSugerida, status: 'OK', motivo: '' };

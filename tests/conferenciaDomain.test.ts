@@ -12,6 +12,8 @@ import {
   ordenarPorLocalizacao,
   podeLancarManual,
   type ConferenciaItem,
+  conferenciaPendenteParaFaturar,
+  avisoFaturarSemConferencia,
 } from '../src/utils/conferenciaDomain';
 
 const item = (overrides: Partial<ConferenciaItem> & Pick<ConferenciaItem, 'produtoId' | 'nome' | 'quantidadePedida'>): ConferenciaItem => ({
@@ -256,4 +258,36 @@ test('ordenarPorLocalizacao: e generica -- funciona com qualquer shape que tenha
   ];
   const ordenado = ordenarPorLocalizacao(itensMinuta);
   assert.deepEqual(ordenado.map((i) => i.nome), ['Com local', 'Sem local']);
+});
+
+test('conferencia desligada nunca avisa nada ao faturar', () => {
+  assert.equal(conferenciaPendenteParaFaturar(false, undefined), false);
+  assert.equal(conferenciaPendenteParaFaturar(false, 'aguardando'), false);
+});
+
+test('so "conferido" libera o faturamento sem aviso', () => {
+  assert.equal(conferenciaPendenteParaFaturar(true, 'conferido'), false);
+  assert.equal(conferenciaPendenteParaFaturar(true, 'aguardando'), true);
+  assert.equal(conferenciaPendenteParaFaturar(true, 'em_conferencia'), true);
+  assert.equal(conferenciaPendenteParaFaturar(true, 'divergente'), true);
+  assert.equal(conferenciaPendenteParaFaturar(true, undefined), true);
+  assert.equal(conferenciaPendenteParaFaturar(true, ''), true);
+});
+
+test('o aviso muda conforme o estagio da separacao', () => {
+  const naoIniciada = avisoFaturarSemConferencia('aguardando');
+  const andando = avisoFaturarSemConferencia('em_conferencia');
+  const divergente = avisoFaturarSemConferencia('divergente');
+
+  assert.notEqual(naoIniciada.title, andando.title);
+  assert.notEqual(andando.title, divergente.title);
+  // Os tres textos existem e dizem o que acontece se seguir.
+  for (const aviso of [naoIniciada, andando, divergente]) {
+    assert.ok(aviso.text.length > 40);
+    assert.ok(aviso.confirmButtonText.toLowerCase().includes('finalizar'));
+  }
+});
+
+test('pedido sem conferencia cai no aviso padrao', () => {
+  assert.equal(avisoFaturarSemConferencia(undefined).title, avisoFaturarSemConferencia('aguardando').title);
 });

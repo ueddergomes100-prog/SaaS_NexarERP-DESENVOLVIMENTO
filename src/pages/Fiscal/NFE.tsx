@@ -4,6 +4,7 @@ import {
   XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings,
   ChevronLeft, ChevronRight, MessageCircle, Loader2
 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -144,6 +145,10 @@ const NFE: React.FC = () => {
 
   // Modal de Emissão
   const [isModalOpen, setIsModalOpen] = useState(false);
+  // `?pedido=<id>`: o fim da venda manda pra ca' quando a empresa emite
+  // NF-e em vez de cupom (ver documentoFiscalVendaDomain.ts).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pedidoImportadoPelaUrlRef = useRef('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
   // Idempotencia da Spedy: `integrationId` estavel por tentativa de
@@ -576,6 +581,51 @@ const NFE: React.FC = () => {
       showError('Erro ao importar', 'Não foi possível carregar os dados fiscais dos produtos.');
     }
   };
+
+  /**
+   * CHEGOU AQUI VINDO DO FIM DE UMA VENDA (`/fiscal/nfe?pedido=<id>`).
+   *
+   * Empresa que emite NF-e e nao emite cupom termina a venda e cai nesta
+   * tela em vez de transmitir no balcao. Abrir a tela vazia obrigaria a
+   * pessoa a procurar o proprio pedido que ela acabou de fechar numa lista
+   * de todos os pedidos finalizados -- entao ja abrimos o formulario com
+   * ele importado.
+   *
+   * Espera `pedidosVenda` carregar: handleSelectPedido procura o pedido
+   * nessa lista, e rodar antes dela chegar nao acharia nada. O ref garante
+   * uma importacao so' -- sem ele, cada re-render com o parametro ainda na
+   * URL reimportaria por cima do que a pessoa ja' estivesse editando.
+   */
+  useEffect(() => {
+    const pedidoDaUrl = searchParams.get('pedido');
+    if (!pedidoDaUrl) return;
+    if (pedidoImportadoPelaUrlRef.current === pedidoDaUrl) return;
+    if (pedidosVenda.length === 0) return;
+
+    pedidoImportadoPelaUrlRef.current = pedidoDaUrl;
+    // Limpa o parametro: recarregar a pagina depois nao pode reimportar o
+    // pedido por cima de uma nota que ja' esta sendo preenchida.
+    setSearchParams({}, { replace: true });
+
+    if (!pedidosVenda.some((pedido) => pedido.id === pedidoDaUrl)) {
+      showError(
+        'Pedido não encontrado',
+        'Este pedido não está disponível para importar nesta tela. Ele precisa estar finalizado — e, se sua empresa limita cada vendedor às próprias vendas, precisa ser um pedido seu. Escolha o pedido na lista "Importar do Pedido de Venda".',
+      );
+      setIsModalOpen(true);
+      setActiveModalTab('cliente');
+      return;
+    }
+
+    setFormData((prev) => ({ ...prev, tipo: 'NF-e' }));
+    setIsModalOpen(true);
+    setActiveModalTab('cliente');
+    void handleSelectPedido(pedidoDaUrl);
+    // handleSelectPedido e' recriado a cada render; incluir na lista faria
+    // o efeito rodar de novo a toa (o ref ja' protege, mas a intencao aqui
+    // e' reagir a URL + lista de pedidos, nada mais).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, pedidosVenda]);
 
   // Importa uma Ordem de Servico finalizada como NFS-e -- so os
   // `servicos[]` da OS entram na nota, `pecas[]` nunca e lido aqui (se a

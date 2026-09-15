@@ -4,6 +4,7 @@ import {
   contaComoFaturamento,
   isPedidoAberto,
   isPedidoCancelado,
+  ocultarFinalizarEmPedidoNovo,
   parseAlterarPagamentoVendaFinalizada,
   parseTrabalhaComPreVenda,
   resolveOrigemPedido,
@@ -82,4 +83,18 @@ test('as configs so ligam com true explicito', () => {
   assert.equal(parseTrabalhaComPreVenda(undefined), false);
   assert.equal(parseAlterarPagamentoVendaFinalizada(true), true);
   assert.equal(parseAlterarPagamentoVendaFinalizada(undefined), false);
+});
+
+test('pre-venda ligada esconde "Finalizar Venda" do pedido novo', () => {
+  assert.equal(ocultarFinalizarEmPedidoNovo(true, true), true);
+});
+
+test('config desligada nao esconde nada', () => {
+  assert.equal(ocultarFinalizarEmPedidoNovo(false, true), false);
+  assert.equal(ocultarFinalizarEmPedidoNovo(false, false), false);
+});
+
+test('sem permissao de gravar pre-venda, Finalizar CONTINUA aparecendo', () => {
+  // Senao o usuario ficaria numa tela de venda sem nenhum botao de gravar.
+  assert.equal(ocultarFinalizarEmPedidoNovo(true, false), false);
 });

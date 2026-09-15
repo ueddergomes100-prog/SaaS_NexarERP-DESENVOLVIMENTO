@@ -111,3 +111,27 @@ export const parseAlterarPagamentoVendaFinalizada = (value: unknown): boolean =>
 export const DEFAULT_AGENTE_DIGITAL_ATIVO = false;
 
 export const parseAgenteDigitalAtivo = (value: unknown): boolean => value === true;
+
+/**
+ * PEDIDO NOVO COM PRE-VENDA LIGADA NAO MOSTRA "FINALIZAR VENDA" (2026-09-15).
+ *
+ * Quem liga `trabalhaComPreVenda` decidiu que toda venda nasce em aberto:
+ * grava, reserva estoque, vai pra separacao/conferencia, e so' depois alguem
+ * fatura. Deixar "Finalizar Venda" ao lado de "Gravar Pré-venda" na tela de
+ * pedido novo transforma essa decisao da empresa num clique errado do
+ * balcao -- e o pedido faturado por engano pula a conferencia inteira.
+ *
+ * A pre-venda gravada CONTINUA finalizavel: e' so' reabrir que o botao
+ * aparece (ver canFinalizarPreVenda). O que sai e' o atalho de faturar
+ * antes de existir pedido gravado.
+ *
+ * A trava so' vale quando o usuario realmente pode gravar pre-venda. Sem
+ * essa segunda condicao, quem tem a config ligada e nao tem
+ * `vendas.pre_venda_criar` ficaria numa tela de venda sem NENHUM botao de
+ * gravar -- tirar a unica saida de quem nao tem a outra e' pior que o
+ * problema que a regra resolve.
+ */
+export const ocultarFinalizarEmPedidoNovo = (
+  trabalhaComPreVenda: boolean,
+  podeCriarPreVenda: boolean,
+): boolean => trabalhaComPreVenda && podeCriarPreVenda;

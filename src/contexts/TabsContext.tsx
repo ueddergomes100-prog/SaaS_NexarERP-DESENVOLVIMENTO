@@ -105,6 +105,8 @@ const SECTION_LABELS: Array<[string, string]> = [
   ['/relatorios-diversos', 'Relatórios Diversos'],
   ['/logs-sistema', 'Logs do Sistema'],
   ['/configuracoes', 'Configurações'],
+  ['/operacoes/expedicao', 'Expedição'],
+  ['/operacoes/conferencia', 'Conferência'],
 ];
 
 /**
@@ -129,6 +131,11 @@ const humanizeSegment = (segment: string) => (
 );
 
 export const resolveTabLabel = (pathname: string): string => {
+  // Query string e hash fora: a aba nomeia a TELA, nao o parametro. Sem
+  // isto, `/fiscal/nfe?pedido=<id>` (o fim da venda de quem emite NF-e)
+  // nao batia em nenhum prefixo e a aba virava "Nfe?Pedido=IXdGM8ifq...".
+  pathname = pathname.split(/[?#]/)[0];
+
   const match = SECTION_LABELS
     .filter(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))
     .sort((a, b) => b[0].length - a[0].length)[0];

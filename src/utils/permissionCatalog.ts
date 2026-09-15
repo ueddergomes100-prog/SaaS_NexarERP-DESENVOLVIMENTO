@@ -73,7 +73,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // decide quem.
       { id: 'vendas.pre_venda_criar', label: 'Vendas: Pré-venda — Gravar', color: '#f59e0b' },
       { id: 'vendas.pre_venda_editar', label: 'Vendas: Pré-venda — Editar em Aberto', color: '#f59e0b' },
-      { id: 'vendas.pre_venda_finalizar', label: 'Vendas: Pré-venda — Finalizar (vira venda)', color: '#ef4444' },
+      { id: 'vendas.pre_venda_finalizar', label: 'Vendas: Pré-venda — Transformar em venda (finalizar)', color: '#ef4444' },
       { id: 'vendas.pre_venda_cancelar', label: 'Vendas: Pré-venda — Cancelar', color: '#ef4444' },
       { id: 'vendas.pre_venda_relatorio', label: 'Vendas: Relatório de Pré-vendas em Aberto', color: '#f59e0b' },
       // Idem: so vale com "Permitir alterar a forma de pagamento de venda

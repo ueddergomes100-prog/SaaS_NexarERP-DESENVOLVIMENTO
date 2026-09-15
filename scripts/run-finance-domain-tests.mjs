@@ -26,6 +26,7 @@ const testFiles = [
   join(temporaryDirectory, 'tests', 'clienteValidacaoDomain.test.js'),
   join(temporaryDirectory, 'tests', 'creditoDomain.test.js'),
   join(temporaryDirectory, 'tests', 'preVendaDomain.test.js'),
+  join(temporaryDirectory, 'tests', 'documentoFiscalVendaDomain.test.js'),
   join(temporaryDirectory, 'tests', 'vendedorPinDomain.test.js'),
   join(temporaryDirectory, 'tests', 'visibilidadeVendasDomain.test.js'),
   join(temporaryDirectory, 'tests', 'importacaoEstoqueDomain.test.js'),

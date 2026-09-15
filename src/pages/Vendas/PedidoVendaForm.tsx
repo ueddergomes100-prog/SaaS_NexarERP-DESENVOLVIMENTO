@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History } from 'lucide-react';
-import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
@@ -13,7 +13,18 @@ import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
-import { DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA, type StatusConferencia } from '../../utils/conferenciaDomain';
+import {
+  avisoFaturarSemConferencia,
+  conferenciaPendenteParaFaturar,
+  DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
+  type StatusConferencia,
+} from '../../utils/conferenciaDomain';
+import {
+  resolveDocumentoFiscalVenda,
+  rotaEmissaoNFe,
+  rotuloAcaoFiscalVenda,
+  type DocumentoFiscalVenda,
+} from '../../utils/documentoFiscalVendaDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
@@ -51,6 +62,7 @@ import {
   DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
   DEFAULT_TRABALHA_COM_PRE_VENDA,
   isPedidoAberto,
+  ocultarFinalizarEmPedidoNovo,
   parseAlterarPagamentoVendaFinalizada,
   parseTrabalhaComPreVenda,
   resolveOrigemPedido,
@@ -209,6 +221,23 @@ const toSpedyPaymentMethod = (method: string) => {
   return 'other';
 };
 
+// Rotulos/cores da conferencia. Duplicados de proposito por tela (mesmo
+// criterio de FilaExpedicao.tsx e PedidoVendas.tsx) -- cada tela escolhe
+// como mostra, o dominio so' define os estados.
+const CONFERENCIA_LABELS: Record<StatusConferencia, string> = {
+  aguardando: 'Não conferido',
+  em_conferencia: 'Em conferência',
+  conferido: 'Conferência OK',
+  divergente: 'Conferência divergente',
+};
+
+const CONFERENCIA_CORES: Record<StatusConferencia, string> = {
+  aguardando: '#f59e0b',
+  em_conferencia: '#3b82f6',
+  conferido: '#10b981',
+  divergente: '#ef4444',
+};
+
 const PedidoVendaForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams(); // Para modo Visualização
@@ -275,6 +304,13 @@ const PedidoVendaForm: React.FC = () => {
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
   const [produtoSearchMode, setProdutoSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(false);
+  // Em que pe' esta a separacao deste pedido. Vem do documento (nao do
+  // rascunho da tela) e e' mantido vivo pelo listener de status abaixo --
+  // a expedicao fecha a conferencia numa maquina e isto muda aqui sozinho.
+  const [statusConferencia, setStatusConferencia] = useState<StatusConferencia | ''>('');
+  const [conferidoPorNome, setConferidoPorNome] = useState('');
+  // Quais documentos fiscais a empresa emite (ver documentoFiscalVendaDomain).
+  const [documentosFiscais, setDocumentosFiscais] = useState<{ emiteNFe?: unknown; emiteNFCe?: unknown; emiteNFSe?: unknown }>({});
   const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [descontoGeralInput, setDescontoGeralInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
   const [limiteDescontoPedido, setLimiteDescontoPedido] = useState<LimiteDescontoConfig | null>(null);
@@ -380,6 +416,52 @@ const PedidoVendaForm: React.FC = () => {
   const canEditarPreVenda = isPreVendaAberta && trabalhaComPreVenda && temPermissao('vendas.pre_venda_editar');
   const canFinalizarPreVenda = isPreVendaAberta && trabalhaComPreVenda && temPermissao('vendas.pre_venda_finalizar');
   const canCancelarPreVenda = isPreVendaAberta && trabalhaComPreVenda && temPermissao('vendas.pre_venda_cancelar');
+
+  // Regra do botao: pedido NOVO com pre-venda ligada nao mostra "Finalizar
+  // Venda" (ver ocultarFinalizarEmPedidoNovo). Reabrindo a pre-venda
+  // gravada ele volta, atras de `vendas.pre_venda_finalizar`.
+  const esconderFinalizarEmPedidoNovo = !isViewing && ocultarFinalizarEmPedidoNovo(trabalhaComPreVenda, canCriarPreVenda);
+
+  // Qual documento fiscal esta empresa emite no fim da venda.
+  const documentoFiscalVenda: DocumentoFiscalVenda = resolveDocumentoFiscalVenda(controlaFiscal, documentosFiscais);
+
+  /**
+   * A TELA DE VENDA FICA ABERTA O DIA INTEIRO.
+   *
+   * O pedido e' carregado uma vez com getDoc (acima) porque a tela e' um
+   * formulario: um snapshot no carregamento inteiro reescreveria o que o
+   * operador esta digitando a cada mudanca remota. Mas DOIS campos mudam
+   * fora daqui, por outra pessoa, em outra maquina -- o status do pedido e o
+   * da conferencia -- e ate agora so apareciam se alguem saisse da tela e
+   * entrasse de novo. Quem faturava olhava "não conferido" numa tela que ja
+   * estava velha.
+   *
+   * Entao este listener e' de proposito ESTREITO: le o documento inteiro e
+   * so' toca em status/conferencia. Nenhum campo editavel do formulario
+   * passa por aqui.
+   */
+  useEffect(() => {
+    if (!isViewing || !id || !tenantId) return;
+    const unsubscribe = onSnapshot(doc(db, 'pedidos_venda', id), (snap) => {
+      if (!snap.exists()) return;
+      const dados = snap.data();
+      if (dados.tenantId !== tenantId) return;
+      setStatus((atual) => (dados.status && dados.status !== atual ? dados.status : atual));
+      setStatusConferencia((atual) => {
+        const remoto = (dados.statusConferencia as StatusConferencia) || '';
+        return remoto !== atual ? remoto : atual;
+      });
+      setConferidoPorNome((atual) => {
+        const remoto = dados.conferidoPorNome || '';
+        return remoto !== atual ? remoto : atual;
+      });
+    }, (error) => {
+      // Acompanhar o status em tempo real e' conveniencia: o pedido ja' foi
+      // carregado. Falhar aqui nao pode derrubar a tela de venda.
+      console.error('Erro ao acompanhar o status do pedido em tempo real:', error);
+    });
+    return () => unsubscribe();
+  }, [isViewing, id, tenantId]);
 
   // Alterar forma de pagamento de venda finalizada. Mesma hierarquia:
   // config libera pra empresa, permissao decide quem. As duas travas
@@ -538,6 +620,11 @@ const PedidoVendaForm: React.FC = () => {
           setPagamentoCartaoSimplificadoAtivo(parsePagamentoCartaoSimplificadoAtivo(config.pagamentoCartaoSimplificadoAtivo));
           setProdutoSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           setConferenciaMercadoriaAtiva(config.conferenciaMercadoria === true);
+          setDocumentosFiscais({
+            emiteNFe: config.emiteNFe,
+            emiteNFCe: config.emiteNFCe,
+            emiteNFSe: config.emiteNFSe,
+          });
           setTrabalhaComPreVenda(parseTrabalhaComPreVenda(config.trabalhaComPreVenda));
           setAlterarPagamentoAtivo(parseAlterarPagamentoVendaFinalizada(config.alterarPagamentoVendaFinalizada));
           setExigirIdentificacaoVendedor(parseExigirIdentificacaoVendedor(config.exigirIdentificacaoVendedor));
@@ -609,6 +696,8 @@ const PedidoVendaForm: React.FC = () => {
             setNumeroPedido(p.numeroPedido || '');
             setStatus(p.status || 'Finalizada');
             setOrigemPedido(resolveOrigemPedido(p));
+            setStatusConferencia((p.statusConferencia as StatusConferencia) || '');
+            setConferidoPorNome(p.conferidoPorNome || '');
             setItens(p.itens || []);
             setOrcamentoId(p.orcamentoId || '');
             setFrete(p.frete || 0);
@@ -1394,6 +1483,20 @@ const PedidoVendaForm: React.FC = () => {
           // baixado. A baixa real acontece so na finalizacao, que consome
           // esta reserva.
           estoqueReservado: itens.length > 0,
+          // A PRE-VENDA JA ENTRA NA FILA DA EXPEDICAO.
+          //
+          // Antes disto, a conferencia so' comecava quando a venda era
+          // FINALIZADA -- o que inverte o fluxo de quem trabalha com
+          // pre-venda: ali a separacao acontece ANTES de faturar, e e'
+          // justamente o resultado dela que diz se pode faturar. Sem esta
+          // linha, a pre-venda nunca aparecia pro pessoal da conferencia.
+          //
+          // Regravando: mantem o que a expedicao ja' marcou. Editar a
+          // pre-venda nao pode devolver pra fila um pedido que ja' esta
+          // sendo separado (nem apagar uma conferencia fechada).
+          ...(conferenciaMercadoriaAtiva
+            ? { statusConferencia: (statusConferencia || 'aguardando') as StatusConferencia }
+            : {}),
           tenantId,
           usuarioResponsavelId: currentUser.uid,
           vendedorId: selectedSellerId,
@@ -1777,6 +1880,25 @@ const PedidoVendaForm: React.FC = () => {
       `Finalizar venda de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalPedido)}`,
     )) return false;
 
+    // Faturar um pedido que a expedicao ainda nao fechou. Nao e' bloqueio --
+    // pedido que sai na hora existe -- mas quem fatura precisa saber que
+    // esta reconhecendo receita de mercadoria que ninguem conferiu.
+    // Ver conferenciaPendenteParaFaturar() em conferenciaDomain.ts.
+    if (isViewing && conferenciaPendenteParaFaturar(conferenciaMercadoriaAtiva, statusConferencia)) {
+      const aviso = avisoFaturarSemConferencia(statusConferencia);
+      const confirmaSemConferencia = await NexusSwal.fire({
+        title: aviso.title,
+        text: aviso.text,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: aviso.confirmButtonText,
+        cancelButtonText: 'Voltar',
+        confirmButtonColor: '#f59e0b',
+        reverseButtons: true,
+      });
+      if (!confirmaSemConferencia.isConfirmed) return false;
+    }
+
     // Nivel 2 (sistema): desconto TOTAL da venda contra o limite configurado
     // pra esta tela, reagindo conforme o modo escolhido em Configuracoes.
     if (checagemLimiteDesconto.excedeu) {
@@ -2001,6 +2123,10 @@ const PedidoVendaForm: React.FC = () => {
         // uma pre-venda ou um pedido do agente nao deve apagar quando ele
         // foi criado de verdade, so registrar quem finalizou.
         const existingPedidoSnap = finalizandoPedidoAberto ? await transaction.get(newPedidoRef) : null;
+        // Campos gravados por OUTRO setor no documento (hoje, os da
+        // conferencia). Lidos aqui dentro da transacao pra sobreviverem ao
+        // `set` que reescreve o pedido logo abaixo.
+        const dadosPedidoAberto = existingPedidoSnap?.exists() ? existingPedidoSnap.data() : null;
         if (finalizandoPedidoAberto && !existingPedidoSnap?.exists()) {
           throw new Error('Este pedido não existe mais.');
         }
@@ -2111,7 +2237,20 @@ const PedidoVendaForm: React.FC = () => {
           // valor de campo, entao o jeito de "nao gravar" e' nao incluir a
           // chave no objeto. Tenant com a config desligada continua
           // gravando exatamente o que gravava antes desta fatia.
-          ...(conferenciaMercadoriaAtiva ? { statusConferencia: 'aguardando' as StatusConferencia } : {}),
+          // Pedido que JA passou pela conferencia mantem o que a expedicao
+          // fechou. Regravar 'aguardando' aqui devolveria pra fila um
+          // pedido ja separado e conferido -- o que acontece toda vez que
+          // uma pre-venda conferida e' faturada, que e' o caminho normal de
+          // quem trabalha com pre-venda + conferencia.
+          ...(conferenciaMercadoriaAtiva ? { statusConferencia: (statusConferencia || 'aguardando') as StatusConferencia } : {}),
+          // Quem conferiu e quando. Este `set` reescreve o documento
+          // INTEIRO, entao um campo nao repetido aqui e' apagado -- e sem
+          // isto, faturar a pre-venda apagava o autor da conferencia que a
+          // expedicao tinha acabado de gravar. As chaves so entram quando
+          // existem de verdade: Firestore recusa `undefined`.
+          ...(dadosPedidoAberto?.conferidoPor ? { conferidoPor: dadosPedidoAberto.conferidoPor } : {}),
+          ...(dadosPedidoAberto?.conferidoPorNome ? { conferidoPorNome: dadosPedidoAberto.conferidoPorNome } : {}),
+          ...(dadosPedidoAberto?.conferidoEm ? { conferidoEm: dadosPedidoAberto.conferidoEm } : {}),
           tenantId,
           usuarioResponsavelId: currentUser.uid,
           vendedorId: selectedSellerId,
@@ -2286,11 +2425,15 @@ const PedidoVendaForm: React.FC = () => {
         text: 'O estoque foi atualizado e o financeiro lançado. O que deseja fazer agora?',
         icon: 'success',
         showCancelButton: true,
-        showDenyButton: controlaFiscal,
-        confirmButtonText: controlaFiscal ? 'Emitir Cupom Fiscal (NFC-e)' : 'Imprimir Recibo',
+        // O documento oferecido aqui e' o que a EMPRESA emite, nao mais
+        // NFC-e pra todo mundo. Quem so' emite NF-e ve "Emitir NF-e", e o
+        // botao leva pra tela Fiscal em vez de transmitir daqui -- NF-e tem
+        // campos demais pra caber num clique (ver documentoFiscalVendaDomain).
+        showDenyButton: documentoFiscalVenda !== 'nenhum',
+        confirmButtonText: rotuloAcaoFiscalVenda(documentoFiscalVenda),
         denyButtonText: 'Imprimir Recibo',
         cancelButtonText: 'Apenas Concluir',
-        confirmButtonColor: controlaFiscal ? '#10b981' : '#3b82f6',
+        confirmButtonColor: documentoFiscalVenda === 'nenhum' ? '#3b82f6' : '#10b981',
         denyButtonColor: '#3b82f6'
       });
 
@@ -2321,9 +2464,13 @@ const PedidoVendaForm: React.FC = () => {
         }
       }
 
-      // Sem fiscal, o botao principal imprime o recibo em vez de emitir cupom.
-      if (result.isConfirmed && !controlaFiscal) {
+      // Sem documento fiscal, o botao principal imprime o recibo.
+      if (result.isConfirmed && documentoFiscalVenda === 'nenhum') {
         await askMinutaAndNavigate(`/pedidos-venda/print/${newPedidoId}`);
+      } else if (result.isConfirmed && documentoFiscalVenda === 'nfe') {
+        // NF-e nao e' transmitida daqui: leva pra tela Fiscal com este
+        // pedido ja' selecionado, e a emissao se conclui la.
+        await askMinutaAndNavigate(rotaEmissaoNFe(newPedidoId));
       } else if (result.isConfirmed) {
         NexusSwal.fire({
           title: 'Emitindo Cupom Fiscal...',
@@ -3323,6 +3470,28 @@ const PedidoVendaForm: React.FC = () => {
                       : 'Detalhes do Pedido e Impressão')
                 : 'Ponto de venda rápido para itens e produtos'}
             </p>
+            {/* Situacao da separacao, ao vivo. O pessoal da expedicao fecha
+                a conferencia em outra maquina e isto muda aqui sem ninguem
+                sair da tela (ver o listener de status). */}
+            {isViewing && conferenciaMercadoriaAtiva && statusConferencia && status !== STATUS_CANCELADA && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                <span style={{
+                  padding: '3px 10px',
+                  borderRadius: '999px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  backgroundColor: `${CONFERENCIA_CORES[statusConferencia]}20`,
+                  color: CONFERENCIA_CORES[statusConferencia],
+                }}>
+                  {CONFERENCIA_LABELS[statusConferencia]}
+                </span>
+                {conferidoPorNome && (statusConferencia === 'conferido' || statusConferencia === 'divergente') && (
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    por {conferidoPorNome}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
@@ -3334,8 +3503,9 @@ const PedidoVendaForm: React.FC = () => {
           {isViewing && status === 'Finalizada' && (
             <>
               {/* Botão de NFC-e (Cupom Fiscal) -- some inteiro quando a
-                  empresa nao controla fiscal (Configuracoes.tsx). */}
-              {controlaFiscal && (!nfeDoc ? (
+                  empresa nao controla fiscal (Configuracoes.tsx) e quando o
+                  documento dela e' outro (ver documentoFiscalVendaDomain). */}
+              {documentoFiscalVenda === 'nfce' && (!nfeDoc ? (
                 <button
                   className="btn-primary"
                   onClick={handleEmitirCupomVendaExistente}
@@ -3362,6 +3532,19 @@ const PedidoVendaForm: React.FC = () => {
                   <RefreshCw size={18} /> Consultar Cupom (NFC-e)
                 </button>
               ))}
+
+              {/* Empresa de NF-e: o botao leva pra tela Fiscal com o pedido
+                  ja' escolhido. Nao transmite daqui -- ver rotaEmissaoNFe. */}
+              {documentoFiscalVenda === 'nfe' && (
+                <button
+                  className="btn-primary"
+                  onClick={() => navigate(rotaEmissaoNFe(id!))}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }}
+                  title="Abre a tela de Nota Fiscal com este pedido já importado"
+                >
+                  <Receipt size={18} /> Emitir NF-e
+                </button>
+              )}
 
               <button className="btn-secondary" onClick={() => navigate(`/pedidos-venda/print/${id}`)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Printer size={18} /> Imprimir Recibo
@@ -3436,7 +3619,7 @@ const PedidoVendaForm: React.FC = () => {
               {isLoading ? 'Gravando...' : (isPreVendaAberta ? 'Salvar Pré-venda' : 'Gravar Pré-venda')}
             </button>
           )}
-          {(!isViewing || (isPendingFromAgent && canEditPendingOrder) || (isPreVendaAberta && canFinalizarPreVenda)) && (
+          {((!isViewing && !esconderFinalizarEmPedidoNovo) || (isPendingFromAgent && canEditPendingOrder) || (isPreVendaAberta && canFinalizarPreVenda)) && (
             <button className="btn-primary" onClick={handleFinalizarVenda} disabled={isLoading} style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981' }}>
               <ShoppingCart size={18} />
               {isLoading ? 'Finalizando...' : 'Finalizar Venda'}
@@ -3999,7 +4182,7 @@ const PedidoVendaForm: React.FC = () => {
             </button>
           )}
 
-          {(!isViewing || (isPendingFromAgent && canEditPendingOrder) || (isPreVendaAberta && canFinalizarPreVenda)) && (
+          {((!isViewing && !esconderFinalizarEmPedidoNovo) || (isPendingFromAgent && canEditPendingOrder) || (isPreVendaAberta && canFinalizarPreVenda)) && (
             <button className="btn-primary" onClick={handleFinalizarVenda} disabled={isLoading} style={{ width: '100%', padding: '16px', fontSize: '16px', fontWeight: 700, backgroundColor: '#10b981', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}>
               <ShoppingCart size={24} />
               FINALIZAR VENDA

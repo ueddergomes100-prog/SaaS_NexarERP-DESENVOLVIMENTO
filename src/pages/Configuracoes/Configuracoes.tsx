@@ -1819,7 +1819,7 @@ const Configuracoes: React.FC = () => {
                   Trabalha com pré-venda
                 </label>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                  Quando marcado, a tela de Pedido de Venda ganha o botão <strong>Gravar Pré-venda</strong> ao lado de Finalizar Venda. A pré-venda fica em aberto, <strong>reserva o estoque sem dar baixa</strong> e não gera nenhum lançamento financeiro — a baixa e o financeiro só acontecem quando alguém finaliza. Pré-venda em aberto não entra em faturamento nem em caixa; ela tem relatório próprio em Vendas → Pré-vendas em Aberto. Desligado (padrão), a tela funciona exatamente como antes.
+                  Quando marcado, <strong>toda venda nasce como pré-venda</strong>: na tela de Pedido de Venda, o botão passa a ser <strong>Gravar Pré-venda</strong> e o <strong>Finalizar Venda some do pedido novo</strong>, para ninguém faturar por engano antes da separação. Para faturar, abra a pré-venda gravada na aba <strong>Pré-vendas</strong> — lá o botão Finalizar aparece, para quem tiver a permissão. A pré-venda fica em aberto, <strong>reserva o estoque sem dar baixa</strong> e não gera nenhum lançamento financeiro — a baixa e o financeiro só acontecem quando alguém finaliza. Com a <strong>conferência de mercadoria</strong> também ligada, a pré-venda já entra na fila da expedição assim que é gravada, e o pedido mostra a situação da conferência em tempo real. Pré-venda em aberto não entra em faturamento nem em caixa; ela tem relatório próprio em Vendas → Pré-vendas em Aberto. Desligado (padrão), a tela funciona exatamente como antes.
                 </p>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                   Ligar aqui libera o recurso para a empresa. <strong>Quem pode gravar, editar, finalizar ou cancelar pré-venda é definido usuário a usuário</strong>, nas permissões de cada funcionário.
@@ -2282,7 +2282,7 @@ const Configuracoes: React.FC = () => {
                     Emite NFS-e
                   </label>
                 </div>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Identifica quais documentos fiscais esta empresa emite. "Emite NF-e"/"Emite NFC-e" continuam só informativos; "Emite NFS-e" já libera a configuração abaixo, usada de verdade na emissão.</p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Define o documento oferecido ao fim da venda. Marcando só <strong>NF-e</strong>, o Pedido de Venda passa a oferecer <strong>"Emitir NF-e"</strong> — que abre a tela de Nota Fiscal com o pedido já importado, para você conferir destinatário, CFOP e transporte antes de transmitir — em vez de <strong>"Emitir Cupom Fiscal (NFC-e)"</strong>. Com NFC-e marcada, o cupom continua sendo o documento do balcão, emitido na hora. Sem nenhuma marcada, nada muda: o sistema segue oferecendo NFC-e. "Emite NFS-e" libera a configuração abaixo, usada na emissão de serviço.</p>
               </div>
 
               {formData.emiteNFSe && (

@@ -130,3 +130,58 @@ export const ordenarPorLocalizacao = <T extends { localizacaoEstoque?: string }>
   comLocal.sort((a, b) => a.localizacaoEstoque!.localeCompare(b.localizacaoEstoque!));
   return [...comLocal, ...semLocal];
 };
+
+/**
+ * FATURAR ANTES DE CONFERIR (2026-09-15).
+ *
+ * A conferencia NAO fatura o pedido -- ela fecha como 'conferido' ou
+ * 'divergente' e para por ai (ver ConferenciaForm.tsx). Quem fatura e' o
+ * pessoal de vendas, reabrindo a pre-venda. Isso e' de proposito: separar
+ * mercadoria e reconhecer receita sao decisoes de setores diferentes.
+ *
+ * Mas o caminho de faturar sem esperar a conferencia precisa continuar
+ * existindo -- cliente esperando no balcao, pedido que sai na hora, correcao
+ * de um pedido que nunca vai ser separado. Entao nao e' bloqueio, e' aviso:
+ * o sistema diz em que pe' esta a separacao e pergunta uma vez.
+ */
+export const conferenciaPendenteParaFaturar = (
+  conferenciaAtiva: boolean,
+  statusConferencia: StatusConferencia | string | null | undefined,
+): boolean => {
+  if (!conferenciaAtiva) return false;
+  return String(statusConferencia ?? '') !== 'conferido';
+};
+
+/**
+ * Aviso mostrado antes de faturar um pedido que a expedicao ainda nao
+ * fechou como conferido. O texto muda conforme o estagio porque as tres
+ * situacoes pedem decisoes diferentes: ninguem comecou, alguem esta
+ * separando agora, ou a separacao achou diferenca.
+ */
+export const avisoFaturarSemConferencia = (
+  statusConferencia: StatusConferencia | string | null | undefined,
+): { title: string; text: string; confirmButtonText: string } => {
+  const status = String(statusConferencia ?? '');
+
+  if (status === 'em_conferencia') {
+    return {
+      title: 'A conferência está em andamento',
+      text: 'Alguém da expedição está conferindo este pedido agora. Se você finalizar, a venda é faturada com as quantidades do pedido, não com o que foi separado — e a conferência continua aberta na fila.',
+      confirmButtonText: 'Finalizar mesmo assim',
+    };
+  }
+
+  if (status === 'divergente') {
+    return {
+      title: 'A conferência fechou com divergência',
+      text: 'A expedição separou quantidade diferente da que está no pedido. Finalizar agora fatura os valores do pedido, não os conferidos. Confira as quantidades antes, ou finalize ciente da diferença.',
+      confirmButtonText: 'Finalizar mesmo assim',
+    };
+  }
+
+  return {
+    title: 'Este pedido ainda não foi conferido',
+    text: 'A mercadoria ainda não passou pela conferência da expedição. Você pode finalizar a venda assim mesmo — o estoque é baixado e o financeiro é lançado normalmente.',
+    confirmButtonText: 'Sim, finalizar sem conferir',
+  };
+};

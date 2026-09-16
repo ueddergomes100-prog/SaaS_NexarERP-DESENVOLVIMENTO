@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck } from 'lucide-react';
+import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, ChevronDown, Filter } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { useTabs } from '../../contexts/TabsContext';
+import { useTabs, TabActiveContext } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { spedyService } from '../../services/spedyService';
@@ -22,6 +22,15 @@ import {
   listaGeralDeVendasEscondidaParaFuncionario,
   parseExigirIdentificacaoVendedor,
 } from '../../utils/vendedorPinDomain';
+import {
+  addDaysToDateInput,
+  dateInputToUtcEnd,
+  dateInputToUtcStart,
+  formatDateInputPtBr,
+  getDashboardPeriodRange,
+  getDateInputInTimeZone,
+  isWithinDateRange,
+} from '../../utils/dateTime';
 
 interface ItemVenda {
   id: string;
@@ -34,6 +43,7 @@ interface PedidoVendaData {
   id: string;
   numeroPedido: string;
   createdAt?: { seconds?: number; nanoseconds?: number };
+  dataVenda?: string;
   clienteNome?: string;
   formaPagamento?: string;
   status: string;
@@ -46,6 +56,133 @@ interface PedidoVendaData {
   usuarioResponsavelId?: string;
   criadoPor?: string;
 }
+
+/**
+ * A mesma data que o Relatorio de Vendas usa pra filtrar por periodo
+ * (`dataVenda`, com `createdAt` so' como fallback pra pedido antigo sem
+ * o campo) -- nao a data de CRIACAO do documento. Foi divergencia entre
+ * "esta tela mostra uma data" e "o relatorio filtra por outra" que fez o
+ * pedido #0154 do Shopping Rural parecer normal aqui e sumir de la (ver
+ * VerificadorDataDoSistema.tsx). Mostrar e filtrar pelo mesmo campo do
+ * financeiro fecha essa divergencia por completo.
+ */
+const dataEfetivaPedido = (p: PedidoVendaData): Date | null => {
+  if (p.dataVenda) return dateInputToUtcStart(p.dataVenda);
+  if (p.createdAt?.seconds) return new Date(p.createdAt.seconds * 1000);
+  return null;
+};
+
+const formatarDataEfetiva = (p: PedidoVendaData): string => {
+  if (p.dataVenda) return formatDateInputPtBr(p.dataVenda);
+  if (p.createdAt?.seconds) return new Date(p.createdAt.seconds * 1000).toLocaleDateString('pt-BR');
+  return '-';
+};
+
+type FiltroDataPreset = '' | 'hoje' | 'ontem' | '7dias' | 'mes' | 'personalizado';
+
+const ROTULO_PRESET_DATA: Record<Exclude<FiltroDataPreset, '' | 'personalizado'>, string> = {
+  hoje: 'Hoje',
+  ontem: 'Ontem',
+  '7dias': 'Últimos 7 dias',
+  mes: 'Este mês',
+};
+
+/**
+ * Pequeno dropdown de filtro por coluna, estilo planilha: seta no
+ * cabecalho, painel com as opcoes por baixo. Fecha ao clicar fora.
+ */
+const FiltroColuna: React.FC<{ ativo: boolean; children: (fechar: () => void) => React.ReactNode }> = ({ ativo, children }) => {
+  const [aberto, setAberto] = useState(false);
+  const containerRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!aberto) return undefined;
+    const aoClicarFora = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) setAberto(false);
+    };
+    document.addEventListener('mousedown', aoClicarFora);
+    return () => document.removeEventListener('mousedown', aoClicarFora);
+  }, [aberto]);
+
+  return (
+    <span ref={containerRef} style={{ position: 'relative', display: 'inline-block', marginLeft: '4px', verticalAlign: 'middle' }}>
+      <button
+        type="button"
+        onClick={(event) => { event.stopPropagation(); setAberto((atual) => !atual); }}
+        title="Filtrar"
+        aria-label="Filtrar por esta coluna"
+        style={{
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: '2px',
+          display: 'inline-flex',
+          color: ativo ? 'var(--accent-purple)' : 'var(--text-muted)',
+        }}
+      >
+        <ChevronDown size={14} />
+      </button>
+      {aberto && (
+        <div
+          onClick={(event) => event.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            marginTop: '4px',
+            zIndex: 30,
+            backgroundColor: 'var(--bg-tertiary)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-md)',
+            padding: '8px',
+            minWidth: '200px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+            textTransform: 'none',
+            fontWeight: 400,
+            fontSize: '13px',
+          }}
+        >
+          {children(() => setAberto(false))}
+        </div>
+      )}
+    </span>
+  );
+};
+
+const itemOpcaoStyle = (selecionado: boolean): React.CSSProperties => ({
+  display: 'block',
+  width: '100%',
+  textAlign: 'left',
+  padding: '6px 8px',
+  borderRadius: 'var(--radius-sm)',
+  border: 'none',
+  cursor: 'pointer',
+  backgroundColor: selecionado ? 'var(--accent-purple)' : 'transparent',
+  color: selecionado ? 'white' : 'var(--text-primary)',
+  fontWeight: selecionado ? 600 : 400,
+});
+
+/** Lista simples de opcoes com "Todos" pra limpar -- usada por Vendedor,
+ * Forma de Pagamento e Conferencia, que sao filtros de igualdade exata. */
+const OpcoesFiltro: React.FC<{
+  opcoes: string[];
+  valorSelecionado: string;
+  onSelecionar: (valor: string, fechar: () => void) => void;
+  fechar: () => void;
+  rotuloTodos?: string;
+  formatarRotulo?: (valor: string) => string;
+}> = ({ opcoes, valorSelecionado, onSelecionar, fechar, rotuloTodos = 'Todos', formatarRotulo }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '240px', overflowY: 'auto' }}>
+    <button type="button" style={itemOpcaoStyle(valorSelecionado === '')} onClick={() => onSelecionar('', fechar)}>
+      {rotuloTodos}
+    </button>
+    {opcoes.map((opcao) => (
+      <button key={opcao} type="button" style={itemOpcaoStyle(valorSelecionado === opcao)} onClick={() => onSelecionar(opcao, fechar)}>
+        {formatarRotulo ? formatarRotulo(opcao) : opcao}
+      </button>
+    ))}
+  </div>
+);
 
 // Modulo 12 (Conferencia de mercadoria) -- rotulos/cores da coluna opcional.
 // Fatia 1/4 so grava 'aguardando'; os demais estados existem desde ja pra
@@ -67,6 +204,7 @@ const PedidoVendas: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
   const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, nivelAcesso, trabalhaComPreVenda, agenteDigitalAtivo, controlaFiscal } = useAuth();
+  const isTabActive = useContext(TabActiveContext);
 
   // Mesma permissao cobre editar/finalizar E recusar um pedido pendente do
   // agente -- nao criar uma permissao a mais so pra recusar.
@@ -86,6 +224,29 @@ const PedidoVendas: React.FC = () => {
   const [showItemPreview, setShowItemPreview] = useState(false);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(false);
   const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(false);
+
+  // Filtros por coluna (estilo planilha, pedido pela usuaria no video da F27
+  // de bugfix da data da venda). Ficam SO' na memoria do componente --
+  // nunca em localStorage -- e sao zerados assim que o usuario sai desta
+  // tela (troca de aba ou fecha), pra nao repetir o susto do #0154: filtro
+  // esquecido ligado faz parecer que pedido sumiu, quando so' esta fora do
+  // filtro de ontem.
+  const [filtroVendedor, setFiltroVendedor] = useState('');
+  const [filtroFormaPagamento, setFiltroFormaPagamento] = useState('');
+  const [filtroConferencia, setFiltroConferencia] = useState('');
+  const [filtroDataPreset, setFiltroDataPreset] = useState<FiltroDataPreset>('');
+  const [filtroDataInicio, setFiltroDataInicio] = useState('');
+  const [filtroDataFim, setFiltroDataFim] = useState('');
+
+  useEffect(() => {
+    if (isTabActive) return;
+    setFiltroVendedor('');
+    setFiltroFormaPagamento('');
+    setFiltroConferencia('');
+    setFiltroDataPreset('');
+    setFiltroDataInicio('');
+    setFiltroDataFim('');
+  }, [isTabActive]);
 
   // Lista geral so e' escondida da TELA (nao do Firestore) do funcionario
   // comum quando a empresa liga "Exigir identificacao do vendedor" -- ver
@@ -218,7 +379,11 @@ const PedidoVendas: React.FC = () => {
     }
   };
 
-  const filteredPedidos = pedidos.filter(p => {
+  // Pedidos da aba ativa (Ativos/Pre-vendas/Pendentes/Cancelados) + busca de
+  // texto, ANTES dos filtros de coluna -- e' desta lista que as opcoes dos
+  // dropdowns (Vendedor, Forma de Pagamento, Conferencia) sao derivadas, pra
+  // nunca oferecer uma opcao que nao existe nesta aba.
+  const pedidosDoContexto = pedidos.filter(p => {
     // "Ativos / Faturados" = so o que virou venda de verdade. Pedido em
     // aberto (pre-venda do balcao ou pendente do agente) tem aba propria --
     // misturar os dois faria a aba principal mostrar como venda algo que
@@ -234,6 +399,78 @@ const PedidoVendas: React.FC = () => {
     if (!searchTerm) return true;
     return p.clienteNome?.toLowerCase().includes(searchTerm.toLowerCase()) || p.numeroPedido?.includes(searchTerm);
   });
+
+  const opcoesVendedor = Array.from(new Set(pedidosDoContexto.map(p => p.vendedorNome).filter((v): v is string => Boolean(v)))).sort((a, b) => a.localeCompare(b));
+  const opcoesFormaPagamento = Array.from(new Set(pedidosDoContexto.map(p => p.formaPagamento).filter((v): v is string => Boolean(v)))).sort((a, b) => a.localeCompare(b));
+  const opcoesConferencia = Array.from(new Set(pedidosDoContexto.map(p => p.statusConferencia).filter((v): v is string => Boolean(v))));
+
+  // Periodo efetivo do filtro de Data -- presets rapidos ou intervalo
+  // personalizado, sempre calculado sobre `dataVenda` (ver dataEfetivaPedido).
+  const periodoDataFiltro = (() => {
+    if (!filtroDataPreset) return null;
+    const hoje = getDateInputInTimeZone();
+    if (filtroDataPreset === 'hoje') {
+      const inicio = dateInputToUtcStart(hoje);
+      const fim = dateInputToUtcEnd(hoje);
+      return inicio && fim ? { inicio, fim } : null;
+    }
+    if (filtroDataPreset === 'ontem') {
+      const ontem = addDaysToDateInput(hoje, -1);
+      const inicio = dateInputToUtcStart(ontem);
+      const fim = dateInputToUtcEnd(ontem);
+      return inicio && fim ? { inicio, fim } : null;
+    }
+    if (filtroDataPreset === '7dias') {
+      const inicioInput = addDaysToDateInput(hoje, -6);
+      const inicio = dateInputToUtcStart(inicioInput);
+      const fim = dateInputToUtcEnd(hoje);
+      return inicio && fim ? { inicio, fim } : null;
+    }
+    if (filtroDataPreset === 'mes') {
+      const range = getDashboardPeriodRange('mes');
+      const fim = dateInputToUtcEnd(range.endDate);
+      return fim ? { inicio: range.start, fim } : null;
+    }
+    if (filtroDataPreset === 'personalizado') {
+      if (!filtroDataInicio || !filtroDataFim) return null;
+      const inicio = dateInputToUtcStart(filtroDataInicio);
+      const fim = dateInputToUtcEnd(filtroDataFim);
+      return inicio && fim ? { inicio, fim } : null;
+    }
+    return null;
+  })();
+
+  const rotuloPeriodoFiltro = filtroDataPreset === 'personalizado'
+    ? (filtroDataInicio && filtroDataFim ? `${formatDateInputPtBr(filtroDataInicio)} a ${formatDateInputPtBr(filtroDataFim)}` : 'Personalizado')
+    : filtroDataPreset
+      ? ROTULO_PRESET_DATA[filtroDataPreset]
+      : '';
+
+  const filteredPedidos = pedidosDoContexto.filter(p => {
+    if (filtroVendedor && p.vendedorNome !== filtroVendedor) return false;
+    if (filtroFormaPagamento && p.formaPagamento !== filtroFormaPagamento) return false;
+    if (filtroConferencia && p.statusConferencia !== filtroConferencia) return false;
+    if (periodoDataFiltro && !isWithinDateRange(dataEfetivaPedido(p), periodoDataFiltro.inicio, periodoDataFiltro.fim)) return false;
+    return true;
+  });
+
+  const filtrosDeColunaAtivos = [
+    filtroVendedor && { rotulo: 'Vendedor', valor: filtroVendedor, limpar: () => setFiltroVendedor('') },
+    filtroFormaPagamento && { rotulo: 'Forma', valor: filtroFormaPagamento, limpar: () => setFiltroFormaPagamento('') },
+    filtroConferencia && { rotulo: 'Conferência', valor: CONFERENCIA_STATUS_LABELS[filtroConferencia] || filtroConferencia, limpar: () => setFiltroConferencia('') },
+    filtroDataPreset && { rotulo: 'Data', valor: rotuloPeriodoFiltro, limpar: () => { setFiltroDataPreset(''); setFiltroDataInicio(''); setFiltroDataFim(''); } },
+  ].filter((f): f is { rotulo: string; valor: string; limpar: () => void } => Boolean(f));
+
+  const limparFiltrosDeColuna = () => {
+    setFiltroVendedor('');
+    setFiltroFormaPagamento('');
+    setFiltroConferencia('');
+    setFiltroDataPreset('');
+    setFiltroDataInicio('');
+    setFiltroDataFim('');
+  };
+
+  const totalFiltrado = filteredPedidos.reduce((soma, p) => soma + (p.valorTotal || 0), 0);
 
   const allVisibleSelected = filteredPedidos.length > 0 && filteredPedidos.every(p => selectedIds.has(p.id));
 
@@ -372,6 +609,31 @@ const PedidoVendas: React.FC = () => {
           )}
         </div>
 
+        {filtrosDeColunaAtivos.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginBottom: '16px', fontSize: '13px' }}>
+            <Filter size={14} color="var(--text-muted)" />
+            {filtrosDeColunaAtivos.map((f) => (
+              <span
+                key={f.rotulo}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', padding: '4px 10px', borderRadius: '999px', color: 'var(--text-muted)' }}
+              >
+                {f.rotulo}: <strong style={{ color: 'var(--text-primary)' }}>{f.valor}</strong>
+                <button
+                  type="button"
+                  onClick={f.limpar}
+                  title={`Remover filtro de ${f.rotulo}`}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'inline-flex', lineHeight: 0 }}
+                >
+                  <XCircle size={14} />
+                </button>
+              </span>
+            ))}
+            <button type="button" onClick={limparFiltrosDeColuna} style={{ background: 'none', border: 'none', color: 'var(--accent-purple)', cursor: 'pointer', fontWeight: 600, fontSize: '13px' }}>
+              Limpar filtros
+            </button>
+          </div>
+        )}
+
         {showItemPreview && selectedIds.size === 1 && (() => {
           const pedidoPreview = filteredPedidos.find((p) => selectedIds.has(p.id));
           if (!pedidoPreview) return null;
@@ -411,12 +673,99 @@ const PedidoVendas: React.FC = () => {
                   />
                 </th>
                 <th style={{ padding: '16px' }}>Nº Pedido</th>
-                <th style={{ padding: '16px' }}>Data</th>
+                <th style={{ padding: '16px' }}>
+                  Data
+                  <FiltroColuna ativo={Boolean(filtroDataPreset)}>
+                    {() => (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <button
+                          type="button"
+                          style={itemOpcaoStyle(filtroDataPreset === '')}
+                          onClick={() => { setFiltroDataPreset(''); setFiltroDataInicio(''); setFiltroDataFim(''); }}
+                        >
+                          Todas
+                        </button>
+                        {(Object.keys(ROTULO_PRESET_DATA) as Array<keyof typeof ROTULO_PRESET_DATA>).map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            style={itemOpcaoStyle(filtroDataPreset === preset)}
+                            onClick={() => setFiltroDataPreset(preset)}
+                          >
+                            {ROTULO_PRESET_DATA[preset]}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          style={itemOpcaoStyle(filtroDataPreset === 'personalizado')}
+                          onClick={() => setFiltroDataPreset('personalizado')}
+                        >
+                          Período personalizado
+                        </button>
+                        {filtroDataPreset === 'personalizado' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px', paddingTop: '6px', borderTop: '1px solid var(--border-color)' }}>
+                            <input
+                              type="date"
+                              value={filtroDataInicio}
+                              onChange={(event) => setFiltroDataInicio(event.target.value)}
+                              style={{ padding: '4px 6px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)' }}
+                            />
+                            <input
+                              type="date"
+                              value={filtroDataFim}
+                              onChange={(event) => setFiltroDataFim(event.target.value)}
+                              style={{ padding: '4px 6px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)' }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </FiltroColuna>
+                </th>
                 <th style={{ padding: '16px' }}>Cliente</th>
-                <th style={{ padding: '16px' }}>Vendedor</th>
-                <th style={{ padding: '16px' }}>Forma Pgto</th>
+                <th style={{ padding: '16px' }}>
+                  Vendedor
+                  <FiltroColuna ativo={Boolean(filtroVendedor)}>
+                    {(fechar) => (
+                      <OpcoesFiltro
+                        opcoes={opcoesVendedor}
+                        valorSelecionado={filtroVendedor}
+                        fechar={fechar}
+                        onSelecionar={(valor, fecharPainel) => { setFiltroVendedor(valor); fecharPainel(); }}
+                      />
+                    )}
+                  </FiltroColuna>
+                </th>
+                <th style={{ padding: '16px' }}>
+                  Forma Pgto
+                  <FiltroColuna ativo={Boolean(filtroFormaPagamento)}>
+                    {(fechar) => (
+                      <OpcoesFiltro
+                        opcoes={opcoesFormaPagamento}
+                        valorSelecionado={filtroFormaPagamento}
+                        fechar={fechar}
+                        onSelecionar={(valor, fecharPainel) => { setFiltroFormaPagamento(valor); fecharPainel(); }}
+                      />
+                    )}
+                  </FiltroColuna>
+                </th>
                 <th style={{ padding: '16px' }}>Status</th>
-                {conferenciaMercadoriaAtiva && <th style={{ padding: '16px' }}>Conferência</th>}
+                {conferenciaMercadoriaAtiva && (
+                  <th style={{ padding: '16px' }}>
+                    Conferência
+                    <FiltroColuna ativo={Boolean(filtroConferencia)}>
+                      {(fechar) => (
+                        <OpcoesFiltro
+                          opcoes={opcoesConferencia}
+                          valorSelecionado={filtroConferencia}
+                          fechar={fechar}
+                          formatarRotulo={(valor) => CONFERENCIA_STATUS_LABELS[valor] || valor}
+                          onSelecionar={(valor, fecharPainel) => { setFiltroConferencia(valor); fecharPainel(); }}
+                        />
+                      )}
+                    </FiltroColuna>
+                  </th>
+                )}
                 <th style={{ padding: '16px', textAlign: 'right' }}>Total (R$)</th>
                 <th style={{ padding: '16px', textAlign: 'center' }}>Ações</th>
               </tr>
@@ -462,7 +811,7 @@ const PedidoVendas: React.FC = () => {
                       />
                     </td>
                     <td style={{ padding: '16px', fontWeight: 600 }}>#{p.numeroPedido}</td>
-                    <td style={{ padding: '16px' }}>{p.createdAt?.seconds ? new Date(p.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : '-'}</td>
+                    <td style={{ padding: '16px' }}>{formatarDataEfetiva(p)}</td>
                     <td style={{ padding: '16px' }}>{p.clienteNome}</td>
                     <td style={{ padding: '16px' }}>{p.vendedorNome || '-'}</td>
                     <td style={{ padding: '16px' }}>
@@ -533,6 +882,16 @@ const PedidoVendas: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {!loading && filteredPedidos.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', padding: '16px 16px 0', fontSize: '14px', color: 'var(--text-muted)' }}>
+            <span>{filteredPedidos.length} {filteredPedidos.length === 1 ? 'pedido' : 'pedidos'}</span>
+            <span>·</span>
+            <strong style={{ color: 'var(--text-primary)' }}>
+              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalFiltrado)}
+            </strong>
+          </div>
+        )}
       </div>
       )}
     </div>

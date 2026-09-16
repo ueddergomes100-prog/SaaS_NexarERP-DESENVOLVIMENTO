@@ -7,11 +7,11 @@ import {
   getNextTenantSequenceValue,
   writeTenantSequenceValue,
 } from '../utils/firestoreAtomic';
-import { computeReservationDelta } from '../utils/estoqueReservaDomain';
+import { computeReservationDelta, computeReservationRelease } from '../utils/estoqueReservaDomain';
 import { toStockAdjustmentItems } from '../utils/embalagemDomain';
-import { buildDocumentMetadata } from '../utils/documentMetadata';
+import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../utils/documentMetadata';
 import { toCents } from '../utils/financeDomain';
-import { STATUS_PRE_VENDA, type OrigemPedido } from '../utils/preVendaDomain';
+import { isPedidoAberto, STATUS_CANCELADA, STATUS_PRE_VENDA, type OrigemPedido } from '../utils/preVendaDomain';
 import { getDateInputInTimeZone } from '../utils/dateTime';
 
 /**
@@ -67,12 +67,17 @@ export interface CriarPreVendaExternaParams {
   clienteNome: string;
   itens: ItemVendaExterna[];
   permitirVendaSemEstoque: boolean;
+  /** Id fixo do documento (o id do rascunho). Com ele, reenviar o mesmo
+   *  rascunho depois de uma queda de conexao NAO cria um segundo pedido: se
+   *  o primeiro envio chegou a gravar, a transacao so' devolve o que ja
+   *  existe. Sem ele, gera id novo como antes. */
+  idDocumento?: string;
 }
 
 export const criarPreVendaExterna = async (
   params: CriarPreVendaExternaParams,
 ): Promise<{ id: string; numeroPedido: string }> => {
-  const { tenantId, usuarioId, vendedorId, vendedorNome, clienteId, clienteNome, itens, permitirVendaSemEstoque } = params;
+  const { tenantId, usuarioId, vendedorId, vendedorNome, clienteId, clienteNome, itens, permitirVendaSemEstoque, idDocumento } = params;
 
   const valorTotalItens = itens.reduce((soma, item) => soma + item.subtotal, 0);
   const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
@@ -81,11 +86,19 @@ export const criarPreVendaExterna = async (
   let numeroGravado = '';
 
   await runTransaction(db, async (transaction) => {
+    const novoRef = idDocumento ? doc(db, 'pedidos_venda', idDocumento) : doc(collection(db, 'pedidos_venda'));
+    novoId = novoRef.id;
+
+    if (idDocumento) {
+      const existente = await transaction.get(novoRef);
+      if (existente.exists()) {
+        numeroGravado = existente.data().numeroPedido || '';
+        return;
+      }
+    }
+
     const nextPedido = await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
     numeroGravado = formatSequenceValue(nextPedido, 4);
-
-    const novoRef = doc(collection(db, 'pedidos_venda'));
-    novoId = novoRef.id;
 
     const reservaNova = toStockAdjustmentItems(itens);
     const deltasReserva = computeReservationDelta([], reservaNova);
@@ -136,12 +149,14 @@ export interface CriarOrcamentoExternoParams {
   clienteNome: string;
   clienteTelefone: string;
   itens: ItemVendaExterna[];
+  /** Mesmo papel do `idDocumento` de criarPreVendaExterna. */
+  idDocumento?: string;
 }
 
 export const criarOrcamentoExterno = async (
   params: CriarOrcamentoExternoParams,
 ): Promise<{ id: string; numeroOrcamento: string }> => {
-  const { tenantId, usuarioId, clienteId, clienteNome, clienteTelefone, itens } = params;
+  const { tenantId, usuarioId, clienteId, clienteNome, clienteTelefone, itens, idDocumento } = params;
 
   const valorTotalItens = itens.reduce((soma, item) => soma + item.subtotal, 0);
   const currentMaxOrcamento = await getCurrentMaxSequence(db, 'orcamentos', tenantId, 'numeroOrcamento').catch(() => 0);
@@ -150,11 +165,19 @@ export const criarOrcamentoExterno = async (
   let numeroGravado = '';
 
   await runTransaction(db, async (transaction) => {
+    const novoRef = idDocumento ? doc(db, 'orcamentos', idDocumento) : doc(collection(db, 'orcamentos'));
+    novoId = novoRef.id;
+
+    if (idDocumento) {
+      const existente = await transaction.get(novoRef);
+      if (existente.exists()) {
+        numeroGravado = existente.data().numeroOrcamento || '';
+        return;
+      }
+    }
+
     const nextOrcamento = await getNextTenantSequenceValue(transaction, db, tenantId, 'orcamentos', currentMaxOrcamento);
     numeroGravado = formatSequenceValue(nextOrcamento, 4);
-
-    const novoRef = doc(collection(db, 'orcamentos'));
-    novoId = novoRef.id;
 
     transaction.set(novoRef, {
       numeroOrcamento: numeroGravado,
@@ -182,4 +205,55 @@ export const criarOrcamentoExterno = async (
   });
 
   return { id: novoId, numeroOrcamento: numeroGravado };
+};
+
+export interface CancelarPedidoExternoParams {
+  usuarioId: string;
+  pedidoId: string;
+  /** O app so' cancela pedido do proprio vendedor. */
+  vendedorId: string;
+}
+
+/**
+ * Cancela uma pre-venda do vendedor externo: libera a reserva de estoque e
+ * marca Cancelada. Mesma transacao de `handleCancelarPreVenda`
+ * (PedidoVendaForm.tsx), reescrita com as mesmas pecas atomicas em vez de
+ * chamar o formulario do desktop. Nao mexe em financeiro -- pre-venda nunca
+ * gerou nenhum.
+ */
+export const cancelarPedidoExterno = async (params: CancelarPedidoExternoParams): Promise<{ numeroPedido: string }> => {
+  const { usuarioId, pedidoId, vendedorId } = params;
+  let numeroPedido = '';
+
+  await runTransaction(db, async (transaction) => {
+    const ref = doc(db, 'pedidos_venda', pedidoId);
+    const snap = await transaction.get(ref);
+    if (!snap.exists()) throw new Error('Este pedido não existe mais.');
+    const data = snap.data();
+    numeroPedido = data.numeroPedido || '';
+
+    if (data.vendedorId !== vendedorId) {
+      throw new Error('Este pedido é de outro vendedor e não pode ser cancelado por aqui.');
+    }
+    if (!isPedidoAberto(data.status)) {
+      throw new Error(`Este pedido está "${data.status}" e não pode mais ser cancelado pelo aplicativo. Fale com a loja.`);
+    }
+
+    if (data.estoqueReservado === true) {
+      await applyStockFieldDeltas(
+        transaction,
+        db,
+        computeReservationRelease(toStockAdjustmentItems(data.itens || [])),
+        true,
+      );
+    }
+
+    transaction.update(ref, {
+      status: STATUS_CANCELADA,
+      estoqueReservado: false,
+      ...buildDocumentUpdateMetadata(usuarioId, serverTimestamp(), 'Pré-venda cancelada pelo aplicativo do vendedor'),
+    });
+  });
+
+  return { numeroPedido };
 };

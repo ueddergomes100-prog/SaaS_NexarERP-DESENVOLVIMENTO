@@ -13,6 +13,12 @@ import VendedorBottomNav from './VendedorBottomNav';
 import VendedorEmBreve from './VendedorEmBreve';
 import VendedorContasPagar from './VendedorContasPagar';
 import VendedorContasReceber from './VendedorContasReceber';
+import VendedorRascunhos from './VendedorRascunhos';
+import VendedorPedidoDetalhe from './VendedorPedidoDetalhe';
+import VendedorPedidoImprimir from './VendedorPedidoImprimir';
+import VendedorOrdensServico from './VendedorOrdensServico';
+import VendedorOrdemServicoDetalhe from './VendedorOrdemServicoDetalhe';
+import VendedorOsImprimir from './VendedorOsImprimir';
 import './vendedorMobile.css';
 
 /**
@@ -27,9 +33,10 @@ import './vendedorMobile.css';
  * normal do sistema, sem essa permissao, nao entra so por acertar a URL.
  */
 
-// A navbar fica escondida nas telas de montar pedido/orcamento -- ja tem
-// botao de acao fixo embaixo, sem espaco (nem sentido) pra navegacao.
-const SEM_NAVBAR = ['/vendedor/pedido/novo', '/vendedor/orcamento/novo'];
+// A navbar fica escondida nas telas de montar pedido/orcamento (novo ou
+// rascunho reaberto) -- ja tem botao de acao fixo embaixo, sem espaco (nem
+// sentido) pra navegacao.
+const SEM_NAVBAR_PREFIXOS = ['/vendedor/pedido/novo', '/vendedor/orcamento/novo', '/vendedor/pedido/rascunho/', '/vendedor/orcamento/rascunho/'];
 
 const VendedorShell: React.FC = () => {
   const location = useLocation();
@@ -67,18 +74,39 @@ const VendedorShell: React.FC = () => {
     );
   }
 
-  const mostraNavbar = !SEM_NAVBAR.includes(location.pathname);
+  // Impressao fica FORA da casca de altura fixa abaixo: aquela casca corta
+  // tudo numa tela so' (overflow hidden), e a folha precisa rolar na tela e
+  // paginar no papel/PDF.
+  if (location.pathname.endsWith('/imprimir')) {
+    return (
+      <Routes>
+        <Route path="pedido/:id/imprimir" element={<VendedorPedidoImprimir />} />
+        <Route path="os/:id/imprimir" element={<VendedorOsImprimir />} />
+        <Route path="*" element={<Navigate to="/vendedor" replace />} />
+      </Routes>
+    );
+  }
+
+  const mostraNavbar = !SEM_NAVBAR_PREFIXOS.some((prefixo) => location.pathname.startsWith(prefixo));
 
   return (
     <div
       className="vendedor-app vendedor-safe-area"
       style={{ height: '100dvh', width: '100vw', overflow: 'hidden', backgroundColor: 'var(--bg-primary)', display: 'flex', flexDirection: 'column' }}
     >
-      <div style={{ flex: 1, minHeight: 0 }}>
+      {/* key por rota: sair de um rascunho e abrir Novo Pedido tem que
+          comecar a tela do zero, nao herdar o estado do rascunho. */}
+      <div key={location.pathname} style={{ flex: 1, minHeight: 0 }}>
         <Routes>
           <Route index element={<VendedorHome />} />
           <Route path="pedido/novo" element={<VendedorNovoPedido />} />
+          <Route path="pedido/rascunho/:localId" element={<VendedorNovoPedido />} />
+          <Route path="pedido/:id" element={<VendedorPedidoDetalhe />} />
           <Route path="orcamento/novo" element={<VendedorNovoOrcamento />} />
+          <Route path="orcamento/rascunho/:localId" element={<VendedorNovoOrcamento />} />
+          <Route path="rascunhos" element={<VendedorRascunhos />} />
+          <Route path="os" element={<VendedorOrdensServico />} />
+          <Route path="os/:id" element={<VendedorOrdemServicoDetalhe />} />
           <Route path="pedidos" element={<VendedorMeusPedidos />} />
           <Route path="cliente" element={<VendedorConsultarCliente />} />
           <Route path="preco" element={<VendedorConsultarPreco />} />

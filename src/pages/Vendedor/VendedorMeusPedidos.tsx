@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Receipt } from 'lucide-react';
 import { addDoc, collection, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -34,6 +35,7 @@ const corStatus = (status: string): string => {
 };
 
 const VendedorMeusPedidos: React.FC = () => {
+  const navigate = useNavigate();
   const { tenantId, currentUser, userPermissions, controlaFiscal } = useAuth();
   const [itens, setItens] = useState<ItemLista[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -194,7 +196,15 @@ const VendedorMeusPedidos: React.FC = () => {
                 key={`${item.tipo}-${item.id}`}
                 style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {/* Pedido abre o detalhe (visualizar/imprimir/cancelar). Orcamento
+                    ainda nao tem tela de detalhe no app. */}
+                <div
+                  role={item.tipo === 'Pedido' ? 'button' : undefined}
+                  tabIndex={item.tipo === 'Pedido' ? 0 : undefined}
+                  onClick={item.tipo === 'Pedido' ? () => navigate(`/vendedor/pedido/${item.id}`) : undefined}
+                  onKeyDown={item.tipo === 'Pedido' ? (e) => { if (e.key === 'Enter') navigate(`/vendedor/pedido/${item.id}`); } : undefined}
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: item.tipo === 'Pedido' ? 'pointer' : 'default' }}
+                >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {item.clienteNome || 'Sem cliente'}

@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowDownCircle, ArrowUpCircle, Box, ClipboardList, FileText, LogOut, Receipt, SquarePlus, Tag, Users } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Box, ChevronRight, ClipboardList, FileText, LogOut, Receipt, Send, SquarePlus, Tag, Users, Wrench } from 'lucide-react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { buscarResumoHojeDoVendedor } from '../../services/vendedorRankingService';
 import { CAMINHO_INSTALACAO, estaInstalado } from './pwa';
+import { listarRascunhos } from './vendedorRascunhosStore';
 import './vendedorMobile.css';
 
 interface PedidoRecente {
@@ -37,6 +38,9 @@ const VendedorHome: React.FC = () => {
   const { currentUser, tenantId, logout, userNome, userPermissions, controlaFiscal } = useAuth();
   const [recentes, setRecentes] = useState<PedidoRecente[]>([]);
   const [resumoHoje, setResumoHoje] = useState<{ pedidos: number; orcamentos: number } | null>(null);
+  // A Home remonta a cada visita (key por rota no VendedorShell), entao ler
+  // na montagem ja pega o que foi salvo/enviado nas outras telas.
+  const [rascunhosPendentes] = useState(() => (tenantId && currentUser ? listarRascunhos(tenantId, currentUser.uid).length : 0));
 
   useEffect(() => {
     if (!tenantId || !currentUser) return;
@@ -112,6 +116,27 @@ const VendedorHome: React.FC = () => {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '6px 22px 22px', display: 'flex', flexDirection: 'column', gap: '22px' }}>
+        {rascunhosPendentes > 0 && (
+          <button
+            type="button"
+            onClick={() => navigate('/vendedor/rascunhos')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', borderRadius: '14px',
+              backgroundColor: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.45)', cursor: 'pointer',
+              textAlign: 'left', width: '100%',
+            }}
+          >
+            <Send size={20} color="#f59e0b" style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+              <strong style={{ color: 'var(--text-primary)' }}>
+                {rascunhosPendentes === 1 ? '1 rascunho não enviado' : `${rascunhosPendentes} rascunhos não enviados`}
+              </strong><br />
+              A loja só recebe depois de você tocar em "Enviar dados"
+            </span>
+            <ChevronRight size={18} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+          </button>
+        )}
+
         {!estaInstalado() && (
           <button
             type="button"
@@ -176,6 +201,26 @@ const VendedorHome: React.FC = () => {
             Mais módulos
           </div>
           <div className="vendedor-atalhos-grid">
+            <button
+              type="button"
+              onClick={() => navigate('/vendedor/rascunhos')}
+              style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+            >
+              <Send size={28} color="var(--brand-400)" strokeWidth={1.7} />
+              <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Rascunhos e Envio</span>
+            </button>
+
+            {userPermissions.includes('mecanica.os') && (
+              <button
+                type="button"
+                onClick={() => navigate('/vendedor/os')}
+                style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+              >
+                <Wrench size={28} color="var(--brand-400)" strokeWidth={1.7} />
+                <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Ordens de Serviço</span>
+              </button>
+            )}
+
             {controlaFiscal && userPermissions.includes('fiscal.emitir') && (
               <button
                 type="button"

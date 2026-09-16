@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { CheckCircle2 } from 'lucide-react';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Save } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { showError, showSuccess } from '../../utils/alerts';
@@ -8,7 +8,8 @@ import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import type { SearchableClient } from '../../utils/clientSearch';
 import VendedorHeader from './VendedorHeader';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
-import { criarOrcamentoExterno, type ItemVendaExterna } from '../../services/vendedorExternoVendaService';
+import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
+import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } from './vendedorRascunhosStore';
 
 interface ClienteVendedor extends SearchableClient {
   id: string;
@@ -16,20 +17,32 @@ interface ClienteVendedor extends SearchableClient {
   telefone?: string;
 }
 
+/** Mesmo fluxo de VendedorNovoPedido: salva rascunho no aparelho, envia so'
+ *  em "Enviar dados". */
 const VendedorNovoOrcamento: React.FC = () => {
   const navigate = useNavigate();
+  const { localId } = useParams();
   const { tenantId, currentUser } = useAuth();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
 
+  const [rascunhoAberto] = useState(() => (
+    localId && tenantId && currentUser ? buscarRascunho(tenantId, currentUser.uid, localId) : null
+  ));
+
   const [clienteBusca, setClienteBusca] = useState('');
-  const [clienteSelecionado, setClienteSelecionado] = useState<ClienteVendedor | null>(null);
-  const [itens, setItens] = useState<ItemVendaExterna[]>([]);
-  const [salvando, setSalvando] = useState(false);
+  const [clienteSelecionado, setClienteSelecionado] = useState<ClienteVendedor | null>(
+    () => (rascunhoAberto ? { ...rascunhoAberto.cliente } : null),
+  );
+  const [itens, setItens] = useState<ItemVendaExterna[]>(() => rascunhoAberto?.itens || []);
 
   const produtosAtivos = produtos.filter((p) => p.ativo !== false);
 
-  const handleFinalizar = async () => {
+  if (localId && !rascunhoAberto) {
+    return <Navigate to="/vendedor/rascunhos" replace />;
+  }
+
+  const handleSalvar = () => {
     if (!clienteSelecionado) {
       showError('Atenção', 'Selecione o cliente.');
       return;
@@ -40,29 +53,30 @@ const VendedorNovoOrcamento: React.FC = () => {
     }
     if (!tenantId || !currentUser) return;
 
-    setSalvando(true);
+    const agora = new Date().toISOString();
     try {
-      const { numeroOrcamento } = await criarOrcamentoExterno({
-        tenantId,
-        usuarioId: currentUser.uid,
-        clienteId: clienteSelecionado.id,
-        clienteNome: clienteSelecionado.nome,
-        clienteTelefone: clienteSelecionado.telefone || '',
+      salvarRascunho(tenantId, currentUser.uid, {
+        localId: rascunhoAberto?.localId || novoLocalId(),
+        tipo: 'orcamento',
+        cliente: {
+          id: clienteSelecionado.id,
+          nome: clienteSelecionado.nome,
+          ...(clienteSelecionado.telefone ? { telefone: clienteSelecionado.telefone } : {}),
+        },
         itens,
+        criadoEm: rascunhoAberto?.criadoEm || agora,
+        atualizadoEm: agora,
       });
-      showSuccess(`Orçamento #${numeroOrcamento} criado!`);
-      navigate('/vendedor', { replace: true });
+      showSuccess('Rascunho salvo! Toque em "Enviar dados" quando o orçamento estiver fechado.');
+      navigate('/vendedor/rascunhos', { replace: true });
     } catch (error) {
-      console.error('Erro ao criar orçamento do vendedor externo:', error);
-      showError('Não foi possível criar', error instanceof Error ? error.message : 'Tente novamente em instantes.');
-    } finally {
-      setSalvando(false);
+      showError('Não foi possível salvar', error instanceof RascunhoStorageError ? error.message : 'Tente novamente.');
     }
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
-      <VendedorHeader titulo="Novo Orçamento" />
+      <VendedorHeader titulo={localId ? 'Editar Rascunho' : 'Novo Orçamento'} />
 
       <div style={{ padding: '16px 20px 0' }}>
         {clienteSelecionado ? (
@@ -103,17 +117,15 @@ const VendedorNovoOrcamento: React.FC = () => {
       <div style={{ padding: '16px 20px calc(24px + env(safe-area-inset-bottom))', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
         <button
           type="button"
-          onClick={handleFinalizar}
-          disabled={salvando}
+          onClick={handleSalvar}
           style={{
             width: '100%', height: '52px', borderRadius: '14px', border: 'none', display: 'flex', alignItems: 'center',
             justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, color: '#fff', cursor: 'pointer',
             background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
-            opacity: salvando ? 0.7 : 1,
           }}
         >
-          <CheckCircle2 size={18} />
-          {salvando ? 'Criando...' : 'Criar Orçamento'}
+          <Save size={18} />
+          Salvar rascunho
         </button>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { CheckCircle2 } from 'lucide-react';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Save } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { showError, showSuccess } from '../../utils/alerts';
@@ -8,8 +8,9 @@ import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import type { SearchableClient } from '../../utils/clientSearch';
 import VendedorHeader from './VendedorHeader';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
-import { criarPreVendaExterna, type ItemVendaExterna } from '../../services/vendedorExternoVendaService';
+import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
+import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } from './vendedorRascunhosStore';
 
 interface ClienteVendedor extends SearchableClient {
   id: string;
@@ -17,28 +18,47 @@ interface ClienteVendedor extends SearchableClient {
   telefone?: string;
 }
 
+/**
+ * Monta o pedido e guarda como RASCUNHO no aparelho -- nao envia pra base.
+ * Quem envia de verdade e' "Enviar dados" (VendedorRascunhos.tsx). Com
+ * `:localId` na rota, reabre um rascunho ja salvo pra editar.
+ */
 const VendedorNovoPedido: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { localId } = useParams();
   const estadoNavegacao = (location.state as VendedorNovoPedidoNavState | null) || null;
   const { tenantId, currentUser, trabalhaComPreVenda } = useAuth();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
 
+  // VendedorShell so' renderiza depois do login carregado, entao tenantId e
+  // currentUser ja existem aqui -- da pra ler o rascunho direto no estado
+  // inicial.
+  const [rascunhoAberto] = useState(() => (
+    localId && tenantId && currentUser ? buscarRascunho(tenantId, currentUser.uid, localId) : null
+  ));
+
   const [clienteBusca, setClienteBusca] = useState('');
-  const [clienteSelecionado, setClienteSelecionado] = useState<ClienteVendedor | null>(
-    estadoNavegacao?.clientePreSelecionado
+  const [clienteSelecionado, setClienteSelecionado] = useState<ClienteVendedor | null>(() => {
+    if (rascunhoAberto) return { ...rascunhoAberto.cliente };
+    return estadoNavegacao?.clientePreSelecionado
       ? { id: estadoNavegacao.clientePreSelecionado.id, nome: estadoNavegacao.clientePreSelecionado.nome }
-      : null,
-  );
-  const [itens, setItens] = useState<ItemVendaExterna[]>(
-    estadoNavegacao?.itemPreAdicionado ? [estadoNavegacao.itemPreAdicionado] : [],
-  );
-  const [salvando, setSalvando] = useState(false);
+      : null;
+  });
+  const [itens, setItens] = useState<ItemVendaExterna[]>(() => {
+    if (rascunhoAberto) return rascunhoAberto.itens;
+    return estadoNavegacao?.itemPreAdicionado ? [estadoNavegacao.itemPreAdicionado] : [];
+  });
 
   const produtosAtivos = produtos.filter((p) => p.ativo !== false);
 
-  const handleFinalizar = async () => {
+  if (localId && !rascunhoAberto) {
+    // Rascunho ja enviado (ou apagado) -- nao ha mais o que editar aqui.
+    return <Navigate to="/vendedor/rascunhos" replace />;
+  }
+
+  const handleSalvar = () => {
     if (!trabalhaComPreVenda) {
       showError(
         'Pré-venda não está habilitada',
@@ -56,32 +76,30 @@ const VendedorNovoPedido: React.FC = () => {
     }
     if (!tenantId || !currentUser) return;
 
-    setSalvando(true);
+    const agora = new Date().toISOString();
     try {
-      const nome = currentUser.displayName || currentUser.email || 'Vendedor';
-      const { numeroPedido } = await criarPreVendaExterna({
-        tenantId,
-        usuarioId: currentUser.uid,
-        vendedorId: currentUser.uid,
-        vendedorNome: nome,
-        clienteId: clienteSelecionado.id,
-        clienteNome: clienteSelecionado.nome,
+      salvarRascunho(tenantId, currentUser.uid, {
+        localId: rascunhoAberto?.localId || novoLocalId(),
+        tipo: 'pedido',
+        cliente: {
+          id: clienteSelecionado.id,
+          nome: clienteSelecionado.nome,
+          ...(clienteSelecionado.telefone ? { telefone: clienteSelecionado.telefone } : {}),
+        },
         itens,
-        permitirVendaSemEstoque: false,
+        criadoEm: rascunhoAberto?.criadoEm || agora,
+        atualizadoEm: agora,
       });
-      showSuccess(`Pré-venda #${numeroPedido} gravada! A loja vai conferir o estoque e finalizar.`);
-      navigate('/vendedor', { replace: true });
+      showSuccess('Rascunho salvo! Toque em "Enviar dados" quando o pedido estiver fechado.');
+      navigate('/vendedor/rascunhos', { replace: true });
     } catch (error) {
-      console.error('Erro ao gravar pré-venda do vendedor externo:', error);
-      showError('Não foi possível gravar', error instanceof Error ? error.message : 'Tente novamente em instantes.');
-    } finally {
-      setSalvando(false);
+      showError('Não foi possível salvar', error instanceof RascunhoStorageError ? error.message : 'Tente novamente.');
     }
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
-      <VendedorHeader titulo="Novo Pedido" />
+      <VendedorHeader titulo={localId ? 'Editar Rascunho' : 'Novo Pedido'} />
 
       <div style={{ padding: '16px 20px 0' }}>
         {clienteSelecionado ? (
@@ -122,17 +140,15 @@ const VendedorNovoPedido: React.FC = () => {
       <div style={{ padding: '16px 20px calc(24px + env(safe-area-inset-bottom))', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
         <button
           type="button"
-          onClick={handleFinalizar}
-          disabled={salvando}
+          onClick={handleSalvar}
           style={{
             width: '100%', height: '52px', borderRadius: '14px', border: 'none', display: 'flex', alignItems: 'center',
             justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, color: '#fff', cursor: 'pointer',
             background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
-            opacity: salvando ? 0.7 : 1,
           }}
         >
-          <CheckCircle2 size={18} />
-          {salvando ? 'Gravando...' : 'Gravar Pré-venda'}
+          <Save size={18} />
+          Salvar rascunho
         </button>
       </div>
     </div>

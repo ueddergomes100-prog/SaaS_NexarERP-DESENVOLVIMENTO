@@ -19,6 +19,8 @@ export interface ModuloMobileExtra {
 }
 
 export const MODULOS_MOBILE_EXTRAS: ModuloMobileExtra[] = [
+  { id: 'vendas.pre_venda_cancelar', label: 'Cancelar pedido já enviado' },
+  { id: 'mecanica.os', label: 'Ordens de Serviço (consulta)' },
   { id: 'fiscal.emitir', label: 'Emitir Nota Fiscal' },
   { id: 'financeiro.pagar', label: 'Contas a Pagar' },
   { id: 'financeiro.receber', label: 'Contas a Receber' },

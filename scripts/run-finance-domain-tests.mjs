@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -27,6 +27,7 @@ const testFiles = [
   join(temporaryDirectory, 'tests', 'creditoDomain.test.js'),
   join(temporaryDirectory, 'tests', 'preVendaDomain.test.js'),
   join(temporaryDirectory, 'tests', 'documentoFiscalVendaDomain.test.js'),
+  join(temporaryDirectory, 'tests', 'importacaoContasDomain.test.js'),
   join(temporaryDirectory, 'tests', 'vendedorPinDomain.test.js'),
   join(temporaryDirectory, 'tests', 'visibilidadeVendasDomain.test.js'),
   join(temporaryDirectory, 'tests', 'importacaoEstoqueDomain.test.js'),
@@ -85,6 +86,8 @@ try {
     'tests/buscaProdutoOpcaoDomain.test.ts',
     'tests/notaAvulsaDomain.test.ts',
     'tests/precificacaoDomain.test.ts',
+    'tests/documentoFiscalVendaDomain.test.ts',
+    'tests/importacaoContasDomain.test.ts',
     'src/utils/financeDomain.ts',
     'src/utils/dateTime.ts',
     'src/utils/productSearch.ts',
@@ -119,6 +122,8 @@ try {
     'src/utils/transacaoErroDomain.ts',
     'src/utils/notaAvulsaDomain.ts',
     'src/utils/precificacaoDomain.ts',
+    'src/utils/documentoFiscalVendaDomain.ts',
+    'src/utils/importacaoContasDomain.ts',
     '--ignoreConfig',
     '--outDir', temporaryDirectory,
     '--rootDir', '.',
@@ -139,6 +144,15 @@ try {
     process.stderr.write(compileResult.stderr || '');
     process.exitCode = compileResult.status ?? 1;
   } else {
+    // Teste listado aqui mas nao compilado acima nao gera o .js -- e o
+    // `node --test` pula arquivo inexistente SEM reclamar. Foi assim que os
+    // testes de documentoFiscalVendaDomain ficaram um dia sem rodar.
+    const naoCompilados = testFiles.filter((arquivo) => !existsSync(arquivo));
+    if (naoCompilados.length > 0) {
+      process.stderr.write(['Testes listados mas nao compilados (inclua o .ts na lista do tsc):', ...naoCompilados, ''].join('\n'));
+      process.exitCode = 1;
+      throw new Error('testes nao compilados');
+    }
     const result = spawnSync(process.execPath, ['--test', ...testFiles], {
       cwd: process.cwd(),
       stdio: 'inherit',

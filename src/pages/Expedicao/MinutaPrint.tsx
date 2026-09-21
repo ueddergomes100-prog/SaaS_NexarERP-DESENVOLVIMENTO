@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft } from 'lucide-react';
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { DEFAULT_ORDENAR_MINUTA_POR_LOCAL, ordenarPorLocalizacao } from '../../utils/conferenciaDomain';
@@ -11,7 +11,7 @@ import {
   TITULO_VENDA_DE_OUTRO_USUARIO,
 } from '../../utils/visibilidadeVendasDomain';
 import { showError } from '../../utils/alerts';
-import MinutaPrintDocument, { type MinutaItem } from './MinutaPrintDocument';
+import MinutaPrintDocument, { type MinutaCliente, type MinutaItem } from './MinutaPrintDocument';
 import '../OS/OsPrint.css'; // Reusing OS print styles, mesmo padrao de PedidoPrint.tsx
 
 const MinutaPrint: React.FC = () => {
@@ -21,6 +21,12 @@ const MinutaPrint: React.FC = () => {
   const [pedidoData, setPedidoData] = useState<any>(null);
   const [itens, setItens] = useState<MinutaItem[]>([]);
   const [configData, setConfigData] = useState<any>(null);
+  const [cliente, setCliente] = useState<MinutaCliente | null>(null);
+  const [vendedorCodigo, setVendedorCodigo] = useState('');
+  const [usuarioNome, setUsuarioNome] = useState('');
+  // Fixo enquanto a tela esta aberta: o "Gerado em" do rodape nao pode andar
+  // a cada render.
+  const [geradoEm] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -47,6 +53,50 @@ const MinutaPrint: React.FC = () => {
           return;
         }
         setPedidoData(pedido);
+
+        // Dados do cliente pro cabecalho (codigo, endereco, contatos, CPF).
+        // Pelo id quando a venda guardou; venda antiga so' tem o nome.
+        // Cadastro nao achado nao trava a impressao: o cabecalho sai so'
+        // com o nome que a venda guardou.
+        try {
+          if (pedido.clienteId) {
+            const clienteSnap = await getDoc(doc(db, 'clientes', pedido.clienteId));
+            if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) {
+              setCliente(clienteSnap.data() as MinutaCliente);
+            }
+          } else if (pedido.clienteNome) {
+            const porNome = await getDocs(query(
+              collection(db, 'clientes'),
+              where('tenantId', '==', tenantId),
+              where('nome', '==', pedido.clienteNome),
+            ));
+            if (!porNome.empty) setCliente(porNome.docs[0].data() as MinutaCliente);
+          }
+        } catch (err) {
+          console.error('Erro ao buscar o cliente da minuta:', err);
+        }
+
+        // Codigo do vendedor ("1 - DAVI JORGE") e nome de quem imprime.
+        try {
+          if (pedido.vendedorId) {
+            const vendedorSnap = await getDoc(doc(db, 'usuarios', pedido.vendedorId));
+            if (vendedorSnap.exists() && vendedorSnap.data().tenantId === tenantId) {
+              setVendedorCodigo(String(vendedorSnap.data().codigoVendedor || ''));
+            }
+          }
+        } catch (err) {
+          console.error('Erro ao buscar o vendedor da minuta:', err);
+        }
+        try {
+          if (currentUser) {
+            const perfilSnap = await getDoc(doc(db, 'usuarios', currentUser.uid));
+            const perfil = perfilSnap.exists() ? perfilSnap.data() : null;
+            setUsuarioNome(String(perfil?.nome || perfil?.nomeResponsavel || currentUser.displayName || currentUser.email || ''));
+          }
+        } catch (err) {
+          console.error('Erro ao buscar o usuario da minuta:', err);
+          setUsuarioNome(currentUser?.displayName || currentUser?.email || '');
+        }
 
         let config: any = {};
         if (currentUser) {
@@ -76,7 +126,13 @@ const MinutaPrint: React.FC = () => {
               const estoqueSnap = await getDoc(doc(db, 'estoque', item.id));
               if (estoqueSnap.exists()) {
                 const produto = estoqueSnap.data();
-                return { ...base, codigo: produto.codigo || '', localizacaoEstoque: produto.localizacaoEstoque || '' };
+                return {
+                  ...base,
+                  codigo: produto.codigo || '',
+                  codigoBarras: produto.codigoBarras || '',
+                  marca: produto.marca || '',
+                  localizacaoEstoque: produto.localizacaoEstoque || '',
+                };
               }
             } catch (err) {
               console.error('Erro ao buscar dados de estoque do item da minuta:', err);
@@ -119,7 +175,15 @@ const MinutaPrint: React.FC = () => {
         </button>
       </div>
 
-      <MinutaPrintDocument pedidoData={pedidoData} itens={itens} configData={configData} />
+      <MinutaPrintDocument
+        pedidoData={pedidoData}
+        itens={itens}
+        configData={configData}
+        cliente={cliente}
+        vendedorCodigo={vendedorCodigo}
+        usuarioNome={usuarioNome}
+        geradoEm={geradoEm}
+      />
     </div>
   );
 };

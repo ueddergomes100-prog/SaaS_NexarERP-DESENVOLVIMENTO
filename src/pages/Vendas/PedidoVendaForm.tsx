@@ -247,6 +247,8 @@ const PedidoVendaForm: React.FC = () => {
 
   const [nfeDoc, setNfeDoc] = useState<LinkedNfe | null>(null);
   const [clienteNome, setClienteNome] = useState('');
+  /** Observacao do pedido: sai na Minuta de Entrega ("Obs.:"). */
+  const [observacaoPedido, setObservacaoPedido] = useState('');
   const [formaPagamento, setFormaPagamento] = useState('Dinheiro');
   const [dataVenda, setDataVenda] = useState(() => getDateInputInTimeZone());
   // Separa "data que o usuario escolheu" de "data que a tela herdou do
@@ -698,6 +700,7 @@ const PedidoVendaForm: React.FC = () => {
               return;
             }
             setClienteNome(p.clienteNome || '');
+            setObservacaoPedido(String(p.observacao || ''));
             setVendedorId(p.vendedorId || p.usuarioResponsavelId || currentUser.uid);
             setFormaPagamento(p.formaPagamento || 'Dinheiro');
             setDataVenda(p.dataVenda || getDateInputInTimeZone(p.createdAt?.toDate?.() || new Date()));
@@ -817,7 +820,7 @@ const PedidoVendaForm: React.FC = () => {
   // campo fica desabilitado, entao isso nunca muda e isDirty fica falso
   // sozinho, sem precisar de um caso especial aqui.
   const buildDirtySnapshot = () => JSON.stringify({
-    clienteNome, formaPagamento, dataVenda, itens, orcamentoId, vendedorId, frete, encargos, paymentDrafts,
+    clienteNome, formaPagamento, dataVenda, itens, orcamentoId, vendedorId, frete, encargos, paymentDrafts, observacaoPedido,
   });
   const initialSnapshotRef = useRef<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
@@ -830,7 +833,7 @@ const PedidoVendaForm: React.FC = () => {
       setIsDirty(buildDirtySnapshot() !== initialSnapshotRef.current);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isFetchingData, clienteNome, formaPagamento, dataVenda, itens, orcamentoId, vendedorId, frete, encargos, paymentDrafts]);
+  }, [isFetchingData, clienteNome, formaPagamento, dataVenda, itens, orcamentoId, vendedorId, frete, encargos, paymentDrafts, observacaoPedido]);
 
   /** Opcoes do seletor "Unidade": a base do produto sempre, mais as
    * embalagens ativas quando a chave venderPorEmbalagem esta ligada. Com a
@@ -1591,6 +1594,9 @@ const PedidoVendaForm: React.FC = () => {
           numeroPedido: numeroGravado,
           clienteId: clienteIdParaSalvar,
           clienteNome: finalClienteNome,
+          // Sempre gravada (vazia inclusive): apagar o texto tem que apagar
+          // no documento tambem.
+          observacao: observacaoPedido.trim(),
           itens,
           valorTotalItens,
           valorTotalItensCentavos: toCents(valorTotalItens),
@@ -2364,6 +2370,7 @@ const PedidoVendaForm: React.FC = () => {
           numeroPedido: finalNumeroPedido,
           clienteId: clienteIdParaSalvar,
           clienteNome: finalClienteNome,
+          observacao: observacaoPedido.trim(),
           itens,
           valorTotalItens,
           valorTotalItensCentavos: toCents(valorTotalItens),
@@ -3996,6 +4003,19 @@ const PedidoVendaForm: React.FC = () => {
                 </span>
               </div>
             )}
+            <div className="input-group" style={{ marginTop: '16px' }}>
+              <label htmlFor="pedido-observacao" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Observação</label>
+              <input
+                id="pedido-observacao"
+                type="text"
+                value={observacaoPedido}
+                onChange={(event) => setObservacaoPedido(event.target.value)}
+                disabled={isViewing && !canEditPendingOrder}
+                maxLength={200}
+                placeholder="Ex.: nº do pedido de papel, recado pro entregador (sai na minuta)"
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
+              />
+            </div>
           </div>
 
           {/* Seção Adicionar Produto */}

@@ -1,0 +1,151 @@
+/*
+ * Minuta de entrega no layout do sistema antigo (Sol Natus, 2026-09-21).
+ * Fonte pequena, sem cor, sem valores. Nao declarar `@page { size }` aqui
+ * (regra do projeto -- o tamanho fica com a impressora/navegador).
+ */
+
+.minuta-doc {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #000;
+}
+
+@media screen {
+  .minuta-doc {
+    padding: 12mm 10mm;
+  }
+}
+
+.minuta-quadro {
+  position: relative;
+  border: 1px solid #000;
+  border-radius: 6px;
+  padding: 16px 12px 8px;
+  margin-top: 8px;
+}
+
+.minuta-titulo {
+  position: absolute;
+  top: -10px;
+  left: 10px;
+  background: #fff;
+  padding: 0 4px;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+}
+
+.minuta-linha {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 15px;
+}
+
+.minuta-linha > span {
+  white-space: nowrap;
+}
+
+/* Bloco da direita (condicao de pagamento e vendedor) alinhado como na folha
+   antiga: comeca no meio do quadro. */
+.minuta-direita {
+  margin-left: auto;
+  min-width: 46%;
+}
+
+.minuta-tabela {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+
+.minuta-tabela th {
+  text-align: left;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-bottom: 1px solid #000;
+}
+
+.minuta-tabela td {
+  padding: 3px 6px;
+  border-bottom: 1px dotted #888;
+  vertical-align: top;
+}
+
+.minuta-tabela .minuta-num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.minuta-descricao {
+  min-width: 40%;
+}
+
+.minuta-total {
+  text-align: center;
+  margin: 8px 0 24px;
+  font-size: 12px;
+}
+
+.minuta-entrega {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: 24px;
+  margin-bottom: 8px;
+}
+
+.minuta-entrega-campo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.minuta-entrega-horario {
+  border-left: 1px solid #000;
+  padding-left: 24px;
+}
+
+.minuta-tracos {
+  letter-spacing: 1px;
+}
+
+.minuta-assinaturas {
+  display: flex;
+  gap: 24px;
+  margin-top: 8px;
+}
+
+.minuta-assinatura {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+}
+
+.minuta-linha-assinatura {
+  border-bottom: 1px solid #000;
+  height: 20px;
+}
+
+.minuta-rodape {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 4px;
+  border-top: 1px solid #000;
+  font-size: 11px;
+}
+
+@media print {
+  .minuta-quadro,
+  .minuta-assinaturas,
+  .minuta-rodape,
+  .minuta-entrega {
+    page-break-inside: avoid;
+  }
+}

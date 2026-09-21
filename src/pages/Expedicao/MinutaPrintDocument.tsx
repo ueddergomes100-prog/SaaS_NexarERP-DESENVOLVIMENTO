@@ -1,5 +1,19 @@
 import React from 'react';
-import { getCompanyAddressRows } from '../../utils/companyAddress';
+import {
+  codigoENomeMinuta,
+  condicaoPagamentoMinuta,
+  enderecoMinuta,
+  formatarCepMinuta,
+  formatarDocumentoMinuta,
+  formatarEmissaoMinuta,
+  formatarGeradoEmMinuta,
+  formatarQuantidadeMinuta,
+  formatarTelefoneMinuta,
+  formatarTotalPecasMinuta,
+  rotuloDocumentoMinuta,
+  vendedorMinuta,
+} from '../../utils/minutaDomain';
+import './MinutaPrint.css';
 
 export interface MinutaItem {
   id: string;
@@ -12,101 +26,167 @@ export interface MinutaItem {
   /** Presente quando o item foi vendido em embalagem. */
   embalagemId?: string;
   codigo?: string;
+  codigoBarras?: string;
+  marca?: string;
   localizacaoEstoque?: string;
+}
+
+/** Campos do cadastro do cliente que a minuta imprime. */
+export interface MinutaCliente {
+  codigo?: string;
+  documento?: string;
+  endereco?: string;
+  numero?: string;
+  bairro?: string;
+  cidade?: string;
+  estado?: string;
+  cep?: string;
+  telefone?: string;
+  celular?: string;
+  referencia?: string;
 }
 
 interface MinutaPrintDocumentProps {
   pedidoData: any;
   itens: MinutaItem[];
   configData: any;
+  cliente?: MinutaCliente | null;
+  /** Codigo do vendedor (cadastro de Usuarios), quando existir. */
+  vendedorCodigo?: string;
+  /** Quem esta imprimindo. */
+  usuarioNome?: string;
+  /** Data/hora da impressao. Vem de fora pra o rodape nao mudar a cada render. */
+  geradoEm: Date;
 }
 
 /**
- * Layout da minuta de entrega (Modulo 12, Fatia 2/4) -- documento de
- * separacao pro estoque, deliberadamente SEM nenhum valor monetario (preco,
- * desconto, total). So local, codigo, produto e quantidade, mais rodape de
- * assinatura. `itens` ja vem enriquecido (localizacaoEstoque/codigo do
- * cadastro) e ordenado por quem chamou (MinutaPrint.tsx), nao por aqui --
- * este componente so renderiza.
+ * Minuta de entrega no MESMO layout do sistema antigo (pedido da Sol Natus em
+ * 2026-09-21, com a folha antiga ao lado): cabecalho em quadro com filial,
+ * numero, cliente, endereco, contatos, observacao, condicao de pagamento e
+ * vendedor; itens com quantidade, unidade, matricula (codigo), descricao,
+ * codigo de barras, marca e local; total de pecas; linhas de data/horario de
+ * entrega; assinaturas do entregador e do cliente (com CPF/CNPJ); e o rodape
+ * com usuario e hora de geracao.
+ *
+ * Continua SEM nenhum valor monetario -- e' documento de separacao/entrega.
+ * `itens` ja vem enriquecido e ordenado por MinutaPrint.tsx; aqui so' se
+ * desenha. Nao declarar `@page { size }` no CSS (regra do projeto).
  */
-const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({ pedidoData, itens, configData }) => {
-  const dataCriacao = pedidoData.createdAt?.toDate ? pedidoData.createdAt.toDate().toLocaleDateString('pt-BR') : 'N/A';
-  const companyAddressRows = getCompanyAddressRows(configData);
+const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({
+  pedidoData, itens, configData, cliente, vendedorCodigo, usuarioNome, geradoEm,
+}) => {
+  const criadoEm: Date | null = pedidoData.createdAt?.toDate ? pedidoData.createdAt.toDate() : null;
+  const numero = pedidoData.numeroPedido || pedidoData.id.substring(0, 6).toUpperCase();
+  const ehPreVenda = pedidoData.status === 'Pré-venda';
+  const nomeEmpresa = String(configData?.nomeOficina || '').trim();
+  const condicao = condicaoPagamentoMinuta(pedidoData.pagamentos);
+  const observacao = String(pedidoData.observacao || pedidoData.observacoes || '').trim();
+  const documento = formatarDocumentoMinuta(cliente?.documento);
+  const fone = formatarTelefoneMinuta(cliente?.telefone);
+  const celular = formatarTelefoneMinuta(cliente?.celular);
 
   return (
-    <div className="a4-page">
-      <div className="a4-header">
-        <div className="a4-logo">
-          {configData?.logo && (
-            <img src={configData.logo} alt="Logo" style={{ maxHeight: '80px', maxWidth: '250px', objectFit: 'contain', marginBottom: '8px' }} />
-          )}
-          <h2 style={{ fontSize: configData?.logo ? '16px' : '24px', margin: 0 }}>{configData?.nomeOficina || 'NEXAR ERP'}</h2>
-          {companyAddressRows.map((row) => (
-            <p key={row.label}><strong>{row.label}:</strong> {row.value}</p>
-          ))}
+    <div className="a4-page minuta-doc">
+      <div className="minuta-quadro">
+        <span className="minuta-titulo">MINUTA DE ENTREGA</span>
+
+        <div className="minuta-linha">
+          <span>Filial: {nomeEmpresa}</span>
+          <span>{ehPreVenda ? 'Pré-venda' : 'Pedido'}: {numero}</span>
+          <span>Operação: VENDAS</span>
+          <span>Página: 1</span>
         </div>
-        <div className="a4-os-info">
-          <h1>MINUTA DE ENTREGA</h1>
-          <h2 className="os-number">Pedido Nº {pedidoData.numeroPedido || pedidoData.id.substring(0, 6).toUpperCase()}</h2>
-          <p><strong>Data:</strong> {dataCriacao}</p>
+
+        <div className="minuta-linha">
+          <span>Cliente: {codigoENomeMinuta(cliente?.codigo, pedidoData.clienteNome || 'Consumidor Final')}</span>
+          <span>Emissão: {formatarEmissaoMinuta(criadoEm)}</span>
+        </div>
+
+        <div className="minuta-linha">
+          <span>Endereço: {enderecoMinuta(cliente)}</span>
+          <span>Fone: {fone} &nbsp; Fax: &nbsp; Cel.: {celular}</span>
+        </div>
+
+        <div className="minuta-linha">
+          <span>UF: {cliente?.estado || ''} &nbsp; CEP: {formatarCepMinuta(cliente?.cep)} &nbsp; Ref.: {cliente?.referencia || ''}</span>
+          <span>Bairro: {cliente?.bairro || ''} &nbsp; Cidade: {cliente?.cidade || ''}</span>
+        </div>
+
+        <div className="minuta-linha">
+          <span>Obs.: {observacao}</span>
+          <span className="minuta-direita">Cond. Pagto: {condicao}</span>
+        </div>
+
+        <div className="minuta-linha">
+          <span />
+          <span className="minuta-direita">Vendedor: {vendedorMinuta(vendedorCodigo, pedidoData.vendedorNome)}</span>
         </div>
       </div>
 
-      <div className="a4-section">
-        <div className="a4-grid">
-          <p><strong>Cliente:</strong> {pedidoData.clienteNome || 'Consumidor Final'}</p>
-          <p><strong>Vendedor:</strong> {pedidoData.vendedorNome || '---'}</p>
-        </div>
-      </div>
-
-      <div className="a4-section">
-        <h3 className="section-title">Itens para Separação</h3>
-        <table className="a4-table">
-          <thead>
-            <tr>
-              <th>Local</th>
-              <th>Código</th>
-              <th>Produto</th>
-              <th style={{ textAlign: 'center' }}>Qtd</th>
-            </tr>
-          </thead>
-          <tbody>
-            {itens.length > 0 ? (
-              itens.map((item, i) => (
-                <tr key={`${item.id}-${i}`}>
-                  <td>{item.localizacaoEstoque || '---'}</td>
-                  <td>{item.codigo || '---'}</td>
-                  <td>{item.nome}</td>
-                  <td style={{ textAlign: 'center' }}>
-                    {Number(item.quantidade).toFixed(item.unidadeMedidaCasasDecimais ?? 0)} {item.unidadeMedidaSigla || 'UN'}
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={4} style={{ textAlign: 'center', padding: '10px' }}>Nenhum item adicionado.</td>
+      <table className="minuta-tabela">
+        <thead>
+          <tr>
+            <th className="minuta-num">Quantid.</th>
+            <th>Und.</th>
+            <th className="minuta-num">Matric.</th>
+            <th>Descrição</th>
+            <th>Cód.Barras</th>
+            <th>Marca</th>
+            <th>Local</th>
+          </tr>
+        </thead>
+        <tbody>
+          {itens.length > 0 ? (
+            itens.map((item, i) => (
+              <tr key={`${item.id}-${i}`}>
+                <td className="minuta-num">{formatarQuantidadeMinuta(item.quantidade)}</td>
+                <td>{item.unidadeMedidaSigla || 'UN'}</td>
+                <td className="minuta-num">{item.codigo || ''}</td>
+                <td className="minuta-descricao">{item.nome}</td>
+                <td>{item.codigoBarras || ''}</td>
+                <td>{item.marca || ''}</td>
+                <td>{item.localizacaoEstoque || ''}</td>
               </tr>
-            )}
-          </tbody>
-        </table>
-        <p style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
-          {itens.length} {itens.length === 1 ? 'item' : 'itens'} — documento sem valores, uso exclusivo para separação de mercadoria.
-        </p>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={7} style={{ textAlign: 'center', padding: '8px' }}>Nenhum item adicionado.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      <p className="minuta-total">Total de Peça(s): &nbsp; <strong>{formatarTotalPecasMinuta(itens)}</strong></p>
+
+      <div className="minuta-entrega">
+        <div className="minuta-entrega-campo">
+          <span>Data de Entrega</span>
+          <span className="minuta-tracos">____/____/____</span>
+        </div>
+        <div className="minuta-entrega-campo minuta-entrega-horario">
+          <span>Horário</span>
+          <span className="minuta-tracos">_____ : _____</span>
+        </div>
       </div>
 
-      <div className="a4-signatures">
-        <div className="signature-box">
-          <div className="signature-line"></div>
-          <p>Separado por</p>
+      <div className="minuta-assinaturas">
+        <div className="minuta-assinatura">
+          <div className="minuta-linha-assinatura" />
+          <span>Assinatura do Entregador</span>
         </div>
-        <div className="signature-box">
-          <div className="signature-line"></div>
-          <p>Conferido por</p>
+        <div className="minuta-assinatura">
+          <div className="minuta-linha-assinatura" />
+          <span>
+            Assinatura do Cliente{documento ? <> &nbsp; {rotuloDocumentoMinuta(cliente?.documento)}: {documento}</> : null}
+          </span>
         </div>
       </div>
 
-      <div className="a4-footer">
-        <p>Gerado pelo Sistema Hennder ERP.</p>
+      <div className="minuta-rodape">
+        <span>[RMinuta]</span>
+        <span>Estação: {nomeEmpresa.replace(/\s+/g, '').toUpperCase()}</span>
+        <span>Usuário: {(usuarioNome || '').toUpperCase()}</span>
+        <span>Gerado em {formatarGeradoEmMinuta(geradoEm)}</span>
       </div>
     </div>
   );

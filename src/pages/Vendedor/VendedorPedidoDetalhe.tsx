@@ -8,6 +8,7 @@ import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { isPedidoAberto } from '../../utils/preVendaDomain';
 import { cancelarPedidoExterno } from '../../services/vendedorExternoVendaService';
 import VendedorHeader from './VendedorHeader';
+import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 
 /**
  * Pedido ja enviado pra base: so' leitura. Editar acontece no rascunho,
@@ -31,6 +32,9 @@ interface PedidoDetalhe {
   status: string;
   statusConferencia?: string;
   clienteNome: string;
+  observacao?: string;
+  /** O que o vendedor marcou: COM (true) ou SEM (false) nota fiscal; ausente = nao informado. */
+  comNotaFiscal?: boolean;
   dataVenda?: string;
   itens: ItemPedido[];
   valorTotalItens: number;
@@ -94,6 +98,8 @@ const VendedorPedidoDetalhe: React.FC = () => {
         status: data.status || '',
         statusConferencia: data.statusConferencia,
         clienteNome: data.clienteNome || '',
+        observacao: data.observacao || '',
+        ...(typeof data.comNotaFiscal === 'boolean' ? { comNotaFiscal: data.comNotaFiscal } : {}),
         dataVenda: data.dataVenda,
         itens: Array.isArray(data.itens) ? data.itens : [],
         valorTotalItens: Number(data.valorTotalItens || 0),
@@ -197,6 +203,22 @@ const VendedorPedidoDetalhe: React.FC = () => {
               <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
                 {pedido.status}{pedido.dataVenda ? ` · ${pedido.dataVenda.split('-').reverse().join('/')}` : ''}
               </div>
+              {rotuloNotaFiscalPedido(pedido.comNotaFiscal) && (
+                <div style={{ marginTop: '8px' }}>
+                  <span style={{
+                    display: 'inline-block', padding: '3px 10px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700,
+                    backgroundColor: pedido.comNotaFiscal ? 'rgba(16,185,129,0.18)' : 'rgba(148,163,184,0.18)',
+                    color: pedido.comNotaFiscal ? '#10b981' : 'var(--text-muted)',
+                  }}>
+                    {rotuloNotaFiscalPedido(pedido.comNotaFiscal)?.texto}
+                  </span>
+                </div>
+              )}
+              {pedido.observacao && (
+                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.4, wordBreak: 'break-word' }}>
+                  <strong style={{ color: 'var(--text-primary)' }}>Obs.:</strong> {pedido.observacao}
+                </div>
+              )}
               {pedido.statusConferencia && ROTULO_CONFERENCIA[pedido.statusConferencia] && (
                 <div style={{ fontSize: '12.5px', color: 'var(--brand-400)', marginTop: '6px', fontWeight: 600 }}>
                   {ROTULO_CONFERENCIA[pedido.statusConferencia]}

@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError } from '../../utils/alerts';
 import { criarOrcamentoExterno, criarPreVendaExterna } from '../../services/vendedorExternoVendaService';
 import VendedorHeader from './VendedorHeader';
+import { comNotaFiscalDaEscolha } from '../../utils/pedidoVendedorDomain';
 import {
   listarRascunhos,
   marcarErroRascunho,
@@ -82,6 +83,8 @@ const VendedorRascunhos: React.FC = () => {
         clienteId: rascunho.cliente.id,
         clienteNome: rascunho.cliente.nome,
         itens: rascunho.itens,
+        observacao: rascunho.observacao,
+        ...(rascunho.notaFiscal ? { comNotaFiscal: comNotaFiscalDaEscolha(rascunho.notaFiscal) } : {}),
         // Segue a config da empresa "Permitir venda sem estoque", como as
         // demais telas de venda -- antes estava fixo em false.
         permitirVendaSemEstoque: permiteVendaSemEstoque,
@@ -198,6 +201,17 @@ const VendedorRascunhos: React.FC = () => {
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>
                   {rotuloTipo(rascunho)} · {rascunho.itens.length} {rascunho.itens.length === 1 ? 'item' : 'itens'} · {formatarMoeda(totalDoRascunho(rascunho))}
                 </div>
+                {rascunho.notaFiscal && (
+                  <div style={{ marginTop: '6px' }}>
+                    <span style={{
+                      display: 'inline-block', padding: '2px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: 700,
+                      backgroundColor: rascunho.notaFiscal === 'com' ? 'rgba(16,185,129,0.18)' : 'rgba(148,163,184,0.18)',
+                      color: rascunho.notaFiscal === 'com' ? '#10b981' : 'var(--text-muted)',
+                    }}>
+                      {rascunho.notaFiscal === 'com' ? 'COM NOTA FISCAL' : 'SEM NOTA FISCAL'}
+                    </span>
+                  </div>
+                )}
                 {rascunho.ultimoErro && (
                   <div style={{ fontSize: '11.5px', color: '#f87171', marginTop: '4px', lineHeight: 1.35 }}>
                     Não enviado: {rascunho.ultimoErro}

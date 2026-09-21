@@ -8,6 +8,7 @@ import { dateInputToUtcStart, formatDateInputPtBr, getDateInputInTimeZone } from
 import { toCents, fromCents } from '../../utils/financeDomain';
 import { isPedidoAberto, resolveOrigemPedido, STATUS_PRE_VENDA, type OrigemPedido } from '../../utils/preVendaDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
+import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 
 /**
  * Relatorio de PRE-VENDAS EM ABERTO.
@@ -61,6 +62,8 @@ interface PreVendaLinha {
   totalCents: number;
   itensCount: number;
   reservaEstoque: boolean;
+  /** Marca do vendedor externo (COM/SEM nota fiscal); null = nao informado. */
+  comNotaFiscal: boolean | null;
 }
 
 const RelatorioPreVendas: React.FC = () => {
@@ -117,6 +120,7 @@ const RelatorioPreVendas: React.FC = () => {
               totalCents: Number(pedido.valorTotalCentavos ?? toCents(pedido.valorTotal)),
               itensCount: Array.isArray(pedido.itens) ? pedido.itens.length : 0,
               reservaEstoque: pedido.estoqueReservado === true,
+              comNotaFiscal: typeof pedido.comNotaFiscal === 'boolean' ? pedido.comNotaFiscal : null,
             };
           })
           .sort((a, b) => (b.data?.getTime() || 0) - (a.data?.getTime() || 0));
@@ -296,6 +300,7 @@ const RelatorioPreVendas: React.FC = () => {
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Vendedor</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Origem</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Estoque</th>
+                  <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Nota fiscal</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'right' }}>Valor</th>
                 </tr>
               </thead>
@@ -327,6 +332,18 @@ const RelatorioPreVendas: React.FC = () => {
                     </td>
                     <td style={{ padding: '14px 16px', color: 'var(--text-secondary)', fontSize: '13px' }}>
                       {linha.reservaEstoque ? 'Reservado' : 'Sem reserva'}
+                    </td>
+                    <td style={{ padding: '14px 16px' }}>
+                      {rotuloNotaFiscalPedido(linha.comNotaFiscal) ? (
+                        <span style={{
+                          padding: '4px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 700,
+                          backgroundColor: rotuloNotaFiscalPedido(linha.comNotaFiscal)?.tom === 'com' ? 'rgba(16,185,129,0.18)' : 'rgba(148,163,184,0.18)', color: rotuloNotaFiscalPedido(linha.comNotaFiscal)?.tom === 'com' ? '#10b981' : 'var(--text-muted)',
+                        }}>
+                          {rotuloNotaFiscalPedido(linha.comNotaFiscal)?.texto}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>—</span>
+                      )}
                     </td>
                     <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 600 }}>
                       {currency.format(fromCents(linha.totalCents))}

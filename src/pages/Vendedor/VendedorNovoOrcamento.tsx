@@ -4,16 +4,17 @@ import { Save } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { showError, showSuccess } from '../../utils/alerts';
-import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import type { SearchableClient } from '../../utils/clientSearch';
 import VendedorHeader from './VendedorHeader';
+import VendedorSeletorCliente from './VendedorSeletorCliente';
+import type { ClienteConfirmavel } from './VendedorConfirmarClienteModal';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
 import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
 import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } from './vendedorRascunhosStore';
 
-interface ClienteVendedor extends SearchableClient {
+interface ClienteVendedor extends SearchableClient, ClienteConfirmavel {
   id: string;
   nome: string;
   telefone?: string;
@@ -34,7 +35,6 @@ const VendedorNovoOrcamento: React.FC = () => {
     localId && tenantId && currentUser ? buscarRascunho(tenantId, currentUser.uid, localId) : null
   ));
 
-  const [clienteBusca, setClienteBusca] = useState('');
   const [clienteSelecionado, setClienteSelecionado] = useState<ClienteVendedor | null>(
     () => {
       if (rascunhoAberto) return { ...rascunhoAberto.cliente };
@@ -101,22 +101,14 @@ const VendedorNovoOrcamento: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => { setClienteSelecionado(null); setClienteBusca(''); }}
+              onClick={() => setClienteSelecionado(null)}
               style={{ fontSize: '12.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
             >
               Trocar
             </button>
           </div>
         ) : (
-          <ClientAutocomplete
-            value={clienteBusca}
-            onChange={setClienteBusca}
-            clients={clientes}
-            onSelect={(cliente) => setClienteSelecionado(cliente)}
-            renderItem={(cliente) => <span>{cliente.nome}</span>}
-            placeholder="Buscar cliente por nome"
-            ariaLabel="Buscar cliente"
-          />
+          <VendedorSeletorCliente clientes={clientes} onConfirmar={setClienteSelecionado} />
         )}
         {!clienteSelecionado && podeCadastrarClienteNoApp(userPermissions) && (
           <button

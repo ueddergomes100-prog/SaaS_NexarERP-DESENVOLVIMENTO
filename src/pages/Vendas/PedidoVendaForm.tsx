@@ -27,6 +27,7 @@ import {
   rotuloAcaoFiscalVenda,
   type DocumentoFiscalVenda,
 } from '../../utils/documentoFiscalVendaDomain';
+import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
@@ -250,6 +251,8 @@ const PedidoVendaForm: React.FC = () => {
   const [clienteNome, setClienteNome] = useState('');
   /** Observacao do pedido: sai na Minuta de Entrega ("Obs.:"). */
   const [observacaoPedido, setObservacaoPedido] = useState('');
+  /** Marca do vendedor externo: o pedido sai COM (true) ou SEM (false) nota fiscal. Ausente = nao informado. */
+  const [comNotaFiscalPedido, setComNotaFiscalPedido] = useState<boolean | null>(null);
   const [formaPagamento, setFormaPagamento] = useState('Dinheiro');
   const [dataVenda, setDataVenda] = useState(() => getDateInputInTimeZone());
   // Separa "data que o usuario escolheu" de "data que a tela herdou do
@@ -702,6 +705,7 @@ const PedidoVendaForm: React.FC = () => {
             }
             setClienteNome(p.clienteNome || '');
             setObservacaoPedido(String(p.observacao || ''));
+            setComNotaFiscalPedido(typeof p.comNotaFiscal === 'boolean' ? p.comNotaFiscal : null);
             setVendedorId(p.vendedorId || p.usuarioResponsavelId || currentUser.uid);
             setFormaPagamento(p.formaPagamento || 'Dinheiro');
             setDataVenda(p.dataVenda || getDateInputInTimeZone(p.createdAt?.toDate?.() || new Date()));
@@ -3662,6 +3666,21 @@ const PedidoVendaForm: React.FC = () => {
                       : 'Detalhes do Pedido e Impressão')
                 : 'Ponto de venda rápido para itens e produtos'}
             </p>
+            {/* O vendedor externo marca no app se o pedido leva nota fiscal; a loja
+                precisa ver isso na hora, na pre-venda, antes de separar/faturar. */}
+            {isViewing && rotuloNotaFiscalPedido(comNotaFiscalPedido) && (
+              <div style={{ marginTop: '8px' }}>
+                <span
+                  title="Marcado pelo vendedor no aplicativo"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: 700,
+                    backgroundColor: rotuloNotaFiscalPedido(comNotaFiscalPedido)?.tom === 'com' ? 'rgba(16,185,129,0.18)' : 'rgba(148,163,184,0.18)', color: rotuloNotaFiscalPedido(comNotaFiscalPedido)?.tom === 'com' ? '#10b981' : 'var(--text-muted)',
+                  }}
+                >
+                  {rotuloNotaFiscalPedido(comNotaFiscalPedido)?.texto}
+                </span>
+              </div>
+            )}
             {/* Situacao da separacao, ao vivo. O pessoal da expedicao fecha
                 a conferencia em outra maquina e isto muda aqui sem ninguem
                 sair da tela (ver o listener de status). */}

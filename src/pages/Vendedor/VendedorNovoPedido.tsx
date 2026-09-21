@@ -4,16 +4,23 @@ import { Save } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { showError, showSuccess } from '../../utils/alerts';
-import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import type { SearchableClient } from '../../utils/clientSearch';
 import VendedorHeader from './VendedorHeader';
+import VendedorSeletorCliente from './VendedorSeletorCliente';
+import type { ClienteConfirmavel } from './VendedorConfirmarClienteModal';
+import {
+  OBSERVACAO_PEDIDO_MAX,
+  erroDaEscolhaNotaFiscal,
+  normalizarObservacaoPedido,
+  type EscolhaNotaFiscal,
+} from '../../utils/pedidoVendedorDomain';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
 import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
 import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } from './vendedorRascunhosStore';
 
-interface ClienteVendedor extends SearchableClient {
+interface ClienteVendedor extends SearchableClient, ClienteConfirmavel {
   id: string;
   nome: string;
   telefone?: string;
@@ -29,7 +36,7 @@ const VendedorNovoPedido: React.FC = () => {
   const location = useLocation();
   const { localId } = useParams();
   const estadoNavegacao = (location.state as VendedorNovoPedidoNavState | null) || null;
-  const { tenantId, currentUser, trabalhaComPreVenda, permiteVendaSemEstoque, userPermissions } = useAuth();
+  const { tenantId, currentUser, trabalhaComPreVenda, permiteVendaSemEstoque, userPermissions, controlaFiscal } = useAuth();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
 
@@ -40,7 +47,6 @@ const VendedorNovoPedido: React.FC = () => {
     localId && tenantId && currentUser ? buscarRascunho(tenantId, currentUser.uid, localId) : null
   ));
 
-  const [clienteBusca, setClienteBusca] = useState('');
   const [clienteSelecionado, setClienteSelecionado] = useState<ClienteVendedor | null>(() => {
     if (rascunhoAberto) return { ...rascunhoAberto.cliente };
     return estadoNavegacao?.clientePreSelecionado
@@ -51,6 +57,10 @@ const VendedorNovoPedido: React.FC = () => {
     if (rascunhoAberto) return rascunhoAberto.itens;
     return estadoNavegacao?.itemPreAdicionado ? [estadoNavegacao.itemPreAdicionado] : [];
   });
+
+  const [observacao, setObservacao] = useState(() => rascunhoAberto?.observacao || '');
+  // O rascunho e' fonte de verdade ao reabrir; empresa sem nota fiscal nem pergunta.
+  const [notaFiscal, setNotaFiscal] = useState<EscolhaNotaFiscal | null>(() => rascunhoAberto?.notaFiscal || null);
 
   const produtosAtivos = produtos.filter((p) => p.ativo !== false);
 
@@ -75,6 +85,12 @@ const VendedorNovoPedido: React.FC = () => {
       showError('Atenção', 'Adicione pelo menos um item.');
       return;
     }
+    // Nao se assume "sem nota": pedido sem resposta e' cliente que queria nota e ficou sem.
+    const erroNota = erroDaEscolhaNotaFiscal(notaFiscal, Boolean(controlaFiscal));
+    if (erroNota) {
+      showError('Nota fiscal', erroNota);
+      return;
+    }
     if (!tenantId || !currentUser) return;
 
     const agora = new Date().toISOString();
@@ -88,6 +104,8 @@ const VendedorNovoPedido: React.FC = () => {
           ...(clienteSelecionado.telefone ? { telefone: clienteSelecionado.telefone } : {}),
         },
         itens,
+        ...(normalizarObservacaoPedido(observacao) ? { observacao: normalizarObservacaoPedido(observacao) } : {}),
+        ...(controlaFiscal && notaFiscal ? { notaFiscal } : {}),
         criadoEm: rascunhoAberto?.criadoEm || agora,
         atualizadoEm: agora,
       });
@@ -115,22 +133,14 @@ const VendedorNovoPedido: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => { setClienteSelecionado(null); setClienteBusca(''); }}
+              onClick={() => setClienteSelecionado(null)}
               style={{ fontSize: '12.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
             >
               Trocar
             </button>
           </div>
         ) : (
-          <ClientAutocomplete
-            value={clienteBusca}
-            onChange={setClienteBusca}
-            clients={clientes}
-            onSelect={(cliente) => setClienteSelecionado(cliente)}
-            renderItem={(cliente) => <span>{cliente.nome}</span>}
-            placeholder="Buscar cliente por nome"
-            ariaLabel="Buscar cliente"
-          />
+          <VendedorSeletorCliente clientes={clientes} onConfirmar={setClienteSelecionado} />
         )}
         {!clienteSelecionado && podeCadastrarClienteNoApp(userPermissions) && (
           <button
@@ -145,6 +155,59 @@ const VendedorNovoPedido: React.FC = () => {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
         <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque={permiteVendaSemEstoque} />
+
+        <div style={{ marginTop: '22px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label htmlFor="pedido-observacao" style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Observação
+            </label>
+            <textarea
+              id="pedido-observacao"
+              value={observacao}
+              onChange={(evento) => setObservacao(evento.target.value)}
+              maxLength={OBSERVACAO_PEDIDO_MAX}
+              rows={3}
+              placeholder="Ex.: entregar de manhã, ligar antes de chegar"
+              style={{
+                width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border-color)', fontSize: '15px',
+                backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'none',
+              }}
+            />
+            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', textAlign: 'right' }}>{observacao.length}/{OBSERVACAO_PEDIDO_MAX}</div>
+          </div>
+
+          {controlaFiscal && (
+            <fieldset style={{ border: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <legend style={{ padding: 0, marginBottom: '8px', fontSize: '12.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Nota fiscal
+              </legend>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                {([['com', 'Com nota fiscal'], ['sem', 'Sem nota fiscal']] as const).map(([valor, rotulo]) => {
+                  const marcado = notaFiscal === valor;
+                  return (
+                    <label
+                      key={valor}
+                      style={{
+                        flex: 1, display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 12px', borderRadius: '14px', cursor: 'pointer',
+                        border: `1.5px solid ${marcado ? 'var(--brand-500)' : 'var(--border-color)'}`,
+                        backgroundColor: marcado ? 'rgba(153,100,240,0.14)' : 'var(--bg-elevated)',
+                        fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={marcado}
+                        onChange={() => setNotaFiscal(marcado ? null : valor)}
+                        style={{ width: '20px', height: '20px', accentColor: 'var(--brand-500)', flexShrink: 0 }}
+                      />
+                      {rotulo}
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+          )}
+        </div>
       </div>
 
       <div style={{ padding: '16px 20px calc(24px + env(safe-area-inset-bottom))', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>

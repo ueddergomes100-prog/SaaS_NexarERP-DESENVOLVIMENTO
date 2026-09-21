@@ -1,4 +1,5 @@
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
+import type { EscolhaNotaFiscal } from '../../utils/pedidoVendedorDomain';
 
 /**
  * Rascunhos de pedido/orcamento do vendedor externo, guardados NO APARELHO.
@@ -28,6 +29,10 @@ export interface RascunhoVenda {
   tipo: TipoRascunho;
   cliente: { id: string; nome: string; telefone?: string };
   itens: ItemVendaExterna[];
+  /** So' pedido: recado pra loja (sai na minuta da retaguarda). */
+  observacao?: string;
+  /** So' pedido, e so' na empresa que controla nota fiscal: o que o vendedor marcou. */
+  notaFiscal?: EscolhaNotaFiscal;
   criadoEm: string;
   atualizadoEm: string;
   /** Motivo da ultima tentativa de envio que falhou. */

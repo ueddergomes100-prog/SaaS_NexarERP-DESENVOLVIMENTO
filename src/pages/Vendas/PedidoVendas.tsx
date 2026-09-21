@@ -22,6 +22,7 @@ import {
   listaGeralDeVendasEscondidaParaFuncionario,
   parseExigirIdentificacaoVendedor,
 } from '../../utils/vendedorPinDomain';
+import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 import {
   addDaysToDateInput,
   dateInputToUtcEnd,
@@ -51,6 +52,8 @@ interface PedidoVendaData {
   itens?: ItemVenda[];
   tenantId: string;
   statusConferencia?: string;
+  /** Marca do vendedor externo (COM/SEM nota fiscal); ausente = nao informado. */
+  comNotaFiscal?: boolean;
   vendedorId?: string;
   vendedorNome?: string;
   usuarioResponsavelId?: string;
@@ -829,6 +832,19 @@ const PedidoVendas: React.FC = () => {
                       }}>
                         {p.status}
                       </span>
+                      {rotuloNotaFiscalPedido(p.comNotaFiscal) && (
+                        <div style={{ marginTop: '4px' }}>
+                          <span
+                            title="Marcado pelo vendedor no aplicativo"
+                            style={{
+                              display: 'inline-block', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap',
+                              backgroundColor: rotuloNotaFiscalPedido(p.comNotaFiscal)?.tom === 'com' ? 'rgba(16,185,129,0.18)' : 'rgba(148,163,184,0.18)', color: rotuloNotaFiscalPedido(p.comNotaFiscal)?.tom === 'com' ? '#10b981' : 'var(--text-muted)',
+                            }}
+                          >
+                            {rotuloNotaFiscalPedido(p.comNotaFiscal)?.texto}
+                          </span>
+                        </div>
+                      )}
                     </td>
                     {conferenciaMercadoriaAtiva && (
                       <td style={{ padding: '16px' }}>

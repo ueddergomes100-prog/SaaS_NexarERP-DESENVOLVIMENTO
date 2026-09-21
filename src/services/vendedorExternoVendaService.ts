@@ -67,6 +67,10 @@ export interface CriarPreVendaExternaParams {
   clienteNome: string;
   itens: ItemVendaExterna[];
   permitirVendaSemEstoque: boolean;
+  /** Recado pra loja; vai no campo `observacao` do pedido (o mesmo da retaguarda). */
+  observacao?: string;
+  /** O pedido sai COM (true) ou SEM (false) nota fiscal, como o vendedor marcou. Ausente = nao informado. */
+  comNotaFiscal?: boolean;
   /** Id fixo do documento (o id do rascunho). Com ele, reenviar o mesmo
    *  rascunho depois de uma queda de conexao NAO cria um segundo pedido: se
    *  o primeiro envio chegou a gravar, a transacao so' devolve o que ja
@@ -77,7 +81,7 @@ export interface CriarPreVendaExternaParams {
 export const criarPreVendaExterna = async (
   params: CriarPreVendaExternaParams,
 ): Promise<{ id: string; numeroPedido: string }> => {
-  const { tenantId, usuarioId, vendedorId, vendedorNome, clienteId, clienteNome, itens, permitirVendaSemEstoque, idDocumento } = params;
+  const { tenantId, usuarioId, vendedorId, vendedorNome, clienteId, clienteNome, itens, permitirVendaSemEstoque, idDocumento, observacao, comNotaFiscal } = params;
 
   const valorTotalItens = itens.reduce((soma, item) => soma + item.subtotal, 0);
   const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
@@ -130,6 +134,10 @@ export const criarPreVendaExterna = async (
       // (bot do WhatsApp), que nao e' o caso aqui. Ver preVendaDomain.ts.
       origem: 'balcao' as OrigemPedido,
       estoqueReservado: itens.length > 0,
+      observacao: (observacao || '').trim(),
+      // Marca do vendedor: a loja ve na pre-venda se o pedido leva nota fiscal. So' grava quando
+      // foi informado (nunca undefined no Firestore) -- venda de balcao nao tem o campo.
+      ...(typeof comNotaFiscal === 'boolean' ? { comNotaFiscal } : {}),
       tenantId,
       usuarioResponsavelId: usuarioId,
       vendedorId,

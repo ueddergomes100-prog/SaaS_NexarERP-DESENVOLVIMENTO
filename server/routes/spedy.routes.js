@@ -143,7 +143,35 @@ router.get('/requisitos', async (req, res) => {
     const { apiKey, baseUrl } = await loadSpedyConfig(tenantId);
     const configSnap = await db.collection('configuracoes').doc(tenantId).get();
     const config = configSnap.exists ? configSnap.data() : {};
-    const companyId = config.spedyCompanyId;
+    let companyId = config.spedyCompanyId;
+    const diagnostico = [];
+
+    // Empresa cadastrada so' com a chave (sem o id da Spedy guardado): descobre
+    // o id listando as empresas visiveis a essa chave -- a chave por-empresa
+    // enxerga so' a propria -- e guarda pra proxima vez.
+    if (!companyId) {
+      try {
+        const cnpjEmpresa = String(config.cnpj || '').replace(/\D/g, '');
+        const lista = await fetch(`${baseUrl}/companies?pageSize=50`, { method: 'GET', headers: { 'X-Api-Key': apiKey } });
+        if (lista.ok) {
+          const corpo = await lista.json().catch(() => ({}));
+          const itens = Array.isArray(corpo) ? corpo : (corpo.items || corpo.result?.items || []);
+          const achada = itens.find((c) => String(c.federalTaxNumber || '').replace(/\D/g, '') === cnpjEmpresa)
+            || (itens.length === 1 ? itens[0] : null);
+          if (achada && achada.id) {
+            companyId = achada.id;
+            await db.collection('configuracoes').doc(tenantId).set({ spedyCompanyId: companyId }, { merge: true });
+          } else {
+            diagnostico.push('A Spedy não devolveu uma empresa com o CNPJ desta empresa para a chave informada.');
+          }
+        } else {
+          diagnostico.push(`Não foi possível descobrir o id da empresa na Spedy (resposta ${lista.status}).`);
+        }
+      } catch (erroLista) {
+        console.error('[Spedy Requisitos] falha ao descobrir o id da empresa:', erroLista.message);
+        diagnostico.push('Não foi possível falar com a Spedy para descobrir o id da empresa.');
+      }
+    }
 
     const ler = async (caminho) => {
       if (!companyId) return null;
@@ -152,10 +180,14 @@ router.get('/requisitos', async (req, res) => {
           method: 'GET',
           headers: { 'X-Api-Key': apiKey }
         });
-        if (!response.ok) return null;
+        if (!response.ok) {
+          diagnostico.push(`A Spedy respondeu ${response.status} ao ler "${caminho}" da empresa.`);
+          return null;
+        }
         return await response.json();
       } catch (erro) {
         console.error(`[Spedy Requisitos] falha ao ler ${caminho}:`, erro.message);
+        diagnostico.push(`Falha de rede ao ler "${caminho}" na Spedy.`);
         return null;
       }
     };
@@ -188,7 +220,7 @@ router.get('/requisitos', async (req, res) => {
       certificados: Array.isArray(certificados) ? certificados : null,
       ultimoNumeroAutorizado: { nfe: ultimoNfe, nfce: ultimoNfce },
     });
-    return res.json({ ...avaliacao, spedyLegivel: Boolean(settings) });
+    return res.json({ ...avaliacao, spedyLegivel: Boolean(settings), diagnosticoSpedy: diagnostico });
   } catch (error) {
     console.error('[Spedy Requisitos]', error);
     return res.status(error.status || 500).json({

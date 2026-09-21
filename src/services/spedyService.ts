@@ -165,6 +165,8 @@ export interface RequisitosFiscais {
   nfe: { pronto: boolean; checks: RequisitoFiscal[] };
   nfce: { pronto: boolean; checks: RequisitoFiscal[] };
   spedyLegivel: boolean;
+  /** Por que a Spedy nao pode ser lida (quando nao pode), em portugues. */
+  diagnosticoSpedy?: string[];
 }
 
 export interface SpedyRuntimeConfig {

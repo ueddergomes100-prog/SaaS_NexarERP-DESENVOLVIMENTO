@@ -2668,6 +2668,14 @@ const Configuracoes: React.FC = () => {
                       {conferindoRequisitos ? 'Conferindo...' : 'Conferir requisitos'}
                     </button>
                     {erroRequisitos && <p style={{ fontSize: '13px', color: '#ef4444', margin: 0 }}>{erroRequisitos}</p>}
+                    {requisitos && !requisitos.spedyLegivel && (requisitos.diagnosticoSpedy?.length ?? 0) > 0 && (
+                      <div style={{ fontSize: '13px', color: '#f59e0b' }}>
+                        <strong>Não consegui ler as configurações na Spedy:</strong>
+                        <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
+                          {requisitos.diagnosticoSpedy?.map((motivo) => <li key={motivo}>{motivo}</li>)}
+                        </ul>
+                      </div>
+                    )}
                     {requisitos && (['nfe', 'nfce'] as const).map((grupo) => (
                       <div key={grupo} style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 14px', backgroundColor: 'var(--bg-tertiary)' }}>
                         <strong style={{ fontSize: '13px', color: requisitos[grupo].pronto ? '#10b981' : '#ef4444' }}>

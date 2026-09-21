@@ -63,6 +63,8 @@ import {
   DEFAULT_EXIGIR_BIPAGEM,
   DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
   DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
+  DEFAULT_MINUTA_MOSTRAR_MARCA,
+  DEFAULT_MINUTA_MOSTRAR_LOCAL,
 } from '../../utils/conferenciaDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
@@ -190,6 +192,8 @@ const Configuracoes: React.FC = () => {
     exigirBipagem: DEFAULT_EXIGIR_BIPAGEM,
     bloquearExcedente: DEFAULT_BLOQUEAR_EXCEDENTE,
     ordenarMinutaPorLocal: DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
+    minutaMostrarMarca: DEFAULT_MINUTA_MOSTRAR_MARCA,
+    minutaMostrarLocal: DEFAULT_MINUTA_MOSTRAR_LOCAL,
     emiteNFe: false,
     emiteNFCe: false,
     emiteNFSe: false,
@@ -306,6 +310,8 @@ const Configuracoes: React.FC = () => {
             exigirBipagem: data.exigirBipagem ?? DEFAULT_EXIGIR_BIPAGEM,
             bloquearExcedente: data.bloquearExcedente ?? DEFAULT_BLOQUEAR_EXCEDENTE,
             ordenarMinutaPorLocal: data.ordenarMinutaPorLocal ?? DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
+            minutaMostrarMarca: data.minutaMostrarMarca ?? DEFAULT_MINUTA_MOSTRAR_MARCA,
+            minutaMostrarLocal: data.minutaMostrarLocal ?? DEFAULT_MINUTA_MOSTRAR_LOCAL,
             emiteNFe: data.emiteNFe ?? false,
             emiteNFCe: data.emiteNFCe ?? false,
             emiteNFSe: data.emiteNFSe ?? false,
@@ -2023,6 +2029,31 @@ const Configuracoes: React.FC = () => {
                   Trabalha com conferência de mercadoria antes da expedição
                 </label>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Quando marcado, toda venda finalizada nasce com um status de conferência e passa a ser exigida a separação/bipagem antes de considerar o pedido pronto. Desligado (padrão), nenhuma venda ganha esse status e nada muda no fluxo atual.</p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Minuta de Entrega — colunas opcionais</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.minutaMostrarMarca !== false}
+                    onChange={(e) => setFormData({ ...formData, minutaMostrarMarca: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Mostrar a coluna Marca na minuta
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.minutaMostrarLocal !== false}
+                    onChange={(e) => setFormData({ ...formData, minutaMostrarLocal: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Mostrar a coluna Local (localização no estoque) na minuta
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Desmarcada, a coluna some do papel e a Descrição ganha o espaço. Vale para toda minuta impressa, com ou sem conferência de mercadoria.</p>
               </div>
 
               {formData.conferenciaMercadoria && (

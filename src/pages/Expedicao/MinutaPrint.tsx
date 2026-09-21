@@ -4,7 +4,12 @@ import { Printer, ArrowLeft } from 'lucide-react';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { DEFAULT_ORDENAR_MINUTA_POR_LOCAL, ordenarPorLocalizacao } from '../../utils/conferenciaDomain';
+import {
+  DEFAULT_MINUTA_MOSTRAR_LOCAL,
+  DEFAULT_MINUTA_MOSTRAR_MARCA,
+  DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
+  ordenarPorLocalizacao,
+} from '../../utils/conferenciaDomain';
 import {
   isVendaDoUsuario,
   MENSAGEM_VENDA_DE_OUTRO_USUARIO,
@@ -14,6 +19,19 @@ import { showError } from '../../utils/alerts';
 import MinutaPrintDocument, { type MinutaCliente, type MinutaItem } from './MinutaPrintDocument';
 import '../OS/OsPrint.css'; // Reusing OS print styles, mesmo padrao de PedidoPrint.tsx
 
+/**
+ * Codigo de barras que vai no papel, sempre do CADASTRO do produto (o pedido
+ * nao guarda). Item vendido em embalagem imprime o codigo daquela embalagem
+ * quando ela tem um; senao o do produto; senao o de qualquer embalagem
+ * cadastrada. Sem nenhum, fica em branco -- nunca inventa.
+ */
+const codigoBarrasDoProduto = (produto: any, embalagemId?: string): string => {
+  const embalagens: any[] = Array.isArray(produto.embalagens) ? produto.embalagens : [];
+  const daEmbalagem = embalagemId ? embalagens.find((e) => e && e.id === embalagemId)?.codigoBarras : '';
+  const qualquerEmbalagem = embalagens.find((e) => e && String(e.codigoBarras || '').trim())?.codigoBarras;
+  return String(daEmbalagem || produto.codigoBarras || qualquerEmbalagem || '').trim();
+};
+
 const MinutaPrint: React.FC = () => {
   const { pedidoId } = useParams();
   const navigate = useNavigate();
@@ -21,6 +39,8 @@ const MinutaPrint: React.FC = () => {
   const [pedidoData, setPedidoData] = useState<any>(null);
   const [itens, setItens] = useState<MinutaItem[]>([]);
   const [configData, setConfigData] = useState<any>(null);
+  const mostrarMarca = (configData?.minutaMostrarMarca ?? DEFAULT_MINUTA_MOSTRAR_MARCA) !== false;
+  const mostrarLocal = (configData?.minutaMostrarLocal ?? DEFAULT_MINUTA_MOSTRAR_LOCAL) !== false;
   const [cliente, setCliente] = useState<MinutaCliente | null>(null);
   const [vendedorCodigo, setVendedorCodigo] = useState('');
   const [usuarioNome, setUsuarioNome] = useState('');
@@ -129,7 +149,7 @@ const MinutaPrint: React.FC = () => {
                 return {
                   ...base,
                   codigo: produto.codigo || '',
-                  codigoBarras: produto.codigoBarras || '',
+                  codigoBarras: codigoBarrasDoProduto(produto, item.embalagemId),
                   marca: produto.marca || '',
                   localizacaoEstoque: produto.localizacaoEstoque || '',
                 };
@@ -183,6 +203,8 @@ const MinutaPrint: React.FC = () => {
         vendedorCodigo={vendedorCodigo}
         usuarioNome={usuarioNome}
         geradoEm={geradoEm}
+        mostrarMarca={mostrarMarca}
+        mostrarLocal={mostrarLocal}
       />
     </div>
   );

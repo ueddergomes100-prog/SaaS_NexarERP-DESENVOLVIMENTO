@@ -13,6 +13,11 @@ export const DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA = true;
 export const DEFAULT_EXIGIR_BIPAGEM = true;
 export const DEFAULT_BLOQUEAR_EXCEDENTE = true;
 export const DEFAULT_ORDENAR_MINUTA_POR_LOCAL = true;
+// Colunas opcionais da minuta de entrega (pedido da Sol Natus, 2026-09-21):
+// cada empresa decide se quer Marca e Local no papel. Ligadas por padrao -- e'
+// o que a folha do sistema antigo trazia.
+export const DEFAULT_MINUTA_MOSTRAR_MARCA = true;
+export const DEFAULT_MINUTA_MOSTRAR_LOCAL = true;
 
 // Maquina de estados explicita. aguardando so abre pra em_conferencia;
 // conferido/divergente sao desfechos legitimos (nao erros) e podem ser

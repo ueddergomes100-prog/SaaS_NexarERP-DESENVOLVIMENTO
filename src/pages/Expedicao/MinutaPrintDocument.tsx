@@ -57,6 +57,9 @@ interface MinutaPrintDocumentProps {
   usuarioNome?: string;
   /** Data/hora da impressao. Vem de fora pra o rodape nao mudar a cada render. */
   geradoEm: Date;
+  /** Colunas opcionais (Configuracoes). Padrao: aparecem. */
+  mostrarMarca?: boolean;
+  mostrarLocal?: boolean;
 }
 
 /**
@@ -73,8 +76,9 @@ interface MinutaPrintDocumentProps {
  * desenha. Nao declarar `@page { size }` no CSS (regra do projeto).
  */
 const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({
-  pedidoData, itens, configData, cliente, vendedorCodigo, usuarioNome, geradoEm,
+  pedidoData, itens, configData, cliente, vendedorCodigo, usuarioNome, geradoEm, mostrarMarca = true, mostrarLocal = true,
 }) => {
+  const totalColunas = 5 + (mostrarMarca ? 1 : 0) + (mostrarLocal ? 1 : 0);
   const criadoEm: Date | null = pedidoData.createdAt?.toDate ? pedidoData.createdAt.toDate() : null;
   const numero = pedidoData.numeroPedido || pedidoData.id.substring(0, 6).toUpperCase();
   const ehPreVenda = pedidoData.status === 'Pré-venda';
@@ -124,15 +128,27 @@ const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({
       </div>
 
       <table className="minuta-tabela">
+        {/* Larguras fixas: a tabela ocupa a folha inteira e o pontilhado de
+            cada linha vai ate' a borda, mesmo com celula vazia (codigo de
+            barras, marca ou local sem cadastro). */}
+        <colgroup>
+          <col style={{ width: '10%' }} />
+          <col style={{ width: '5%' }} />
+          <col style={{ width: '8%' }} />
+          <col />
+          <col style={{ width: '20%' }} />
+          {mostrarMarca && <col style={{ width: '12%' }} />}
+          {mostrarLocal && <col style={{ width: '9%' }} />}
+        </colgroup>
         <thead>
           <tr>
             <th className="minuta-num">Quantid.</th>
             <th>Und.</th>
             <th className="minuta-num">Matric.</th>
             <th>Descrição</th>
-            <th>Cód.Barras</th>
-            <th>Marca</th>
-            <th>Local</th>
+            <th className="minuta-barras">Cód.Barras</th>
+            {mostrarMarca && <th>Marca</th>}
+            {mostrarLocal && <th>Local</th>}
           </tr>
         </thead>
         <tbody>
@@ -143,14 +159,14 @@ const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({
                 <td>{item.unidadeMedidaSigla || 'UN'}</td>
                 <td className="minuta-num">{item.codigo || ''}</td>
                 <td className="minuta-descricao">{item.nome}</td>
-                <td>{item.codigoBarras || ''}</td>
-                <td>{item.marca || ''}</td>
-                <td>{item.localizacaoEstoque || ''}</td>
+                <td className="minuta-barras">{item.codigoBarras || ''}</td>
+                {mostrarMarca && <td>{item.marca || ''}</td>}
+                {mostrarLocal && <td>{item.localizacaoEstoque || ''}</td>}
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan={7} style={{ textAlign: 'center', padding: '8px' }}>Nenhum item adicionado.</td>
+              <td colSpan={totalColunas} style={{ textAlign: 'center', padding: '8px' }}>Nenhum item adicionado.</td>
             </tr>
           )}
         </tbody>
@@ -183,7 +199,6 @@ const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({
       </div>
 
       <div className="minuta-rodape">
-        <span>[RMinuta]</span>
         <span>Estação: {nomeEmpresa.replace(/\s+/g, '').toUpperCase()}</span>
         <span>Usuário: {(usuarioNome || '').toUpperCase()}</span>
         <span>Gerado em {formatarGeradoEmMinuta(geradoEm)}</span>

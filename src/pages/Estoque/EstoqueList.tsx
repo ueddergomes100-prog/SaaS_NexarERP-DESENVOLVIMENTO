@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Upload, Factory } from 'lucide-react';
-import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory } from 'lucide-react';
+import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -9,9 +9,10 @@ import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms } from '../../utils/textSearch';
 import { DEFAULT_MOSTRAR_RESUMO_ESTOQUE, parseMostrarResumoEstoque } from '../../utils/estoqueResumoDomain';
-import { ajustePararZerar, avisoInativacaoComSaldo, avisoInativacaoSemSaldo, precisaZerarParaInativar } from '../../utils/estoqueInativacaoDomain';
-import { buildAjusteEstoqueDoc } from '../../utils/ajusteEstoqueDomain';
+import { avisoInativacaoComSaldo, avisoInativacaoSemSaldo, precisaZerarParaInativar } from '../../utils/estoqueInativacaoDomain';
 import './Estoque.css';
+import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
 
 interface PecaData {
   id: string;
@@ -112,74 +113,19 @@ const EstoqueList: React.FC = () => {
     if (!confirm.isConfirmed) return;
 
     try {
-      if (vaiZerar) {
-        // Transacao: o saldo so' pode ir a zero junto com a inativacao e com
-        // a trilha no Relatorio de Ajustes. Se qualquer parte falhar, nada
-        // acontece -- saldo sumido sem registro e' pior que o problema.
-        const ajuste = ajustePararZerar(peca.quantidade);
-        await runTransaction(db, async (transaction) => {
-          const produtoRef = doc(db, 'estoque', peca.id);
-          const produtoSnap = await transaction.get(produtoRef);
-          if (!produtoSnap.exists()) {
-            throw new Error(`"${peca.nome}" não foi encontrado. Atualize a página e tente novamente.`);
-          }
-          // Le o saldo de novo dentro da transacao: entre abrir o aviso e
-          // confirmar, uma venda pode ter mexido no estoque.
-          const quantidadeAntes = Number(produtoSnap.data().quantidade || 0);
-
-          transaction.update(produtoRef, {
-            quantidade: 0,
-            ativo: false,
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Produto inativado (estoque zerado de ${quantidadeAntes})`),
-          });
-
-          transaction.set(doc(collection(db, 'ajustes_estoque')), {
-            ...buildAjusteEstoqueDoc({
-              tenantId: tenantId || '',
-              produtoId: peca.id,
-              produtoNome: peca.nome,
-              produtoCodigo: peca.codigo,
-              tipo: ajuste.tipo,
-              quantidade: Math.abs(quantidadeAntes),
-              motivo: ajuste.motivo,
-              observacao: 'Estoque zerado automaticamente na inativação do produto.',
-              quantidadeAntes,
-              quantidadeDepois: 0,
-              usuarioId: currentUser.uid,
-              usuarioNome: currentUser.email || currentUser.uid,
-            }),
-            createdAt: serverTimestamp(),
-          });
-        });
-      } else {
-        await updateDoc(doc(db, 'estoque', peca.id), {
-          ativo: novoStatus,
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Produto reativado' : 'Produto inativado'),
-        });
-      }
-
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId: tenantId || '',
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || '',
-          modulo: 'estoque',
-          acao: novoStatus ? 'ativacao' : 'inativacao',
-          descricao: `Produto ${peca.nome} ${novoStatus ? 'reativado' : 'inativado'}${vaiZerar ? ` (estoque zerado de ${peca.quantidade})` : ''}.`,
-          registroRelacionadoId: peca.id,
-          alteracoes: [
-            { campo: 'ativo', valorAnterior: !novoStatus, valorNovo: novoStatus },
-            ...(vaiZerar ? [{ campo: 'quantidade', valorAnterior: peca.quantidade, valorNovo: 0 }] : []),
-          ],
-          status: 'sucesso',
-        });
-      } catch (logErr) {}
-      showSuccess(novoStatus ? 'Produto ativado!' : vaiZerar ? 'Produto inativado e estoque zerado!' : 'Produto inativado!');
+      // O servidor confere as pendencias (reserva em pre-venda, receita de
+      // produto ativo, producao aberta) e, se passar, zera o saldo e inativa
+      // numa transacao so', com o registro no Relatorio de Ajustes. Ver
+      // server/services/cadastroIntegridade.js.
+      const resultado = await alterarSituacaoCadastro('estoque', peca.id, novoStatus);
+      showSuccess(novoStatus
+        ? 'Produto ativado!'
+        : resultado.saldoZerado
+          ? `Produto inativado e estoque zerado (era ${resultado.saldoZerado}).`
+          : 'Produto inativado!');
     } catch (error) {
-      console.error("Erro ao atualizar status do produto:", error);
-      showError('Erro ao atualizar', (error as Error).message || 'Tente novamente mais tarde.');
+      console.error('Erro ao atualizar status do produto:', error);
+      showError(novoStatus ? 'Não foi possível ativar' : 'Não foi possível inativar', (error as Error).message || 'Tente novamente mais tarde.');
     }
   };
 
@@ -432,6 +378,14 @@ const EstoqueList: React.FC = () => {
                             onClick={() => handleToggleAtivo(peca)}
                           >
                             <Power size={16} />
+                          </button>
+                          <button
+                            className="icon-btn"
+                            title="Excluir (só sem movimentação)"
+                            style={{ color: '#ef4444' }}
+                            onClick={() => { void confirmarEExcluirCadastro('estoque', peca.id, peca.nome, 'o produto'); }}
+                          >
+                            <Trash2 size={16} />
                           </button>
                         </div>
                       )}

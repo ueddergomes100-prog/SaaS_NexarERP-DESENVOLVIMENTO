@@ -14,10 +14,9 @@ import { DEFAULT_VENDER_POR_EMBALAGEM, formatFatorConversao, normalizeEmbalagens
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import CampoComSugestoes from '../../components/common/CampoComSugestoes';
 import { compararMargem, precoParaMargem } from '../../utils/precificacaoDomain';
 import { ROTULO_POR_ORIGEM, chaveComponente, normalizarComponente, type ComponenteComposicao, type OrigemComponente } from '../../utils/producaoDomain';
-import { ajustePararZerar, avisoInativacaoComSaldo, precisaZerarParaInativar } from '../../utils/estoqueInativacaoDomain';
-import { buildAjusteEstoqueDoc } from '../../utils/ajusteEstoqueDomain';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -409,6 +408,11 @@ const EstoqueForm: React.FC = () => {
    * preco. "Alterado por 8Kx9..." nao serve pra ninguem conferir nada. */
   const [nomesUsuarios, setNomesUsuarios] = useState<Record<string, string>>({});
   const [produtoOriginal, setProdutoOriginal] = useState<ProdutoOriginalData | null>(null);
+  // Produto que JA estava inativo quando o cadastro foi aberto: fica so'
+  // pra consulta. Inativar pelo proprio formulario continua possivel (e
+  // zera o saldo, ver handleSave) -- o que trava e' mexer num inativo.
+  const produtoInativo = isEditing && produtoOriginal !== null
+    && (produtoOriginal.statusAtivo ?? produtoOriginal.ativo) === false;
   const [modoCadastro, setModoCadastro] = useState<'rapido' | 'avancado'>('avancado');
 
   // Composicao (Modulo 4, sub-etapa "a"): quais materias-primas e em que
@@ -427,9 +431,9 @@ const EstoqueForm: React.FC = () => {
   const [isFetching, setIsFetching] = useState(isEditing);
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
   const [marcasDB, setMarcasDB] = useState<string[]>([]);
+  const [fornecedoresDB, setFornecedoresDB] = useState<string[]>([]);
   const [unidadesDB, setUnidadesDB] = useState<UnidadeMedida[]>([]);
   const [validarCadastroProduto, setValidarCadastroProduto] = useState(false);
-  const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
   const [regimeTributario, setRegimeTributario] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
   const { currentUser, tenantId, userRole, userPermissions, isOwner, controlaFiscal } = useAuth();
 
@@ -491,7 +495,7 @@ const EstoqueForm: React.FC = () => {
   );
   const sugestaoSlug = useMemo(() => slugify(formData.nome), [formData.nome]);
   const skuCalculado = useMemo(() => makeSku(tenantId, formData.codigo), [tenantId, formData.codigo]);
-  const quantidadeEstoqueEditavel = !isEditing || permitirVendaSemEstoque;
+  const quantidadeEstoqueEditavel = !isEditing;
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -502,12 +506,10 @@ const EstoqueForm: React.FC = () => {
         if (configSnap.exists()) {
           const configData = configSnap.data();
           setValidarCadastroProduto(configData.validarCadastroProduto === true);
-          setPermitirVendaSemEstoque(configData.venderSemEstoque === true);
           setVenderPorEmbalagem(configData.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
           setRegimeTributario((configData.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
         } else {
           setValidarCadastroProduto(false);
-          setPermitirVendaSemEstoque(false);
           setVenderPorEmbalagem(DEFAULT_VENDER_POR_EMBALAGEM);
           setRegimeTributario(DEFAULT_REGIME_TRIBUTARIO);
         }
@@ -535,6 +537,14 @@ const EstoqueForm: React.FC = () => {
         } catch (marcaError) {
           console.error('Erro ao carregar as marcas (sugestão do campo Marca):', marcaError);
           setMarcasDB([]);
+        }
+        // Mesma regra: fornecedor aqui e' so' sugestao do campo.
+        try {
+          const snapForn = await getDocs(query(collection(db, 'fornecedores'), where('tenantId', '==', tenantId)));
+          setFornecedoresDB(snapForn.docs.filter(d => d.data().ativo !== false).map(d => d.data().nome).filter(Boolean));
+        } catch (fornecedorError) {
+          console.error('Erro ao carregar os fornecedores (sugestão do campo Fornecedor):', fornecedorError);
+          setFornecedoresDB([]);
         }
 
         const qUni = query(collection(db, 'unidades_medida'), where('tenantId', '==', tenantId));
@@ -1002,27 +1012,14 @@ const EstoqueForm: React.FC = () => {
 
   const handleSave = async (e?: React.FormEvent | React.MouseEvent) => {
     e?.preventDefault();
+    // CADASTRO INATIVO NAO SE ALTERA -- nem o saldo, nem nada. Os campos ja'
+    // ficam travados na tela; isto cobre o "Salvar e fechar" da aba.
+    if (produtoInativo) {
+      showError('Produto inativo', 'Este produto está inativo e não pode ser alterado. Para alterar, reative-o na lista de Produtos.');
+      return false;
+    }
     if (!validateForm()) return;
     if (!currentUser) return;
-
-    // Inativar produto com saldo zera o estoque junto -- mesma regra da lista
-    // de produtos (ver estoqueInativacaoDomain.ts). Perguntado ANTES de
-    // gravar qualquer coisa: o usuario ainda pode desistir e voltar o
-    // "Produto ativo".
-    const quantidadeAtual = toNumber(formData.quantidade);
-    const estavaAtivo = (produtoOriginal?.statusAtivo ?? produtoOriginal?.ativo) !== false;
-    const estaInativando = isEditing && !formData.statusAtivo && estavaAtivo;
-    const vaiZerarNaInativacao = estaInativando && precisaZerarParaInativar(quantidadeAtual);
-    if (vaiZerarNaInativacao) {
-      const aviso = avisoInativacaoComSaldo(formData.nome, quantidadeAtual, baseUnidadeSigla);
-      const confirma = await NexusSwal.fire({
-        ...aviso,
-        icon: 'warning',
-        showCancelButton: true,
-        cancelButtonText: 'Cancelar',
-      });
-      if (!confirma.isConfirmed) return;
-    }
 
     setIsLoading(true);
 
@@ -1105,7 +1102,7 @@ const EstoqueForm: React.FC = () => {
         statusAtivo: formData.statusAtivo,
         ativo: formData.statusAtivo,
         permitirEstoqueNegativo: false,
-        quantidade: vaiZerarNaInativacao ? 0 : toNumber(formData.quantidade),
+        quantidade: toNumber(formData.quantidade),
         estoqueMinimo: toNumber(formData.estoqueMinimo),
         estoqueMaximo: toNumber(formData.estoqueMaximo),
         precoCusto,
@@ -1290,8 +1287,14 @@ const EstoqueForm: React.FC = () => {
       if (precoAPrazoValor === undefined) delete (produtoData as Record<string, unknown>).precoAPrazo;
 
       if (isEditing && id) {
+        // Na edicao o formulario NAO manda saldo nem situacao: o saldo so'
+        // muda por movimentacao (venda, nota, Ajuste de Estoque) e a
+        // situacao so' pelo servidor (ver server/services/cadastroIntegridade.js).
+        // Mandar o saldo lido ao abrir a tela sobrescreveria uma venda feita
+        // enquanto ela estava aberta.
+        const { quantidade: _saldo, ativo: _ativo, statusAtivo: _statusAtivo, ...produtoDataSemSaldo } = produtoData;
         await updateDoc(doc(db, 'estoque', id), {
-          ...produtoData,
+          ...produtoDataSemSaldo,
           // updateDoc so mescla campos que aparecem no payload -- so OMITIR
           // a chave (como fez o delete acima) deixaria uma comissao antiga
           // gravada intacta se o usuario limpou o campo pra voltar ao
@@ -1303,35 +1306,6 @@ const EstoqueForm: React.FC = () => {
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
-        // Zerar saldo na inativacao TEM que deixar rastro no Relatorio de
-        // Ajustes -- saldo que some sem registro e' pior que o problema que
-        // a regra resolve. Falha aqui nao desfaz o save: o produto ja' esta
-        // inativo e zerado, e derrubar isso por causa do log deixaria o
-        // usuario sem saber o que valeu.
-        if (vaiZerarNaInativacao) {
-          try {
-            const ajuste = ajustePararZerar(quantidadeAtual);
-            await addDoc(collection(db, 'ajustes_estoque'), {
-              ...buildAjusteEstoqueDoc({
-                tenantId: tenantId || '',
-                produtoId: id,
-                produtoNome: formData.nome,
-                produtoCodigo: formData.codigo,
-                tipo: ajuste.tipo,
-                quantidade: Math.abs(quantidadeAtual),
-                motivo: ajuste.motivo,
-                observacao: 'Estoque zerado automaticamente na inativação do produto.',
-                quantidadeAntes: quantidadeAtual,
-                quantidadeDepois: 0,
-                usuarioId: currentUser.uid,
-                usuarioNome: currentUser.email || currentUser.uid,
-              }),
-              createdAt: serverTimestamp(),
-            });
-          } catch (ajusteErr) {
-            console.error('Erro ao registrar o ajuste de zeramento na inativação:', ajusteErr);
-          }
-        }
         try {
           const { createAuditLog } = await import('../../services/logService');
           createAuditLog({
@@ -1420,8 +1394,9 @@ const EstoqueForm: React.FC = () => {
           <button
             className="btn-primary"
             onClick={handleSave}
-            disabled={isLoading}
-            style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center' }}
+            disabled={isLoading || produtoInativo}
+            title={produtoInativo ? 'Produto inativo: reative-o na lista para alterar' : undefined}
+            style={{ opacity: (isLoading || produtoInativo) ? 0.5 : 1, display: 'flex', alignItems: 'center' }}
           >
             {isLoading ? (
               <Loader2 size={18} className="spin-icon" style={{ marginRight: 8 }} />
@@ -1432,6 +1407,13 @@ const EstoqueForm: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {produtoInativo && (
+        <div style={{ padding: '14px 18px', marginBottom: '16px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', color: 'var(--text-primary)', fontSize: '14px' }}>
+          <strong style={{ color: '#f59e0b' }}>Produto inativo — somente consulta.</strong>{' '}
+          Para alterar qualquer dado, reative-o na lista de Produtos (botão de ativar da linha).
+        </div>
+      )}
 
       <form className="product-form" onSubmit={handleSave} autoComplete="off">
         <div className="product-tabs">
@@ -1458,7 +1440,9 @@ const EstoqueForm: React.FC = () => {
             ))}
         </div>
 
-        <div className="form-container product-form-container">
+        {/* fieldset: com o produto inativo, desabilita todos os campos de
+            todas as abas de uma vez. As abas ficam fora, pra consulta. */}
+        <fieldset disabled={produtoInativo} className="form-container product-form-container" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           {activeTab === 'geral' && (
             <div className="card form-section product-card">
               <div className="section-header">
@@ -1475,8 +1459,12 @@ const EstoqueForm: React.FC = () => {
                   <input type="text" name="codigo" value={formData.codigo} readOnly required />
                   <span className="field-hint">Gerado automaticamente pelo sistema a cada novo produto. Não pode ser alterado manualmente.</span>
                 </div>
-                <label className="switch-row compact-switch">
-                  <input type="checkbox" checked={formData.statusAtivo} onChange={handleCheckbox('statusAtivo')} />
+                {/* Situacao so' e' alterada pela lista de Produtos, que passa
+                    pelo servidor (confere reserva, receita e producao antes
+                    de inativar). As firestore.rules recusam mudar `ativo`
+                    daqui -- ver server/services/cadastroIntegridade.js. */}
+                <label className="switch-row compact-switch" title="Para ativar ou inativar, use o botão da linha na lista de Produtos">
+                  <input type="checkbox" checked={formData.statusAtivo} disabled readOnly />
                   <span>{formData.statusAtivo ? 'Produto ativo' : 'Produto inativo'}</span>
                 </label>
               </div>
@@ -1508,10 +1496,7 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-3">
                 <div className="input-group">
                   <label>Marca</label>
-                  <input type="text" name="marca" list="marcas-produto" value={formData.marca} onChange={handleChange} />
-                  <datalist id="marcas-produto">
-                    {marcasDB.map((m, idx) => <option key={idx} value={m} />)}
-                  </datalist>
+                  <CampoComSugestoes type="text" name="marca" opcoes={marcasDB} value={formData.marca} onChange={handleChange} />
                 </div>
                 <div className="input-group">
                   <label>Referência</label>
@@ -1868,10 +1853,7 @@ const EstoqueForm: React.FC = () => {
                   <input type="number" name="quantidade" min="0" value={formData.quantidade} onChange={handleChange} disabled={!quantidadeEstoqueEditavel} required={validarCadastroProduto && !isEditing} />
                   {isEditing && (
                     <span className="field-hint">
-                      {permitirVendaSemEstoque
-                        ? 'Venda sem estoque está ativa; a quantidade pode ser ajustada manualmente.'
-                        : (
-                          <>
+                      <>
                             Em produto já cadastrado, a quantidade muda por NFE, venda, cancelamento, movimentação ou pelo{' '}
                             <button
                               type="button"
@@ -1881,7 +1863,6 @@ const EstoqueForm: React.FC = () => {
                               Ajuste Manual de Estoque
                             </button>.
                           </>
-                        )}
                     </span>
                   )}
                   {isEditing && Number(produtoOriginal?.quantidadeReservada) > 0 && (
@@ -2109,7 +2090,7 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-3">
                 <div className="input-group">
                   <label>Último fornecedor</label>
-                  <input type="text" name="fornecedor" value={formData.fornecedor} onChange={handleChange} />
+                  <CampoComSugestoes type="text" name="fornecedor" opcoes={fornecedoresDB} value={formData.fornecedor} onChange={handleChange} />
                 </div>
                 <div className="input-group">
                   <label>Código produto fornecedor</label>
@@ -2588,7 +2569,7 @@ const EstoqueForm: React.FC = () => {
               </div>
             </div>
           )}
-        </div>
+        </fieldset>
       </form>
     </div>
   );

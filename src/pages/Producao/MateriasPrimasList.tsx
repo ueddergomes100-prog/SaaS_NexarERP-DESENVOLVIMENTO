@@ -1,13 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Factory, Edit, Power, AlertTriangle, Upload } from 'lucide-react';
-import { collection, query, onSnapshot, doc, updateDoc, serverTimestamp, where } from 'firebase/firestore';
+import { Search, Plus, Factory, Edit, Power, Trash2, AlertTriangle, Upload } from 'lucide-react';
+import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
-import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialStock';
 import { chaveComponente, computeEstoquePrevisto } from '../../utils/producaoDomain';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
+import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
+import {
+  avisoInativacaoMateriaPrimaComSaldo,
+  avisoInativacaoMateriaPrimaSemSaldo,
+  precisaZerarParaInativar,
+} from '../../utils/estoqueInativacaoDomain';
 
 interface MateriaPrimaData {
   id: string;
@@ -23,6 +31,8 @@ interface MateriaPrimaData {
 }
 
 const MateriasPrimasList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
+  const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   const { openTab } = useTabs();
   const [materiasPrimas, setMateriasPrimas] = useState<MateriaPrimaData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,32 +67,47 @@ const MateriasPrimasList: React.FC = () => {
   const handleToggleAtivo = async (item: MateriaPrimaData) => {
     if (!currentUser) return;
     const novoStatus = item.ativo === false;
+    // Mesma regra do produto: inativar com saldo zera o estoque na mesma
+    // operacao, com registro -- ver estoqueInativacaoDomain.ts.
+    const quantidadeTela = Number(item.quantidade || 0);
+    const vaiZerar = !novoStatus && precisaZerarParaInativar(quantidadeTela);
+
+    const aviso = novoStatus
+      ? {
+        title: `Ativar "${item.nome}"?`,
+        text: 'A matéria-prima volta a aparecer na montagem de composição e pode ser alterada de novo.',
+        confirmButtonText: 'Sim, ativar',
+      }
+      : vaiZerar
+        ? avisoInativacaoMateriaPrimaComSaldo(item.nome, quantidadeTela, item.unidade)
+        : avisoInativacaoMateriaPrimaSemSaldo(item.nome);
 
     const confirm = await NexusSwal.fire({
-      title: novoStatus ? `Ativar "${item.nome}"?` : `Inativar "${item.nome}"?`,
-      text: novoStatus
-        ? 'A matéria-prima volta a aparecer na hora de montar composição de produção.'
-        : 'A matéria-prima some da hora de montar composição de produção, mas o histórico continua intacto. Pode ser reativada quando quiser.',
-      icon: 'question',
+      ...aviso,
+      icon: vaiZerar ? 'warning' : 'question',
       showCancelButton: true,
-      confirmButtonText: novoStatus ? 'Sim, ativar' : 'Sim, inativar',
       cancelButtonText: 'Cancelar',
     });
     if (!confirm.isConfirmed) return;
 
     try {
-      await updateDoc(doc(db, 'materias_primas', item.id), {
-        ativo: novoStatus,
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Matéria-prima reativada' : 'Matéria-prima inativada'),
-      });
-      showSuccess(novoStatus ? 'Matéria-prima ativada!' : 'Matéria-prima inativada!');
+      // O servidor confere se a materia-prima esta' em receita de produto
+      // ativo e, se passar, zera o saldo e inativa numa transacao so', com o
+      // registro no Relatorio de Ajustes. Ver
+      // server/services/cadastroIntegridade.js.
+      const resultado = await alterarSituacaoCadastro('materias_primas', item.id, novoStatus);
+      showSuccess(novoStatus
+        ? 'Matéria-prima ativada!'
+        : resultado.saldoZerado
+          ? `Matéria-prima inativada e estoque zerado (era ${resultado.saldoZerado} ${item.unidade || ''}).`.replace(' )', ')')
+          : 'Matéria-prima inativada!');
     } catch (error) {
-      console.error("Erro ao atualizar status da matéria-prima:", error);
-      showError('Erro ao atualizar', 'Tente novamente mais tarde.');
+      console.error('Erro ao atualizar status da matéria-prima:', error);
+      showError(novoStatus ? 'Não foi possível ativar' : 'Não foi possível inativar', (error as Error).message || 'Tente novamente mais tarde.');
     }
   };
 
-  const filteredMateriasPrimas = materiasPrimas.filter(item => {
+  const filteredMateriasPrimas = materiasPrimas.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter(item => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return (
@@ -121,6 +146,7 @@ const MateriasPrimasList: React.FC = () => {
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
+          <FiltroSituacao valor={situacao} onChange={setSituacao} />
         </div>
 
         <div className="table-wrapper">
@@ -157,7 +183,7 @@ const MateriasPrimasList: React.FC = () => {
                   const emProducao = reservado > 0;
                   const estoquePrevisto = computeEstoquePrevisto(item.quantidade, reservado);
                   return (
-                    <tr key={item.id}>
+                    <tr key={item.id} {...linha(item.id, () => openTab(`/materias-primas/editar/${item.id}`))}>
                       <td style={{ color: 'var(--text-muted)' }}>{item.codigo || '-'}</td>
                       <td className="font-medium">
                         {item.nome}
@@ -191,7 +217,7 @@ const MateriasPrimasList: React.FC = () => {
                           {item.ativo === false ? 'Inativa' : 'Ativa'}
                         </span>
                       </td>
-                      <td>
+                      <td {...semAbrirLinha}>
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button className="icon-btn" title="Editar" onClick={() => openTab(`/materias-primas/editar/${item.id}`)}>
                             <Edit size={16} />
@@ -203,6 +229,14 @@ const MateriasPrimasList: React.FC = () => {
                             onClick={() => handleToggleAtivo(item)}
                           >
                             <Power size={16} />
+                          </button>
+                          <button
+                            className="icon-btn"
+                            title="Excluir (só sem movimentação)"
+                            style={{ color: '#ef4444' }}
+                            onClick={() => { void confirmarEExcluirCadastro('materias_primas', item.id, item.nome, 'a matéria-prima'); }}
+                          >
+                            <Trash2 size={16} />
                           </button>
                         </div>
                       </td>

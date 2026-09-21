@@ -236,6 +236,17 @@ service cloud.firestore {
         ]);
     }
 
+    // Ajuste de Estoque tambem cobre materia-prima (2026-09-19): o saldo dela
+    // nao se edita mais no cadastro. So' a permissao de Ajuste Manual --
+    // quem so' vende nao mexe em materia-prima.
+    function canAdjustMateriaPrimaQuantity() {
+      return hasProfile() &&
+        resource.data.tenantId == currentTenantId() &&
+        request.resource.data.tenantId == resource.data.tenantId &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'updatedAt']) &&
+        hasPermission('estoque.ajusteManual');
+    }
+
     // Modulo 12 (Conferencia de mercadoria): quem so tem operacoes.expedicao
     // NAO tem vendas.alterar, entao nao pode editar o pedido de venda em
     // geral -- mas precisa fechar/reabrir a conferencia, que grava campos
@@ -249,6 +260,54 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).changedKeys()
           .hasOnly(['statusConferencia', 'conferidoPor', 'conferidoPorNome', 'conferidoEm', 'alteradoPor', 'alteradoEm']) &&
         hasPermission('operacoes.expedicao');
+    }
+
+    // ---------------------------------------------------------------------
+    // SITUACAO (ativo/inativo) DOS CADASTROS -- so' o servidor muda.
+    //
+    // Inativar/reativar cliente, fornecedor, produto, materia-prima etc. exige
+    // conferir OUTROS documentos (titulo em aberto, receita, saldo...), coisa
+    // que as rules nao enxergam. Entao a tela nao pode gravar `ativo` direto:
+    // o unico caminho e' POST /api/cadastros/situacao, que roda com o Admin
+    // SDK (ignora estas regras) depois de conferir as pendencias. Sem isto,
+    // qualquer um com o DevTools aberto pularia as travas da tela.
+    // (server/services/cadastroIntegridade.js)
+    //
+    // Registro INATIVO tambem nao se edita: so' movimento de saldo (venda
+    // cancelada devolvendo estoque, credito no banco) passa. Pra alterar
+    // dados, reative antes.
+    // ---------------------------------------------------------------------
+    function cadastroComSituacao(collectionName) {
+      return collectionName in [
+        'clientes', 'fornecedores', 'estoque', 'materias_primas', 'categorias', 'marcas',
+        'servicos', 'veiculos', 'unidades_medida', 'bancos', 'bandeiras_cartao'
+      ];
+    }
+
+    function alteraSituacao() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(['ativo', 'statusAtivo']);
+    }
+
+    function cadastroInativo(collectionName) {
+      return resource.data.get('ativo', true) == false ||
+        (collectionName == 'estoque' && resource.data.get('statusAtivo', true) == false);
+    }
+
+    function soMovimentaSaldo(collectionName) {
+      return (
+        collectionName in ['estoque', 'materias_primas'] &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['quantidade', 'quantidadeReservada', 'updatedAt'].concat(documentAuditFields()))
+      ) || (
+        collectionName == 'bancos' &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['saldoCentavos', 'updatedAt'].concat(documentAuditFields()))
+      );
+    }
+
+    function situacaoRespeitada(collectionName) {
+      return !cadastroComSituacao(collectionName) || isSuperAdmin() ||
+        (!alteraSituacao() && (!cadastroInativo(collectionName) || soMovimentaSaldo(collectionName)));
     }
 
     function canDeleteTenantDocument() {
@@ -596,9 +655,10 @@ service cloud.firestore {
         'entregas',
         'caixas_pdv',
         'notas_avulsas'
-      ] && canUpdateTenantDocument() && (
+      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && (
         canWriteTenantCollection(collectionName) ||
         (collectionName == 'estoque' && canAdjustStockQuantity()) ||
+        (collectionName == 'materias_primas' && canAdjustMateriaPrimaQuantity()) ||
         (collectionName == 'pedidos_venda' && canCloseConferenciaOnPedido())
       );
 

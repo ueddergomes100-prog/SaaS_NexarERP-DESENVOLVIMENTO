@@ -22,6 +22,8 @@ interface AjusteRegistro {
   id: string;
   produtoNome: string;
   produtoCodigo?: string;
+  /** 'materia_prima' quando o ajuste foi de materia-prima; ausente = produto. */
+  origem?: string;
   tipo: TipoAjusteEstoque;
   quantidade: number;
   motivo: string;
@@ -66,6 +68,7 @@ const RelatorioAjustesEstoque: React.FC = () => {
           id: d.id,
           produtoNome: data.produtoNome || '',
           produtoCodigo: data.produtoCodigo,
+          origem: data.origem,
           tipo: data.tipo,
           quantidade: Number(data.quantidade || 0),
           motivo: data.motivo || '',
@@ -252,7 +255,7 @@ const RelatorioAjustesEstoque: React.FC = () => {
               {filtrados.map((a) => (
                 <tr key={a.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                   <td style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>{a.createdAt?.toDate ? a.createdAt.toDate().toLocaleString('pt-BR') : '-'}</td>
-                  <td style={{ padding: '12px 8px', fontWeight: 600 }}>{a.produtoNome}{a.produtoCodigo ? ` (${a.produtoCodigo})` : ''}</td>
+                  <td style={{ padding: '12px 8px', fontWeight: 600 }}>{a.produtoNome}{a.produtoCodigo ? ` (${a.produtoCodigo})` : ''}{a.origem === 'materia_prima' && <span style={{ marginLeft: '6px', fontSize: '11px', fontWeight: 600, color: '#8b5cf6' }}>MATÉRIA-PRIMA</span>}</td>
                   <td style={{ padding: '12px 8px' }}>
                     <span style={{ padding: '3px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: 700, backgroundColor: a.tipo === 'entrada' ? '#10b98122' : '#ef444422', color: a.tipo === 'entrada' ? '#10b981' : '#ef4444' }}>
                       {a.tipo === 'entrada' ? 'Entrada' : 'Saída'}

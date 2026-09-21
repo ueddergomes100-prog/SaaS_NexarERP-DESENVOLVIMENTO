@@ -6,6 +6,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
+import { alterarSituacaoCadastro } from '../../services/cadastroService';
 
 interface ServicoData {
   id: string;
@@ -17,6 +20,9 @@ interface ServicoData {
 }
 
 const ServicosList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
+  const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
+  const [searchTerm, setSearchTerm] = useState('');
   const { openTab } = useTabs();
   const [servicos, setServicos] = useState<ServicoData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,13 +61,10 @@ const ServicosList: React.FC = () => {
     if (!confirm.isConfirmed) return;
 
     try {
-      await updateDoc(doc(db, 'servicos', servico.id), {
-        ativo: novoStatus,
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Serviço reativado' : 'Serviço inativado'),
-      });
+      await alterarSituacaoCadastro('servicos', servico.id, novoStatus);
       showSuccess(novoStatus ? 'Serviço ativado!' : 'Serviço inativado!');
     } catch (error) {
-      showError('Erro', 'Não foi possível atualizar o status do serviço.');
+      showError('Erro', (error as Error).message || 'Não foi possível atualizar o status do serviço.');
     }
   };
 
@@ -81,7 +84,8 @@ const ServicosList: React.FC = () => {
         let count = 0;
         for (const s of servicos) {
           const upName = s.nome.toUpperCase().trim();
-          if (s.nome !== upName) {
+          // registro inativo nao se edita (firestore.rules)
+          if (s.ativo !== false && s.nome !== upName) {
             await updateDoc(doc(db, 'servicos', s.id), {
               nome: upName,
               ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Nome padronizado para maiúsculas'),
@@ -97,6 +101,16 @@ const ServicosList: React.FC = () => {
       }
     }
   };
+
+
+  // A busca existia na tela mas nao estava ligada a nada (2026-09-19).
+  const termoServico = searchTerm.trim().toLowerCase();
+  const filteredServicos = servicos
+    .filter((registro) => passaNaSituacao(registro.ativo !== false, situacao))
+    .filter((servico) => !termoServico
+      || (servico.nome || '').toLowerCase().includes(termoServico)
+      || String(servico.codigo || '').toLowerCase().includes(termoServico)
+      || (servico.categoria || '').toLowerCase().includes(termoServico));
 
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -122,9 +136,12 @@ const ServicosList: React.FC = () => {
             <input 
               type="text" 
               placeholder="Buscar serviço..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
+          <FiltroSituacao valor={situacao} onChange={setSituacao} />
         </div>
 
         <div className="table-wrapper">
@@ -142,11 +159,11 @@ const ServicosList: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
-              ) : servicos.length === 0 ? (
+              ) : filteredServicos.length === 0 ? (
                 <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><Wrench size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} /><p>Nenhum serviço cadastrado.</p></td></tr>
               ) : (
-                servicos.map((servico) => (
-                  <tr key={servico.id}>
+                filteredServicos.map((servico) => (
+                  <tr key={servico.id} {...linha(servico.id, () => openTab(`/servicos/editar/${servico.id}`))}>
                     <td style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{servico.codigo || '-'}</td>
                     <td className="font-medium">{servico.nome}</td>
                     <td>{servico.categoria || '-'}</td>
@@ -162,7 +179,7 @@ const ServicosList: React.FC = () => {
                         {servico.ativo === false ? 'Inativo' : 'Ativo'}
                       </span>
                     </td>
-                    <td>
+                    <td {...semAbrirLinha}>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button className="icon-btn" title="Editar" onClick={() => openTab(`/servicos/editar/${servico.id}`)}>
                           <Edit size={16} />

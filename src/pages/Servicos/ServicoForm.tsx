@@ -5,6 +5,7 @@ import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
+import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -23,6 +24,8 @@ const ServicoForm: React.FC = () => {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
+  /** Servico que ja' estava inativo ao abrir: so' consulta (firestore.rules). */
+  const [inativo, setInativo] = useState(false);
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
   const { currentUser, tenantId } = useAuth();
 
@@ -48,6 +51,7 @@ const ServicoForm: React.FC = () => {
               ...dados,
               comissaoPercentual: dados.comissaoPercentual != null ? String(dados.comissaoPercentual) : '',
             } as any);
+            setInativo(dados.ativo === false);
           }
         } else {
           // Gerar código sequencial para novo cadastro
@@ -71,6 +75,10 @@ const ServicoForm: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (inativo) {
+      showError('Serviço inativo', 'Este serviço está inativo e não pode ser alterado. Para alterar, reative-o na lista de Serviços.');
+      return;
+    }
     if (!formData.nome || !formData.preco) {
       showError('Campos incompletos', 'Nome e valor por hora são obrigatórios.');
       return;
@@ -134,12 +142,16 @@ const ServicoForm: React.FC = () => {
             <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Adicione mão de obra ou pacotes ao catálogo</p>
           </div>
         </div>
-        <button className="btn-primary" onClick={handleSave} disabled={isLoading} style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center' }}>
+        <button className="btn-primary" onClick={handleSave} disabled={isLoading || inativo} title={inativo ? 'Serviço inativo: reative-o na lista para alterar' : undefined} style={{ opacity: (isLoading || inativo) ? 0.5 : 1, display: 'flex', alignItems: 'center' }}>
           {isLoading ? <Loader2 size={18} className="spin-icon" style={{ marginRight: 8 }} /> : <Save size={18} style={{ marginRight: 8 }} />}
           {isLoading ? 'Salvando...' : 'Salvar Serviço'}
         </button>
       </div>
 
+      {inativo && <AvisoCadastroInativo tipo="Serviço" lista="Serviços" />}
+
+      {/* fieldset: com o serviço inativo, trava todos os campos de uma vez. */}
+      <fieldset disabled={inativo} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '800px' }}>
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)' }}>
@@ -183,6 +195,7 @@ const ServicoForm: React.FC = () => {
           </div>
         </div>
       </div>
+      </fieldset>
     </div>
   );
 };

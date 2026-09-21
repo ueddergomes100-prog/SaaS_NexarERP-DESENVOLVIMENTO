@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { Plus, Search, Edit, Power, Car, MapPin, Calendar, Hash } from 'lucide-react';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
-import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
+import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import '../OS/OS.css'; // Reusing OS styles
 
 interface Veiculo {
@@ -24,6 +26,8 @@ interface Veiculo {
 }
 
 const VeiculosList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
+  const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   const [veiculos, setVeiculos] = useState<Veiculo[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -81,19 +85,16 @@ const VeiculosList: React.FC = () => {
 
     if (confirm.isConfirmed) {
       try {
-        await updateDoc(doc(db, 'veiculos', veiculo.id), {
-          ativo: novoStatus,
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Veículo reativado' : 'Veículo inativado'),
-        });
+        await alterarSituacaoCadastro('veiculos', veiculo.id, novoStatus);
         showSuccess(novoStatus ? 'Veículo ativado!' : 'Veículo inativado!');
         setVeiculos(veiculos.map(v => v.id === veiculo.id ? { ...v, ativo: novoStatus } : v));
       } catch (error) {
-        showError('Erro', 'Não foi possível atualizar o status do veículo.');
+        showError('Erro', (error as Error).message || 'Não foi possível atualizar o status do veículo.');
       }
     }
   };
 
-  const filteredVeiculos = veiculos.filter(v => 
+  const filteredVeiculos = veiculos.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter(v => 
     v.placa.toLowerCase().includes(searchTerm.toLowerCase()) ||
     v.modelo.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (v.clienteNome && v.clienteNome.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -122,7 +123,8 @@ const VeiculosList: React.FC = () => {
       </div>
 
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <div className="search-bar" style={{ marginBottom: '24px', position: 'relative' }}>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '24px' }}>
+        <div className="search-bar" style={{ position: 'relative', flex: 1 }}>
           <Search className="search-icon" size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input 
             type="text" 
@@ -139,6 +141,8 @@ const VeiculosList: React.FC = () => {
               fontSize: '15px'
             }}
           />
+        </div>
+          <FiltroSituacao valor={situacao} onChange={setSituacao} />
         </div>
 
         {isLoading ? (
@@ -166,7 +170,7 @@ const VeiculosList: React.FC = () => {
               </thead>
               <tbody>
                 {filteredVeiculos.map(veiculo => (
-                  <tr key={veiculo.id} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background-color 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
+                  <tr key={veiculo.id} {...linha(veiculo.id, canEdit ? () => openTab(`/veiculos/editar/${veiculo.id}`) : null)} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background-color 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
                     <td style={{ padding: '16px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontWeight: 700, fontSize: '16px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -195,7 +199,7 @@ const VeiculosList: React.FC = () => {
                         {veiculo.ativo === false ? 'Inativo' : 'Ativo'}
                       </span>
                     </td>
-                    <td style={{ padding: '16px', textAlign: 'right' }}>
+                    <td {...semAbrirLinha} style={{ padding: '16px', textAlign: 'right' }}>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                         {canEdit && (
                           <>

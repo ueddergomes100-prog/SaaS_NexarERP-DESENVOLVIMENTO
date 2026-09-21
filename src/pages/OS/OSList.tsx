@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, Printer, Edit, MessageCircle } from 'lucide-react';
+import { Plus, Search, Printer, Edit, MessageCircle } from 'lucide-react';
 import { collection, query, onSnapshot, where, doc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -11,6 +11,8 @@ import {
   formatarValorListaOS,
   parseMostrarValorListaOS,
 } from '../../utils/osListaValorDomain';
+import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 import './OS.css';
 
 interface OSData {
@@ -37,11 +39,20 @@ const OSList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'Ativas' | 'Finalizadas' | 'Canceladas'>('Ativas');
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  /** '' = qualquer status da aba. */
+  const [statusFiltro, setStatusFiltro] = useState('');
+  const [periodoDe, setPeriodoDe] = useState('');
+  const [periodoAte, setPeriodoAte] = useState('');
   /** Linha destacada por um clique simples. Abrir exige duplo clique (ou Enter). */
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** Configuracoes -> Ordem de Servico: mostrar o valor na lista. */
   const [mostrarValor, setMostrarValor] = useState(DEFAULT_MOSTRAR_VALOR_LISTA_OS);
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+
+  // Um status de "Em Andamento" nao existe em "Finalizadas": trocar de aba
+  // zera o filtro de status pra lista nao ficar vazia sem explicacao.
+  useEffect(() => { setStatusFiltro(''); }, [activeTab]);
 
   const canEditOS = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('mecanica.os_alterar'));
 
@@ -108,14 +119,25 @@ const OSList: React.FC = () => {
     window.open(`https://wa.me/55${telLimpado}?text=${mensagem}`, '_blank');
   };
 
-  const filteredOsList = osList.filter(os => {
-    const matchesTab = activeTab === 'Canceladas'
-      ? os.status === 'Cancelada'
-      : activeTab === 'Finalizadas'
-        ? os.status === 'Finalizada'
-        : os.status !== 'Cancelada' && os.status !== 'Finalizada';
+  const daAbaAtual = (os: OSData) => (activeTab === 'Canceladas'
+    ? os.status === 'Cancelada'
+    : activeTab === 'Finalizadas'
+      ? os.status === 'Finalizada'
+      : os.status !== 'Cancelada' && os.status !== 'Finalizada');
 
-    if (!matchesTab) return false;
+  // Os status oferecidos no filtro sao os que existem na aba aberta.
+  const statusDaAba = Array.from(new Set(osList.filter(daAbaAtual).map((os) => os.status).filter(Boolean))).sort();
+  const filtrosAtivos = (statusFiltro ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
+  const limparFiltros = () => {
+    setStatusFiltro('');
+    setPeriodoDe('');
+    setPeriodoAte('');
+  };
+
+  const filteredOsList = osList.filter(os => {
+    if (!daAbaAtual(os)) return false;
+    if (statusFiltro && os.status !== statusFiltro) return false;
+    if (!dentroDoPeriodo(os.createdAt, periodoDe, periodoAte)) return false;
     if (!searchTerm) return true;
 
     const term = searchTerm.toLowerCase();
@@ -198,11 +220,17 @@ const OSList: React.FC = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <button className="btn-secondary filter-btn">
-            <Filter size={18} style={{ marginRight: 8 }} />
-            Filtros
-          </button>
+          <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
         </div>
+        <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
+          <CampoFiltro rotulo="Status">
+            <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value)} style={estiloCampoFiltro}>
+              <option value="">Todos desta aba</option>
+              {statusDaAba.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </CampoFiltro>
+          <CampoPeriodo rotulo="Abertura" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
+        </PainelFiltros>
 
         <div className="table-wrapper">
           <table className="data-table">
@@ -225,7 +253,7 @@ const OSList: React.FC = () => {
               ) : filteredOsList.length === 0 ? (
                 <tr>
                   <td colSpan={mostrarValor ? 7 : 6} style={{ textAlign: 'center', padding: '20px' }}>
-                    {searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhuma Ordem de Serviço encontrada nesta aba."}
+                    {searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : filtrosAtivos > 0 ? 'Nenhuma Ordem de Serviço com esses filtros.' : "Nenhuma Ordem de Serviço encontrada nesta aba."}
                   </td>
                 </tr>
               ) : (

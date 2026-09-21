@@ -8,6 +8,9 @@ import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
+import { alterarSituacaoCadastro } from '../../services/cadastroService';
 
 interface CategoriaData {
   id: string;
@@ -23,6 +26,8 @@ const TIPO_COLORS: Record<string, string> = {
 const TIPO_COLOR_DEFAULT = '#10b981'; // Peça / Produto
 
 const CategoriasList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
+  const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   const { openTab } = useTabs();
   const [categorias, setCategorias] = useState<CategoriaData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,13 +71,10 @@ const CategoriasList: React.FC = () => {
     if (!confirm.isConfirmed) return;
 
     try {
-      await updateDoc(doc(db, 'categorias', categoria.id), {
-        ativo: novoStatus,
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Categoria reativada' : 'Categoria inativada'),
-      });
+      await alterarSituacaoCadastro('categorias', categoria.id, novoStatus);
       showSuccess(novoStatus ? 'Categoria ativada!' : 'Categoria inativada!');
     } catch (error) {
-      showError('Erro', 'Não foi possível atualizar o status da categoria.');
+      showError('Erro', (error as Error).message || 'Não foi possível atualizar o status da categoria.');
     }
   };
 
@@ -92,7 +94,8 @@ const CategoriasList: React.FC = () => {
         let count = 0;
         for (const c of categorias) {
           const upName = c.nome.toUpperCase().trim();
-          if (c.nome !== upName) {
+          // registro inativo nao se edita (firestore.rules)
+          if (c.ativo !== false && c.nome !== upName) {
             await updateDoc(doc(db, 'categorias', c.id), {
               nome: upName,
               ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Nome padronizado para maiúsculas'),
@@ -109,7 +112,7 @@ const CategoriasList: React.FC = () => {
     }
   };
 
-  const filteredCategorias = categorias.filter((cat) => cat.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredCategorias = categorias.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter((cat) => cat.nome.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -149,6 +152,7 @@ const CategoriasList: React.FC = () => {
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
+          <FiltroSituacao valor={situacao} onChange={setSituacao} />
           <div className="shortcuts-hint">
             <span><kbd>F2</kbd> Buscar</span>
             <span><kbd>F6</kbd> Nova</span>
@@ -172,7 +176,7 @@ const CategoriasList: React.FC = () => {
                 <tr><td colSpan={4} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><Tags size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} /><p>Nenhuma categoria encontrada.</p></td></tr>
               ) : (
                 filteredCategorias.map((cat) => (
-                  <tr key={cat.id}>
+                  <tr key={cat.id} {...linha(cat.id, () => openTab(`/categorias/editar/${cat.id}`))}>
                     <td className="font-medium">{cat.nome}</td>
                     <td>
                       {(() => {
@@ -193,7 +197,7 @@ const CategoriasList: React.FC = () => {
                         {cat.ativo === false ? 'Inativa' : 'Ativa'}
                       </span>
                     </td>
-                    <td>
+                    <td {...semAbrirLinha}>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button className="icon-btn" title="Editar" onClick={() => openTab(`/categorias/editar/${cat.id}`)}>
                           <Edit size={16} />

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Filter, Plus, Users, Edit, Power, Upload } from 'lucide-react';
+import { Search, Plus, Users, Edit, Power, Trash2, Upload } from 'lucide-react';
 import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -7,6 +7,9 @@ import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import ValidarDocumentoButton from '../../components/common/ValidarDocumentoButton';
+import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
+import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
 
 interface ClienteData {
   id: string;
@@ -29,6 +32,7 @@ const ClientesList: React.FC = () => {
   const [clientes, setClientes] = useState<ClienteData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   /** Linha destacada por um clique simples. Abrir exige duplo clique (ou
    * Enter), pra um clique de leitura nao abrir uma aba sem querer. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -75,14 +79,11 @@ const ClientesList: React.FC = () => {
     if (!confirm.isConfirmed) return;
 
     try {
-      await updateDoc(doc(db, 'clientes', cliente.id), {
-        ativo: novoStatus,
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Cliente reativado' : 'Cliente inativado'),
-      });
+      await alterarSituacaoCadastro('clientes', cliente.id, novoStatus);
       showSuccess(novoStatus ? 'Cliente ativado!' : 'Cliente inativado!');
     } catch (error) {
       console.error('Erro ao atualizar status do cliente:', error);
-      showError('Erro ao atualizar', 'Tente novamente mais tarde.');
+      showError('Erro ao atualizar', (error as Error).message || 'Tente novamente mais tarde.');
     }
   };
 
@@ -102,7 +103,8 @@ const ClientesList: React.FC = () => {
         let count = 0;
         for (const c of clientes) {
           const upName = c.nome.toUpperCase().trim();
-          if (c.nome !== upName) {
+          // registro inativo nao se edita (firestore.rules)
+          if (c.ativo !== false && c.nome !== upName) {
             await updateDoc(doc(db, 'clientes', c.id), {
               nome: upName,
               ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Nome padronizado para maiúsculas'),
@@ -119,7 +121,7 @@ const ClientesList: React.FC = () => {
     }
   };
 
-  const filteredClientes = clientes.filter(cliente => {
+  const filteredClientes = clientes.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter(cliente => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return (
@@ -167,9 +169,7 @@ const ClientesList: React.FC = () => {
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
-          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}>
-            <Filter size={18} /> Filtros
-          </button>
+          <FiltroSituacao valor={situacao} onChange={setSituacao} />
         </div>
 
         <div className="table-wrapper">
@@ -244,6 +244,14 @@ const ClientesList: React.FC = () => {
                             onClick={() => handleToggleAtivo(cliente)}
                           >
                             <Power size={16} />
+                          </button>
+                          <button
+                            className="icon-btn"
+                            title="Excluir (só sem movimentação)"
+                            style={{ color: '#ef4444' }}
+                            onClick={() => { void confirmarEExcluirCadastro('clientes', cliente.id, cliente.nome, 'o cliente'); }}
+                          >
+                            <Trash2 size={16} />
                           </button>
                         </div>
                       )}

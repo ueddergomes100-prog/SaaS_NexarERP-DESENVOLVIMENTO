@@ -7,6 +7,8 @@ import { useTabs } from '../../contexts/TabsContext';
 import { showError, showSuccess, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { STATUS_NOTA_AVULSA_ATIVA, STATUS_NOTA_AVULSA_CANCELADA, quantidadeEstoqueNotaAvulsaItem, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
+import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 
 interface NotaAvulsaData {
   id: string;
@@ -29,6 +31,11 @@ const NotasAvulsasList: React.FC = () => {
   const [notas, setNotas] = useState<NotaAvulsaData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  /** '' = qualquer status. */
+  const [statusFiltro, setStatusFiltro] = useState('');
+  const [periodoDe, setPeriodoDe] = useState('');
+  const [periodoAte, setPeriodoAte] = useState('');
   const [cancelandoId, setCancelandoId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -48,9 +55,18 @@ const NotasAvulsasList: React.FC = () => {
   }, [tenantId]);
 
   const termo = searchTerm.trim().toLowerCase();
-  const notasFiltradas = termo
-    ? notas.filter((n) => n.numero?.toLowerCase().includes(termo) || n.fornecedorNome?.toLowerCase().includes(termo))
-    : notas;
+  const statusExistentes = Array.from(new Set(notas.map((n) => n.status).filter(Boolean))).sort();
+  const filtrosAtivos = (statusFiltro ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
+  const limparFiltros = () => {
+    setStatusFiltro('');
+    setPeriodoDe('');
+    setPeriodoAte('');
+  };
+  const notasFiltradas = notas.filter((n) => (
+    (!termo || n.numero?.toLowerCase().includes(termo) || n.fornecedorNome?.toLowerCase().includes(termo))
+    && (!statusFiltro || n.status === statusFiltro)
+    && dentroDoPeriodo(n.createdAt, periodoDe, periodoAte)
+  ));
 
   const handleCancelar = async (nota: NotaAvulsaData) => {
     if (!currentUser || !tenantId) return;
@@ -218,7 +234,8 @@ const NotasAvulsasList: React.FC = () => {
       </div>
 
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <div className="search-bar" style={{ position: 'relative', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap' }}>
+        <div className="search-bar" style={{ position: 'relative', flex: 1, minWidth: '260px' }}>
           <Search size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input
             type="text"
@@ -228,6 +245,18 @@ const NotasAvulsasList: React.FC = () => {
             style={{ width: '100%', padding: '12px 16px 12px 48px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
           />
         </div>
+        <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
+      </div>
+      <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
+        <CampoFiltro rotulo="Status">
+          <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value)} style={estiloCampoFiltro}>
+            <option value="">Todos</option>
+            {statusExistentes.map((status) => <option key={status} value={status}>{status}</option>)}
+          </select>
+        </CampoFiltro>
+        <CampoPeriodo rotulo="Emissão" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
+      </PainelFiltros>
+
 
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>

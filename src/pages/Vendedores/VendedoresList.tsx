@@ -40,6 +40,7 @@ import {
   PIN_VENDEDOR_MAX_DIGITOS,
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 
 
 /**
@@ -132,6 +133,7 @@ const inputStyle: React.CSSProperties = {
 };
 
 const VendedoresList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
   const { tenantId, currentUser, userRole, exigirIdentificacaoVendedor } = useAuth();
   const [vendedores, setVendedores] = useState<VendedorData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -544,7 +546,7 @@ const VendedoresList: React.FC = () => {
                 </tr>
               ) : (
                 listaFiltrada.map((vendedor) => (
-                  <tr key={vendedor.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <tr key={vendedor.id} {...linha(vendedor.id, () => abrirEdicao(vendedor))} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                     <td style={{ padding: '16px', fontWeight: 700, fontSize: '17px', letterSpacing: '3px' }}>{vendedor.codigoVendedor || '--'}</td>
                     <td style={{ padding: '16px', fontWeight: 500 }}>{vendedor.nome}</td>
                     <td style={{ padding: '16px' }}>
@@ -557,7 +559,7 @@ const VendedoresList: React.FC = () => {
                       {(vendedor.status || 'Ativo') === 'Ativo' ? badge('Ativo', '#10b981') : badge('Inativo', '#6b7280')}
                     </td>
                     {podeGerenciar && (
-                      <td style={{ padding: '16px', textAlign: 'right' }}>
+                      <td {...semAbrirLinha} style={{ padding: '16px', textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                           <button
                             className="icon-btn"

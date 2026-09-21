@@ -5,6 +5,7 @@ import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'fir
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
+import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 import { getProximoCodigoFornecedor } from '../../utils/fornecedorCodigo';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { mensagemDocumentoInvalido } from '../../utils/documentoValidacao';
@@ -39,6 +40,8 @@ const FornecedorForm: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
+  /** Fornecedor que ja' estava inativo ao abrir: so' consulta (firestore.rules). */
+  const [inativo, setInativo] = useState(false);
   const { currentUser, tenantId } = useAuth();
 
   const [isCepSearching, setIsCepSearching] = useState(false);
@@ -86,6 +89,7 @@ const FornecedorForm: React.FC = () => {
           if (docSnap.exists()) {
             const data = docSnap.data() as any;
             setFormData(prev => ({ ...prev, ...data }));
+            setInativo(data.ativo === false);
           }
         } else if (tenantId) {
           const proximoCodigo = await getProximoCodigoFornecedor(tenantId);
@@ -138,6 +142,10 @@ const FornecedorForm: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (inativo) {
+      showError('Fornecedor inativo', 'Este fornecedor está inativo e não pode ser alterado. Para alterar, reative-o na lista de Fornecedores.');
+      return;
+    }
     if (!formData.nome) {
       showError('Campos incompletos', 'Por favor, preencha o Nome / Razão Social do fornecedor.');
       return;
@@ -200,8 +208,9 @@ const FornecedorForm: React.FC = () => {
         <button
           className="btn-primary"
           onClick={handleSave}
-          disabled={isLoading}
-          style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center' }}
+          disabled={isLoading || inativo}
+          title={inativo ? 'Fornecedor inativo: reative-o na lista para alterar' : undefined}
+          style={{ opacity: (isLoading || inativo) ? 0.5 : 1, display: 'flex', alignItems: 'center' }}
         >
           {isLoading ? (
             <Loader2 size={18} className="spin-icon" style={{ marginRight: 8 }} />
@@ -212,6 +221,10 @@ const FornecedorForm: React.FC = () => {
         </button>
       </div>
 
+      {inativo && <AvisoCadastroInativo tipo="Fornecedor" lista="Fornecedores" />}
+
+      {/* fieldset: com o fornecedor inativo, trava todos os campos de uma vez. */}
+      <fieldset disabled={inativo} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '800px' }}>
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)' }}>
@@ -325,6 +338,7 @@ const FornecedorForm: React.FC = () => {
 
         </div>
       </div>
+      </fieldset>
     </div>
   );
 };

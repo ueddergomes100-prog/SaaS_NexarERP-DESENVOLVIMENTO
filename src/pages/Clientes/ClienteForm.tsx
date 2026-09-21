@@ -13,6 +13,7 @@ import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton
 import type { ConsultaCnpjResultado, ConsultaCpfResultado } from '../../services/documentoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService, type SpedyCity } from '../../services/spedyService';
+import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 
 const ClienteForm: React.FC = () => {
   const navigate = useNavigate();
@@ -66,6 +67,8 @@ const ClienteForm: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
+  /** Cliente que ja' estava inativo ao abrir: so' consulta (firestore.rules). */
+  const [inativo, setInativo] = useState(false);
   const { currentUser, tenantId } = useAuth();
 
   // Busca ao vivo de cidades pra pegar o codigo IBGE -- mesmo mecanismo de
@@ -239,6 +242,7 @@ const ClienteForm: React.FC = () => {
                 : String(data.limiteDeCredito),
             }));
             setDtUltimaCompraSistemaAntigo(data.dtUltimaCompraSistemaAntigo || '');
+            setInativo(data.ativo === false);
           }
         } else {
           const proximoCodigo = await getProximoCodigoCliente(tenantId);
@@ -292,6 +296,10 @@ const ClienteForm: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (inativo) {
+      showError('Cliente inativo', 'Este cliente está inativo e não pode ser alterado. Para alterar, reative-o na lista de Clientes.');
+      return;
+    }
     if (!formData.nome) {
       showError('Campos incompletos', 'Por favor, preencha o Nome do Cliente.');
       return;
@@ -368,8 +376,9 @@ const ClienteForm: React.FC = () => {
         <button 
           className="btn-primary" 
           onClick={handleSave}
-          disabled={isLoading}
-          style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center' }}
+          disabled={isLoading || inativo}
+          title={inativo ? 'Cliente inativo: reative-o na lista para alterar' : undefined}
+          style={{ opacity: (isLoading || inativo) ? 0.5 : 1, display: 'flex', alignItems: 'center' }}
         >
           {isLoading ? (
             <Loader2 size={18} className="spin-icon" style={{ marginRight: 8 }} />
@@ -380,6 +389,10 @@ const ClienteForm: React.FC = () => {
         </button>
       </div>
 
+      {inativo && <AvisoCadastroInativo tipo="Cliente" lista="Clientes" />}
+
+      {/* fieldset: com o cliente inativo, trava todos os campos de uma vez. */}
+      <fieldset disabled={inativo} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '800px' }}>
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)' }}>
@@ -619,6 +632,7 @@ const ClienteForm: React.FC = () => {
 
         </div>
       </div>
+      </fieldset>
     </div>
   );
 };

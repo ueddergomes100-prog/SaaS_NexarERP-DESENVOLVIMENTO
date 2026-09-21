@@ -64,3 +64,31 @@ export const avisoInativacaoSemSaldo = (nome: string): { title: string; text: st
   text: 'O produto some das buscas de venda, OS e orçamento, mas o histórico continua intacto. Pode ser reativado quando quiser.',
   confirmButtonText: 'Sim, inativar',
 });
+
+/**
+ * MATERIA-PRIMA SEGUE A MESMA REGRA (2026-09-19).
+ *
+ * A regra nasceu so' pro produto, e a materia-prima ficou de fora: dava pra
+ * inativar com saldo, abrir o cadastro inativo e mexer na quantidade. O
+ * motivo da regra e' o mesmo -- saldo preso em item fora de uso infla o
+ * valor do estoque e nao fecha inventario -- entao o comportamento tambem:
+ * zera junto com a inativacao, registrando no Relatorio de Ajustes.
+ */
+export const avisoInativacaoMateriaPrimaComSaldo = (
+  nome: string,
+  quantidade: number,
+  unidade?: string,
+): { title: string; text: string; confirmButtonText: string } => ({
+  title: `Zerar e inativar "${nome}"?`,
+  text: `Esta matéria-prima ainda tem ${formatarQuantidade(quantidade, unidade)} em estoque. `
+    + 'Matéria-prima inativa não pode ficar com saldo, então o sistema vai zerar o estoque e inativar na mesma operação. '
+    + 'O zeramento fica registrado no Relatório de Ajustes, com a quantidade anterior.',
+  confirmButtonText: 'Sim, zerar e inativar',
+});
+
+export const avisoInativacaoMateriaPrimaSemSaldo = (nome: string): { title: string; text: string; confirmButtonText: string } => ({
+  title: `Inativar "${nome}"?`,
+  text: 'A matéria-prima some da montagem de composição e fica só para consulta. O histórico continua intacto e ela pode ser reativada quando quiser.',
+  confirmButtonText: 'Sim, inativar',
+});
+

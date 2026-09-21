@@ -8,6 +8,14 @@ import { toCents } from '../../utils/financeDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload } from 'lucide-react';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
+import {
+  ROTULO_SITUACAO_TITULO,
+  SITUACAO_TITULO_PADRAO,
+  passaNaSituacaoTitulo,
+  passaNoPeriodoDoTitulo,
+  type SituacaoTitulo,
+} from '../../utils/filtroListaDomain';
+import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import './Financeiro.css';
 
 interface TransacaoData {
@@ -55,6 +63,10 @@ const ContasPagar: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [gruposExpandidos, setGruposExpandidos] = useState<Set<string>>(new Set());
   const [buscaGrupo, setBuscaGrupo] = useState('');
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [situacaoTitulo, setSituacaoTitulo] = useState<SituacaoTitulo>(SITUACAO_TITULO_PADRAO);
+  const [periodoDe, setPeriodoDe] = useState('');
+  const [periodoAte, setPeriodoAte] = useState('');
   const { currentUser, tenantId } = useAuth();
 
   // Categorias de despesa do plano de contas
@@ -351,12 +363,29 @@ const ContasPagar: React.FC = () => {
   const totalPendente = contasPendentes.reduce((acc, curr) => acc + curr.valor, 0);
   const totalPagoHoje = pagamentosHoje.reduce((acc, curr) => acc + curr.valor, 0);
 
-  // Agrupa as contas pendentes por fornecedor (compras de XML) ou, na falta
+  // O que aparece na lista: situacao (em aberto / vencidas / pagas / todas) e
+  // periodo. Os cartoes do topo (Total Pendente, Pago Hoje) seguem o total
+  // geral -- nao mudam com o filtro.
+  const titulosFiltrados = transacoes.filter((t) => (
+    passaNaSituacaoTitulo(t, hojeStr, situacaoTitulo)
+    && passaNoPeriodoDoTitulo(t, situacaoTitulo, periodoDe, periodoAte)
+  ));
+  const filtrosAtivos = (situacaoTitulo !== SITUACAO_TITULO_PADRAO ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
+  const limparFiltros = () => {
+    setSituacaoTitulo(SITUACAO_TITULO_PADRAO);
+    setPeriodoDe('');
+    setPeriodoAte('');
+  };
+  const listandoPagas = situacaoTitulo === 'pagas';
+  const rotuloQuantidade = listandoPagas ? 'Títulos pagos' : situacaoTitulo === 'todas' ? 'Títulos' : 'Títulos em aberto';
+  const rotuloValor = listandoPagas ? 'Valor pago (R$)' : situacaoTitulo === 'todas' ? 'Valor (R$)' : 'Valor pendente (R$)';
+
+  // Agrupa os titulos filtrados por fornecedor (compras de XML) ou, na falta
   // dele, pela categoria da despesa. Mesmo padrao de gruposPorCliente em
   // ContasReceber.tsx.
   const gruposPorFornecedor: GrupoDespesa[] = (() => {
     const mapa = new Map<string, GrupoDespesa>();
-    contasPendentes.forEach((t) => {
+    titulosFiltrados.forEach((t) => {
       const nomeFornecedor = t.fornecedorNome?.trim();
       const porFornecedor = Boolean(t.fornecedorId || nomeFornecedor);
       const titulo = porFornecedor
@@ -367,7 +396,7 @@ const ContasPagar: React.FC = () => {
         : porFornecedor
           ? `forn-nome:${titulo.toUpperCase()}`
           : `cat:${titulo.toUpperCase()}`;
-      const diasAtraso = t.data ? (differenceInCalendarDays(t.data, hojeStr) ?? 0) : 0;
+      const diasAtraso = t.data && t.status === 'Pendente' ? (differenceInCalendarDays(t.data, hojeStr) ?? 0) : 0;
 
       let grupo = mapa.get(chave);
       if (!grupo) {
@@ -446,16 +475,35 @@ const ContasPagar: React.FC = () => {
         </div>
       </div>
 
-      <div className="search-bar" style={{ position: 'relative', maxWidth: '360px', marginBottom: '16px' }}>
-        <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-        <input
-          type="text"
-          placeholder="Buscar fornecedor ou categoria..."
-          value={buscaGrupo}
-          onChange={(e) => setBuscaGrupo(e.target.value)}
-          style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
-        />
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <div className="search-bar" style={{ position: 'relative', width: '360px', maxWidth: '100%' }}>
+          <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <input
+            type="text"
+            placeholder="Buscar fornecedor ou categoria..."
+            value={buscaGrupo}
+            onChange={(e) => setBuscaGrupo(e.target.value)}
+            style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+          />
+        </div>
+        <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
       </div>
+      <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
+        <CampoFiltro rotulo="Situação">
+          <select value={situacaoTitulo} onChange={(e) => setSituacaoTitulo(e.target.value as SituacaoTitulo)} style={estiloCampoFiltro}>
+            {(Object.keys(ROTULO_SITUACAO_TITULO) as SituacaoTitulo[]).map((chave) => (
+              <option key={chave} value={chave}>{ROTULO_SITUACAO_TITULO[chave]}</option>
+            ))}
+          </select>
+        </CampoFiltro>
+        <CampoPeriodo
+          rotulo={listandoPagas ? 'Pago em' : 'Vencimento'}
+          de={periodoDe}
+          ate={periodoAte}
+          onChangeDe={setPeriodoDe}
+          onChangeAte={setPeriodoAte}
+        />
+      </PainelFiltros>
 
       <div className="card" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
         <div className="table-wrapper">
@@ -464,9 +512,9 @@ const ContasPagar: React.FC = () => {
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
                 <th style={{ padding: '16px', width: '32px' }}></th>
                 <th style={{ padding: '16px' }}>Fornecedor / Categoria</th>
-                <th style={{ padding: '16px', textAlign: 'center' }}>Títulos em aberto</th>
+                <th style={{ padding: '16px', textAlign: 'center' }}>{rotuloQuantidade}</th>
                 <th style={{ padding: '16px' }}>Vencimento mais antigo</th>
-                <th style={{ padding: '16px', textAlign: 'right' }}>Valor pendente (R$)</th>
+                <th style={{ padding: '16px', textAlign: 'right' }}>{rotuloValor}</th>
               </tr>
             </thead>
             <tbody>
@@ -478,7 +526,7 @@ const ContasPagar: React.FC = () => {
                 <tr>
                   <td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     <CheckCircle size={48} color="#10b981" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
-                    <div>{buscaGrupo.trim() ? 'Nenhum fornecedor ou categoria encontrado para essa busca.' : 'Tudo em dia! Nenhuma conta pendente para pagamento.'}</div>
+                    <div>{buscaGrupo.trim() || filtrosAtivos > 0 ? 'Nenhum título encontrado com esses filtros.' : 'Tudo em dia! Nenhuma conta pendente para pagamento.'}</div>
                   </td>
                 </tr>
               ) : (
@@ -545,10 +593,15 @@ const ContasPagar: React.FC = () => {
                                         {t.categoria}
                                       </span>
                                     </td>
-                                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#ef4444' }}>
+                                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: t.status === 'Paga' ? '#10b981' : '#ef4444' }}>
                                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor))}
                                     </td>
                                     <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                                      {t.status === 'Paga' ? (
+                                        <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>
+                                          Paga{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}
+                                        </span>
+                                      ) : (
                                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
                                         {(!t.osId && !t.vendaId) && (
                                           <>
@@ -581,6 +634,7 @@ const ContasPagar: React.FC = () => {
                                           <CheckCircle size={14} /> Dar Baixa
                                         </button>
                                       </div>
+                                      )}
                                     </td>
                                   </tr>
                                 ))}

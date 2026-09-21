@@ -19,7 +19,21 @@ import {
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
+import {
+  SITUACAO_TITULO_PADRAO,
+  passaNaSituacaoTitulo,
+  passaNoPeriodoDoTitulo,
+  type SituacaoTitulo,
+} from '../../utils/filtroListaDomain';
+import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import './Financeiro.css';
+
+const ROTULO_SITUACAO_CHEQUE: Record<SituacaoTitulo, string> = {
+  abertas: 'A compensar',
+  vencidas: 'Vencidos (a compensar)',
+  pagas: 'Compensados',
+  todas: 'Todos',
+};
 
 /**
  * Fila de cheques Pendentes aguardando compensação -- mesmo padrao de
@@ -46,6 +60,7 @@ interface TransacaoData {
   clienteNome?: string;
   fornecedorNome?: string;
   dataPrevistaRecebimento?: string;
+  dataPagamento?: string;
   cheque?: ChequeDetails | null;
   bancoId?: string;
   bancoNome?: string;
@@ -84,6 +99,10 @@ const Cheques: React.FC = () => {
   const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [situacaoCheque, setSituacaoCheque] = useState<SituacaoTitulo>(SITUACAO_TITULO_PADRAO);
+  const [periodoDe, setPeriodoDe] = useState('');
+  const [periodoAte, setPeriodoAte] = useState('');
   const [processingId, setProcessingId] = useState<string | null>(null);
   const { currentUser, tenantId } = useAuth();
   const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
@@ -245,6 +264,22 @@ const Cheques: React.FC = () => {
     .filter((t) => t.status === 'Pendente')
     .filter((t) => !searchTerm.trim() || `${t.descricao} ${t.clienteNome || t.fornecedorNome || ''} ${t.cheque?.numeroCheque || ''}`.toLowerCase().includes(searchTerm.trim().toLowerCase()));
 
+  // O que a tabela mostra: situacao + periodo + busca. O total e o aviso de
+  // vencimento acima olham so' os a compensar -- nao mudam com o filtro.
+  const buscaTexto = searchTerm.trim().toLowerCase();
+  const chequesLista = transacoes.filter((t) => {
+    const titulo = { status: t.status, data: t.dataPrevistaRecebimento || t.data, dataPagamento: t.dataPagamento };
+    return passaNaSituacaoTitulo(titulo, hojeStr, situacaoCheque)
+      && passaNoPeriodoDoTitulo(titulo, situacaoCheque, periodoDe, periodoAte)
+      && (!buscaTexto || `${t.descricao} ${t.clienteNome || t.fornecedorNome || ''} ${t.cheque?.numeroCheque || ''}`.toLowerCase().includes(buscaTexto));
+  });
+  const filtrosAtivos = (situacaoCheque !== SITUACAO_TITULO_PADRAO ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
+  const limparFiltros = () => {
+    setSituacaoCheque(SITUACAO_TITULO_PADRAO);
+    setPeriodoDe('');
+    setPeriodoAte('');
+  };
+
   const totalPendente = chequesPendentes.reduce((acc, t) => acc + transactionNetAmount(t), 0);
   const chequesVencendoEmBreve = chequesPendentes.filter((t) => {
     const dias = differenceInCalendarDays(hojeStr, t.dataPrevistaRecebimento || t.data);
@@ -278,16 +313,35 @@ const Cheques: React.FC = () => {
         </div>
       )}
 
-      <div className="search-bar" style={{ position: 'relative', maxWidth: '360px', marginBottom: '16px' }}>
-        <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-        <input
-          type="text"
-          placeholder="Buscar cliente, descrição ou nº do cheque..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
-        />
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <div className="search-bar" style={{ position: 'relative', width: '360px', maxWidth: '100%' }}>
+          <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <input
+            type="text"
+            placeholder="Buscar cliente, descrição ou nº do cheque..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+          />
+        </div>
+        <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
       </div>
+      <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
+        <CampoFiltro rotulo="Situação">
+          <select value={situacaoCheque} onChange={(e) => setSituacaoCheque(e.target.value as SituacaoTitulo)} style={estiloCampoFiltro}>
+            {(Object.keys(ROTULO_SITUACAO_CHEQUE) as SituacaoTitulo[]).map((chave) => (
+              <option key={chave} value={chave}>{ROTULO_SITUACAO_CHEQUE[chave]}</option>
+            ))}
+          </select>
+        </CampoFiltro>
+        <CampoPeriodo
+          rotulo={situacaoCheque === 'pagas' ? 'Compensado em' : 'Compensação prevista'}
+          de={periodoDe}
+          ate={periodoAte}
+          onChangeDe={setPeriodoDe}
+          onChangeAte={setPeriodoAte}
+        />
+      </PainelFiltros>
 
       <div className="card" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
         <div className="table-wrapper">
@@ -308,18 +362,18 @@ const Cheques: React.FC = () => {
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>Carregando cheques...</td>
                 </tr>
-              ) : chequesPendentes.length === 0 ? (
+              ) : chequesLista.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     <CheckCircle size={48} color="#10b981" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
-                    <div>{searchTerm.trim() ? 'Nenhum cheque encontrado para essa busca.' : 'Nenhum cheque aguardando compensação no momento.'}</div>
+                    <div>{searchTerm.trim() || filtrosAtivos > 0 ? 'Nenhum cheque encontrado com essa busca e esses filtros.' : 'Nenhum cheque aguardando compensação no momento.'}</div>
                   </td>
                 </tr>
               ) : (
-                chequesPendentes.map((t) => {
+                chequesLista.map((t) => {
                   const dias = differenceInCalendarDays(hojeStr, t.dataPrevistaRecebimento || t.data);
-                  const vencido = dias !== null && dias < 0;
-                  const venceLogo = dias !== null && dias >= 0 && dias <= DIAS_AVISO_VENCIMENTO;
+                  const vencido = t.status === 'Pendente' && dias !== null && dias < 0;
+                  const venceLogo = t.status === 'Pendente' && dias !== null && dias >= 0 && dias <= DIAS_AVISO_VENCIMENTO;
                   return (
                     <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: vencido ? 'rgba(239, 68, 68, 0.06)' : venceLogo ? 'rgba(245, 158, 11, 0.06)' : undefined }}>
                       <td style={{ padding: '16px', fontWeight: 600 }}>{t.clienteNome || t.fornecedorNome || 'Não identificado'}</td>
@@ -339,6 +393,11 @@ const Cheques: React.FC = () => {
                         {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t))}
                       </td>
                       <td style={{ padding: '16px', textAlign: 'center' }}>
+                        {t.status === 'Paga' ? (
+                          <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>
+                            Compensado{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}
+                          </span>
+                        ) : (
                         <button
                           onClick={() => confirmarCompensacao(t)}
                           disabled={processingId === t.id}
@@ -346,6 +405,7 @@ const Cheques: React.FC = () => {
                         >
                           <CheckCircle size={14} /> {processingId === t.id ? 'Confirmando...' : 'Confirmar compensação'}
                         </button>
+                        )}
                       </td>
                     </tr>
                   );

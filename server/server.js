@@ -18,6 +18,7 @@ const vendedorPinRoutes = require('./routes/vendedorPin.routes');
 const vendedorMobileAuthRoutes = require('./routes/vendedorMobileAuth.routes');
 const usuariosRoutes = require('./routes/usuarios.routes');
 const documentosRoutes = require('./routes/documentos.routes');
+const cadastrosRoutes = require('./routes/cadastros.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -98,6 +99,9 @@ app.use('/api/usuarios', usuariosRoutes);
 // Consulta de CNPJ (Receita Federal) pra validar Cliente/Fornecedor ja
 // cadastrado. Todas as rotas exigem token Firebase -- ver documentos.routes.js.
 app.use('/api/documentos', documentosRoutes);
+// Inativar/reativar/excluir cadastros com checagem de pendencias -- a unica
+// porta pra essas operacoes (as firestore.rules proibem a tela de fazer direto).
+app.use('/api/cadastros', cadastrosRoutes);
 
 // Middleware para tratamento global de erros HTTP
 app.use((err, req, res, next) => {

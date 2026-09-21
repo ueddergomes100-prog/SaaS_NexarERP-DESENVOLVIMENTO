@@ -18,6 +18,8 @@ import {
   isRegistroDeVendedor,
   menuVendedoresVisivel,
 } from '../../utils/vendedorCadastroDomain';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 
 interface UsuarioData {
   id: string;
@@ -31,6 +33,9 @@ interface UsuarioData {
 }
 
 const UsuariosList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
+  const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
+  const [searchTerm, setSearchTerm] = useState('');
   const {
     currentUser,
     tenantId,
@@ -133,6 +138,16 @@ const UsuariosList: React.FC = () => {
     );
   };
 
+
+  // A busca existia na tela mas nao estava ligada a nada (2026-09-19).
+  const termoUsuario = searchTerm.trim().toLowerCase();
+  const filteredUsuarios = usuarios
+    .filter((registro) => passaNaSituacao((registro.status || 'Ativo') === 'Ativo', situacao))
+    .filter((user) => !termoUsuario
+      || (user.nome || user.nomeResponsavel || '').toLowerCase().includes(termoUsuario)
+      || (user.username || '').toLowerCase().includes(termoUsuario)
+      || (user.email || '').toLowerCase().includes(termoUsuario));
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -174,9 +189,12 @@ const UsuariosList: React.FC = () => {
             <input 
               type="text" 
               placeholder="Buscar funcionário..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '12px 16px 12px 48px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
+          <FiltroSituacao valor={situacao} onChange={setSituacao} />
         </div>
 
         <div style={{ overflowX: 'auto' }}>
@@ -196,13 +214,13 @@ const UsuariosList: React.FC = () => {
                 <tr>
                   <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando equipe...</td>
                 </tr>
-              ) : usuarios.length === 0 ? (
+              ) : filteredUsuarios.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum funcionário cadastrado.</td>
                 </tr>
               ) : (
-                usuarios.map(user => (
-                  <tr key={user.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                filteredUsuarios.map(user => (
+                  <tr key={user.id} {...linha(user.id, (canManageUsers && !isTenantManagerRole(user.role)) ? () => openTab(`/usuarios/editar/${user.id}`) : null)} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                     <td style={{ padding: '16px', fontWeight: 500 }}>{user.nome || user.nomeResponsavel || 'S/N'}</td>
                     <td style={{ padding: '16px', color: 'var(--text-muted)' }}>
                       {user.username ? (user.username.includes('-') ? user.username.split('-').slice(1).join('-') : user.username) : user.email}
@@ -221,7 +239,7 @@ const UsuariosList: React.FC = () => {
                       })()}
                     </td>
                     {canManageUsers && (
-                      <td style={{ padding: '16px', textAlign: 'right' }}>
+                      <td {...semAbrirLinha} style={{ padding: '16px', textAlign: 'right' }}>
                         {!isTenantManagerRole(user.role) && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                             <button

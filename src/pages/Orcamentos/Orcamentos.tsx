@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  FileText, Plus, Search, Filter, Edit2,
+  FileText, Plus, Search, Edit2,
   CheckCircle, XCircle, Wrench, Share2, Printer, ShoppingCart
 } from 'lucide-react';
 import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, getDoc, runTransaction } from 'firebase/firestore';
@@ -10,6 +10,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 
 interface Orcamento {
   id: string;
@@ -40,6 +42,11 @@ const Orcamentos: React.FC = () => {
   const canDeleteOrcamento = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.orcamentos_excluir'));
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  /** '' = qualquer status. */
+  const [statusFiltro, setStatusFiltro] = useState('');
+  const [periodoDe, setPeriodoDe] = useState('');
+  const [periodoAte, setPeriodoAte] = useState('');
   /** Linha destacada por um clique simples. Abrir exige duplo clique (ou Enter). */
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -201,16 +208,25 @@ const Orcamentos: React.FC = () => {
     window.open(url, '_blank');
   };
 
-  const filteredOrcamentos = orcamentos.filter(o => 
-    o.clienteNome.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    o.numeroOrcamento.includes(searchTerm)
-  );
+  const statusExistentes = Array.from(new Set(orcamentos.map((o) => o.status).filter(Boolean))).sort();
+  const filtrosAtivos = (statusFiltro ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
+  const limparFiltros = () => {
+    setStatusFiltro('');
+    setPeriodoDe('');
+    setPeriodoAte('');
+  };
+
+  const filteredOrcamentos = orcamentos.filter(o => (
+    (o.clienteNome.toLowerCase().includes(searchTerm.toLowerCase()) || o.numeroOrcamento.includes(searchTerm))
+    && (!statusFiltro || o.status === statusFiltro)
+    && dentroDoPeriodo(o.createdAt, periodoDe, periodoAte)
+  ));
 
   const getStatusStyle = (status: string) => {
     switch (status) {
       case 'Aprovado': return { bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981' };
       case 'Recusado': return { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' };
-      case 'Convertido': 
+      case 'Convertido':
       case 'Finalizado': return { bg: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6' };
       default: return { bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' };
     }
@@ -235,18 +251,25 @@ const Orcamentos: React.FC = () => {
         <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
           <div className="search-bar" style={{ flex: 1, position: 'relative' }}>
             <Search size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-            <input 
-              type="text" 
-              placeholder="Buscar por cliente ou número..." 
+            <input
+              type="text"
+              placeholder="Buscar por cliente ou número..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '12px 16px 12px 48px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
-          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}>
-            <Filter size={20} /> Filtros
-          </button>
+          <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
         </div>
+        <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
+          <CampoFiltro rotulo="Status">
+            <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value)} style={estiloCampoFiltro}>
+              <option value="">Todos</option>
+              {statusExistentes.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </CampoFiltro>
+          <CampoPeriodo rotulo="Emissão" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
+        </PainelFiltros>
 
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -301,10 +324,10 @@ const Orcamentos: React.FC = () => {
                         R$ {orc.valorTotal.toFixed(2)}
                       </td>
                       <td style={{ padding: '16px' }}>
-                        <span style={{ 
-                          padding: '4px 12px', 
-                          borderRadius: '20px', 
-                          fontSize: '12px', 
+                        <span style={{
+                          padding: '4px 12px',
+                          borderRadius: '20px',
+                          fontSize: '12px',
                           fontWeight: 600,
                           backgroundColor: style.bg,
                           color: style.color
@@ -321,7 +344,7 @@ const Orcamentos: React.FC = () => {
                           >
                             <Share2 size={18} />
                           </button>
-                          <button 
+                          <button
                             title="Imprimir"
                             onClick={() => navigate(`/orcamentos/print/${orc.id}`)}
                             style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-tertiary)', color: '#3b82f6', border: 'none', cursor: 'pointer' }}
@@ -329,7 +352,7 @@ const Orcamentos: React.FC = () => {
                             <Printer size={18} />
                           </button>
                           {canEditOrcamento && (
-                            <button 
+                            <button
                               title="Editar"
                               onClick={() => openTab(`/orcamentos/editar/${orc.id}`)}
                               style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: 'none', cursor: 'pointer' }}

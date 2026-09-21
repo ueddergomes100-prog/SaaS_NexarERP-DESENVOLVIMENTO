@@ -1,10 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Filter, MessageCircle, Calendar, Plus, Edit2 } from 'lucide-react';
+import { Search, MessageCircle, Calendar, Plus, Edit2 } from 'lucide-react';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import { dataISODoRegistro, dentroDoPeriodo } from '../../utils/filtroListaDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 import './Lembretes.css';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 
 interface LembreteData {
   id: string;
@@ -15,21 +19,46 @@ interface LembreteData {
   ultimaRevisao: string;
   motivoLembrete: string;
   status?: string;
-  dataPrevisao: any; 
+  dataPrevisao: any;
   createdAt?: any;
 }
 
+type SituacaoLembrete = 'atrasado' | 'hoje' | 'no_prazo' | 'cancelado';
+
+const ROTULO_SITUACAO_LEMBRETE: Record<SituacaoLembrete, string> = {
+  atrasado: 'Atrasados',
+  hoje: 'Vencem hoje',
+  no_prazo: 'No prazo',
+  cancelado: 'Cancelados',
+};
+
+/** Mesma leitura do selo de status da linha: cancelado; senao, pela data de
+ * previsao comparada com hoje. Lembrete sem data fica so' em "Todas". */
+const situacaoDoLembrete = (lembrete: LembreteData, hoje: string): SituacaoLembrete | null => {
+  if (lembrete.status === 'Cancelado') return 'cancelado';
+  const previsao = dataISODoRegistro(lembrete.dataPrevisao);
+  if (!previsao) return null;
+  if (previsao < hoje) return 'atrasado';
+  return previsao === hoje ? 'hoje' : 'no_prazo';
+};
+
 const LembretesList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
   const navigate = useNavigate();
   const [lembretes, setLembretes] = useState<LembreteData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busca, setBusca] = useState('');
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [situacaoFiltro, setSituacaoFiltro] = useState<SituacaoLembrete | ''>('');
+  const [periodoDe, setPeriodoDe] = useState('');
+  const [periodoAte, setPeriodoAte] = useState('');
 
   const { currentUser, tenantId } = useAuth();
 
   useEffect(() => {
     if (!currentUser) return;
     const q = query(collection(db, 'lembretes'), where('tenantId', '==', tenantId));
-    
+
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const data: LembreteData[] = [];
       querySnapshot.forEach((doc) => {
@@ -72,12 +101,12 @@ const LembretesList: React.FC = () => {
         </span>
       );
     }
-    
+
     if (!lembrete.dataPrevisao) return <span>-</span>;
-    
+
     const hoje = new Date();
     hoje.setHours(0,0,0,0);
-    
+
     const dataPrev = lembrete.dataPrevisao.toDate ? lembrete.dataPrevisao.toDate() : new Date(lembrete.dataPrevisao);
     dataPrev.setHours(0,0,0,0);
 
@@ -108,6 +137,23 @@ const LembretesList: React.FC = () => {
     }
   };
 
+  const hojeStr = getDateInputInTimeZone();
+  const filtrosAtivos = (situacaoFiltro ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
+  const limparFiltros = () => {
+    setSituacaoFiltro('');
+    setPeriodoDe('');
+    setPeriodoAte('');
+  };
+
+  const termo = busca.trim().toLowerCase();
+  const lembretesFiltrados = lembretes.filter((l) => (
+    (!termo
+      || (l.clienteNome || '').toLowerCase().includes(termo)
+      || (l.placa || '').toLowerCase().includes(termo))
+    && (!situacaoFiltro || situacaoDoLembrete(l, hojeStr) === situacaoFiltro)
+    && dentroDoPeriodo(l.dataPrevisao, periodoDe, periodoAte)
+  ));
+
   return (
     <div className="lembretes-page">
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -124,13 +170,21 @@ const LembretesList: React.FC = () => {
         <div className="list-toolbar">
           <div className="search-box">
             <Search size={18} className="search-icon" />
-            <input type="text" placeholder="Buscar cliente ou placa..." />
+            <input type="text" placeholder="Buscar cliente ou placa..." value={busca} onChange={(e) => setBusca(e.target.value)} />
           </div>
-          <button className="btn-secondary filter-btn">
-            <Filter size={18} style={{ marginRight: 8 }} />
-            Filtros
-          </button>
+          <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
         </div>
+        <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
+          <CampoFiltro rotulo="Situação">
+            <select value={situacaoFiltro} onChange={(e) => setSituacaoFiltro(e.target.value as SituacaoLembrete | '')} style={estiloCampoFiltro}>
+              <option value="">Todas</option>
+              {(Object.keys(ROTULO_SITUACAO_LEMBRETE) as SituacaoLembrete[]).map((chave) => (
+                <option key={chave} value={chave}>{ROTULO_SITUACAO_LEMBRETE[chave]}</option>
+              ))}
+            </select>
+          </CampoFiltro>
+          <CampoPeriodo rotulo="Previsão" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
+        </PainelFiltros>
 
         <div className="table-wrapper">
           <table className="data-table">
@@ -149,13 +203,15 @@ const LembretesList: React.FC = () => {
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando lembretes...</td>
                 </tr>
-              ) : lembretes.length === 0 ? (
+              ) : lembretesFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Nenhum lembrete cadastrado.</td>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>
+                    {lembretes.length === 0 ? 'Nenhum lembrete cadastrado.' : 'Nenhum lembrete encontrado com essa busca e esses filtros.'}
+                  </td>
                 </tr>
               ) : (
-                lembretes.map((lembrete) => (
-                  <tr key={lembrete.id}>
+                lembretesFiltrados.map((lembrete) => (
+                  <tr key={lembrete.id} {...linha(lembrete.id, () => navigate(`/crm/lembretes/editar/${lembrete.id}`))}>
                     <td className="font-medium">{lembrete.clienteNome}</td>
                     <td>
                       {lembrete.modelo} <br />
@@ -169,16 +225,16 @@ const LembretesList: React.FC = () => {
                     </td>
                     <td>{lembrete.motivoLembrete}</td>
                     <td>{getStatusLembrete(lembrete)}</td>
-                    <td>
+                    <td {...semAbrirLinha}>
                       <div style={{ display: 'flex', gap: '8px' }}>
-                        <button 
+                        <button
                           className="btn-whatsapp"
                           onClick={() => handleOpenWhatsApp(lembrete)}
                         >
                           <MessageCircle size={16} />
                           WhatsApp
                         </button>
-                        <button 
+                        <button
                           className="icon-btn"
                           onClick={() => navigate(`/crm/lembretes/editar/${lembrete.id}`)}
                           title="Editar/Excluir Lembrete"

@@ -82,6 +82,10 @@ const Precificacao: React.FC = () => {
         const mapa = new Map<string, ProdutoPrecificacao>();
         snap.docs.forEach((d) => {
           const data = d.data();
+          // Produto inativo nao se precifica: cadastro inativo e' somente
+          // leitura (firestore.rules), e um so' no lote faria o lote inteiro
+          // ser recusado.
+          if (data.ativo === false || data.statusAtivo === false) return;
           mapa.set(d.id, {
             id: d.id,
             nome: data.nome || '',

@@ -14,6 +14,9 @@ import {
 } from '../../utils/unidadeMedidaDomain';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
+import { alterarSituacaoCadastro } from '../../services/cadastroService';
 
 interface UnidadeData {
   id: string;
@@ -29,6 +32,8 @@ interface UnidadeData {
 }
 
 const UnidadesMedidaList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
+  const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   const [unidades, setUnidades] = useState<UnidadeData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -130,13 +135,10 @@ const UnidadesMedidaList: React.FC = () => {
     if (!confirm.isConfirmed) return;
 
     try {
-      await updateDoc(doc(db, 'unidades_medida', unidade.id), {
-        ativo: novoStatus,
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Unidade reativada' : 'Unidade inativada'),
-      });
+      await alterarSituacaoCadastro('unidades_medida', unidade.id, novoStatus);
       showSuccess(novoStatus ? 'Unidade ativada!' : 'Unidade inativada!');
     } catch (error) {
-      showError('Erro', 'Não foi possível atualizar o status da unidade.');
+      showError('Erro', (error as Error).message || 'Não foi possível atualizar o status da unidade.');
     }
   };
 
@@ -190,6 +192,11 @@ const UnidadesMedidaList: React.FC = () => {
   };
 
   const openEditModal = (unidade: UnidadeData) => {
+    // Cadastro inativo nao se altera (firestore.rules): reative antes.
+    if (unidade.ativo === false) {
+      showError('Unidade inativa', `A unidade "${unidade.sigla}" está inativa e não pode ser alterada. Para alterar, reative-a na lista de Unidades de Medida.`);
+      return;
+    }
     setEditingId(unidade.id);
     setModalForm({
       sigla: unidade.sigla,
@@ -255,7 +262,7 @@ const UnidadesMedidaList: React.FC = () => {
     }
   };
 
-  const filteredUnidades = unidades.filter(u => 
+  const filteredUnidades = unidades.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter(u => 
     u.sigla.toLowerCase().includes(searchTerm.toLowerCase()) ||
     u.nome.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -307,6 +314,7 @@ const UnidadesMedidaList: React.FC = () => {
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
+          <FiltroSituacao valor={situacao} onChange={setSituacao} />
           <div className="shortcuts-hint">
             <span><kbd>F2</kbd> Buscar</span>
             <span><kbd>F6</kbd> Nova</span>
@@ -338,7 +346,7 @@ const UnidadesMedidaList: React.FC = () => {
                 </tr>
               ) : (
                 filteredUnidades.map((unidade) => (
-                  <tr key={unidade.id}>
+                  <tr key={unidade.id} {...linha(unidade.id, () => openEditModal(unidade))}>
                     <td className="font-medium" style={{ color: 'var(--accent-purple)', fontWeight: 700 }}>{unidade.sigla}</td>
                     <td className="font-medium">
                       {unidade.nome}
@@ -366,7 +374,7 @@ const UnidadesMedidaList: React.FC = () => {
                         {unidade.ativo === false ? 'Inativa' : 'Ativa'}
                       </span>
                     </td>
-                    <td>
+                    <td {...semAbrirLinha}>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button className="icon-btn" title="Editar" onClick={() => openEditModal(unidade)}>
                           <Edit size={16} />

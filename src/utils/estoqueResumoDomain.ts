@@ -9,20 +9,21 @@
  * Nem toda empresa pensa assim: quem acompanha reposicao olha "Estoque Baixo"
  * varias vezes por dia. Por isso e escolha da empresa, nao decisao nossa.
  *
- * LIGADO por padrao: e o comportamento de hoje, e mudar a tela de quem ja usa
- * sem pedir seria pior que deixar um cartao a mais na frente de quem nao usa.
+ * DESLIGADO por padrao (decisao do usuario, 2026-09-19): quase nenhuma empresa
+ * usa, e os cartoes empurram a lista pra baixo. Isso tambem vale pra quem ja
+ * usava o sistema e nunca mexeu na opcao -- os cartoes somem pra essas
+ * empresas. Quem quiser o numero de volta liga em Configuracoes.
  *
  * Nao muda dado nenhum -- "Estoque Baixo" continua sendo contado do mesmo
  * jeito, so nao aparece. Quem desligar e quiser o numero de volta e um clique
  * em Configuracoes.
  */
-export const DEFAULT_MOSTRAR_RESUMO_ESTOQUE = true;
+export const DEFAULT_MOSTRAR_RESUMO_ESTOQUE = false;
 
 /**
- * So `false` explicito esconde. Empresa que nunca abriu a configuracao nao
- * tem o campo gravado, e `undefined` tem que cair no padrao -- sumir com os
- * cartoes de quem nunca pediu isso seria mudanca a revelia.
+ * So `true` explicito mostra. Empresa que nunca abriu a configuracao nao tem
+ * o campo gravado, e `undefined` cai no padrao (escondido).
  */
 export const parseMostrarResumoEstoque = (valor: unknown): boolean => (
-  valor === false ? false : DEFAULT_MOSTRAR_RESUMO_ESTOQUE
+  valor === true ? true : DEFAULT_MOSTRAR_RESUMO_ESTOQUE
 );

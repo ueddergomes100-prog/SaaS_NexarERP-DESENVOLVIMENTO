@@ -22,6 +22,9 @@ import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
+import { alterarSituacaoCadastro } from '../../services/cadastroService';
 
 interface Banco extends TenantCollectionItem {
   nome: string;
@@ -78,6 +81,8 @@ const emptyTransferForm = () => ({
 });
 
 const BancosList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
+  const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   const navigate = useNavigate();
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const canAccess = hasModuleAccess({
@@ -142,6 +147,11 @@ const BancosList: React.FC = () => {
   };
 
   const openEditModal = (banco: Banco) => {
+    // Cadastro inativo nao se altera (firestore.rules): reative antes.
+    if (!banco.ativo) {
+      showError('Banco inativo', `O banco "${banco.nome}" está inativo e não pode ser alterado. Para alterar, reative-o na lista de Bancos.`);
+      return;
+    }
     setEditingId(banco.id);
     setModalForm({
       nome: banco.nome,
@@ -178,7 +188,6 @@ const BancosList: React.FC = () => {
           agencia: modalForm.agencia.trim(),
           conta: modalForm.conta.trim(),
           tipoConta: modalForm.tipoConta,
-          ativo: modalForm.ativo,
           ordem: Number(modalForm.ordem) || 0,
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
@@ -241,15 +250,11 @@ const BancosList: React.FC = () => {
     if (!confirm.isConfirmed || !currentUser) return;
 
     try {
-      await updateDoc(doc(db, 'bancos', banco.id), {
-        ativo: novoStatus,
-        updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Banco reativado' : 'Banco inativado'),
-      });
+      await alterarSituacaoCadastro('bancos', banco.id, novoStatus);
       showSuccess(novoStatus ? 'Banco ativado!' : 'Banco inativado!');
     } catch (error) {
       console.error(error);
-      showError('Erro', 'Não foi possível atualizar o status do banco.');
+      showError('Erro', (error as Error).message || 'Não foi possível atualizar o status do banco.');
     }
   };
 
@@ -412,7 +417,7 @@ const BancosList: React.FC = () => {
     }
   };
 
-  const filteredBancos = bancos.filter((b) => b.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredBancos = bancos.filter((registro) => passaNaSituacao(Boolean(registro.ativo), situacao)).filter((b) => b.nome.toLowerCase().includes(searchTerm.toLowerCase()));
   const ledgerBancoAtual = ledgerBanco ? bancos.find((b) => b.id === ledgerBanco.id) || ledgerBanco : null;
   const outrosBancosAtivos = bancos.filter((b) => b.ativo && b.id !== ledgerBanco?.id);
 
@@ -466,6 +471,7 @@ const BancosList: React.FC = () => {
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
+          <FiltroSituacao valor={situacao} onChange={setSituacao} />
           <div className="shortcuts-hint">
             <span><kbd>F2</kbd> Buscar</span>
             <span><kbd>F6</kbd> Novo</span>
@@ -496,7 +502,7 @@ const BancosList: React.FC = () => {
                 </tr>
               ) : (
                 filteredBancos.map((banco) => (
-                  <tr key={banco.id}>
+                  <tr key={banco.id} {...linha(banco.id, () => openEditModal(banco))}>
                     <td className="font-medium">{banco.nome}</td>
                     <td>{banco.banco || '-'}</td>
                     <td>{banco.agencia || '-'} / {banco.conta || '-'}</td>
@@ -508,7 +514,7 @@ const BancosList: React.FC = () => {
                         {banco.ativo ? 'Ativo' : 'Inativo'}
                       </span>
                     </td>
-                    <td>
+                    <td {...semAbrirLinha}>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button className="icon-btn" title="Editar" onClick={() => openEditModal(banco)}>
                           <Edit size={16} />
@@ -641,18 +647,24 @@ const BancosList: React.FC = () => {
                 </p>
               )}
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', marginBottom: '24px' }}>
-                <input
-                  type="checkbox"
-                  id="bancoAtivo"
-                  checked={modalForm.ativo}
-                  onChange={(e) => setModalForm({ ...modalForm, ativo: e.target.checked })}
-                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                />
-                <label htmlFor="bancoAtivo" style={{ cursor: 'pointer', fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
-                  Ativo (disponível para seleção em novas vendas)
-                </label>
-              </div>
+              {editingId ? (
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 24px' }}>
+                  Para ativar ou inativar o banco, use o botão de situação na lista — o sistema confere se há saldo ou lançamentos pendentes.
+                </p>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', marginBottom: '24px' }}>
+                  <input
+                    type="checkbox"
+                    id="bancoAtivo"
+                    checked={modalForm.ativo}
+                    onChange={(e) => setModalForm({ ...modalForm, ativo: e.target.checked })}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="bancoAtivo" style={{ cursor: 'pointer', fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
+                    Ativo (disponível para seleção em novas vendas)
+                  </label>
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                 <button type="button" className="btn-secondary" onClick={closeModal} disabled={modalLoading}>

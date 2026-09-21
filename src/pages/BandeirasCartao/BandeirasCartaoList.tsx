@@ -12,6 +12,9 @@ import { normalizeCreditCardFeeSchedule } from '../../utils/financeDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
+import { alterarSituacaoCadastro } from '../../services/cadastroService';
 
 interface BandeiraCartao extends TenantCollectionItem {
   nome: string;
@@ -53,6 +56,8 @@ const BANDEIRAS_PADRAO: Array<Pick<BandeiraCartao, 'nome' | 'ativo' | 'ordem'>> 
 const REQUIRED_PERMISSION = 'cadastros.bandeiras_cartao';
 
 const BandeirasCartaoList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
+  const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   const navigate = useNavigate();
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const canAccess = hasModuleAccess({
@@ -102,15 +107,11 @@ const BandeirasCartaoList: React.FC = () => {
     if (!confirm.isConfirmed || !currentUser) return;
 
     try {
-      await updateDoc(doc(db, 'bandeiras_cartao', bandeira.id), {
-        ativo: novoStatus,
-        updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Bandeira reativada' : 'Bandeira inativada'),
-      });
+      await alterarSituacaoCadastro('bandeiras_cartao', bandeira.id, novoStatus);
       showSuccess(novoStatus ? 'Bandeira ativada!' : 'Bandeira inativada!');
     } catch (error) {
       console.error(error);
-      showError('Erro', 'Não foi possível atualizar o status da bandeira.');
+      showError('Erro', (error as Error).message || 'Não foi possível atualizar o status da bandeira.');
     }
   };
 
@@ -151,6 +152,10 @@ const BandeirasCartaoList: React.FC = () => {
   };
 
   const openFeesModal = async (bandeira: BandeiraCartao) => {
+    if (!bandeira.ativo) {
+      showError('Bandeira inativa', `A bandeira "${bandeira.nome}" está inativa e suas taxas não podem ser alteradas. Para alterar, reative-a na lista de Bandeiras de Cartão.`);
+      return;
+    }
     setFeesTarget(bandeira);
     setFeesLoading(true);
     try {
@@ -246,6 +251,11 @@ const BandeirasCartaoList: React.FC = () => {
   };
 
   const openEditModal = (bandeira: BandeiraCartao) => {
+    // Cadastro inativo nao se altera (firestore.rules): reative antes.
+    if (!bandeira.ativo) {
+      showError('Bandeira inativa', `A bandeira "${bandeira.nome}" está inativa e não pode ser alterada. Para alterar, reative-a na lista de Bandeiras de Cartão.`);
+      return;
+    }
     setEditingId(bandeira.id);
     setModalForm({ nome: bandeira.nome, ativo: bandeira.ativo, ordem: bandeira.ordem });
     setIsModalOpen(true);
@@ -275,8 +285,11 @@ const BandeirasCartaoList: React.FC = () => {
       };
 
       if (editingId) {
+        // A situacao so' muda pelo botao da lista (servidor); a edicao nao
+        // manda `ativo`, senao as regras recusam o save.
+        const { ativo: _ativo, ...docDataSemSituacao } = docData;
         await updateDoc(doc(db, 'bandeiras_cartao', editingId), {
-          ...docData,
+          ...docDataSemSituacao,
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Bandeira atualizada!');
@@ -304,7 +317,7 @@ const BandeirasCartaoList: React.FC = () => {
     }
   };
 
-  const filteredBandeiras = bandeiras.filter((b) => b.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredBandeiras = bandeiras.filter((registro) => passaNaSituacao(Boolean(registro.ativo), situacao)).filter((b) => b.nome.toLowerCase().includes(searchTerm.toLowerCase()));
 
   if (!canAccess) {
     return (
@@ -354,6 +367,7 @@ const BandeirasCartaoList: React.FC = () => {
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
+          <FiltroSituacao valor={situacao} onChange={setSituacao} />
           <div className="shortcuts-hint">
             <span><kbd>F2</kbd> Buscar</span>
             <span><kbd>F6</kbd> Nova</span>
@@ -383,7 +397,7 @@ const BandeirasCartaoList: React.FC = () => {
                 </tr>
               ) : (
                 filteredBandeiras.map((bandeira) => (
-                  <tr key={bandeira.id}>
+                  <tr key={bandeira.id} {...linha(bandeira.id, () => openEditModal(bandeira))}>
                     <td>{bandeira.ordem}</td>
                     <td className="font-medium">{bandeira.nome}</td>
                     <td>
@@ -394,7 +408,7 @@ const BandeirasCartaoList: React.FC = () => {
                         {bandeira.ativo ? 'Ativa' : 'Inativa'}
                       </span>
                     </td>
-                    <td>
+                    <td {...semAbrirLinha}>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button className="icon-btn" title="Editar" onClick={() => openEditModal(bandeira)}>
                           <Edit size={16} />
@@ -464,18 +478,24 @@ const BandeirasCartaoList: React.FC = () => {
                 />
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '20px', marginBottom: '24px' }}>
-                <input
-                  type="checkbox"
-                  id="bandeiraAtiva"
-                  checked={modalForm.ativo}
-                  onChange={(e) => setModalForm({ ...modalForm, ativo: e.target.checked })}
-                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                />
-                <label htmlFor="bandeiraAtiva" style={{ cursor: 'pointer', fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
-                  Ativa (disponível para seleção em novas vendas)
-                </label>
-              </div>
+              {editingId ? (
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '20px 0 24px' }}>
+                  Para ativar ou inativar a bandeira, use o botão de situação na lista.
+                </p>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '20px', marginBottom: '24px' }}>
+                  <input
+                    type="checkbox"
+                    id="bandeiraAtiva"
+                    checked={modalForm.ativo}
+                    onChange={(e) => setModalForm({ ...modalForm, ativo: e.target.checked })}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="bandeiraAtiva" style={{ cursor: 'pointer', fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
+                    Ativa (disponível para seleção em novas vendas)
+                  </label>
+                </div>
+              )}
 
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 20px' }}>
                 Desativar uma bandeira não afeta vendas antigas: o valor gravado continua sendo exibido no histórico normalmente.

@@ -11,6 +11,7 @@ import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialS
 import { chaveComponente, computeEstoquePrevisto } from '../../utils/producaoDomain';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import CampoComSugestoes from '../../components/common/CampoComSugestoes';
 
 const inputStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg-tertiary)',
@@ -43,8 +44,12 @@ const MateriaPrimaForm: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
+  /** Cadastro inativo abre so' pra consulta -- ver o aviso na tela. */
+  const [inativo, setInativo] = useState(false);
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
   const [marcasDB, setMarcasDB] = useState<string[]>([]);
+  const [unidadesDB, setUnidadesDB] = useState<string[]>([]);
+  const [fornecedoresDB, setFornecedoresDB] = useState<string[]>([]);
   // Decoupled de isFetching (que so controla o spinner de tela cheia, e
   // no modo "novo" ja comeca `false` mesmo com uma busca assincrona em
   // andamento pro codigo automatico) -- marca quando o carregamento
@@ -82,10 +87,28 @@ const MateriaPrimaForm: React.FC = () => {
           setMarcasDB([]);
         }
 
+        // Unidades e fornecedores tambem sao so' sugestao: cada consulta no
+        // seu try, pra uma falha nao derrubar o formulario.
+        try {
+          const snapUni = await getDocs(query(collection(db, 'unidades_medida'), where('tenantId', '==', tenantId)));
+          setUnidadesDB(snapUni.docs.filter(d => d.data().ativo !== false).map(d => d.data().sigla).filter(Boolean));
+        } catch (unidadeError) {
+          console.error('Erro ao carregar as unidades (sugestão do campo Unidade):', unidadeError);
+          setUnidadesDB([]);
+        }
+        try {
+          const snapForn = await getDocs(query(collection(db, 'fornecedores'), where('tenantId', '==', tenantId)));
+          setFornecedoresDB(snapForn.docs.filter(d => d.data().ativo !== false).map(d => d.data().nome).filter(Boolean));
+        } catch (fornecedorError) {
+          console.error('Erro ao carregar os fornecedores (sugestão do campo Fornecedor):', fornecedorError);
+          setFornecedoresDB([]);
+        }
+
         if (isEditing && id) {
           const docSnap = await getDoc(doc(db, 'materias_primas', id));
           if (docSnap.exists()) {
             const data = docSnap.data() as any;
+            setInativo(data.ativo === false);
             setFormData(prev => ({
               ...prev,
               ...data,
@@ -131,6 +154,14 @@ const MateriaPrimaForm: React.FC = () => {
   /** Devolve true/false (sucesso) -- usado tanto pelo clique do botao
    * quanto pelo useUnsavedChangesGuard (fechar aba -> "Salvar e fechar"). */
   const saveMateriaPrima = async (): Promise<boolean> => {
+    // CADASTRO INATIVO NAO SE ALTERA. Inativo e' item fora de uso -- mexer
+    // nele (principalmente no saldo) sem reativar abre um caminho paralelo
+    // pra mudar estoque que ninguem ve. Os campos ja' ficam travados na
+    // tela; esta checagem cobre o "Salvar e fechar" da aba.
+    if (inativo) {
+      showError('Matéria-prima inativa', 'Esta matéria-prima está inativa e não pode ser alterada. Para alterar, reative-a na lista de Matéria-Prima.');
+      return false;
+    }
     if (!formData.nome) {
       showError('Campos incompletos', 'Por favor, preencha o Nome da matéria-prima.');
       return false;
@@ -157,8 +188,12 @@ const MateriaPrimaForm: React.FC = () => {
       };
 
       if (isEditing && id) {
+        // Na edicao o saldo NAO vai no payload: ele so' muda por producao,
+        // nota de entrada ou Ajuste de Estoque. Mandar o valor lido ao abrir a
+        // tela sobrescreveria uma producao feita enquanto ela estava aberta.
+        const { quantidade: _saldo, ...dataToSaveSemSaldo } = dataToSave;
         await updateDoc(doc(db, 'materias_primas', id), {
-          ...dataToSave,
+          ...dataToSaveSemSaldo,
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
@@ -208,8 +243,9 @@ const MateriaPrimaForm: React.FC = () => {
         <button
           className="btn-primary"
           onClick={handleSave}
-          disabled={isLoading}
-          style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center' }}
+          disabled={isLoading || inativo}
+          title={inativo ? 'Matéria-prima inativa: reative-a na lista para alterar' : undefined}
+          style={{ opacity: (isLoading || inativo) ? 0.5 : 1, display: 'flex', alignItems: 'center' }}
         >
           {isLoading ? (
             <Loader2 size={18} className="spin-icon" style={{ marginRight: 8 }} />
@@ -220,7 +256,15 @@ const MateriaPrimaForm: React.FC = () => {
         </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '800px' }}>
+      {inativo && (
+        <div style={{ maxWidth: '800px', padding: '14px 18px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', color: 'var(--text-primary)', fontSize: '14px' }}>
+          <strong style={{ color: '#f59e0b' }}>Matéria-prima inativa — somente consulta.</strong>{' '}
+          Para alterar qualquer dado, reative-a na lista de Matéria-Prima (botão de ativar da linha).
+        </div>
+      )}
+
+      {/* fieldset desabilita todos os campos de uma vez quando inativo */}
+      <fieldset disabled={inativo} style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '800px', border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)' }}>
             <Factory size={20} style={{ color: 'var(--accent-purple)' }} />
@@ -255,24 +299,18 @@ const MateriaPrimaForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Categoria</label>
-              <input type="text" name="categoria" list="categorias-materia-prima" placeholder="Ex: METAIS" value={formData.categoria} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
-              <datalist id="categorias-materia-prima">
-                {categoriasDB.map((cat, idx) => <option key={idx} value={cat} />)}
-              </datalist>
+              <CampoComSugestoes type="text" name="categoria" opcoes={categoriasDB} placeholder="Ex: METAIS" value={formData.categoria} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
             </div>
             <div className="input-group">
               <label>Unidade de Medida</label>
-              <input type="text" name="unidade" placeholder="KG, L, UN, M..." value={formData.unidade} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+              <CampoComSugestoes type="text" name="unidade" opcoes={unidadesDB} placeholder="KG, L, UN, M..." value={formData.unidade} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Marca</label>
-              <input type="text" name="marca" list="marcas-materia-prima" placeholder="Ex: SOLNATUS" value={formData.marca} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
-              <datalist id="marcas-materia-prima">
-                {marcasDB.map((m, idx) => <option key={idx} value={m} />)}
-              </datalist>
+              <CampoComSugestoes type="text" name="marca" opcoes={marcasDB} placeholder="Ex: SOLNATUS" value={formData.marca} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
             </div>
             <div className="input-group">
               <label>Referência</label>
@@ -283,7 +321,15 @@ const MateriaPrimaForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Quantidade em Estoque</label>
-              <input type="number" name="quantidade" step="any" min="0" value={formData.quantidade} onChange={handleChange} style={inputStyle} />
+              <input type="number" name="quantidade" step="any" min="0" value={formData.quantidade} onChange={handleChange} style={inputStyle} disabled={isEditing} />
+              {isEditing && (
+                <span className="field-hint">
+                  O saldo muda por produção, nota de entrada ou pelo{' '}
+                  <button type="button" className="link-button" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent-primary, #3b82f6)', textDecoration: 'underline' }} onClick={() => navigate(`/estoque/ajuste?produtoId=${id}`)}>
+                    Ajuste de Estoque
+                  </button>.
+                </span>
+              )}
             </div>
             <div className="input-group">
               <label>Estoque Mínimo</label>
@@ -296,8 +342,8 @@ const MateriaPrimaForm: React.FC = () => {
           </div>
 
           <div className="input-group">
-            <label>Fornecedor (texto livre)</label>
-            <input type="text" name="fornecedor" placeholder="Ex: METALÚRGICA SUL LTDA" value={formData.fornecedor} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+            <label>Fornecedor</label>
+            <CampoComSugestoes type="text" name="fornecedor" opcoes={fornecedoresDB} placeholder="Ex: METALÚRGICA SUL LTDA" value={formData.fornecedor} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -311,7 +357,7 @@ const MateriaPrimaForm: React.FC = () => {
             </div>
           </div>
         </div>
-      </div>
+      </fieldset>
     </div>
   );
 };

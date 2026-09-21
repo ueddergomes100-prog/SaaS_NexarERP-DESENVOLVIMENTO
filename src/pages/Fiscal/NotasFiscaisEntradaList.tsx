@@ -14,6 +14,9 @@ import {
   type NotaFiscalEntradaItemRecord,
   type NotaFiscalEntradaStatus,
 } from '../../utils/entradaNfeDomain';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 
 interface NotaFiscalEntradaDoc {
   id: string;
@@ -56,12 +59,18 @@ const TIPO_ITEM_LABEL: Record<NotaFiscalEntradaItemRecord['tipo'], string> = {
 };
 
 const NotasFiscaisEntradaList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
   const navigate = useNavigate();
   const { tenantId, currentUser } = useAuth();
   const { openTab } = useTabs();
   const [notas, setNotas] = useState<NotaFiscalEntradaDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  /** '' = todas (ativas e excluidas). */
+  const [statusFiltro, setStatusFiltro] = useState<'' | NotaFiscalEntradaStatus>('');
+  const [periodoDe, setPeriodoDe] = useState('');
+  const [periodoAte, setPeriodoAte] = useState('');
 
   const [notaSelecionada, setNotaSelecionada] = useState<NotaFiscalEntradaDoc | null>(null);
   const [titulos, setTitulos] = useState<TituloPagar[]>([]);
@@ -85,13 +94,20 @@ const NotasFiscaisEntradaList: React.FC = () => {
   }, [tenantId]);
 
   const notasFiltradas = useMemo(() => {
-    if (!searchTerm.trim()) return notas;
-    const termo = searchTerm.toLowerCase();
-    return notas.filter((nota) =>
-      nota.numeroNF.toLowerCase().includes(termo) ||
-      nota.fornecedorNome.toLowerCase().includes(termo)
-    );
-  }, [notas, searchTerm]);
+    const termo = searchTerm.trim().toLowerCase();
+    return notas.filter((nota) => (
+      (!termo || nota.numeroNF.toLowerCase().includes(termo) || nota.fornecedorNome.toLowerCase().includes(termo))
+      && (!statusFiltro || nota.status === statusFiltro)
+      && dentroDoPeriodo(nota.dataEmissao, periodoDe, periodoAte)
+    ));
+  }, [notas, searchTerm, statusFiltro, periodoDe, periodoAte]);
+
+  const filtrosAtivos = (statusFiltro ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
+  const limparFiltros = () => {
+    setStatusFiltro('');
+    setPeriodoDe('');
+    setPeriodoAte('');
+  };
 
   const handleVerDetalhes = async (nota: NotaFiscalEntradaDoc) => {
     setNotaSelecionada(nota);
@@ -280,7 +296,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
       </div>
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
           <div className="search-box" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
             <input
@@ -291,7 +307,18 @@ const NotasFiscaisEntradaList: React.FC = () => {
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
+          <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
         </div>
+        <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
+          <CampoFiltro rotulo="Situação">
+            <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value as '' | NotaFiscalEntradaStatus)} style={estiloCampoFiltro}>
+              <option value="">Todas</option>
+              <option value="ativa">{STATUS_LABEL.ativa}</option>
+              <option value="excluida">{STATUS_LABEL.excluida}</option>
+            </select>
+          </CampoFiltro>
+          <CampoPeriodo rotulo="Emissão" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
+        </PainelFiltros>
 
         <div className="table-wrapper">
           <table className="data-table">
@@ -320,7 +347,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
                 </tr>
               ) : (
                 notasFiltradas.map((nota) => (
-                  <tr key={nota.id}>
+                  <tr key={nota.id} {...linha(nota.id, () => handleVerDetalhes(nota))}>
                     <td>{formatDateInputPtBr(nota.dataEmissao)}</td>
                     <td className="font-medium">{nota.numeroNF}</td>
                     <td>{nota.fornecedorNome}</td>
@@ -331,7 +358,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
                         {STATUS_LABEL[nota.status]}
                       </span>
                     </td>
-                    <td>
+                    <td {...semAbrirLinha}>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button className="icon-btn" title="Ver detalhes" onClick={() => handleVerDetalhes(nota)}>
                           <FileText size={16} />

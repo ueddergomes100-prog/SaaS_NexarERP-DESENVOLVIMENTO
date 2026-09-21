@@ -4,6 +4,9 @@ import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/fire
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import DevolucaoVendaModal from './DevolucaoVendaModal';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 
 interface ItemVenda {
   id: string;
@@ -34,10 +37,15 @@ interface PedidoVendaResumo {
  * por padrao a devolucao continua feita direto na tela do pedido.
  */
 const DevolucoesVenda: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
   const { tenantId } = useAuth();
   const [pedidos, setPedidos] = useState<PedidoVendaResumo[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [devolucaoFiltro, setDevolucaoFiltro] = useState<'' | 'a_devolver' | 'devolvidos'>('');
+  const [periodoDe, setPeriodoDe] = useState('');
+  const [periodoAte, setPeriodoAte] = useState('');
   const [pedidoSelecionado, setPedidoSelecionado] = useState<PedidoVendaResumo | null>(null);
 
   useEffect(() => {
@@ -61,11 +69,19 @@ const DevolucoesVenda: React.FC = () => {
   }, [tenantId]);
 
   const termo = searchTerm.trim().toLowerCase();
-  const pedidosFiltrados = termo
-    ? pedidos.filter((p) => p.numeroPedido?.toLowerCase().includes(termo) || p.clienteNome?.toLowerCase().includes(termo))
-    : pedidos;
-
   const podeDevolver = (p: PedidoVendaResumo) => (p.itens || []).some((item) => (item.quantidade - (item.quantidadeJaDevolvida || 0)) > 0);
+
+  const filtrosAtivos = (devolucaoFiltro ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
+  const limparFiltros = () => {
+    setDevolucaoFiltro('');
+    setPeriodoDe('');
+    setPeriodoAte('');
+  };
+  const pedidosFiltrados = pedidos.filter((p) => (
+    (!termo || p.numeroPedido?.toLowerCase().includes(termo) || p.clienteNome?.toLowerCase().includes(termo))
+    && (devolucaoFiltro === '' || (devolucaoFiltro === 'a_devolver' ? podeDevolver(p) : !podeDevolver(p)))
+    && dentroDoPeriodo(p.createdAt, periodoDe, periodoAte)
+  ));
 
   const atualizarItensDoPedidoSelecionado = async () => {
     if (!pedidoSelecionado) return;
@@ -86,7 +102,8 @@ const DevolucoesVenda: React.FC = () => {
       </div>
 
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <div className="search-bar" style={{ position: 'relative', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap' }}>
+        <div className="search-bar" style={{ position: 'relative', flex: 1, minWidth: '260px' }}>
           <Search size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input
             type="text"
@@ -97,6 +114,19 @@ const DevolucoesVenda: React.FC = () => {
             style={{ width: '100%', padding: '12px 16px 12px 48px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
           />
         </div>
+        <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
+      </div>
+      <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
+        <CampoFiltro rotulo="Devolução">
+          <select value={devolucaoFiltro} onChange={(e) => setDevolucaoFiltro(e.target.value as '' | 'a_devolver' | 'devolvidos')} style={estiloCampoFiltro}>
+            <option value="">Todos</option>
+            <option value="a_devolver">Com itens a devolver</option>
+            <option value="devolvidos">Totalmente devolvidos</option>
+          </select>
+        </CampoFiltro>
+        <CampoPeriodo rotulo="Data da venda" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
+      </PainelFiltros>
+
 
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -123,14 +153,14 @@ const DevolucoesVenda: React.FC = () => {
                 </tr>
               ) : (
                 pedidosFiltrados.map((p) => (
-                  <tr key={p.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <tr key={p.id} {...linha(p.id, () => setPedidoSelecionado(p))} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '16px', fontWeight: 600 }}>#{p.numeroPedido}</td>
                     <td style={{ padding: '16px' }}>{p.createdAt?.seconds ? new Date(p.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : '-'}</td>
                     <td style={{ padding: '16px' }}>{p.clienteNome}</td>
                     <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700 }}>
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valorTotal)}
                     </td>
-                    <td style={{ padding: '16px', textAlign: 'center' }}>
+                    <td {...semAbrirLinha} style={{ padding: '16px', textAlign: 'center' }}>
                       <button
                         onClick={() => setPedidoSelecionado(p)}
                         className="btn-secondary"

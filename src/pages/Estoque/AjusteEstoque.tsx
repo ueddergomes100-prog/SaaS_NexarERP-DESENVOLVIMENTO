@@ -36,6 +36,9 @@ interface ProdutoAjuste extends SearchableProduct {
   unidadeMedidaFracionado?: boolean;
   unidadeMedidaCasasDecimais?: number;
   statusAtivo?: boolean;
+  /** Onde o saldo mora. Materia-prima tambem se ajusta aqui: o saldo dela so'
+   * muda por producao, nota de entrada ou por este ajuste (com motivo). */
+  origem: 'estoque' | 'materia_prima';
 }
 
 /** Item já "gravado" na lista local, ainda não escrito no Firestore -- só
@@ -51,6 +54,7 @@ interface ItemAjustePendente {
   motivo: string;
   observacao?: string;
   controlarLote: boolean;
+  origem: 'estoque' | 'materia_prima';
   loteId?: string;
   loteLabel?: string;
   loteNovoCodigo?: string;
@@ -109,11 +113,39 @@ const AjusteEstoque: React.FC = () => {
             unidadeMedidaFracionado: data.unidadeMedidaFracionado,
             unidadeMedidaCasasDecimais: data.unidadeMedidaCasasDecimais,
             statusAtivo: data.statusAtivo,
+            origem: 'estoque' as const,
           };
         })
-        .filter((produto) => produto.statusAtivo !== false)
-        .sort((a, b) => a.nome.localeCompare(b.nome));
-      setProdutos(lista);
+        .filter((produto) => produto.statusAtivo !== false);
+
+      // Materia-prima entra na mesma busca: o saldo dela nao e' mais editavel
+      // no cadastro, so' por aqui (ou producao/nota de entrada).
+      let materiasPrimas: ProdutoAjuste[] = [];
+      try {
+        const snapMp = await getDocs(query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId)));
+        materiasPrimas = snapMp.docs
+          .filter((d) => d.data().ativo !== false)
+          .map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              nome: data.nome || '',
+              codigo: data.codigo || '',
+              marca: data.marca || '',
+              categoria: data.categoria || '',
+              quantidade: Number(data.quantidade || 0),
+              controlarLote: false,
+              unidadeMedidaSigla: String(data.unidade || 'UN').toUpperCase(),
+              unidadeMedidaFracionado: true,
+              unidadeMedidaCasasDecimais: 4,
+              origem: 'materia_prima' as const,
+            };
+          });
+      } catch (erroMp) {
+        console.error('Erro ao carregar as matérias-primas do ajuste:', erroMp);
+      }
+
+      setProdutos([...lista, ...materiasPrimas].sort((a, b) => a.nome.localeCompare(b.nome)));
     };
     carregarProdutos();
   }, [tenantId]);
@@ -270,6 +302,7 @@ const AjusteEstoque: React.FC = () => {
       motivo,
       observacao: observacao || undefined,
       controlarLote,
+      origem: selectedProduto.origem,
       loteId: controlarLote && !entradaComLoteNovo ? (loteSelecionadoId || undefined) : undefined,
       loteLabel: controlarLote && !entradaComLoteNovo ? loteEscolhido?.lote : undefined,
       loteNovoCodigo: entradaComLoteNovo ? loteNovoCodigo.trim() : undefined,
@@ -307,6 +340,7 @@ const AjusteEstoque: React.FC = () => {
             motivo: item.motivo,
             observacao: item.observacao,
             controlarLote: item.controlarLote,
+            origem: item.origem,
             loteId: item.loteId,
             loteNovoCodigo: item.loteNovoCodigo,
             loteNovoValidade: item.loteNovoValidade,
@@ -403,7 +437,7 @@ const AjusteEstoque: React.FC = () => {
 
       <div className="card form-section product-card ajuste-estoque__busca">
         <div className="input-group">
-          <label>Buscar produto (código, nome ou código de barras)</label>
+          <label>Buscar produto ou matéria-prima (código, nome ou código de barras)</label>
           <ProductAutocomplete
             value={search}
             onChange={setSearch}
@@ -414,7 +448,7 @@ const AjusteEstoque: React.FC = () => {
             onViewMore={() => setModalOpen(true)}
             renderItem={(produto) => (
               <div className="ajuste-estoque__option">
-                <span className="ajuste-estoque__option-nome">{produto.nome}</span>
+                <span className="ajuste-estoque__option-nome">{produto.nome}{produto.origem === 'materia_prima' ? ' · MATÉRIA-PRIMA' : ''}</span>
                 <span className="ajuste-estoque__option-meta">
                   {produto.codigo ? `Cód. ${produto.codigo} · ` : ''}
                   Estoque: {saldoEfetivoProduto(produto.id, produto.quantidade)}{produto.unidadeMedidaSigla ? ` ${produto.unidadeMedidaSigla}` : ''}
@@ -433,7 +467,7 @@ const AjusteEstoque: React.FC = () => {
         title="Buscar produto para ajuste"
         renderItem={(produto) => (
           <div className="ajuste-estoque__option">
-            <span className="ajuste-estoque__option-nome">{produto.nome}</span>
+            <span className="ajuste-estoque__option-nome">{produto.nome}{produto.origem === 'materia_prima' ? ' · MATÉRIA-PRIMA' : ''}</span>
             <span className="ajuste-estoque__option-meta">
               {produto.codigo ? `Cód. ${produto.codigo} · ` : ''}
               Estoque: {saldoEfetivoProduto(produto.id, produto.quantidade)}{produto.unidadeMedidaSigla ? ` ${produto.unidadeMedidaSigla}` : ''}
@@ -446,7 +480,7 @@ const AjusteEstoque: React.FC = () => {
         <div className="card form-section product-card">
           <div className="ajuste-estoque__produto-selecionado">
             <div>
-              <h3>{selectedProduto.nome}</h3>
+              <h3>{selectedProduto.nome}{selectedProduto.origem === 'materia_prima' ? ' · MATÉRIA-PRIMA' : ''}</h3>
               <p>
                 {selectedProduto.codigo ? `Código ${selectedProduto.codigo} · ` : ''}
                 Estoque atual: <strong>{saldoEfetivoProduto(selectedProduto.id, selectedProduto.quantidade)} {unidade.unidadeMedidaSigla}</strong>

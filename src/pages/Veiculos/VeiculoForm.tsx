@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, Save, Car, User, Settings, Hash, MapPin, Calendar, Activity } from 'lucide-react';
 import { showSuccess, showError } from '../../utils/alerts';
+import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import '../OS/OS.css'; // Reusing OS styles
@@ -30,6 +31,8 @@ const VeiculoForm: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
+  /** Veiculo que ja' estava inativo ao abrir: so' consulta (firestore.rules). */
+  const [inativo, setInativo] = useState(false);
   const [clientesDisponiveis, setClientesDisponiveis] = useState<ClienteBasico[]>([]);
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -69,6 +72,7 @@ const VeiculoForm: React.FC = () => {
               clienteId: data.clienteId || '',
               clienteNome: data.clienteNome || ''
             });
+            setInativo(data.ativo === false);
           } else {
             showError('Erro', 'Veículo não encontrado.');
             navigate('/veiculos');
@@ -98,6 +102,10 @@ const VeiculoForm: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (inativo) {
+      showError('Veículo inativo', 'Este veículo está inativo e não pode ser alterado. Para alterar, reative-o na lista de Veículos.');
+      return;
+    }
     if (!formData.placa || !formData.modelo || !formData.clienteId) {
       showError('Atenção', 'Os campos Placa, Modelo e Cliente são obrigatórios.');
       return;
@@ -166,7 +174,11 @@ const VeiculoForm: React.FC = () => {
         </div>
       </div>
 
+      {inativo && <AvisoCadastroInativo tipo="Veículo" lista="Veículos" />}
+
       <form onSubmit={handleSave} className="form-grid">
+      {/* fieldset com display:contents: trava os campos sem mexer no grid do formulario. */}
+      <fieldset disabled={inativo} style={{ display: 'contents', border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className="form-column">
           <div className="card form-section" style={{ padding: '24px' }}>
             <div className="section-header" style={{ marginBottom: '24px' }}>
@@ -314,7 +326,8 @@ const VeiculoForm: React.FC = () => {
             <button 
               type="submit" 
               className="btn-primary" 
-              disabled={isLoading}
+              disabled={isLoading || inativo}
+              title={inativo ? 'Veículo inativo: reative-o na lista para alterar' : undefined}
               style={{ 
                 padding: '16px 32px', 
                 borderRadius: '8px',
@@ -330,6 +343,7 @@ const VeiculoForm: React.FC = () => {
             </button>
           </div>
         </div>
+      </fieldset>
       </form>
     </div>
   );

@@ -24,6 +24,14 @@ import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/da
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
 import ChequeCaptureModal from '../../components/finance/ChequeCaptureModal';
+import {
+  ROTULO_SITUACAO_TITULO,
+  SITUACAO_TITULO_PADRAO,
+  passaNaSituacaoTitulo,
+  passaNoPeriodoDoTitulo,
+  type SituacaoTitulo,
+} from '../../utils/filtroListaDomain';
+import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import './Financeiro.css';
 
 interface TransacaoData {
@@ -121,6 +129,10 @@ const ContasReceber: React.FC = () => {
   const [chequeBaixaState, setChequeBaixaState] = useState<{ transacao: TransacaoData; bancoId?: string; bancoNome?: string } | null>(null);
   const [clientesExpandidos, setClientesExpandidos] = useState<Set<string>>(new Set());
   const [buscaCliente, setBuscaCliente] = useState('');
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [situacaoTitulo, setSituacaoTitulo] = useState<SituacaoTitulo>(SITUACAO_TITULO_PADRAO);
+  const [periodoDe, setPeriodoDe] = useState('');
+  const [periodoAte, setPeriodoAte] = useState('');
 
   const confirmarRecebimento = async (
     t: TransacaoData,
@@ -638,16 +650,36 @@ const ContasReceber: React.FC = () => {
   const totalPendente = contasPendentes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
   const totalRecebidoHoje = recebimentosHoje.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
 
-  // Agrupa as contas pendentes por cliente. Usa clienteId quando disponivel
+  // O que aparece na lista: situacao (em aberto / vencidas / recebidas / todas)
+  // e periodo. Cartao continua fora daqui (fica na tela Banco), seja qual for
+  // o filtro. Os cartoes do topo (Total a Receber, Recebido Hoje) seguem o
+  // total geral -- nao mudam com o filtro.
+  const titulosFiltrados = transacoes.filter((t) => {
+    if (t.formaPagamento === 'Cartão de Crédito' || t.formaPagamento === 'Cartão de Débito') return false;
+    const titulo = { status: t.status, data: dataReferenciaTransacao(t) || t.data, dataPagamento: t.dataPagamento };
+    return passaNaSituacaoTitulo(titulo, hojeStr, situacaoTitulo)
+      && passaNoPeriodoDoTitulo(titulo, situacaoTitulo, periodoDe, periodoAte);
+  });
+  const filtrosAtivos = (situacaoTitulo !== SITUACAO_TITULO_PADRAO ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
+  const limparFiltros = () => {
+    setSituacaoTitulo(SITUACAO_TITULO_PADRAO);
+    setPeriodoDe('');
+    setPeriodoAte('');
+  };
+  const listandoRecebidas = situacaoTitulo === 'pagas';
+  const rotuloQuantidade = listandoRecebidas ? 'Títulos recebidos' : situacaoTitulo === 'todas' ? 'Títulos' : 'Títulos em aberto';
+  const rotuloValor = listandoRecebidas ? 'Valor recebido (R$)' : situacaoTitulo === 'todas' ? 'Valor (R$)' : 'Valor pendente (R$)';
+
+  // Agrupa os titulos filtrados por cliente. Usa clienteId quando disponivel
   // (vendas/OS finalizadas a partir de 2026-07-29); registros antigos sem
   // clienteId agrupam pelo nome, sem garantia de que seja o mesmo cadastro.
   const gruposPorCliente: GrupoCliente[] = (() => {
     const mapa = new Map<string, GrupoCliente>();
-    contasPendentes.forEach((t) => {
+    titulosFiltrados.forEach((t) => {
       const nome = t.clienteNome?.trim() || 'Cliente não identificado';
       const chave = t.clienteId ? `id:${t.clienteId}` : `nome:${nome.toUpperCase()}`;
       const dataRef = dataReferenciaTransacao(t);
-      const diasAtraso = dataRef ? (differenceInCalendarDays(dataRef, hojeStr) ?? 0) : 0;
+      const diasAtraso = dataRef && t.status === 'Pendente' ? (differenceInCalendarDays(dataRef, hojeStr) ?? 0) : 0;
 
       let grupo = mapa.get(chave);
       if (!grupo) {
@@ -685,8 +717,13 @@ const ContasReceber: React.FC = () => {
   };
 
   const handleCobrarClienteWhatsApp = (grupo: GrupoCliente) => {
-    const valorMsg = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.totalPendente);
-    const qtd = grupo.transacoes.length;
+    // Cobra so' o que ainda esta em aberto -- com o filtro em "Todas" o grupo
+    // tambem traz titulo ja recebido, que nao entra na cobranca.
+    const emAberto = grupo.transacoes.filter((t) => t.status === 'Pendente');
+    const valorMsg = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+      emAberto.reduce((soma, t) => soma + transactionNetAmount(t), 0),
+    );
+    const qtd = emAberto.length;
     const mensagem = `Olá ${grupo.clienteNome}. Gostaríamos de lembrar amigavelmente sobre ${qtd === 1 ? 'uma pendência financeira' : `${qtd} pendências financeiras`} no valor total de ${valorMsg}. O acerto tempestivo é fundamental para mantermos nossa excelência no atendimento. Aguardamos o seu retorno e estamos à disposição para eventuais dúvidas.`;
     window.open(`https://wa.me/?text=${encodeURIComponent(mensagem)}`, '_blank');
   };
@@ -728,16 +765,35 @@ const ContasReceber: React.FC = () => {
         </div>
       </div>
 
-      <div className="search-bar" style={{ position: 'relative', maxWidth: '360px', marginBottom: '16px' }}>
-        <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-        <input
-          type="text"
-          placeholder="Buscar cliente..."
-          value={buscaCliente}
-          onChange={(e) => setBuscaCliente(e.target.value)}
-          style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
-        />
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <div className="search-bar" style={{ position: 'relative', width: '360px', maxWidth: '100%' }}>
+          <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <input
+            type="text"
+            placeholder="Buscar cliente..."
+            value={buscaCliente}
+            onChange={(e) => setBuscaCliente(e.target.value)}
+            style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+          />
+        </div>
+        <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
       </div>
+      <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
+        <CampoFiltro rotulo="Situação">
+          <select value={situacaoTitulo} onChange={(e) => setSituacaoTitulo(e.target.value as SituacaoTitulo)} style={estiloCampoFiltro}>
+            {(Object.keys(ROTULO_SITUACAO_TITULO) as SituacaoTitulo[]).map((chave) => (
+              <option key={chave} value={chave}>{chave === 'pagas' ? 'Recebidas' : ROTULO_SITUACAO_TITULO[chave]}</option>
+            ))}
+          </select>
+        </CampoFiltro>
+        <CampoPeriodo
+          rotulo={listandoRecebidas ? 'Recebido em' : 'Vencimento'}
+          de={periodoDe}
+          ate={periodoAte}
+          onChangeDe={setPeriodoDe}
+          onChangeAte={setPeriodoAte}
+        />
+      </PainelFiltros>
 
       <div className="card" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
         <div className="table-wrapper">
@@ -746,9 +802,9 @@ const ContasReceber: React.FC = () => {
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
                 <th style={{ padding: '16px', width: '32px' }}></th>
                 <th style={{ padding: '16px' }}>Cliente</th>
-                <th style={{ padding: '16px', textAlign: 'center' }}>Títulos em aberto</th>
+                <th style={{ padding: '16px', textAlign: 'center' }}>{rotuloQuantidade}</th>
                 <th style={{ padding: '16px' }}>Vencimento mais antigo</th>
-                <th style={{ padding: '16px', textAlign: 'right' }}>Valor pendente (R$)</th>
+                <th style={{ padding: '16px', textAlign: 'right' }}>{rotuloValor}</th>
                 <th style={{ padding: '16px', textAlign: 'center' }}>Ação</th>
               </tr>
             </thead>
@@ -761,7 +817,7 @@ const ContasReceber: React.FC = () => {
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     <CheckCircle size={48} color="#10b981" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
-                    <div>{buscaCliente.trim() ? 'Nenhum cliente encontrado para essa busca.' : 'Nenhuma conta pendente para conciliação no momento.'}</div>
+                    <div>{buscaCliente.trim() || filtrosAtivos > 0 ? 'Nenhum título encontrado com esses filtros.' : 'Nenhuma conta pendente para conciliação no momento.'}</div>
                   </td>
                 </tr>
               ) : (
@@ -798,6 +854,7 @@ const ContasReceber: React.FC = () => {
                           {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.totalPendente)}
                         </td>
                         <td style={{ padding: '16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+{grupo.transacoes.some((t) => t.status === 'Pendente') && (
                           <button
                             onClick={() => handleCobrarClienteWhatsApp(grupo)}
                             style={{ backgroundColor: '#25D366', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
@@ -805,6 +862,7 @@ const ContasReceber: React.FC = () => {
                           >
                             <MessageCircle size={14} /> Cobrar
                           </button>
+                          )}
                         </td>
                       </tr>
                       {expandido && (
@@ -834,6 +892,11 @@ const ContasReceber: React.FC = () => {
                                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t))}
                                     </td>
                                     <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                                      {t.status === 'Paga' ? (
+                                        <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>
+                                          Recebida{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}
+                                        </span>
+                                      ) : (
                                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
                                         <button
                                           onClick={() => handleCobrarWhatsApp(t)}
@@ -849,6 +912,7 @@ const ContasReceber: React.FC = () => {
                                           <CheckCircle size={14} /> Dar Baixa
                                         </button>
                                       </div>
+                                      )}
                                     </td>
                                   </tr>
                                 ))}

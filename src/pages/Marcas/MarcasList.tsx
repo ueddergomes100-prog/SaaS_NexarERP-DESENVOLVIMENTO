@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Search, Plus, Award, Edit, Power } from 'lucide-react';
-import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
-import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
+import { alterarSituacaoCadastro } from '../../services/cadastroService';
 
 interface MarcaData {
   id: string;
@@ -15,6 +17,8 @@ interface MarcaData {
 }
 
 const MarcasList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
+  const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   const { openTab } = useTabs();
   const [marcas, setMarcas] = useState<MarcaData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,17 +62,14 @@ const MarcasList: React.FC = () => {
     if (!confirm.isConfirmed) return;
 
     try {
-      await updateDoc(doc(db, 'marcas', marca.id), {
-        ativo: novoStatus,
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus ? 'Marca reativada' : 'Marca inativada'),
-      });
+      await alterarSituacaoCadastro('marcas', marca.id, novoStatus);
       showSuccess(novoStatus ? 'Marca ativada!' : 'Marca inativada!');
     } catch (error) {
-      showError('Erro', 'Não foi possível atualizar o status da marca.');
+      showError('Erro', (error as Error).message || 'Não foi possível atualizar o status da marca.');
     }
   };
 
-  const filteredMarcas = marcas.filter((m) => m.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredMarcas = marcas.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter((m) => m.nome.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -97,6 +98,7 @@ const MarcasList: React.FC = () => {
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
+          <FiltroSituacao valor={situacao} onChange={setSituacao} />
           <div className="shortcuts-hint">
             <span><kbd>F2</kbd> Buscar</span>
             <span><kbd>F6</kbd> Nova</span>
@@ -119,7 +121,7 @@ const MarcasList: React.FC = () => {
                 <tr><td colSpan={3} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><Award size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} /><p>Nenhuma marca encontrada.</p></td></tr>
               ) : (
                 filteredMarcas.map((marca) => (
-                  <tr key={marca.id}>
+                  <tr key={marca.id} {...linha(marca.id, () => openTab(`/marcas/editar/${marca.id}`))}>
                     <td className="font-medium">{marca.nome}</td>
                     <td>
                       <span style={{
@@ -130,7 +132,7 @@ const MarcasList: React.FC = () => {
                         {marca.ativo === false ? 'Inativa' : 'Ativa'}
                       </span>
                     </td>
-                    <td>
+                    <td {...semAbrirLinha}>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button className="icon-btn" title="Editar" onClick={() => openTab(`/marcas/editar/${marca.id}`)}>
                           <Edit size={16} />

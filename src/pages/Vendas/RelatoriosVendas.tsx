@@ -23,6 +23,7 @@ import {
 import { contaComoFaturamento } from '../../utils/preVendaDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { fromCents, toCents } from '../../utils/financeDomain';
+import CampoComSugestoes from '../../components/common/CampoComSugestoes';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const number = new Intl.NumberFormat('pt-BR');
@@ -417,7 +418,7 @@ const RelatoriosVendas: React.FC = () => {
           <label className="input-group"><span>Data inicial</span><input style={inputStyle} type="date" value={filters.startDate} onChange={(event) => setFilter('startDate', event.target.value)} /></label>
           <label className="input-group"><span>Data final</span><input style={inputStyle} type="date" value={filters.endDate} onChange={(event) => setFilter('endDate', event.target.value)} /></label>
           <label className="input-group"><span>Vendedor</span><select style={inputStyle} value={filters.sellerId} onChange={(event) => setFilter('sellerId', event.target.value)}><option value="">Todos</option>{Object.values(data.users).sort((a: any, b: any) => String(a.nome || '').localeCompare(String(b.nome || ''))).map((user: any) => <option key={user.id} value={user.id}>{user.nome || user.nomeResponsavel || user.email}</option>)}</select></label>
-          <label className="input-group"><span>Cliente</span><input style={inputStyle} list="sales-customers" value={filters.customer} placeholder="Nome do cliente" onChange={(event) => setFilter('customer', event.target.value)} /><datalist id="sales-customers">{options.customers.map((customer) => <option key={customer} value={customer} />)}</datalist></label>
+          <label className="input-group"><span>Cliente</span><CampoComSugestoes style={inputStyle} opcoes={options.customers} value={filters.customer} placeholder="Nome do cliente" onChange={(event) => setFilter('customer', event.target.value)} /></label>
           <label className="input-group"><span>Forma de pagamento</span><select style={inputStyle} value={filters.paymentMethod} onChange={(event) => setFilter('paymentMethod', event.target.value)}><option value="">Todas</option>{options.paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label>
           <label className="input-group"><span>Condição</span><select style={inputStyle} value={filters.paymentCondition} onChange={(event) => setFilter('paymentCondition', event.target.value)}><option value="">Todas</option><option value="avista">À vista</option><option value="aprazo">A prazo</option></select></label>
           <label className="input-group"><span>Status</span><select style={inputStyle} value={filters.status} onChange={(event) => setFilter('status', event.target.value)}><option value="">Todos</option>{options.statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>

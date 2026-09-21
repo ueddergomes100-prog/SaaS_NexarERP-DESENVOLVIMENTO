@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms } from '../../utils/textSearch';
+import { useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
@@ -39,6 +40,7 @@ const STATUS_COLORS: Record<StatusOrdem, string> = {
 const STATUS_FILTER_ORDER: StatusOrdem[] = ['criada', 'em_producao', 'pausada', 'finalizada', 'cancelada', 'estornada'];
 
 const OrdensProducaoList: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
   const { openTab } = useTabs();
   const [ordens, setOrdens] = useState<OrdemProducaoData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -172,8 +174,7 @@ const OrdensProducaoList: React.FC = () => {
                 filteredOrdens.map((ordem) => (
                   <tr
                     key={ordem.id}
-                    onClick={() => openTab(`/producao/ordens/editar/${ordem.id}`)}
-                    style={{ cursor: 'pointer' }}
+                    {...linha(ordem.id, () => openTab(`/producao/ordens/editar/${ordem.id}`))}
                   >
                     <td className="font-medium">{ordem.numero}</td>
                     <td>{ordem.produtoNome}</td>

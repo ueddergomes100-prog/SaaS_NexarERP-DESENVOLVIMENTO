@@ -21,6 +21,7 @@ import VendedorOrdemServicoDetalhe from './VendedorOrdemServicoDetalhe';
 import VendedorOsImprimir from './VendedorOsImprimir';
 import './vendedorMobile.css';
 import { PERMISSAO_BALANCO } from './vendedorPermissoes';
+import VendedorNovoCliente from './VendedorNovoCliente';
 
 /**
  * Guarda de acesso do aplicativo do vendedor externo, separada da
@@ -37,7 +38,7 @@ import { PERMISSAO_BALANCO } from './vendedorPermissoes';
 // A navbar fica escondida nas telas de montar pedido/orcamento (novo ou
 // rascunho reaberto) -- ja tem botao de acao fixo embaixo, sem espaco (nem
 // sentido) pra navegacao.
-const SEM_NAVBAR_PREFIXOS = ['/vendedor/pedido/novo', '/vendedor/orcamento/novo', '/vendedor/pedido/rascunho/', '/vendedor/orcamento/rascunho/'];
+const SEM_NAVBAR_PREFIXOS = ['/vendedor/cliente/novo', '/vendedor/pedido/novo', '/vendedor/orcamento/novo', '/vendedor/pedido/rascunho/', '/vendedor/orcamento/rascunho/'];
 
 const VendedorShell: React.FC = () => {
   const location = useLocation();
@@ -110,6 +111,7 @@ const VendedorShell: React.FC = () => {
           <Route path="os/:id" element={<VendedorOrdemServicoDetalhe />} />
           <Route path="pedidos" element={<VendedorMeusPedidos />} />
           <Route path="cliente" element={<VendedorConsultarCliente />} />
+          <Route path="cliente/novo" element={<VendedorNovoCliente />} />
           <Route path="preco" element={<VendedorConsultarPreco />} />
           <Route path="perfil" element={<VendedorPerfil />} />
           <Route path="contas-pagar" element={<VendedorContasPagar />} />

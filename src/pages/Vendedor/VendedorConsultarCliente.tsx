@@ -11,6 +11,7 @@ import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import type { SearchableClient } from '../../utils/clientSearch';
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
 import VendedorHeader from './VendedorHeader';
+import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
 
 interface ClienteVendedor extends SearchableClient {
   id: string;
@@ -41,7 +42,7 @@ const toMillis = (value: unknown): number => {
 
 const VendedorConsultarCliente: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId } = useAuth();
+  const { tenantId, userPermissions } = useAuth();
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
 
   const [busca, setBusca] = useState('');
@@ -132,7 +133,18 @@ const VendedorConsultarCliente: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
-      <VendedorHeader titulo="Consultar Cliente" />
+      <VendedorHeader
+        titulo="Consultar Cliente"
+        acao={podeCadastrarClienteNoApp(userPermissions) ? (
+          <button
+            type="button"
+            onClick={() => navigate('/vendedor/cliente/novo')}
+            style={{ height: '38px', padding: '0 14px', borderRadius: '10px', border: 'none', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)' }}
+          >
+            <Plus size={16} /> Novo
+          </button>
+        ) : undefined}
+      />
 
       <div style={{ padding: '16px 20px 0' }}>
         <ClientAutocomplete

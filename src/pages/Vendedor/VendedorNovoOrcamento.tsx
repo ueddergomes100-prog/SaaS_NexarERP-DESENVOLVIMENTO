@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Save } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -9,6 +9,8 @@ import type { SearchableClient } from '../../utils/clientSearch';
 import VendedorHeader from './VendedorHeader';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
+import type { VendedorNovoPedidoNavState } from './vendedorNavState';
+import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
 import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } from './vendedorRascunhosStore';
 
 interface ClienteVendedor extends SearchableClient {
@@ -22,7 +24,9 @@ interface ClienteVendedor extends SearchableClient {
 const VendedorNovoOrcamento: React.FC = () => {
   const navigate = useNavigate();
   const { localId } = useParams();
-  const { tenantId, currentUser } = useAuth();
+  const location = useLocation();
+  const estadoNavegacao = (location.state as VendedorNovoPedidoNavState | null) || null;
+  const { tenantId, currentUser, userPermissions } = useAuth();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
 
@@ -32,7 +36,13 @@ const VendedorNovoOrcamento: React.FC = () => {
 
   const [clienteBusca, setClienteBusca] = useState('');
   const [clienteSelecionado, setClienteSelecionado] = useState<ClienteVendedor | null>(
-    () => (rascunhoAberto ? { ...rascunhoAberto.cliente } : null),
+    () => {
+      if (rascunhoAberto) return { ...rascunhoAberto.cliente };
+      // Volta do cadastro de cliente ja' com o cliente novo escolhido.
+      return estadoNavegacao?.clientePreSelecionado
+        ? { id: estadoNavegacao.clientePreSelecionado.id, nome: estadoNavegacao.clientePreSelecionado.nome }
+        : null;
+    },
   );
   const [itens, setItens] = useState<ItemVendaExterna[]>(() => rascunhoAberto?.itens || []);
 
@@ -107,6 +117,15 @@ const VendedorNovoOrcamento: React.FC = () => {
             placeholder="Buscar cliente por nome"
             ariaLabel="Buscar cliente"
           />
+        )}
+        {!clienteSelecionado && podeCadastrarClienteNoApp(userPermissions) && (
+          <button
+            type="button"
+            onClick={() => navigate('/vendedor/cliente/novo', { state: { retornarPara: 'orcamento' } })}
+            style={{ marginTop: '10px', fontSize: '13px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0 }}
+          >
+            + Cadastrar novo cliente
+          </button>
         )}
       </div>
 

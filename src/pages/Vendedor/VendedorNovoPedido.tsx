@@ -10,6 +10,7 @@ import VendedorHeader from './VendedorHeader';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
+import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
 import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } from './vendedorRascunhosStore';
 
 interface ClienteVendedor extends SearchableClient {
@@ -28,7 +29,7 @@ const VendedorNovoPedido: React.FC = () => {
   const location = useLocation();
   const { localId } = useParams();
   const estadoNavegacao = (location.state as VendedorNovoPedidoNavState | null) || null;
-  const { tenantId, currentUser, trabalhaComPreVenda, permiteVendaSemEstoque } = useAuth();
+  const { tenantId, currentUser, trabalhaComPreVenda, permiteVendaSemEstoque, userPermissions } = useAuth();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
 
@@ -130,6 +131,15 @@ const VendedorNovoPedido: React.FC = () => {
             placeholder="Buscar cliente por nome"
             ariaLabel="Buscar cliente"
           />
+        )}
+        {!clienteSelecionado && podeCadastrarClienteNoApp(userPermissions) && (
+          <button
+            type="button"
+            onClick={() => navigate('/vendedor/cliente/novo', { state: { retornarPara: 'pedido' } })}
+            style={{ marginTop: '10px', fontSize: '13px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0 }}
+          >
+            + Cadastrar novo cliente
+          </button>
         )}
       </div>
 

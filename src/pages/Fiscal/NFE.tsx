@@ -24,6 +24,11 @@ import Swal from 'sweetalert2';
 import { motivoPedidoNaoEmiteNota, notaDeveAparecer } from '../../utils/notaFiscalVisibilidadeDomain';
 import { escolherIntegrationIdDoReenvio } from '../../utils/reenvioNotaDomain';
 import { resolverInscricaoEstadualDestinatario } from '../../utils/destinatarioFiscalDomain';
+import EmissaoProgressoModal from '../../components/common/EmissaoProgressoModal';
+import {
+  INTERVALO_CONSULTA_MS, desfechoDoStatus, deveContinuarConsultando,
+  type DesfechoEmissao, type EtapaEmissao,
+} from '../../utils/emissaoProgressoDomain';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -48,6 +53,23 @@ interface LocalInvoice {
   clienteId?: string | null;
   /** Tentativa de emissao em uso na Spedy (1 = original). Ver reenvioNotaDomain.ts. */
   tentativaEmissao?: number | null;
+}
+
+/** Estado do pop-up de acompanhamento da emissao (ver emissaoProgressoDomain.ts). */
+interface ProgressoEmissao {
+  tipo: LocalInvoice['tipo'];
+  clienteNome: string;
+  etapa: EtapaEmissao;
+  /** null enquanto a emissao ainda esta rodando. */
+  desfecho: DesfechoEmissao | null;
+  numero?: number | null;
+  codigo?: string | null;
+  mensagem?: string | null;
+  erroEnvio?: string | null;
+  /** Id da nota na Spedy -- pra abrir a DANFE quando autorizada. */
+  spedyId?: string;
+  /** Quando comecou a esperar a SEFAZ (ms) -- base do contador de segundos. */
+  transmitindoDesdeMs?: number;
 }
 
 interface ClienteOption {
@@ -235,6 +257,14 @@ const NFE: React.FC = () => {
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** Pop-up de acompanhamento da emissao. null = fechado. */
+  const [progresso, setProgresso] = useState<ProgressoEmissao | null>(null);
+  const [segundosEsperando, setSegundosEsperando] = useState(0);
+  const [abrindoDanfeProgresso, setAbrindoDanfeProgresso] = useState(false);
+  /** Nota que o pop-up esta acompanhando: o sync de 15s da lista pula ela, pra nao abrir um segundo aviso por cima. */
+  const notaEmAcompanhamentoRef = useRef<string | null>(null);
+  /** Numero da espera em curso; fechar o pop-up ou iniciar outra emissao invalida a anterior. */
+  const acompanhamentoIdRef = useRef(0);
 
   // Fecha dropdown do cliente ao clicar fora
   useEffect(() => {
@@ -803,6 +833,8 @@ const NFE: React.FC = () => {
     setSyncing(true);
 
     for (const note of pendingNotes) {
+      // O pop-up de emissao ja' esta acompanhando esta nota (e mostra o resultado).
+      if (note.id === notaEmAcompanhamentoRef.current) continue;
       try {
         let spedyNote: SpedyInvoice;
         if (note.tipo === 'NFS-e') {
@@ -979,6 +1011,16 @@ const NFE: React.FC = () => {
     }, 15000);
     return () => clearInterval(interval);
   }, [invoices, config, syncPendingInvoices]);
+
+  // Contador de segundos do pop-up enquanto espera a SEFAZ responder.
+  useEffect(() => {
+    if (!progresso || progresso.etapa !== 'transmitindo' || progresso.desfecho !== null || !progresso.transmitindoDesdeMs) return undefined;
+    const desde = progresso.transmitindoDesdeMs;
+    const atualizar = () => setSegundosEsperando(Math.max(0, Math.round((Date.now() - desde) / 1000)));
+    atualizar();
+    const timer = setInterval(atualizar, 1000);
+    return () => clearInterval(timer);
+  }, [progresso]);
 
   const handleManualSyncAll = async () => {
     if (!config?.spedyApiKey) return;
@@ -1181,6 +1223,94 @@ const NFE: React.FC = () => {
   };
 
   // Emissão de nova nota
+  const consultarNotaNaSpedy = (tipo: LocalInvoice['tipo'], spedyId: string): Promise<SpedyInvoice> => {
+    if (!config?.spedyApiKey) return Promise.reject(new Error('A integração fiscal não está configurada.'));
+    if (tipo === 'NFS-e') return spedyService.getServiceInvoice(config.spedyApiKey, config.spedyEnvironment, spedyId);
+    if (tipo === 'NFC-e') return spedyService.getConsumerInvoice(config.spedyApiKey, config.spedyEnvironment, spedyId);
+    return spedyService.getProductInvoice(config.spedyApiKey, config.spedyEnvironment, spedyId);
+  };
+
+  const fecharProgresso = () => {
+    // Fechar no meio da espera NAO cancela a nota: ela segue na Spedy e a lista
+    // atualiza sozinha (sync de 15s). So' paramos de perguntar daqui.
+    acompanhamentoIdRef.current += 1;
+    notaEmAcompanhamentoRef.current = null;
+    setProgresso(null);
+  };
+
+  const abrirDanfeDoProgresso = async () => {
+    if (!progresso?.spedyId) return;
+    setAbrindoDanfeProgresso(true);
+    try {
+      const tipoArquivo = progresso.tipo === 'NFS-e' ? 'service' : progresso.tipo === 'NFC-e' ? 'consumer' : 'product';
+      await spedyService.openFiscalFile(progresso.spedyId, tipoArquivo, 'pdf');
+    } catch (err) {
+      showError('Erro ao abrir PDF', (err as Error).message);
+    } finally {
+      setAbrindoDanfeProgresso(false);
+    }
+  };
+
+  /**
+   * Pergunta a Spedy a cada INTERVALO_CONSULTA_MS ate a nota ter resposta final
+   * (autorizada/rejeitada) ou passar o limite de espera. Grava no Firestore o que
+   * a Spedy devolver, igual ao sync da lista, e mostra o resultado no pop-up.
+   */
+  const acompanharNotaEmitida = async (params: { docId: string; spedyId: string; tipo: LocalInvoice['tipo']; statusInicial: string }) => {
+    acompanhamentoIdRef.current += 1;
+    const minhaVez = acompanhamentoIdRef.current;
+    const iniciouEmMs = Date.now();
+    notaEmAcompanhamentoRef.current = params.docId;
+    let statusAtual = params.statusInicial;
+    let numeroAtual: number | null | undefined;
+    try {
+      while (acompanhamentoIdRef.current === minhaVez) {
+        await new Promise((resolve) => setTimeout(resolve, INTERVALO_CONSULTA_MS));
+        if (acompanhamentoIdRef.current !== minhaVez) return; // usuario fechou o pop-up
+
+        let nota: SpedyInvoice | null = null;
+        try {
+          nota = await consultarNotaNaSpedy(params.tipo, params.spedyId);
+        } catch (erro) {
+          // Instabilidade momentanea nao encerra a espera: tenta de novo no proximo ciclo.
+          console.warn('Falha ao consultar a nota na Spedy (tentando de novo):', erro);
+        }
+
+        if (nota && (nota.status !== statusAtual || nota.number !== numeroAtual)) {
+          statusAtual = nota.status;
+          numeroAtual = nota.number;
+          await updateDoc(doc(db, 'notas_fiscais', params.docId), {
+            status: nota.status,
+            number: nota.number,
+            accessKey: nota.accessKey || null,
+            processingMessage: nota.processingDetail?.message || null,
+            processingCode: nota.processingDetail?.code || null,
+          }).catch((erro) => console.warn('Nao foi possivel gravar o status da nota:', erro));
+        }
+
+        const desfecho = nota ? desfechoDoStatus(nota.status) : null;
+        if (nota && desfecho) {
+          setProgresso((atual) => (atual ? {
+            ...atual,
+            desfecho,
+            numero: nota.number,
+            codigo: nota.processingDetail?.code ?? null,
+            mensagem: nota.processingDetail?.message ?? null,
+          } : atual));
+          return;
+        }
+
+        if (!deveContinuarConsultando({ iniciouEmMs, agoraMs: Date.now(), status: statusAtual })) {
+          setProgresso((atual) => (atual ? { ...atual, desfecho: 'demorando' } : atual));
+          return;
+        }
+      }
+    } finally {
+      // Terminou (ou foi fechado): a lista volta a sincronizar essa nota sozinha.
+      if (acompanhamentoIdRef.current === minhaVez) notaEmAcompanhamentoRef.current = null;
+    }
+  };
+
   const handleEmitir = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!config?.spedyApiKey || !tenantId || !currentUser) return;
@@ -1233,6 +1363,14 @@ const NFE: React.FC = () => {
     }
 
     setIsSubmitting(true);
+    let etapaAtual = 'validando' as EtapaEmissao; // mudada dentro de irParaEnvio (o TS nao acompanha isso)
+    let enviouParaSpedy = false;
+    const tipoNota = formData.tipo as LocalInvoice['tipo'];
+    setProgresso({ tipo: tipoNota, clienteNome: formData.clienteNome, etapa: 'validando', desfecho: null });
+    const irParaEnvio = () => {
+      etapaAtual = 'enviando';
+      setProgresso((atual) => (atual ? { ...atual, etapa: 'enviando' } : atual));
+    };
 
     try {
       // Antes de qualquer coisa: a empresa tem o que precisa pra emitir?
@@ -1245,6 +1383,7 @@ const NFE: React.FC = () => {
           const grupo = formData.tipo === 'NF-e' ? requisitos.nfe : requisitos.nfce;
           const bloqueios = grupo.checks.filter((c) => c.gravidade === 'bloqueio');
           if (bloqueios.length > 0) {
+            setProgresso(null);
             showError(
               `Faltam itens para emitir a ${formData.tipo}`,
               bloqueios.map((c) => `• ${c.mensagem} ${c.comoResolver}`.trim()).join('\n'),
@@ -1297,6 +1436,7 @@ const NFE: React.FC = () => {
           clienteNome: formData.clienteNome,
         });
         if (ie.erro) {
+          setProgresso(null);
           showError('Inscrição Estadual do destinatário', ie.erro);
           return;
         }
@@ -1346,6 +1486,7 @@ const NFE: React.FC = () => {
 
         const payload = buildServiceInvoicePayload(servicosParaFatura, clienteParaFatura, effectiveNfseConfig, integrationId);
 
+        irParaEnvio();
         spedyNote = await spedyService.emitServiceInvoice(config.spedyApiKey, config.spedyEnvironment, payload as unknown as Record<string, unknown>);
 
       } else {
@@ -1475,11 +1616,15 @@ const NFE: React.FC = () => {
           } : {})
         };
 
+        irParaEnvio();
         spedyNote = await spedyService.emitProductInvoice(config.spedyApiKey, config.spedyEnvironment, payload);
         itensFiscaisParaSalvar = itemsPayload;
       }
+      enviouParaSpedy = true; // dai' pra frente a nota EXISTE na Spedy, mesmo que algo falhe aqui
+      let notaDocId: string;
 
       if (targetInvoiceId) {
+        notaDocId = targetInvoiceId;
         // Atualiza a nota fiscal existente em vez de criar uma nova
         await updateDoc(doc(db, 'notas_fiscais', targetInvoiceId), {
           spedyId: spedyNote.id,
@@ -1504,7 +1649,7 @@ const NFE: React.FC = () => {
         });
       } else {
         // Salva nova referência local no Firestore
-        await addDoc(collection(db, 'notas_fiscais'), {
+        const novaNotaRef = await addDoc(collection(db, 'notas_fiscais'), {
           spedyId: spedyNote.id,
           number: spedyNote.number,
           accessKey: spedyNote.accessKey || null,
@@ -1523,10 +1668,30 @@ const NFE: React.FC = () => {
           createdAt: serverTimestamp(),
           data: new Date().toISOString()
         });
+        notaDocId = novaNotaRef.id;
       }
 
       handleCloseModal();
-      showSuccess('Nota enviada para processamento com sucesso!');
+
+      // Pop-up: a nota ja' saiu -- agora mostra o resultado (se a Spedy ja' respondeu)
+      // ou passa a esperar a SEFAZ, perguntando de tempos em tempos.
+      const desfechoImediato = desfechoDoStatus(spedyNote.status);
+      const baseProgresso: ProgressoEmissao = {
+        tipo: tipoNota,
+        clienteNome: formData.clienteNome,
+        etapa: 'transmitindo',
+        desfecho: desfechoImediato,
+        numero: spedyNote.number,
+        codigo: spedyNote.processingDetail?.code ?? null,
+        mensagem: spedyNote.processingDetail?.message ?? null,
+        spedyId: spedyNote.id,
+        transmitindoDesdeMs: Date.now(),
+      };
+      setSegundosEsperando(0);
+      setProgresso(baseProgresso);
+      if (!desfechoImediato) {
+        void acompanharNotaEmitida({ docId: notaDocId, spedyId: spedyNote.id, tipo: tipoNota, statusInicial: spedyNote.status });
+      }
 
       // Reseta form basico
       setFormData(prev => ({
@@ -1547,7 +1712,20 @@ const NFE: React.FC = () => {
       loadLocalInvoices(false);
     } catch (err) {
       console.error(err);
-      showError('Erro ao emitir', (err as Error).message || 'Houve um problema ao enviar a nota.');
+      if (enviouParaSpedy) {
+        // A nota JA existe na Spedy; o que falhou foi guardar na lista. Nao pode
+        // aparecer como "nota nao emitida" -- o usuario emitiria de novo e duplicaria.
+        setProgresso(null);
+        showError(
+          'A nota foi enviada, mas não foi salva na lista',
+          'A Spedy recebeu a nota, mas o sistema não conseguiu guardá-la na lista de notas. Não emita de novo: avise o suporte informando o cliente e o valor, para conferirmos a nota no painel da Spedy.',
+        );
+      } else if (etapaAtual === 'enviando') {
+        setProgresso((atual) => (atual ? { ...atual, desfecho: 'falha_envio', erroEnvio: (err as Error).message } : atual));
+      } else {
+        setProgresso(null);
+        showError('Erro ao emitir', (err as Error).message || 'Houve um problema ao enviar a nota.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -1984,6 +2162,22 @@ const NFE: React.FC = () => {
           </div>
         )}
       </div>
+
+      <EmissaoProgressoModal
+        aberto={progresso !== null}
+        tipo={progresso?.tipo ?? 'NF-e'}
+        clienteNome={progresso?.clienteNome ?? ''}
+        etapa={progresso?.etapa ?? 'validando'}
+        desfecho={progresso?.desfecho ?? null}
+        numero={progresso?.numero}
+        codigo={progresso?.codigo}
+        mensagem={progresso?.mensagem}
+        erroEnvio={progresso?.erroEnvio}
+        segundosEsperando={segundosEsperando}
+        abrindoDanfe={abrindoDanfeProgresso}
+        onAbrirDanfe={abrirDanfeDoProgresso}
+        onFechar={fecharProgresso}
+      />
 
       {/* Modal de Emissão Real de Nota */}
       {isModalOpen && (

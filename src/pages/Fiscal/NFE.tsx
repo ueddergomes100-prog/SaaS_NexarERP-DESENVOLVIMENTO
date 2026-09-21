@@ -956,6 +956,54 @@ const NFE: React.FC = () => {
     }
   };
 
+  /**
+   * Consulta a nota NA SPEDY e mostra o que ela tem de verdade: ambiente,
+   * serie, numero, status e o motivo -- pra separar "rejeicao nova" de
+   * "nota antiga da Spedy que continua igual". Nasceu do caso em que a nota
+   * foi reenviada depois de corrigir a configuracao e voltou com o mesmo
+   * erro. Atualiza o status local com o que a Spedy devolveu.
+   */
+  const handleConsultarNaSpedy = async (note: LocalInvoice) => {
+    if (!config?.spedyApiKey) return;
+    NexusSwal.fire({ title: 'Consultando a Spedy...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    try {
+      const spedyNote: SpedyInvoice = note.tipo === 'NFS-e'
+        ? await spedyService.getServiceInvoice(config.spedyApiKey, config.spedyEnvironment, note.spedyId)
+        : note.tipo === 'NFC-e'
+          ? await spedyService.getConsumerInvoice(config.spedyApiKey, config.spedyEnvironment, note.spedyId)
+          : await spedyService.getProductInvoice(config.spedyApiKey, config.spedyEnvironment, note.spedyId);
+
+      await updateDoc(doc(db, 'notas_fiscais', note.id), {
+        status: spedyNote.status,
+        number: spedyNote.number,
+        accessKey: spedyNote.accessKey || null,
+        processingMessage: spedyNote.processingDetail?.message || null,
+        processingCode: spedyNote.processingDetail?.code || null,
+      });
+
+      const ambiente = spedyNote.environmentType === 'production'
+        ? 'Produção'
+        : spedyNote.environmentType === 'development' ? 'Homologação' : String(spedyNote.environmentType ?? 'não definido');
+      const linhas = [
+        `Status na Spedy: ${spedyNote.status}`,
+        `Ambiente da nota: ${ambiente}`,
+        `Série: ${spedyNote.series ?? '—'} · Número: ${spedyNote.number ?? '—'}`,
+        `Emitida em: ${spedyNote.issuedOn || '—'}`,
+        `Código: ${spedyNote.processingDetail?.code || 'N/A'}`,
+        `Mensagem: ${spedyNote.processingDetail?.message || '—'}`,
+      ];
+      await NexusSwal.fire({
+        title: `Nota ${note.tipo} na Spedy`,
+        html: `<div style="text-align:left;font-size:14px">${linhas.map((l) => l.replace(/[<>&]/g, '')).join('<br/>')}</div>`,
+        icon: spedyNote.status === 'authorized' ? 'success' : 'info',
+      });
+      loadLocalInvoices(false);
+    } catch (err) {
+      Swal.close();
+      showError('Não foi possível consultar a Spedy', (err as Error).message || 'Tente novamente em instantes.');
+    }
+  };
+
   const abrirDanfe = async (note: LocalInvoice) => {
     setCarregandoPdfId(note.id);
     try {
@@ -1706,6 +1754,18 @@ const NFE: React.FC = () => {
                             style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: '#8b5cf6', cursor: 'pointer' }}
                           >
                             <RefreshCw size={16} style={{ transform: 'rotate(90deg)' }} />
+                          </button>
+                        )}
+
+                        {/* Ver a nota como a Spedy a enxerga (ambiente, serie, motivo) */}
+                        {(note.status === 'rejected' || note.status === 'denied') && (
+                          <button
+                            className="icon-btn"
+                            title="Consultar na Spedy (ambiente, série e motivo)"
+                            onClick={() => handleConsultarNaSpedy(note)}
+                            style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          >
+                            <Search size={16} />
                           </button>
                         )}
 

@@ -22,6 +22,7 @@ import {
 } from '../../utils/fiscalDomain';
 import Swal from 'sweetalert2';
 import { motivoPedidoNaoEmiteNota, notaDeveAparecer } from '../../utils/notaFiscalVisibilidadeDomain';
+import { escolherIntegrationIdDoReenvio } from '../../utils/reenvioNotaDomain';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -44,6 +45,8 @@ interface LocalInvoice {
   pedidoId?: string | null;
   osId?: string | null;
   clienteId?: string | null;
+  /** Tentativa de emissao em uso na Spedy (1 = original). Ver reenvioNotaDomain.ts. */
+  tentativaEmissao?: number | null;
 }
 
 interface ClienteOption {
@@ -814,7 +817,8 @@ const NFE: React.FC = () => {
           processingCode: data.processingCode || null,
           accessKey: data.accessKey || null,
           pedidoId: data.pedidoId || null,
-          clienteId: data.clienteId || null
+          clienteId: data.clienteId || null,
+          tentativaEmissao: data.tentativaEmissao || null
         });
       });
 
@@ -875,7 +879,8 @@ const NFE: React.FC = () => {
           processingCode: data.processingCode || null,
           accessKey: data.accessKey || null,
           pedidoId: data.pedidoId || null,
-          clienteId: data.clienteId || null
+          clienteId: data.clienteId || null,
+          tentativaEmissao: data.tentativaEmissao || null
         });
       });
       list.sort((a, b) => b.id.localeCompare(a.id));
@@ -1191,7 +1196,18 @@ const NFE: React.FC = () => {
       if (!targetInvoiceId && !pendingIntegrationIdRef.current) {
         pendingIntegrationIdRef.current = crypto.randomUUID();
       }
-      const integrationId = targetInvoiceId || pendingIntegrationIdRef.current!;
+      // Reenvio de nota rejeitada: mesmo id (a Spedy atualiza a nota e reaproveita
+      // o numero) -- exceto quando a rejeicao veio da CONFIGURACAO presa na
+      // nota ("Ambiente:0"): ai' vai uma nota nova. Ver reenvioNotaDomain.ts.
+      const notaLocalAlvo = targetInvoiceId ? allInvoices.find((n) => n.id === targetInvoiceId) : null;
+      const escolhaReenvio = targetInvoiceId
+        ? escolherIntegrationIdDoReenvio({
+            docId: targetInvoiceId,
+            tentativaAtual: notaLocalAlvo?.tentativaEmissao,
+            mensagemRejeicao: notaLocalAlvo?.processingMessage,
+          })
+        : null;
+      const integrationId = escolhaReenvio ? escolhaReenvio.integrationId : pendingIntegrationIdRef.current!;
 
       const cleanDoc = formData.documento.replace(/\D/g, '');
       const cleanCep = formData.cep.replace(/\D/g, '');
@@ -1387,6 +1403,9 @@ const NFE: React.FC = () => {
           status: spedyNote.status,
           processingMessage: spedyNote.processingDetail?.message || null,
           processingCode: spedyNote.processingDetail?.code || null,
+          // So' grava a tentativa DEPOIS que a Spedy respondeu: se o envio cair
+          // no meio, o proximo clique recalcula o mesmo id (sem nota duplicada).
+          tentativaEmissao: escolhaReenvio ? escolhaReenvio.tentativa : 1,
           updatedAt: serverTimestamp(),
           data: new Date().toISOString(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Retransmitida na Spedy'),

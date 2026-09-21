@@ -137,6 +137,7 @@ import Swal from 'sweetalert2';
 import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaModal';
+import { motivoPedidoNaoEmiteNota } from '../../utils/notaFiscalVisibilidadeDomain';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
@@ -2953,6 +2954,15 @@ const PedidoVendaForm: React.FC = () => {
 
   const handleEmitirCupomVendaExistente = async () => {
     if (!currentUser || !tenantId || !id) return;
+
+    // Nota so' sai de PEDIDO finalizado -- pre-venda espera virar pedido. O
+    // botao ja' so' aparece na venda finalizada; esta trava cobre qualquer
+    // outro caminho que chegue aqui.
+    const motivoSemNota = motivoPedidoNaoEmiteNota(status);
+    if (motivoSemNota) {
+      showError('Nota fiscal não pode ser emitida', motivoSemNota);
+      return;
+    }
 
     setIsLoading(true);
 

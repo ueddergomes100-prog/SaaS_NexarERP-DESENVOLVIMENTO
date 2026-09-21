@@ -21,6 +21,7 @@ import {
   type RegimeTributario, type NfseConfig, type OsServicoParaFatura, type ClienteParaFatura,
 } from '../../utils/fiscalDomain';
 import Swal from 'sweetalert2';
+import { motivoPedidoNaoEmiteNota, notaDeveAparecer } from '../../utils/notaFiscalVisibilidadeDomain';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -165,11 +166,16 @@ const NFE: React.FC = () => {
   // um pedido que sumiu da lista tambem some daqui. Nota sem pedidoId
   // (NFS-e de OS ou avulsa) nao e' venda de vendedor nenhum e continua
   // visivel. Ver src/utils/visibilidadeVendasDomain.ts.
+  // Pedidos cancelados: as notas que nao chegaram a valer, ligadas a eles,
+  // saem da lista. Ver src/utils/notaFiscalVisibilidadeDomain.ts.
+  const [pedidosCanceladosIds, setPedidosCanceladosIds] = useState<Set<string>>(new Set());
+  const [mostrarCanceladas, setMostrarCanceladas] = useState(false);
   const invoices = useMemo(() => {
-    if (!vendasVisiveisDeUsuarioId) return allInvoices;
     const pedidosVisiveis = new Set(pedidosVenda.map((pedido) => pedido.id));
-    return allInvoices.filter((note) => !note.pedidoId || pedidosVisiveis.has(note.pedidoId));
-  }, [allInvoices, pedidosVenda, vendasVisiveisDeUsuarioId]);
+    return allInvoices
+      .filter((note) => !vendasVisiveisDeUsuarioId || !note.pedidoId || pedidosVisiveis.has(note.pedidoId))
+      .filter((note) => notaDeveAparecer(note, pedidosCanceladosIds, mostrarCanceladas));
+  }, [allInvoices, pedidosVenda, vendasVisiveisDeUsuarioId, pedidosCanceladosIds, mostrarCanceladas]);
   const [importedPedidoItens, setImportedPedidoItens] = useState<PedidoVendaItem[]>([]);
   const [importedPedidoId, setImportedPedidoId] = useState<string>('');
 
@@ -322,6 +328,20 @@ const NFE: React.FC = () => {
           return numB - numA;
         });
         setPedidosVenda(pedidosList);
+
+        // Pedidos/pre-vendas cancelados: so' os ids, pra esconder as notas
+        // que ficaram penduradas neles. Falha aqui nao derruba a tela -- as
+        // notas apenas continuam aparecendo.
+        try {
+          const cancelados = await getDocs(query(
+            pedidosRef,
+            where('tenantId', '==', tenantId),
+            where('status', '==', 'Cancelada'),
+          ));
+          setPedidosCanceladosIds(new Set(cancelados.docs.map((d) => d.id)));
+        } catch (erroCancelados) {
+          console.error('Erro ao buscar pedidos cancelados (notas ligadas a eles continuam visiveis):', erroCancelados);
+        }
 
         // 4. Busca lista de Ordens de Servico finalizadas, pra importar
         // como NFS-e -- so os campos usados, nunca `pecas`.
@@ -608,12 +628,24 @@ const NFE: React.FC = () => {
     setSearchParams({}, { replace: true });
 
     if (!pedidosVenda.some((pedido) => pedido.id === pedidoDaUrl)) {
-      showError(
-        'Pedido não encontrado',
-        'Este pedido não está disponível para importar nesta tela. Ele precisa estar finalizado — e, se sua empresa limita cada vendedor às próprias vendas, precisa ser um pedido seu. Escolha o pedido na lista "Importar do Pedido de Venda".',
-      );
-      setIsModalOpen(true);
-      setActiveModalTab('cliente');
+      // Diz POR QUE nao entra: pre-venda ainda nao e' pedido, e o aviso
+      // generico mandava a pessoa procurar na lista um pedido que nunca
+      // estaria la.
+      void (async () => {
+        let mensagem = 'Este pedido não está disponível para importar nesta tela. Ele precisa estar finalizado — e, se sua empresa limita cada vendedor às próprias vendas, precisa ser um pedido seu. Escolha o pedido na lista "Importar do Pedido de Venda".';
+        try {
+          const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', pedidoDaUrl));
+          if (pedidoSnap.exists() && pedidoSnap.data().tenantId === tenantId) {
+            const motivo = motivoPedidoNaoEmiteNota(pedidoSnap.data().status);
+            if (motivo) mensagem = motivo;
+          }
+        } catch (erroPedido) {
+          console.error('Erro ao conferir o status do pedido para emitir nota:', erroPedido);
+        }
+        showError('Nota fiscal não pode ser emitida', mensagem);
+        setIsModalOpen(true);
+        setActiveModalTab('cliente');
+      })();
       return;
     }
 
@@ -1560,6 +1592,16 @@ const NFE: React.FC = () => {
               </button>
             ))}
           </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-muted)', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={mostrarCanceladas}
+              onChange={(e) => setMostrarCanceladas(e.target.checked)}
+              style={{ accentColor: 'var(--accent-purple)' }}
+            />
+            Mostrar canceladas
+          </label>
 
           {/* Busca */}
           <div className="search-box" style={{ position: 'relative', width: '300px' }}>

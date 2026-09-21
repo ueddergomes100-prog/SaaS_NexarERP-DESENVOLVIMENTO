@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { db } = require('../config/firebase');
-const { avaliarRequisitos, validarAmbienteEnviado } = require('../services/requisitosFiscais');
+const { avaliarRequisitos, validarAmbienteEnviado, mesclarConfiguracaoAtual } = require('../services/requisitosFiscais');
 
 const BASE_URLS = {
   sandbox: 'https://sandbox-api.spedy.com.br/v1',
@@ -378,10 +378,31 @@ router.put('/numbering', async (req, res) => {
       }
     }
 
+    // A Spedy trata cada bloco do PUT como SUBSTITUICAO: mandar so' o ambiente
+    // apagaria serie e proximo numero. Le a configuracao atual e sobrepoe so'
+    // o que a tela mandou. Se nao conseguir ler, NAO salva -- melhor recusar do
+    // que zerar a numeracao fiscal da empresa.
+    let atual = null;
+    try {
+      const leitura = await fetch(`${baseUrl}/companies/${companyId}/settings`, {
+        method: 'GET',
+        headers: { 'X-Api-Key': masterApiKey }
+      });
+      if (leitura.ok) atual = await leitura.json();
+    } catch (erroLeitura) {
+      console.error('[Spedy Numbering] falha ao ler a configuracao atual:', erroLeitura.message);
+    }
+    if (!atual) {
+      return res.status(502).json({
+        error: 'Não foi possível ler a configuração atual da Spedy antes de salvar. Nada foi alterado, para não perder a numeração. Tente de novo em instantes.'
+      });
+    }
+    const payloadFinal = mesclarConfiguracaoAtual(atual, payload);
+
     const response = await fetch(`${baseUrl}/companies/${companyId}/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': masterApiKey },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payloadFinal)
     });
 
     if (!response.ok) {
@@ -392,7 +413,7 @@ router.put('/numbering', async (req, res) => {
     }
 
     await db.collection('configuracoes').doc(tenantId).set({
-      spedyNumeracao: payload,
+      spedyNumeracao: payloadFinal,
       atualizadoEm: new Date().toISOString()
     }, { merge: true });
 

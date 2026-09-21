@@ -4,6 +4,7 @@ const {
   avaliarRequisitos,
   mensagemBloqueio,
   validarAmbienteEnviado,
+  mesclarConfiguracaoAtual,
 } = require('../services/requisitosFiscais');
 
 const AGORA = new Date('2026-09-21T15:00:00Z');
@@ -135,4 +136,26 @@ test('Spedy ATRAS da ultima nota autorizada avisa', () => {
   const r = avaliar({ ultimoNumeroAutorizado: { nfe: 10 } });
   assert.equal(achar(r.nfe, 'nfe_numeracao').gravidade, 'aviso');
   assert.equal(r.sugestaoProximoNumero.nfe, 11);
+});
+
+test('salvar so o ambiente NAO apaga serie e numero: o bloco parte da configuracao atual', () => {
+  const atual = { productInvoice: { series: '5', nextNumber: 5, environmentType: 'development', danfePrintLayout: 'default' } };
+  const r = mesclarConfiguracaoAtual(atual, { productInvoice: { environmentType: 'production' } });
+  assert.deepEqual(r.productInvoice, { series: '5', nextNumber: 5, environmentType: 'production', danfePrintLayout: 'default' });
+});
+
+test('o que a tela mandou sobrepoe o atual; bloco nao enviado nao entra; NFS-e nunca e reenviada', () => {
+  const atual = {
+    productInvoice: { series: '5', nextNumber: 5 },
+    consumerInvoice: { series: '1', nextNumber: 9, environmentType: 'production' },
+    serviceInvoice: { userName: 'x', password: '***' },
+  };
+  const r = mesclarConfiguracaoAtual(atual, { productInvoice: { nextNumber: 42 } });
+  assert.deepEqual(r, { productInvoice: { series: '5', nextNumber: 42 } });
+  const s = mesclarConfiguracaoAtual(atual, { serviceInvoice: { series: '2', nextNumber: 3 } });
+  assert.deepEqual(s, { serviceInvoice: { series: '2', nextNumber: 3 } });
+});
+
+test('sem configuracao atual, manda o que veio', () => {
+  assert.deepEqual(mesclarConfiguracaoAtual(null, { productInvoice: { environmentType: 'production' } }), { productInvoice: { environmentType: 'production' } });
 });

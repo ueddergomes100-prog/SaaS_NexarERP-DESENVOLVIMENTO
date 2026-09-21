@@ -244,6 +244,27 @@ const mensagemBloqueio = (avaliacao) => {
   return bloqueios.map((c) => `• ${c.mensagem} ${c.comoResolver}`.trim()).join('\n');
 };
 
+/**
+ * O PUT /companies/{id}/settings da Spedy trata cada bloco como SUBSTITUICAO:
+ * mandar so' {environmentType} apagou serie e proximo numero da NF-e (achado
+ * ao vivo em 2026-09-21, na producao da Sol Natus -- o numero voltou a zero).
+ * Por isso todo save parte da configuracao ATUAL do bloco e sobrepoe so' o
+ * que a tela mandou. Blocos que a tela nao mexeu nem entram no PUT.
+ * NFS-e fica de fora: tem usuario e senha da prefeitura, que nao devem
+ * ser reenviados de volta.
+ */
+const BLOCOS_MESCLAVEIS = ['productInvoice', 'consumerInvoice'];
+
+const mesclarConfiguracaoAtual = (atual, enviado) => {
+  const resultado = { ...enviado };
+  for (const bloco of BLOCOS_MESCLAVEIS) {
+    if (!enviado[bloco]) continue;
+    const doAtual = atual && atual[bloco] && typeof atual[bloco] === 'object' ? atual[bloco] : {};
+    resultado[bloco] = { ...doAtual, ...enviado[bloco] };
+  }
+  return resultado;
+};
+
 const validarAmbienteEnviado = (valor) => valor === undefined || AMBIENTES_NOTA_SEFAZ.includes(valor);
 
 module.exports = {
@@ -254,4 +275,5 @@ module.exports = {
   avaliarNumeracao,
   mensagemBloqueio,
   validarAmbienteEnviado,
+  mesclarConfiguracaoAtual,
 };

@@ -160,11 +160,33 @@ router.get('/requisitos', async (req, res) => {
       }
     };
 
-    const [settings, certificados] = await Promise.all([ler('settings'), ler('certificates')]);
+    // Maior numero JA AUTORIZADO por aqui, por tipo -- referencia pra avisar
+    // quando a numeracao da Spedy ficou zerada ou atras (risco de duplicidade).
+    const ultimoAutorizado = async (tipo) => {
+      try {
+        const snap = await db.collection('notas_fiscais')
+          .where('tenantId', '==', tenantId)
+          .where('tipo', '==', tipo)
+          .where('status', '==', 'authorized')
+          .get();
+        return snap.docs.reduce((maior, d) => Math.max(maior, Number(d.data().number) || 0), 0) || null;
+      } catch (erro) {
+        console.error(`[Spedy Requisitos] falha ao ler a ultima ${tipo} autorizada:`, erro.message);
+        return null;
+      }
+    };
+
+    const [settings, certificados, ultimoNfe, ultimoNfce] = await Promise.all([
+      ler('settings'),
+      ler('certificates'),
+      ultimoAutorizado('NF-e'),
+      ultimoAutorizado('NFC-e'),
+    ]);
     const avaliacao = avaliarRequisitos({
       config,
       settings,
       certificados: Array.isArray(certificados) ? certificados : null,
+      ultimoNumeroAutorizado: { nfe: ultimoNfe, nfce: ultimoNfce },
     });
     return res.json({ ...avaliacao, spedyLegivel: Boolean(settings) });
   } catch (error) {

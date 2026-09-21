@@ -160,6 +160,8 @@ export interface RequisitoFiscal {
 export interface RequisitosFiscais {
   ambienteSpedy: SpedyEnv;
   ambientes: { nfe: string | null; nfce: string | null };
+  /** Proximo numero sugerido quando a Spedy esta sem numeracao ou atrasada. */
+  sugestaoProximoNumero?: { nfe: number | null; nfce: number | null };
   nfe: { pronto: boolean; checks: RequisitoFiscal[] };
   nfce: { pronto: boolean; checks: RequisitoFiscal[] };
   spedyLegivel: boolean;

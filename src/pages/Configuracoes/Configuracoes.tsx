@@ -475,6 +475,12 @@ const Configuracoes: React.FC = () => {
       if (resultado.ambientes.nfce === 'production' || resultado.ambientes.nfce === 'development') {
         setAmbienteNfce(resultado.ambientes.nfce);
       }
+      // Numeracao AUTOMATICA: so' sugere quando a Spedy esta sem numero (ou
+      // atras da ultima nota autorizada) -- e' a pessoa quem salva.
+      const sugestaoNfe = resultado.sugestaoProximoNumero?.nfe;
+      if (sugestaoNfe) {
+        setNumeracaoNfe((prev) => (prev.proximoNumero.trim() ? prev : { ...prev, proximoNumero: String(sugestaoNfe) }));
+      }
     } catch (error) {
       console.error('Erro ao conferir os requisitos fiscais:', error);
       setRequisitos(null);
@@ -488,12 +494,15 @@ const Configuracoes: React.FC = () => {
     const blocks: SpedyNumberingUpdate = {};
     const nfeMexida = Boolean(numeracaoNfe.serie.trim() || numeracaoNfe.proximoNumero.trim());
     if (nfeMexida || ambienteNfe) {
-      if (nfeMexida && (!numeracaoNfe.serie.trim() || !numeracaoNfe.proximoNumero.trim())) {
-        showError('Numeração de NF-e incompleta', 'Preencha série e próximo número da NF-e juntos, ou deixe os dois em branco.');
+      // Série sozinha, sem número, e' perigoso (a Spedy poderia recomecar em 1);
+      // o número sozinho e' aceito -- a série que ela ja' tem continua.
+      if (numeracaoNfe.serie.trim() && !numeracaoNfe.proximoNumero.trim()) {
+        showError('Numeração de NF-e incompleta', 'Informe também o próximo número da NF-e, ou deixe a série em branco para a Spedy continuar numerando sozinha.');
         return;
       }
       blocks.productInvoice = {
-        ...(nfeMexida ? { series: numeracaoNfe.serie.trim(), nextNumber: Number(numeracaoNfe.proximoNumero) } : {}),
+        ...(numeracaoNfe.serie.trim() ? { series: numeracaoNfe.serie.trim() } : {}),
+        ...(numeracaoNfe.proximoNumero.trim() ? { nextNumber: Number(numeracaoNfe.proximoNumero) } : {}),
         ...(ambienteNfe ? { environmentType: ambienteNfe } : {}),
       };
     }
@@ -2594,7 +2603,7 @@ const Configuracoes: React.FC = () => {
                     <div>
                       <h4 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>Numeração Fiscal (Série e Sequencial)</h4>
                       <p style={{ fontSize: '12px', color: '#f59e0b', margin: 0 }}>
-                        Só preencha isto ao migrar de outro sistema, pra continuar a numeração exata de onde ele parou -- a SEFAZ não aceita reemitir um número já usado. Depois que a empresa já emitiu notas por aqui, não mude estes campos pra trás; pra "resetar", use uma série nova. Confirme os números certos antes de salvar: isso vai direto pra Spedy.
+                        A numeração é automática: a Spedy avança o número sozinha a cada nota, não precisa digitar nada. Só preencha ao migrar de outro sistema (para continuar de onde ele parou) ou quando "Conferir requisitos" avisar que a numeração ficou zerada ou atrás da última nota — nesse caso o número já vem sugerido. A SEFAZ não aceita reemitir um número já usado, então nunca volte o número para trás. Isso vai direto pra Spedy.
                       </p>
                     </div>
 

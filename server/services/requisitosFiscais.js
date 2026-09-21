@@ -115,20 +115,41 @@ const avaliarAmbiente = (id, rotulo, bloco, ambienteSpedy) => {
   return ok(id, `Ambiente da ${rotulo}: ${ROTULO_AMBIENTE[ambiente]}.`);
 };
 
-const avaliarNumeracao = (id, rotulo, bloco) => {
+/**
+ * Numeracao NAO bloqueia. A Spedy numera sozinha: depois de cada nota
+ * autorizada ela ja' avanca o "proximo numero" (2026-09-21, o dono confirmou
+ * que a numeracao tem que ser automatica). Serie e proximo numero so' se
+ * informam ao MIGRAR de outro sistema, pra continuar de onde ele parou --
+ * exigir aqui faria o cliente digitar um numero e ainda arriscar reemitir
+ * um numero ja' usado. Por isso o item so' informa.
+ */
+const avaliarNumeracao = (id, rotulo, bloco, ultimoAutorizado = null) => {
   if (!bloco) {
     return desconhecido(id, `Não foi possível ler a numeração da ${rotulo} na Spedy agora.`, 'Tente de novo em instantes.');
   }
   const serie = String(bloco.series ?? '').trim();
   const proximo = Number(bloco.nextNumber);
-  if (!serie || !Number.isFinite(proximo) || proximo < 1) {
-    return falta(
+  const proximoValido = Number.isFinite(proximo) && proximo >= 1;
+
+  // A Spedy esta sem numero, ou ATRAS da ultima nota que ja' foi autorizada
+  // por aqui: se ela reiniciar a contagem, a SEFAZ rejeita por duplicidade.
+  // Nao bloqueia (pode ser so' o registro nosso desatualizado), mas avisa e
+  // sugere o proximo numero certo -- a tela pre-preenche, a pessoa so' salva.
+  if (ultimoAutorizado && (!proximoValido || proximo <= ultimoAutorizado)) {
+    const situacaoSpedy = proximoValido
+      ? `está em ${proximo}`
+      : 'está sem próximo número definido';
+    return aviso(
       id,
-      `A série e o próximo número da ${rotulo} não estão definidos.`,
-      `Em Configurações → Nota Fiscal (Spedy), informe a série e o próximo número da ${rotulo}. Se a empresa já emitiu notas em outro sistema, continue a numeração de onde parou.`,
+      `A numeração da ${rotulo} na Spedy ${situacaoSpedy}, mas a última nota autorizada por aqui foi a nº ${ultimoAutorizado}. Se a contagem reiniciar, a SEFAZ rejeita por duplicidade de número.`,
+      `Salve o próximo número ${ultimoAutorizado + 1} em Configurações → Nota Fiscal (Spedy) (já vem sugerido).`,
     );
   }
-  return ok(id, `Série ${serie}, próximo número ${proximo}.`);
+
+  if (serie && proximoValido) {
+    return ok(id, `Numeração da ${rotulo}: série ${serie}, próximo número ${proximo} (a Spedy avança sozinha a cada nota).`);
+  }
+  return ok(id, `Numeração da ${rotulo} automática pela Spedy (não precisa informar série nem número, exceto ao migrar de outro sistema).`);
 };
 
 const avaliarCsc = (bloco) => {
@@ -180,7 +201,9 @@ const fechar = (checks) => ({
  * @param {Array|null} p.certificados  GET /companies/{id}/certificates (ou null)
  * @param {Date} [p.agora]
  */
-const avaliarRequisitos = ({ config, settings, certificados, agora = new Date() }) => {
+const avaliarRequisitos = ({ config, settings, certificados, ultimoNumeroAutorizado = {}, agora = new Date() }) => {
+  const ultimoNfe = Number(ultimoNumeroAutorizado.nfe) || null;
+  const ultimoNfce = Number(ultimoNumeroAutorizado.nfce) || null;
   const ambienteSpedy = config && config.spedyEnvironment === 'production' ? 'production' : 'sandbox';
   const empresa = avaliarEmpresa(config);
   const certificado = avaliarCertificado(certificados, agora);
@@ -193,17 +216,22 @@ const avaliarRequisitos = ({ config, settings, certificados, agora = new Date() 
       nfe: produto ? (produto.environmentType || null) : null,
       nfce: consumidor ? (consumidor.environmentType || null) : null,
     },
+    // Numero que a tela sugere quando a Spedy esta sem numeracao ou atrasada.
+    sugestaoProximoNumero: {
+      nfe: produto && ultimoNfe && !(Number(produto.nextNumber) > ultimoNfe) ? ultimoNfe + 1 : null,
+      nfce: consumidor && ultimoNfce && !(Number(consumidor.nextNumber) > ultimoNfce) ? ultimoNfce + 1 : null,
+    },
     nfe: fechar([
       ...empresa,
       certificado,
       avaliarAmbiente('nfe_ambiente', 'NF-e', produto, ambienteSpedy),
-      avaliarNumeracao('nfe_numeracao', 'NF-e', produto),
+      avaliarNumeracao('nfe_numeracao', 'NF-e', produto, ultimoNfe),
     ]),
     nfce: fechar([
       ...empresa,
       certificado,
       avaliarAmbiente('nfce_ambiente', 'NFC-e', consumidor, ambienteSpedy),
-      avaliarNumeracao('nfce_numeracao', 'NFC-e', consumidor),
+      avaliarNumeracao('nfce_numeracao', 'NFC-e', consumidor, ultimoNfce),
       avaliarCsc(consumidor),
     ]),
   };

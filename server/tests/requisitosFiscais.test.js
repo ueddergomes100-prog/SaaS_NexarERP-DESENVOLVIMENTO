@@ -42,9 +42,16 @@ test('ambiente "simulation" nao serve pra NF-e (so producao ou homologacao)', ()
   assert.equal(achar(r.nfe, 'nfe_ambiente').gravidade, 'bloqueio');
 });
 
-test('sem serie ou sem proximo numero bloqueia', () => {
+test('numeracao é automática: sem serie e sem proximo numero NAO bloqueia', () => {
   const r = avaliar({ settings: { productInvoice: { environmentType: 'production', series: '', nextNumber: 0 }, consumerInvoice: SETTINGS_OK.consumerInvoice } });
-  assert.equal(achar(r.nfe, 'nfe_numeracao').gravidade, 'bloqueio');
+  assert.equal(achar(r.nfe, 'nfe_numeracao').gravidade, 'ok');
+  assert.match(achar(r.nfe, 'nfe_numeracao').mensagem, /automática pela Spedy/);
+  assert.equal(r.nfe.pronto, true);
+});
+
+test('com numeracao ja definida, mostra serie e proximo numero', () => {
+  const r = avaliar({});
+  assert.match(achar(r.nfe, 'nfe_numeracao').mensagem, /série 1, próximo número 10/);
 });
 
 test('NFC-e sem CSC bloqueia; NF-e nao exige CSC', () => {
@@ -102,4 +109,30 @@ test('so producao e desenvolvimento passam na validacao do ambiente enviado', ()
   assert.equal(validarAmbienteEnviado('simulation'), false);
   assert.equal(validarAmbienteEnviado('homologacao'), false);
   assert.equal(validarAmbienteEnviado(''), false);
+});
+
+test('Spedy sem proximo numero e ultima nota autorizada por aqui: avisa e sugere ultimo + 1', () => {
+  const r = avaliar({
+    settings: { productInvoice: { environmentType: 'production' }, consumerInvoice: SETTINGS_OK.consumerInvoice },
+    ultimoNumeroAutorizado: { nfe: 41 },
+  });
+  const c = achar(r.nfe, 'nfe_numeracao');
+  assert.equal(c.gravidade, 'aviso');
+  assert.match(c.mensagem, /sem próximo número definido.*nº 41/);
+  assert.match(c.comoResolver, /próximo número 42/);
+  assert.equal(r.sugestaoProximoNumero.nfe, 42);
+  // aviso nao bloqueia
+  assert.equal(r.nfe.pronto, true);
+});
+
+test('Spedy ja adiante da ultima nota: sem aviso e sem sugestao (numeracao automatica)', () => {
+  const r = avaliar({ ultimoNumeroAutorizado: { nfe: 9 } });
+  assert.equal(achar(r.nfe, 'nfe_numeracao').gravidade, 'ok');
+  assert.equal(r.sugestaoProximoNumero.nfe, null);
+});
+
+test('Spedy ATRAS da ultima nota autorizada avisa', () => {
+  const r = avaliar({ ultimoNumeroAutorizado: { nfe: 10 } });
+  assert.equal(achar(r.nfe, 'nfe_numeracao').gravidade, 'aviso');
+  assert.equal(r.sugestaoProximoNumero.nfe, 11);
 });

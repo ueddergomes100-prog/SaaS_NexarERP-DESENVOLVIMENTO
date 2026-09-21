@@ -225,8 +225,15 @@ service cloud.firestore {
       return hasProfile() &&
         resource.data.tenantId == currentTenantId() &&
         request.resource.data.tenantId == resource.data.tenantId &&
-        request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'updatedAt']) &&
-        hasAnyPermission(['vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar', 'estoque.ajusteManual']);
+        // quantidadeReservada entra (2026-09-21): pre-venda RESERVA estoque
+        // (a reserva e' gravada junto, na mesma transacao). Sem ela o vendedor
+        // que so' tem permissao de venda recebia "Missing or insufficient
+        // permissions" ao criar/cancelar pre-venda -- so' dono/gestor passava.
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'quantidadeReservada', 'updatedAt']) &&
+        hasAnyPermission([
+          'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar', 'estoque.ajusteManual',
+          'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar'
+        ]);
     }
 
     // Modulo 12 (Conferencia de mercadoria): quem so tem operacoes.expedicao
@@ -373,7 +380,12 @@ service cloud.firestore {
     // em "Missing or insufficient permissions" ao criar a ordem.
     function canConsumeTenantSequence() {
       return canManageTenantData() ||
-        hasAnyPermission(['mecanica.os', 'vendas.pedidos', 'vendas.orcamentos', 'operacoes.producao', 'estoque.nota_avulsa']);
+        hasAnyPermission([
+          'mecanica.os', 'vendas.pedidos', 'vendas.orcamentos', 'operacoes.producao', 'estoque.nota_avulsa',
+          // Quem cria pre-venda consome a sequencia do pedido (o pedido em si ja'
+          // aceitava essas permissoes -- faltava aqui).
+          'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar'
+        ]);
     }
 
     match /contadores/{tenantId} {

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Receipt, Plus, Search, CheckCircle,
   XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings,
-  ChevronLeft, ChevronRight, MessageCircle, Loader2, FilePenLine
+  ChevronLeft, ChevronRight, MessageCircle, Loader2, FilePenLine, RotateCcw
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
@@ -26,11 +26,10 @@ import { escolherIntegrationIdDoReenvio } from '../../utils/reenvioNotaDomain';
 import { resolverInscricaoEstadualDestinatario } from '../../utils/destinatarioFiscalDomain';
 import EmissaoProgressoModal from '../../components/common/EmissaoProgressoModal';
 import CartaCorrecaoModal from '../../components/common/CartaCorrecaoModal';
+import DevolucaoNfeModal from '../../components/common/DevolucaoNfeModal';
 import { motivoQueImpedeCartaNaTela, notaAceitaCartaCorrecao, type CartaEnviada } from '../../utils/cartaCorrecaoDomain';
-import {
-  INTERVALO_CONSULTA_MS, desfechoDoStatus, deveContinuarConsultando,
-  type DesfechoEmissao, type EtapaEmissao,
-} from '../../utils/emissaoProgressoDomain';
+import { desfechoDoStatus, type EtapaEmissao } from '../../utils/emissaoProgressoDomain';
+import { useEmissaoAcompanhamento, type ProgressoEmissao } from '../../hooks/useEmissaoAcompanhamento';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -57,23 +56,12 @@ interface LocalInvoice {
   tentativaEmissao?: number | null;
   /** Cartas de correcao (CC-e) ja enviadas -- gravadas pelo servidor. */
   cartasCorrecao?: CartaEnviada[];
-}
-
-/** Estado do pop-up de acompanhamento da emissao (ver emissaoProgressoDomain.ts). */
-interface ProgressoEmissao {
-  tipo: LocalInvoice['tipo'];
-  clienteNome: string;
-  etapa: EtapaEmissao;
-  /** null enquanto a emissao ainda esta rodando. */
-  desfecho: DesfechoEmissao | null;
-  numero?: number | null;
-  codigo?: string | null;
-  mensagem?: string | null;
-  erroEnvio?: string | null;
-  /** Id da nota na Spedy -- pra abrir a DANFE quando autorizada. */
-  spedyId?: string;
-  /** Quando comecou a esperar a SEFAZ (ms) -- base do contador de segundos. */
-  transmitindoDesdeMs?: number;
+  /** 'devolucao' = NF-e de devolucao de venda (entrada), emitida pelo servidor. */
+  finalidade?: string | null;
+  /** Devolucao (devolucoes_venda) que esta nota documenta. */
+  devolucaoId?: string | null;
+  /** Pedido da venda devolvida (nas notas de devolucao; `pedidoId` fica vazio de proposito). */
+  pedidoOrigemId?: string | null;
 }
 
 interface ClienteOption {
@@ -205,7 +193,10 @@ const NFE: React.FC = () => {
   const invoices = useMemo(() => {
     const pedidosVisiveis = new Set(pedidosVenda.map((pedido) => pedido.id));
     return allInvoices
-      .filter((note) => !vendasVisiveisDeUsuarioId || !note.pedidoId || pedidosVisiveis.has(note.pedidoId))
+      .filter((note) => {
+        const pedidoDaNota = note.pedidoId || note.pedidoOrigemId; // devolucao aponta pro pedido da venda original
+        return !vendasVisiveisDeUsuarioId || !pedidoDaNota || pedidosVisiveis.has(pedidoDaNota);
+      })
       .filter((note) => notaDeveAparecer(note, pedidosCanceladosIds, mostrarCanceladas));
   }, [allInvoices, pedidosVenda, vendasVisiveisDeUsuarioId, pedidosCanceladosIds, mostrarCanceladas]);
   const [importedPedidoItens, setImportedPedidoItens] = useState<PedidoVendaItem[]>([]);
@@ -261,16 +252,15 @@ const NFE: React.FC = () => {
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** Devolucao (id) cuja NF-e de devolucao esta aberta no pop-up. null = fechado. */
+  const [devolucaoNfeId, setDevolucaoNfeId] = useState<string | null>(null);
   /** Nota (id do documento) cuja carta de correcao esta aberta. null = fechado. */
   const [notaDaCartaId, setNotaDaCartaId] = useState<string | null>(null);
-  /** Pop-up de acompanhamento da emissao. null = fechado. */
-  const [progresso, setProgresso] = useState<ProgressoEmissao | null>(null);
-  const [segundosEsperando, setSegundosEsperando] = useState(0);
-  const [abrindoDanfeProgresso, setAbrindoDanfeProgresso] = useState(false);
-  /** Nota que o pop-up esta acompanhando: o sync de 15s da lista pula ela, pra nao abrir um segundo aviso por cima. */
-  const notaEmAcompanhamentoRef = useRef<string | null>(null);
-  /** Numero da espera em curso; fechar o pop-up ou iniciar outra emissao invalida a anterior. */
-  const acompanhamentoIdRef = useRef(0);
+  /** Pop-up de acompanhamento da emissao (estado, consulta e DANFE): ver useEmissaoAcompanhamento.ts. */
+  const {
+    progresso, setProgresso, segundosEsperando, abrindoDanfe: abrindoDanfeProgresso,
+    notaEmAcompanhamentoRef, fechar: fecharProgresso, abrirDanfe: abrirDanfeDoProgresso, acompanhar: acompanharNota,
+  } = useEmissaoAcompanhamento();
 
   // Fecha dropdown do cliente ao clicar fora
   useEffect(() => {
@@ -930,7 +920,10 @@ const NFE: React.FC = () => {
           pedidoId: data.pedidoId || null,
           clienteId: data.clienteId || null,
           tentativaEmissao: data.tentativaEmissao || null,
-          cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : []
+          cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : [],
+          finalidade: data.finalidade || null,
+          devolucaoId: data.devolucaoId || null,
+          pedidoOrigemId: data.pedidoOrigemId || null
         });
       });
 
@@ -993,7 +986,10 @@ const NFE: React.FC = () => {
           pedidoId: data.pedidoId || null,
           clienteId: data.clienteId || null,
           tentativaEmissao: data.tentativaEmissao || null,
-          cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : []
+          cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : [],
+          finalidade: data.finalidade || null,
+          devolucaoId: data.devolucaoId || null,
+          pedidoOrigemId: data.pedidoOrigemId || null
         });
       });
       list.sort((a, b) => b.id.localeCompare(a.id));
@@ -1019,16 +1015,6 @@ const NFE: React.FC = () => {
     }, 15000);
     return () => clearInterval(interval);
   }, [invoices, config, syncPendingInvoices]);
-
-  // Contador de segundos do pop-up enquanto espera a SEFAZ responder.
-  useEffect(() => {
-    if (!progresso || progresso.etapa !== 'transmitindo' || progresso.desfecho !== null || !progresso.transmitindoDesdeMs) return undefined;
-    const desde = progresso.transmitindoDesdeMs;
-    const atualizar = () => setSegundosEsperando(Math.max(0, Math.round((Date.now() - desde) / 1000)));
-    atualizar();
-    const timer = setInterval(atualizar, 1000);
-    return () => clearInterval(timer);
-  }, [progresso]);
 
   const handleManualSyncAll = async () => {
     if (!config?.spedyApiKey) return;
@@ -1176,12 +1162,63 @@ const NFE: React.FC = () => {
     showSuccess('Carta de correção enviada! Ela aparece no histórico; o PDF fica disponível assim que a SEFAZ registrar.');
   };
 
+  /** Da nota autorizada ao pop-up da NF-e de devolucao: acha as devolucoes do pedido que ainda nao tem nota. */
+  const abrirDevolucaoFiscal = async (note: LocalInvoice) => {
+    if (!note.pedidoId || !tenantId) return;
+    try {
+      const snap = await getDocs(query(collection(db, 'devolucoes_venda'), where('tenantId', '==', tenantId), where('pedidoVendaId', '==', note.pedidoId)));
+      const comNotaValendo = new Set(
+        allInvoices
+          .filter((n) => n.finalidade === 'devolucao' && !['rejected', 'denied', 'canceled'].includes(n.status))
+          .map((n) => n.devolucaoId),
+      );
+      const pendentes = snap.docs.filter((d) => !comNotaValendo.has(d.id));
+
+      if (pendentes.length === 0) {
+        await NexusSwal.fire({
+          icon: 'info',
+          title: 'Nenhuma devolução esperando nota',
+          text: snap.empty
+            ? 'Este pedido não tem devolução registrada. Registre a devolução dos itens (Vendas → Devolução de Venda, ou dentro do pedido) e depois emita a nota de devolução.'
+            : 'Todas as devoluções deste pedido já têm NF-e de devolução em andamento ou autorizada.',
+        });
+        return;
+      }
+      if (pendentes.length === 1) {
+        setDevolucaoNfeId(pendentes[0].id);
+        return;
+      }
+
+      const opcoes: Record<string, string> = {};
+      pendentes.forEach((d) => {
+        const dados = d.data();
+        const quando = dados.createdAt?.seconds ? new Date(dados.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : 'sem data';
+        opcoes[d.id] = `${quando} — ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(dados.valorTotalDevolvido || 0))}`;
+      });
+      const { value } = await NexusSwal.fire({
+        title: 'Qual devolução?',
+        text: 'Este pedido tem mais de uma devolução sem nota fiscal.',
+        input: 'select',
+        inputOptions: opcoes,
+        inputPlaceholder: 'Selecione a devolução',
+        showCancelButton: true,
+        confirmButtonText: 'Continuar',
+        cancelButtonText: 'Voltar',
+      });
+      if (value) setDevolucaoNfeId(String(value));
+    } catch (err) {
+      console.error('Erro ao buscar as devolucoes do pedido:', err);
+      showError('Não foi possível buscar as devoluções', 'Tente novamente em instantes. Se continuar, avise o suporte.');
+    }
+  };
+
   const handleCancel = async (note: LocalInvoice) => {
     if (!currentUser) return;
     const { value: justification } = await NexusSwal.fire({
       title: 'Cancelar Nota Fiscal',
       input: 'textarea',
-      inputLabel: 'Justificativa de Cancelamento (Mínimo de 15 caracteres)',
+      inputLabel: 'Justificativa de Cancelamento (de 15 a 255 caracteres)',
+      inputAttributes: { maxlength: '255' },
       inputPlaceholder: 'Escreva o motivo real do cancelamento...',
       showCancelButton: true,
       confirmButtonText: 'Confirmar Cancelamento',
@@ -1190,6 +1227,9 @@ const NFE: React.FC = () => {
       inputValidator: (value) => {
         if (!value || value.trim().length < 15) {
           return 'A justificativa deve conter no mínimo 15 caracteres!';
+        }
+        if (value.trim().length > 255) {
+          return 'A justificativa pode ter no máximo 255 caracteres (limite da SEFAZ).';
         }
       }
     });
@@ -1239,7 +1279,17 @@ const NFE: React.FC = () => {
         loadLocalInvoices(false);
       } catch (err) {
         Swal.close();
-        showError('Erro ao cancelar', (err as Error).message || 'Erro ao cancelar a nota.');
+        const mensagemErro = (err as Error).message || 'Erro ao cancelar a nota.';
+        // Fora do prazo (geral: 24h apos a autorizacao, varia por UF) a saida e' a devolucao, nao o cancelamento.
+        const foraDoPrazo = /prazo|501/i.test(mensagemErro);
+        showError(
+          'Erro ao cancelar',
+          foraDoPrazo && note.pedidoId && note.tipo !== 'NFS-e'
+            ? `${mensagemErro}
+
+Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfazer a venda, registre a devolução dos itens e emita a NF-e de devolução (botão de devolução, na linha da nota).`
+            : mensagemErro,
+        );
       }
     }
   };
@@ -1250,87 +1300,6 @@ const NFE: React.FC = () => {
     if (tipo === 'NFS-e') return spedyService.getServiceInvoice(config.spedyApiKey, config.spedyEnvironment, spedyId);
     if (tipo === 'NFC-e') return spedyService.getConsumerInvoice(config.spedyApiKey, config.spedyEnvironment, spedyId);
     return spedyService.getProductInvoice(config.spedyApiKey, config.spedyEnvironment, spedyId);
-  };
-
-  const fecharProgresso = () => {
-    // Fechar no meio da espera NAO cancela a nota: ela segue na Spedy e a lista
-    // atualiza sozinha (sync de 15s). So' paramos de perguntar daqui.
-    acompanhamentoIdRef.current += 1;
-    notaEmAcompanhamentoRef.current = null;
-    setProgresso(null);
-  };
-
-  const abrirDanfeDoProgresso = async () => {
-    if (!progresso?.spedyId) return;
-    setAbrindoDanfeProgresso(true);
-    try {
-      const tipoArquivo = progresso.tipo === 'NFS-e' ? 'service' : progresso.tipo === 'NFC-e' ? 'consumer' : 'product';
-      await spedyService.openFiscalFile(progresso.spedyId, tipoArquivo, 'pdf');
-    } catch (err) {
-      showError('Erro ao abrir PDF', (err as Error).message);
-    } finally {
-      setAbrindoDanfeProgresso(false);
-    }
-  };
-
-  /**
-   * Pergunta a Spedy a cada INTERVALO_CONSULTA_MS ate a nota ter resposta final
-   * (autorizada/rejeitada) ou passar o limite de espera. Grava no Firestore o que
-   * a Spedy devolver, igual ao sync da lista, e mostra o resultado no pop-up.
-   */
-  const acompanharNotaEmitida = async (params: { docId: string; spedyId: string; tipo: LocalInvoice['tipo']; statusInicial: string }) => {
-    acompanhamentoIdRef.current += 1;
-    const minhaVez = acompanhamentoIdRef.current;
-    const iniciouEmMs = Date.now();
-    notaEmAcompanhamentoRef.current = params.docId;
-    let statusAtual = params.statusInicial;
-    let numeroAtual: number | null | undefined;
-    try {
-      while (acompanhamentoIdRef.current === minhaVez) {
-        await new Promise((resolve) => setTimeout(resolve, INTERVALO_CONSULTA_MS));
-        if (acompanhamentoIdRef.current !== minhaVez) return; // usuario fechou o pop-up
-
-        let nota: SpedyInvoice | null = null;
-        try {
-          nota = await consultarNotaNaSpedy(params.tipo, params.spedyId);
-        } catch (erro) {
-          // Instabilidade momentanea nao encerra a espera: tenta de novo no proximo ciclo.
-          console.warn('Falha ao consultar a nota na Spedy (tentando de novo):', erro);
-        }
-
-        if (nota && (nota.status !== statusAtual || nota.number !== numeroAtual)) {
-          statusAtual = nota.status;
-          numeroAtual = nota.number;
-          await updateDoc(doc(db, 'notas_fiscais', params.docId), {
-            status: nota.status,
-            number: nota.number,
-            accessKey: nota.accessKey || null,
-            processingMessage: nota.processingDetail?.message || null,
-            processingCode: nota.processingDetail?.code || null,
-          }).catch((erro) => console.warn('Nao foi possivel gravar o status da nota:', erro));
-        }
-
-        const desfecho = nota ? desfechoDoStatus(nota.status) : null;
-        if (nota && desfecho) {
-          setProgresso((atual) => (atual ? {
-            ...atual,
-            desfecho,
-            numero: nota.number,
-            codigo: nota.processingDetail?.code ?? null,
-            mensagem: nota.processingDetail?.message ?? null,
-          } : atual));
-          return;
-        }
-
-        if (!deveContinuarConsultando({ iniciouEmMs, agoraMs: Date.now(), status: statusAtual })) {
-          setProgresso((atual) => (atual ? { ...atual, desfecho: 'demorando' } : atual));
-          return;
-        }
-      }
-    } finally {
-      // Terminou (ou foi fechado): a lista volta a sincronizar essa nota sozinha.
-      if (acompanhamentoIdRef.current === minhaVez) notaEmAcompanhamentoRef.current = null;
-    }
   };
 
   const handleEmitir = async (e: React.FormEvent) => {
@@ -1424,7 +1393,7 @@ const NFE: React.FC = () => {
       // dois, cai no id gerado uma vez por sessão do modal (ver
       // pendingIntegrationIdRef acima).
       const existingRejectedNote = importedPedidoId
-        ? invoices.find(inv => inv.pedidoId === importedPedidoId && inv.tipo === formData.tipo && (inv.status === 'rejected' || inv.status === 'denied'))
+        ? invoices.find(inv => inv.pedidoId === importedPedidoId && inv.tipo === formData.tipo && inv.finalidade !== 'devolucao' && (inv.status === 'rejected' || inv.status === 'denied'))
         : null;
       const targetInvoiceId = retransmittingInvoiceId || existingRejectedNote?.id || null;
       if (!targetInvoiceId && !pendingIntegrationIdRef.current) {
@@ -1709,10 +1678,9 @@ const NFE: React.FC = () => {
         spedyId: spedyNote.id,
         transmitindoDesdeMs: Date.now(),
       };
-      setSegundosEsperando(0);
-      setProgresso(baseProgresso);
+      setProgresso(baseProgresso); // o contador de segundos reinicia sozinho no hook
       if (!desfechoImediato) {
-        void acompanharNotaEmitida({ docId: notaDocId, spedyId: spedyNote.id, tipo: tipoNota, statusInicial: spedyNote.status });
+        void acompanharNota({ docId: notaDocId, spedyId: spedyNote.id, tipo: tipoNota, statusInicial: spedyNote.status, consultar: consultarNotaNaSpedy });
       }
 
       // Reseta form basico
@@ -1774,6 +1742,12 @@ const NFE: React.FC = () => {
   };
 
   const handleRetransmitRejected = async (note: LocalInvoice) => {
+    // Nota de DEVOLUCAO rejeitada volta pelo pop-up da devolucao: o fluxo abaixo remontaria
+    // o pedido como uma venda normal.
+    if (note.finalidade === 'devolucao' && note.devolucaoId) {
+      setDevolucaoNfeId(note.devolucaoId);
+      return;
+    }
     setRetransmittingInvoiceId(note.id);
     // Configura o formulário
     setFormData(prev => ({
@@ -2036,6 +2010,11 @@ const NFE: React.FC = () => {
                       <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', fontWeight: 500 }}>
                         {note.tipo}
                       </span>
+                      {note.finalidade === 'devolucao' && (
+                        <span title="NF-e de devolução de venda (nota de entrada)" style={{ marginLeft: '6px', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', backgroundColor: 'rgba(139,92,246,0.15)', color: '#a78bfa', fontWeight: 600 }}>
+                          Devolução
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: '16px', fontWeight: 500 }}>{note.clienteNome}</td>
                     <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{note.data}</td>
@@ -2085,7 +2064,7 @@ const NFE: React.FC = () => {
                         {canEmitirNota && (note.status === 'rejected' || note.status === 'denied') && (
                           <button
                             className="icon-btn"
-                            title="Corrigir e Transmitir Novamente"
+                            title={note.finalidade === 'devolucao' ? 'Corrigir e reemitir a devolução' : 'Corrigir e Transmitir Novamente'}
                             onClick={() => handleRetransmitRejected(note)}
                             style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: '#f59e0b', cursor: 'pointer' }}
                           >
@@ -2134,6 +2113,19 @@ const NFE: React.FC = () => {
                             style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'inline-flex' }}
                           >
                             <Download size={18} />
+                          </button>
+                        )}
+
+                        {/* Devolucao fiscal da venda (NF-e/NFC-e autorizada ligada a um pedido) */}
+                        {canEmitirNota && note.status === 'authorized' && note.pedidoId && note.finalidade !== 'devolucao' && (note.tipo === 'NF-e' || note.tipo === 'NFC-e') && (
+                          <button
+                            type="button"
+                            onClick={() => abrirDevolucaoFiscal(note)}
+                            className="icon-btn"
+                            title="Emitir NF-e de devolução desta venda"
+                            style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: '#3b82f6', cursor: 'pointer', display: 'inline-flex' }}
+                          >
+                            <RotateCcw size={18} />
                           </button>
                         )}
 
@@ -2197,6 +2189,10 @@ const NFE: React.FC = () => {
           </div>
         )}
       </div>
+
+      {devolucaoNfeId && (
+        <DevolucaoNfeModal devolucaoId={devolucaoNfeId} onClose={() => setDevolucaoNfeId(null)} />
+      )}
 
       {(() => {
         const notaDaCarta = notaDaCartaId ? invoices.find((n) => n.id === notaDaCartaId) : null;

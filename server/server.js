@@ -19,6 +19,7 @@ const vendedorMobileAuthRoutes = require('./routes/vendedorMobileAuth.routes');
 const usuariosRoutes = require('./routes/usuarios.routes');
 const documentosRoutes = require('./routes/documentos.routes');
 const cadastrosRoutes = require('./routes/cadastros.routes');
+const devolucaoNfeRoutes = require('./routes/devolucaoNfe.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -102,6 +103,9 @@ app.use('/api/documentos', documentosRoutes);
 // Inativar/reativar/excluir cadastros com checagem de pendencias -- a unica
 // porta pra essas operacoes (as firestore.rules proibem a tela de fazer direto).
 app.use('/api/cadastros', cadastrosRoutes);
+// NF-e de devolucao de venda: o servidor monta a nota a partir do que esta gravado
+// (devolucao, pedido, nota original) -- a tela so' diz QUAL devolucao emitir.
+app.use('/api/devolucao-nfe', devolucaoNfeRoutes);
 
 // Middleware para tratamento global de erros HTTP
 app.use((err, req, res, next) => {

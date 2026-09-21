@@ -104,7 +104,14 @@ const buildReceiver = async (tenantId: string, clienteNome: string) => {
 /** Emite a NFC-e e espera (com polling curto) a autorizacao da SEFAZ,
  *  igual o desktop ja faz -- devolve o status final que a tela decide como
  *  mostrar. */
-export const emitirNfceDoPedido = async (pedido: PedidoParaEmissao): Promise<SpedyInvoice> => {
+/** Resultado da emissao: a nota da Spedy e os itens EXATAMENTE como foram enviados (quem grava a nota
+ *  local guarda `itensFiscais`, necessario pra devolver item por item depois). */
+export interface NfceEmitida {
+  nota: SpedyInvoice;
+  itensFiscais: Record<string, unknown>[];
+}
+
+export const emitirNfceDoPedido = async (pedido: PedidoParaEmissao): Promise<NfceEmitida> => {
   const runtimeConfig = await spedyService.getRuntimeConfig();
   if (!runtimeConfig.spedyEnabled || !runtimeConfig.spedyApiKeyConfigured) {
     throw new NfceEmissaoError('A integração com a Spedy não está ativa ou configurada. Fale com o administrador do sistema.');
@@ -198,5 +205,5 @@ export const emitirNfceDoPedido = async (pedido: PedidoParaEmissao): Promise<Spe
     attempts++;
   }
 
-  return finalNote;
+  return { nota: finalNote, itensFiscais: payloadItems };
 };

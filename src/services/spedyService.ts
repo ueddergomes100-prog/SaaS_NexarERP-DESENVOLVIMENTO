@@ -243,6 +243,11 @@ export const spedyService = {
     return requestJson<SpedyInvoiceListResponse>(`/api/spedy/consumer?page=${page}&pageSize=${pageSize}`, { method: 'GET' }, 'Erro ao buscar cupons fiscais.');
   },
 
+  /** Consulta uma nota de qualquer tipo pelo id da Spedy (o backend usa a chave da empresa). */
+  async getInvoice(type: SpedyType, id: string): Promise<SpedyInvoice> {
+    return requestJson<SpedyInvoice>(`/api/spedy/${type}/${id}`, { method: 'GET' }, 'Erro ao consultar a nota fiscal.');
+  },
+
   async getConsumerInvoice(apiKey: string, env: SpedyEnv, id: string): Promise<SpedyInvoice> {
     legacyArgsNotice(apiKey, env);
     return requestJson<SpedyInvoice>(`/api/spedy/consumer/${id}`, { method: 'GET' }, 'Erro ao consultar cupom fiscal.');

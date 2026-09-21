@@ -2826,6 +2826,8 @@ const PedidoVendaForm: React.FC = () => {
             tipo: 'NFC-e',
             clienteNome: finalClienteNome,
             valor: valorTotalPedido,
+            // Itens exatamente como foram enviados: sem eles nao da' pra referenciar item por item numa devolucao (NT 2025.002-RTC).
+            itensFiscais: spedyPayload.items,
             status: finalNote.status,
             processingMessage: finalNote.processingDetail?.message || null,
             processingCode: finalNote.processingDetail?.code || null,
@@ -3141,6 +3143,8 @@ const PedidoVendaForm: React.FC = () => {
         tipo: 'NFC-e',
         clienteNome: clienteNome,
         valor: valorTotalPedido,
+        // Itens exatamente como foram enviados (ver o comentario acima).
+        itensFiscais: spedyPayload.items,
         status: finalNote.status,
         processingMessage: finalNote.processingDetail?.message || null,
         processingCode: finalNote.processingDetail?.code || null,

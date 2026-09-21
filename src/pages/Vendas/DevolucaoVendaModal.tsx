@@ -3,7 +3,9 @@ import { AlertTriangle, Receipt, X } from 'lucide-react';
 import { collection, doc, getDocs, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { isPlatformAdminRole } from '../../utils/roles';
+import DevolucaoNfeModal from '../../components/common/DevolucaoNfeModal';
 import { applyStockAdjustments } from '../../utils/firestoreAtomic';
 import { toStockAdjustmentItems } from '../../utils/embalagemDomain';
 import { recalculateCommissionAfterReturn, toCents } from '../../utils/financeDomain';
@@ -50,7 +52,10 @@ interface DevolucaoVendaModalProps {
  * confirmar devolucao movida sem alteracao da tela antiga.
  */
 const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, numeroPedido, clienteNome, itens: itensOriginais, onClose, onSuccess }) => {
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, controlaFiscal, isOwner, userRole, userPermissions } = useAuth();
+  const podeEmitirNota = Boolean(controlaFiscal) && (isOwner || isPlatformAdminRole(userRole) || Boolean(userPermissions?.includes('fiscal.emitir')));
+  /** Devolucao recem-registrada cuja NF-e de devolucao esta sendo emitida (abre o pop-up fiscal). */
+  const [devolucaoParaNota, setDevolucaoParaNota] = useState<string | null>(null);
   const [itens, setItens] = useState<DevolucaoItem[]>([]);
   const [destinoValor, setDestinoValor] = useState<'credito' | 'caixa' | 'banco'>('credito');
   const [formaBancaria, setFormaBancaria] = useState<FormaBancaria>('Pix');
@@ -102,6 +107,21 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
     const descontoProporcional = item.desconto * proporcao;
     return total + (subtotalBase - descontoProporcional);
   }, 0);
+
+  /** O pedido tem NF-e ou NFC-e autorizada (que nao seja ela mesma uma devolucao)? */
+  const pedidoTemNotaAutorizada = async (): Promise<boolean> => {
+    try {
+      const snap = await getDocs(query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId), where('pedidoId', '==', pedidoId)));
+      return snap.docs.some((d) => {
+        const nota = d.data();
+        return nota.status === 'authorized' && ['NF-e', 'NFC-e'].includes(nota.tipo) && nota.finalidade !== 'devolucao';
+      });
+    } catch (erro) {
+      // Sem conseguir consultar, nao atrapalha a devolucao: o botao em Notas Fiscais continua disponivel.
+      console.error('Erro ao consultar as notas do pedido:', erro);
+      return false;
+    }
+  };
 
   const handleConfirmarDevolucao = async () => {
     if (returnLockRef.current) return;
@@ -310,6 +330,22 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
 
       showSuccess('Devolução processada com sucesso!');
       onSuccess();
+
+      // Pedido com NF-e/NFC-e autorizada: a devolucao tambem precisa de nota fiscal.
+      if (podeEmitirNota && await pedidoTemNotaAutorizada()) {
+        const escolha = await NexusSwal.fire({
+          icon: 'question',
+          title: 'Emitir a NF-e de devolução agora?',
+          text: 'Este pedido tem nota fiscal autorizada. Para o fisco, a devolução também precisa ser documentada com uma NF-e de devolução. Você pode emitir agora ou depois, em Notas Fiscais.',
+          showCancelButton: true,
+          confirmButtonText: 'Emitir agora',
+          cancelButtonText: 'Depois',
+        });
+        if (escolha.isConfirmed) {
+          setDevolucaoParaNota(novaDevolucaoRef.id);
+          return;
+        }
+      }
       onClose();
     } catch (err) {
       console.error(err);
@@ -319,6 +355,10 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
       setIsProcessing(false);
     }
   };
+
+  if (devolucaoParaNota) {
+    return <DevolucaoNfeModal devolucaoId={devolucaoParaNota} numeroPedido={numeroPedido} onClose={onClose} />;
+  }
 
   return (
     <div style={{

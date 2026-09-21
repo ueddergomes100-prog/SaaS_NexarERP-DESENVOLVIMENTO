@@ -156,7 +156,7 @@ const VendedorMeusPedidos: React.FC = () => {
         valorTotalItens: Number(pedidoData.valorTotalItens || 0),
       };
 
-      const nota = await emitirNfceDoPedido(pedido);
+      const { nota, itensFiscais } = await emitirNfceDoPedido(pedido);
 
       if (currentUser) {
         await addDoc(collection(db, 'notas_fiscais'), {
@@ -166,6 +166,7 @@ const VendedorMeusPedidos: React.FC = () => {
           tipo: 'NFC-e',
           clienteNome: pedido.clienteNome,
           valor: pedido.valorTotal,
+          itensFiscais,
           status: nota.status,
           processingMessage: nota.processingDetail?.message || null,
           processingCode: nota.processingDetail?.code || null,

@@ -94,9 +94,18 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
         <div style={{ flex: 1, minWidth: 0 }}>
           <ProductAutocomplete
             value={produtoBusca}
-            onChange={setProdutoBusca}
+            onChange={(valor) => {
+              setProdutoBusca(valor);
+              // Apagou ou mexeu no texto: o produto escolhido deixa de valer.
+              if (produtoSelecionado && valor !== produtoSelecionado.nome) setProdutoSelecionado(null);
+            }}
             products={produtos}
-            onSelect={(produto) => setProdutoSelecionado(produto)}
+            // O campo passa a mostrar o produto escolhido (antes ficava vazio
+            // e o vendedor nao via o que tinha selecionado ate' clicar no +).
+            onSelect={(produto) => {
+              setProdutoSelecionado(produto);
+              setProdutoBusca(produto.nome);
+            }}
             renderItem={renderProdutoOpcaoBusca}
             variant="inline"
             placeholder="Buscar produto por nome ou código"
@@ -128,6 +137,14 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
           <Plus size={22} />
         </button>
       </div>
+
+      {produtoSelecionado && (
+        <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+          <strong style={{ color: 'var(--text-primary)' }}>{produtoSelecionado.nome}</strong>
+          {' · '}{formatarMoeda(produtoSelecionado.precoVenda)}
+          {' · '}estoque: {produtoSelecionado.quantidade || 0} {resolveUnidadeMedidaProduto(produtoSelecionado).unidadeMedidaSigla}
+        </div>
+      )}
 
       {itens.length === 0 ? (
         <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>

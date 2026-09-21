@@ -9,6 +9,7 @@ import { buscarResumoHojeDoVendedor } from '../../services/vendedorRankingServic
 import { CAMINHO_INSTALACAO, estaInstalado } from './pwa';
 import { listarRascunhos } from './vendedorRascunhosStore';
 import './vendedorMobile.css';
+import { PERMISSAO_BALANCO } from './vendedorPermissoes';
 
 interface PedidoRecente {
   id: string;
@@ -254,14 +255,18 @@ const VendedorHome: React.FC = () => {
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => navigate('/vendedor/balanco')}
-              style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
-            >
-              <ClipboardList size={28} color="var(--brand-400)" strokeWidth={1.7} />
-              <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Balanço</span>
-            </button>
+            {/* Balanco mexe no saldo do estoque: so' quem tem a permissao de Ajuste
+                Manual de Estoque no cadastro do funcionario ve o atalho. */}
+            {userPermissions.includes(PERMISSAO_BALANCO) && (
+              <button
+                type="button"
+                onClick={() => navigate('/vendedor/balanco')}
+                style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+              >
+                <ClipboardList size={28} color="var(--brand-400)" strokeWidth={1.7} />
+                <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Balanço</span>
+              </button>
+            )}
           </div>
         </div>
 

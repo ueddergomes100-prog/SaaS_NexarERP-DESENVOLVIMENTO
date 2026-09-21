@@ -20,6 +20,7 @@ import VendedorOrdensServico from './VendedorOrdensServico';
 import VendedorOrdemServicoDetalhe from './VendedorOrdemServicoDetalhe';
 import VendedorOsImprimir from './VendedorOsImprimir';
 import './vendedorMobile.css';
+import { PERMISSAO_BALANCO } from './vendedorPermissoes';
 
 /**
  * Guarda de acesso do aplicativo do vendedor externo, separada da
@@ -40,7 +41,7 @@ const SEM_NAVBAR_PREFIXOS = ['/vendedor/pedido/novo', '/vendedor/orcamento/novo'
 
 const VendedorShell: React.FC = () => {
   const location = useLocation();
-  const { currentUser, loading, acessoAppMobile, logout } = useAuth();
+  const { currentUser, loading, acessoAppMobile, logout, userPermissions } = useAuth();
 
   if (loading) {
     return (
@@ -115,13 +116,13 @@ const VendedorShell: React.FC = () => {
           <Route path="contas-receber" element={<VendedorContasReceber />} />
           <Route
             path="balanco"
-            element={(
+            element={userPermissions.includes(PERMISSAO_BALANCO) ? (
               <VendedorEmBreve
                 titulo="Balanço"
                 descricao="A contagem de estoque direto pelo celular está a caminho. Em breve dá pra fazer o balanço sem precisar do computador."
                 Icon={ClipboardList}
               />
-            )}
+            ) : <Navigate to="/vendedor" replace />}
           />
           <Route path="*" element={<Navigate to="/vendedor" replace />} />
         </Routes>

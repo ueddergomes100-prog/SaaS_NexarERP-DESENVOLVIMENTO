@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Receipt } from 'lucide-react';
-import { addDoc, collection, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, where } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess, showWarning } from '../../utils/alerts';
@@ -9,6 +9,11 @@ import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { STATUS_FINALIZADA } from '../../utils/preVendaDomain';
 import { emitirNfceDoPedido, NfceEmissaoError, type PedidoParaEmissao } from '../../services/nfceEmissaoService';
 import VendedorHeader from './VendedorHeader';
+import {
+  PAGINA_MEUS_PEDIDOS,
+  PERMISSAO_MINHAS_VENDAS,
+  filtrarMeusPedidos,
+} from '../../utils/meusPedidosMobileDomain';
 
 interface ItemLista {
   id: string;
@@ -39,7 +44,13 @@ const VendedorMeusPedidos: React.FC = () => {
   const { tenantId, currentUser, userPermissions, controlaFiscal } = useAuth();
   const [itens, setItens] = useState<ItemLista[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [erroCarga, setErroCarga] = useState('');
+  const [visiveis, setVisiveis] = useState(PAGINA_MEUS_PEDIDOS);
   const [emitindoId, setEmitindoId] = useState<string | null>(null);
+
+  // "Minhas Vendas" marcada no cadastro do funcionario: aparecem TODAS as
+  // vendas dele aqui. Sem ela, so' as dos ultimos 30 dias.
+  const temMinhasVendas = userPermissions.includes(PERMISSAO_MINHAS_VENDAS);
 
   const podeEmitirNota = controlaFiscal && userPermissions.includes('fiscal.emitir');
 
@@ -47,26 +58,32 @@ const VendedorMeusPedidos: React.FC = () => {
     if (!tenantId || !currentUser) return;
     let cancelado = false;
     setCarregando(true);
+    setErroCarga('');
 
     (async () => {
+      // Sem orderBy nem limit de proposito: so' igualdade (nao pede indice
+      // composto no Firestore) e ordena aqui. A versao anterior pedia
+      // orderBy + limit, o indice nao existia, a consulta falhava e o erro era
+      // engolido -- a lista aparecia vazia mesmo com vendas gravadas.
       const [pedidosSnap, orcamentosSnap] = await Promise.all([
         getDocs(query(
           collection(db, 'pedidos_venda'),
           where('tenantId', '==', tenantId),
           where('vendedorId', '==', currentUser.uid),
-          orderBy('createdAt', 'desc'),
-          limit(25),
-        )).catch(() => null),
+        )).catch((erro) => { console.error('Erro ao carregar meus pedidos:', erro); return null; }),
         getDocs(query(
           collection(db, 'orcamentos'),
           where('tenantId', '==', tenantId),
           where('criadoPor', '==', currentUser.uid),
-          orderBy('createdAt', 'desc'),
-          limit(25),
-        )).catch(() => null),
+        )).catch((erro) => { console.error('Erro ao carregar meus orcamentos:', erro); return null; }),
       ]);
 
       if (cancelado) return;
+      if (!pedidosSnap && !orcamentosSnap) {
+        setErroCarga('Não foi possível carregar seus pedidos agora. Verifique a internet e tente de novo.');
+        setCarregando(false);
+        return;
+      }
 
       const doPedidos: ItemLista[] = (pedidosSnap?.docs || []).map((docSnap) => {
         const data = docSnap.data();
@@ -93,7 +110,7 @@ const VendedorMeusPedidos: React.FC = () => {
         };
       });
 
-      setItens([...doPedidos, ...doOrcamentos].sort((a, b) => b.createdAtMillis - a.createdAtMillis));
+      setItens([...doPedidos, ...doOrcamentos]);
       setCarregando(false);
     })();
 
@@ -177,6 +194,9 @@ const VendedorMeusPedidos: React.FC = () => {
     }
   };
 
+  const lista = filtrarMeusPedidos(itens, { temMinhasVendas, agoraMillis: Date.now() });
+  const listaVisivel = lista.slice(0, visiveis);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
       <VendedorHeader titulo="Meus Pedidos" />
@@ -184,12 +204,16 @@ const VendedorMeusPedidos: React.FC = () => {
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {carregando ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>Carregando...</div>
-        ) : itens.length === 0 ? (
+        ) : erroCarga ? (
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: '#ef4444', fontSize: '13px' }}>{erroCarga}</div>
+        ) : lista.length === 0 ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-            Você ainda não gravou nenhum pedido ou orçamento.
+            {temMinhasVendas
+              ? 'Você ainda não tem nenhuma venda registrada.'
+              : 'Nenhum pedido ou orçamento seu nos últimos 30 dias.'}
           </div>
         ) : (
-          itens.map((item) => {
+          listaVisivel.map((item) => {
             const mostraEmitirNota = podeEmitirNota && item.tipo === 'Pedido' && item.status === STATUS_FINALIZADA;
             return (
               <div
@@ -237,6 +261,16 @@ const VendedorMeusPedidos: React.FC = () => {
               </div>
             );
           })
+        )}
+
+        {!carregando && !erroCarga && lista.length > listaVisivel.length && (
+          <button
+            type="button"
+            onClick={() => setVisiveis((atual) => atual + PAGINA_MEUS_PEDIDOS)}
+            style={{ height: '44px', borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+          >
+            Ver mais ({lista.length - listaVisivel.length})
+          </button>
         )}
       </div>
     </div>

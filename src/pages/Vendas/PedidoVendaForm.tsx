@@ -258,6 +258,8 @@ const PedidoVendaForm: React.FC = () => {
   const produtoBuscaInputRef = useRef<HTMLInputElement>(null);
   const clienteInputRef = useRef<HTMLInputElement>(null);
   const produtoDescontoInputRef = useRef<HTMLInputElement>(null);
+  const produtoQtdInputRef = useRef<HTMLInputElement>(null);
+  const produtoPrecoInputRef = useRef<HTMLInputElement>(null);
   const pagamentoSectionRef = useRef<HTMLDivElement>(null);
   const [paymentDrafts, setPaymentDrafts] = useState<PaymentDraft[]>([
     createEmptyPaymentDraft('pagamento-1', 0),
@@ -969,6 +971,15 @@ const PedidoVendaForm: React.FC = () => {
     showWarning('Crédito aplicado nesta venda', 'Confira os valores das formas de pagamento antes de finalizar.');
   };
 
+  /** Leva o foco pro campo e seleciona o conteudo: o que o operador digitar
+   * substitui o valor, sem apagar antes. */
+  const focarCampo = (ref: React.RefObject<HTMLInputElement | null>) => {
+    const campo = ref.current;
+    if (!campo) return;
+    campo.focus();
+    campo.select();
+  };
+
   const handleAddItem = () => {
     if (!produtoBusca) {
       showError('Atenção', 'Selecione ou digite o nome de um produto.');
@@ -1124,9 +1135,17 @@ const PedidoVendaForm: React.FC = () => {
     setSelectedItemIndex((current) => (current === index ? null : current));
   };
 
-  const askSelectedItemQuantity = async () => {
-    if (selectedItemIndex === null) return;
-    const item = itens[selectedItemIndex];
+  const escaparHtml = (texto: string) => texto.replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
+  ));
+
+  // Editar item ja lancado: QUANTIDADE e PRECO (duplo clique na linha, ou F5
+  // com a linha selecionada). Vale a mesma regra de quando o item entrou:
+  // estoque, venda fracionada e limite de desconto. Enter na quantidade vai
+  // pro preco; Enter no preco aplica.
+  const editarItem = async (index: number | null) => {
+    if (index === null) return;
+    const item = itens[index];
     if (!item) return;
 
     const produtoCatalogo = produtosCatalogo.find((p) => p.id === item.id);
@@ -1135,49 +1154,101 @@ const PedidoVendaForm: React.FC = () => {
     const opcaoItem = findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(produtoCatalogo), item.embalagemId);
     const fatorItem = item.fatorConversao ?? opcaoItem.fatorConversao ?? 1;
     const siglaItem = item.unidadeMedidaSigla || opcaoItem.sigla;
+    const estiloCampo = 'width:100%;box-sizing:border-box;margin:4px 0 0;padding:10px 12px;background:#27272a;border:1px solid #3f3f46;border-radius:8px;color:#fff;font-size:15px;';
 
-    // step: 'any' evita o bug de precisao de ponto flutuante do <input
-    // type=number> nativo com step fracionario fixo (ex: '0.001' rejeitava
-    // "3" como invalido) -- a validacao de casas decimais de verdade fica
-    // por conta de isValidSaleQuantity logo abaixo, com a mensagem de erro.
+    // Sem `step` fixo: o input number nativo rejeita fracao com step errado
+    // (ex.: '0.001' recusava "3"). Casas decimais de verdade ficam por conta
+    // de isValidSaleQuantity, com mensagem em portugues.
     const result = await NexusSwal.fire({
-      title: 'Alterar quantidade',
-      text: `${item.nome} (${siglaItem})`,
-      input: 'number',
-      inputValue: String(item.quantidade),
-      inputAttributes: { min: '0', step: opcaoItem.permiteFracionado ? 'any' : '1' },
+      title: 'Editar item',
+      html: `
+        <div style="text-align:left;">
+          <p style="margin:0 0 12px;color:#a1a1aa;font-size:14px;">${escaparHtml(item.nome)}</p>
+          <label style="font-size:13px;color:#a1a1aa;">Quantidade (${escaparHtml(siglaItem)})</label>
+          <input id="editar-item-qtd" type="number" min="0" step="any" value="${item.quantidade}" style="${estiloCampo}" />
+          <label style="display:block;margin-top:12px;font-size:13px;color:#a1a1aa;">Preço unitário (R$)</label>
+          <input id="editar-item-preco" type="number" min="0" step="0.01" value="${item.precoUnitario}" style="${estiloCampo}" />
+        </div>`,
+      focusConfirm: false,
       showCancelButton: true,
       confirmButtonText: 'Aplicar',
       cancelButtonText: 'Cancelar',
+      didOpen: (popup) => {
+        const campoQtd = popup.querySelector<HTMLInputElement>('#editar-item-qtd');
+        const campoPreco = popup.querySelector<HTMLInputElement>('#editar-item-preco');
+        if (!campoQtd || !campoPreco) return;
+        campoQtd.focus();
+        campoQtd.select();
+        campoQtd.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          campoPreco.focus();
+          campoPreco.select();
+        });
+        campoPreco.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          NexusSwal.clickConfirm();
+        });
+      },
+      // Erro aparece DENTRO da janela: o operador corrige e aplica de novo,
+      // sem perder o que digitou.
+      preConfirm: () => {
+        const popup = NexusSwal.getPopup();
+        const novaQtd = Number(String(popup?.querySelector<HTMLInputElement>('#editar-item-qtd')?.value ?? '').replace(',', '.'));
+        const novoPreco = Number(String(popup?.querySelector<HTMLInputElement>('#editar-item-preco')?.value ?? '').replace(',', '.'));
+
+        if (!Number.isFinite(novaQtd) || novaQtd <= 0) {
+          NexusSwal.showValidationMessage('A quantidade deve ser maior que zero.');
+          return false;
+        }
+        if (!Number.isFinite(novoPreco) || novoPreco <= 0) {
+          NexusSwal.showValidationMessage('Informe um preço unitário maior que zero.');
+          return false;
+        }
+        if (!isValidSaleQuantity(novaQtd, opcaoItem.permiteFracionado, opcaoItem.casasDecimais)) {
+          NexusSwal.showValidationMessage(opcaoItem.permiteFracionado
+            ? `A quantidade de ${item.nome} aceita no máximo ${opcaoItem.casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${siglaItem}.`
+            : `${item.nome} está sendo vendido na unidade ${siglaItem}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
+          return false;
+        }
+        const novaQtdBase = toBaseQuantity(novaQtd, fatorItem);
+        if (produtoCatalogo && !permitirVendaSemEstoque && novaQtdBase > (produtoCatalogo.quantidade || 0)) {
+          const siglaBase = produtoCatalogo.unidadeMedidaSigla || 'UN';
+          NexusSwal.showValidationMessage(fatorItem === 1
+            ? `Você tem apenas ${produtoCatalogo.quantidade || 0} de ${produtoCatalogo.nome} em estoque. Venda sem estoque desativada.`
+            : `${novaQtd} ${siglaItem} consome ${novaQtdBase} ${siglaBase}, mas você tem apenas ${produtoCatalogo.quantidade || 0} ${siglaBase} em estoque.`);
+          return false;
+        }
+
+        // O desconto do item e' em R$ e fica como esta; o que muda e' o valor
+        // cheio (preco x quantidade), entao o limite e' conferido de novo.
+        const precoCheioCents = toCents(novoPreco * novaQtd);
+        const descontoCents = toCents(item.desconto);
+        if (descontoCents > 0) {
+          if (produtoCatalogo && excedeLimiteItem(produtoCatalogo, descontoCents, precoCheioCents)) {
+            NexusSwal.showValidationMessage(`${produtoCatalogo.nome} aceita no máximo ${produtoCatalogo.descontoMaximoPercentual}% de desconto, definido no próprio cadastro. Reduza o desconto do item ou aumente o valor.`);
+            return false;
+          }
+          const limite = checarLimiteTotal(limiteDescontoPedido, precoCheioCents, descontoCents);
+          if (limite.excedeu && modoLimiteDesconto === 'bloquear') {
+            NexusSwal.showValidationMessage(`O desconto deste item (${limite.percentualAplicado.toFixed(1)}%) passa do limite configurado para Pedido de Venda.`);
+            return false;
+          }
+        }
+        return { novaQtd, novoPreco, novaQtdBase };
+      },
     });
-    if (!result.isConfirmed) return;
+    if (!result.isConfirmed || !result.value) return;
 
-    const novaQtd = Number(result.value) || 0;
-    if (novaQtd <= 0) {
-      showError('Atenção', 'A quantidade deve ser maior que zero.');
-      return;
-    }
-    if (!isValidSaleQuantity(novaQtd, opcaoItem.permiteFracionado, opcaoItem.casasDecimais)) {
-      showError('Operação Bloqueada', opcaoItem.permiteFracionado
-        ? `A quantidade de ${item.nome} aceita no máximo ${opcaoItem.casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${siglaItem}.`
-        : `${item.nome} está sendo vendido na unidade ${siglaItem}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
-      return;
-    }
-    const novaQtdBase = toBaseQuantity(novaQtd, fatorItem);
-    if (produtoCatalogo && !permitirVendaSemEstoque && novaQtdBase > (produtoCatalogo.quantidade || 0)) {
-      const siglaBase = produtoCatalogo.unidadeMedidaSigla || 'UN';
-      showError('Estoque Insuficiente', fatorItem === 1
-        ? `Você tem apenas ${produtoCatalogo.quantidade || 0} de ${produtoCatalogo.nome} em estoque. Venda sem estoque desativada.`
-        : `${novaQtd} ${siglaItem} consome ${novaQtdBase} ${siglaBase}, mas você tem apenas ${produtoCatalogo.quantidade || 0} ${siglaBase} em estoque.`);
-      return;
-    }
-
+    const { novaQtd, novoPreco, novaQtdBase } = result.value as { novaQtd: number; novoPreco: number; novaQtdBase: number };
     setItens((current) => current.map((it, idx) => (
-      idx === selectedItemIndex
+      idx === index
         ? {
             ...it,
             quantidade: novaQtd,
-            subtotal: Math.max(0, it.precoUnitario * novaQtd - it.desconto),
+            precoUnitario: novoPreco,
+            subtotal: Math.max(0, novoPreco * novaQtd - it.desconto),
             ...(it.embalagemId ? { quantidadeBase: novaQtdBase } : {}),
           }
         : it
@@ -1194,7 +1265,7 @@ const PedidoVendaForm: React.FC = () => {
     { key: 'F3', when: !isViewing || canAddPendingItem, handler: () => produtoBuscaInputRef.current?.focus() },
     // F4 (desconto do item) so vale quando o campo existe na tela.
     { key: 'F4', when: permitirDescontoPorItem && (!isViewing || canAddPendingItem), handler: () => produtoDescontoInputRef.current?.focus() },
-    { key: 'F5', when: (!isViewing || canEditPendingQtd) && selectedItemIndex !== null, handler: () => { void askSelectedItemQuantity(); } },
+    { key: 'F5', when: (!isViewing || canEditPendingQtd) && selectedItemIndex !== null, handler: () => { void editarItem(selectedItemIndex); } },
     { key: 'F6', when: !isViewing || canEditPendingOrder, handler: focusPagamentoSection },
     { key: 'F7', when: !isViewing || canEditPendingOrder, handler: focusPagamentoSection },
   ]);
@@ -3939,7 +4010,7 @@ const PedidoVendaForm: React.FC = () => {
                 <span><kbd>F2</kbd> Cliente</span>
                 <span><kbd>F3</kbd> Produto</span>
                 <span><kbd>F4</kbd> Desconto</span>
-                <span><kbd>F5</kbd> Qtd. item selecionado</span>
+                <span><kbd>F5</kbd> Editar item selecionado</span>
                 <span><kbd>F6</kbd> Pagamento</span>
                 <span><kbd>Esc</kbd> Fechar</span>
               </div>
@@ -3976,10 +4047,12 @@ const PedidoVendaForm: React.FC = () => {
                       className="has-clear-btn"
                       onViewMore={() => setIsProdutoSearchModalOpen(true)}
                       renderItem={renderProdutoRow}
-                      // Produto ja escolhido + Enter = lanca o item, sem Tab
-                      // ate o botao Adicionar. Quantidade e preco ja faziam
-                      // isso; faltava o campo onde o operador esta.
-                      onEnterComProdutoSelecionado={handleAddItem}
+                      // Fluxo do Enter no lancamento (pedido do usuario,
+                      // 2026-09-21): produto escolhido -> Enter vai pra
+                      // QUANTIDADE -> Enter vai pro PRECO -> Enter lanca o
+                      // item. Sem Tab, e sem lancar antes de o operador ter
+                      // passado por quantidade e preco.
+                      onEnterComProdutoSelecionado={() => focarCampo(produtoQtdInputRef)}
                     />
                     {produtoBusca && (
                       <button
@@ -4032,12 +4105,13 @@ const PedidoVendaForm: React.FC = () => {
                     Qtd {produtoSelecionado ? `(${opcaoUnidadeSelecionada.sigla})` : ''}
                   </label>
                   <input
+                    ref={produtoQtdInputRef}
                     type="number"
                     min={opcaoUnidadeSelecionada.permiteFracionado ? "0.001" : "1"}
                     step={opcaoUnidadeSelecionada.permiteFracionado ? "any" : "1"}
                     value={produtoQtd}
                     onChange={(e) => setProdutoQtd(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focarCampo(produtoPrecoInputRef); } }}
                     style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
                   />
                   {opcaoUnidadeSelecionada.fatorConversao !== 1 && Number(produtoQtd) > 0 && (
@@ -4049,7 +4123,7 @@ const PedidoVendaForm: React.FC = () => {
 
                 <div style={{ flex: '0.8', minWidth: '100px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Preço Unt.</label>
-                  <input type="number" step="0.01" value={produtoPreco} onChange={(e) => setProdutoPreco(Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                  <input ref={produtoPrecoInputRef} type="number" step="0.01" value={produtoPreco} onChange={(e) => setProdutoPreco(Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
                 </div>
 
                 {/* Some quando a empresa desliga desconto por item em
@@ -4102,6 +4176,8 @@ const PedidoVendaForm: React.FC = () => {
                       <tr
                         key={index}
                         onClick={() => setSelectedItemIndex(index)}
+                        onDoubleClick={(!isViewing || canEditPendingQtd) ? () => { setSelectedItemIndex(index); void editarItem(index); } : undefined}
+                        title={(!isViewing || canEditPendingQtd) ? 'Duplo clique para editar quantidade e preço' : undefined}
                         className={selectedItemIndex === index ? 'item-row-selectable selected' : 'item-row-selectable'}
                         style={{ borderBottom: '1px solid var(--border-color)' }}
                       >

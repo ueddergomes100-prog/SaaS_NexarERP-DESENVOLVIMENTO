@@ -157,6 +157,11 @@ const ConferenciaForm: React.FC = () => {
           setLoadError('Este pedido não está habilitado para conferência de mercadoria.');
           return;
         }
+        // Pedido/pre-venda cancelado sai da expedicao: nao ha o que separar.
+        if (pedidoData.status === 'Cancelada') {
+          setLoadError('Este pedido foi cancelado e saiu da expedição. Não há mercadoria a conferir.');
+          return;
+        }
         setPedido({ numeroPedido: pedidoData.numeroPedido, clienteNome: pedidoData.clienteNome });
 
         let configData: any = {};

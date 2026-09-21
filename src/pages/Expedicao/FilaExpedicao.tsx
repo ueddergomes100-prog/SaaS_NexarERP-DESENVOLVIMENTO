@@ -6,6 +6,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StatusConferencia } from '../../utils/conferenciaDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 
 interface PedidoExpedicaoData {
   id: string;
@@ -13,6 +14,8 @@ interface PedidoExpedicaoData {
   clienteNome?: string;
   createdAt?: { seconds?: number };
   statusConferencia: StatusConferencia;
+  /** Status do pedido em si (Pré-venda, Finalizada, Cancelada...). */
+  status?: string;
   tenantId: string;
   vendedorId?: string;
   usuarioResponsavelId?: string;
@@ -40,6 +43,7 @@ const STATUS_COLORS: Record<StatusConferencia, string> = {
 const STATUS_FILTER_ORDER: StatusConferencia[] = ['aguardando', 'em_conferencia', 'divergente', 'conferido'];
 
 const FilaExpedicao: React.FC = () => {
+  const { linha } = useLinhaSelecionavel();
   const navigate = useNavigate();
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
   const [pedidos, setPedidos] = useState<PedidoExpedicaoData[]>([]);
@@ -59,7 +63,10 @@ const FilaExpedicao: React.FC = () => {
       const data: PedidoExpedicaoData[] = [];
       snapshot.forEach((docSnap) => {
         const item = { id: docSnap.id, ...docSnap.data() } as PedidoExpedicaoData;
-        if (item.statusConferencia) data.push(item);
+        // Pedido ou pre-venda cancelado sai da fila -- nao ha mercadoria a
+        // separar. Filtrado aqui (e nao so' ao cancelar) pra tambem limpar
+        // os que ja foram cancelados antes.
+        if (item.statusConferencia && item.status !== 'Cancelada') data.push(item);
       });
       data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       // A fila tambem respeita a visibilidade de vendas. ATENCAO ao ligar
@@ -176,7 +183,7 @@ const FilaExpedicao: React.FC = () => {
                 </tr>
               ) : (
                 filteredPedidos.map((p) => (
-                  <tr key={p.id}>
+                  <tr key={p.id} {...linha(p.id, () => navigate(`/operacoes/conferencia/${p.id}`))}>
                     <td className="font-medium">#{p.numeroPedido}</td>
                     <td>{p.createdAt?.seconds ? new Date(p.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : '-'}</td>
                     <td>{p.clienteNome || 'Consumidor Final'}</td>
@@ -185,7 +192,7 @@ const FilaExpedicao: React.FC = () => {
                         {STATUS_LABELS[p.statusConferencia]}
                       </span>
                     </td>
-                    <td style={{ textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                    <td {...semAbrirLinha} style={{ textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '8px' }}>
                       <button
                         onClick={() => navigate(`/operacoes/conferencia/${p.id}`)}
                         className="icon-btn"

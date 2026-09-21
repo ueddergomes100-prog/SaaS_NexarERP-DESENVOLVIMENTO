@@ -4,6 +4,7 @@ import { CheckCircle2, Send, Trash2, XCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError } from '../../utils/alerts';
 import { criarOrcamentoExterno, criarPreVendaExterna } from '../../services/vendedorExternoVendaService';
+import { trocaService } from '../../services/trocaService';
 import VendedorHeader from './VendedorHeader';
 import { comNotaFiscalDaEscolha } from '../../utils/pedidoVendedorDomain';
 import {
@@ -24,7 +25,12 @@ const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 
 
 const totalDoRascunho = (rascunho: RascunhoVenda) => rascunho.itens.reduce((soma, item) => soma + item.subtotal, 0);
 
-const rotuloTipo = (rascunho: RascunhoVenda) => (rascunho.tipo === 'pedido' ? 'Pedido' : 'Orçamento');
+const rotuloTipo = (rascunho: RascunhoVenda) => (rascunho.tipo === 'pedido' ? 'Pedido' : rascunho.tipo === 'troca' ? 'Troca' : 'Orçamento');
+
+/** Quantidade de itens do rascunho (a troca guarda os dela em `itensTroca`). */
+const quantidadeDeItens = (rascunho: RascunhoVenda) => (rascunho.tipo === 'troca' ? (rascunho.itensTroca || []).length : rascunho.itens.length);
+
+const caminhoDeEdicao = (rascunho: RascunhoVenda) => `/vendedor/${rascunho.tipo === 'pedido' ? 'pedido' : rascunho.tipo === 'troca' ? 'troca' : 'orcamento'}/rascunho/${rascunho.localId}`;
 
 /**
  * Rascunhos guardados no aparelho + "Enviar dados".
@@ -71,6 +77,21 @@ const VendedorRascunhos: React.FC = () => {
 
   const enviarUm = async (rascunho: RascunhoVenda): Promise<string> => {
     if (!tenantId || !currentUser) throw new Error('Sessão expirada. Entre novamente.');
+    if (rascunho.tipo === 'troca') {
+      // Troca vai pelo servidor (a loja aprova depois); reenviar o mesmo rascunho nao duplica.
+      const resposta = await trocaService.solicitar({
+        idDocumento: rascunho.localId,
+        clienteId: rascunho.cliente.id,
+        observacao: rascunho.observacao,
+        itens: (rascunho.itensTroca || []).map((item) => ({
+          id: item.id,
+          quantidade: item.quantidade,
+          motivo: item.motivo,
+          ...(item.motivoDescricao ? { motivoDescricao: item.motivoDescricao } : {}),
+        })),
+      });
+      return `Troca #${resposta.numeroTroca} enviada — aguarde a loja aprovar`;
+    }
     if (rascunho.tipo === 'pedido') {
       if (!trabalhaComPreVenda) {
         throw new Error('A opção "Pré-venda" está desligada nas Configurações da empresa. Peça pro administrador habilitar.');
@@ -192,14 +213,14 @@ const VendedorRascunhos: React.FC = () => {
               <button
                 type="button"
                 disabled={enviando}
-                onClick={() => navigate(`/vendedor/${rascunho.tipo === 'pedido' ? 'pedido' : 'orcamento'}/rascunho/${rascunho.localId}`)}
+                onClick={() => navigate(caminhoDeEdicao(rascunho))}
                 style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer' }}
               >
                 <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {rascunho.cliente.nome}
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>
-                  {rotuloTipo(rascunho)} · {rascunho.itens.length} {rascunho.itens.length === 1 ? 'item' : 'itens'} · {formatarMoeda(totalDoRascunho(rascunho))}
+                  {rotuloTipo(rascunho)} · {quantidadeDeItens(rascunho)} {quantidadeDeItens(rascunho) === 1 ? 'item' : 'itens'}{rascunho.tipo === 'troca' ? ' · sem cobrança' : ` · ${formatarMoeda(totalDoRascunho(rascunho))}`}
                 </div>
                 {rascunho.notaFiscal && (
                   <div style={{ marginTop: '6px' }}>

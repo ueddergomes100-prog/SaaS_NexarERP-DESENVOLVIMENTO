@@ -178,6 +178,8 @@ const VendedorNovoCliente: React.FC = () => {
         navigate('/vendedor/pedido/novo', { replace: true, state: { clientePreSelecionado: { id: ref.id, nome: dados.nome } } });
       } else if (estado?.retornarPara === 'orcamento') {
         navigate('/vendedor/orcamento/novo', { replace: true, state: { clientePreSelecionado: { id: ref.id, nome: dados.nome } } });
+      } else if (estado?.retornarPara === 'troca') {
+        navigate('/vendedor/troca/nova', { replace: true, state: { clientePreSelecionado: { id: ref.id, nome: dados.nome } } });
       } else {
         navigate('/vendedor/cliente', { replace: true });
       }

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowDownCircle, ArrowUpCircle, Box, ChevronRight, ClipboardList, FileText, LogOut, Receipt, Send, SquarePlus, Tag, Users, Wrench } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Box, ChevronRight, ClipboardList, FileText, ListChecks, LogOut, Receipt, Repeat, Send, SquarePlus, Tag, Users, Wrench } from 'lucide-react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
 import { db } from '../../services/firebase';
@@ -10,6 +10,8 @@ import { CAMINHO_INSTALACAO, estaInstalado } from './pwa';
 import { listarRascunhos } from './vendedorRascunhosStore';
 import './vendedorMobile.css';
 import { PERMISSAO_BALANCO } from './vendedorPermissoes';
+import { hasTenantFullAccess } from '../../utils/roles';
+import { PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
 
 interface PedidoRecente {
   id: string;
@@ -36,7 +38,8 @@ const atalhoStyle: React.CSSProperties = {
 
 const VendedorHome: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, tenantId, logout, userNome, userPermissions, controlaFiscal } = useAuth();
+  const { currentUser, tenantId, logout, userNome, userPermissions, controlaFiscal, userRole, isOwner } = useAuth();
+  const podeSolicitarTroca = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_TROCA_SOLICITAR);
   const [recentes, setRecentes] = useState<PedidoRecente[]>([]);
   const [resumoHoje, setResumoHoje] = useState<{ pedidos: number; orcamentos: number } | null>(null);
   // A Home remonta a cada visita (key por rota no VendedorShell), entao ler
@@ -195,6 +198,31 @@ const VendedorHome: React.FC = () => {
             <Users size={28} color="var(--brand-400)" strokeWidth={1.7} />
             <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Consultar Cliente</span>
           </button>
+
+          {podeSolicitarTroca && (
+            <>
+              <button
+                type="button"
+                onClick={() => navigate('/vendedor/troca/nova')}
+                style={{ ...atalhoStyle, backgroundColor: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.5)' }}
+              >
+                <Repeat size={28} color="#f59e0b" strokeWidth={1.7} />
+                <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>
+                  Nova Troca
+                  <span style={{ display: 'block', fontSize: '11.5px', fontWeight: 500, color: 'var(--text-muted)', marginTop: '3px' }}>Reposição sem cobrança</span>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/vendedor/trocas')}
+                style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+              >
+                <ListChecks size={28} color="#f59e0b" strokeWidth={1.7} />
+                <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Minhas Trocas</span>
+              </button>
+            </>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

@@ -13,6 +13,9 @@ const PedidoVendas = lazy(() => import('../pages/Vendas/PedidoVendas'));
 const MinhasVendas = lazy(() => import('../pages/Vendas/MinhasVendas'));
 const RelatoriosVendas = lazy(() => import('../pages/Vendas/RelatoriosVendas'));
 const DevolucoesVenda = lazy(() => import('../pages/Vendas/DevolucoesVenda'));
+const TrocasList = lazy(() => import('../pages/Trocas/TrocasList'));
+const TrocaDetalhe = lazy(() => import('../pages/Trocas/TrocaDetalhe'));
+const TrocaMinutaPrint = lazy(() => import('../pages/Trocas/TrocaMinutaPrint'));
 const RelatorioPreVendas = lazy(() => import('../pages/Vendas/RelatorioPreVendas'));
 const OSList = lazy(() => import('../pages/OS/OSList'));
 const RelatoriosMecanica = lazy(() => import('../pages/OS/RelatoriosMecanica'));
@@ -105,6 +108,9 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'pedidos-venda/print/:id', element: <PedidoPrint /> },
   { path: 'pedidos-venda/print-lote', element: <PedidoPrintLote /> },
   { path: 'vendas/devolucoes', element: <DevolucoesVenda /> },
+  { path: 'vendas/trocas', element: <TrocasList /> },
+  { path: 'vendas/trocas/:id', element: <TrocaDetalhe /> },
+  { path: 'vendas/trocas/:id/minuta', element: <TrocaMinutaPrint /> },
   { path: 'relatorios-vendas', element: <RelatoriosVendas /> },
   { path: 'pre-vendas', element: <RelatorioPreVendas /> },
 

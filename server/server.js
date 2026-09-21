@@ -20,6 +20,7 @@ const usuariosRoutes = require('./routes/usuarios.routes');
 const documentosRoutes = require('./routes/documentos.routes');
 const cadastrosRoutes = require('./routes/cadastros.routes');
 const devolucaoNfeRoutes = require('./routes/devolucaoNfe.routes');
+const trocasRoutes = require('./routes/trocas.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -106,6 +107,9 @@ app.use('/api/cadastros', cadastrosRoutes);
 // NF-e de devolucao de venda: o servidor monta a nota a partir do que esta gravado
 // (devolucao, pedido, nota original) -- a tela so' diz QUAL devolucao emitir.
 app.use('/api/devolucao-nfe', devolucaoNfeRoutes);
+// Trocas de mercadoria (reposicao sem cobranca, pedida pelo app do vendedor): toda escrita e
+// todo movimento de estoque passam por aqui; as firestore.rules deixam a colecao so' pra leitura.
+app.use('/api/trocas', trocasRoutes);
 
 // Middleware para tratamento global de erros HTTP
 app.use((err, req, res, next) => {

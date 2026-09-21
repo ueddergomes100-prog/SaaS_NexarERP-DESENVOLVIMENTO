@@ -60,6 +60,14 @@ interface MinutaPrintDocumentProps {
   /** Colunas opcionais (Configuracoes). Padrao: aparecem. */
   mostrarMarca?: boolean;
   mostrarLocal?: boolean;
+  /** Padrao "MINUTA DE ENTREGA". A troca imprime "MINUTA DE TROCA — SEM COBRANÇA". */
+  titulo?: string;
+  /** Padrao "Pré-venda"/"Pedido" conforme o status. A troca imprime "Troca". */
+  rotuloNumero?: string;
+  /** Padrao "VENDAS". */
+  operacao?: string;
+  /** Padrao: sai da forma de pagamento do pedido. A troca imprime "SEM COBRANÇA". */
+  condicaoPagto?: string;
 }
 
 /**
@@ -77,13 +85,14 @@ interface MinutaPrintDocumentProps {
  */
 const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({
   pedidoData, itens, configData, cliente, vendedorCodigo, usuarioNome, geradoEm, mostrarMarca = true, mostrarLocal = true,
+  titulo, rotuloNumero, operacao, condicaoPagto,
 }) => {
   const totalColunas = 5 + (mostrarMarca ? 1 : 0) + (mostrarLocal ? 1 : 0);
   const criadoEm: Date | null = pedidoData.createdAt?.toDate ? pedidoData.createdAt.toDate() : null;
   const numero = pedidoData.numeroPedido || pedidoData.id.substring(0, 6).toUpperCase();
   const ehPreVenda = pedidoData.status === 'Pré-venda';
   const nomeEmpresa = String(configData?.nomeOficina || '').trim();
-  const condicao = condicaoPagamentoMinuta(pedidoData.pagamentos);
+  const condicao = condicaoPagto ?? condicaoPagamentoMinuta(pedidoData.pagamentos);
   const observacao = String(pedidoData.observacao || pedidoData.observacoes || '').trim();
   const documento = formatarDocumentoMinuta(cliente?.documento);
   const fone = formatarTelefoneMinuta(cliente?.telefone);
@@ -92,12 +101,12 @@ const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({
   return (
     <div className="a4-page minuta-doc">
       <div className="minuta-quadro">
-        <span className="minuta-titulo">MINUTA DE ENTREGA</span>
+        <span className="minuta-titulo">{titulo || 'MINUTA DE ENTREGA'}</span>
 
         <div className="minuta-linha">
           <span>Filial: {nomeEmpresa}</span>
-          <span>{ehPreVenda ? 'Pré-venda' : 'Pedido'}: {numero}</span>
-          <span>Operação: VENDAS</span>
+          <span>{rotuloNumero || (ehPreVenda ? 'Pré-venda' : 'Pedido')}: {numero}</span>
+          <span>Operação: {operacao || 'VENDAS'}</span>
           <span>Página: 1</span>
         </div>
 

@@ -37,8 +37,14 @@ export const MOTIVOS_AJUSTE_SAIDA: MotivoAjusteEstoqueOption[] = [
 export const motivosAjusteEstoquePorTipo = (tipo: TipoAjusteEstoque): MotivoAjusteEstoqueOption[] =>
   (tipo === 'entrada' ? MOTIVOS_AJUSTE_ENTRADA : MOTIVOS_AJUSTE_SAIDA);
 
+/** Motivos que SO' o sistema grava (nao aparecem na lista do ajuste manual): a troca de mercadoria
+ *  baixa o estoque com este motivo (server/routes/trocas.routes.js). */
+const MOTIVOS_DO_SISTEMA: Record<string, string> = {
+  troca_cliente: 'Troca de cliente',
+};
+
 export const labelMotivoAjusteEstoque = (tipo: TipoAjusteEstoque, value: string): string =>
-  motivosAjusteEstoquePorTipo(tipo).find((motivo) => motivo.value === value)?.label || value;
+  motivosAjusteEstoquePorTipo(tipo).find((motivo) => motivo.value === value)?.label || MOTIVOS_DO_SISTEMA[value] || value;
 
 export interface LoteEstoque {
   id: string;

@@ -8,7 +8,7 @@ import type { ItemVendaExterna } from '../../services/vendedorExternoVendaServic
 /** Estado de navegacao pro cadastro de cliente: pra onde voltar depois de
  *  salvar (com o cliente novo ja' escolhido). */
 export interface VendedorNovoClienteNavState {
-  retornarPara?: 'pedido' | 'orcamento';
+  retornarPara?: 'pedido' | 'orcamento' | 'troca';
 }
 
 export interface VendedorNovoPedidoNavState {

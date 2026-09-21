@@ -1,5 +1,6 @@
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import type { EscolhaNotaFiscal } from '../../utils/pedidoVendedorDomain';
+import type { ItemTrocaRascunho } from '../../utils/trocaDomain';
 
 /**
  * Rascunhos de pedido/orcamento do vendedor externo, guardados NO APARELHO.
@@ -20,7 +21,7 @@ import type { EscolhaNotaFiscal } from '../../utils/pedidoVendedorDomain';
  * um vendedor com o de outro.
  */
 
-export type TipoRascunho = 'pedido' | 'orcamento';
+export type TipoRascunho = 'pedido' | 'orcamento' | 'troca';
 
 export interface RascunhoVenda {
   /** Vira tambem o id do documento no Firestore ao enviar -- e' o que torna
@@ -28,8 +29,11 @@ export interface RascunhoVenda {
   localId: string;
   tipo: TipoRascunho;
   cliente: { id: string; nome: string; telefone?: string };
+  /** Pedido e orcamento. Na TROCA fica vazio: os itens dela (sem preco, com motivo) estao em `itensTroca`. */
   itens: ItemVendaExterna[];
-  /** So' pedido: recado pra loja (sai na minuta da retaguarda). */
+  /** So' troca: reposicao sem cobranca -- produto, quantidade e motivo de cada item. */
+  itensTroca?: ItemTrocaRascunho[];
+  /** Pedido e troca: recado pra loja (sai na minuta da retaguarda). */
   observacao?: string;
   /** So' pedido, e so' na empresa que controla nota fiscal: o que o vendedor marcou. */
   notaFiscal?: EscolhaNotaFiscal;

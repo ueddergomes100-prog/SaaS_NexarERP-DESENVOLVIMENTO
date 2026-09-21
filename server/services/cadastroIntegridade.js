@@ -1,4 +1,5 @@
 const { admin, db } = require('../config/firebase');
+const { registrarLog } = require('./auditoria');
 
 /**
  * INTEGRIDADE DOS CADASTROS -- inativar, reativar e excluir (2026-09-19).
@@ -342,26 +343,6 @@ const carregar = async (user, colecao, id) => {
   return { cfg, ref, dados: snap.data() };
 };
 
-const registrarLog = (user, { modulo, acao, descricao, registroId, alteracoes }) => {
-  // Log e' auditoria, nao pode derrubar a operacao que ja' aconteceu.
-  db.collection('empresas').doc(user.tenantId).collection('logs').add({
-    usuarioId: user.uid,
-    usuario: user.email || user.uid,
-    modulo,
-    acao,
-    descricao,
-    registroRelacionadoId: registroId,
-    valorAnterior: null,
-    valorNovo: null,
-    vendedorId: null,
-    vendedorNome: null,
-    alteracoes: alteracoes || null,
-    snapshotExcluido: null,
-    status: 'sucesso',
-    critical: acao === 'exclusao',
-    dataHora: TIMESTAMP(),
-  }).catch((erro) => console.error('[Cadastros] falha ao gravar log:', erro.message));
-};
 
 /**
  * Ativa ou inativa um cadastro. Devolve { ativo, saldoZerado } --

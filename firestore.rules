@@ -571,7 +571,11 @@ service cloud.firestore {
         'expedicoes',
         'entregas',
         'caixas_pdv',
-        'notas_avulsas'
+        'notas_avulsas',
+        // Trocas de mercadoria: SO' LEITURA aqui. Criar, aprovar, entregar e baixar o estoque
+        // acontece no servidor (Admin SDK, server/routes/trocas.routes.js) -- de proposito ela NAO
+        // esta nas listas de create/update/delete abaixo, entao o app nunca escreve nela.
+        'trocas'
       ] && canReadTenantDocument();
 
       allow create: if collectionName in [

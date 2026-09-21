@@ -44,6 +44,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/minhas-vendas')) routeModule = 'comercial.pedidos';
   else if (path.startsWith('/orcamentos')) routeModule = 'comercial.orcamentos';
   else if (path.startsWith('/vendas/devolucoes')) routeModule = 'comercial.devolucoes';
+  else if (path.startsWith('/vendas/trocas')) routeModule = 'comercial.trocas';
   else if (path.startsWith('/pre-vendas')) routeModule = 'comercial.relatorios';
   else if (path.startsWith('/relatorios-vendas')) routeModule = 'comercial.relatorios';
   else if (path.startsWith('/os')) routeModule = 'mecanica.os';
@@ -112,6 +113,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/minhas-vendas')) routePermission = 'vendas.minhas_vendas';
   else if (path.startsWith('/orcamentos')) routePermission = 'vendas.orcamentos';
   else if (path.startsWith('/vendas/devolucoes')) routePermission = 'vendas.devolucao';
+  else if (path.startsWith('/vendas/trocas')) routePermission = 'vendas.troca_gerenciar';
   else if (path.startsWith('/pre-vendas')) routePermission = 'vendas.pre_venda_relatorio';
   else if (path.startsWith('/relatorios-vendas')) routePermission = 'vendas.relatorios';
   else if (path.startsWith('/os')) routePermission = 'mecanica.os';

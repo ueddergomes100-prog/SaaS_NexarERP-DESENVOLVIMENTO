@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Save } from 'lucide-react';
+import { Save, UserPlus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { showError, showSuccess } from '../../utils/alerts';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import type { SearchableClient } from '../../utils/clientSearch';
+import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../components/common/CadastroRapidoClienteModal';
 import VendedorHeader from './VendedorHeader';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
@@ -40,6 +41,7 @@ const VendedorNovoPedido: React.FC = () => {
   ));
 
   const [clienteBusca, setClienteBusca] = useState('');
+  const [cadastroRapidoAberto, setCadastroRapidoAberto] = useState(false);
   const [clienteSelecionado, setClienteSelecionado] = useState<ClienteVendedor | null>(() => {
     if (rascunhoAberto) return { ...rascunhoAberto.cliente };
     return estadoNavegacao?.clientePreSelecionado
@@ -121,17 +123,40 @@ const VendedorNovoPedido: React.FC = () => {
             </button>
           </div>
         ) : (
-          <ClientAutocomplete
-            value={clienteBusca}
-            onChange={setClienteBusca}
-            clients={clientes}
-            onSelect={(cliente) => setClienteSelecionado(cliente)}
-            renderItem={(cliente) => <span>{cliente.nome}</span>}
-            placeholder="Buscar cliente por nome"
-            ariaLabel="Buscar cliente"
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <ClientAutocomplete
+              value={clienteBusca}
+              onChange={setClienteBusca}
+              clients={clientes}
+              onSelect={(cliente) => setClienteSelecionado(cliente)}
+              renderItem={(cliente) => <span>{cliente.nome}</span>}
+              placeholder="Buscar cliente por nome"
+              ariaLabel="Buscar cliente"
+            />
+            <button
+              type="button"
+              onClick={() => setCadastroRapidoAberto(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px', alignSelf: 'flex-start',
+                fontSize: '12.5px', color: 'var(--brand-400)', background: 'none', border: 'none',
+                cursor: 'pointer', fontWeight: 600, padding: '2px 0',
+              }}
+            >
+              <UserPlus size={14} /> Cliente não cadastrado? Cadastrar agora
+            </button>
+          </div>
         )}
       </div>
+
+      <CadastroRapidoClienteModal
+        open={cadastroRapidoAberto}
+        nomeInicial={clienteBusca}
+        onClose={() => setCadastroRapidoAberto(false)}
+        onCriado={(cliente: ClienteCadastradoRapido) => {
+          setClienteSelecionado({ id: cliente.id, nome: cliente.nome, ...(cliente.telefone ? { telefone: cliente.telefone } : {}) });
+          setClienteBusca('');
+        }}
+      />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
         <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque={false} />

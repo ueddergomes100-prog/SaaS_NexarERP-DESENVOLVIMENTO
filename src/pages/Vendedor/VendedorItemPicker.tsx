@@ -96,7 +96,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
             value={produtoBusca}
             onChange={setProdutoBusca}
             products={produtos}
-            onSelect={(produto) => setProdutoSelecionado(produto)}
+            onSelect={(produto) => { setProdutoBusca(produto.nome); setProdutoSelecionado(produto); }}
             renderItem={renderProdutoOpcaoBusca}
             variant="inline"
             placeholder="Buscar produto por nome ou código"

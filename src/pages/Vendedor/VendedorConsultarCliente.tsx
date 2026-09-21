@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Phone, MapPin, Mail, Plus } from 'lucide-react';
+import { Phone, MapPin, Mail, Plus, UserPlus } from 'lucide-react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -9,6 +9,7 @@ import { calcularSaldoEmAbertoClienteCents } from '../../utils/contasReceberQuer
 import { buscarIdsClientesMaisFrequentes } from '../../services/vendedorRankingService';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import type { SearchableClient } from '../../utils/clientSearch';
+import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../components/common/CadastroRapidoClienteModal';
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
 import VendedorHeader from './VendedorHeader';
 
@@ -46,6 +47,7 @@ const VendedorConsultarCliente: React.FC = () => {
 
   const [busca, setBusca] = useState('');
   const [selecionado, setSelecionado] = useState<ClienteVendedor | null>(null);
+  const [cadastroRapidoAberto, setCadastroRapidoAberto] = useState(false);
   const [saldoCents, setSaldoCents] = useState<number | null>(null);
   const [historico, setHistorico] = useState<HistoricoItem[]>([]);
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
@@ -134,7 +136,7 @@ const VendedorConsultarCliente: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
       <VendedorHeader titulo="Consultar Cliente" />
 
-      <div style={{ padding: '16px 20px 0' }}>
+      <div style={{ padding: '16px 20px 0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <ClientAutocomplete
           value={busca}
           onChange={setBusca}
@@ -144,7 +146,30 @@ const VendedorConsultarCliente: React.FC = () => {
           placeholder="Buscar cliente por nome"
           ariaLabel="Buscar cliente"
         />
+        {!selecionado && (
+          <button
+            type="button"
+            onClick={() => setCadastroRapidoAberto(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px', alignSelf: 'flex-start',
+              fontSize: '12.5px', color: 'var(--brand-400)', background: 'none', border: 'none',
+              cursor: 'pointer', fontWeight: 600, padding: '2px 0',
+            }}
+          >
+            <UserPlus size={14} /> Cliente não cadastrado? Cadastrar agora
+          </button>
+        )}
       </div>
+
+      <CadastroRapidoClienteModal
+        open={cadastroRapidoAberto}
+        nomeInicial={busca}
+        onClose={() => setCadastroRapidoAberto(false)}
+        onCriado={(cliente: ClienteCadastradoRapido) => {
+          setSelecionado({ id: cliente.id, nome: cliente.nome, ...(cliente.telefone ? { telefone: cliente.telefone } : {}) });
+          setBusca('');
+        }}
+      />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {!selecionado ? (

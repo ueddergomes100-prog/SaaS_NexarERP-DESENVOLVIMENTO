@@ -1109,6 +1109,27 @@ const NFE: React.FC = () => {
     setIsSubmitting(true);
 
     try {
+      // Antes de qualquer coisa: a empresa tem o que precisa pra emitir?
+      // (ambiente, serie, certificado...). Sem isso a Spedy devolvia
+      // rejeicao crua tipo "Ambiente: 0". Falha ao CONFERIR nao trava a
+      // emissao -- so' o que a conferencia diz que falta.
+      if (formData.tipo === 'NF-e' || formData.tipo === 'NFC-e') {
+        try {
+          const requisitos = await spedyService.getRequisitos();
+          const grupo = formData.tipo === 'NF-e' ? requisitos.nfe : requisitos.nfce;
+          const bloqueios = grupo.checks.filter((c) => c.gravidade === 'bloqueio');
+          if (bloqueios.length > 0) {
+            showError(
+              `Faltam itens para emitir a ${formData.tipo}`,
+              bloqueios.map((c) => `• ${c.mensagem} ${c.comoResolver}`.trim()).join('\n'),
+            );
+            return;
+          }
+        } catch (erroRequisitos) {
+          console.error('Nao foi possivel conferir os requisitos fiscais (a emissao segue):', erroRequisitos);
+        }
+      }
+
       // Procura se já existe uma nota rejeitada para este pedido e tipo --
       // reenvio manual (retransmissão) ou reenvio automático de uma nota
       // já rejeitada reaproveitam o id dela como integrationId da Spedy

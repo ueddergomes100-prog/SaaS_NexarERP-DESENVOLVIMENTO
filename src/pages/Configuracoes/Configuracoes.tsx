@@ -30,7 +30,7 @@ import {
   parseTipoDescontoPadrao,
 } from '../../utils/descontoDomain';
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
-import { spedyService, type SpedyCity, type SpedyNumberingUpdate } from '../../services/spedyService';
+import { spedyService, type SpedyCity, type SpedyNumberingUpdate, type AmbienteNotaSefaz, type RequisitosFiscais } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
 import {
   DEFAULT_AGENTE_DIGITAL_ATIVO,
@@ -248,6 +248,13 @@ const Configuracoes: React.FC = () => {
   const [numeracaoNfce, setNumeracaoNfce] = useState({ serie: '', numeroAtual: '', csc: '', cscId: '' });
   const [numeracaoNfse, setNumeracaoNfse] = useState({ serie: '', proximoNumero: '' });
   const [salvandoNumeracao, setSalvandoNumeracao] = useState(false);
+  // Ambiente da NF-e / NFC-e ('' = ainda nao escolhido -- de proposito nao ha
+  // padrao: "producao" por engano emite nota fiscal REAL).
+  const [ambienteNfe, setAmbienteNfe] = useState<AmbienteNotaSefaz | ''>('');
+  const [ambienteNfce, setAmbienteNfce] = useState<AmbienteNotaSefaz | ''>('');
+  const [requisitos, setRequisitos] = useState<RequisitosFiscais | null>(null);
+  const [conferindoRequisitos, setConferindoRequisitos] = useState(false);
+  const [erroRequisitos, setErroRequisitos] = useState('');
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -368,6 +375,8 @@ const Configuracoes: React.FC = () => {
             serie: numeracao.serviceInvoice?.series ?? '',
             proximoNumero: numeracao.serviceInvoice?.nextNumber != null ? String(numeracao.serviceInvoice.nextNumber) : '',
           });
+          setAmbienteNfe(numeracao.productInvoice?.environmentType === 'production' || numeracao.productInvoice?.environmentType === 'development' ? numeracao.productInvoice.environmentType : '');
+          setAmbienteNfce(numeracao.consumerInvoice?.environmentType === 'production' || numeracao.consumerInvoice?.environmentType === 'development' ? numeracao.consumerInvoice.environmentType : '');
           setIsEditingMode(false);
         } else {
           const userProfileSnap = await getDoc(doc(db, 'usuarios', currentUser.uid));
@@ -452,26 +461,66 @@ const Configuracoes: React.FC = () => {
     return () => clearTimeout(timer);
   }, [cidadeSearchTerm]);
 
+  /** Confere na Spedy o que falta pra emitir nota e mostra item a item. Tambem
+   * traz o ambiente da NF-e/NFC-e que a Spedy tem hoje pros campos abaixo. */
+  const handleConferirRequisitos = async () => {
+    setConferindoRequisitos(true);
+    setErroRequisitos('');
+    try {
+      const resultado = await spedyService.getRequisitos();
+      setRequisitos(resultado);
+      if (resultado.ambientes.nfe === 'production' || resultado.ambientes.nfe === 'development') {
+        setAmbienteNfe(resultado.ambientes.nfe);
+      }
+      if (resultado.ambientes.nfce === 'production' || resultado.ambientes.nfce === 'development') {
+        setAmbienteNfce(resultado.ambientes.nfce);
+      }
+    } catch (error) {
+      console.error('Erro ao conferir os requisitos fiscais:', error);
+      setRequisitos(null);
+      setErroRequisitos(error instanceof Error ? error.message : 'Não foi possível conferir agora. Tente de novo em instantes.');
+    } finally {
+      setConferindoRequisitos(false);
+    }
+  };
+
   const handleSalvarNumeracao = async () => {
     const blocks: SpedyNumberingUpdate = {};
-    if (numeracaoNfe.serie.trim() || numeracaoNfe.proximoNumero.trim()) {
-      if (!numeracaoNfe.serie.trim() || !numeracaoNfe.proximoNumero.trim()) {
+    const nfeMexida = Boolean(numeracaoNfe.serie.trim() || numeracaoNfe.proximoNumero.trim());
+    if (nfeMexida || ambienteNfe) {
+      if (nfeMexida && (!numeracaoNfe.serie.trim() || !numeracaoNfe.proximoNumero.trim())) {
         showError('Numeração de NF-e incompleta', 'Preencha série e próximo número da NF-e juntos, ou deixe os dois em branco.');
         return;
       }
-      blocks.productInvoice = { series: numeracaoNfe.serie.trim(), nextNumber: Number(numeracaoNfe.proximoNumero) };
+      blocks.productInvoice = {
+        ...(nfeMexida ? { series: numeracaoNfe.serie.trim(), nextNumber: Number(numeracaoNfe.proximoNumero) } : {}),
+        ...(ambienteNfe ? { environmentType: ambienteNfe } : {}),
+      };
     }
-    if (numeracaoNfce.serie.trim() || numeracaoNfce.numeroAtual.trim()) {
-      if (!numeracaoNfce.serie.trim() || !numeracaoNfce.numeroAtual.trim()) {
+    const nfceMexida = Boolean(numeracaoNfce.serie.trim() || numeracaoNfce.numeroAtual.trim());
+    if (nfceMexida || ambienteNfce) {
+      if (nfceMexida && (!numeracaoNfce.serie.trim() || !numeracaoNfce.numeroAtual.trim())) {
         showError('Numeração de NFC-e incompleta', 'Preencha série e número atual da NFC-e juntos, ou deixe os dois em branco.');
         return;
       }
       blocks.consumerInvoice = {
-        series: numeracaoNfce.serie.trim(),
-        currentNumber: Number(numeracaoNfce.numeroAtual),
+        ...(nfceMexida ? { series: numeracaoNfce.serie.trim(), currentNumber: Number(numeracaoNfce.numeroAtual) } : {}),
         ...(numeracaoNfce.csc.trim() ? { csc: numeracaoNfce.csc.trim() } : {}),
         ...(numeracaoNfce.cscId.trim() ? { tokenId: numeracaoNfce.cscId.trim() } : {}),
+        ...(ambienteNfce ? { environmentType: ambienteNfce } : {}),
       };
+    }
+    // Produção = nota fiscal REAL, com valor fiscal. Confirma antes de mandar.
+    if (ambienteNfe === 'production' || ambienteNfce === 'production') {
+      const confirma = await NexusSwal.fire({
+        title: 'Ambiente de Produção',
+        text: 'Em Produção, as notas emitidas são notas fiscais REAIS, com valor fiscal, e não podem ser apagadas — só canceladas dentro do prazo. Confirma?',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sim, é produção',
+        cancelButtonText: 'Cancelar',
+      });
+      if (!confirma.isConfirmed) return;
     }
     if (numeracaoNfse.serie.trim() || numeracaoNfse.proximoNumero.trim()) {
       if (!numeracaoNfse.serie.trim() || !numeracaoNfse.proximoNumero.trim()) {
@@ -488,7 +537,8 @@ const Configuracoes: React.FC = () => {
     setSalvandoNumeracao(true);
     try {
       await spedyService.updateNumbering(blocks);
-      showSuccess('Numeração fiscal atualizada na Spedy!');
+      showSuccess('Configuração fiscal atualizada na Spedy!');
+      void handleConferirRequisitos();
     } catch (error) {
       console.error('Erro ao salvar numeração fiscal:', error);
       showError('Erro ao salvar numeração', error instanceof Error ? error.message : 'Não foi possível atualizar a numeração na Spedy.');
@@ -1394,7 +1444,7 @@ const Configuracoes: React.FC = () => {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <FileText size={20} style={{ color: 'var(--accent-purple)' }} />
-              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Textos Padrões (OS)</h3>
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Textos Padrões (OS e Vendas)</h3>
             </div>
             <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
               {showTextosPadroes ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
@@ -2550,6 +2600,11 @@ const Configuracoes: React.FC = () => {
 
                     <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>NF-e (Produtos)</label>
+                      <select value={ambienteNfe} onChange={(e) => setAmbienteNfe(e.target.value as AmbienteNotaSefaz | '')} disabled={!isEditingMode} aria-label="Ambiente da NF-e" style={{ backgroundColor: 'var(--bg-tertiary)', border: `1px solid ${ambienteNfe ? 'var(--border-color)' : '#f59e0b'}`, borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}>
+                        <option value="">Ambiente da NF-e — escolha (obrigatório para emitir)</option>
+                        <option value="development">Homologação (testes, sem validade fiscal)</option>
+                        <option value="production">Produção (nota fiscal real)</option>
+                      </select>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
                         <input type="text" placeholder="Série (ex: 1)" value={numeracaoNfe.serie} onChange={(e) => setNumeracaoNfe(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                         <input type="number" min="1" placeholder="Próximo número" value={numeracaoNfe.proximoNumero} onChange={(e) => setNumeracaoNfe(prev => ({ ...prev, proximoNumero: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
@@ -2558,6 +2613,11 @@ const Configuracoes: React.FC = () => {
 
                     <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>NFC-e (Consumidor / Cupom)</label>
+                      <select value={ambienteNfce} onChange={(e) => setAmbienteNfce(e.target.value as AmbienteNotaSefaz | '')} disabled={!isEditingMode} aria-label="Ambiente da NFC-e" style={{ backgroundColor: 'var(--bg-tertiary)', border: `1px solid ${ambienteNfce ? 'var(--border-color)' : '#f59e0b'}`, borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}>
+                        <option value="">Ambiente da NFC-e — escolha (obrigatório para emitir)</option>
+                        <option value="development">Homologação (testes, sem validade fiscal)</option>
+                        <option value="production">Produção (nota fiscal real)</option>
+                      </select>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
                         <input type="text" placeholder="Série (ex: 1)" value={numeracaoNfce.serie} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                         <input type="number" min="1" placeholder="Número atual" value={numeracaoNfce.numeroAtual} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, numeroAtual: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
@@ -2584,8 +2644,37 @@ const Configuracoes: React.FC = () => {
                       disabled={!isEditingMode || salvandoNumeracao}
                       style={{ alignSelf: 'flex-start', opacity: (!isEditingMode || salvandoNumeracao) ? 0.7 : 1 }}
                     >
-                      {salvandoNumeracao ? 'Salvando na Spedy...' : 'Salvar numeração na Spedy'}
+                      {salvandoNumeracao ? 'Salvando na Spedy...' : 'Salvar ambiente e numeração na Spedy'}
                     </button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
+                    <div>
+                      <h4 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>O que falta para emitir nota</h4>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                        Confere na Spedy se a empresa está pronta: ambiente, série e número, certificado digital A1 e CSC (NFC-e). O sistema também faz essa conferência antes de emitir uma NF-e e avisa o que falta.
+                      </p>
+                    </div>
+                    <button type="button" className="btn-secondary" onClick={handleConferirRequisitos} disabled={conferindoRequisitos} style={{ alignSelf: 'flex-start' }}>
+                      {conferindoRequisitos ? 'Conferindo...' : 'Conferir requisitos'}
+                    </button>
+                    {erroRequisitos && <p style={{ fontSize: '13px', color: '#ef4444', margin: 0 }}>{erroRequisitos}</p>}
+                    {requisitos && (['nfe', 'nfce'] as const).map((grupo) => (
+                      <div key={grupo} style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 14px', backgroundColor: 'var(--bg-tertiary)' }}>
+                        <strong style={{ fontSize: '13px', color: requisitos[grupo].pronto ? '#10b981' : '#ef4444' }}>
+                          {grupo === 'nfe' ? 'NF-e' : 'NFC-e'} — {requisitos[grupo].pronto ? 'pronta para emitir' : 'faltam itens obrigatórios'}
+                        </strong>
+                        <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {requisitos[grupo].checks.map((check) => (
+                            <li key={check.id} style={{ fontSize: '13px', color: 'var(--text-primary)' }}>
+                              <span style={{ marginRight: '6px' }}>{check.situacao === 'ok' ? '✅' : check.gravidade === 'bloqueio' ? '❌' : '⚠️'}</span>
+                              {check.mensagem}
+                              {check.comoResolver && <span style={{ display: 'block', marginLeft: '24px', color: 'var(--text-muted)', fontSize: '12px' }}>{check.comoResolver}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
                   </div>
                 </>
               )}

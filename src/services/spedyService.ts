@@ -114,9 +114,15 @@ export interface SpedyInvoice {
  * ERP, nunca pra "zerar" (SEFAZ nao aceita reemitir numero ja usado).
  * NFC-e tambem carrega o numero ATUAL (nao o proximo) e o CSC (Codigo de
  * Seguranca do Contribuinte) exigido pra gerar o QR Code do cupom. */
+export type AmbienteNotaSefaz = 'development' | 'production';
+
 export interface SpedyNumberingUpdate {
-  productInvoice?: { series: string; nextNumber: number };
-  consumerInvoice?: { series: string; currentNumber: number; csc?: string; tokenId?: string };
+  // `environmentType` (Homologacao = development, Producao = production) vai
+  // no mesmo bloco: a Spedy rejeita a nota com "Ambiente: 0" quando a empresa
+  // nunca teve o ambiente da NF-e definido. series/nextNumber sao opcionais
+  // aqui -- da' pra salvar so' o ambiente.
+  productInvoice?: { series?: string; nextNumber?: number; environmentType?: AmbienteNotaSefaz };
+  consumerInvoice?: { series?: string; currentNumber?: number; csc?: string; tokenId?: string; environmentType?: AmbienteNotaSefaz };
   serviceInvoice?: { series: string; nextNumber: number };
 }
 
@@ -142,6 +148,23 @@ export interface SpedyCityListResponse {
   hasNext: boolean;
 }
 
+/** Um item da conferencia "o que precisa pra emitir nota". */
+export interface RequisitoFiscal {
+  id: string;
+  situacao: 'ok' | 'pendente' | 'atencao' | 'desconhecido';
+  gravidade: 'ok' | 'bloqueio' | 'aviso';
+  mensagem: string;
+  comoResolver: string;
+}
+
+export interface RequisitosFiscais {
+  ambienteSpedy: SpedyEnv;
+  ambientes: { nfe: string | null; nfce: string | null };
+  nfe: { pronto: boolean; checks: RequisitoFiscal[] };
+  nfce: { pronto: boolean; checks: RequisitoFiscal[] };
+  spedyLegivel: boolean;
+}
+
 export interface SpedyRuntimeConfig {
   spedyEnabled: boolean;
   spedyApiKeyConfigured: boolean;
@@ -149,6 +172,11 @@ export interface SpedyRuntimeConfig {
 }
 
 export const spedyService = {
+  /** O que falta pra emitir NF-e/NFC-e (ambiente, serie, certificado...). */
+  async getRequisitos(): Promise<RequisitosFiscais> {
+    return requestJson<RequisitosFiscais>('/api/spedy/requisitos', { method: 'GET' }, 'Erro ao conferir os requisitos para emitir nota.');
+  },
+
   async getRuntimeConfig(): Promise<SpedyRuntimeConfig> {
     return requestJson<SpedyRuntimeConfig>('/api/spedy/config', { method: 'GET' }, 'Erro ao carregar configuracao fiscal.');
   },

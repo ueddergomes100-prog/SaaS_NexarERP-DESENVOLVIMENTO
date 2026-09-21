@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { db } = require('../config/firebase');
+const { avaliarRequisitos, validarAmbienteEnviado } = require('../services/requisitosFiscais');
 
 const BASE_URLS = {
   sandbox: 'https://sandbox-api.spedy.com.br/v1',
@@ -118,6 +119,59 @@ router.get('/config', async (req, res) => {
   } catch (error) {
     console.error('[Spedy Config]', error);
     return res.status(500).json({ error: 'Erro ao carregar configuracao fiscal.' });
+  }
+});
+
+/**
+ * GET /requisitos -- confere o que a empresa precisa ter pra emitir NF-e e
+ * NFC-e (ambiente, serie, numero, certificado A1, CSC, dados da empresa) e
+ * devolve item a item, em portugues, o que falta e onde resolver. Le as
+ * configuracoes da empresa na Spedy com a chave DA PROPRIA empresa
+ * (GET /companies/{id}/settings e /certificates aceitam a chave por-empresa).
+ *
+ * Precisa vir ANTES de GET /:type, senao "requisitos" seria tratado como
+ * tipo de nota. Falha ao ler a Spedy nao vira erro: os itens dependentes
+ * voltam "desconhecido" e nao bloqueiam -- ver services/requisitosFiscais.js.
+ */
+router.get('/requisitos', async (req, res) => {
+  try {
+    if (!canUseFiscal(req.user)) {
+      return res.status(403).json({ error: 'Acesso negado ao modulo fiscal.' });
+    }
+
+    const tenantId = resolveTenantId(req);
+    const { apiKey, baseUrl } = await loadSpedyConfig(tenantId);
+    const configSnap = await db.collection('configuracoes').doc(tenantId).get();
+    const config = configSnap.exists ? configSnap.data() : {};
+    const companyId = config.spedyCompanyId;
+
+    const ler = async (caminho) => {
+      if (!companyId) return null;
+      try {
+        const response = await fetch(`${baseUrl}/companies/${companyId}/${caminho}`, {
+          method: 'GET',
+          headers: { 'X-Api-Key': apiKey }
+        });
+        if (!response.ok) return null;
+        return await response.json();
+      } catch (erro) {
+        console.error(`[Spedy Requisitos] falha ao ler ${caminho}:`, erro.message);
+        return null;
+      }
+    };
+
+    const [settings, certificados] = await Promise.all([ler('settings'), ler('certificates')]);
+    const avaliacao = avaliarRequisitos({
+      config,
+      settings,
+      certificados: Array.isArray(certificados) ? certificados : null,
+    });
+    return res.json({ ...avaliacao, spedyLegivel: Boolean(settings) });
+  } catch (error) {
+    console.error('[Spedy Requisitos]', error);
+    return res.status(error.status || 500).json({
+      error: error.message || 'Erro interno ao conferir os requisitos fiscais.'
+    });
   }
 });
 
@@ -249,6 +303,14 @@ router.put('/numbering', async (req, res) => {
     if (serviceInvoice) payload.serviceInvoice = serviceInvoice;
     if (Object.keys(payload).length === 0) {
       return res.status(400).json({ error: 'Informe ao menos um bloco de numeração (NF-e, NFC-e ou NFS-e) para atualizar.' });
+    }
+    // Ambiente da nota: so' producao ou homologacao (development). Valor
+    // fora disso a Spedy grava do jeito que vier, e nota emitida em ambiente
+    // errado pode virar nota fiscal real -- barra aqui, em portugues.
+    for (const bloco of [payload.productInvoice, payload.consumerInvoice]) {
+      if (bloco && !validarAmbienteEnviado(bloco.environmentType)) {
+        return res.status(400).json({ error: 'Ambiente da nota inválido. Escolha Homologação (testes) ou Produção.' });
+      }
     }
 
     const response = await fetch(`${baseUrl}/companies/${companyId}/settings`, {

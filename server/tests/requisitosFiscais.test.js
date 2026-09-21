@@ -1,0 +1,105 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const {
+  avaliarRequisitos,
+  mensagemBloqueio,
+  validarAmbienteEnviado,
+} = require('../services/requisitosFiscais');
+
+const AGORA = new Date('2026-09-21T15:00:00Z');
+const CONFIG = { cnpj: '07488550000140', inscricaoEstadual: '123456', spedyEnvironment: 'production' };
+const CERT_OK = [{ id: 'c1', isActive: true, expirationAt: '2027-06-01T00:00:00Z' }];
+const SETTINGS_OK = {
+  productInvoice: { environmentType: 'production', series: '1', nextNumber: 10 },
+  consumerInvoice: { environmentType: 'production', series: '1', nextNumber: 5, csc: 'ABC', tokenId: '000001' },
+};
+
+const avaliar = (parcial) => avaliarRequisitos({ config: CONFIG, settings: SETTINGS_OK, certificados: CERT_OK, agora: AGORA, ...parcial });
+const achar = (grupo, id) => grupo.checks.find((c) => c.id === id);
+
+test('tudo em ordem: NF-e e NFC-e prontas, sem pendencia', () => {
+  const r = avaliar({});
+  assert.equal(r.nfe.pronto, true);
+  assert.equal(r.nfce.pronto, true);
+  assert.deepEqual(r.ambientes, { nfe: 'production', nfce: 'production' });
+  assert.equal(mensagemBloqueio(r.nfe), '');
+});
+
+test('o caso real: NF-e sem ambiente ("Ambiente: 0") bloqueia e diz onde resolver', () => {
+  const r = avaliar({ settings: { productInvoice: { series: '1', nextNumber: 10 }, consumerInvoice: SETTINGS_OK.consumerInvoice } });
+  assert.equal(r.nfe.pronto, false);
+  const c = achar(r.nfe, 'nfe_ambiente');
+  assert.equal(c.gravidade, 'bloqueio');
+  assert.match(c.mensagem, /Ambiente: 0/);
+  assert.match(c.comoResolver, /Configurações → Nota Fiscal \(Spedy\)/);
+  // a NFC-e tem o proprio ambiente e nao e' afetada
+  assert.equal(r.nfce.pronto, true);
+  assert.match(mensagemBloqueio(r.nfe), /^• O ambiente da NF-e não está definido/);
+});
+
+test('ambiente "simulation" nao serve pra NF-e (so producao ou homologacao)', () => {
+  const r = avaliar({ settings: { productInvoice: { environmentType: 'simulation', series: '1', nextNumber: 1 }, consumerInvoice: {} } });
+  assert.equal(achar(r.nfe, 'nfe_ambiente').gravidade, 'bloqueio');
+});
+
+test('sem serie ou sem proximo numero bloqueia', () => {
+  const r = avaliar({ settings: { productInvoice: { environmentType: 'production', series: '', nextNumber: 0 }, consumerInvoice: SETTINGS_OK.consumerInvoice } });
+  assert.equal(achar(r.nfe, 'nfe_numeracao').gravidade, 'bloqueio');
+});
+
+test('NFC-e sem CSC bloqueia; NF-e nao exige CSC', () => {
+  const r = avaliar({ settings: { productInvoice: SETTINGS_OK.productInvoice, consumerInvoice: { environmentType: 'production', series: '1', nextNumber: 1 } } });
+  assert.equal(r.nfce.pronto, false);
+  assert.equal(achar(r.nfce, 'nfce_csc').gravidade, 'bloqueio');
+  assert.equal(r.nfe.pronto, true);
+});
+
+test('certificado: ausente e vencido bloqueiam; proximo do vencimento so avisa', () => {
+  assert.equal(achar(avaliar({ certificados: [] }).nfe, 'certificado').gravidade, 'bloqueio');
+  const vencido = avaliar({ certificados: [{ isActive: true, expirationAt: '2026-08-01T15:00:00Z' }] });
+  assert.match(achar(vencido.nfe, 'certificado').mensagem, /venceu em 01\/08\/2026/);
+  assert.equal(vencido.nfe.pronto, false);
+  const perto = avaliar({ certificados: [{ isActive: true, expirationAt: '2026-10-05T00:00:00Z' }] });
+  assert.equal(achar(perto.nfe, 'certificado').gravidade, 'aviso');
+  assert.equal(perto.nfe.pronto, true);
+  // inativo nao conta
+  assert.equal(achar(avaliar({ certificados: [{ isActive: false, expirationAt: '2030-01-01T00:00:00Z' }] }).nfe, 'certificado').gravidade, 'bloqueio');
+});
+
+test('empresa em Producao com NF-e em Homologacao avisa (nota sem validade), sem bloquear', () => {
+  const r = avaliar({ settings: { productInvoice: { environmentType: 'development', series: '1', nextNumber: 1 }, consumerInvoice: SETTINGS_OK.consumerInvoice } });
+  assert.equal(achar(r.nfe, 'nfe_ambiente').gravidade, 'aviso');
+  assert.match(achar(r.nfe, 'nfe_ambiente').mensagem, /SEM validade fiscal/);
+  assert.equal(r.nfe.pronto, true);
+});
+
+test('Spedy sandbox com NF-e em Producao avisa da incoerencia', () => {
+  const r = avaliarRequisitos({ config: { ...CONFIG, spedyEnvironment: 'sandbox' }, settings: SETTINGS_OK, certificados: CERT_OK, agora: AGORA });
+  assert.equal(achar(r.nfe, 'nfe_ambiente').gravidade, 'aviso');
+  assert.match(achar(r.nfe, 'nfe_ambiente').mensagem, /sandbox/);
+});
+
+test('Spedy ilegivel: itens dependentes ficam "desconhecido" e NUNCA bloqueiam', () => {
+  const r = avaliar({ settings: null, certificados: null });
+  assert.equal(r.nfe.pronto, true);
+  for (const id of ['certificado', 'nfe_ambiente', 'nfe_numeracao']) {
+    assert.equal(achar(r.nfe, id).situacao, 'desconhecido', id);
+  }
+});
+
+test('cadastro da empresa: sem CNPJ bloqueia; sem IE so avisa', () => {
+  const semCnpj = avaliar({ config: { ...CONFIG, cnpj: '123' } });
+  assert.equal(achar(semCnpj.nfe, 'empresa_cnpj').gravidade, 'bloqueio');
+  const semIe = avaliar({ config: { ...CONFIG, inscricaoEstadual: '' } });
+  assert.equal(achar(semIe.nfe, 'empresa_ie').gravidade, 'aviso');
+  assert.equal(semIe.nfe.pronto, true);
+});
+
+test('so producao e desenvolvimento passam na validacao do ambiente enviado', () => {
+  assert.equal(validarAmbienteEnviado(undefined), true);
+  assert.equal(validarAmbienteEnviado('production'), true);
+  assert.equal(validarAmbienteEnviado('development'), true);
+  assert.equal(validarAmbienteEnviado('simulation'), false);
+  assert.equal(validarAmbienteEnviado('homologacao'), false);
+  assert.equal(validarAmbienteEnviado(''), false);
+});

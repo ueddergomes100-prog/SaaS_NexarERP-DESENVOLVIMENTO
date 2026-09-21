@@ -78,6 +78,9 @@ interface AuthContextType {
    *  em preVendaDomain.ts. Governa se a aba "Pré-vendas" aparece na
    *  listagem de Pedidos de Venda. */
   trabalhaComPreVenda: boolean;
+  /** Config da empresa: "Permitir venda sem estoque" (`venderSemEstoque`).
+   *  O app do vendedor externo segue a mesma regra das demais telas de venda. */
+  permiteVendaSemEstoque: boolean;
   /** Config da empresa: recebe pedido pelo agente digital (WhatsApp) --
    *  ver DEFAULT_AGENTE_DIGITAL_ATIVO em preVendaDomain.ts. Governa se a
    *  aba "Pendentes" aparece na listagem de Pedidos de Venda. */
@@ -163,6 +166,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [devolucaoBotaoSeparado, setDevolucaoBotaoSeparado] = useState(false);
   const [habilitarTelaPrecificacao, setHabilitarTelaPrecificacao] = useState(DEFAULT_HABILITAR_TELA_PRECIFICACAO);
   const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
+  const [permiteVendaSemEstoque, setPermiteVendaSemEstoque] = useState(false);
   const [agenteDigitalAtivo, setAgenteDigitalAtivo] = useState(DEFAULT_AGENTE_DIGITAL_ATIVO);
   const [temVendedorCadastrado, setTemVendedorCadastrado] = useState(false);
   const [acessoAppMobile, setAcessoAppMobile] = useState(false);
@@ -413,6 +417,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setControlaFiscal(DEFAULT_CONTROLA_FISCAL);
       setDevolucaoBotaoSeparado(false);
       setTrabalhaComPreVenda(DEFAULT_TRABALHA_COM_PRE_VENDA);
+      setPermiteVendaSemEstoque(false);
       setAgenteDigitalAtivo(DEFAULT_AGENTE_DIGITAL_ATIVO);
       return;
     }
@@ -438,6 +443,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // listagem de Pedidos de Venda (PedidoVendas.tsx).
       setTrabalhaComPreVenda(parseTrabalhaComPreVenda(snap.exists() ? snap.data().trabalhaComPreVenda : undefined));
       setAgenteDigitalAtivo(parseAgenteDigitalAtivo(snap.exists() ? snap.data().agenteDigitalAtivo : undefined));
+      setPermiteVendaSemEstoque(snap.exists() && snap.data().venderSemEstoque === true);
     }, (error) => {
       // Falha de leitura MANTEM o valor atual de proposito. Cair pro
       // default (false) aqui abriria as vendas de todo mundo pro
@@ -601,7 +607,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, permiteVendaSemEstoque, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
       {children}
     </AuthContext.Provider>
   );

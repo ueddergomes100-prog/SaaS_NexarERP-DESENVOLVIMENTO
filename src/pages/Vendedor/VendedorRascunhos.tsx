@@ -36,7 +36,7 @@ const rotuloTipo = (rascunho: RascunhoVenda) => (rascunho.tipo === 'pedido' ? 'P
  */
 const VendedorRascunhos: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, currentUser, userNome, trabalhaComPreVenda } = useAuth();
+  const { tenantId, currentUser, userNome, trabalhaComPreVenda, permiteVendaSemEstoque } = useAuth();
   const [rascunhos, setRascunhos] = useState<RascunhoVenda[]>(() => (
     tenantId && currentUser ? listarRascunhos(tenantId, currentUser.uid) : []
   ));
@@ -82,7 +82,9 @@ const VendedorRascunhos: React.FC = () => {
         clienteId: rascunho.cliente.id,
         clienteNome: rascunho.cliente.nome,
         itens: rascunho.itens,
-        permitirVendaSemEstoque: false,
+        // Segue a config da empresa "Permitir venda sem estoque", como as
+        // demais telas de venda -- antes estava fixo em false.
+        permitirVendaSemEstoque: permiteVendaSemEstoque,
         idDocumento: rascunho.localId,
       });
       return `Pré-venda #${numeroPedido} enviada`;

@@ -173,12 +173,23 @@ router.get('/requisitos', async (req, res) => {
       }
     }
 
+    // Achado ao vivo (2026-09-21, producao da Sol Natus): a Spedy responde 403
+    // pra GET /companies/{id}/settings e /certificates com a chave POR-EMPRESA,
+    // apesar da doc dizer que serve -- mesmo comportamento do PUT de settings
+    // (ver /numbering). Le com a chave MESTRA da plataforma, escopada ao id
+    // desta empresa; ela nunca sai do servidor. Sem chave mestra, tenta a da
+    // empresa mesmo assim.
+    const ambienteSpedy = config.spedyEnvironment === 'production' ? 'production' : 'sandbox';
+    const masterSnap = await db.collection('plataforma').doc('spedy').get();
+    const masterData = masterSnap.exists ? masterSnap.data() : {};
+    const chaveDeLeitura = (ambienteSpedy === 'production' ? masterData.masterApiKeyProducao : masterData.masterApiKeySandbox) || apiKey;
+
     const ler = async (caminho) => {
       if (!companyId) return null;
       try {
         const response = await fetch(`${baseUrl}/companies/${companyId}/${caminho}`, {
           method: 'GET',
-          headers: { 'X-Api-Key': apiKey }
+          headers: { 'X-Api-Key': chaveDeLeitura }
         });
         if (!response.ok) {
           diagnostico.push(`A Spedy respondeu ${response.status} ao ler "${caminho}" da empresa.`);

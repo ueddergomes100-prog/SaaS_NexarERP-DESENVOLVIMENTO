@@ -184,6 +184,7 @@ const NFE: React.FC = () => {
   }, [allInvoices, pedidosVenda, vendasVisiveisDeUsuarioId, pedidosCanceladosIds, mostrarCanceladas]);
   const [importedPedidoItens, setImportedPedidoItens] = useState<PedidoVendaItem[]>([]);
   const [importedPedidoId, setImportedPedidoId] = useState<string>('');
+  const [atualizandoCadastro, setAtualizandoCadastro] = useState(false);
 
   // Importação de Ordens de Serviço (NFS-e) -- so servicos, nunca pecas
   const [ordensServico, setOrdensServico] = useState<OrdemServicoParaImportar[]>([]);
@@ -495,6 +496,39 @@ const NFE: React.FC = () => {
   };
 
   // Ação ao selecionar pedido para importação
+  /**
+   * Relê do CADASTRO o que a nota usa: NCM/CFOP/CST/aliquotas de cada produto
+   * e IE/documento/e-mail do cliente. Serve pra quando o cadastro foi corrigido
+   * DEPOIS de a nota ser aberta -- a tela guarda uma copia dos dados. Descarta o
+   * que foi digitado na mao aqui na nota (por isso o botao diz o que faz).
+   */
+  const atualizarDoCadastro = async () => {
+    setAtualizandoCadastro(true);
+    try {
+      if (importedPedidoItens.length > 0) {
+        setImportedPedidoItens(await fetchPedidoItensTaxes(importedPedidoItens));
+      }
+      if (formData.clienteId) {
+        const clienteSnap = await getDoc(doc(db, 'clientes', formData.clienteId));
+        if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) {
+          const c = clienteSnap.data();
+          setFormData((prev) => ({
+            ...prev,
+            inscricaoEstadual: c.identidade || '',
+            documento: c.documento || prev.documento,
+            email: c.email || prev.email,
+          }));
+        }
+      }
+      showSuccess('Dados atualizados do cadastro!');
+    } catch (erro) {
+      console.error('Erro ao atualizar os dados da nota a partir do cadastro:', erro);
+      showError('Não foi possível atualizar', 'Não consegui ler o cadastro agora. Tente de novo em instantes.');
+    } finally {
+      setAtualizandoCadastro(false);
+    }
+  };
+
   const handleSelectPedido = async (pedidoId: string) => {
     setImportedPedidoId(pedidoId);
     // Mutuamente exclusivo com a importação de OS -- importar um pedido
@@ -543,8 +577,37 @@ const NFE: React.FC = () => {
       // depois do pedido, acento/espaco diferente, ou dois clientes com
       // nome parecido, e o pedido silenciosamente pega o endereco errado
       // (ou o endereco de exemplo deixado no formulario) na nota fiscal.
-      const foundClient = clients.find(c => c.id === pedido.clienteId)
+      const clienteEmCache = clients.find(c => c.id === pedido.clienteId)
         || clients.find(c => c.nome.toUpperCase() === pedido.clienteNome.toUpperCase());
+      // A lista de clientes foi lida quando a tela abriu; se o cadastro foi
+      // corrigido depois (IE, endereco...), a nota tem que sair com o dado de
+      // AGORA. Falha ao reler cai na copia da lista.
+      let foundClient = clienteEmCache;
+      if (clienteEmCache?.id) {
+        try {
+          const clienteSnap = await getDoc(doc(db, 'clientes', clienteEmCache.id));
+          if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) {
+            const d = clienteSnap.data();
+            foundClient = {
+              ...clienteEmCache,
+              nome: d.nome || clienteEmCache.nome,
+              documento: d.documento || '',
+              identidade: d.identidade || '',
+              email: d.email || '',
+              endereco: d.endereco || '',
+              numero: d.numero || '',
+              bairro: d.bairro || '',
+              cep: d.cep || '',
+              cidade: d.cidade || '',
+              estado: d.estado || '',
+              codigoIbge: d.codigoIbge || '',
+              telefone: d.telefone || '',
+            };
+          }
+        } catch (erroCliente) {
+          console.error('Erro ao reler o cliente do cadastro (usa a copia da lista):', erroCliente);
+        }
+      }
       const descItens = pedido.itens.map((it: PedidoVendaItem) => `${it.quantidade}x ${it.nome}`).join(', ');
 
       // Procura cupom fiscal (NFC-e) associado a este pedido que esteja autorizado
@@ -2166,7 +2229,10 @@ const NFE: React.FC = () => {
                         style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                       />
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Vem do cadastro do cliente (Inscrição Estadual / RG). Para não precisar digitar de novo, corrija lá.
+                        Vem do cadastro do cliente (Inscrição Estadual / RG). Para não precisar digitar de novo, corrija lá
+                        {formData.clienteId ? (
+                          <> e clique em <button type="button" onClick={atualizarDoCadastro} disabled={atualizandoCadastro} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent-primary, #3b82f6)', textDecoration: 'underline', font: 'inherit' }}>atualizar do cadastro</button>.</>
+                        ) : '.'}
                       </span>
                     </div>
                   )}
@@ -2236,6 +2302,17 @@ const NFE: React.FC = () => {
                     <div style={{ padding: '12px', backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#a78bfa', borderRadius: 'var(--radius-md)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
                       <Receipt size={16} />
                       <span><strong>Nota Cuponada ativa:</strong> Referenciando chave do cupom <code>{referencedAccessKey}</code>. Os CFOPs das linhas foram forçados para devolução/cuponada.</span>
+                    </div>
+                  )}
+
+                  {(importedPedidoItens.length > 0 || formData.clienteId) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                      <button type="button" className="btn-secondary" onClick={atualizarDoCadastro} disabled={atualizandoCadastro} style={{ padding: '6px 12px', fontSize: '13px' }}>
+                        {atualizandoCadastro ? 'Atualizando...' : 'Atualizar dados do cadastro'}
+                      </button>
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                        Corrigiu o NCM ou a IE no cadastro? Isto puxa de novo (e apaga o que foi digitado à mão aqui).
+                      </span>
                     </div>
                   )}
 

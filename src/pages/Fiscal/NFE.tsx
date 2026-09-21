@@ -23,6 +23,7 @@ import {
 import Swal from 'sweetalert2';
 import { motivoPedidoNaoEmiteNota, notaDeveAparecer } from '../../utils/notaFiscalVisibilidadeDomain';
 import { escolherIntegrationIdDoReenvio } from '../../utils/reenvioNotaDomain';
+import { resolverInscricaoEstadualDestinatario } from '../../utils/destinatarioFiscalDomain';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -53,6 +54,8 @@ interface ClienteOption {
   id: string;
   nome: string;
   documento: string;
+  /** Campo "Inscricao Estadual / RG" do cadastro do cliente. */
+  identidade?: string;
   email: string;
   endereco?: string;
   numero?: string;
@@ -207,6 +210,8 @@ const NFE: React.FC = () => {
     clienteId: '',
     clienteNome: '',
     documento: '',
+    /** IE do destinatario (so' vale pra CNPJ) -- vem do cadastro do cliente. */
+    inscricaoEstadual: '',
     email: '',
     valor: '',
     descricao: '',
@@ -286,6 +291,7 @@ const NFE: React.FC = () => {
             id: d.id,
             nome: dData.nome || '',
             documento: dData.documento || '',
+            identidade: dData.identidade || '',
             email: dData.email || '',
             endereco: dData.endereco || '',
             numero: dData.numero || '',
@@ -504,6 +510,7 @@ const NFE: React.FC = () => {
         clienteId: '',
         clienteNome: '',
         documento: '',
+        inscricaoEstadual: '',
         email: '',
         valor: '',
         descricao: '',
@@ -583,6 +590,7 @@ const NFE: React.FC = () => {
         clienteId: foundClient?.id || '',
         clienteNome: pedido.clienteNome,
         documento: foundClient?.documento || '',
+        inscricaoEstadual: foundClient?.identidade || '',
         email: foundClient?.email || '',
         valor: String(pedido.valorTotal),
         descricao: cupom
@@ -680,6 +688,7 @@ const NFE: React.FC = () => {
         clienteId: '',
         clienteNome: '',
         documento: '',
+        inscricaoEstadual: '',
         email: '',
         valor: '',
         descricao: '',
@@ -708,6 +717,7 @@ const NFE: React.FC = () => {
       clienteId: foundClient?.id || '',
       clienteNome: os.clienteNome,
       documento: foundClient?.documento || '',
+      inscricaoEstadual: foundClient?.identidade || '',
       email: foundClient?.email || '',
       valor: String(sumServiceInvoiceAmount(os.servicos)),
       descricao: buildServiceInvoiceDescription(os.servicos) || `Serviços Ref. OS #${os.numeroOS}`,
@@ -1211,6 +1221,24 @@ const NFE: React.FC = () => {
 
       const cleanDoc = formData.documento.replace(/\D/g, '');
       const cleanCep = formData.cep.replace(/\D/g, '');
+
+      // IE do destinatario (pessoa juridica): vem do cadastro do cliente e vai em
+      // receiver.stateTaxNumber. Sem ela a SEFAZ rejeita (232) -- entao nao se
+      // adivinha nem se contorna: bloqueia dizendo onde cadastrar. Ver
+      // destinatarioFiscalDomain.ts.
+      let stateTaxNumberDestinatario: string | undefined;
+      if (formData.tipo === 'NF-e') {
+        const ie = resolverInscricaoEstadualDestinatario({
+          documento: cleanDoc,
+          identidade: formData.inscricaoEstadual,
+          clienteNome: formData.clienteNome,
+        });
+        if (ie.erro) {
+          showError('Inscrição Estadual do destinatário', ie.erro);
+          return;
+        }
+        stateTaxNumberDestinatario = ie.valor;
+      }
       const valorNumerico = Number(formData.valor);
 
       let spedyNote: SpedyInvoice;
@@ -1352,6 +1380,7 @@ const NFE: React.FC = () => {
           receiver: {
             name: formData.clienteNome,
             federalTaxNumber: cleanDoc,
+            ...(stateTaxNumberDestinatario ? { stateTaxNumber: stateTaxNumberDestinatario } : {}),
             email: formData.email || undefined,
             address: {
               street: formData.rua,
@@ -1442,6 +1471,7 @@ const NFE: React.FC = () => {
         clienteId: '',
         clienteNome: '',
         documento: '',
+        inscricaoEstadual: '',
         email: '',
         valor: '',
         descricao: ''
@@ -2089,6 +2119,7 @@ const NFE: React.FC = () => {
                                   clienteId: c.id,
                                   clienteNome: c.nome,
                                   documento: c.documento,
+                                  inscricaoEstadual: c.identidade || '',
                                   email: c.email,
                                   rua: c.endereco || formData.rua,
                                   numero: c.numero || formData.numero,
@@ -2124,6 +2155,21 @@ const NFE: React.FC = () => {
                       style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                     />
                   </div>
+                  {formData.tipo === 'NF-e' && formData.documento.replace(/\D/g, '').length === 14 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Inscrição Estadual do destinatário *</label>
+                      <input
+                        type="text"
+                        placeholder='Número da IE, ou "ISENTO"'
+                        value={formData.inscricaoEstadual}
+                        onChange={(e) => setFormData({ ...formData, inscricaoEstadual: e.target.value })}
+                        style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                      />
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                        Vem do cadastro do cliente (Inscrição Estadual / RG). Para não precisar digitar de novo, corrija lá.
+                      </span>
+                    </div>
+                  )}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>E-mail do Cliente (Envio Automático)</label>
                     <input

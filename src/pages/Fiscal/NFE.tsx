@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Receipt, Plus, Search, CheckCircle,
   XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings,
-  ChevronLeft, ChevronRight, MessageCircle, Loader2
+  ChevronLeft, ChevronRight, MessageCircle, Loader2, FilePenLine
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
@@ -25,6 +25,8 @@ import { motivoPedidoNaoEmiteNota, notaDeveAparecer } from '../../utils/notaFisc
 import { escolherIntegrationIdDoReenvio } from '../../utils/reenvioNotaDomain';
 import { resolverInscricaoEstadualDestinatario } from '../../utils/destinatarioFiscalDomain';
 import EmissaoProgressoModal from '../../components/common/EmissaoProgressoModal';
+import CartaCorrecaoModal from '../../components/common/CartaCorrecaoModal';
+import { motivoQueImpedeCartaNaTela, notaAceitaCartaCorrecao, type CartaEnviada } from '../../utils/cartaCorrecaoDomain';
 import {
   INTERVALO_CONSULTA_MS, desfechoDoStatus, deveContinuarConsultando,
   type DesfechoEmissao, type EtapaEmissao,
@@ -53,6 +55,8 @@ interface LocalInvoice {
   clienteId?: string | null;
   /** Tentativa de emissao em uso na Spedy (1 = original). Ver reenvioNotaDomain.ts. */
   tentativaEmissao?: number | null;
+  /** Cartas de correcao (CC-e) ja enviadas -- gravadas pelo servidor. */
+  cartasCorrecao?: CartaEnviada[];
 }
 
 /** Estado do pop-up de acompanhamento da emissao (ver emissaoProgressoDomain.ts). */
@@ -257,6 +261,8 @@ const NFE: React.FC = () => {
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** Nota (id do documento) cuja carta de correcao esta aberta. null = fechado. */
+  const [notaDaCartaId, setNotaDaCartaId] = useState<string | null>(null);
   /** Pop-up de acompanhamento da emissao. null = fechado. */
   const [progresso, setProgresso] = useState<ProgressoEmissao | null>(null);
   const [segundosEsperando, setSegundosEsperando] = useState(0);
@@ -923,7 +929,8 @@ const NFE: React.FC = () => {
           accessKey: data.accessKey || null,
           pedidoId: data.pedidoId || null,
           clienteId: data.clienteId || null,
-          tentativaEmissao: data.tentativaEmissao || null
+          tentativaEmissao: data.tentativaEmissao || null,
+          cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : []
         });
       });
 
@@ -985,7 +992,8 @@ const NFE: React.FC = () => {
           accessKey: data.accessKey || null,
           pedidoId: data.pedidoId || null,
           clienteId: data.clienteId || null,
-          tentativaEmissao: data.tentativaEmissao || null
+          tentativaEmissao: data.tentativaEmissao || null,
+          cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : []
         });
       });
       list.sort((a, b) => b.id.localeCompare(a.id));
@@ -1154,6 +1162,20 @@ const NFE: React.FC = () => {
   };
 
   // Solicita cancelamento
+  const enviarCartaCorrecao = async (nota: LocalInvoice, texto: string) => {
+    const confirmacao = await NexusSwal.fire({
+      icon: 'warning',
+      title: 'Enviar a carta de correção?',
+      text: 'Depois de enviada à SEFAZ, a carta não pode ser apagada nem editada. Confira o texto antes de confirmar.',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, enviar',
+      cancelButtonText: 'Voltar e revisar',
+    });
+    if (!confirmacao.isConfirmed) return;
+    await spedyService.sendCorrectionLetter(nota.spedyId, texto);
+    showSuccess('Carta de correção enviada! Ela aparece no histórico; o PDF fica disponível assim que a SEFAZ registrar.');
+  };
+
   const handleCancel = async (note: LocalInvoice) => {
     if (!currentUser) return;
     const { value: justification } = await NexusSwal.fire({
@@ -2115,6 +2137,19 @@ const NFE: React.FC = () => {
                           </button>
                         )}
 
+                        {/* Carta de correcao (so NF-e autorizada) */}
+                        {canEmitirNota && notaAceitaCartaCorrecao(note) && (
+                          <button
+                            type="button"
+                            onClick={() => setNotaDaCartaId(note.id)}
+                            className="icon-btn"
+                            title={note.cartasCorrecao?.length ? `Carta de correção (${note.cartasCorrecao.length} enviada${note.cartasCorrecao.length > 1 ? 's' : ''})` : 'Carta de correção'}
+                            style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: '#8b5cf6', cursor: 'pointer', display: 'inline-flex' }}
+                          >
+                            <FilePenLine size={18} />
+                          </button>
+                        )}
+
                         {/* Cancelar Nota */}
                         {canCancelarNota && note.status === 'authorized' && (
                           <button
@@ -2162,6 +2197,22 @@ const NFE: React.FC = () => {
           </div>
         )}
       </div>
+
+      {(() => {
+        const notaDaCarta = notaDaCartaId ? invoices.find((n) => n.id === notaDaCartaId) : null;
+        return (
+          <CartaCorrecaoModal
+            aberto={notaDaCarta !== null && notaDaCarta !== undefined}
+            notaNumero={notaDaCarta?.number ?? null}
+            clienteNome={notaDaCarta?.clienteNome ?? ''}
+            cartas={notaDaCarta?.cartasCorrecao ?? []}
+            impedimento={notaDaCarta ? motivoQueImpedeCartaNaTela({ tipo: notaDaCarta.tipo, status: notaDaCarta.status, cartasCorrecao: notaDaCarta.cartasCorrecao }) : null}
+            onEnviar={(texto) => (notaDaCarta ? enviarCartaCorrecao(notaDaCarta, texto) : Promise.resolve())}
+            onBaixar={(eventId, tipo) => (notaDaCarta ? spedyService.openCorrectionFile(notaDaCarta.spedyId, eventId, tipo) : Promise.resolve())}
+            onFechar={() => setNotaDaCartaId(null)}
+          />
+        );
+      })()}
 
       <EmissaoProgressoModal
         aberto={progresso !== null}

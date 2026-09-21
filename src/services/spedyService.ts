@@ -169,6 +169,15 @@ export interface RequisitosFiscais {
   diagnosticoSpedy?: string[];
 }
 
+/** Resposta do servidor ao enviar uma carta de correcao (CC-e). */
+export interface CartaCorrecaoEnviada {
+  eventId: string | null;
+  status: string;
+  texto: string;
+  enviadaEm: string;
+  enviadaPorEmail?: string | null;
+}
+
 export interface SpedyRuntimeConfig {
   spedyEnabled: boolean;
   spedyApiKeyConfigured: boolean;
@@ -274,6 +283,46 @@ export const spedyService = {
   getXmlUrl(id: string, type: SpedyType): string {
     const baseUrl = ensureApiUrl();
     return `${baseUrl}/api/spedy/${type}/${id}/xml`;
+  },
+
+  /** Envia a carta de correcao (CC-e) de uma NF-e autorizada. O servidor confere as
+   * regras (texto de 15 a 1000 caracteres, limite de 20 por nota) e guarda o
+   * historico na propria nota -- por isso a tela nao grava nada aqui. */
+  async sendCorrectionLetter(id: string, letter: string): Promise<{ ok: boolean; evento: CartaCorrecaoEnviada }> {
+    return requestJson<{ ok: boolean; evento: CartaCorrecaoEnviada }>(`/api/spedy/product/${id}/corrections`, {
+      method: 'POST',
+      body: JSON.stringify({ letter })
+    }, 'Erro ao enviar a carta de correção.');
+  },
+
+  /** Abre o PDF (nova aba) ou baixa o XML de uma carta de correcao ja enviada. */
+  async openCorrectionFile(id: string, eventId: string, fileType: 'pdf' | 'xml') {
+    const baseUrl = ensureApiUrl();
+    const response = await fetch(`${baseUrl}/api/spedy/product/${id}/corrections/${eventId}/${fileType}`, {
+      method: 'GET',
+      headers: await getAuthHeaders(false)
+    });
+
+    if (!response.ok) {
+      throw await getApiError(response, 'Erro ao baixar a carta de correção.');
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+
+    if (fileType === 'pdf') {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      return;
+    }
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `cce-${eventId}.xml`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   },
 
   async openFiscalFile(id: string, type: SpedyType, fileType: 'pdf' | 'xml') {

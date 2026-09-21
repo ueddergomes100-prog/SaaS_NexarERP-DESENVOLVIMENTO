@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
-const { db } = require('../config/firebase');
+const { admin, db } = require('../config/firebase');
 const { avaliarRequisitos, validarAmbienteEnviado, mesclarConfiguracaoAtual } = require('../services/requisitosFiscais');
+const { validarCarta, motivoQueImpedeCarta } = require('../services/cartaCorrecao');
 
 const BASE_URLS = {
   sandbox: 'https://sandbox-api.spedy.com.br/v1',
@@ -493,6 +494,109 @@ router.get('/:type/:id/:fileType', async (req, res) => {
     console.error('[Spedy File Proxy]', error);
     return res.status(error.status || 500).json({
       error: error.message || 'Erro interno ao baixar arquivo fiscal.'
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// CARTA DE CORRECAO (CC-e) -- so' NF-e autorizada. As regras (texto de 15 a
+// 1000 caracteres, limite de 20 por nota, so' NF-e autorizada) sao conferidas
+// AQUI: ver services/cartaCorrecao.js. O historico das cartas fica na propria
+// nota (notas_fiscais.cartasCorrecao), gravado por este servidor.
+// ---------------------------------------------------------------------------
+router.post('/:type/:id/corrections', async (req, res) => {
+  try {
+    if (!canUseFiscal(req.user, 'emit')) {
+      return res.status(403).json({ error: 'Acesso negado ao modulo fiscal.' });
+    }
+    if (req.params.type !== 'product') {
+      return res.status(400).json({ error: 'Carta de correção existe só para NF-e.' });
+    }
+
+    const carta = validarCarta(req.body?.letter);
+    if (!carta.ok) return res.status(400).json({ error: carta.erro });
+
+    const tenantId = resolveTenantId(req);
+    const { apiKey, baseUrl } = await loadSpedyConfig(tenantId);
+
+    // A nota local decide se pode receber carta (tipo, status, limite).
+    const notaSnap = await db.collection('notas_fiscais')
+      .where('tenantId', '==', tenantId)
+      .where('spedyId', '==', req.params.id)
+      .limit(1)
+      .get();
+    if (notaSnap.empty) {
+      return res.status(404).json({ error: 'Nota fiscal não encontrada neste sistema.' });
+    }
+    const notaDoc = notaSnap.docs[0];
+    const impedimento = motivoQueImpedeCarta(notaDoc.data());
+    if (impedimento) return res.status(400).json({ error: impedimento });
+
+    const response = await fetch(`${baseUrl}/product-invoices/${req.params.id}/corrections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+      body: JSON.stringify({ letter: carta.texto })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: data.errors?.[0]?.message || data.error || 'A Spedy recusou a carta de correção.'
+      });
+    }
+
+    const evento = {
+      eventId: data.eventId || data.id || null,
+      status: data.status || 'sent',
+      texto: carta.texto,
+      enviadaEm: new Date().toISOString(),
+      enviadaPorUid: req.user.uid,
+      enviadaPorEmail: req.user.email || null
+    };
+    await notaDoc.ref.update({
+      cartasCorrecao: admin.firestore.FieldValue.arrayUnion(evento),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    return res.json({ ok: true, evento });
+  } catch (error) {
+    console.error('[Spedy CC-e]', error);
+    return res.status(error.status || 500).json({
+      error: error.message || 'Erro interno ao enviar a carta de correção.'
+    });
+  }
+});
+
+router.get('/:type/:id/corrections/:eventId/:fileType', async (req, res) => {
+  try {
+    if (!canUseFiscal(req.user)) {
+      return res.status(403).json({ error: 'Acesso negado ao modulo fiscal.' });
+    }
+    if (req.params.type !== 'product' || !['pdf', 'xml'].includes(req.params.fileType)) {
+      return res.status(400).json({ error: 'Arquivo da carta de correção inválido.' });
+    }
+
+    const tenantId = resolveTenantId(req);
+    const { apiKey, baseUrl } = await loadSpedyConfig(tenantId);
+    const response = await fetch(`${baseUrl}/product-invoices/${req.params.id}/corrections/${req.params.eventId}/${req.params.fileType}`, {
+      method: 'GET',
+      headers: { 'X-Api-Key': apiKey }
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return res.status(response.status).json({
+        error: data.errors?.[0]?.message || 'A carta ainda não está disponível. Ela pode estar sendo registrada na SEFAZ: tente de novo em instantes.'
+      });
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const isPdf = req.params.fileType === 'pdf';
+    res.setHeader('Content-Type', isPdf ? 'application/pdf' : 'application/xml');
+    res.setHeader('Content-Disposition', `${isPdf ? 'inline' : 'attachment'}; filename="cce-${req.params.eventId}.${req.params.fileType}"`);
+    return res.send(buffer);
+  } catch (error) {
+    console.error('[Spedy CC-e arquivo]', error);
+    return res.status(error.status || 500).json({
+      error: error.message || 'Erro interno ao baixar a carta de correção.'
     });
   }
 });

@@ -1,0 +1,114 @@
+/*
+ * Modelo de impressao "Pre-venda" (folha do sistema antigo). Nao declarar
+ * `@page { size }` aqui (regra do projeto -- o papel e' o do dialogo de
+ * impressao).
+ */
+
+.pv-page {
+  width: 210mm;
+  box-sizing: border-box;
+  padding: 8mm 8mm;
+  background: #ffffff;
+  color: #000000;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 10.5px;
+  line-height: 1.4;
+  margin-bottom: 40px;
+}
+
+.pv-caixa {
+  border: 1px solid #000;
+  border-radius: 5px;
+  padding: 5px 10px;
+  margin-bottom: 6px;
+}
+
+.pv-linha {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 16px;
+}
+
+.pv-linha > span {
+  white-space: nowrap;
+}
+
+.pv-linha--topo > span:first-child {
+  flex: 1;
+}
+
+.pv-rotulo {
+  color: #333;
+}
+
+.pv-aviso {
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.pv-tabela {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+.pv-tabela th {
+  text-align: left;
+  font-weight: 700;
+  padding: 3px 5px;
+  border-bottom: 1px solid #000;
+}
+
+.pv-tabela td {
+  padding: 3px 5px;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.pv-tabela .pv-num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pv-totais {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 5px;
+  border-top: 1px solid #000;
+}
+
+.pv-rodape {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 26px;
+  padding-top: 4px;
+  border-top: 1px solid #000;
+  font-size: 9.5px;
+}
+
+@media print {
+  .pv-page {
+    width: 100%;
+    padding: 0;
+    margin: 0;
+  }
+
+  .pv-caixa,
+  .pv-totais,
+  .pv-rodape {
+    page-break-inside: avoid;
+  }
+
+  .pv-tabela thead {
+    display: table-header-group;
+  }
+
+  .pv-tabela tr {
+    page-break-inside: avoid;
+  }
+}

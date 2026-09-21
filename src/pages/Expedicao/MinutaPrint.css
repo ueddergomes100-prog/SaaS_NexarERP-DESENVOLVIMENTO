@@ -54,6 +54,11 @@
   min-width: 46%;
 }
 
+.minuta-bairro-cidade {
+  display: flex;
+  gap: 40px;
+}
+
 .minuta-tabela {
   width: 100%;
   table-layout: fixed;

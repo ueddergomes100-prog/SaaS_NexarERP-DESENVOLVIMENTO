@@ -3708,6 +3708,18 @@ const PedidoVendaForm: React.FC = () => {
           )}
           {isViewing && status === 'Finalizada' && (
             <>
+              {/* Minuta tambem depois de finalizada (pedido do usuario,
+                  2026-09-21): a venda fecha no balcao e a mercadoria sai
+                  depois -- o papel de separacao/entrega tem que poder ser
+                  impresso a qualquer momento, com ou sem conferencia. */}
+              <button
+                className="btn-secondary"
+                onClick={() => navigate(`/operacoes/expedicao/minuta/${id}`)}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                title="Imprime a minuta de entrega, com os itens e sem valores"
+              >
+                <Truck size={18} /> Imprimir Minuta
+              </button>
               {/* Botão de NFC-e (Cupom Fiscal) -- some inteiro quando a
                   empresa nao controla fiscal (Configuracoes.tsx) e quando o
                   documento dela e' outro (ver documentoFiscalVendaDomain). */}

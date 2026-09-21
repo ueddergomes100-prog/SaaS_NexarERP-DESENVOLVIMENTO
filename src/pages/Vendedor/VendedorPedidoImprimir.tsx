@@ -3,9 +3,7 @@ import { useParams } from 'react-router-dom';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import PedidoPrintDocument from '../Vendas/PedidoPrintDocument';
-import PedidoPrintMeiaFolha from '../Vendas/PedidoPrintMeiaFolha';
-import { DEFAULT_PEDIDO_PRINT_MODEL } from '../../utils/pedidoPrintModels';
+import PedidoPrintModelo from '../Vendas/PedidoPrintModelo';
 import { parcelasParaImpressao } from '../../utils/parcelasExibicaoDomain';
 import { ehPreVenda } from '../../utils/preVendaDomain';
 import VendedorImpressaoLayout from './VendedorImpressaoLayout';
@@ -74,11 +72,9 @@ const VendedorPedidoImprimir: React.FC = () => {
       carregando={carregando}
       erro={erro}
     >
-      {pedidoData && ((configData?.modeloImpressaoPedidoVenda || DEFAULT_PEDIDO_PRINT_MODEL) === 'meia-folha' ? (
-        <PedidoPrintMeiaFolha pedidoData={pedidoData} clientData={clientData} configData={configData} parcelas={parcelas} />
-      ) : (
-        <PedidoPrintDocument pedidoData={pedidoData} clientData={clientData} configData={configData} />
-      ))}
+      {pedidoData && (
+        <PedidoPrintModelo pedidoData={pedidoData} clientData={clientData} configData={configData} parcelas={parcelas} />
+      )}
     </VendedorImpressaoLayout>
   );
 };

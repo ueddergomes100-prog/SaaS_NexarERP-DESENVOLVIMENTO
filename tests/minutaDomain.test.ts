@@ -5,6 +5,8 @@ import {
   condicaoPagamentoMinuta,
   enderecoMinuta,
   formatarCepMinuta,
+  formatarDataCurtaMinuta,
+  formatarHoraMinuta,
   formatarDocumentoMinuta,
   formatarEmissaoMinuta,
   formatarGeradoEmMinuta,
@@ -62,4 +64,12 @@ test('codigo + nome, vendedor e endereco', () => {
   assert.equal(enderecoMinuta({ endereco: 'AV. TRINTA DE MARCO', numero: '22' }), 'AV. TRINTA DE MARCO, 22');
   assert.equal(enderecoMinuta({ endereco: 'AV. TRINTA DE MARCO' }), 'AV. TRINTA DE MARCO');
   assert.equal(enderecoMinuta(null), '');
+});
+
+test('data curta e hora da pre-venda, no fuso de Sao Paulo', () => {
+  const d = new Date('2026-09-21T12:59:31Z');
+  assert.equal(formatarDataCurtaMinuta(d), '21/09/26');
+  assert.equal(formatarHoraMinuta(d), '09:59');
+  assert.equal(formatarDataCurtaMinuta(null), '');
+  assert.equal(formatarHoraMinuta(new Date('lixo')), '');
 });

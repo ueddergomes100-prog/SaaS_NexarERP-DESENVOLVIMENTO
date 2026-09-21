@@ -4,9 +4,7 @@ import { Printer, ArrowLeft } from 'lucide-react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import PedidoPrintDocument from './PedidoPrintDocument';
-import PedidoPrintMeiaFolha from './PedidoPrintMeiaFolha';
-import { DEFAULT_PEDIDO_PRINT_MODEL } from '../../utils/pedidoPrintModels';
+import PedidoPrintModelo from './PedidoPrintModelo';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from './pedidoPrintLoteConstants';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { usePrintAndClose } from '../../hooks/usePrintAndClose';
@@ -142,20 +140,12 @@ const PedidoPrintLote: React.FC = () => {
 
       {pedidos.map((pedidoData) => (
         <div className="print-batch-item" key={pedidoData.id}>
-          {(configData?.modeloImpressaoPedidoVenda || DEFAULT_PEDIDO_PRINT_MODEL) === 'meia-folha' ? (
-            <PedidoPrintMeiaFolha
-              pedidoData={pedidoData}
-              clientData={clientsById[pedidoData.clienteNome] || null}
-              configData={configData}
-              parcelas={parcelasByPedidoId[pedidoData.id] || []}
-            />
-          ) : (
-            <PedidoPrintDocument
-              pedidoData={pedidoData}
-              clientData={clientsById[pedidoData.clienteNome] || null}
-              configData={configData}
-            />
-          )}
+          <PedidoPrintModelo
+            pedidoData={pedidoData}
+            clientData={clientsById[pedidoData.clienteNome] || null}
+            configData={configData}
+            parcelas={parcelasByPedidoId[pedidoData.id] || []}
+          />
         </div>
       ))}
     </div>

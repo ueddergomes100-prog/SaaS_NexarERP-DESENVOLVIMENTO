@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, ChevronDown, Filter } from 'lucide-react';
+import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, ChevronDown, Filter, Truck } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -868,6 +868,11 @@ const PedidoVendas: React.FC = () => {
                       ) : (
                         <button onClick={() => navigate(`/pedidos-venda/print/${p.id}`)} className="icon-btn" title="Imprimir Recibo" style={{ color: '#10b981' }}>
                           <Printer size={18} />
+                        </button>
+                      )}
+                      {(p.status === 'Finalizada' || p.status === 'Pré-venda') && (
+                        <button onClick={() => navigate(`/operacoes/expedicao/minuta/${p.id}`)} className="icon-btn" title="Imprimir Minuta de Entrega" style={{ color: '#3b82f6' }}>
+                          <Truck size={18} />
                         </button>
                       )}
                       {p.status === 'Em Análise' && canEditPendenteVenda && (

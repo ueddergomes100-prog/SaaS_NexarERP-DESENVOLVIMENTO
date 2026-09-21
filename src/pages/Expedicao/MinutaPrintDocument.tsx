@@ -113,7 +113,12 @@ const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({
 
         <div className="minuta-linha">
           <span>UF: {cliente?.estado || ''} &nbsp; CEP: {formatarCepMinuta(cliente?.cep)} &nbsp; Ref.: {cliente?.referencia || ''}</span>
-          <span>Bairro: {cliente?.bairro || ''} &nbsp; Cidade: {cliente?.cidade || ''}</span>
+          {/* Cidade em destaque e afastada do bairro: e' o dado que o entregador
+              procura primeiro. */}
+          <span className="minuta-bairro-cidade">
+            <span>Bairro: {cliente?.bairro || ''}</span>
+            <span>Cidade: <strong>{cliente?.cidade || ''}</strong></span>
+          </span>
         </div>
 
         <div className="minuta-linha">

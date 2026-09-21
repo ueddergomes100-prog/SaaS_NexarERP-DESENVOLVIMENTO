@@ -61,6 +61,19 @@ const dataHoraPartes = (data: Date) => {
   };
 };
 
+/** "21/09/26" (fuso de Sao Paulo) -- data curta da pre-venda. */
+export const formatarDataCurtaMinuta = (data: Date | null | undefined): string => {
+  if (!data || Number.isNaN(data.getTime())) return '';
+  const p = dataHoraPartes(data);
+  return `${p.data.slice(0, 6)}${p.data.slice(8)}`;
+};
+
+/** "09:59" (fuso de Sao Paulo). */
+export const formatarHoraMinuta = (data: Date | null | undefined): string => {
+  if (!data || Number.isNaN(data.getTime())) return '';
+  return dataHoraPartes(data).hora;
+};
+
 /** Emissao: "21/09/2026 09:59" (fuso de Sao Paulo). */
 export const formatarEmissaoMinuta = (data: Date | null | undefined): string => {
   if (!data || Number.isNaN(data.getTime())) return '';

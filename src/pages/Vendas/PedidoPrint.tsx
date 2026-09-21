@@ -4,9 +4,7 @@ import { Printer, ArrowLeft } from 'lucide-react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import PedidoPrintDocument from './PedidoPrintDocument';
-import PedidoPrintMeiaFolha from './PedidoPrintMeiaFolha';
-import { DEFAULT_PEDIDO_PRINT_MODEL } from '../../utils/pedidoPrintModels';
+import PedidoPrintModelo from './PedidoPrintModelo';
 import {
   isVendaDoUsuario,
   MENSAGEM_VENDA_DE_OUTRO_USUARIO,
@@ -123,11 +121,7 @@ const PedidoPrint: React.FC = () => {
         </button>
       </div>
 
-      {(configData?.modeloImpressaoPedidoVenda || DEFAULT_PEDIDO_PRINT_MODEL) === 'meia-folha' ? (
-        <PedidoPrintMeiaFolha pedidoData={pedidoData} clientData={clientData} configData={configData} parcelas={parcelas} />
-      ) : (
-        <PedidoPrintDocument pedidoData={pedidoData} clientData={clientData} configData={configData} />
-      )}
+      <PedidoPrintModelo pedidoData={pedidoData} clientData={clientData} configData={configData} parcelas={parcelas} />
     </div>
   );
 };

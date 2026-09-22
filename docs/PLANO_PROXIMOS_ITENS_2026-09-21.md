@@ -2,6 +2,11 @@
 
 **Situação:** só planejamento. Nada disto foi implementado.
 
+**Decisões do dono (21/09, depois de ler este plano):** o "+ Dividir pagamento"
+vira **opcional por configuração**, não some; **não** criar limite de desconto por
+vendedor agora; desconto do cliente **passa direto** até o percentual cadastrado;
+rota é lançada **só pela loja** por enquanto.
+
 O dono mandou a lista e depois detalhou item a item (mesma data). Este documento
 já está com o detalhamento. Cada item diz o que existe hoje (lido no código), o
 que muda, o que ainda falta decidir e o tamanho (P = horas, M = ~1 dia, G = vários
@@ -16,14 +21,14 @@ dias).
 | 3 | CT-e (frete) na entrada + cadastro de transportadoras | nada: `vFrete` do XML é ignorado, não há cadastro de transportadora | M/G | — |
 | 4 | Finalizar entrada e continuar na tela | `navigate('/estoque')` no fim | P | — |
 | 5 | Ordem das formas de pagamento configurável | ordem fixa no código | P/M | — |
-| 6 | Parcelas automáticas (3x = 30/60/90) e remover "+ Dividir pagamento" | a prazo é 1 linha só; parcelar é na mão | M | confirmar a remoção |
+| 6 | Parcelas automáticas (3x = 30/60/90) e "+ Dividir pagamento" opcional | a prazo é 1 linha só; parcelar é na mão | M | — |
 | 7 | Contas a Pagar abrindo em "vence hoje" + filtros | abre em "Em aberto", agrupado por fornecedor, ordenado por valor | M | — |
 | 8 | Fornecedor do cadastro no lançamento de despesa | campo de texto livre | P/M | — |
-| 9 | Rota: uma despesa agrupada por motorista/veículo | **não existe nada** | G | perguntas |
+| 9 | Rota: uma despesa agrupada por motorista/veículo | **não existe nada** | G | — |
 | 10 | Código do cliente no `/vendedor` | só o nome | P | — |
 | 11 | Logo na NF-e | a API da Spedy **não tem campo de logo** | ? | Spedy |
 | 12 | Marcar/desmarcar todas as permissões | só uma a uma | P | — |
-| 13 | Desconto padrão por cliente, no topo da hierarquia | não existe; e **não existe limite por vendedor** | M | regra do "passa ou não passa" |
+| 13 | Desconto padrão por cliente, no topo da hierarquia | não existe; e **não existe limite por vendedor** | M | — |
 
 ## Três achados que mudam o que foi pedido
 
@@ -40,8 +45,11 @@ O desconto tem **dois** níveis, e nenhum deles é o vendedor:
   `avisar` | `bloquear` | `senha`.
 
 Ou seja: a pergunta "o vendedor só pode dar 3%, e o cliente tem 10%" **não tem
-como acontecer hoje** — não há onde cadastrar os 3% do vendedor. Se o dono quiser
-esse nível, ele tem de ser criado junto (campo no cadastro do vendedor/usuário).
+como acontecer hoje** — não há onde cadastrar os 3% do vendedor.
+
+**Decisão do dono (21/09): não criar o nível do vendedor agora.** Quem precisa
+segurar desconto grande usa o modo "pede senha" das Configurações, que já
+funciona. Fica registrado como possível fase 2 do item 13.
 
 Bom: o modo `senha` já existe e funciona — `SolicitarAprovacaoDescontoModal`
 valida senha de usuário ou código+PIN de vendedor e grava quem aprovou.
@@ -166,11 +174,18 @@ total — igual à Nota Avulsa, que já faz exatamente isso.
 **O botão "+ Dividir pagamento"** (em `PaymentsEditor.tsx`, usado em Pedido de
 Venda e OS) hoje serve para **pagar com mais de uma forma** (parte no Pix, parte
 no cartão) — e é também o único jeito de montar 30/60/90 hoje, uma linha por vez,
-na mão. Com as parcelas automáticas, esse segundo uso acaba. O dono pediu para
-remover o botão e deixar a lógica guardada. **A confirmar:** remover tira junto o
-pagamento misto (Pix + cartão na mesma venda). Se for para tirar, some só o botão;
-o código de múltiplos pagamentos fica intacto e venda antiga com 2 formas continua
-abrindo e imprimindo normal.
+na mão. Com as parcelas automáticas, esse segundo uso acaba.
+
+**Decisão do dono (21/09): o botão vira opcional**, com um marcador em
+Configurações ("Permitir dividir a venda em mais de uma forma de pagamento").
+Empresa que não usa pagamento misto desliga e a tela fica limpa; quem usa mantém.
+Mesmo padrão de `permitirDescontoPorItem`, que já existe e é lido com
+`parsePermitirDescontoPorItem`.
+
+Detalhes que valem para qualquer opção desse tipo: o marcador decide o que a tela
+**oferece daqui pra frente**, nunca reescreve venda gravada — venda antiga com
+duas formas continua abrindo, imprimindo e recebendo baixa normalmente. E o padrão
+é **ligado**, para não sumir um campo que a empresa já usa sem ela pedir.
 
 ### 7. Contas a Pagar — abrir no que vence hoje
 
@@ -225,9 +240,16 @@ Desenho:
 
 **Coleções novas ⇒ rules em dev e produção antes do front.**
 
-Ideia a confirmar: o motorista lançar pelo próprio celular, no app `/vendedor`
-(login por código+PIN e PWA já prontos) — ele lança a despesa na estrada, a loja
-vê na hora.
+**Decisão do dono (21/09): o lançamento é só pela loja, no ERP.** O motorista
+entrega as notinhas e alguém da loja lança a rota. O motivo é do próprio dono:
+despesa lançada no celular pelo motorista pode vir **sem comprovante** ou com
+valor inflado, e ninguém confere depois. Lançar na loja obriga a notinha a passar
+pela mão de quem confere.
+
+Consequência prática no desenho: a tela de rota é de retaguarda, e o campo
+"comprovante" (número/observação da notinha) faz sentido em cada despesa. O
+lançamento pelo celular fica como fase 2, se um dia o dono quiser — e aí
+provavelmente com foto do comprovante obrigatória.
 
 ### 10. Código do cliente no `/vendedor`
 
@@ -266,16 +288,18 @@ hoje. Como não existe nível de vendedor (achado 1), a hierarquia real fica:
 2. **Produto** (`descontoMaximoPercentual`) — teto por item;
 3. **Sistema** (limite da tela, com avisar/bloquear/senha).
 
-**Proposta para o "passa ou não passa"** (é a pergunta que o dono deixou em
-aberto): o desconto do cliente é decisão já tomada pelo dono, então vale **sem
-pedir senha** até o percentual cadastrado. Acima disso, cai nas regras de hoje
-(avisa, bloqueia ou pede senha, conforme a configuração). O **teto do produto
-continua mandando**: produto marcado com desconto máximo 0 não recebe desconto,
-nem para cliente com 10% — senão o cadastro do produto vira decoração.
+**Regra do "passa ou não passa" — decidida pelo dono (21/09):**
 
-Se o dono quiser mesmo o nível "vendedor só pode dar 3%", isso é um campo novo no
-cadastro do vendedor/usuário, e aí a regra fica: até o desconto do cliente, passa
-direto; acima do que o vendedor pode dar, pede senha de quem pode mais.
+- **Até o percentual do cliente, passa direto**, sem pedir senha nem avisar. O
+  dono já autorizou aquilo no cadastro do cliente; pedir confirmação em toda venda
+  seria atrapalhar o vendedor por uma decisão que já foi tomada.
+- **Acima do percentual do cliente**, cai na regra de hoje conforme
+  `modoLimiteDesconto`: avisa, bloqueia ou pede senha.
+- **O teto do produto continua mandando.** Produto com desconto máximo 0 não
+  recebe desconto nem para cliente com 10% — senão o campo do cadastro do produto
+  vira decoração.
+
+O nível "vendedor só pode dar 3%" **não entra agora** (ver achado 1).
 
 **Atenção que vale registrar:** todos esses limites são conferidos **só na tela**.
 O servidor não valida desconto. Pela regra "nada se altera pelo DevTools", um

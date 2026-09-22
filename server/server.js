@@ -21,6 +21,7 @@ const documentosRoutes = require('./routes/documentos.routes');
 const cadastrosRoutes = require('./routes/cadastros.routes');
 const devolucaoNfeRoutes = require('./routes/devolucaoNfe.routes');
 const trocasRoutes = require('./routes/trocas.routes');
+const notaRecebidaRoutes = require('./routes/notaRecebida.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -110,6 +111,7 @@ app.use('/api/devolucao-nfe', devolucaoNfeRoutes);
 // Trocas de mercadoria (reposicao sem cobranca, pedida pelo app do vendedor): toda escrita e
 // todo movimento de estoque passam por aqui; as firestore.rules deixam a colecao so' pra leitura.
 app.use('/api/trocas', trocasRoutes);
+app.use('/api/entrada-nfe', notaRecebidaRoutes);
 
 // Middleware para tratamento global de erros HTTP
 app.use((err, req, res, next) => {

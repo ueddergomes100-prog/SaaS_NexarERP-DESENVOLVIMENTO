@@ -1,11 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2, AlertTriangle, Truck, Loader2, History } from 'lucide-react';
+import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2, AlertTriangle, Truck, Loader2, History, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
 import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
+import ClientAutocomplete from '../../components/common/ClientAutocomplete';
+import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { notaRecebidaService, NotaRecebidaError } from '../../services/notaRecebidaService';
+import {
+  descricaoDoTituloDeFrete,
+  erroDoFrete,
+  freteGeraTituloProprio,
+  ratearFreteNosItens,
+  somenteDigitos,
+  type DadosDoFrete,
+} from '../../utils/freteEntradaDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { addDaysToDateInput } from '../../utils/dateTime';
 import {
@@ -51,6 +62,9 @@ interface ParsedXML {
   numeroNF: string;
   dataEmissao: string;
   valorTotal: number;
+  /** vFrete do XML: frete cobrado pelo PROPRIO fornecedor, dentro da nota.
+   *  Vira o valor inicial do campo de frete (editavel). */
+  valorFreteXml: number;
   items: ParsedItem[];
   duplicatas: Duplicata[];
 }
@@ -83,6 +97,16 @@ const EntradaNFE: React.FC = () => {
   const { openTab } = useTabs();
   const { tenantId, currentUser } = useAuth();
   const [dragActive, setDragActive] = useState(false);
+  /**
+   * BUSCA DA NOTA PELA CHAVE (2026-09-21).
+   *
+   * Alternativa ao arquivo XML: digita os 44 numeros e o sistema puxa a nota
+   * da SEFAZ (via Spedy). O XML completo so' vem depois da MANIFESTACAO, que
+   * e' ato fiscal -- por isso ha um passo de confirmacao no meio, nunca
+   * automatico. Ver src/services/notaRecebidaService.ts.
+   */
+  const [chaveBusca, setChaveBusca] = useState('');
+  const [buscandoPorChave, setBuscandoPorChave] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   // Estado com dados parseados
@@ -105,6 +129,27 @@ const EntradaNFE: React.FC = () => {
   // vinculado (decisão combinada com o usuário: não deixa entrar nota
   // com fornecedor "texto livre" sem cadastro).
   const [fornecedorMatch, setFornecedorMatch] = useState<{ id: string; nome: string } | null>(null);
+  /**
+   * FRETE / CONHECIMENTO DE TRANSPORTE (2026-09-21).
+   *
+   * O valor entra no CUSTO dos produtos (rateado por valor) e, quando ha
+   * transportadora, vira um titulo A PAGAR proprio dela -- separado do titulo
+   * do fornecedor da mercadoria. Ver src/utils/freteEntradaDomain.ts.
+   */
+  const [frete, setFrete] = useState<DadosDoFrete>({ valor: 0, chaveCte: '', transportadoraId: '', transportadoraNome: '' });
+  const [buscaTransportadora, setBuscaTransportadora] = useState('');
+  /**
+   * A transportadora e' um FORNECEDOR do tipo Transportadora -- o cadastro de
+   * fornecedor ja tem esse tipo, e o titulo do frete e' uma conta a pagar
+   * como qualquer outra. Criar uma colecao separada duplicaria cadastro,
+   * codigo, busca por CNPJ e o agrupamento de Contas a Pagar sem ganho.
+   *
+   * A lista traz todos os fornecedores (nao so' os do tipo Transportadora):
+   * quem ainda nao marcou o tipo no cadastro conseguiria escolher assim
+   * mesmo, em vez de travar no meio da entrada. O selo na lista mostra quais
+   * ja estao marcados.
+   */
+  const { items: fornecedoresAtuais } = useTenantCollection<{ id: string; nome?: string; codigo?: string; tipo?: string; ativo?: boolean }>('fornecedores', tenantId);
   const [fornecedorStatus, setFornecedorStatus] = useState<FornecedorStatus>('idle');
   const [showFornecedorModal, setShowFornecedorModal] = useState(false);
   const [fornecedorForm, setFornecedorForm] = useState({ nome: '', cnpj: '', telefone: '', email: '' });
@@ -330,6 +375,70 @@ const EntradaNFE: React.FC = () => {
     }
   };
 
+  /** Le um XML que veio da SEFAZ (texto) pelo MESMO caminho do arquivo: o
+   *  parser, a conferencia e a importacao nao mudam em nada. */
+  const processarXmlDeTexto = (xml: string, nomeArquivo: string) => {
+    const arquivo = new File([xml], nomeArquivo, { type: 'text/xml' });
+    processFile(arquivo);
+  };
+
+  const buscarNotaPelaChave = async () => {
+    const digitos = chaveBusca.replace(/\D/g, '');
+    if (digitos.length !== 44) {
+      showError('Chave incompleta', `A chave de acesso tem 44 números. Você digitou ${digitos.length}.`);
+      return;
+    }
+    setBuscandoPorChave(true);
+    try {
+      let resposta = await notaRecebidaService.buscar(digitos);
+
+      // A SEFAZ so' libera o XML completo depois da manifestacao. Isso e' um
+      // registro em nome da empresa, entao PERGUNTA antes -- nunca sozinho.
+      if (resposta.situacao === 'manifestar') {
+        const nota = resposta.nota;
+        const confirma = await NexusSwal.fire({
+          icon: 'question',
+          title: 'Registrar a ciência desta nota?',
+          html: [
+            nota ? `<strong>${nota.emitenteNome}</strong>` : '',
+            nota ? `Nota ${nota.numero} — ${currencyFormat.format(nota.valorTotal)}` : '',
+            '',
+            'A SEFAZ só entrega o XML completo depois que a empresa registra a <strong>Ciência da Operação</strong>.',
+            'Isso é um registro fiscal em nome da empresa e fica no histórico da SEFAZ.',
+          ].filter(Boolean).join('<br/>'),
+          showCancelButton: true,
+          confirmButtonText: 'Sim, registrar ciência',
+          cancelButtonText: 'Agora não',
+        });
+        if (!confirma.isConfirmed) return;
+        if (!nota?.id) {
+          showError('Nota não identificada', 'Busque a chave novamente antes de registrar a ciência.');
+          return;
+        }
+        resposta = await notaRecebidaService.manifestar(nota.id);
+      }
+
+      if (resposta.situacao === 'aguardando') {
+        showWarning('Ciência registrada', resposta.aviso || 'O XML deve chegar em instantes. Busque a chave de novo.');
+        return;
+      }
+      if (!resposta.xml) {
+        showError('XML indisponível', 'A nota foi encontrada, mas o XML ainda não está disponível. Tente de novo em instantes.');
+        return;
+      }
+
+      processarXmlDeTexto(resposta.xml, `nota-${digitos.slice(-6)}.xml`);
+      setChaveBusca('');
+    } catch (erro) {
+      const mensagem = erro instanceof NotaRecebidaError
+        ? erro.message
+        : 'Não foi possível buscar a nota agora. Tente novamente ou use o arquivo XML.';
+      showError('Não foi possível buscar a nota', mensagem);
+    } finally {
+      setBuscandoPorChave(false);
+    }
+  };
+
   // Executa o parser do XML
   const processFile = (file: File) => {
     setSelectedFile(file);
@@ -366,6 +475,9 @@ const EntradaNFE: React.FC = () => {
         // Totais
         const totalNode = xmlDoc.getElementsByTagName("ICMSTot")[0];
         const valorTotal = totalNode ? Number(getValue("vNF", totalNode) || 0) : 0;
+        // Frete que o proprio fornecedor cobrou dentro da nota. Frete de
+        // transportadora vem em CT-e separado e o usuario digita na tela.
+        const valorFreteXml = totalNode ? Number(getValue("vFrete", totalNode) || 0) : 0;
 
         // Duplicatas (parcelas de pagamento), se a nota trouxer -- vira
         // um título de Contas a Pagar por parcela; sem duplicata, a
@@ -418,9 +530,14 @@ const EntradaNFE: React.FC = () => {
           numeroNF,
           dataEmissao,
           valorTotal,
+          valorFreteXml,
           items,
           duplicatas
         });
+        // Frete embutido ja vem preenchido, sem transportadora: quem cobrou
+        // foi o fornecedor da mercadoria, entao nao gera titulo separado.
+        setFrete({ valor: valorFreteXml, chaveCte: '', transportadoraId: '', transportadoraNome: '' });
+        setBuscaTransportadora('');
 
       } catch (err) {
         console.error(err);
@@ -450,6 +567,12 @@ const EntradaNFE: React.FC = () => {
       return;
     }
 
+    const problemaNoFrete = erroDoFrete(frete);
+    if (problemaNoFrete) {
+      showError('Confira o frete', problemaNoFrete);
+      return;
+    }
+
     setIsProcessing(true);
 
     NexusSwal.fire({
@@ -468,6 +591,12 @@ const EntradaNFE: React.FC = () => {
       // aqui, a gravacao acontece depois dos dois loops (itens + titulos).
       const notaItens: NotaFiscalEntradaItemRecord[] = [];
 
+      // O frete entra no CUSTO, rateado pelo valor de cada item: quem paga
+      // R$ 200 de frete nao comprou a mercadoria pelo preco da nota, comprou
+      // por ela mais o frete. Sem isto a margem da venda sai maior que a real.
+      const freteDosItens = ratearFreteNosItens(parsedData.items, frete.valor);
+      const custoDoItem = (indice: number) => freteDosItens[indice]?.custoUnitarioComFrete ?? parsedData.items[indice].valorUnitario;
+
       for (let idx = 0; idx < parsedData.items.length; idx++) {
         const item = parsedData.items[idx];
         const config = itemConfigs[idx];
@@ -478,7 +607,7 @@ const EntradaNFE: React.FC = () => {
             const novaQuantidade = (materiaPrimaExistente?.quantidade || 0) + item.quantidade;
             await updateDoc(doc(db, 'materias_primas', config.matchId), {
               quantidade: novaQuantidade,
-              precoCusto: item.valorUnitario,
+              precoCusto: custoDoItem(idx),
               fornecedor: fornecedorMatch.nome,
               updatedAt: serverTimestamp(),
               ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Entrada de NF ${parsedData.numeroNF}`),
@@ -504,7 +633,7 @@ const EntradaNFE: React.FC = () => {
               unidade: item.unidade.toUpperCase() || 'UN',
               quantidade: item.quantidade,
               estoqueMinimo: 0,
-              precoCusto: item.valorUnitario,
+              precoCusto: custoDoItem(idx),
               fornecedor: fornecedorMatch.nome,
               tenantId,
               createdAt: serverTimestamp(),
@@ -550,7 +679,7 @@ const EntradaNFE: React.FC = () => {
           const novaQuantidade = (pecaExistente?.quantidade || 0) + item.quantidade;
           await updateDoc(doc(db, 'estoque', config.matchId), {
             quantidade: novaQuantidade,
-            precoCusto: item.valorUnitario,
+            precoCusto: custoDoItem(idx),
             fornecedor: fornecedorMatch.nome,
             fornecedorId: fornecedorMatch.id,
             [`codigosFornecedor.${fornecedorMatch.id}`]: item.codigo,
@@ -577,7 +706,7 @@ const EntradaNFE: React.FC = () => {
             nome: item.descricao.toUpperCase(),
             quantidade: item.quantidade,
             estoqueMinimo: 0,
-            precoCusto: item.valorUnitario,
+            precoCusto: custoDoItem(idx),
             fornecedor: fornecedorMatch.nome,
             fornecedorId: fornecedorMatch.id,
             codigosFornecedor: { [fornecedorMatch.id]: item.codigo },
@@ -636,6 +765,31 @@ const EntradaNFE: React.FC = () => {
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         titulosPagarIds.push(tituloRef.id);
+      }
+
+      // Frete de transportadora vira um titulo SEPARADO: sao dois credores
+      // diferentes (o fornecedor da mercadoria e a transportadora), com
+      // vencimentos proprios. Frete embutido na nota do fornecedor (vFrete do
+      // XML, sem transportadora escolhida) nao passa por aqui -- ja esta no
+      // custo e quem cobra e' o mesmo fornecedor.
+      if (freteGeraTituloProprio(frete)) {
+        const chaveCte = somenteDigitos(frete.chaveCte);
+        const tituloFrete = await addDoc(collection(db, 'transacoes'), {
+          descricao: descricaoDoTituloDeFrete(parsedData.numeroNF, frete),
+          data: addDaysToDateInput(parsedData.dataEmissao, 30),
+          valor: frete.valor,
+          categoria: 'FRETES',
+          status: 'Pendente',
+          tipo: 'saida',
+          fornecedorId: frete.transportadoraId,
+          fornecedorNome: frete.transportadoraNome,
+          ...(chaveCte ? { chaveCte } : {}),
+          notaFiscalEntradaNumero: parsedData.numeroNF,
+          tenantId,
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        titulosPagarIds.push(tituloFrete.id);
       }
 
       // Historico da nota de entrada (Fatia 0/N -- fundacao). So grava o
@@ -717,6 +871,8 @@ const EntradaNFE: React.FC = () => {
   const handleRemoverFile = () => {
     setSelectedFile(null);
     setParsedData(null);
+    setFrete({ valor: 0, chaveCte: '', transportadoraId: '', transportadoraNome: '' });
+    setBuscaTransportadora('');
     setFornecedorMatch(null);
     setFornecedorStatus('idle');
     setShowFornecedorModal(false);
@@ -752,8 +908,47 @@ const EntradaNFE: React.FC = () => {
       </div>
 
       {!selectedFile ? (
-        // Dropzone
+        // Chave de acesso + dropzone
         <div className="form-grid">
+          <div className="card" style={{ gridColumn: 'span 12', padding: '24px 32px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <Search size={18} color="var(--accent-purple)" />
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>Buscar a nota pela chave de acesso</h3>
+            </div>
+            <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
+              Digite os 44 números e o sistema busca a nota direto na SEFAZ, sem precisar do arquivo. Aparecem aqui as notas
+              emitidas contra o CNPJ da sua empresa nos <strong>últimos 90 dias</strong>. Se a SEFAZ ainda não liberou o XML
+              completo, o sistema pergunta antes de registrar a ciência da operação.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={chaveBusca}
+                onChange={(e) => setChaveBusca(e.target.value.replace(/\D/g, '').slice(0, 44))}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !buscandoPorChave) void buscarNotaPelaChave(); }}
+                placeholder="Cole ou digite a chave de acesso (44 números)"
+                disabled={buscandoPorChave}
+                style={{ flex: 1, minWidth: '320px', padding: '12px 14px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: '14px', letterSpacing: '0.5px' }}
+              />
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => void buscarNotaPelaChave()}
+                disabled={buscandoPorChave || chaveBusca.replace(/\D/g, '').length !== 44}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: buscandoPorChave || chaveBusca.replace(/\D/g, '').length !== 44 ? 0.5 : 1 }}
+              >
+                {buscandoPorChave ? <Loader2 size={16} className="spin-icon" /> : <Search size={16} />}
+                {buscandoPorChave ? 'Buscando na SEFAZ...' : 'Buscar nota'}
+              </button>
+            </div>
+            {chaveBusca.length > 0 && (
+              <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', display: 'block', marginTop: '8px' }}>
+                {chaveBusca.replace(/\D/g, '').length} de 44 números
+              </span>
+            )}
+          </div>
+
           <div className="card" style={{ gridColumn: 'span 12', padding: '48px 32px', textAlign: 'center', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)' }}>
             <div
               style={{
@@ -862,6 +1057,98 @@ const EntradaNFE: React.FC = () => {
                     </strong>
                   </div>
                 </div>
+              </div>
+
+              {/* Frete / Conhecimento de transporte (CT-e) */}
+              <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  <Truck size={18} color="var(--accent-purple)" />
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>Frete / Conhecimento de Transporte</h3>
+                </div>
+                <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
+                  O valor do frete é <strong>dividido entre os produtos</strong> (proporcional ao valor de cada um) e entra no
+                  custo que vai para o estoque. Informando a <strong>transportadora</strong>, o frete vira um título a pagar
+                  separado, no nome dela. Frete que o próprio fornecedor cobrou dentro da nota já vem preenchido — nesse caso
+                  deixe a transportadora em branco.
+                </p>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                  <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Valor do frete (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={frete.valor || ''}
+                      onChange={(e) => setFrete({ ...frete, valor: Math.max(0, Number(e.target.value) || 0) })}
+                      placeholder="0,00"
+                      style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontWeight: 600 }}
+                    />
+                    {parsedData.valorFreteXml > 0 && (
+                      <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                        A nota já trouxe {currencyFormat.format(parsedData.valorFreteXml)} de frete.
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Transportadora</label>
+                    <ClientAutocomplete
+                      value={buscaTransportadora}
+                      onChange={(valor) => {
+                        setBuscaTransportadora(valor);
+                        if (!valor.trim()) setFrete((atual) => ({ ...atual, transportadoraId: '', transportadoraNome: '' }));
+                      }}
+                      clients={fornecedoresAtuais}
+                      onSelect={(f) => {
+                        const nome = String(f.nome || '').trim();
+                        setFrete((atual) => ({ ...atual, transportadoraId: f.id, transportadoraNome: nome }));
+                        setBuscaTransportadora(nome);
+                      }}
+                      renderItem={(f: { id: string; nome?: string; codigo?: string | null; tipo?: string }) => (
+                        <span>
+                          {f.codigo ? `${f.codigo} · ${f.nome}` : f.nome}
+                          {f.tipo === 'Transportadora' && (
+                            <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--accent-purple)', fontWeight: 700 }}>TRANSPORTADORA</span>
+                          )}
+                        </span>
+                      )}
+                      placeholder="Buscar transportadora..."
+                      ariaLabel="Buscar transportadora"
+                      emptyHint={<span>Não achou? Cadastre em Cadastros &gt; Fornecedores com o tipo <strong>Transportadora</strong>.</span>}
+                    />
+                  </div>
+
+                  <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Chave do CT-e (44 números)</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={frete.chaveCte}
+                      onChange={(e) => setFrete({ ...frete, chaveCte: somenteDigitos(e.target.value).slice(0, 44) })}
+                      placeholder="Opcional — cole a chave do conhecimento"
+                      style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: '13px' }}
+                    />
+                    {frete.chaveCte.length > 0 && (
+                      <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>{somenteDigitos(frete.chaveCte).length} de 44</span>
+                    )}
+                  </div>
+                </div>
+
+                {erroDoFrete(frete) && (
+                  <div style={{ marginTop: '14px', padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid #f59e0b', color: '#fbbf24', fontSize: '13px' }}>
+                    {erroDoFrete(frete)}
+                  </div>
+                )}
+
+                {frete.valor > 0 && !erroDoFrete(frete) && (
+                  <div style={{ marginTop: '14px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                    {currencyFormat.format(frete.valor)} entra no custo dos {parsedData.items.length} produto(s).{' '}
+                    {freteGeraTituloProprio(frete)
+                      ? <>Vai gerar <strong>mais um título</strong> a pagar, de {frete.transportadoraNome}.</>
+                      : <>Sem transportadora: <strong>não</strong> gera título separado (quem cobra é o fornecedor da nota).</>}
+                  </div>
+                )}
               </div>
 
               {/* Card Contas a Pagar */}

@@ -81,15 +81,15 @@ const VendedorContasReceber: React.FC = () => {
               border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             }}
           >
-            <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Total a receber</span>
+            <span style={{ fontSize: '14px', color: 'var(--text-muted)', fontWeight: 600 }}>Total a receber</span>
             <span style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)' }}>{formatarMoeda(totalPendente)}</span>
           </div>
         )}
 
         {carregando ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>Carregando...</div>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>Carregando...</div>
         ) : contas.length === 0 ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
             Nenhuma conta pendente.
           </div>
         ) : (
@@ -102,14 +102,14 @@ const VendedorContasReceber: React.FC = () => {
                 style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {conta.clienteNome || conta.descricao || 'Sem descrição'}
                   </div>
-                  <div style={{ fontSize: '12px', color: vencida ? '#ef4444' : 'var(--text-muted)', marginTop: '3px', fontWeight: vencida ? 700 : 500 }}>
+                  <div style={{ fontSize: '13px', color: vencida ? '#ef4444' : 'var(--text-muted)', marginTop: '3px', fontWeight: vencida ? 700 : 500 }}>
                     Vence {formatDateInputPtBr(conta.vencimento)}{vencida ? ` · ${diasAtraso}d atrasada` : ''}
                   </div>
                 </div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(conta.valor)}</div>
+                <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(conta.valor)}</div>
               </div>
             );
           })

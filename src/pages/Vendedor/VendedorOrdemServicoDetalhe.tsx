@@ -45,11 +45,11 @@ const cardStyle: React.CSSProperties = {
 };
 
 const tituloSecao: React.CSSProperties = {
-  fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px',
+  fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px',
 };
 
 const textoLivre: React.CSSProperties = {
-  fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'pre-wrap', margin: 0,
+  fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'pre-wrap', margin: 0,
 };
 
 const VendedorOrdemServicoDetalhe: React.FC = () => {
@@ -140,17 +140,17 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {carregando ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>Carregando...</div>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>Carregando...</div>
         ) : erro || !os ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>{erro || 'Ordem de serviço não encontrada.'}</div>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>{erro || 'Ordem de serviço não encontrada.'}</div>
         ) : (
           <>
             <div style={cardStyle}>
               <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{os.clienteNome || 'Sem cliente'}</div>
               {os.clienteTelefone && (
-                <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginTop: '3px' }}>{os.clienteTelefone}</div>
+                <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '3px' }}>{os.clienteTelefone}</div>
               )}
-              <div style={{ fontSize: '12.5px', fontWeight: 600, marginTop: '6px', color: os.statusColor || 'var(--brand-400)' }}>
+              <div style={{ fontSize: '13.5px', fontWeight: 600, marginTop: '6px', color: os.statusColor || 'var(--brand-400)' }}>
                 {os.status}{os.criadoEm ? <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> · aberta em {os.criadoEm}</span> : null}
               </div>
             </div>
@@ -182,24 +182,24 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
             <div style={cardStyle}>
               <div style={tituloSecao}>Serviços e peças</div>
               {os.linhas.length === 0 ? (
-                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Nenhum serviço ou peça adicionado.</div>
+                <div style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Nenhum serviço ou peça adicionado.</div>
               ) : os.linhas.map((linha, index) => (
                 <div key={index} style={{ display: 'flex', gap: '10px', padding: '8px 0', borderTop: index === 0 ? 'none' : '1px solid var(--border-color)' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text-primary)' }}>{linha.nome}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>{linha.tipo} · {linha.detalhe}</div>
+                    <div style={{ fontSize: '14.5px', fontWeight: 600, color: 'var(--text-primary)' }}>{linha.nome}</div>
+                    <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '2px' }}>{linha.tipo} · {linha.detalhe}</div>
                   </div>
-                  <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(linha.total)}</div>
+                  <div style={{ fontSize: '14.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(linha.total)}</div>
                 </div>
               ))}
 
               <div style={{ borderTop: '1px solid var(--border-color)', marginTop: '6px', paddingTop: '8px' }}>
                 {os.descontoValor > 0 && (
                   <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--text-secondary)' }}>
                       <span>Subtotal</span><span>{formatarMoeda(os.subtotal)}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)', marginTop: '3px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--text-secondary)', marginTop: '3px' }}>
                       <span>{os.descontoRotulo}</span><span>- {formatarMoeda(os.descontoValor)}</span>
                     </div>
                   </>

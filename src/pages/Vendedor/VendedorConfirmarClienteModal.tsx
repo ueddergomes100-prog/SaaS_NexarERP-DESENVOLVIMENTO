@@ -41,7 +41,7 @@ interface VendedorConfirmarClienteModalProps {
 }
 
 const linhaDado = (icone: React.ReactNode, conteudo: React.ReactNode) => (
-  <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+  <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '15px', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
     <span style={{ flexShrink: 0, marginTop: '2px', display: 'inline-flex' }}>{icone}</span>
     <div style={{ minWidth: 0, wordBreak: 'break-word' }}>{conteudo}</div>
   </div>
@@ -93,14 +93,14 @@ const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps
         }}
       >
         <div>
-          <div id="confirmar-cliente-titulo" style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <div id="confirmar-cliente-titulo" style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Confirmar cliente
           </div>
           <div style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '6px', wordBreak: 'break-word' }}>
             {clienteComCodigo(cliente)}
           </div>
           {cliente.fantasia && cliente.fantasia !== cliente.nome && (
-            <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '2px', wordBreak: 'break-word' }}>{cliente.fantasia}</div>
+            <div style={{ fontSize: '14.5px', color: 'var(--text-muted)', marginTop: '2px', wordBreak: 'break-word' }}>{cliente.fantasia}</div>
           )}
         </div>
 
@@ -118,7 +118,7 @@ const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps
           {entrega.length > 0 && !entregaIgual && linhaDado(
             <MapPin size={17} color="var(--brand-400)" />,
             <>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Entrega</div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Entrega</div>
               {entrega.map((linha) => <div key={linha}>{linha}</div>)}
             </>,
           )}
@@ -127,7 +127,7 @@ const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps
         {faltando.length > 0 && (
           <div
             role="status"
-            style={{ display: 'flex', gap: '10px', padding: '11px 13px', borderRadius: '12px', border: '1px solid rgba(245,158,11,0.5)', fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.45 }}
+            style={{ display: 'flex', gap: '10px', padding: '11px 13px', borderRadius: '12px', border: '1px solid rgba(245,158,11,0.5)', fontSize: '14px', color: 'var(--text-primary)', lineHeight: 1.45 }}
           >
             <AlertTriangle size={18} color="#f59e0b" style={{ flexShrink: 0, marginTop: '1px' }} />
             <span>Cadastro sem {faltando.join(', ')}. Se o pedido for com nota fiscal, o endereço completo é obrigatório: peça para completar o cadastro no sistema.</span>
@@ -140,7 +140,7 @@ const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps
             onClick={onConfirmar}
             autoFocus
             style={{
-              height: '52px', borderRadius: '14px', border: 'none', fontSize: '15px', fontWeight: 700, color: '#fff', cursor: 'pointer',
+              height: '52px', borderRadius: '14px', border: 'none', fontSize: '16px', fontWeight: 700, color: '#fff', cursor: 'pointer',
               background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
             }}
           >
@@ -150,7 +150,7 @@ const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps
             type="button"
             onClick={onCancelar}
             style={{
-              height: '48px', borderRadius: '14px', fontSize: '14.5px', fontWeight: 600, cursor: 'pointer',
+              height: '48px', borderRadius: '14px', fontSize: '15.5px', fontWeight: 600, cursor: 'pointer',
               color: 'var(--text-primary)', backgroundColor: 'transparent', border: '1px solid var(--border-color)',
             }}
           >

@@ -125,17 +125,17 @@ const VendedorOrdensServico: React.FC = () => {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {carregando ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>Carregando...</div>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>Carregando...</div>
         ) : erro ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>{erro}</div>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>{erro}</div>
         ) : filtradas.length === 0 ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
             {busca.trim() ? 'Nenhuma ordem de serviço encontrada.' : 'Nenhuma ordem de serviço cadastrada.'}
           </div>
         ) : (
           <>
             {!busca.trim() && ordens.length > LIMITE_SEM_BUSCA && (
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
                 Mostrando as {LIMITE_SEM_BUSCA} mais recentes. Use a busca para encontrar as outras.
               </div>
             )}
@@ -150,16 +150,16 @@ const VendedorOrdensServico: React.FC = () => {
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {os.clienteNome || 'Sem cliente'}
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     OS #{os.numeroOS}{os.placa ? ` · ${os.placa}` : ''}{os.modelo ? ` · ${os.modelo}` : ''}
                   </div>
-                  <div style={{ fontSize: '12px', fontWeight: 600, marginTop: '3px', color: os.statusColor || 'var(--brand-400)' }}>{os.status}</div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, marginTop: '3px', color: os.statusColor || 'var(--brand-400)' }}>{os.status}</div>
                 </div>
                 {mostrarValor && (
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(os.valorTotal)}</div>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(os.valorTotal)}</div>
                 )}
               </button>
             ))}

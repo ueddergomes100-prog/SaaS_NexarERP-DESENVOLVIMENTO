@@ -59,7 +59,7 @@ const cardStyle: React.CSSProperties = {
 };
 
 const tituloSecao: React.CSSProperties = {
-  fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px',
+  fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px',
 };
 
 const linhaTotal = (rotulo: string, valor: string, destaque = false) => (
@@ -191,16 +191,16 @@ const VendedorPedidoDetalhe: React.FC = () => {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {carregando ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>Carregando...</div>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>Carregando...</div>
         ) : naoEncontrado || !pedido ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
             Pedido não encontrado.
           </div>
         ) : (
           <>
             <div style={cardStyle}>
               <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{pedido.clienteNome || 'Sem cliente'}</div>
-              <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
                 {pedido.status}{pedido.dataVenda ? ` · ${pedido.dataVenda.split('-').reverse().join('/')}` : ''}
               </div>
               {rotuloNotaFiscalPedido(pedido.comNotaFiscal) && (
@@ -215,12 +215,12 @@ const VendedorPedidoDetalhe: React.FC = () => {
                 </div>
               )}
               {pedido.observacao && (
-                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.4, wordBreak: 'break-word' }}>
+                <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.4, wordBreak: 'break-word' }}>
                   <strong style={{ color: 'var(--text-primary)' }}>Obs.:</strong> {pedido.observacao}
                 </div>
               )}
               {pedido.statusConferencia && ROTULO_CONFERENCIA[pedido.statusConferencia] && (
-                <div style={{ fontSize: '12.5px', color: 'var(--brand-400)', marginTop: '6px', fontWeight: 600 }}>
+                <div style={{ fontSize: '13.5px', color: 'var(--brand-400)', marginTop: '6px', fontWeight: 600 }}>
                   {ROTULO_CONFERENCIA[pedido.statusConferencia]}
                 </div>
               )}
@@ -229,16 +229,16 @@ const VendedorPedidoDetalhe: React.FC = () => {
             <div style={cardStyle}>
               <div style={tituloSecao}>Itens</div>
               {pedido.itens.length === 0 ? (
-                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Nenhum item.</div>
+                <div style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Nenhum item.</div>
               ) : pedido.itens.map((item, index) => (
                 <div key={`${item.id}-${index}`} style={{ display: 'flex', gap: '10px', padding: '8px 0', borderTop: index === 0 ? 'none' : '1px solid var(--border-color)' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text-primary)' }}>{item.nome}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    <div style={{ fontSize: '14.5px', fontWeight: 600, color: 'var(--text-primary)' }}>{item.nome}</div>
+                    <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '2px' }}>
                       {item.quantidade} {item.unidadeMedidaSigla || 'UN'} × {formatarMoeda(Number(item.precoUnitario || 0))}
                     </div>
                   </div>
-                  <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(Number(item.subtotal || 0))}</div>
+                  <div style={{ fontSize: '14.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(Number(item.subtotal || 0))}</div>
                 </div>
               ))}
             </div>
@@ -256,7 +256,7 @@ const VendedorPedidoDetalhe: React.FC = () => {
               <div style={cardStyle}>
                 <div style={tituloSecao}>Pagamento</div>
                 {pedido.pagamentos.map((pagamento, index) => (
-                  <div key={index} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)', marginTop: index === 0 ? 0 : '4px' }}>
+                  <div key={index} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--text-secondary)', marginTop: index === 0 ? 0 : '4px' }}>
                     <span>{pagamento.formaPagamento}</span>
                     <span>{formatarMoeda(Number(pagamento.valor || 0))}</span>
                   </div>
@@ -271,7 +271,7 @@ const VendedorPedidoDetalhe: React.FC = () => {
                 disabled={cancelando}
                 style={{
                   marginTop: '4px', height: '48px', borderRadius: '14px', border: '1px solid rgba(239,68,68,0.35)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700,
                   color: '#f87171', cursor: cancelando ? 'default' : 'pointer', backgroundColor: 'rgba(239,68,68,0.10)',
                   opacity: cancelando ? 0.7 : 1,
                 }}

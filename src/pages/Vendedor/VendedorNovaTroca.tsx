@@ -128,7 +128,7 @@ const VendedorNovaTroca: React.FC = () => {
         <div
           style={{
             display: 'flex', gap: '10px', padding: '12px 14px', borderRadius: '14px', border: '1px solid rgba(245,158,11,0.45)',
-            backgroundColor: 'rgba(245,158,11,0.10)', fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.45,
+            backgroundColor: 'rgba(245,158,11,0.10)', fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.45,
           }}
         >
           <Repeat size={18} color="#f59e0b" style={{ flexShrink: 0, marginTop: '1px' }} />
@@ -138,12 +138,12 @@ const VendedorNovaTroca: React.FC = () => {
         {clienteSelecionado ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteComCodigo(clienteSelecionado)}</div>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteComCodigo(clienteSelecionado)}</div>
             </div>
             <button
               type="button"
               onClick={() => setClienteSelecionado(null)}
-              style={{ fontSize: '12.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+              style={{ fontSize: '13.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
             >
               Trocar
             </button>
@@ -155,7 +155,7 @@ const VendedorNovaTroca: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/vendedor/cliente/novo', { state: { retornarPara: 'troca' } })}
-            style={{ fontSize: '13px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0, textAlign: 'left' }}
+            style={{ fontSize: '14px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0, textAlign: 'left' }}
           >
             + Cadastrar novo cliente
           </button>
@@ -166,7 +166,7 @@ const VendedorNovaTroca: React.FC = () => {
         <VendedorItemPickerTroca produtos={produtosAtivos} itens={itens} onItensChange={setItens} />
 
         <div style={{ marginTop: '22px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <label htmlFor="troca-observacao" style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <label htmlFor="troca-observacao" style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Observação
           </label>
           <textarea
@@ -177,7 +177,7 @@ const VendedorNovaTroca: React.FC = () => {
             rows={3}
             placeholder="Ex.: 2 sacos chegaram rasgados, cliente quer a reposição na próxima entrega"
             style={{
-              width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border-color)', fontSize: '15px',
+              width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border-color)', fontSize: '16px',
               backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'none',
             }}
           />
@@ -192,7 +192,7 @@ const VendedorNovaTroca: React.FC = () => {
           disabled={salvando}
           style={{
             width: '100%', height: '52px', borderRadius: '14px', border: 'none', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, color: '#fff', cursor: salvando ? 'default' : 'pointer',
+            justifyContent: 'center', gap: '8px', fontSize: '16px', fontWeight: 700, color: '#fff', cursor: salvando ? 'default' : 'pointer',
             opacity: salvando ? 0.7 : 1, background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
           }}
         >

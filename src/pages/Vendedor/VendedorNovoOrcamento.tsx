@@ -98,12 +98,12 @@ const VendedorNovoOrcamento: React.FC = () => {
             }}
           >
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteComCodigo(clienteSelecionado)}</div>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteComCodigo(clienteSelecionado)}</div>
             </div>
             <button
               type="button"
               onClick={() => setClienteSelecionado(null)}
-              style={{ fontSize: '12.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+              style={{ fontSize: '13.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
             >
               Trocar
             </button>
@@ -115,7 +115,7 @@ const VendedorNovoOrcamento: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/vendedor/cliente/novo', { state: { retornarPara: 'orcamento' } })}
-            style={{ marginTop: '10px', fontSize: '13px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0 }}
+            style={{ marginTop: '10px', fontSize: '14px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0 }}
           >
             + Cadastrar novo cliente
           </button>
@@ -132,7 +132,7 @@ const VendedorNovoOrcamento: React.FC = () => {
           onClick={handleSalvar}
           style={{
             width: '100%', height: '52px', borderRadius: '14px', border: 'none', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, color: '#fff', cursor: 'pointer',
+            justifyContent: 'center', gap: '8px', fontSize: '16px', fontWeight: 700, color: '#fff', cursor: 'pointer',
             background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
           }}
         >

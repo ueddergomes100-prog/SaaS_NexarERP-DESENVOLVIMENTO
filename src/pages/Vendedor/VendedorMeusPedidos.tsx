@@ -204,11 +204,11 @@ const VendedorMeusPedidos: React.FC = () => {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {carregando ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>Carregando...</div>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>Carregando...</div>
         ) : erroCarga ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: '#ef4444', fontSize: '13px' }}>{erroCarga}</div>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: '#ef4444', fontSize: '14px' }}>{erroCarga}</div>
         ) : lista.length === 0 ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
             {temMinhasVendas
               ? 'Você ainda não tem nenhuma venda registrada.'
               : 'Nenhum pedido ou orçamento seu nos últimos 30 dias.'}
@@ -231,16 +231,16 @@ const VendedorMeusPedidos: React.FC = () => {
                   style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: item.tipo === 'Pedido' ? 'pointer' : 'default' }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {item.clienteNome || 'Sem cliente'}
                     </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {item.tipo} #{item.numero}
                       <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: corStatus(item.status) }} />
                       <span style={{ color: corStatus(item.status), fontWeight: 600 }}>{item.status}</span>
                     </div>
                   </div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.valorTotal)}</div>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.valorTotal)}</div>
                 </div>
 
                 {mostraEmitirNota && (
@@ -251,7 +251,7 @@ const VendedorMeusPedidos: React.FC = () => {
                     style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', height: '40px',
                       borderRadius: '10px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)',
-                      color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700,
+                      color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700,
                       cursor: emitindoId === item.id ? 'default' : 'pointer', opacity: emitindoId === item.id ? 0.7 : 1,
                     }}
                   >
@@ -268,7 +268,7 @@ const VendedorMeusPedidos: React.FC = () => {
           <button
             type="button"
             onClick={() => setVisiveis((atual) => atual + PAGINA_MEUS_PEDIDOS)}
-            style={{ height: '44px', borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+            style={{ height: '44px', borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}
           >
             Ver mais ({lista.length - listaVisivel.length})
           </button>

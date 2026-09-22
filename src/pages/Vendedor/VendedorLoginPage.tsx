@@ -141,7 +141,7 @@ const VendedorLoginPage: React.FC = () => {
             onClick={() => { setModo('vendedor'); setErro(''); }}
             style={{
               flex: 1, padding: '10px', borderRadius: '8px', border: 'none', cursor: 'pointer',
-              fontSize: '13px', fontWeight: 600,
+              fontSize: '14px', fontWeight: 600,
               backgroundColor: modo === 'vendedor' ? 'var(--brand-600)' : 'transparent',
               color: modo === 'vendedor' ? '#fff' : 'var(--text-secondary)',
             }}
@@ -153,7 +153,7 @@ const VendedorLoginPage: React.FC = () => {
             onClick={() => { setModo('usuario'); setErro(''); }}
             style={{
               flex: 1, padding: '10px', borderRadius: '8px', border: 'none', cursor: 'pointer',
-              fontSize: '13px', fontWeight: 600,
+              fontSize: '14px', fontWeight: 600,
               backgroundColor: modo === 'usuario' ? 'var(--brand-600)' : 'transparent',
               color: modo === 'usuario' ? '#fff' : 'var(--text-secondary)',
             }}

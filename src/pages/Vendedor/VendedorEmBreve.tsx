@@ -29,7 +29,7 @@ const VendedorEmBreve: React.FC<Props> = ({ titulo, descricao, Icon = Hourglass 
           <Icon size={28} color="var(--brand-400)" />
         </div>
         <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>Em breve</div>
-        <p style={{ fontSize: '13.5px', color: 'var(--text-muted)', maxWidth: '300px', lineHeight: 1.5, margin: 0 }}>
+        <p style={{ fontSize: '14.5px', color: 'var(--text-muted)', maxWidth: '300px', lineHeight: 1.5, margin: 0 }}>
           {descricao}
         </p>
       </div>

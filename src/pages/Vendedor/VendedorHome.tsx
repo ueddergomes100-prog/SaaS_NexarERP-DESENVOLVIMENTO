@@ -102,7 +102,7 @@ const VendedorHome: React.FC = () => {
         }}
       >
         <div>
-          <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', fontWeight: 500 }}>{saudacaoPorHora()}</div>
+          <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', fontWeight: 500 }}>{saudacaoPorHora()}</div>
           <div style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)' }}>{nome}</div>
         </div>
         <button
@@ -131,7 +131,7 @@ const VendedorHome: React.FC = () => {
             }}
           >
             <Send size={20} color="#f59e0b" style={{ flexShrink: 0 }} />
-            <span style={{ flex: 1, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+            <span style={{ flex: 1, fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
               <strong style={{ color: 'var(--text-primary)' }}>
                 {rascunhosPendentes === 1 ? '1 rascunho não enviado' : `${rascunhosPendentes} rascunhos não enviados`}
               </strong><br />
@@ -155,7 +155,7 @@ const VendedorHome: React.FC = () => {
             }}
           >
             <SquarePlus size={20} color="var(--brand-400)" style={{ flexShrink: 0 }} />
-            <span style={{ flex: 1, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+            <span style={{ flex: 1, fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
               <strong style={{ color: 'var(--text-primary)' }}>Instalar na tela de início</strong><br />
               Abre como aplicativo, em tela cheia
             </span>
@@ -169,7 +169,7 @@ const VendedorHome: React.FC = () => {
             style={{ ...atalhoStyle, background: 'linear-gradient(150deg, var(--brand-600) 0%, var(--brand-800, #5a21b6) 100%)', boxShadow: '0 14px 26px rgba(124,58,237,0.30)' }}
           >
             <Box size={28} color="#fff" strokeWidth={1.7} />
-            <span style={{ fontSize: '15.5px', fontWeight: 700, color: '#fff', lineHeight: 1.25 }}>Novo Pedido</span>
+            <span style={{ fontSize: '16.5px', fontWeight: 700, color: '#fff', lineHeight: 1.25 }}>Novo Pedido</span>
           </button>
 
           <button
@@ -178,7 +178,7 @@ const VendedorHome: React.FC = () => {
             style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
           >
             <FileText size={28} color="var(--brand-400)" strokeWidth={1.7} />
-            <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Novo Orçamento</span>
+            <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Novo Orçamento</span>
           </button>
 
           <button
@@ -187,7 +187,7 @@ const VendedorHome: React.FC = () => {
             style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
           >
             <Tag size={28} color="var(--brand-400)" strokeWidth={1.7} />
-            <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Consultar Preço</span>
+            <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Consultar Preço</span>
           </button>
 
           <button
@@ -196,7 +196,7 @@ const VendedorHome: React.FC = () => {
             style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
           >
             <Users size={28} color="var(--brand-400)" strokeWidth={1.7} />
-            <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Consultar Cliente</span>
+            <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Consultar Cliente</span>
           </button>
 
           {podeSolicitarTroca && (
@@ -207,7 +207,7 @@ const VendedorHome: React.FC = () => {
                 style={{ ...atalhoStyle, backgroundColor: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.5)' }}
               >
                 <Repeat size={28} color="#f59e0b" strokeWidth={1.7} />
-                <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>
+                <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>
                   Nova Troca
                   <span style={{ display: 'block', fontSize: '11.5px', fontWeight: 500, color: 'var(--text-muted)', marginTop: '3px' }}>Reposição sem cobrança</span>
                 </span>
@@ -219,14 +219,14 @@ const VendedorHome: React.FC = () => {
                 style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
               >
                 <ListChecks size={28} color="#f59e0b" strokeWidth={1.7} />
-                <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Minhas Trocas</span>
+                <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Minhas Trocas</span>
               </button>
             </>
           )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Mais módulos
           </div>
           <div className="vendedor-atalhos-grid">
@@ -236,7 +236,7 @@ const VendedorHome: React.FC = () => {
               style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
             >
               <Send size={28} color="var(--brand-400)" strokeWidth={1.7} />
-              <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Rascunhos e Envio</span>
+              <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Rascunhos e Envio</span>
             </button>
 
             {userPermissions.includes('mecanica.os') && (
@@ -246,7 +246,7 @@ const VendedorHome: React.FC = () => {
                 style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
               >
                 <Wrench size={28} color="var(--brand-400)" strokeWidth={1.7} />
-                <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Ordens de Serviço</span>
+                <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Ordens de Serviço</span>
               </button>
             )}
 
@@ -257,7 +257,7 @@ const VendedorHome: React.FC = () => {
                 style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
               >
                 <Receipt size={28} color="var(--brand-400)" strokeWidth={1.7} />
-                <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Emitir Nota Fiscal</span>
+                <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Emitir Nota Fiscal</span>
               </button>
             )}
 
@@ -268,7 +268,7 @@ const VendedorHome: React.FC = () => {
                 style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
               >
                 <ArrowDownCircle size={28} color="var(--brand-400)" strokeWidth={1.7} />
-                <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Contas a Pagar</span>
+                <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Contas a Pagar</span>
               </button>
             )}
 
@@ -279,7 +279,7 @@ const VendedorHome: React.FC = () => {
                 style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
               >
                 <ArrowUpCircle size={28} color="var(--brand-400)" strokeWidth={1.7} />
-                <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Contas a Receber</span>
+                <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Contas a Receber</span>
               </button>
             )}
 
@@ -292,7 +292,7 @@ const VendedorHome: React.FC = () => {
                 style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
               >
                 <ClipboardList size={28} color="var(--brand-400)" strokeWidth={1.7} />
-                <span style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Balanço</span>
+                <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Balanço</span>
               </button>
             )}
           </div>
@@ -300,7 +300,7 @@ const VendedorHome: React.FC = () => {
 
         {resumoHoje && totalHoje > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               Resumo de hoje
             </div>
             <div
@@ -338,13 +338,13 @@ const VendedorHome: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ width: '10px', height: '10px', borderRadius: '3px', backgroundColor: '#9964f0', flexShrink: 0 }} />
-                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)', flex: 1 }}>Pedidos</span>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{resumoHoje.pedidos}</span>
+                  <span style={{ fontSize: '14px', color: 'var(--text-secondary)', flex: 1 }}>Pedidos</span>
+                  <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{resumoHoje.pedidos}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ width: '10px', height: '10px', borderRadius: '3px', backgroundColor: '#3b82f6', flexShrink: 0 }} />
-                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)', flex: 1 }}>Orçamentos</span>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{resumoHoje.orcamentos}</span>
+                  <span style={{ fontSize: '14px', color: 'var(--text-secondary)', flex: 1 }}>Orçamentos</span>
+                  <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{resumoHoje.orcamentos}</span>
                 </div>
               </div>
             </div>
@@ -353,7 +353,7 @@ const VendedorHome: React.FC = () => {
 
         {recentes.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               Últimos pedidos
             </div>
             {recentes.map((item) => (
@@ -362,14 +362,14 @@ const VendedorHome: React.FC = () => {
                 style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.clienteNome}
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '2px' }}>
                     {item.tipo} #{item.numero} &middot; {item.status}
                   </div>
                 </div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.valorTotal)}</div>
+                <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.valorTotal)}</div>
               </div>
             ))}
           </div>

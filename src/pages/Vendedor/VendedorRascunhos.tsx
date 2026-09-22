@@ -171,7 +171,7 @@ const VendedorRascunhos: React.FC = () => {
             disabled={enviando}
             style={{
               height: '52px', borderRadius: '14px', border: 'none', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, color: '#fff',
+              justifyContent: 'center', gap: '8px', fontSize: '16px', fontWeight: 700, color: '#fff',
               cursor: enviando ? 'default' : 'pointer', opacity: enviando ? 0.7 : 1,
               background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
             }}
@@ -183,7 +183,7 @@ const VendedorRascunhos: React.FC = () => {
 
         {resultados.length > 0 && (
           <div style={{ padding: '12px 14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               Resultado do envio
             </div>
             {resultados.map((r) => (
@@ -191,7 +191,7 @@ const VendedorRascunhos: React.FC = () => {
                 {r.ok
                   ? <CheckCircle2 size={16} color="#10b981" style={{ flexShrink: 0, marginTop: '1px' }} />
                   : <XCircle size={16} color="#ef4444" style={{ flexShrink: 0, marginTop: '1px' }} />}
-                <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                <div style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
                   <strong style={{ color: 'var(--text-primary)' }}>{r.descricao}</strong><br />
                   {r.mensagem}
                 </div>
@@ -201,7 +201,7 @@ const VendedorRascunhos: React.FC = () => {
         )}
 
         {rascunhos.length === 0 ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
             Nenhum rascunho pendente. Tudo o que você montou já foi enviado.
           </div>
         ) : (
@@ -216,10 +216,10 @@ const VendedorRascunhos: React.FC = () => {
                 onClick={() => navigate(caminhoDeEdicao(rascunho))}
                 style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer' }}
               >
-                <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {rascunho.cliente.nome}
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '3px' }}>
                   {rotuloTipo(rascunho)} · {quantidadeDeItens(rascunho)} {quantidadeDeItens(rascunho) === 1 ? 'item' : 'itens'}{rascunho.tipo === 'troca' ? ' · sem cobrança' : ` · ${formatarMoeda(totalDoRascunho(rascunho))}`}
                 </div>
                 {rascunho.notaFiscal && (

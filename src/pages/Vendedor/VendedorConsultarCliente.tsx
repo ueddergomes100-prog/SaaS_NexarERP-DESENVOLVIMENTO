@@ -140,7 +140,7 @@ const VendedorConsultarCliente: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/vendedor/cliente/novo')}
-            style={{ height: '38px', padding: '0 14px', borderRadius: '10px', border: 'none', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)' }}
+            style={{ height: '38px', padding: '0 14px', borderRadius: '10px', border: 'none', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)' }}
           >
             <Plus size={16} /> Novo
           </button>
@@ -163,7 +163,7 @@ const VendedorConsultarCliente: React.FC = () => {
         {!selecionado ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {clientesFrequentes.length > 0 && (
-              <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>
+              <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>
                 Clientes frequentes
               </div>
             )}
@@ -177,7 +177,7 @@ const VendedorConsultarCliente: React.FC = () => {
                   onClick={() => setSelecionado(cliente)}
                   style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                 >
-                  <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {clienteComCodigo(cliente)}
                   </div>
                 </button>
@@ -196,7 +196,7 @@ const VendedorConsultarCliente: React.FC = () => {
               </div>
             ))}
             {clientesFrequentes.length === 0 && (
-              <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+              <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
                 Busque um cliente pra ver os dados.
               </div>
             )}
@@ -210,25 +210,25 @@ const VendedorConsultarCliente: React.FC = () => {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {selecionado.telefone && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14.5px', color: 'var(--text-secondary)' }}>
                     <Phone size={16} color="var(--brand-400)" /> {selecionado.telefone}
                   </div>
                 )}
                 {(selecionado.endereco || selecionado.cidade) && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14.5px', color: 'var(--text-secondary)' }}>
                     <MapPin size={16} color="var(--brand-400)" />
                     {[selecionado.endereco, selecionado.bairro, selecionado.cidade, selecionado.estado].filter(Boolean).join(' - ')}
                   </div>
                 )}
                 {selecionado.email && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14.5px', color: 'var(--text-secondary)' }}>
                     <Mail size={16} color="var(--brand-400)" /> {selecionado.email}
                   </div>
                 )}
               </div>
 
               {saldoCents !== null && saldoCents > 0 && (
-                <div style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 600 }}>
+                <div style={{ fontSize: '14px', color: '#f59e0b', fontWeight: 600 }}>
                   Saldo em aberto: {formatarMoeda(saldoCents / 100)}
                 </div>
               )}
@@ -238,7 +238,7 @@ const VendedorConsultarCliente: React.FC = () => {
                 onClick={() => irParaNovoPedido(selecionado)}
                 style={{
                   height: '46px', borderRadius: '14px', border: 'none', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', fontWeight: 700,
+                  alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700,
                   color: '#fff', cursor: 'pointer', background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
                 }}
               >
@@ -247,20 +247,20 @@ const VendedorConsultarCliente: React.FC = () => {
               <button
                 type="button"
                 onClick={() => { setSelecionado(null); setBusca(''); }}
-                style={{ fontSize: '12.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, alignSelf: 'center' }}
+                style={{ fontSize: '13.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, alignSelf: 'center' }}
               >
                 Buscar outro cliente
               </button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 Histórico recente
               </div>
               {carregandoDetalhe ? (
-                <div style={{ color: 'var(--text-muted)', fontSize: '13px', padding: '12px 0' }}>Carregando...</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '14px', padding: '12px 0' }}>Carregando...</div>
               ) : historico.length === 0 ? (
-                <div style={{ color: 'var(--text-muted)', fontSize: '13px', padding: '12px 0' }}>Nenhum pedido ou orçamento ainda.</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '14px', padding: '12px 0' }}>Nenhum pedido ou orçamento ainda.</div>
               ) : (
                 historico.map((item) => (
                   <div
@@ -268,11 +268,11 @@ const VendedorConsultarCliente: React.FC = () => {
                     style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      <div style={{ fontSize: '14.5px', fontWeight: 600, color: 'var(--text-primary)' }}>
                         {item.tipo} #{item.numero} &middot; {item.status}
                       </div>
                     </div>
-                    <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.valorTotal)}</div>
+                    <div style={{ fontSize: '14.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.valorTotal)}</div>
                   </div>
                 ))
               )}

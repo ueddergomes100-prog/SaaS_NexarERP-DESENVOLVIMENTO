@@ -63,7 +63,7 @@ const VendedorShell: React.FC = () => {
       <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', padding: '32px', textAlign: 'center', backgroundColor: 'var(--bg-primary)' }}>
         <ShieldAlert size={40} color="#f59e0b" />
         <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>Sem acesso ao aplicativo mobile</div>
-        <p style={{ fontSize: '13.5px', color: 'var(--text-muted)', maxWidth: '320px' }}>
+        <p style={{ fontSize: '14.5px', color: 'var(--text-muted)', maxWidth: '320px' }}>
           Este login não tem o acesso ao aplicativo mobile liberado. Peça pro administrador liberar em Usuários ou Vendedores.
         </p>
         <button

@@ -35,7 +35,7 @@ const estiloCampo: React.CSSProperties = {
 };
 
 const estiloRotulo: React.CSSProperties = {
-  fontSize: '12.5px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px', display: 'block',
+  fontSize: '13.5px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px', display: 'block',
 };
 
 const Campo: React.FC<{ rotulo: string; dica?: string; children: React.ReactNode }> = ({ rotulo, dica, children }) => (
@@ -196,7 +196,7 @@ const VendedorNovoCliente: React.FC = () => {
       <VendedorHeader titulo="Novo Cliente" />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.45 }}>
+        <p style={{ margin: 0, fontSize: '13.5px', color: 'var(--text-muted)', lineHeight: 1.45 }}>
           Preencha tudo que a nota fiscal precisa. Digite só os números: o sistema coloca pontos, traços e barra sozinho.
         </p>
 
@@ -317,7 +317,7 @@ const VendedorNovoCliente: React.FC = () => {
           disabled={salvando}
           style={{
             width: '100%', height: '52px', borderRadius: '14px', border: 'none', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, color: '#fff',
+            justifyContent: 'center', gap: '8px', fontSize: '16px', fontWeight: 700, color: '#fff',
             cursor: salvando ? 'default' : 'pointer', opacity: salvando ? 0.7 : 1,
             background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
           }}

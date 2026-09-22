@@ -59,7 +59,7 @@ const VendedorInstalar: React.FC = () => {
         <h1 style={{ fontSize: '23px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
           Instalar o app de vendas
         </h1>
-        <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.5, marginTop: '8px' }}>
+        <p style={{ fontSize: '15px', color: 'var(--text-secondary)', lineHeight: 1.5, marginTop: '8px' }}>
           Adicione à tela de início do celular para abrir como um aplicativo, em tela cheia e com ícone próprio.
         </p>
       </div>
@@ -67,19 +67,19 @@ const VendedorInstalar: React.FC = () => {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <div style={passoStyle}>
           <Share size={20} color="var(--brand-400)" style={{ flexShrink: 0 }} />
-          <span style={{ fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+          <span style={{ fontSize: '14.5px', color: 'var(--text-secondary)' }}>
             1. Toque no botão <strong style={{ color: 'var(--text-primary)' }}>Compartilhar</strong> do navegador
           </span>
         </div>
         <div style={passoStyle}>
           <SquarePlus size={20} color="var(--brand-400)" style={{ flexShrink: 0 }} />
-          <span style={{ fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+          <span style={{ fontSize: '14.5px', color: 'var(--text-secondary)' }}>
             2. Escolha <strong style={{ color: 'var(--text-primary)' }}>Adicionar à Tela de Início</strong>
           </span>
         </div>
       </div>
 
-      <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
+      <p style={{ fontSize: '13.5px', color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
         Importante: instale por esta página. Se adicionar a partir de outra tela do sistema, o atalho abre no login do
         sistema completo em vez do app de vendas.
       </p>
@@ -89,7 +89,7 @@ const VendedorInstalar: React.FC = () => {
         onClick={() => navigate('/vendedor')}
         style={{
           marginTop: 'auto', height: '52px', borderRadius: '14px', border: '1px solid var(--border-color)',
-          backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: '14.5px', fontWeight: 700,
+          backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: '15.5px', fontWeight: 700,
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer',
         }}
       >

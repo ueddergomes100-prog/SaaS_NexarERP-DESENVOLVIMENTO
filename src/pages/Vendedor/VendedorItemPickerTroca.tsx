@@ -139,7 +139,7 @@ const VendedorItemPickerTroca: React.FC<Props> = ({ produtos, itens, onItensChan
         onClick={handleAdicionar}
         style={{
           height: '48px', borderRadius: '14px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-          fontSize: '14.5px', fontWeight: 700, color: '#fff', cursor: 'pointer',
+          fontSize: '15.5px', fontWeight: 700, color: '#fff', cursor: 'pointer',
           background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
         }}
       >
@@ -147,7 +147,7 @@ const VendedorItemPickerTroca: React.FC<Props> = ({ produtos, itens, onItensChan
       </button>
 
       {itens.length === 0 ? (
-        <div style={{ padding: '18px 8px', textAlign: 'center', fontSize: '13px', color: 'var(--text-muted)' }}>
+        <div style={{ padding: '18px 8px', textAlign: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>
           Nenhum item na troca ainda.
         </div>
       ) : (
@@ -158,8 +158,8 @@ const VendedorItemPickerTroca: React.FC<Props> = ({ produtos, itens, onItensChan
               style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', wordBreak: 'break-word' }}>{item.nome}</div>
-                <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginTop: '3px', wordBreak: 'break-word' }}>
+                <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', wordBreak: 'break-word' }}>{item.nome}</div>
+                <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '3px', wordBreak: 'break-word' }}>
                   {item.quantidade} {item.unidadeMedidaSigla} · {rotuloDoMotivoTroca(item.motivo)}{item.motivoDescricao ? ` (${item.motivoDescricao})` : ''}
                 </div>
               </div>

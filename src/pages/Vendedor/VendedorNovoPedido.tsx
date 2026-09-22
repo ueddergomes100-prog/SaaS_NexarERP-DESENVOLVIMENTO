@@ -130,12 +130,12 @@ const VendedorNovoPedido: React.FC = () => {
             }}
           >
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteComCodigo(clienteSelecionado)}</div>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteComCodigo(clienteSelecionado)}</div>
             </div>
             <button
               type="button"
               onClick={() => setClienteSelecionado(null)}
-              style={{ fontSize: '12.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+              style={{ fontSize: '13.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
             >
               Trocar
             </button>
@@ -147,7 +147,7 @@ const VendedorNovoPedido: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/vendedor/cliente/novo', { state: { retornarPara: 'pedido' } })}
-            style={{ marginTop: '10px', fontSize: '13px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0 }}
+            style={{ marginTop: '10px', fontSize: '14px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0 }}
           >
             + Cadastrar novo cliente
           </button>
@@ -159,7 +159,7 @@ const VendedorNovoPedido: React.FC = () => {
 
         <div style={{ marginTop: '22px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label htmlFor="pedido-observacao" style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <label htmlFor="pedido-observacao" style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               Observação
             </label>
             <textarea
@@ -170,7 +170,7 @@ const VendedorNovoPedido: React.FC = () => {
               rows={3}
               placeholder="Ex.: entregar de manhã, ligar antes de chegar"
               style={{
-                width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border-color)', fontSize: '15px',
+                width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border-color)', fontSize: '16px',
                 backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'none',
               }}
             />
@@ -179,7 +179,7 @@ const VendedorNovoPedido: React.FC = () => {
 
           {controlaFiscal && (
             <fieldset style={{ border: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <legend style={{ padding: 0, marginBottom: '8px', fontSize: '12.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              <legend style={{ padding: 0, marginBottom: '8px', fontSize: '13.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 Nota fiscal
               </legend>
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -192,7 +192,7 @@ const VendedorNovoPedido: React.FC = () => {
                         flex: 1, display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 12px', borderRadius: '14px', cursor: 'pointer',
                         border: `1.5px solid ${marcado ? 'var(--brand-500)' : 'var(--border-color)'}`,
                         backgroundColor: marcado ? 'rgba(153,100,240,0.14)' : 'var(--bg-elevated)',
-                        fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)',
+                        fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)',
                       }}
                     >
                       <input
@@ -217,7 +217,7 @@ const VendedorNovoPedido: React.FC = () => {
           onClick={handleSalvar}
           style={{
             width: '100%', height: '52px', borderRadius: '14px', border: 'none', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, color: '#fff', cursor: 'pointer',
+            justifyContent: 'center', gap: '8px', fontSize: '16px', fontWeight: 700, color: '#fff', cursor: 'pointer',
             background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
           }}
         >

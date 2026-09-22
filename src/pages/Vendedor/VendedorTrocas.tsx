@@ -72,7 +72,7 @@ const VendedorTrocas: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/vendedor/troca/nova')}
-            style={{ height: '38px', padding: '0 14px', borderRadius: '10px', border: 'none', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)' }}
+            style={{ height: '38px', padding: '0 14px', borderRadius: '10px', border: 'none', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)' }}
           >
             <Plus size={16} /> Nova
           </button>
@@ -81,9 +81,9 @@ const VendedorTrocas: React.FC = () => {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {loading ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>Carregando...</div>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>Carregando...</div>
         ) : minhas.length === 0 ? (
-          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', lineHeight: 1.5 }}>
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px', lineHeight: 1.5 }}>
             Você ainda não enviou nenhuma troca.<br />Toque em "Nova" para pedir a reposição de um produto estragado.
           </div>
         ) : minhas.map((troca) => {
@@ -97,10 +97,10 @@ const VendedorTrocas: React.FC = () => {
                 style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer' }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     #{troca.numeroTroca} · {troca.clienteNome}
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '3px' }}>
                     {troca.itens.length} {troca.itens.length === 1 ? 'item' : 'itens'} · {formatarData(dataDaTroca(troca))}
                   </div>
                   <span style={{ display: 'inline-block', marginTop: '7px', padding: '3px 10px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, backgroundColor: estilo.fundo, color: estilo.cor }}>
@@ -112,20 +112,20 @@ const VendedorTrocas: React.FC = () => {
 
               {expandida && (
                 <div style={{ padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid var(--border-color)' }}>
-                  <div style={{ fontSize: '12.5px', color: estilo.cor, fontWeight: 600, marginTop: '10px' }}>{estilo.explicacao}</div>
+                  <div style={{ fontSize: '13.5px', color: estilo.cor, fontWeight: 600, marginTop: '10px' }}>{estilo.explicacao}</div>
                   {troca.status === 'Recusada' && troca.motivoRecusa && (
-                    <div style={{ padding: '10px 12px', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.45)', fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                    <div style={{ padding: '10px 12px', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.45)', fontSize: '14px', color: 'var(--text-primary)', lineHeight: 1.4 }}>
                       <strong>Motivo da recusa:</strong> {troca.motivoRecusa}
                     </div>
                   )}
                   {troca.itens.map((item, indice) => (
-                    <div key={`${item.id}-${indice}`} style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                    <div key={`${item.id}-${indice}`} style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
                       <strong style={{ color: 'var(--text-primary)' }}>{item.quantidade} {item.unidadeMedidaSigla}</strong> {item.nome}<br />
                       <span style={{ color: 'var(--text-muted)' }}>{rotuloDoMotivoTroca(item.motivo)}{item.motivoDescricao ? ` (${item.motivoDescricao})` : ''}</span>
                     </div>
                   ))}
                   {troca.observacao && (
-                    <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
                       <strong style={{ color: 'var(--text-primary)' }}>Obs.:</strong> {troca.observacao}
                     </div>
                   )}
@@ -134,7 +134,7 @@ const VendedorTrocas: React.FC = () => {
                       type="button"
                       onClick={() => void cancelar(troca)}
                       disabled={cancelando === troca.id}
-                      style={{ height: '44px', borderRadius: '12px', border: '1px solid rgba(239,68,68,0.5)', backgroundColor: 'transparent', color: '#f87171', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}
+                      style={{ height: '44px', borderRadius: '12px', border: '1px solid rgba(239,68,68,0.5)', backgroundColor: 'transparent', color: '#f87171', fontSize: '15px', fontWeight: 700, cursor: 'pointer' }}
                     >
                       {cancelando === troca.id ? 'Cancelando...' : 'Cancelar esta troca'}
                     </button>

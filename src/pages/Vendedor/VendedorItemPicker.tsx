@@ -139,7 +139,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
       </div>
 
       {produtoSelecionado && (
-        <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+        <div style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
           <strong style={{ color: 'var(--text-primary)' }}>{produtoSelecionado.nome}</strong>
           {' · '}{formatarMoeda(produtoSelecionado.precoVenda)}
           {' · '}estoque: {produtoSelecionado.quantidade || 0} {resolveUnidadeMedidaProduto(produtoSelecionado).unidadeMedidaSigla}
@@ -147,7 +147,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
       )}
 
       {itens.length === 0 ? (
-        <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+        <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
           Nenhum item adicionado ainda.
         </div>
       ) : (
@@ -161,14 +161,14 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
               }}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {item.nome}
                 </div>
-                <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginTop: '3px' }}>
+                <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '3px' }}>
                   {item.quantidade} {item.unidadeMedidaSigla} &times; {formatarMoeda(item.precoUnitario)}
                 </div>
               </div>
-              <div style={{ fontSize: '14.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.subtotal)}</div>
+              <div style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.subtotal)}</div>
               <button
                 type="button"
                 onClick={() => handleRemover(index)}
@@ -183,7 +183,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '6px' }}>
-        <span style={{ fontSize: '14px', color: 'var(--text-secondary)', fontWeight: 500 }}>Total</span>
+        <span style={{ fontSize: '15px', color: 'var(--text-secondary)', fontWeight: 500 }}>Total</span>
         <span style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>{formatarMoeda(total)}</span>
       </div>
     </div>

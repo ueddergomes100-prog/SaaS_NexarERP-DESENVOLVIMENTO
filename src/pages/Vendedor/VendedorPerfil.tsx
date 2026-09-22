@@ -35,7 +35,7 @@ const VendedorPerfil: React.FC = () => {
               onClick={() => window.location.assign(CAMINHO_INSTALACAO)}
               style={{
                 marginTop: '10px', width: '100%', height: '48px', borderRadius: '14px', border: 'none',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700,
                 color: '#fff', cursor: 'pointer',
                 background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
               }}
@@ -50,7 +50,7 @@ const VendedorPerfil: React.FC = () => {
             disabled={sincronizando}
             style={{
               marginTop: '10px', width: '100%', height: '48px', borderRadius: '14px', border: '1px solid var(--border-color)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', fontWeight: 700,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700,
               color: 'var(--text-primary)', cursor: sincronizando ? 'default' : 'pointer', backgroundColor: 'var(--bg-tertiary)',
               opacity: sincronizando ? 0.7 : 1,
             }}
@@ -64,7 +64,7 @@ const VendedorPerfil: React.FC = () => {
             onClick={() => void logout()}
             style={{
               marginTop: '2px', width: '100%', height: '48px', borderRadius: '14px', border: '1px solid rgba(239,68,68,0.35)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', fontWeight: 700,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700,
               color: '#f87171', cursor: 'pointer', backgroundColor: 'rgba(239,68,68,0.10)',
             }}
           >

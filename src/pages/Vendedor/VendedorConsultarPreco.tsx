@@ -76,15 +76,15 @@ const VendedorConsultarPreco: React.FC = () => {
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px' }}>
         {selecionado ? (
           <div style={{ borderRadius: '18px', padding: '24px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{selecionado.nome}</div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>{selecionado.nome}</div>
             {selecionado.codigo && (
-              <div style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>Código {selecionado.codigo}</div>
+              <div style={{ fontSize: '13.5px', color: 'var(--text-muted)' }}>Código {selecionado.codigo}</div>
             )}
             <div style={{ fontSize: '30px', fontWeight: 800, color: 'var(--brand-400)', marginTop: '6px' }}>
               {formatarMoeda(selecionado.precoVenda || 0)}
-              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-muted)' }}> / {unidade?.unidadeMedidaSigla}</span>
+              <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-muted)' }}> / {unidade?.unidadeMedidaSigla}</span>
             </div>
-            <div style={{ fontSize: '13px', color: (selecionado.quantidade || 0) > 0 ? 'var(--text-secondary)' : '#ef4444', marginTop: '4px' }}>
+            <div style={{ fontSize: '14px', color: (selecionado.quantidade || 0) > 0 ? 'var(--text-secondary)' : '#ef4444', marginTop: '4px' }}>
               {(selecionado.quantidade || 0) > 0
                 ? `${selecionado.quantidade} ${unidade?.unidadeMedidaSigla} em estoque`
                 : 'Sem estoque'}
@@ -96,7 +96,7 @@ const VendedorConsultarPreco: React.FC = () => {
               onClick={() => irParaNovoPedido(selecionado)}
               style={{
                 marginTop: '10px', height: '48px', borderRadius: '14px', border: 'none', display: 'flex',
-                alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', fontWeight: 700,
+                alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700,
                 color: '#fff', cursor: 'pointer', background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
               }}
             >
@@ -106,7 +106,7 @@ const VendedorConsultarPreco: React.FC = () => {
             <button
               type="button"
               onClick={() => { setSelecionado(null); setBusca(''); }}
-              style={{ fontSize: '12.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, alignSelf: 'center', marginTop: '2px' }}
+              style={{ fontSize: '13.5px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, alignSelf: 'center', marginTop: '2px' }}
             >
               Buscar outro produto
             </button>
@@ -114,7 +114,7 @@ const VendedorConsultarPreco: React.FC = () => {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {maisVendidos.length > 0 && (
-              <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>
+              <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>
                 Mais vendidos
               </div>
             )}
@@ -128,10 +128,10 @@ const VendedorConsultarPreco: React.FC = () => {
                   onClick={() => setSelecionado(produto)}
                   style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                 >
-                  <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {produto.nome}
                   </div>
-                  <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
                     {formatarMoeda(produto.precoVenda || 0)}
                   </div>
                 </button>
@@ -150,7 +150,7 @@ const VendedorConsultarPreco: React.FC = () => {
               </div>
             ))}
             {maisVendidos.length === 0 && (
-              <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+              <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
                 Busque um produto pra ver o preço.
               </div>
             )}

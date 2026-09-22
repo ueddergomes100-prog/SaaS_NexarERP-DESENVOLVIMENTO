@@ -178,3 +178,111 @@ export const parseTipoDescontoPadrao = (raw: unknown): DescontoTipo => (
 /** Estado inicial (e o de "limpar") do campo de desconto. Uma funcao so pras
  *  quatro telas nao repetirem `{ tipo, valor: '' }` cada uma do seu jeito. */
 export const descontoInicial = (tipoPadrao: DescontoTipo) => ({ tipo: tipoPadrao, valor: '' });
+
+/**
+ * DESCONTO PADRAO DO CLIENTE (2026-09-21).
+ *
+ * Pedido do dono: "na tela do cliente tem desconto padrao. Esse cliente 10%
+ * no cadastro dele, entao a prioridade e dele."
+ *
+ * A HIERARQUIA, com a decisao do dono de 21/09:
+ *
+ *   1. CLIENTE  -- o percentual do cadastro. Vem preenchido na venda e passa
+ *                  DIRETO, sem avisar nem pedir senha: o dono ja autorizou
+ *                  aquilo quando cadastrou. Pedir confirmacao em toda venda
+ *                  seria atrapalhar o vendedor por uma decisao ja tomada.
+ *   2. PRODUTO  -- `descontoMaximoPercentual` continua sendo TETO do item, e
+ *                  o desconto do cliente NAO passa por cima dele: quem
+ *                  confere o item e' excedeLimiteItem, que nem enxerga o
+ *                  cliente. Atencao ao que 0 significa neste campo: hoje 0 e'
+ *                  "campo em branco / sem teto proprio" (resolveLimiteItem
+ *                  devolve null), NAO "produto que nao aceita desconto" --
+ *                  esse segundo caso nao existe no sistema.
+ *   3. SISTEMA  -- o limite da tela (Configuracoes). Vale para o que passar
+ *                  do percentual do cliente, com o modo de sempre
+ *                  (avisar/bloquear/senha).
+ *
+ * NAO existe nivel de VENDEDOR: o dono decidiu nao criar agora (21/09). A
+ * hierarquia de 3 niveis com vendedor no meio e' a da COMISSAO
+ * (resolveComissaoPercentual), nao a do desconto.
+ *
+ * ATENCAO, registrado de proposito: tudo isto e' conferido NA TELA. O
+ * servidor nao valida desconto. Se algum dia esse limite precisar ser
+ * inviolavel (regra "nada se altera pelo DevTools"), a checagem tem de subir
+ * pro servidor -- e' mudanca maior, decisao a parte.
+ */
+
+/** Percentual do cadastro do cliente, ou 0 quando nao tem. Sempre entre 0 e 100. */
+export const descontoPadraoDoCliente = (cliente: { descontoPadraoPercentual?: unknown } | null | undefined): number => {
+  const valor = toFiniteNumber(cliente?.descontoPadraoPercentual);
+  if (!Number.isFinite(valor) || valor <= 0) return 0;
+  return Math.min(100, valor);
+};
+
+/** Le o campo digitado no cadastro. Em branco vira 0 (== sem desconto). */
+export const parseDescontoPadraoCliente = (valor: string): number => {
+  const limpo = String(valor ?? '').trim().replace(',', '.');
+  if (!limpo) return 0;
+  const numero = Number(limpo);
+  if (!Number.isFinite(numero) || numero <= 0) return 0;
+  return Math.min(100, numero);
+};
+
+/** Erro em portugues do campo, ou null. */
+export const erroDoDescontoPadraoCliente = (valor: string): string | null => {
+  const limpo = String(valor ?? '').trim().replace(',', '.');
+  if (!limpo) return null;
+  const numero = Number(limpo);
+  if (!Number.isFinite(numero)) return 'Informe o desconto padrão em porcentagem (ex.: 10).';
+  if (numero < 0) return 'O desconto padrão não pode ser negativo.';
+  if (numero > 100) return 'O desconto padrão não pode passar de 100%.';
+  return null;
+};
+
+export interface ChecagemDescontoComCliente extends ChecagemLimiteTotalResult {
+  /** Percentual que o cadastro do cliente ja autoriza. */
+  percentualDoCliente: number;
+  /** Dentro do que o cliente ja tem direito: passa sem avisar nem pedir senha. */
+  dentroDoDescontoDoCliente: boolean;
+}
+
+/**
+ * Confere o desconto TOTAL considerando o desconto do cliente.
+ *
+ * Ate o percentual do cliente, `excedeu` e' sempre false -- e' o que faz o
+ * desconto dele passar direto. Acima disso, vale a regra da tela de sempre.
+ *
+ * Uma tolerancia de 1 centavo (a mesma de checarLimiteTotal) evita que
+ * arredondamento de centavo dispare pedido de senha numa venda que esta
+ * exatamente no limite.
+ */
+export const checarLimiteComCliente = (
+  limite: LimiteDescontoConfig | null | undefined,
+  baseCents: number,
+  descontoCents: number,
+  percentualDoCliente: number,
+): ChecagemDescontoComCliente => {
+  const base = checarLimiteTotal(limite, baseCents, descontoCents);
+  const percentualCliente = Math.max(0, Math.min(100, Number(percentualDoCliente) || 0));
+
+  if (percentualCliente <= 0 || baseCents <= 0) {
+    return { ...base, percentualDoCliente: percentualCliente, dentroDoDescontoDoCliente: false };
+  }
+
+  const tetoDoClienteCents = Math.round(baseCents * (percentualCliente / 100));
+  const dentro = descontoCents <= tetoDoClienteCents + 1;
+
+  return {
+    percentualAplicado: base.percentualAplicado,
+    excedeu: dentro ? false : base.excedeu,
+    percentualDoCliente: percentualCliente,
+    dentroDoDescontoDoCliente: dentro,
+  };
+};
+
+/** Desconto em centavos que o cliente ja tem direito sobre uma base. */
+export const descontoDoClienteEmCents = (baseCents: number, percentualDoCliente: number): number => {
+  const percentual = Math.max(0, Math.min(100, Number(percentualDoCliente) || 0));
+  if (percentual <= 0 || baseCents <= 0) return 0;
+  return Math.round(baseCents * (percentual / 100));
+};

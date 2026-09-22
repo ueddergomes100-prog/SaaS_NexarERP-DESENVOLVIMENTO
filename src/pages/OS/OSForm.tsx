@@ -20,7 +20,6 @@ import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaM
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import {
   calcularDescontoCents,
-  checarLimiteTotal,
   DEFAULT_TIPO_DESCONTO_PADRAO,
   descontoInicial,
   parseLimiteDescontoConfig,
@@ -29,6 +28,8 @@ import {
   type DescontoTipo,
   type LimiteDescontoConfig,
   type ModoLimiteDesconto,
+  checarLimiteComCliente,
+  descontoPadraoDoCliente,
 } from '../../utils/descontoDomain';
 import {
   DEFAULT_MODO_VALIDACAO_CLIENTE,
@@ -104,7 +105,7 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import './OS.css';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 
-interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
+interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; descontoPadraoPercentual?: number | null; }
 interface Banco { id: string; nome: string; ativo: boolean; }
 interface BandeiraCartao {
   id: string;
@@ -880,7 +881,20 @@ const OSForm: React.FC = () => {
   const desconto = fromCents(descontoCents);
   const totalOS = Math.max(0, subtotalOS - desconto);
   const totalOSCentavos = toCents(totalOS);
-  const checagemLimiteDesconto = checarLimiteTotal(limiteDescontoOS, subtotalOSCentavos, descontoCents);
+  /**
+   * DESCONTO PADRAO DO CLIENTE (2026-09-21) -- ate esse percentual o desconto
+   * passa direto, sem avisar nem pedir senha (autorizacao dada no cadastro).
+   * Ver descontoDomain.ts.
+   */
+  const [descontoDoCliente, setDescontoDoCliente] = useState(0);
+  useEffect(() => {
+    const nome = String(formData.clienteNome || '').trim().toUpperCase();
+    if (!nome) { setDescontoDoCliente(0); return; }
+    const cliente = clientesDisponiveis.find((c) => String(c.nome || '').toUpperCase() === nome);
+    setDescontoDoCliente(descontoPadraoDoCliente(cliente));
+  }, [formData.clienteNome, clientesDisponiveis]);
+
+  const checagemLimiteDesconto = checarLimiteComCliente(limiteDescontoOS, subtotalOSCentavos, descontoCents, descontoDoCliente);
   const paymentDate = formData.dataSaida || getDateInputInTimeZone();
 
   // Uma aprovacao de senha so vale pro estado do momento -- mudar servico,

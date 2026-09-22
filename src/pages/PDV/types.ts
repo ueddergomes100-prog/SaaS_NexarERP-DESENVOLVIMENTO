@@ -28,6 +28,8 @@ export interface PdvClient {
   id: string;
   nome: string;
   codigo?: string;
+  /** Desconto que o cadastro do cliente ja autoriza, em % (descontoDomain). */
+  descontoPadraoPercentual?: number | null;
   telefone?: string;
   documento?: string;
   email?: string;

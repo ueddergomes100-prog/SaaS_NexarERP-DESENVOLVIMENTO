@@ -75,7 +75,8 @@ import {
 } from '../../utils/embalagemDomain';
 import {
   DEFAULT_MODO_LIMITE_DESCONTO,
-  checarLimiteTotal,
+  checarLimiteComCliente,
+  descontoPadraoDoCliente,
   excedeLimiteItem,
   parseLimiteDescontoConfig,
   parseModoLimiteDesconto,
@@ -167,8 +168,15 @@ const PDV: React.FC = () => {
   // Nivel 2 (sistema): desconto TOTAL do cupom (itens + desconto geral)
   // contra o limite configurado pro PDV.
   const checagemLimiteDesconto = useMemo(
-    () => checarLimiteTotal(limiteDescontoPdv, totals.subtotalCentavos, totals.descontoTotalCentavos),
-    [limiteDescontoPdv, totals.subtotalCentavos, totals.descontoTotalCentavos],
+    // Ate o percentual do cadastro do cliente o desconto passa direto --
+    // e' autorizacao ja dada pelo dono. Acima disso vale o limite do PDV.
+    () => checarLimiteComCliente(
+      limiteDescontoPdv,
+      totals.subtotalCentavos,
+      totals.descontoTotalCentavos,
+      descontoPadraoDoCliente(selectedClient),
+    ),
+    [limiteDescontoPdv, totals.subtotalCentavos, totals.descontoTotalCentavos, selectedClient],
   );
 
   // Uma aprovacao de senha so vale pro carrinho do momento -- mudar item ou
@@ -245,6 +253,7 @@ const PDV: React.FC = () => {
               telefone: normalizeText(data.telefone),
               documento: normalizeText(data.documento),
               email: normalizeText(data.email),
+              descontoPadraoPercentual: Number(data.descontoPadraoPercentual) || 0,
               isPadrao: Boolean(data.isPadrao),
             } as PdvClient;
           })

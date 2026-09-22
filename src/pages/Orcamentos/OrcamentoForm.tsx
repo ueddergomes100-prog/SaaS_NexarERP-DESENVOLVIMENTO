@@ -23,7 +23,6 @@ import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/
 import { fromCents, toCents } from '../../utils/financeDomain';
 import {
   calcularDescontoCents,
-  checarLimiteTotal,
   DEFAULT_TIPO_DESCONTO_PADRAO,
   descontoInicial,
   parseLimiteDescontoConfig,
@@ -32,6 +31,8 @@ import {
   type DescontoTipo,
   type LimiteDescontoConfig,
   type ModoLimiteDesconto,
+  checarLimiteComCliente,
+  descontoPadraoDoCliente,
 } from '../../utils/descontoDomain';
 import {
   DEFAULT_MODO_VALIDACAO_CLIENTE,
@@ -54,7 +55,7 @@ import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBus
 import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaModal';
 import { hasModuleAccess } from '../../utils/roles';
 
-interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; }
+interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; descontoPadraoPercentual?: number | null; }
 interface ServicoData { id: string; nome: string; preco: number; }
 interface ItemOrcamento {
   id: string;
@@ -461,7 +462,20 @@ const OrcamentoForm: React.FC = () => {
   const descontoCents = calcularDescontoCents(descontoInput.tipo, descontoInput.valor, subtotalOrcamentoCents);
   const desconto = fromCents(descontoCents);
   const totalGeral = Math.max(0, subtotalOrcamento - desconto);
-  const checagemLimiteDesconto = checarLimiteTotal(limiteDescontoOrcamento, subtotalOrcamentoCents, descontoCents);
+  /**
+   * DESCONTO PADRAO DO CLIENTE (2026-09-21) -- ate esse percentual o desconto
+   * passa direto, sem avisar nem pedir senha (autorizacao dada no cadastro).
+   * Ver descontoDomain.ts.
+   */
+  const [descontoDoCliente, setDescontoDoCliente] = useState(0);
+  useEffect(() => {
+    const nome = String(formData.clienteNome || '').trim().toUpperCase();
+    if (!nome) { setDescontoDoCliente(0); return; }
+    const cliente = clientesDisponiveis.find((c) => String(c.nome || '').toUpperCase() === nome);
+    setDescontoDoCliente(descontoPadraoDoCliente(cliente));
+  }, [formData.clienteNome, clientesDisponiveis]);
+
+  const checagemLimiteDesconto = checarLimiteComCliente(limiteDescontoOrcamento, subtotalOrcamentoCents, descontoCents, descontoDoCliente);
 
   const handleSave = async (e?: React.FormEvent) => {
     if (submitLockRef.current) return;

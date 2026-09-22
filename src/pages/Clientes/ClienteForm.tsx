@@ -12,6 +12,7 @@ import { buscarClienteDuplicadoPorDocumento } from '../../utils/clienteDuplicado
 import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton';
 import type { ConsultaCnpjResultado, ConsultaCpfResultado } from '../../services/documentoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { erroDoDescontoPadraoCliente, parseDescontoPadraoCliente } from '../../utils/descontoDomain';
 import { spedyService, type SpedyCity } from '../../services/spedyService';
 import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 
@@ -58,6 +59,8 @@ const ClienteForm: React.FC = () => {
     cepEntrega: '',
     referenciaEntrega: '',
     limiteDeCredito: '',
+    /** Desconto que este cliente ja tem direito, em %. Ver descontoDomain. */
+    descontoPadraoPercentual: '',
   });
 
   // Dado historico da importacao (data da ultima compra no sistema
@@ -237,6 +240,9 @@ const ClienteForm: React.FC = () => {
               // (ver handleSave) -- o input e' controlado como texto, entao
               // precisa voltar pra string aqui, senao o .trim() do proximo
               // save quebra em cima de null.
+              descontoPadraoPercentual: Number(data.descontoPadraoPercentual) > 0
+                ? String(data.descontoPadraoPercentual)
+                : '',
               limiteDeCredito: data.limiteDeCredito === null || data.limiteDeCredito === undefined
                 ? ''
                 : String(data.limiteDeCredito),
@@ -324,6 +330,13 @@ const ClienteForm: React.FC = () => {
         }
       }
 
+      const erroDesconto = erroDoDescontoPadraoCliente(formData.descontoPadraoPercentual);
+      if (erroDesconto) {
+        showError('Desconto padrão inválido', erroDesconto);
+        setIsLoading(false);
+        return;
+      }
+
       const limiteDeCreditoParsed = formData.limiteDeCredito.trim() === ''
         ? null
         : Number(formData.limiteDeCredito);
@@ -332,6 +345,9 @@ const ClienteForm: React.FC = () => {
         ...formData,
         nome: formData.nome.toUpperCase().trim(),
         limiteDeCredito: Number.isFinite(limiteDeCreditoParsed) ? limiteDeCreditoParsed : null,
+        // Numero, nao texto: e' assim que a venda le. Campo em branco vira 0
+        // (== sem desconto proprio), nunca undefined (regra 3 do CLAUDE.md).
+        descontoPadraoPercentual: parseDescontoPadraoCliente(formData.descontoPadraoPercentual),
         tenantId
       };
 
@@ -622,6 +638,27 @@ const ClienteForm: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)', marginTop: '12px' }}>
             <CreditCard size={20} style={{ color: 'var(--accent-purple)' }} />
             <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Financeiro</h3>
+          </div>
+
+          <div className="input-group">
+            <label>Desconto padrão deste cliente (%)</label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              name="descontoPadraoPercentual"
+              placeholder="0"
+              value={formData.descontoPadraoPercentual}
+              onChange={handleChange}
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)', width: '100%' }}
+            />
+            <small style={{ color: 'var(--text-muted)' }}>
+              Preenchido aqui, o desconto <strong>já vem aplicado</strong> na venda, na OS e no orçamento deste cliente, sem
+              pedir senha — é uma autorização sua, dada no cadastro. Acima desse percentual, valem os limites de desconto de
+              Configurações. O desconto máximo do <strong>produto</strong> continua mandando. Deixe em branco se este cliente
+              não tem desconto fixo.
+            </small>
           </div>
 
           <div className="input-group">

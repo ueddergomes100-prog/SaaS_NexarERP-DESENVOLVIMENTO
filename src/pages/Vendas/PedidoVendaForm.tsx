@@ -107,6 +107,8 @@ import {
   type DescontoTipo,
   excedeLimiteItem,
   parsePermitirDescontoPorItem,
+  checarLimiteComCliente,
+  descontoPadraoDoCliente,
   parseLimiteDescontoConfig,
   parseModoLimiteDesconto,
   type LimiteDescontoConfig,
@@ -149,7 +151,7 @@ import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaM
 import { motivoPedidoNaoEmiteNota } from '../../utils/notaFiscalVisibilidadeDomain';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 
-interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; }
+interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; descontoPadraoPercentual?: number | null; }
 interface VendedorBasico { id: string; nome: string; email?: string; }
 interface Banco { id: string; nome: string; ativo: boolean; }
 interface BandeiraCartao {
@@ -335,6 +337,14 @@ const PedidoVendaForm: React.FC = () => {
   const [documentosFiscais, setDocumentosFiscais] = useState<{ emiteNFe?: unknown; emiteNFCe?: unknown; emiteNFSe?: unknown }>({});
   const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [descontoGeralInput, setDescontoGeralInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
+  /**
+   * DESCONTO PADRAO DO CLIENTE (2026-09-21).
+   *
+   * Preenchido ao escolher um cliente que tem percentual no cadastro. Ate
+   * esse percentual o desconto passa DIRETO, sem avisar nem pedir senha --
+   * e' autorizacao que o dono ja deu no cadastro. Ver descontoDomain.ts.
+   */
+  const [descontoDoCliente, setDescontoDoCliente] = useState(0);
   const [limiteDescontoPedido, setLimiteDescontoPedido] = useState<LimiteDescontoConfig | null>(null);
   const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>('avisar');
   const [tipoDescontoPadrao, setTipoDescontoPadrao] = useState<DescontoTipo>(DEFAULT_TIPO_DESCONTO_PADRAO);
@@ -893,6 +903,31 @@ const PedidoVendaForm: React.FC = () => {
   // -- disparada tambem ao sair do campo, pra nao deixar o usuario montar
   // a venda inteira antes de descobrir que o cliente digitado nao esta
   // cadastrado.
+  /**
+   * Cliente escolhido: guarda o percentual dele e ja' preenche o desconto
+   * geral da venda.
+   *
+   * So' preenche campo VAZIO -- desconto que o operador ja digitou nao e'
+   * reescrito por troca de cliente, do mesmo jeito que tipoDescontoPadrao
+   * respeita o que ja esta na tela. Em venda que ja existe (edicao) tambem
+   * nao mexe: o desconto gravado e' o que foi combinado com o cliente.
+   */
+  const aplicarDescontoDoCliente = (cliente: ClienteBasico | null | undefined) => {
+    const percentual = descontoPadraoDoCliente(cliente);
+    setDescontoDoCliente(percentual);
+    if (percentual <= 0 || id) return;
+    setDescontoGeralInput((atual) => (
+      atual.valor === '' ? { tipo: 'percentual', valor: String(percentual) } : atual
+    ));
+  };
+
+  useEffect(() => {
+    const nome = clienteNome.trim().toUpperCase();
+    if (!nome) { setDescontoDoCliente(0); return; }
+    const cliente = clientesDisponiveis.find((c) => String(c.nome || '').toUpperCase() === nome);
+    setDescontoDoCliente(descontoPadraoDoCliente(cliente));
+  }, [clienteNome, clientesDisponiveis]);
+
   const handleClienteBlur = () => {
     const nomeDigitado = clienteNome.trim();
     if (!nomeDigitado) return;
@@ -1342,7 +1377,15 @@ const PedidoVendaForm: React.FC = () => {
   const valorTotalDescontos = valorTotalDescontosItens + descontoGeral;
   const valorTotalPedido = Math.max(0, valorTotalItens - valorTotalDescontos + Number(frete || 0) + Number(encargos || 0));
   const valorTotalPedidoCentavos = toCents(valorTotalPedido);
-  const checagemLimiteDesconto = checarLimiteTotal(limiteDescontoPedido, toCents(valorTotalItens), toCents(valorTotalDescontos));
+  // Ate o percentual do cadastro do cliente, o desconto passa direto: e'
+  // autorizacao que o dono ja deu. Acima disso vale o limite da tela, com o
+  // modo de sempre (avisar/bloquear/senha). Ver checarLimiteComCliente.
+  const checagemLimiteDesconto = checarLimiteComCliente(
+    limiteDescontoPedido,
+    toCents(valorTotalItens),
+    toCents(valorTotalDescontos),
+    descontoDoCliente,
+  );
 
   useEffect(() => {
     if ((isViewing && !canEditPendingOrder) || paymentDrafts.length !== 1) return;
@@ -3996,6 +4039,7 @@ const PedidoVendaForm: React.FC = () => {
         nomeInicial={clienteNome}
         onClose={() => setCadastroRapidoAberto(false)}
         onCriado={(cliente: ClienteCadastradoRapido) => setClienteNome(cliente.nome)}
+        /* O desconto do cliente novo entra quando a lista recarregar -- ver o efeito abaixo. */
       />
 
       {showDevolucaoModal && (
@@ -4032,7 +4076,10 @@ const PedidoVendaForm: React.FC = () => {
                 value={clienteNome}
                 onChange={setClienteNome}
                 clients={clientesDisponiveis}
-                onSelect={(c) => setClienteNome(c.nome)}
+                onSelect={(c) => {
+                  setClienteNome(c.nome);
+                  aplicarDescontoDoCliente(c);
+                }}
                 onBlur={handleClienteBlur}
                 disabled={isViewing && !canEditPendingCliente}
                 inputRef={clienteInputRef}
@@ -4323,6 +4370,13 @@ const PedidoVendaForm: React.FC = () => {
                   value={descontoGeralInput}
                   onChange={setDescontoGeralInput}
                 />
+              </div>
+            )}
+
+            {checagemLimiteDesconto.dentroDoDescontoDoCliente && descontoDoCliente > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(16, 185, 129, 0.12)', border: '1px solid #10b981', color: '#6ee7b7', fontSize: '13px' }}>
+                <User size={16} />
+                Desconto de {descontoDoCliente}% do cadastro deste cliente.
               </div>
             )}
 

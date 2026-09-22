@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  checarLimiteComCliente,
+  descontoDoClienteEmCents,
+  descontoPadraoDoCliente,
+  erroDoDescontoPadraoCliente,
+  parseDescontoPadraoCliente,
   DEFAULT_TIPO_DESCONTO_PADRAO,
   descontoInicial,
   parseTipoDescontoPadrao,
@@ -149,4 +154,91 @@ test('so "percentual" troca o padrao -- qualquer outra coisa cai em R$', () => {
 test('descontoInicial abre o campo vazio no tipo escolhido', () => {
   assert.deepEqual(descontoInicial('percentual'), { tipo: 'percentual', valor: '' });
   assert.deepEqual(descontoInicial('valor'), { tipo: 'valor', valor: '' });
+});
+
+// --- desconto padrao do cliente (hierarquia cliente > produto > sistema) ---
+
+test('desconto do cliente e lido do cadastro, com teto de 100%', () => {
+  assert.equal(descontoPadraoDoCliente({ descontoPadraoPercentual: 10 }), 10);
+  assert.equal(descontoPadraoDoCliente({ descontoPadraoPercentual: 0 }), 0);
+  assert.equal(descontoPadraoDoCliente({}), 0);
+  assert.equal(descontoPadraoDoCliente(null), 0);
+  assert.equal(descontoPadraoDoCliente({ descontoPadraoPercentual: 150 }), 100);
+  assert.equal(descontoPadraoDoCliente({ descontoPadraoPercentual: -5 }), 0);
+  assert.equal(descontoPadraoDoCliente({ descontoPadraoPercentual: 'abc' }), 0);
+});
+
+test('campo em branco no cadastro significa "sem desconto", nao erro', () => {
+  assert.equal(parseDescontoPadraoCliente(''), 0);
+  assert.equal(parseDescontoPadraoCliente('  '), 0);
+  assert.equal(erroDoDescontoPadraoCliente(''), null);
+  assert.equal(parseDescontoPadraoCliente('10,5'), 10.5);
+});
+
+test('cadastro recusa desconto invalido em portugues', () => {
+  assert.match(String(erroDoDescontoPadraoCliente('abc')), /porcentagem/i);
+  assert.match(String(erroDoDescontoPadraoCliente('-1')), /negativo/i);
+  assert.match(String(erroDoDescontoPadraoCliente('101')), /100%/);
+});
+
+test('ate o percentual do cliente, o desconto PASSA sem pedir nada', () => {
+  // Limite da tela: 5%. Cliente tem 10%. Venda de R$ 100 com 10% de desconto.
+  const limite = { tipo: 'percentual' as const, valor: 5 };
+  const r = checarLimiteComCliente(limite, 10000, 1000, 10);
+  assert.equal(r.dentroDoDescontoDoCliente, true);
+  assert.equal(r.excedeu, false);
+  assert.equal(r.percentualDoCliente, 10);
+});
+
+test('acima do percentual do cliente, volta a valer o limite da tela', () => {
+  const limite = { tipo: 'percentual' as const, valor: 5 };
+  // 15% numa venda de cliente que tem 10%: passou do que ele tem direito.
+  const r = checarLimiteComCliente(limite, 10000, 1500, 10);
+  assert.equal(r.dentroDoDescontoDoCliente, false);
+  assert.equal(r.excedeu, true);
+});
+
+test('exatamente no percentual do cliente nao dispara senha por centavo', () => {
+  const limite = { tipo: 'percentual' as const, valor: 0 };
+  const r = checarLimiteComCliente(limite, 3333, Math.round(3333 * 0.1), 10);
+  assert.equal(r.dentroDoDescontoDoCliente, true);
+  assert.equal(r.excedeu, false);
+});
+
+test('cliente sem desconto cadastrado se comporta como antes', () => {
+  const limite = { tipo: 'percentual' as const, valor: 5 };
+  const semCliente = checarLimiteComCliente(limite, 10000, 1000, 0);
+  const original = checarLimiteTotal(limite, 10000, 1000);
+  assert.equal(semCliente.excedeu, original.excedeu);
+  assert.equal(semCliente.percentualAplicado, original.percentualAplicado);
+  assert.equal(semCliente.dentroDoDescontoDoCliente, false);
+});
+
+test('sem limite configurado, nada excede -- com ou sem desconto de cliente', () => {
+  assert.equal(checarLimiteComCliente(null, 10000, 5000, 10).excedeu, false);
+  assert.equal(checarLimiteComCliente(null, 10000, 5000, 0).excedeu, false);
+});
+
+test('desconto do cliente em centavos', () => {
+  assert.equal(descontoDoClienteEmCents(10000, 10), 1000);
+  assert.equal(descontoDoClienteEmCents(3333, 10), 333);
+  assert.equal(descontoDoClienteEmCents(10000, 0), 0);
+  assert.equal(descontoDoClienteEmCents(0, 10), 0);
+});
+
+test('o TETO DO PRODUTO nao e afetado pelo desconto do cliente', () => {
+  // Produto que so' aceita 5%: cliente com 10% NAO passa por cima disso --
+  // quem confere o item e' excedeLimiteItem, que nem enxerga o cliente.
+  const produto = { descontoMaximoPercentual: 5 };
+  assert.equal(resolveLimiteItem(produto), 5);
+  assert.equal(excedeLimiteItem(produto, 1000, 10000), true);  // 10% pedido
+  assert.equal(excedeLimiteItem(produto, 500, 10000), false);  // 5% cabe
+});
+
+test('desconto maximo 0 no produto significa SEM TETO, nao "nao aceita desconto"', () => {
+  // Registrado porque e' contra-intuitivo: o campo em branco vira 0 no
+  // documento, entao 0 tem de significar "nunca configurado".
+  const semTeto = { descontoMaximoPercentual: 0 };
+  assert.equal(resolveLimiteItem(semTeto), null);
+  assert.equal(excedeLimiteItem(semTeto, 9000, 10000), false);
 });

@@ -331,3 +331,65 @@ maior, decisão à parte.
 - Itens 1, 3 e 9 mexem em dinheiro (título, custo, financeiro). Regra do projeto:
   centavos em inteiro, domínio puro com teste, e conferência em dev com dado real
   antes de subir.
+
+---
+
+# Estado da implementação — 22/09/2026
+
+Onze dos treze itens implementados e commitados **localmente** (nada enviado
+ao git remoto ainda). Testes: 779 de domínio no front, 113 no servidor,
+typecheck limpo.
+
+| # | Item | Estado | Conferido na tela? |
+|---|------|--------|--------------------|
+| 12 | Marcar/desmarcar todas as permissões | pronto | sim — 1→79 num clique; com busca "estoque" marcou só 8 |
+| 10 | Código do cliente no `/vendedor` | pronto | **não** — precisa de login do app do vendedor |
+| 4 | Entrada de nota continua na tela | pronto | **não** — precisa importar um XML de verdade |
+| 8 | Fornecedor do cadastro no lançamento | pronto | sim — "461 · ZEZO", descrição preenchida |
+| 7 | Contas a Pagar abre em "vence hoje" | pronto | sim — banner de 32 vencidas, "esta semana" = 21 a 27/09 |
+| 5 | Ordem das formas de pagamento | pronto | sim — "Pagamento a Prazo" no topo passou a vir escolhido |
+| 6 | Parcelas automáticas a prazo | pronto | sim — **venda real gerou 3 títulos de R$ 30, 22/10, 21/11, 21/12** |
+| 3 | Frete (CT-e) na entrada + transportadora | pronto | **não** — precisa importar um XML de verdade |
+| 2 | Buscar nota pela chave de acesso | pronto | **não** — depende do plano Spedy "Notas recebidas" |
+| 13 | Desconto padrão por cliente | pronto | sim — 10% passou direto; 15% bateu no limite |
+| 9 | Rota: motorista + despesas agrupadas | pronto | sim — 4 despesas num salvar, R$ 514,20, 4 lançamentos no financeiro |
+| 1 | Boleto | **base** | parcial — ver abaixo |
+| 11 | Logo na NF-e | **não é código** | depende da Spedy |
+
+## O que o item 1 (boleto) já tem, e o que falta
+
+**Tem, e validado contra o arquivo real da Sol Life:** fator de vencimento
+(com o reinício em 1000 depois de 21/02/2025), DVs, código de barras de 44
+posições, linha digitável de 47 com conferência, nosso número Sicoob com DV
+(reproduz os DVs 9/6/3 dos títulos 1200/1201/1202 do arquivo que o banco já
+aceitou) e o montador de linha de 240 posições.
+
+**Falta:** cadastro de convênio por banco (a tela do sistema antigo, no print
+`1.png`, mostra exatamente os campos), geração da remessa inteira
+(header/lote/P/Q/R/S/trailers), PDF do boleto e leitura do arquivo retorno.
+
+**Ressalva que precisa chegar ao dono:** três títulos não bastam para fixar a
+fórmula do DV do Sicoob — oito combinações de peso/tamanho reproduzem os
+mesmos três DVs. A escolhida bate com a documentação mais comum **e** com o
+arquivo real, mas tem de ser confirmada na **homologação com o banco**, que é
+obrigatória de qualquer forma antes de emitir cobrança registrada.
+
+## Decisão tomada durante a implementação (item 3)
+
+O dono pediu "um cadastro de transportadoras". **Não foi criada coleção
+nova:** o cadastro de Fornecedor já tem o tipo "Transportadora", e o título do
+frete é uma conta a pagar como qualquer outra. Coleção separada duplicaria
+cadastro, busca por CNPJ, código e o agrupamento de Contas a Pagar sem ganho.
+Na tela de entrada, a busca mostra um selo "TRANSPORTADORA" em quem já está
+marcado.
+
+## Antes de subir para produção
+
+- **Rules novas** (`motoristas`, `rotas`) estão publicadas só no **dev**.
+  Produção precisa de `npx firebase-tools deploy --only firestore:rules
+  --project nexus-erp-2026` — junto das rules de `trocas`, que também estão
+  pendentes.
+- **Permissão nova** `operacoes.rotas` precisa ser concedida a quem vai usar
+  (admin e dono entram por acesso total).
+- O backend ganhou a rota `/api/entrada-nfe` — o deploy do servidor precisa
+  acompanhar o front.

@@ -132,6 +132,14 @@ import {
 import { calcularSaldoEmAbertoClienteCents } from '../../utils/contasReceberQuery';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
 import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../components/common/CadastroRapidoClienteModal';
+import {
+  DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
+  formasVisiveis,
+  ordenarFormasPagamento,
+  parseFormasOcultas,
+  parseOrdemFormasPagamento,
+  parsePermitirDividirPagamento,
+} from '../../utils/formasPagamentoDomain';
 import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import Swal from 'sweetalert2';
@@ -349,6 +357,19 @@ const PedidoVendaForm: React.FC = () => {
     setDescontoGeralInput((atual) => (atual.valor === '' ? descontoInicial(tipoDescontoPadrao) : atual));
   }, [tipoDescontoPadrao]);
 
+  /** Ordem/visibilidade das formas de pagamento e o botao de dividir, vindos
+   *  de Configuracoes. Enquanto a config nao carrega valem os padroes -- a
+   *  tela nunca fica sem forma de pagamento. */
+  const [ordemFormasPagamento, setOrdemFormasPagamento] = useState<string[]>([]);
+  const [formasPagamentoOcultas, setFormasPagamentoOcultas] = useState<string[]>([]);
+  const [permitirDividirPagamento, setPermitirDividirPagamento] = useState(DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO);
+  const formasConfiguradas = formasVisiveis(
+    ordenarFormasPagamento(
+      ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Pagamento a Prazo'] as PaymentMethod[],
+      ordemFormasPagamento,
+    ),
+    formasPagamentoOcultas,
+  );
   const [permitirDescontoPorItem, setPermitirDescontoPorItem] = useState(DEFAULT_PERMITIR_DESCONTO_POR_ITEM);
   const [modoValidacaoCliente, setModoValidacaoCliente] = useState<ModoValidacaoCliente>(DEFAULT_MODO_VALIDACAO_CLIENTE);
   const [trabalhaComLimiteCredito, setTrabalhaComLimiteCredito] = useState(false);
@@ -647,6 +668,9 @@ const PedidoVendaForm: React.FC = () => {
           setLimiteDescontoPedido(parseLimiteDescontoConfig(config.limiteDescontoPedido));
           setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
           setTipoDescontoPadrao(parseTipoDescontoPadrao(config.tipoDescontoPadrao));
+          setOrdemFormasPagamento(parseOrdemFormasPagamento(config.ordemFormasPagamento));
+          setFormasPagamentoOcultas(parseFormasOcultas(config.formasPagamentoOcultas));
+          setPermitirDividirPagamento(parsePermitirDividirPagamento(config.permitirDividirPagamento));
           setPermitirDescontoPorItem(parsePermitirDescontoPorItem(config.permitirDescontoPorItem));
           setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
           setTrabalhaComLimiteCredito(parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito));
@@ -663,6 +687,12 @@ const PedidoVendaForm: React.FC = () => {
           if (parseExigirEscolhaFormaPagamento(config.exigirEscolhaFormaPagamento) && !id) {
             setPaymentDrafts((atuais) => atuais.map((rascunho) => (
               rascunho.forma === 'Dinheiro' ? { ...rascunho, forma: '' as const } : rascunho
+            )));
+          }
+          const primeiraFormaConfigurada = parseOrdemFormasPagamento(config.ordemFormasPagamento)[0];
+          if (primeiraFormaConfigurada && primeiraFormaConfigurada !== 'Dinheiro' && !id) {
+            setPaymentDrafts((atuais) => atuais.map((rascunho) => (
+              rascunho.forma === 'Dinheiro' ? { ...rascunho, forma: primeiraFormaConfigurada as PaymentMethod } : rascunho
             )));
           }
           setFinanceConfig({
@@ -4435,6 +4465,8 @@ const PedidoVendaForm: React.FC = () => {
               onUpdatePayment={updatePaymentDraft}
               pagamentoCartaoSimplificadoAtivo={pagamentoCartaoSimplificadoAtivo}
               creditoDisponivelCentavos={creditoDisponivelCentavos}
+              formasConfiguradas={formasConfiguradas}
+              permitirDividirPagamento={permitirDividirPagamento}
               sourceLabel="venda"
               tenantId={tenantId}
               totalCents={valorTotalPedidoCentavos}

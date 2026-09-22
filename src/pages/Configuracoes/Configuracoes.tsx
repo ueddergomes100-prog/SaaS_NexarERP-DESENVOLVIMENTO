@@ -9,6 +9,14 @@ import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/ped
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { MODULE_GROUPS } from '../../utils/moduleCatalog';
 import { PERMISSION_CATALOG, desmarcarPermissoes, estadoDaSelecao, marcarPermissoes } from '../../utils/permissionCatalog';
+import {
+  DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
+  ordenarFormasPagamento,
+  parseFormasOcultas,
+  parseOrdemFormasPagamento,
+  parsePermitirDividirPagamento,
+} from '../../utils/formasPagamentoDomain';
+import type { PaymentMethod } from '../../utils/financeDomain';
 import SeletorTodas from '../../components/common/SeletorTodas';
 import { isPlatformAdminRole } from '../../utils/roles';
 import {
@@ -168,6 +176,9 @@ const Configuracoes: React.FC = () => {
     limiteDescontoOrcamento: { tipo: 'percentual' as DescontoTipo, valor: '' },
     limiteDescontoPdv: { tipo: 'percentual' as DescontoTipo, valor: '' },
     permitirDescontoPorItem: DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
+    permitirDividirPagamento: DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
+    ordemFormasPagamento: [] as string[],
+    formasPagamentoOcultas: [] as string[],
     tipoDescontoPadrao: DEFAULT_TIPO_DESCONTO_PADRAO as DescontoTipo,
     modoValidacaoCliente: DEFAULT_MODO_VALIDACAO_CLIENTE,
     trabalhaComLimiteCredito: false,
@@ -294,6 +305,9 @@ const Configuracoes: React.FC = () => {
             limiteDescontoOrcamento: toLimiteDescontoFormValue(data.limiteDescontoOrcamento),
             limiteDescontoPdv: toLimiteDescontoFormValue(data.limiteDescontoPdv),
             permitirDescontoPorItem: parsePermitirDescontoPorItem(data.permitirDescontoPorItem),
+            permitirDividirPagamento: parsePermitirDividirPagamento(data.permitirDividirPagamento),
+            ordemFormasPagamento: parseOrdemFormasPagamento(data.ordemFormasPagamento),
+            formasPagamentoOcultas: parseFormasOcultas(data.formasPagamentoOcultas),
             tipoDescontoPadrao: parseTipoDescontoPadrao(data.tipoDescontoPadrao),
             modoValidacaoCliente: parseModoValidacaoCliente(data.modoValidacaoCliente),
             trabalhaComLimiteCredito: parseTrabalhaComLimiteCredito(data.trabalhaComLimiteCredito),
@@ -880,6 +894,34 @@ const Configuracoes: React.FC = () => {
     setSelectedUserPermissions(prev =>
       prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]
     );
+  };
+
+  /**
+   * ORDEM DAS FORMAS DE PAGAMENTO (pedido do dono, 2026-09-21).
+   *
+   * A lista mostrada e' sempre o catalogo COMPLETO, na ordem que a empresa
+   * escolheu -- forma nova do sistema entra no fim sozinha
+   * (ordenarFormasPagamento). Subir/descer grava a lista inteira, entao o
+   * que esta no banco nunca fica pela metade.
+   */
+  const formasDePagamentoOrdenadas = ordenarFormasPagamento(
+    ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Boleto', 'Pagamento a Prazo', 'Outros'] as PaymentMethod[],
+    formData.ordemFormasPagamento,
+  );
+
+  const moverFormaPagamento = (indice: number, direcao: -1 | 1) => {
+    const destino = indice + direcao;
+    if (destino < 0 || destino >= formasDePagamentoOrdenadas.length) return;
+    const nova = [...formasDePagamentoOrdenadas];
+    [nova[indice], nova[destino]] = [nova[destino], nova[indice]];
+    setFormData({ ...formData, ordemFormasPagamento: nova });
+  };
+
+  const alternarFormaOculta = (forma: string) => {
+    const ocultas = formData.formasPagamentoOcultas.includes(forma)
+      ? formData.formasPagamentoOcultas.filter((f) => f !== forma)
+      : [...formData.formasPagamentoOcultas, forma];
+    setFormData({ ...formData, formasPagamentoOcultas: ocultas });
   };
 
   /** Liga/desliga o catalogo inteiro de uma vez (esta tela nao tem busca,
@@ -2293,6 +2335,88 @@ const Configuracoes: React.FC = () => {
                     </span>
                   </label>
                 </div>
+              </div>
+
+              <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)' }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Formas de Pagamento</h4>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '6px 0 0', lineHeight: 1.5 }}>
+                    A <strong>primeira da lista</strong> é a que já vem escolhida na venda. Loja que fecha tudo a prazo põe
+                    Pagamento a Prazo em cima; loja de varejo põe o cartão. Vale para Pedido de Venda, OS e Orçamento.
+                    Desmarcar <strong>Usa</strong> tira a forma da tela — <strong>venda já gravada não muda</strong>.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {formasDePagamentoOrdenadas.map((forma, indice) => {
+                    const oculta = formData.formasPagamentoOcultas.includes(forma);
+                    return (
+                      <div
+                        key={forma}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px',
+                          backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)',
+                          borderRadius: 'var(--radius-md)', opacity: oculta ? 0.55 : 1,
+                        }}
+                      >
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', width: '20px' }}>{indice + 1}º</span>
+                        <span style={{ flex: 1, fontSize: '13.5px', color: 'var(--text-primary)', fontWeight: indice === 0 && !oculta ? 700 : 400 }}>
+                          {forma}
+                          {indice === 0 && !oculta && (
+                            <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--accent-purple)', fontWeight: 700 }}>JÁ VEM ESCOLHIDA</span>
+                          )}
+                        </span>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary)', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                          <input
+                            type="checkbox"
+                            checked={!oculta}
+                            onChange={() => alternarFormaOculta(forma)}
+                            disabled={!isEditingMode}
+                            style={{ accentColor: 'var(--accent-purple)', width: '15px', height: '15px' }}
+                          />
+                          Usa
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => moverFormaPagamento(indice, -1)}
+                          disabled={!isEditingMode || indice === 0}
+                          title="Subir"
+                          style={{ padding: '4px 8px', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: !isEditingMode || indice === 0 ? 'not-allowed' : 'pointer', opacity: !isEditingMode || indice === 0 ? 0.4 : 1 }}
+                        >
+                          &uarr;
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moverFormaPagamento(indice, 1)}
+                          disabled={!isEditingMode || indice === formasDePagamentoOrdenadas.length - 1}
+                          title="Descer"
+                          style={{ padding: '4px 8px', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: !isEditingMode || indice === formasDePagamentoOrdenadas.length - 1 ? 'not-allowed' : 'pointer', opacity: !isEditingMode || indice === formasDePagamentoOrdenadas.length - 1 ? 0.4 : 1 }}
+                        >
+                          &darr;
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '14px', color: 'var(--text-primary)', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.permitirDividirPagamento === true}
+                    onChange={(e) => setFormData({ ...formData, permitirDividirPagamento: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px', marginTop: '2px' }}
+                  />
+                  <span>
+                    Permitir dividir a venda em mais de uma forma de pagamento
+                    <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
+                      É o botão <strong>+ Dividir pagamento</strong> do Pedido de Venda e da OS, para o cliente que paga
+                      parte no Pix e parte no cartão. Desmarque se a sua loja recebe sempre por uma forma só — a tela fica
+                      mais limpa. <strong>Parcelar a prazo não depende disto</strong>: o número de parcelas é um campo próprio do
+                      Pagamento a Prazo. Venda já gravada com duas formas continua abrindo normalmente.
+                    </span>
+                  </span>
+                </label>
               </div>
 
               <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>

@@ -66,6 +66,14 @@ import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
+import {
+  DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
+  formasVisiveis,
+  ordenarFormasPagamento,
+  parseFormasOcultas,
+  parseOrdemFormasPagamento,
+  parsePermitirDividirPagamento,
+} from '../../utils/formasPagamentoDomain';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildCardFeeSchedulesByBrand,
@@ -237,6 +245,19 @@ const OSForm: React.FC = () => {
   const [momentoBaixaEstoque, setMomentoBaixaEstoque] = useState<MomentoBaixaEstoque>(DEFAULT_MOMENTO_BAIXA_ESTOQUE);
   const [descontoInput, setDescontoInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
   const [limiteDescontoOS, setLimiteDescontoOS] = useState<LimiteDescontoConfig | null>(null);
+  /** Ordem/visibilidade das formas de pagamento e o botao de dividir, vindos
+   *  de Configuracoes. Enquanto a config nao carrega valem os padroes -- a
+   *  tela nunca fica sem forma de pagamento. */
+  const [ordemFormasPagamento, setOrdemFormasPagamento] = useState<string[]>([]);
+  const [formasPagamentoOcultas, setFormasPagamentoOcultas] = useState<string[]>([]);
+  const [permitirDividirPagamento, setPermitirDividirPagamento] = useState(DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO);
+  const formasConfiguradas = formasVisiveis(
+    ordenarFormasPagamento(
+      ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Pagamento a Prazo'] as PaymentMethod[],
+      ordemFormasPagamento,
+    ),
+    formasPagamentoOcultas,
+  );
   const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>('avisar');
   const [tipoDescontoPadrao, setTipoDescontoPadrao] = useState<DescontoTipo>(DEFAULT_TIPO_DESCONTO_PADRAO);
 
@@ -378,6 +399,9 @@ const OSForm: React.FC = () => {
           setPecaSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           setMomentoBaixaEstoque((config.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque);
           setLimiteDescontoOS(parseLimiteDescontoConfig(config.limiteDescontoOS));
+          setOrdemFormasPagamento(parseOrdemFormasPagamento(config.ordemFormasPagamento));
+          setFormasPagamentoOcultas(parseFormasOcultas(config.formasPagamentoOcultas));
+          setPermitirDividirPagamento(parsePermitirDividirPagamento(config.permitirDividirPagamento));
           setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
           setTipoDescontoPadrao(parseTipoDescontoPadrao(config.tipoDescontoPadrao));
           setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
@@ -396,6 +420,12 @@ const OSForm: React.FC = () => {
           if (parseExigirEscolhaFormaPagamento(config.exigirEscolhaFormaPagamento) && !isEditing) {
             setPaymentDrafts((atuais) => atuais.map((rascunho) => (
               rascunho.forma === 'Dinheiro' ? { ...rascunho, forma: '' as const } : rascunho
+            )));
+          }
+          const primeiraFormaConfigurada = parseOrdemFormasPagamento(config.ordemFormasPagamento)[0];
+          if (primeiraFormaConfigurada && primeiraFormaConfigurada !== 'Dinheiro' && !id) {
+            setPaymentDrafts((atuais) => atuais.map((rascunho) => (
+              rascunho.forma === 'Dinheiro' ? { ...rascunho, forma: primeiraFormaConfigurada as PaymentMethod } : rascunho
             )));
           }
           setFinanceConfig({
@@ -1621,6 +1651,8 @@ const OSForm: React.FC = () => {
                   onTransactionDateChange={(date) => setFormData((current) => ({ ...current, dataSaida: date }))}
                   onUpdatePayment={updatePaymentDraft}
                   pagamentoCartaoSimplificadoAtivo={pagamentoCartaoSimplificadoAtivo}
+                  formasConfiguradas={formasConfiguradas}
+                  permitirDividirPagamento={permitirDividirPagamento}
                   sourceLabel="OS"
                   tenantId={tenantId}
                   totalCents={totalOSCentavos}

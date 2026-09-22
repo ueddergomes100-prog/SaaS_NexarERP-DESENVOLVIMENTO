@@ -8,6 +8,7 @@ import type { SearchableClient } from '../../utils/clientSearch';
 import VendedorHeader from './VendedorHeader';
 import VendedorSeletorCliente from './VendedorSeletorCliente';
 import type { ClienteConfirmavel } from './VendedorConfirmarClienteModal';
+import { clienteComCodigo } from '../../utils/pedidoVendedorDomain';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
@@ -97,7 +98,7 @@ const VendedorNovoOrcamento: React.FC = () => {
             }}
           >
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteSelecionado.nome}</div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteComCodigo(clienteSelecionado)}</div>
             </div>
             <button
               type="button"

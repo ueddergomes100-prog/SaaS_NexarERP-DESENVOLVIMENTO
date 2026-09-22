@@ -10,6 +10,7 @@ import VendedorSeletorCliente from './VendedorSeletorCliente';
 import type { ClienteConfirmavel } from './VendedorConfirmarClienteModal';
 import {
   OBSERVACAO_PEDIDO_MAX,
+  clienteComCodigo,
   erroDaEscolhaNotaFiscal,
   normalizarObservacaoPedido,
   type EscolhaNotaFiscal,
@@ -129,7 +130,7 @@ const VendedorNovoPedido: React.FC = () => {
             }}
           >
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteSelecionado.nome}</div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteComCodigo(clienteSelecionado)}</div>
             </div>
             <button
               type="button"

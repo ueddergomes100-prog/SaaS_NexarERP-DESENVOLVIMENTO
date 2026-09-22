@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import type { SearchableClient } from '../../utils/clientSearch';
 import VendedorConfirmarClienteModal, { type ClienteConfirmavel } from './VendedorConfirmarClienteModal';
+import { clienteComCodigo } from '../../utils/pedidoVendedorDomain';
 
 /**
  * Busca de cliente do app do vendedor com CONFIRMACAO: tocar num cliente da
@@ -45,8 +46,8 @@ function VendedorSeletorCliente<T extends ClienteDaLista>({ clientes, onConfirma
         onChange={setBusca}
         clients={clientes}
         onSelect={(cliente) => setEmConfirmacao(cliente)}
-        renderItem={(cliente) => <span>{cliente.nome}</span>}
-        placeholder="Buscar cliente por nome"
+        renderItem={(cliente) => <span>{clienteComCodigo(cliente)}</span>}
+        placeholder="Buscar cliente por nome ou código"
         ariaLabel="Buscar cliente"
         inputRef={campoRef}
       />

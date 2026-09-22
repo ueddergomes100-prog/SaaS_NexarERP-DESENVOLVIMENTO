@@ -134,3 +134,72 @@ export const passaNoPeriodoDoTitulo = (
     : titulo.data;
   return dentroDoPeriodo(referencia, de, ate);
 };
+
+/**
+ * ATALHOS DE VENCIMENTO DO CONTAS A PAGAR (2026-09-21).
+ *
+ * Pedido do dono: "na hora que clicar na tela de contas a pagar, mostrar o
+ * que esta vencendo hoje, todos os fornecedores. Ai tem a opcao de filtrar
+ * todos, por data, por semana, personalizado."
+ *
+ * Os atalhos so' calculam o INTERVALO de datas; quem decide o que e' vencido
+ * ou pago continua sendo `passaNaSituacaoTitulo`. Sao dois eixos separados de
+ * proposito: "vence esta semana" e "ja' venceu" respondem perguntas
+ * diferentes, e juntar os dois num seletor so' obrigaria a inventar
+ * combinacoes como "pagas desta semana que venceram".
+ *
+ * "Esta semana" e "Este mes" sao os do CALENDARIO (semana de segunda a
+ * domingo, mes do dia 1 ao ultimo), nao "proximos 7/30 dias": o rotulo diz
+ * "esta semana", entao a conta de sexta tem que aparecer na sexta-feira --
+ * e nao sumir porque a janela de 7 dias andou junto com o relogio.
+ */
+export type AtalhoVencimento = 'hoje' | 'semana' | 'mes' | 'todos' | 'personalizado';
+
+export const ATALHO_VENCIMENTO_PADRAO: AtalhoVencimento = 'hoje';
+
+export const ROTULO_ATALHO_VENCIMENTO: Record<AtalhoVencimento, string> = {
+  hoje: 'Vencem hoje',
+  semana: 'Esta semana',
+  mes: 'Este mês',
+  todos: 'Qualquer data',
+  personalizado: 'Escolher período',
+};
+
+/** Segunda-feira da semana de `hoje` (ISO: a semana comeca na segunda). */
+const segundaDaSemana = (hoje: string): string => {
+  const [ano, mes, dia] = hoje.split('-').map(Number);
+  // Meio-dia UTC evita que o fuso jogue o calculo pro dia anterior.
+  const data = new Date(Date.UTC(ano, mes - 1, dia, 12));
+  const diaDaSemana = data.getUTCDay(); // 0 = domingo
+  const recuo = diaDaSemana === 0 ? 6 : diaDaSemana - 1;
+  data.setUTCDate(data.getUTCDate() - recuo);
+  return data.toISOString().slice(0, 10);
+};
+
+const ultimoDiaDoMes = (hoje: string): string => {
+  const [ano, mes] = hoje.split('-').map(Number);
+  // Dia 0 do mes seguinte = ultimo dia deste mes (cobre fevereiro e bissexto).
+  return new Date(Date.UTC(ano, mes, 0, 12)).toISOString().slice(0, 10);
+};
+
+/**
+ * Intervalo `{ de, ate }` do atalho, em `AAAA-MM-DD`. Vazio dos dois lados
+ * significa "sem limite" -- e' o que `passaNoPeriodoDoTitulo` ja entende.
+ * `personalizado` nao calcula nada: quem manda sao os campos da tela.
+ */
+export const intervaloDoAtalhoVencimento = (
+  atalho: AtalhoVencimento,
+  hoje: string,
+): { de: string; ate: string } => {
+  switch (atalho) {
+    case 'hoje': return { de: hoje, ate: hoje };
+    case 'semana': {
+      const inicio = segundaDaSemana(hoje);
+      const [ano, mes, dia] = inicio.split('-').map(Number);
+      const fim = new Date(Date.UTC(ano, mes - 1, dia + 6, 12)).toISOString().slice(0, 10);
+      return { de: inicio, ate: fim };
+    }
+    case 'mes': return { de: `${hoje.slice(0, 7)}-01`, ate: ultimoDiaDoMes(hoje) };
+    default: return { de: '', ate: '' };
+  }
+};

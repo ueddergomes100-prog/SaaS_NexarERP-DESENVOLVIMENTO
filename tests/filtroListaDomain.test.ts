@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  ROTULO_ATALHO_VENCIMENTO,
   dataISODoRegistro,
+  intervaloDoAtalhoVencimento,
   dentroDoPeriodo,
   passaNaSituacaoTitulo,
   passaNoPeriodoDoTitulo,
@@ -80,4 +82,51 @@ test('periodo do titulo: vencimento nas abertas, data do pagamento nas pagas', (
   assert.equal(passaNoPeriodoDoTitulo(pago, 'todas', '2026-07-01', '2026-07-31'), true);
   // paga sem data de pagamento cai no vencimento
   assert.equal(passaNoPeriodoDoTitulo({ status: 'Paga', data: '2026-07-10' }, 'pagas', '2026-07-01', '2026-07-31'), true);
+});
+
+test('atalho "hoje" pega so o proprio dia', () => {
+  assert.deepEqual(intervaloDoAtalhoVencimento('hoje', '2026-09-21'), { de: '2026-09-21', ate: '2026-09-21' });
+});
+
+test('atalho "semana" vai de segunda a domingo do calendario', () => {
+  // 2026-09-21 e' uma segunda-feira.
+  assert.deepEqual(intervaloDoAtalhoVencimento('semana', '2026-09-21'), { de: '2026-09-21', ate: '2026-09-27' });
+  // Quinta da mesma semana devolve o mesmo intervalo.
+  assert.deepEqual(intervaloDoAtalhoVencimento('semana', '2026-09-24'), { de: '2026-09-21', ate: '2026-09-27' });
+  // Domingo ainda pertence a semana que comecou na segunda anterior.
+  assert.deepEqual(intervaloDoAtalhoVencimento('semana', '2026-09-27'), { de: '2026-09-21', ate: '2026-09-27' });
+  // Segunda seguinte ja e' outra semana.
+  assert.deepEqual(intervaloDoAtalhoVencimento('semana', '2026-09-28'), { de: '2026-09-28', ate: '2026-10-04' });
+});
+
+test('atalho "semana" atravessa a virada de mes e de ano', () => {
+  assert.deepEqual(intervaloDoAtalhoVencimento('semana', '2026-12-31'), { de: '2026-12-28', ate: '2027-01-03' });
+});
+
+test('atalho "mes" vai do dia 1 ao ultimo, inclusive em fevereiro', () => {
+  assert.deepEqual(intervaloDoAtalhoVencimento('mes', '2026-09-21'), { de: '2026-09-01', ate: '2026-09-30' });
+  assert.deepEqual(intervaloDoAtalhoVencimento('mes', '2026-02-10'), { de: '2026-02-01', ate: '2026-02-28' });
+  // 2028 e' bissexto.
+  assert.deepEqual(intervaloDoAtalhoVencimento('mes', '2028-02-10'), { de: '2028-02-01', ate: '2028-02-29' });
+  assert.deepEqual(intervaloDoAtalhoVencimento('mes', '2026-01-31'), { de: '2026-01-01', ate: '2026-01-31' });
+});
+
+test('"todos" e "personalizado" nao limitam nada por conta propria', () => {
+  assert.deepEqual(intervaloDoAtalhoVencimento('todos', '2026-09-21'), { de: '', ate: '' });
+  assert.deepEqual(intervaloDoAtalhoVencimento('personalizado', '2026-09-21'), { de: '', ate: '' });
+});
+
+test('o intervalo do atalho funciona com passaNoPeriodoDoTitulo', () => {
+  const hoje = '2026-09-21';
+  const { de, ate } = intervaloDoAtalhoVencimento('hoje', hoje);
+  const venceHoje = { status: 'Pendente', data: '2026-09-21' };
+  const venceAmanha = { status: 'Pendente', data: '2026-09-22' };
+  assert.equal(passaNoPeriodoDoTitulo(venceHoje, 'abertas', de, ate), true);
+  assert.equal(passaNoPeriodoDoTitulo(venceAmanha, 'abertas', de, ate), false);
+});
+
+test('todo atalho tem rotulo escrito em portugues', () => {
+  for (const atalho of ['hoje', 'semana', 'mes', 'todos', 'personalizado'] as const) {
+    assert.ok(ROTULO_ATALHO_VENCIMENTO[atalho].length > 3, atalho);
+  }
 });

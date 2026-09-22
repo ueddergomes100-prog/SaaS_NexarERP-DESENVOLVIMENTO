@@ -6,7 +6,14 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useEscapeLayer } from '../../hooks/useKeyboardFlow';
-import { PERMISSION_GROUPS, PERMISSION_CATALOG } from '../../utils/permissionCatalog';
+import SeletorTodas from './SeletorTodas';
+import {
+  PERMISSION_GROUPS,
+  PERMISSION_CATALOG,
+  desmarcarPermissoes,
+  estadoDaSelecao,
+  marcarPermissoes,
+} from '../../utils/permissionCatalog';
 import {
   DEFAULT_NIVEL_ACESSO,
   NIVEIS_ACESSO,
@@ -73,6 +80,12 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
     setPermissoes(prev => (prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]));
   };
 
+  /** Liga/desliga de uma vez o que esta VISIVEL na tela (a busca filtra).
+   *  Ver a explicacao em permissionCatalog.ts. */
+  const alternarVarias = (ids: string[], marcar: boolean) => {
+    setPermissoes(prev => (marcar ? marcarPermissoes(prev, ids) : desmarcarPermissoes(prev, ids)));
+  };
+
   const gruposFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     if (!termo) return PERMISSION_GROUPS;
@@ -80,6 +93,13 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
       .map(grupo => ({ ...grupo, itens: grupo.itens.filter(item => item.label.toLowerCase().includes(termo)) }))
       .filter(grupo => grupo.itens.length > 0);
   }, [busca]);
+
+  /** O que o seletor do topo alcanca: so' o que a busca deixou na tela. */
+  const idsVisiveis = useMemo(
+    () => gruposFiltrados.flatMap(grupo => grupo.itens.map(item => item.id)),
+    [gruposFiltrados],
+  );
+  const estadoVisivel = estadoDaSelecao(permissoes, idsVisiveis);
 
   const handleSalvar = async () => {
     if (!currentUser) return;
@@ -197,6 +217,12 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
           <span style={{ fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
             {permissoes.length} de {PERMISSION_CATALOG.length} liberadas
           </span>
+          <SeletorTodas
+            estado={estadoVisivel}
+            onAlternar={(marcar) => alternarVarias(idsVisiveis, marcar)}
+            rotulo={busca.trim() ? 'Marcar as encontradas' : 'Marcar todas'}
+            desabilitado={isLoading || idsVisiveis.length === 0}
+          />
         </div>
 
         <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '22px' }}>
@@ -207,9 +233,16 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
           ) : (
             gruposFiltrados.map(grupo => (
               <div key={grupo.grupo}>
-                <h4 style={{ margin: '0 0 12px', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', fontWeight: 700 }}>
-                  {grupo.grupo}
-                </h4>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', margin: '0 0 12px' }}>
+                  <h4 style={{ margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', fontWeight: 700 }}>
+                    {grupo.grupo}
+                  </h4>
+                  <SeletorTodas
+                    estado={estadoDaSelecao(permissoes, grupo.itens.map((i) => i.id))}
+                    onAlternar={(marcar) => alternarVarias(grupo.itens.map((i) => i.id), marcar)}
+                    rotulo="Todas"
+                  />
+                </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '10px' }}>
                   {grupo.itens.map(item => {
                     const marcada = permissoes.includes(item.id);

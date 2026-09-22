@@ -225,3 +225,51 @@ export const permissionLabelMap = PERMISSION_CATALOG.reduce<Record<string, strin
  * pode fazer.
  */
 export const PERMISSAO_LIBERAR_DESCONTO = 'vendas.liberar_desconto';
+
+/**
+ * MARCAR/DESMARCAR TODAS AS PERMISSOES DE UMA VEZ.
+ *
+ * Pedido do dono (2026-09-21): "so botou um seletor que ativa todas as
+ * permissoes, ai faz o inverso, ai vem desmarcando qual nao quer". Ligar 40+
+ * toggles na mao pra depois tirar 3 e' trabalho a toa.
+ *
+ * As funcoes recebem a lista de ids VISIVEIS na tela, nao o catalogo inteiro:
+ * com a busca preenchida ("estoque"), marcar todas tem que marcar so o que a
+ * pessoa esta vendo. Mexer no que esta filtrado FORA da tela seria alterar o
+ * que ninguem viu -- o jeito mais facil de tirar um acesso sem querer.
+ *
+ * "Marcar todas" NAO e' o mesmo que dar acesso total: e' uma foto do catalogo
+ * de hoje. Permissao criada depois nao entra sozinha em quem foi marcado
+ * assim. Quem precisa de "tudo, sempre" usa o nivel de acesso total, que ja
+ * existe e nao depende desta lista.
+ */
+
+/** Acrescenta os ids visiveis ao que ja estava marcado, sem duplicar e sem
+ *  mexer no que esta fora da tela. */
+export const marcarPermissoes = (atuais: string[], idsVisiveis: string[]): string[] => {
+  const juntas = new Set(atuais);
+  idsVisiveis.forEach((id) => juntas.add(id));
+  return Array.from(juntas);
+};
+
+/** Tira os ids visiveis, preservando o que esta fora da tela (filtrado pela
+ *  busca) exatamente como estava. */
+export const desmarcarPermissoes = (atuais: string[], idsVisiveis: string[]): string[] => {
+  const remover = new Set(idsVisiveis);
+  return atuais.filter((id) => !remover.has(id));
+};
+
+/**
+ * Estado do seletor "todas": `todas`, `nenhuma` ou `parcial`.
+ *
+ * Lista vazia (busca sem resultado) devolve 'nenhuma' -- nao existe "todas as
+ * zero permissoes marcadas", e um seletor ligado sobre uma lista vazia so
+ * confundiria.
+ */
+export const estadoDaSelecao = (atuais: string[], idsVisiveis: string[]): 'todas' | 'nenhuma' | 'parcial' => {
+  if (idsVisiveis.length === 0) return 'nenhuma';
+  const marcadas = new Set(atuais);
+  const quantas = idsVisiveis.filter((id) => marcadas.has(id)).length;
+  if (quantas === 0) return 'nenhuma';
+  return quantas === idsVisiveis.length ? 'todas' : 'parcial';
+};

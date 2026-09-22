@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { AlertTriangle, FileText, MapPin, Phone } from 'lucide-react';
 import { mascaraDocumento, mascaraTelefone } from '../../utils/clienteCadastroMobileDomain';
-import { camposDeEnderecoQueFaltam, enderecoEmLinhas } from '../../utils/pedidoVendedorDomain';
+import { camposDeEnderecoQueFaltam, clienteComCodigo, enderecoEmLinhas } from '../../utils/pedidoVendedorDomain';
 
 /**
  * Pop-up "Confirmar cliente" do app do vendedor: ao tocar num cliente da busca
@@ -13,6 +13,9 @@ import { camposDeEnderecoQueFaltam, enderecoEmLinhas } from '../../utils/pedidoV
 export interface ClienteConfirmavel {
   id: string;
   nome: string;
+  /** Codigo do cadastro: e' por ele que o vendedor conhece o cliente na rua.
+   *  `null` aceito porque e' assim que SearchableClient declara o campo. */
+  codigo?: string | null;
   fantasia?: string;
   documento?: string;
   telefone?: string;
@@ -94,7 +97,7 @@ const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps
             Confirmar cliente
           </div>
           <div style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '6px', wordBreak: 'break-word' }}>
-            {cliente.nome}
+            {clienteComCodigo(cliente)}
           </div>
           {cliente.fantasia && cliente.fantasia !== cliente.nome && (
             <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '2px', wordBreak: 'break-word' }}>{cliente.fantasia}</div>

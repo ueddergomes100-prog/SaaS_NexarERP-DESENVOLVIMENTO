@@ -8,7 +8,8 @@ import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintMode
 import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/pedidoPrintModels';
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { MODULE_GROUPS } from '../../utils/moduleCatalog';
-import { PERMISSION_CATALOG } from '../../utils/permissionCatalog';
+import { PERMISSION_CATALOG, desmarcarPermissoes, estadoDaSelecao, marcarPermissoes } from '../../utils/permissionCatalog';
+import SeletorTodas from '../../components/common/SeletorTodas';
 import { isPlatformAdminRole } from '../../utils/roles';
 import {
   DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO,
@@ -879,6 +880,13 @@ const Configuracoes: React.FC = () => {
     setSelectedUserPermissions(prev =>
       prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]
     );
+  };
+
+  /** Liga/desliga o catalogo inteiro de uma vez (esta tela nao tem busca,
+   *  entao o "visivel" e' sempre a lista toda). Ver permissionCatalog.ts. */
+  const alternarTodasPermissoes = (marcar: boolean) => {
+    const ids = PERMISSION_CATALOG.map(item => item.id);
+    setSelectedUserPermissions(prev => (marcar ? marcarPermissoes(prev, ids) : desmarcarPermissoes(prev, ids)));
   };
 
   const handleSavePermissions = async () => {
@@ -2879,10 +2887,22 @@ const Configuracoes: React.FC = () => {
 
                   {/* Bloco de Permissões */}
                   <div>
-                    <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-purple)' }}></span>
-                      Módulos Permitidos
-                    </h4>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+                      <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-purple)' }}></span>
+                        Módulos Permitidos
+                      </h4>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <span style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                          {selectedUserPermissions.length} de {PERMISSION_CATALOG.length} liberadas
+                        </span>
+                        <SeletorTodas
+                          estado={estadoDaSelecao(selectedUserPermissions, PERMISSION_CATALOG.map(item => item.id))}
+                          onAlternar={alternarTodasPermissoes}
+                          rotulo="Marcar todas"
+                        />
+                      </div>
+                    </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px', marginTop: '16px' }}>
                     {/* O catalogo saiu daqui em 2026-08-18 e virou

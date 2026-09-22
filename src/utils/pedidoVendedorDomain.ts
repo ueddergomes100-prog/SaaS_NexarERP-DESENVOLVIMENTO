@@ -114,3 +114,23 @@ export const OBSERVACAO_PEDIDO_MAX = 200;
 export const normalizarObservacaoPedido = (texto: string): string => (
   String(texto ?? '').replace(/\s+/g, ' ').trim().slice(0, OBSERVACAO_PEDIDO_MAX)
 );
+
+/**
+ * CODIGO DO CLIENTE JUNTO DO NOME, NO APP DO VENDEDOR (2026-09-21).
+ *
+ * Pedido do dono: "aparecer o nome do cliente e o codigo dele". Na rua o
+ * vendedor conhece o cliente pelo numero do cadastro -- e' o que ele fala no
+ * radio e o que esta escrito no talao antigo. A busca ja casava por codigo
+ * (searchClients), mas a tela so' mostrava o nome, entao nao dava pra
+ * conferir se o "0123" que ele procurou e' mesmo aquela linha.
+ *
+ * Fica "0123 · NOME DO CLIENTE". Cliente sem codigo cadastrado mostra so' o
+ * nome -- nunca um separador solto nem um "undefined" (regra 2 do CLAUDE.md).
+ */
+export const clienteComCodigo = (cliente: { nome?: string | null; codigo?: string | null } | null | undefined): string => {
+  const nome = String(cliente?.nome || '').trim();
+  const codigo = String(cliente?.codigo || '').trim();
+  if (!codigo) return nome;
+  if (!nome) return codigo;
+  return `${codigo} · ${nome}`;
+};

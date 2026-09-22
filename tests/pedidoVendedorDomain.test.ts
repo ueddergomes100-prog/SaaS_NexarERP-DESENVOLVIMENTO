@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   OBSERVACAO_PEDIDO_MAX,
+  clienteComCodigo,
   camposDeEnderecoQueFaltam,
   comNotaFiscalDaEscolha,
   enderecoEmLinhas,
@@ -65,4 +66,18 @@ test('observacao: espaco e quebra de linha viram um espaco so e corta no limite'
   assert.equal(normalizarObservacaoPedido('  Entregar\n\n de   manha\t '), 'Entregar de manha');
   assert.equal(normalizarObservacaoPedido(''), '');
   assert.equal(normalizarObservacaoPedido('x'.repeat(OBSERVACAO_PEDIDO_MAX + 50)).length, OBSERVACAO_PEDIDO_MAX);
+});
+
+test('codigo do cliente sai junto do nome, e some quando nao existe', () => {
+  assert.equal(clienteComCodigo({ codigo: '0123', nome: 'MERCADO SAO JOSE' }), '0123 · MERCADO SAO JOSE');
+  assert.equal(clienteComCodigo({ nome: 'MERCADO SAO JOSE' }), 'MERCADO SAO JOSE');
+  assert.equal(clienteComCodigo({ codigo: '', nome: 'MERCADO SAO JOSE' }), 'MERCADO SAO JOSE');
+  assert.equal(clienteComCodigo({ codigo: '   ', nome: 'MERCADO SAO JOSE' }), 'MERCADO SAO JOSE');
+});
+
+test('codigo do cliente: nada de separador solto nem "undefined" na tela', () => {
+  assert.equal(clienteComCodigo({ codigo: '0123' }), '0123');
+  assert.equal(clienteComCodigo({}), '');
+  assert.equal(clienteComCodigo(null), '');
+  assert.equal(clienteComCodigo(undefined), '');
 });

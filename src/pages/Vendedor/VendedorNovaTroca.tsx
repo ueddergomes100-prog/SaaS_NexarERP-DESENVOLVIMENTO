@@ -6,7 +6,7 @@ import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import type { SearchableClient } from '../../utils/clientSearch';
 import { hasTenantFullAccess } from '../../utils/roles';
-import { OBSERVACAO_PEDIDO_MAX, normalizarObservacaoPedido } from '../../utils/pedidoVendedorDomain';
+import { OBSERVACAO_PEDIDO_MAX, clienteComCodigo, normalizarObservacaoPedido } from '../../utils/pedidoVendedorDomain';
 import { PERMISSAO_TROCA_SOLICITAR, errosDoRascunhoDeTroca, type ItemTrocaRascunho } from '../../utils/trocaDomain';
 import { trocaService } from '../../services/trocaService';
 import VendedorHeader from './VendedorHeader';
@@ -138,7 +138,7 @@ const VendedorNovaTroca: React.FC = () => {
         {clienteSelecionado ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteSelecionado.nome}</div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteComCodigo(clienteSelecionado)}</div>
             </div>
             <button
               type="button"

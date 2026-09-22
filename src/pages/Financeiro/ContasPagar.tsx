@@ -3,16 +3,23 @@ import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTim
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
+import { useTenantCollection } from '../../hooks/useTenantCollection';
+import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { toCents } from '../../utils/financeDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload } from 'lucide-react';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import {
+  ATALHO_VENCIMENTO_PADRAO,
+  ROTULO_ATALHO_VENCIMENTO,
   ROTULO_SITUACAO_TITULO,
   SITUACAO_TITULO_PADRAO,
+  intervaloDoAtalhoVencimento,
   passaNaSituacaoTitulo,
   passaNoPeriodoDoTitulo,
+  tituloVencido,
+  type AtalhoVencimento,
   type SituacaoTitulo,
 } from '../../utils/filtroListaDomain';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
@@ -67,7 +74,36 @@ const ContasPagar: React.FC = () => {
   const [situacaoTitulo, setSituacaoTitulo] = useState<SituacaoTitulo>(SITUACAO_TITULO_PADRAO);
   const [periodoDe, setPeriodoDe] = useState('');
   const [periodoAte, setPeriodoAte] = useState('');
+  /**
+   * A TELA ABRE NO QUE VENCE HOJE (pedido do dono, 2026-09-21).
+   *
+   * Antes abria em "todas as contas em aberto", agrupadas por fornecedor e
+   * ORDENADAS POR VALOR -- quem entrava pra pagar o dia tinha de garimpar a
+   * data no meio de tudo. Agora abre no vencimento de hoje, em lista unica
+   * ordenada por data, com todos os fornecedores juntos.
+   *
+   * O agrupamento por fornecedor nao sumiu: virou um botao, pra quem quer
+   * ver o total por credor.
+   */
+  const [atalhoVencimento, setAtalhoVencimento] = useState<AtalhoVencimento>(ATALHO_VENCIMENTO_PADRAO);
+  const [agrupar, setAgrupar] = useState(false);
   const { currentUser, tenantId } = useAuth();
+
+  /**
+   * FORNECEDOR DO CADASTRO NO LANCAMENTO MANUAL (pedido do dono, 2026-09-21).
+   *
+   * A entrada de XML sempre gravou `fornecedorId`/`fornecedorNome` no titulo,
+   * e e' por eles que esta tela agrupa. A despesa lancada na mao so' tinha um
+   * texto livre: "FORN. JOAO" e "JOAO DISTRIBUIDORA" viravam dois grupos
+   * diferentes do mesmo credor. Escolher no cadastro resolve na origem.
+   *
+   * Continua OPCIONAL -- aluguel, luz e imposto nao tem fornecedor, e exigir
+   * um faria a pessoa cadastrar "COPASA" como fornecedor so' pra conseguir
+   * salvar a conta de agua.
+   */
+  const { items: fornecedores } = useTenantCollection<{ id: string; nome?: string; codigo?: string; ativo?: boolean }>('fornecedores', tenantId);
+  const fornecedoresAtivos = fornecedores.filter((f) => f.ativo !== false);
+  const [buscaFornecedor, setBuscaFornecedor] = useState('');
 
   // Categorias de despesa do plano de contas
   const [categoriasDespesa, setCategoriasDespesa] = useState<string[]>(['Aluguel', 'Água/Luz/Internet', 'Salários', 'Fornecedores de Peças', 'Outros']);
@@ -77,6 +113,8 @@ const ContasPagar: React.FC = () => {
     data: new Date().toISOString().split('T')[0],
     valor: '',
     categoria: '',
+    fornecedorId: '',
+    fornecedorNome: '',
     status: 'Pendente' as 'Paga' | 'Pendente'
   });
 
@@ -238,8 +276,11 @@ const ContasPagar: React.FC = () => {
       data: new Date().toISOString().split('T')[0],
       valor: '',
       categoria: categoriasDespesa[0] || '',
+      fornecedorId: '',
+      fornecedorNome: '',
       status: 'Pendente'
     });
+    setBuscaFornecedor('');
     setEditingId(null);
     setIsModalOpen(true);
   };
@@ -250,8 +291,11 @@ const ContasPagar: React.FC = () => {
       data: t.data,
       valor: t.valor.toString().replace('.', ','),
       categoria: t.categoria,
+      fornecedorId: t.fornecedorId || '',
+      fornecedorNome: t.fornecedorNome || '',
       status: t.status === 'Paga' ? 'Paga' : 'Pendente'
     });
+    setBuscaFornecedor(t.fornecedorNome || '');
     setEditingId(t.id);
     setIsModalOpen(true);
   };
@@ -320,6 +364,13 @@ const ContasPagar: React.FC = () => {
     setIsSaving(true);
     try {
       const valorNum = parseFloat(formData.valor.toString().replace(',', '.'));
+      // Fornecedor em branco nao vira chave com undefined (regra 3 do
+      // CLAUDE.md); na EDICAO, quem tirou o fornecedor precisa limpar de
+      // verdade o que estava gravado, entao ai vai string vazia.
+      const fornecedorEscolhido = formData.fornecedorId && formData.fornecedorNome
+        ? { fornecedorId: formData.fornecedorId, fornecedorNome: formData.fornecedorNome }
+        : null;
+
       if (editingId) {
         await updateDoc(doc(db, 'transacoes', editingId), {
           descricao: formData.descricao.toUpperCase().trim(),
@@ -327,6 +378,7 @@ const ContasPagar: React.FC = () => {
           valor: valorNum,
           categoria: formData.categoria.toUpperCase().trim(),
           status: formData.status,
+          ...(fornecedorEscolhido || { fornecedorId: '', fornecedorNome: '' }),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Conta atualizada com sucesso!');
@@ -337,6 +389,7 @@ const ContasPagar: React.FC = () => {
           valor: valorNum,
           categoria: formData.categoria.toUpperCase().trim(),
           status: formData.status,
+          ...(fornecedorEscolhido || {}),
           tipo: 'saida',
           tenantId,
           createdAt: serverTimestamp(),
@@ -353,6 +406,53 @@ const ContasPagar: React.FC = () => {
     }
   };
 
+  /**
+   * Acoes de um titulo (editar, cancelar, dar baixa) -- uma funcao so' porque
+   * a tela mostra a mesma linha em dois lugares: a lista por vencimento e o
+   * detalhe dentro do grupo por fornecedor. Duplicar o bloco seria garantir
+   * que um dos dois ficaria pra tras na proxima mudanca.
+   */
+  const acoesDoTitulo = (t: TransacaoData) => (
+    t.status === 'Paga' ? (
+      <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>
+        Paga{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}
+      </span>
+    ) : (
+    <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+      {(!t.osId && !t.vendaId) && (
+        <>
+          <button
+            onClick={() => handleEdit(t)}
+            style={{ backgroundColor: '#f59e0b', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
+            title="Editar Despesa"
+            onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
+            onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
+          >
+            <Edit size={14} />
+          </button>
+          <button
+            onClick={() => handleCancelar(t)}
+            style={{ backgroundColor: '#ef4444', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
+            title="Cancelar Despesa"
+            onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
+            onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
+          >
+            <XCircle size={14} />
+          </button>
+        </>
+      )}
+      <button
+        onClick={() => handleConciliar(t)}
+        style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
+        onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
+        onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
+      >
+        <CheckCircle size={14} /> Dar Baixa
+      </button>
+    </div>
+    )
+  );
+
   // Usa o helper de fuso do projeto (America/Sao_Paulo, Secao 1.4 do plano)
   // em vez de new Date().toISOString(), que e' UTC -- de madrugada o UTC ja
   // virou o dia seguinte e "Pago Hoje"/dias de atraso saiam errados.
@@ -366,13 +466,36 @@ const ContasPagar: React.FC = () => {
   // O que aparece na lista: situacao (em aberto / vencidas / pagas / todas) e
   // periodo. Os cartoes do topo (Total Pendente, Pago Hoje) seguem o total
   // geral -- nao mudam com o filtro.
+  // O atalho calcula o intervalo; "personalizado" deixa os campos de/ate
+  // mandarem. Situacao e periodo continuam sendo dois eixos separados.
+  const intervaloAtalho = intervaloDoAtalhoVencimento(atalhoVencimento, hojeStr);
+  const filtroDe = atalhoVencimento === 'personalizado' ? periodoDe : intervaloAtalho.de;
+  const filtroAte = atalhoVencimento === 'personalizado' ? periodoAte : intervaloAtalho.ate;
+
   const titulosFiltrados = transacoes.filter((t) => (
     passaNaSituacaoTitulo(t, hojeStr, situacaoTitulo)
-    && passaNoPeriodoDoTitulo(t, situacaoTitulo, periodoDe, periodoAte)
+    && passaNoPeriodoDoTitulo(t, situacaoTitulo, filtroDe, filtroAte)
   ));
-  const filtrosAtivos = (situacaoTitulo !== SITUACAO_TITULO_PADRAO ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
+
+  // Conta vencida nunca pode sumir da tela so' porque o filtro de hoje esta
+  // ligado: o aviso continua aparecendo, com atalho pra ver a lista.
+  const titulosVencidos = transacoes.filter((t) => tituloVencido(t, hojeStr));
+  const totalVencido = titulosVencidos.reduce((soma, t) => soma + Number(t.valor || 0), 0);
+  const mostrandoVencidas = situacaoTitulo === 'vencidas';
+
+  const filtrosAtivos = (situacaoTitulo !== SITUACAO_TITULO_PADRAO ? 1 : 0)
+    + (atalhoVencimento !== ATALHO_VENCIMENTO_PADRAO ? 1 : 0)
+    + (atalhoVencimento === 'personalizado' && (periodoDe || periodoAte) ? 1 : 0);
   const limparFiltros = () => {
     setSituacaoTitulo(SITUACAO_TITULO_PADRAO);
+    setAtalhoVencimento(ATALHO_VENCIMENTO_PADRAO);
+    setPeriodoDe('');
+    setPeriodoAte('');
+  };
+  /** Pula pras vencidas (do banner e do vazio) sem mexer no resto. */
+  const verVencidas = () => {
+    setSituacaoTitulo('vencidas');
+    setAtalhoVencimento('todos');
     setPeriodoDe('');
     setPeriodoAte('');
   };
@@ -422,8 +545,21 @@ const ContasPagar: React.FC = () => {
 
     return Array.from(mapa.values())
       .filter((g) => !buscaGrupo.trim() || g.titulo.toLowerCase().includes(buscaGrupo.trim().toLowerCase()))
-      .sort((a, b) => b.totalPendente - a.totalPendente);
+      // Agrupado, o que importa e' quem vence primeiro -- nao quem deve mais.
+      .sort((a, b) => String(a.vencimentoMaisAntigo || '9999-12-31').localeCompare(String(b.vencimentoMaisAntigo || '9999-12-31')));
   })();
+
+  /** A lista que a tela abre: todos os fornecedores juntos, do vencimento
+   *  mais proximo pro mais distante. A busca continua valendo (fornecedor,
+   *  categoria ou descricao). */
+  const titulosPorVencimento = titulosFiltrados
+    .filter((t) => {
+      const termo = buscaGrupo.trim().toLowerCase();
+      if (!termo) return true;
+      return [t.fornecedorNome, t.categoria, t.descricao]
+        .some((campo) => String(campo || '').toLowerCase().includes(termo));
+    })
+    .sort((a, b) => String(a.data || '9999-12-31').localeCompare(String(b.data || '9999-12-31')));
 
   const toggleGrupoExpandido = (chave: string) => {
     setGruposExpandidos((current) => {
@@ -486,8 +622,57 @@ const ContasPagar: React.FC = () => {
             style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
           />
         </div>
+        <button
+          type="button"
+          onClick={() => setAgrupar((v) => !v)}
+          title={agrupar ? 'Ver como lista, por data de vencimento' : 'Somar por fornecedor'}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 14px',
+            backgroundColor: agrupar ? 'var(--accent-purple)' : 'var(--bg-tertiary)',
+            color: agrupar ? '#fff' : 'var(--text-primary)',
+            border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
+            fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+          }}
+        >
+          <Truck size={16} />
+          Agrupar por fornecedor
+        </button>
         <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
       </div>
+
+      {/* Conta vencida nunca some da tela: o filtro padrao e' "vencem hoje",
+          entao sem este aviso o atraso ficaria escondido atras de um filtro. */}
+      {titulosVencidos.length > 0 && !mostrandoVencidas && (
+        <div
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap',
+            padding: '14px 18px', borderRadius: 'var(--radius-md)',
+            backgroundColor: 'rgba(239, 68, 68, 0.12)', border: '1px solid #ef4444',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#fca5a5', fontSize: '14px' }}>
+            <Clock size={18} color="#ef4444" />
+            <span>
+              <strong style={{ color: '#fff' }}>
+                {titulosVencidos.length} {titulosVencidos.length === 1 ? 'conta vencida' : 'contas vencidas'}
+              </strong>
+              {' — '}
+              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalVencido)}
+              {' em atraso.'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={verVencidas}
+            style={{
+              padding: '8px 14px', backgroundColor: '#ef4444', color: '#fff', border: 'none',
+              borderRadius: 'var(--radius-md)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            Ver as vencidas
+          </button>
+        </div>
+      )}
       <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
         <CampoFiltro rotulo="Situação">
           <select value={situacaoTitulo} onChange={(e) => setSituacaoTitulo(e.target.value as SituacaoTitulo)} style={estiloCampoFiltro}>
@@ -496,17 +681,103 @@ const ContasPagar: React.FC = () => {
             ))}
           </select>
         </CampoFiltro>
-        <CampoPeriodo
-          rotulo={listandoPagas ? 'Pago em' : 'Vencimento'}
-          de={periodoDe}
-          ate={periodoAte}
-          onChangeDe={setPeriodoDe}
-          onChangeAte={setPeriodoAte}
-        />
+        <CampoFiltro rotulo={listandoPagas ? 'Pago em' : 'Vencimento'}>
+          <select
+            value={atalhoVencimento}
+            onChange={(e) => setAtalhoVencimento(e.target.value as AtalhoVencimento)}
+            style={estiloCampoFiltro}
+          >
+            {(Object.keys(ROTULO_ATALHO_VENCIMENTO) as AtalhoVencimento[]).map((chave) => (
+              <option key={chave} value={chave}>{ROTULO_ATALHO_VENCIMENTO[chave]}</option>
+            ))}
+          </select>
+        </CampoFiltro>
+        {atalhoVencimento === 'personalizado' && (
+          <CampoPeriodo
+            rotulo="De / até"
+            de={periodoDe}
+            ate={periodoAte}
+            onChangeDe={setPeriodoDe}
+            onChangeAte={setPeriodoAte}
+          />
+        )}
       </PainelFiltros>
 
       <div className="card" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
         <div className="table-wrapper">
+          {!agrupar ? (
+            /* LISTA POR VENCIMENTO -- o modo padrao. Todos os fornecedores
+               juntos, do que vence primeiro pro que vence depois. */
+            <table className="data-table financeiro-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <th style={{ padding: '16px' }}>Vencimento</th>
+                  <th style={{ padding: '16px' }}>Fornecedor</th>
+                  <th style={{ padding: '16px' }}>Descrição</th>
+                  <th style={{ padding: '16px' }}>Categoria</th>
+                  <th style={{ padding: '16px', textAlign: 'right' }}>Valor (R$)</th>
+                  <th style={{ padding: '16px', textAlign: 'center' }}>Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando contas a pagar...</td></tr>
+                ) : titulosPorVencimento.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                      <CheckCircle size={48} color="#10b981" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
+                      <div>
+                        {buscaGrupo.trim()
+                          ? 'Nenhum título encontrado com essa busca.'
+                          : atalhoVencimento === 'hoje' && situacaoTitulo === SITUACAO_TITULO_PADRAO
+                            ? 'Nenhuma conta vence hoje.'
+                            : 'Nenhum título encontrado com esses filtros.'}
+                      </div>
+                      {atalhoVencimento === 'hoje' && situacaoTitulo === SITUACAO_TITULO_PADRAO && (
+                        <button
+                          type="button"
+                          onClick={() => setAtalhoVencimento('todos')}
+                          style={{ marginTop: '14px', padding: '8px 16px', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                        >
+                          Ver todas as contas em aberto
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ) : titulosPorVencimento.map((t) => {
+                  const diasAtraso = t.data && t.status === 'Pendente' ? (differenceInCalendarDays(t.data, hojeStr) ?? 0) : 0;
+                  const venceHoje = t.data === hojeStr && t.status === 'Pendente';
+                  return (
+                    <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: diasAtraso > 0 ? '#ef4444' : venceHoje ? '#f59e0b' : 'var(--text-secondary)', fontWeight: diasAtraso > 0 || venceHoje ? 700 : 400 }}>
+                          <Calendar size={15} />
+                          {t.data ? t.data.split('-').reverse().join('/') : '-'}
+                          {diasAtraso > 0 && <span style={{ fontSize: '12px' }}>({diasAtraso} {diasAtraso === 1 ? 'dia' : 'dias'} em atraso)</span>}
+                          {venceHoje && <span style={{ fontSize: '12px' }}>(hoje)</span>}
+                        </div>
+                      </td>
+                      <td style={{ padding: '16px', fontWeight: 600 }}>
+                        {t.fornecedorNome
+                          ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}><Truck size={15} style={{ color: 'var(--text-muted)' }} />{t.fornecedorNome}</span>
+                          : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '16px' }}>{t.descricao}</td>
+                      <td style={{ padding: '16px' }}>
+                        <span style={{ fontSize: '12px', backgroundColor: 'var(--bg-tertiary)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
+                          {t.categoria}
+                        </span>
+                      </td>
+                      <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700, color: t.status === 'Paga' ? '#10b981' : '#ef4444' }}>
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor))}
+                      </td>
+                      <td style={{ padding: '16px', textAlign: 'center' }}>{acoesDoTitulo(t)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
           <table className="data-table financeiro-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
@@ -597,44 +868,7 @@ const ContasPagar: React.FC = () => {
                                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor))}
                                     </td>
                                     <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                                      {t.status === 'Paga' ? (
-                                        <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>
-                                          Paga{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}
-                                        </span>
-                                      ) : (
-                                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                                        {(!t.osId && !t.vendaId) && (
-                                          <>
-                                            <button
-                                              onClick={() => handleEdit(t)}
-                                              style={{ backgroundColor: '#f59e0b', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
-                                              title="Editar Despesa"
-                                              onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
-                                              onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
-                                            >
-                                              <Edit size={14} />
-                                            </button>
-                                            <button
-                                              onClick={() => handleCancelar(t)}
-                                              style={{ backgroundColor: '#ef4444', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
-                                              title="Cancelar Despesa"
-                                              onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
-                                              onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
-                                            >
-                                              <XCircle size={14} />
-                                            </button>
-                                          </>
-                                        )}
-                                        <button
-                                          onClick={() => handleConciliar(t)}
-                                          style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
-                                          onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
-                                          onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
-                                        >
-                                          <CheckCircle size={14} /> Dar Baixa
-                                        </button>
-                                      </div>
-                                      )}
+                                      {acoesDoTitulo(t)}
                                     </td>
                                   </tr>
                                 ))}
@@ -649,6 +883,7 @@ const ContasPagar: React.FC = () => {
               )}
             </tbody>
           </table>
+          )}
         </div>
       </div>
 
@@ -679,12 +914,46 @@ const ContasPagar: React.FC = () => {
             
             <form onSubmit={handleSave} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Descrição / Fornecedor</label>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  Fornecedor <span style={{ color: 'var(--text-muted)' }}>(opcional — aluguel, luz e imposto não têm)</span>
+                </label>
+                <ClientAutocomplete
+                  value={buscaFornecedor}
+                  onChange={(valor) => {
+                    setBuscaFornecedor(valor);
+                    // Apagou o nome: desvincula. Sem isto o titulo ficaria
+                    // preso a um fornecedor que nao esta mais escrito na tela.
+                    if (!valor.trim()) setFormData((atual) => ({ ...atual, fornecedorId: '', fornecedorNome: '' }));
+                  }}
+                  clients={fornecedoresAtivos}
+                  onSelect={(fornecedor) => {
+                    const nome = String(fornecedor.nome || '').trim();
+                    setFormData((atual) => ({
+                      ...atual,
+                      fornecedorId: fornecedor.id,
+                      fornecedorNome: nome,
+                      // Descricao ainda vazia ganha o nome do fornecedor: e' o
+                      // que a pessoa escreveria a mao logo em seguida.
+                      descricao: atual.descricao.trim() ? atual.descricao : nome,
+                    }));
+                    setBuscaFornecedor(nome);
+                  }}
+                  renderItem={(fornecedor) => (
+                    <span>{fornecedor.codigo ? `${fornecedor.codigo} · ${fornecedor.nome}` : fornecedor.nome}</span>
+                  )}
+                  placeholder="Buscar fornecedor por nome ou código..."
+                  ariaLabel="Buscar fornecedor"
+                  emptyHint={<span>Nenhum fornecedor com esse nome. Cadastre em Cadastros &gt; Fornecedores, ou deixe em branco.</span>}
+                />
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Descrição</label>
                 <input 
                   type="text" 
                   value={formData.descricao} 
                   onChange={(e) => setFormData({...formData, descricao: e.target.value})} 
-                  placeholder="Ex: ALUGUEL MAIO, FORNECEDOR PEÇAS X, LUZ..." 
+                  placeholder="Ex: ALUGUEL MAIO, ENERGIA JUNHO, COMPRA DE PEÇAS..." 
                   style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)', textTransform: 'uppercase' }}
                   required
                 />

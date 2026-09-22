@@ -674,14 +674,36 @@ const EntradaNFE: React.FC = () => {
       }
 
       Swal.close();
-      const resumoMateriaPrima = (materiasPrimasAtualizadas + materiasPrimasCriadas) > 0
-        ? ` e ${materiasPrimasAtualizadas} matéria(s)-prima(s) atualizada(s) + ${materiasPrimasCriadas} nova(s)`
-        : '';
-      showSuccess(`Sucesso! ${pecasAtualizadas} produtos incrementados e ${pecasCriadas} novos itens criados no estoque${resumoMateriaPrima}.`);
 
-      // Reseta tela
+      // FICA NA TELA DE ENTRADA (pedido do dono, 2026-09-21).
+      //
+      // Antes daqui saia um `navigate('/estoque')`: terminava a nota e a
+      // pessoa era jogada no cadastro de produtos. Quem da entrada tem uma
+      // PILHA de notas pra lancar -- voltar tinha de ser feito a mao, nota
+      // apos nota. Agora a tela so' se limpa (handleRemoverFile) e ja' fica
+      // pronta pra proxima; o resumo do que entrou aparece no pop-up, com
+      // atalho pra quem realmente quiser sair.
+      const linhasResumo = [
+        `${pecasAtualizadas} produto(s) com estoque incrementado`,
+        `${pecasCriadas} produto(s) novo(s) cadastrado(s)`,
+        ...(materiasPrimasAtualizadas > 0 ? [`${materiasPrimasAtualizadas} matéria(s)-prima(s) atualizada(s)`] : []),
+        ...(materiasPrimasCriadas > 0 ? [`${materiasPrimasCriadas} matéria(s)-prima(s) nova(s)`] : []),
+        `${duplicatasParaLancar.length} título(s) em Contas a Pagar`,
+      ];
+      const numeroImportado = parsedData.numeroNF;
+
       handleRemoverFile();
-      navigate('/estoque');
+
+      const escolha = await NexusSwal.fire({
+        icon: 'success',
+        title: `Nota ${numeroImportado} importada`,
+        html: linhasResumo.map((linha) => `• ${linha}`).join('<br/>'),
+        showDenyButton: true,
+        confirmButtonText: 'Importar outra nota',
+        denyButtonText: 'Ver histórico',
+        denyButtonColor: '#3f3f46',
+      });
+      if (escolha.isDenied) openTab('/fiscal/entrada-nfe/historico');
 
     } catch (err) {
       console.error(err);

@@ -10,6 +10,7 @@ import { buscarIdsClientesMaisFrequentes } from '../../services/vendedorRankingS
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import type { SearchableClient } from '../../utils/clientSearch';
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
+import { clienteComCodigo } from '../../utils/pedidoVendedorDomain';
 import VendedorHeader from './VendedorHeader';
 import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
 
@@ -152,8 +153,8 @@ const VendedorConsultarCliente: React.FC = () => {
           onChange={setBusca}
           clients={clientes}
           onSelect={(cliente) => setSelecionado(cliente)}
-          renderItem={(cliente) => <span>{cliente.nome}</span>}
-          placeholder="Buscar cliente por nome"
+          renderItem={(cliente) => <span>{clienteComCodigo(cliente)}</span>}
+          placeholder="Buscar cliente por nome ou código"
           ariaLabel="Buscar cliente"
         />
       </div>
@@ -177,7 +178,7 @@ const VendedorConsultarCliente: React.FC = () => {
                   style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                 >
                   <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {cliente.nome}
+                    {clienteComCodigo(cliente)}
                   </div>
                 </button>
                 <button
@@ -203,7 +204,7 @@ const VendedorConsultarCliente: React.FC = () => {
         ) : (
           <>
             <div style={{ borderRadius: '18px', padding: '20px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{selecionado.nome}</div>
+              <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{clienteComCodigo(selecionado)}</div>
 
               <div style={{ height: '1px', backgroundColor: 'var(--border-color)' }} />
 

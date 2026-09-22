@@ -364,7 +364,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
     ? (['Dinheiro', 'Pix'] as PaymentMethod[])
     : (formasConfiguradas && formasConfiguradas.length > 0
       ? formasConfiguradas
-      : (['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Pagamento a Prazo'] as PaymentMethod[]));
+      : (['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Boleto', 'Pagamento a Prazo', 'Outros'] as PaymentMethod[]));
   const availableMethods: PaymentMethod[] = [
     ...metodosBase,
     ...(temCreditoDisponivel ? (['Crédito de Devolução'] as PaymentMethod[]) : []),

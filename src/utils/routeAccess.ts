@@ -40,6 +40,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/vendedores')) routeModule = 'cadastros.vendedores';
   else if (path.startsWith('/producao/ordens') || path.startsWith('/producao/relatorios')) routeModule = 'operacoes.producao';
   else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routeModule = 'operacoes.expedicao';
+  else if (path.startsWith('/operacoes/rotas') || path.startsWith('/operacoes/motoristas')) routeModule = 'operacoes.rotas';
   else if (path.startsWith('/pedidos-venda')) routeModule = 'comercial.pedidos';
   else if (path.startsWith('/minhas-vendas')) routeModule = 'comercial.pedidos';
   else if (path.startsWith('/orcamentos')) routeModule = 'comercial.orcamentos';
@@ -106,6 +107,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   // dividiam o mesmo id, sem controle independente.
   else if (path.startsWith('/producao/relatorios')) routePermission = 'operacoes.producao_relatorios';
   else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routePermission = 'operacoes.expedicao';
+  else if (path.startsWith('/operacoes/rotas') || path.startsWith('/operacoes/motoristas')) routePermission = 'operacoes.rotas';
   else if (path.startsWith('/pedidos-venda')) routePermission = 'vendas.pedidos';
   // Separada de vendas.pedidos em 2026-08-27 -- Minhas Vendas e o PDV
   // (este ultimo fora do sistema de rotas, ver PDV.tsx) dividiam o mesmo

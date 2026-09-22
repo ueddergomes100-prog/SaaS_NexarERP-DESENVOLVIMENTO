@@ -142,6 +142,11 @@ service cloud.firestore {
         // XML CRIA fornecedor durante a importacao (EntradaNFE.tsx) -- sem
         // isso, importar nota de fornecedor novo quebraria.
         (collectionName == 'fornecedores' && hasAnyPermission(['cadastros.fornecedores', 'fiscal.entrada'])) ||
+        // Controle de rota: cadastro do motorista e as despesas da viagem.
+        // Quem lanca e' a LOJA (decisao do dono, 2026-09-21) -- o motorista
+        // nao escreve aqui pelo app.
+        (collectionName == 'motoristas' && hasPermission('operacoes.rotas')) ||
+        (collectionName == 'rotas' && hasPermission('operacoes.rotas')) ||
         (collectionName == 'materias_primas' && hasPermission('cadastros.materia_prima')) ||
         (collectionName == 'ordens_producao' && hasPermission('operacoes.producao')) ||
         (collectionName == 'expedicoes' && hasPermission('operacoes.expedicao')) ||
@@ -279,7 +284,7 @@ service cloud.firestore {
     // ---------------------------------------------------------------------
     function cadastroComSituacao(collectionName) {
       return collectionName in [
-        'clientes', 'fornecedores', 'estoque', 'materias_primas', 'categorias', 'marcas',
+        'clientes', 'fornecedores', 'motoristas', 'estoque', 'materias_primas', 'categorias', 'marcas',
         'servicos', 'veiculos', 'unidades_medida', 'bancos', 'bandeiras_cartao'
       ];
     }
@@ -556,6 +561,8 @@ service cloud.firestore {
         'notas_fiscais_entrada',
         'creditos_cliente',
         'fornecedores',
+        'motoristas',
+        'rotas',
         'cotacoes_compra',
         'pedidos_compra',
         'recebimentos_compra',
@@ -602,6 +609,8 @@ service cloud.firestore {
         'notas_fiscais_entrada',
         'creditos_cliente',
         'fornecedores',
+        'motoristas',
+        'rotas',
         'cotacoes_compra',
         'pedidos_compra',
         'recebimentos_compra',
@@ -643,6 +652,8 @@ service cloud.firestore {
         'notas_fiscais_entrada',
         'creditos_cliente',
         'fornecedores',
+        'motoristas',
+        'rotas',
         'cotacoes_compra',
         'pedidos_compra',
         'recebimentos_compra',
@@ -689,6 +700,8 @@ service cloud.firestore {
         'notas_fiscais_entrada',
         'creditos_cliente',
         'fornecedores',
+        'motoristas',
+        'rotas',
         'cotacoes_compra',
         'pedidos_compra',
         'recebimentos_compra',

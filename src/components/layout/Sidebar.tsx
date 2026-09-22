@@ -32,6 +32,8 @@ import {
   Plus,
   Receipt,
   Repeat,
+  Route,
+  IdCard,
   RotateCcw,
   Scale,
   Search,
@@ -249,7 +251,9 @@ const Sidebar: React.FC = () => {
       label: 'Expedição',
       icon: Truck,
       items: [
-        { label: 'Conferência de Mercadoria', to: '/operacoes/expedicao', icon: Truck, module: 'operacoes.expedicao', permission: 'operacoes.expedicao' }
+        { label: 'Conferência de Mercadoria', to: '/operacoes/expedicao', icon: Truck, module: 'operacoes.expedicao', permission: 'operacoes.expedicao' },
+        { label: 'Rotas e Despesas', to: '/operacoes/rotas', icon: Route, module: 'operacoes.rotas', permission: 'operacoes.rotas' },
+        { label: 'Motoristas', to: '/operacoes/motoristas', icon: IdCard, module: 'operacoes.rotas', permission: 'operacoes.rotas' }
       ]
     },
     {

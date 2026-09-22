@@ -93,6 +93,7 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
   { group: 'Produção & Logística', items: [
     { id: 'operacoes.producao', label: 'Produção Interna' },
     { id: 'operacoes.expedicao', label: 'Expedição e Entregas' },
+    { id: 'operacoes.rotas', label: 'Rotas e Motoristas' },
     { id: 'operacoes.lotes', label: 'Lotes e Validades' }
   ]},
   { group: 'Administrativo & Logs', items: [

@@ -23,7 +23,10 @@ import {
   type CreditCardFeeSchedule,
   type PaymentDraft,
   type PaymentMethod,
+  MAX_PARCELAS_A_PRAZO,
+  gerarParcelasAPrazo,
 } from '../../utils/financeDomain';
+import { erroDasParcelasAPrazo, resumoDasParcelas } from '../../utils/formasPagamentoDomain';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import ChequeCaptureModal from './ChequeCaptureModal';
 import './PaymentsEditor.css';
@@ -85,6 +88,12 @@ interface PaymentsEditorProps {
    * saldo é que "Crédito de Devolução" entra na lista de formas -- ninguém
    * escolhe pagar com crédito que o cliente não tem. */
   creditoDisponivelCentavos?: number;
+  /** Formas na ordem da empresa, ja sem as que ela escondeu (Configuracoes).
+   *  Ausente = lista padrao do codigo, como sempre foi. */
+  formasConfiguradas?: PaymentMethod[];
+  /** "+ Dividir pagamento" visivel? Decisao do dono (2026-09-21): quem nao
+   *  usa pagamento misto desliga em Configuracoes e a tela fica limpa. */
+  permitirDividirPagamento?: boolean;
   sourceLabel?: string;
   tenantId?: string | null;
   totalCents: number;
@@ -326,6 +335,8 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   onTransactionDateChange,
   onUpdatePayment,
   pagamentoCartaoSimplificadoAtivo = false,
+  formasConfiguradas,
+  permitirDividirPagamento = true,
   creditoDisponivelCentavos = 0,
   sourceLabel = 'operação',
   tenantId,
@@ -347,10 +358,15 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   const isFinalConsumer = customerName.toLowerCase().includes('consumidor final');
   const temCreditoDisponivel = creditoDisponivelCentavos > 0
     || drafts.some((d) => d.forma === 'Crédito de Devolução');
+  // Consumidor final continua so' com dinheiro/Pix (regra fiscal, nao e'
+  // preferencia da loja) -- a ordem configurada so' vale pro resto.
+  const metodosBase: PaymentMethod[] = isFinalConsumer
+    ? (['Dinheiro', 'Pix'] as PaymentMethod[])
+    : (formasConfiguradas && formasConfiguradas.length > 0
+      ? formasConfiguradas
+      : (['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Pagamento a Prazo'] as PaymentMethod[]));
   const availableMethods: PaymentMethod[] = [
-    ...(isFinalConsumer
-      ? (['Dinheiro', 'Pix'] as PaymentMethod[])
-      : (['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Pagamento a Prazo'] as PaymentMethod[])),
+    ...metodosBase,
     ...(temCreditoDisponivel ? (['Crédito de Devolução'] as PaymentMethod[]) : []),
   ];
 
@@ -358,7 +374,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
     <div className={`payments-editor${embedded ? ' payments-editor--embedded' : ' card'}`}>
       <div className="payments-editor__header">
         <h3>Pagamentos e condição</h3>
-        {!disabled && (
+        {!disabled && permitirDividirPagamento && (
           <button
             type="button"
             className="btn-secondary payments-editor__add"
@@ -398,6 +414,19 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
           ? addDaysToDateInput(transactionDate, Number(settlementDays))
           : '';
         const settlementDatePreview = payment.dataPrevistaRecebimento || defaultSettlementDate;
+
+        // Pagamento a prazo parcelado: o intervalo e' o mesmo "prazo em dias"
+        // que a tela ja pedia, e o preview mostra as datas/valores que virarao
+        // titulo. Quem manda de verdade e' gerarParcelasAPrazo -- a mesma
+        // funcao que explodeInstallmentPaymentRecords usa ao salvar.
+        const quantidadeParcelas = Number.parseInt(payment.parcelasAPrazo, 10) || 1;
+        const intervaloDoPagamento = Number.parseInt(payment.prazoDias, 10) || 0;
+        const parcelasDoPagamento = payment.forma === 'Pagamento a Prazo' && quantidadeParcelas > 1
+          ? gerarParcelasAPrazo(paymentCents, quantidadeParcelas, intervaloDoPagamento, transactionDate)
+          : [];
+        const erroDasParcelas = payment.forma === 'Pagamento a Prazo' && quantidadeParcelas > 1
+          ? erroDasParcelasAPrazo(quantidadeParcelas, intervaloDoPagamento)
+          : null;
 
         return (
           <div className="payments-editor__payment" key={payment.id}>
@@ -499,8 +528,41 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                     value={payment.dataVencimento || dueDate}
                   />
                 </div>
+                <div className="input-group">
+                  <label htmlFor={`${idPrefix}-term-parcelas-${payment.id}`}>Parcelas</label>
+                  <input
+                    disabled={disabled}
+                    id={`${idPrefix}-term-parcelas-${payment.id}`}
+                    min="1"
+                    max={MAX_PARCELAS_A_PRAZO}
+                    onChange={(event) => onUpdatePayment(payment.id, { parcelasAPrazo: event.target.value })}
+                    step="1"
+                    type="number"
+                    value={payment.parcelasAPrazo || '1'}
+                  />
+                </div>
                 <div className="payments-editor__term-notice">
-                  Vencimento calculado: <strong>{formatDateInputPtBr(dueDate)}</strong>. Este valor ficará em Contas a Receber e não entra no caixa físico.
+                  {parcelasDoPagamento.length > 1 ? (
+                    <>
+                      {/* 3x de 30 em 30 dias => tres titulos, 30/60/90. Mostra
+                          data e valor de cada um antes de fechar a venda. */}
+                      <strong>{resumoDasParcelas(parcelasDoPagamento, intervaloDoPagamento)}</strong>
+                      <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+                        {parcelasDoPagamento.map((parcela) => (
+                          <span key={parcela.numero}>
+                            {parcela.numero}ª: {formatDateInputPtBr(parcela.dataVencimento)} — {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(parcela.valorCentavos))}
+                          </span>
+                        ))}
+                      </div>
+                      <div style={{ marginTop: '6px' }}>
+                        Cada parcela vira um título em Contas a Receber. Nada entra no caixa físico agora.
+                      </div>
+                    </>
+                  ) : erroDasParcelas ? (
+                    <span style={{ color: '#f59e0b' }}>{erroDasParcelas}</span>
+                  ) : (
+                    <>Vencimento calculado: <strong>{formatDateInputPtBr(dueDate)}</strong>. Este valor ficará em Contas a Receber e não entra no caixa físico.</>
+                  )}
                 </div>
               </div>
             )}

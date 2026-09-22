@@ -2899,7 +2899,7 @@ const Configuracoes: React.FC = () => {
                         <SeletorTodas
                           estado={estadoDaSelecao(selectedUserPermissions, PERMISSION_CATALOG.map(item => item.id))}
                           onAlternar={alternarTodasPermissoes}
-                          rotulo="Marcar todas"
+                          rotulo="todas"
                         />
                       </div>
                     </div>

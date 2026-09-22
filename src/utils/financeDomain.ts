@@ -28,7 +28,12 @@ export interface PaymentDraft {
    *  recusa antes disso. Ver DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO. */
   forma: PaymentMethod | '';
   valor: string;
+  /** Pagamento a prazo: dias ate o vencimento da PRIMEIRA parcela e, com
+   *  `parcelasAPrazo` > 1, o intervalo entre as seguintes (30 => 30/60/90). */
   prazoDias: string;
+  /** Em quantas parcelas o a prazo foi fechado. '1' (ou vazio) = titulo unico,
+   *  que e' como sempre funcionou. Ver gerarParcelasAPrazo. */
+  parcelasAPrazo: string;
   dataVencimento: string;
   bandeira: string;
   operadora: string;
@@ -105,6 +110,10 @@ export interface PaymentRecord {
   movimentaCaixaFisico: boolean;
   prazoDias?: number;
   dataVencimento?: string;
+  /** Pagamento a prazo PARCELADO: posicao e total, preenchidos por
+   *  explodeInstallmentPaymentRecords. Titulo unico nao tem nenhum dos dois. */
+  numeroParcelaAPrazo?: number;
+  totalParcelasAPrazo?: number;
   dataPrevistaRecebimento?: string;
   cartao?: CardPaymentDetails;
   cheque?: ChequeDetails;
@@ -220,6 +229,70 @@ export const splitCents = (totalCents: number, installments: number) => {
   const remainder = totalCents - (base * installments);
   return Array.from({ length: installments }, (_, index) => base + (index < remainder ? 1 : 0));
 };
+
+// ---------------------------------------------------------------------------
+// PARCELAS AUTOMATICAS DO PAGAMENTO A PRAZO (2026-09-21)
+// ---------------------------------------------------------------------------
+//
+// Pedido do dono: "fechou a prazo, colocou tres parcelas, ele ja joga 30, 60,
+// 90 automatico. Mas se o cliente joga 15 dias, ele ja joga 15, 30, 45."
+//
+// Antes o pagamento a prazo era UMA linha com um vencimento so': montar
+// 30/60/90 exigia somar tres linhas de pagamento na mao, digitando cada data.
+//
+// Mora aqui, e nao no formasPagamentoDomain, porque e' daqui que sai o titulo
+// de verdade: explodeInstallmentPaymentRecords usa estas datas e valores.
+
+export interface ParcelaAPrazo {
+  numero: number;
+  /** `AAAA-MM-DD`. */
+  dataVencimento: string;
+  valorCentavos: number;
+}
+
+/** Quantas parcelas a tela aceita. Acima disso quase sempre e' engano de
+ *  digitacao (o "30" que era pra ser o intervalo, nao a quantidade). */
+export const MAX_PARCELAS_A_PRAZO = 48;
+
+/** Intervalo padrao entre parcelas, em dias. 30 e' o que a loja chama de
+ *  "30/60/90". */
+export const INTERVALO_PARCELAS_PADRAO = 30;
+
+/**
+ * Monta as parcelas do pagamento a prazo: N parcelas espacadas de X dias a
+ * partir da data da venda.
+ *
+ * - 3 parcelas de 30 dias => 30, 60 e 90 dias depois da venda;
+ * - 3 parcelas de 15 dias => 15, 30 e 45.
+ *
+ * A PRIMEIRA parcela ja' cai no primeiro intervalo (nao na data da venda):
+ * "3x sem entrada" e' o combinado normal do balcao. Quem quer entrada lanca a
+ * entrada como outra forma de pagamento (dinheiro/Pix) e deixa a prazo so' o
+ * que sobra.
+ *
+ * O valor e' dividido em CENTAVOS por `splitCents`, entao a soma das parcelas
+ * e' sempre exatamente o total -- sem centavo sumido nem sobrando.
+ */
+export const gerarParcelasAPrazo = (
+  totalCents: number,
+  quantidade: number,
+  intervaloDias: number,
+  dataVenda: string,
+): ParcelaAPrazo[] => {
+  const partes = Math.floor(Number(quantidade));
+  const intervalo = Math.floor(Number(intervaloDias));
+  if (!Number.isFinite(totalCents) || totalCents <= 0) return [];
+  if (!Number.isInteger(partes) || partes < 1 || partes > MAX_PARCELAS_A_PRAZO) return [];
+  if (!Number.isInteger(intervalo) || intervalo < 1) return [];
+  if (!dataVenda) return [];
+
+  return splitCents(Math.round(totalCents), partes).map((valorCentavos, indice) => ({
+    numero: indice + 1,
+    dataVencimento: addDaysToDateInput(dataVenda, intervalo * (indice + 1)),
+    valorCentavos,
+  }));
+};
+
 
 export const parseCreditTerms = (value: unknown) => {
   const terms = String(value ?? '')
@@ -536,6 +609,7 @@ export const createEmptyPaymentDraft = (
   forma: formaInicial,
   valor: fromCents(amountCents).toFixed(2),
   prazoDias: String(defaultTermDays),
+  parcelasAPrazo: '1',
   dataVencimento: '',
   bandeira: '',
   operadora: '',
@@ -630,6 +704,20 @@ export const normalizePayments = (
       }
       record.prazoDias = dueDays;
       record.dataVencimento = dueDate;
+
+      // Parcelado: guarda quantas sao. Quem divide de fato em N titulos e'
+      // explodeInstallmentPaymentRecords, na hora de salvar -- aqui o
+      // registro ainda e' a linha inteira que a pessoa digitou.
+      const parcelasPedidas = Number.parseInt(draft.parcelasAPrazo, 10);
+      if (Number.isFinite(parcelasPedidas) && parcelasPedidas > 1) {
+        if (parcelasPedidas > MAX_PARCELAS_A_PRAZO) {
+          throw new Error(`O pagamento a prazo aceita no máximo ${MAX_PARCELAS_A_PRAZO} parcelas.`);
+        }
+        if (!Number.isInteger(dueDays) || dueDays < 1) {
+          throw new Error('Informe de quantos em quantos dias cada parcela do pagamento a prazo vence.');
+        }
+        record.totalParcelasAPrazo = parcelasPedidas;
+      }
     }
 
     if (isCardPayment(draft.forma) && isSimplifiedCard) {
@@ -742,11 +830,17 @@ export const normalizePayments = (
 };
 
 /**
- * Explode um pagamento em cartao de credito parcelado em N registros
- * independentes, um por parcela (usando o detalhamento ja calculado por
- * buildCardDetails/normalizePayments) -- para que cada parcela vire seu
- * proprio titulo em Contas a Receber, em vez de um unico titulo com o
- * valor cheio. Debito e credito a vista passam direto, sem alteracao.
+ * Explode um pagamento parcelado em N registros independentes, um por
+ * parcela, para que cada uma vire seu proprio titulo em Contas a Receber em
+ * vez de um unico titulo com o valor cheio.
+ *
+ * Vale para dois casos:
+ *   - CARTAO DE CREDITO parcelado, usando o detalhamento ja calculado por
+ *     buildCardDetails/normalizePayments;
+ *   - PAGAMENTO A PRAZO parcelado (2026-09-21), usando gerarParcelasAPrazo:
+ *     3x de 30 em 30 dias viram tres titulos, 30/60/90.
+ *
+ * Debito, credito a vista e a prazo de parcela unica passam direto.
  *
  * cartao.parcelas fica 1 em cada registro explodido (mantem
  * applyPaymentReceipt/recebimento parcial funcionando sem mudanca, ja
@@ -755,6 +849,32 @@ export const normalizePayments = (
  */
 export const explodeInstallmentPaymentRecords = (records: PaymentRecord[]): PaymentRecord[] => {
   const exploded = records.flatMap((record): PaymentRecord[] => {
+    // --- Pagamento a prazo parcelado -------------------------------------
+    const totalAPrazo = record.totalParcelasAPrazo ?? 1;
+    if (record.formaPagamento === 'Pagamento a Prazo' && totalAPrazo > 1) {
+      // As datas saem da data da 1a parcela, andando de `prazoDias` em
+      // `prazoDias` -- o mesmo intervalo que a pessoa informou na tela.
+      const intervalo = Math.max(1, Number(record.prazoDias) || 0);
+      const primeira = String(record.dataVencimento || '');
+      // A base do calculo e' "a venda", entao recua um intervalo: assim a
+      // parcela 1 cai exatamente na data que ja estava no registro.
+      const base = addDaysToDateInput(primeira, -intervalo);
+      const parcelas = gerarParcelasAPrazo(record.valorCentavos, totalAPrazo, intervalo, base);
+      if (parcelas.length !== totalAPrazo) return [record];
+
+      return parcelas.map((parcela): PaymentRecord => ({
+        ...record,
+        id: `${record.id}-parcela-${parcela.numero}`,
+        valorCentavos: parcela.valorCentavos,
+        valor: fromCents(parcela.valorCentavos),
+        dataVencimento: parcela.dataVencimento,
+        prazoDias: intervalo * parcela.numero,
+        numeroParcelaAPrazo: parcela.numero,
+        totalParcelasAPrazo: totalAPrazo,
+      }));
+    }
+
+    // --- Cartao de credito parcelado --------------------------------------
     const totalParcelas = record.cartao?.parcelas ?? 1;
     if (record.formaPagamento !== 'Cartão de Crédito' || !record.cartao || totalParcelas <= 1) {
       return [record];

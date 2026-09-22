@@ -744,6 +744,7 @@ const PedidoVendaForm: React.FC = () => {
                 operadora: payment.cartao?.operadora || '',
                 autorizacao: payment.cartao?.autorizacao || '',
                 parcelas: String(payment.cartao?.parcelas || 1),
+                parcelasAPrazo: '1',
                 dataPrevistaRecebimento: payment.dataPrevistaRecebimento || payment.cartao?.dataPrevistaRecebimento || payment.cheque?.dataCompensacao || '',
                 bancoId: payment.bancoId || '',
                 bancoNome: payment.bancoNome || '',

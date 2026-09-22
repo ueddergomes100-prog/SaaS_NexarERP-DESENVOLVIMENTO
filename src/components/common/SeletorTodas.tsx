@@ -17,11 +17,14 @@ interface SeletorTodasProps {
   estado: 'todas' | 'nenhuma' | 'parcial';
   /** `true` = marcar o que falta; `false` = desmarcar tudo que esta visivel. */
   onAlternar: (marcar: boolean) => void;
+  /** So' o SUBSTANTIVO ("todas", "as encontradas"): o componente escreve
+   *  "Marcar X" e "Desmarcar X". Passar o verbo junto daria "Desmarcar
+   *  marcar todas". */
   rotulo?: string;
   desabilitado?: boolean;
 }
 
-const SeletorTodas: React.FC<SeletorTodasProps> = ({ estado, onAlternar, rotulo = 'Todas', desabilitado = false }) => {
+const SeletorTodas: React.FC<SeletorTodasProps> = ({ estado, onAlternar, rotulo = 'todas', desabilitado = false }) => {
   const Icone = estado === 'todas' ? CheckSquare : estado === 'parcial' ? MinusSquare : Square;
   const cor = estado === 'nenhuma' ? 'var(--text-muted)' : 'var(--accent-purple)';
 
@@ -41,7 +44,7 @@ const SeletorTodas: React.FC<SeletorTodasProps> = ({ estado, onAlternar, rotulo 
       }}
     >
       <Icone size={16} />
-      {estado === 'todas' ? `Desmarcar ${rotulo.toLowerCase()}` : rotulo}
+      {estado === 'todas' ? `Desmarcar ${rotulo}` : `Marcar ${rotulo}`}
     </button>
   );
 };

@@ -220,7 +220,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
           <SeletorTodas
             estado={estadoVisivel}
             onAlternar={(marcar) => alternarVarias(idsVisiveis, marcar)}
-            rotulo={busca.trim() ? 'Marcar as encontradas' : 'Marcar todas'}
+            rotulo={busca.trim() ? 'as encontradas' : 'todas'}
             desabilitado={isLoading || idsVisiveis.length === 0}
           />
         </div>
@@ -240,7 +240,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
                   <SeletorTodas
                     estado={estadoDaSelecao(permissoes, grupo.itens.map((i) => i.id))}
                     onAlternar={(marcar) => alternarVarias(grupo.itens.map((i) => i.id), marcar)}
-                    rotulo="Todas"
+                    rotulo="todas"
                   />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '10px' }}>

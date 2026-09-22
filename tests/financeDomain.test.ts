@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  MAX_PARCELAS_A_PRAZO,
   DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO,
   formaPagamentoInicial,
   parseExigirEscolhaFormaPagamento,
@@ -790,4 +791,78 @@ test('gravar sem escolher a forma e recusado, dizendo QUAL pagamento', () => {
     ], { saleDate: '2026-09-01' }),
     /Escolha a forma do pagamento 2 antes de finalizar/,
   );
+});
+
+test('a prazo parcelado vira N titulos, um por parcela (30/60/90)', () => {
+  const registro = {
+    id: 'pagamento-1',
+    indice: 1,
+    formaPagamento: 'Pagamento a Prazo' as const,
+    condicaoPagamento: 'aprazo' as const,
+    valorCentavos: 30000,
+    valor: 300,
+    status: 'pendente' as const,
+    naturezaFinanceira: 'contas_receber' as const,
+    movimentaCaixaFisico: false,
+    prazoDias: 30,
+    dataVencimento: '2026-10-21',
+    totalParcelasAPrazo: 3,
+  };
+  const explodido = explodeInstallmentPaymentRecords([registro]);
+
+  assert.equal(explodido.length, 3);
+  assert.deepEqual(explodido.map((r) => r.dataVencimento), ['2026-10-21', '2026-11-20', '2026-12-20']);
+  assert.deepEqual(explodido.map((r) => r.valorCentavos), [10000, 10000, 10000]);
+  assert.deepEqual(explodido.map((r) => r.numeroParcelaAPrazo), [1, 2, 3]);
+  assert.deepEqual(explodido.map((r) => r.prazoDias), [30, 60, 90]);
+  // Cada titulo tem id proprio, senao um sobrescreveria o outro ao gravar.
+  assert.equal(new Set(explodido.map((r) => r.id)).size, 3);
+  // A soma dos titulos e' exatamente o que foi vendido.
+  assert.equal(explodido.reduce((soma, r) => soma + r.valorCentavos, 0), 30000);
+});
+
+test('a prazo parcelado de 15 dias vira 15/30/45 e a soma fecha com centavo quebrado', () => {
+  const registro = {
+    id: 'p1', indice: 1, formaPagamento: 'Pagamento a Prazo' as const, condicaoPagamento: 'aprazo' as const,
+    valorCentavos: 10000, valor: 100, status: 'pendente' as const, naturezaFinanceira: 'contas_receber' as const,
+    movimentaCaixaFisico: false, prazoDias: 15, dataVencimento: '2026-10-06', totalParcelasAPrazo: 3,
+  };
+  const explodido = explodeInstallmentPaymentRecords([registro]);
+  assert.deepEqual(explodido.map((r) => r.dataVencimento), ['2026-10-06', '2026-10-21', '2026-11-05']);
+  assert.deepEqual(explodido.map((r) => r.valorCentavos), [3334, 3333, 3333]);
+  assert.equal(explodido.reduce((soma, r) => soma + r.valorCentavos, 0), 10000);
+});
+
+test('a prazo de parcela unica continua sendo UM titulo, intocado', () => {
+  const registro = {
+    id: 'p1', indice: 1, formaPagamento: 'Pagamento a Prazo' as const, condicaoPagamento: 'aprazo' as const,
+    valorCentavos: 5000, valor: 50, status: 'pendente' as const, naturezaFinanceira: 'contas_receber' as const,
+    movimentaCaixaFisico: false, prazoDias: 30, dataVencimento: '2026-10-21',
+  };
+  const explodido = explodeInstallmentPaymentRecords([registro]);
+  assert.equal(explodido.length, 1);
+  assert.equal(explodido[0].id, 'p1');
+  assert.equal(explodido[0].dataVencimento, '2026-10-21');
+  assert.equal(explodido[0].numeroParcelaAPrazo, undefined);
+});
+
+test('normalizePayments recusa parcelamento a prazo acima do maximo', () => {
+  assert.throws(
+    () => normalizePayments(
+      30000,
+      [{ ...createEmptyPaymentDraft('p1', 30000), forma: 'Pagamento a Prazo', parcelasAPrazo: String(MAX_PARCELAS_A_PRAZO + 1) }],
+      { saleDate: '2026-09-21' },
+    ),
+    /no máximo/i,
+  );
+});
+
+test('normalizePayments guarda o total de parcelas do a prazo', () => {
+  const registros = normalizePayments(
+    30000,
+    [{ ...createEmptyPaymentDraft('p1', 30000), forma: 'Pagamento a Prazo', prazoDias: '30', parcelasAPrazo: '3' }],
+    { saleDate: '2026-09-21' },
+  );
+  assert.equal(registros[0].totalParcelasAPrazo, 3);
+  assert.equal(registros[0].dataVencimento, '2026-10-21');
 });

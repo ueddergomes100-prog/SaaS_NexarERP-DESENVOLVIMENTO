@@ -9,6 +9,7 @@ import { toCents, fromCents } from '../../utils/financeDomain';
 import { isPedidoAberto, resolveOrigemPedido, STATUS_PRE_VENDA, type OrigemPedido } from '../../utils/preVendaDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
+import { hasTenantFullAccess } from '../../utils/roles';
 
 /**
  * Relatorio de PRE-VENDAS EM ABERTO.
@@ -68,7 +69,10 @@ interface PreVendaLinha {
 
 const RelatorioPreVendas: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, currentUser, vendasVisiveisDeUsuarioId } = useAuth();
+  const { tenantId, currentUser, vendasVisiveisDeUsuarioId, userRole, isOwner } = useAuth();
+  // Funcionario comum nao ve valor nem contagem em resumo nenhum -- so' dono
+  // e gestor (Master/Admin) enxergam este quadro de totais.
+  const podeVerResumo = hasTenantFullAccess(userRole, isOwner);
   const [linhas, setLinhas] = useState<PreVendaLinha[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -253,24 +257,26 @@ const RelatorioPreVendas: React.FC = () => {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-        <div className="card" style={{ padding: '20px' }}>
-          <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Pré-vendas em aberto</p>
-          <p style={{ margin: '4px 0 0', fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)' }}>{totais.quantidade}</p>
+      {podeVerResumo && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+          <div className="card" style={{ padding: '20px' }}>
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Pré-vendas em aberto</p>
+            <p style={{ margin: '4px 0 0', fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)' }}>{totais.quantidade}</p>
+          </div>
+          <div className="card" style={{ padding: '20px' }}>
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Valor comprometido (não é receita)</p>
+            <p style={{ margin: '4px 0 0', fontSize: '24px', fontWeight: 700, color: '#f59e0b' }}>{currency.format(fromCents(totais.valorCents))}</p>
+          </div>
+          <div className="card" style={{ padding: '20px' }}>
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Com estoque reservado</p>
+            <p style={{ margin: '4px 0 0', fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)' }}>{totais.comReserva}</p>
+          </div>
+          <div className="card" style={{ padding: '20px' }}>
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Mais antiga em aberto</p>
+            <p style={{ margin: '4px 0 0', fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)' }}>{totais.maisAntiga} dia(s)</p>
+          </div>
         </div>
-        <div className="card" style={{ padding: '20px' }}>
-          <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Valor comprometido (não é receita)</p>
-          <p style={{ margin: '4px 0 0', fontSize: '24px', fontWeight: 700, color: '#f59e0b' }}>{currency.format(fromCents(totais.valorCents))}</p>
-        </div>
-        <div className="card" style={{ padding: '20px' }}>
-          <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Com estoque reservado</p>
-          <p style={{ margin: '4px 0 0', fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)' }}>{totais.comReserva}</p>
-        </div>
-        <div className="card" style={{ padding: '20px' }}>
-          <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Mais antiga em aberto</p>
-          <p style={{ margin: '4px 0 0', fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)' }}>{totais.maisAntiga} dia(s)</p>
-        </div>
-      </div>
+      )}
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (

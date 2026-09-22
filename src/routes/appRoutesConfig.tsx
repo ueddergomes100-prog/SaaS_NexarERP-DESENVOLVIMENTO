@@ -151,7 +151,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'financeiro/caixa-registros', element: <CaixaRegistros /> },
   { path: 'financeiro/banco', element: <Banco /> },
   { path: 'financeiro/cheques', element: <Cheques /> },
-  { path: 'financeiro/boletos', element: <Boletos /> },
+  { path: 'financeiro/boletos', element: <Boletos /> }, // Financeiro > Boletos
   { path: 'financeiro/contas-receber', element: <ContasReceber /> },
   { path: 'financeiro/contas-receber/importar', element: <ImportarContasReceber /> },
   { path: 'financeiro/contas-pagar', element: <ContasPagar /> },

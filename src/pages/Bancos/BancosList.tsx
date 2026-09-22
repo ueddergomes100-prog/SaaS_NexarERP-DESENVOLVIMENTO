@@ -26,6 +26,23 @@ import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecio
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 
+/** Convenio de emissao de boleto deste banco (2026-09-22). So' Sicoob por
+ *  enquanto -- ver src/utils/boletoRemessaSicoobDomain.ts. `ativo` decide
+ *  se o banco aparece pra escolher na hora de emitir; agencia/conta do
+ *  proprio banco (acima) sao reaproveitados como cooperativa/conta do
+ *  convenio, sem duplicar cadastro. */
+export interface ConvenioBoleto {
+  ativo: boolean;
+  contaDv?: string;
+  cnpjCedente?: string;
+  nomeCedente?: string;
+  instrucoes?: string;
+  /** Piso do contador -- deixa continuar a numeracao de onde o sistema
+   *  antigo parou, em vez de reiniciar em 1. */
+  proximoNossoNumero?: number;
+  proximaRemessa?: number;
+}
+
 interface Banco extends TenantCollectionItem {
   nome: string;
   banco?: string;
@@ -36,6 +53,7 @@ interface Banco extends TenantCollectionItem {
   saldoCentavos: number;
   ativo: boolean;
   ordem: number;
+  boleto?: ConvenioBoleto;
 }
 
 interface LancamentoBancario extends TenantCollectionItem {
@@ -63,6 +81,13 @@ const emptyBankForm = () => ({
   ativo: true,
   ordem: 1,
   saldoInicial: '0,00',
+  boletoAtivo: false,
+  boletoContaDv: '',
+  boletoCnpjCedente: '',
+  boletoNomeCedente: '',
+  boletoInstrucoes: '',
+  boletoProximoNossoNumero: '',
+  boletoProximaRemessa: '',
 });
 
 const emptyLancamentoForm = () => ({
@@ -162,6 +187,13 @@ const BancosList: React.FC = () => {
       ativo: banco.ativo,
       ordem: banco.ordem,
       saldoInicial: fromCents(banco.saldoInicialCentavos || 0).toFixed(2).replace('.', ','),
+      boletoAtivo: banco.boleto?.ativo || false,
+      boletoContaDv: banco.boleto?.contaDv || '',
+      boletoCnpjCedente: banco.boleto?.cnpjCedente || '',
+      boletoNomeCedente: banco.boleto?.nomeCedente || '',
+      boletoInstrucoes: banco.boleto?.instrucoes || '',
+      boletoProximoNossoNumero: banco.boleto?.proximoNossoNumero ? String(banco.boleto.proximoNossoNumero) : '',
+      boletoProximaRemessa: banco.boleto?.proximaRemessa ? String(banco.boleto.proximaRemessa) : '',
     });
     setIsModalOpen(true);
   };
@@ -177,7 +209,23 @@ const BancosList: React.FC = () => {
       showError('Erro', 'Informe o nome do banco.');
       return;
     }
+    if (modalForm.boletoAtivo && (!modalForm.agencia.trim() || !modalForm.conta.trim())) {
+      showError('Erro', 'Pra usar este banco pra emitir boleto, preencha Agência e Conta acima.');
+      return;
+    }
     if (!currentUser) return;
+
+    // undefined nunca vai pro Firestore (regra 3 do CLAUDE.md) -- so' grava
+    // o convenio quando "Emite boleto por este banco" esta marcado.
+    const boleto = modalForm.boletoAtivo ? {
+      ativo: true,
+      ...(modalForm.boletoContaDv.trim() ? { contaDv: modalForm.boletoContaDv.trim() } : {}),
+      ...(modalForm.boletoCnpjCedente.trim() ? { cnpjCedente: modalForm.boletoCnpjCedente.replace(/\D/g, '') } : {}),
+      ...(modalForm.boletoNomeCedente.trim() ? { nomeCedente: modalForm.boletoNomeCedente.trim() } : {}),
+      ...(modalForm.boletoInstrucoes.trim() ? { instrucoes: modalForm.boletoInstrucoes.trim() } : {}),
+      ...(modalForm.boletoProximoNossoNumero.trim() ? { proximoNossoNumero: Number(modalForm.boletoProximoNossoNumero) || 0 } : {}),
+      ...(modalForm.boletoProximaRemessa.trim() ? { proximaRemessa: Number(modalForm.boletoProximaRemessa) || 0 } : {}),
+    } : { ativo: false };
 
     setModalLoading(true);
     try {
@@ -189,6 +237,7 @@ const BancosList: React.FC = () => {
           conta: modalForm.conta.trim(),
           tipoConta: modalForm.tipoConta,
           ordem: Number(modalForm.ordem) || 0,
+          boleto,
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
@@ -205,6 +254,7 @@ const BancosList: React.FC = () => {
           ordem: Number(modalForm.ordem) || 0,
           saldoInicialCentavos,
           saldoCentavos: saldoInicialCentavos,
+          boleto,
           tenantId,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -603,6 +653,91 @@ const BancosList: React.FC = () => {
                     style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
                   />
                 </div>
+              </div>
+
+              <div style={{ padding: '16px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', marginBottom: '16px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  <input
+                    type="checkbox"
+                    checked={modalForm.boletoAtivo}
+                    onChange={(e) => setModalForm({ ...modalForm, boletoAtivo: e.target.checked })}
+                  />
+                  Emite boleto por este banco (Sicoob)
+                </label>
+
+                {modalForm.boletoAtivo && (
+                  <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                      Agência e Conta acima são reaproveitadas como cooperativa/conta do convênio. Preencha o resto igual ao cadastro do sistema antigo.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div className="input-group">
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Dígito da conta</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: 0"
+                          value={modalForm.boletoContaDv}
+                          onChange={(e) => setModalForm({ ...modalForm, boletoContaDv: e.target.value })}
+                          style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
+                        />
+                      </div>
+                      <div className="input-group">
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>CNPJ do cedente</label>
+                        <input
+                          type="text"
+                          placeholder="Só números"
+                          value={modalForm.boletoCnpjCedente}
+                          onChange={(e) => setModalForm({ ...modalForm, boletoCnpjCedente: e.target.value })}
+                          style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
+                        />
+                      </div>
+                    </div>
+                    <div className="input-group">
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Nome do cedente (como sai no boleto)</label>
+                      <input
+                        type="text"
+                        value={modalForm.boletoNomeCedente}
+                        onChange={(e) => setModalForm({ ...modalForm, boletoNomeCedente: e.target.value })}
+                        style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Instruções impressas no boleto</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Após o vencimento, multa de 2% + juros de 1% ao mês"
+                        value={modalForm.boletoInstrucoes}
+                        onChange={(e) => setModalForm({ ...modalForm, boletoInstrucoes: e.target.value })}
+                        style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
+                      />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div className="input-group">
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Próximo nosso número</label>
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="Ex: 1203"
+                          value={modalForm.boletoProximoNossoNumero}
+                          onChange={(e) => setModalForm({ ...modalForm, boletoProximoNossoNumero: e.target.value })}
+                          style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
+                        />
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Deixe em branco pra começar do 1. Preencha pra continuar de onde o sistema antigo parou.</span>
+                      </div>
+                      <div className="input-group">
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Próxima remessa</label>
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="Ex: 1763"
+                          value={modalForm.boletoProximaRemessa}
+                          onChange={(e) => setModalForm({ ...modalForm, boletoProximaRemessa: e.target.value })}
+                          style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>

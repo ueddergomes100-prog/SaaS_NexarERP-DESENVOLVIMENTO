@@ -265,6 +265,7 @@ const Sidebar: React.FC = () => {
         { label: 'Caixa (Sessões PDV)', to: '/financeiro/caixa-registros', icon: Wallet, module: 'financeiro.caixa_registros', permission: 'financeiro.caixa_registros' },
         { label: 'Banco', to: '/financeiro/banco', icon: Landmark, module: 'financeiro.banco', permission: 'financeiro.banco' },
         { label: 'Cheques', to: '/financeiro/cheques', icon: FileCheck2, module: 'financeiro.cheques', permission: 'financeiro.cheques' },
+        { label: 'Boletos', to: '/financeiro/boletos', icon: Barcode, module: 'financeiro.boletos', permission: 'financeiro.boletos' },
         { label: 'Contas a Receber', to: '/financeiro/contas-receber', icon: Clock, module: 'financeiro.receber', permission: 'financeiro.receber' },
         { label: 'Contas a Pagar', to: '/financeiro/contas-pagar', icon: Receipt, module: 'financeiro.pagar', permission: 'financeiro.pagar' },
         { label: 'Faturamento', to: '/financeiro/faturamento', icon: BarChart2, module: 'financeiro.faturamento', permission: 'financeiro.faturamento' },

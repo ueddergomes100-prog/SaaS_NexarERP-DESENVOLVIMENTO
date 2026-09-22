@@ -56,6 +56,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/financeiro/caixa')) routeModule = 'financeiro.caixa';
   else if (path.startsWith('/financeiro/banco')) routeModule = 'financeiro.banco';
   else if (path.startsWith('/financeiro/cheques')) routeModule = 'financeiro.cheques';
+  else if (path.startsWith('/financeiro/boletos')) routeModule = 'financeiro.boletos';
   else if (path.startsWith('/financeiro/contas-receber')) routeModule = 'financeiro.receber';
   else if (path.startsWith('/financeiro/contas-pagar')) routeModule = 'financeiro.pagar';
   else if (path.startsWith('/financeiro/faturamento')) routeModule = 'financeiro.faturamento';
@@ -126,6 +127,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/financeiro/caixa')) routePermission = 'financeiro.caixa';
   else if (path.startsWith('/financeiro/banco')) routePermission = 'financeiro.banco';
   else if (path.startsWith('/financeiro/cheques')) routePermission = 'financeiro.cheques';
+  else if (path.startsWith('/financeiro/boletos')) routePermission = 'financeiro.boletos';
   else if (path.startsWith('/financeiro/contas-receber')) routePermission = 'financeiro.receber';
   else if (path.startsWith('/financeiro/contas-pagar')) routePermission = 'financeiro.pagar';
   else if (path.startsWith('/financeiro/faturamento')) routePermission = 'financeiro.faturamento';

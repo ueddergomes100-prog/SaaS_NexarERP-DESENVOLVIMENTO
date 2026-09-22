@@ -2643,6 +2643,25 @@ const PedidoVendaForm: React.FC = () => {
       initialSnapshotRef.current = buildDirtySnapshot();
       setIsDirty(false);
 
+      // Venda fechada em boleto: oferece emitir na hora. Dizer "nao" nao
+      // trava nada -- o titulo fica em Financeiro > Boletos, aba
+      // "Aguardando emissao", pra emitir quando quiser (decisao do dono em
+      // 2026-09-22).
+      if (paymentRecords.some((p) => p.formaPagamento === 'Boleto')) {
+        const querEmitir = await NexusSwal.fire({
+          title: 'Emitir o boleto agora?',
+          text: 'Você pode emitir depois em Financeiro → Boletos, quando quiser.',
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonText: 'Emitir agora',
+          cancelButtonText: 'Deixar pendente',
+        });
+        if (querEmitir.isConfirmed) {
+          navigate('/financeiro/boletos');
+          return true;
+        }
+      }
+
       // Modulo 12 (Conferencia de mercadoria), Fatia 2/4: acrescenta UMA
       // etapa ao final do fluxo de recibo/NFC-e existente abaixo, sem
       // reorganiza-lo -- os 5 pontos de saida desse fluxo (sucesso NFC-e,

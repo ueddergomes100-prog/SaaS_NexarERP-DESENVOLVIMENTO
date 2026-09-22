@@ -1558,6 +1558,24 @@ const OSForm: React.FC = () => {
       showSuccess(`OS ${isEditing ? 'atualizada' : 'criada'}!`);
       initialSnapshotRef.current = buildDirtySnapshot();
       setIsDirty(false);
+
+      // Mesma oferta da venda: fechou em boleto, pergunta se emite agora.
+      // "Deixar pendente" nao trava nada -- fica em Financeiro > Boletos.
+      if (paymentRecords.some((p) => p.formaPagamento === 'Boleto')) {
+        const querEmitir = await NexusSwal.fire({
+          title: 'Emitir o boleto agora?',
+          text: 'Você pode emitir depois em Financeiro → Boletos, quando quiser.',
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonText: 'Emitir agora',
+          cancelButtonText: 'Deixar pendente',
+        });
+        if (querEmitir.isConfirmed) {
+          navigate('/financeiro/boletos');
+          return true;
+        }
+      }
+
       navigate('/os');
       return true;
     } catch (error) {

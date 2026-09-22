@@ -500,14 +500,15 @@ test('valores financeiros usam bruto, taxa e líquido inclusive em saldo parcial
   assert.equal(transactionNetCents({ ...transaction, valor: 70, valorCentavos: 7_000 }), 6_825);
 });
 
-test('Pix/Transferência/Cartão exigem banco de destino; Dinheiro e Pagamento a Prazo não', () => {
+test('Pix/Transferência/Cartão/Boleto exigem banco de destino; Dinheiro e Pagamento a Prazo não', () => {
   assert.equal(paymentRequiresBankAccount('Pix'), true);
   assert.equal(paymentRequiresBankAccount('Transferência'), true);
   assert.equal(paymentRequiresBankAccount('Cartão de Crédito'), true);
   assert.equal(paymentRequiresBankAccount('Cartão de Débito'), true);
+  // Boleto entrou em 2026-09-22: e' o banco de onde o titulo vai ser emitido.
+  assert.equal(paymentRequiresBankAccount('Boleto'), true);
   assert.equal(paymentRequiresBankAccount('Dinheiro'), false);
   assert.equal(paymentRequiresBankAccount('Pagamento a Prazo'), false);
-  assert.equal(paymentRequiresBankAccount('Boleto'), false);
   assert.equal(paymentRequiresBankAccount('Outros'), false);
 
   assert.throws(
@@ -517,6 +518,29 @@ test('Pix/Transferência/Cartão exigem banco de destino; Dinheiro e Pagamento a
   assert.doesNotThrow(
     () => normalizePayments(10_000, [payment({ forma: 'Pix', bancoId: 'banco-1', bancoNome: 'Caixa' })]),
   );
+});
+
+test('Boleto exige data de vencimento e nasce pendente, sem boleto emitido ainda', () => {
+  assert.throws(
+    () => normalizePayments(10_000, [payment({ forma: 'Boleto', dataPrevistaRecebimento: '' })], { saleDate: '2026-09-22' }),
+    /vencimento do boleto/,
+  );
+  assert.throws(
+    () => normalizePayments(10_000, [payment({ forma: 'Boleto', dataPrevistaRecebimento: '2026-09-01' })], { saleDate: '2026-09-22' }),
+    /não pode ser anterior/,
+  );
+
+  const [record] = normalizePayments(10_000, [
+    payment({ forma: 'Boleto', dataPrevistaRecebimento: '2026-10-22' }),
+  ], { saleDate: '2026-09-22' });
+
+  assert.equal(record.formaPagamento, 'Boleto');
+  assert.equal(record.status, 'pendente');
+  assert.equal(record.naturezaFinanceira, 'contas_receber');
+  assert.equal(record.dataPrevistaRecebimento, '2026-10-22');
+  // Emissao (numero, linha digitavel, codigo de barras) e' sempre um passo
+  // seguinte -- nunca gravado no fechamento da venda.
+  assert.equal(record.boleto, undefined);
 });
 
 test('normalizePayments propaga bancoId/bancoNome pro PaymentRecord', () => {

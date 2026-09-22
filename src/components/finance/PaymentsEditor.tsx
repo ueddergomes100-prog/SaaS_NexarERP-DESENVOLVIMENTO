@@ -700,6 +700,24 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
               </div>
             )}
 
+            {payment.forma === 'Boleto' && (
+              <div className="payments-editor__card-fields">
+                <div className="input-group">
+                  <label htmlFor={`${idPrefix}-boleto-vencimento-${payment.id}`}>Vencimento do boleto *</label>
+                  <input
+                    disabled={disabled}
+                    id={`${idPrefix}-boleto-vencimento-${payment.id}`}
+                    onChange={(event) => onUpdatePayment(payment.id, { dataPrevistaRecebimento: event.target.value })}
+                    type="date"
+                    value={payment.dataPrevistaRecebimento}
+                  />
+                </div>
+                <span className="payments-editor__pending-notice">
+                  A emissão (número, linha digitável, código de barras) acontece depois de salvar, em Financeiro → Boletos.
+                </span>
+              </div>
+            )}
+
             {payment.forma === 'Dinheiro' ? (
               <span className="payments-editor__cash-notice">Este pagamento movimenta o caixa físico.</span>
             ) : (payment.forma === 'Pix' || payment.forma === 'Transferência') ? (

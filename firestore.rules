@@ -180,7 +180,7 @@ service cloud.firestore {
         (collectionName == 'notas_fiscais' && hasAnyPermission(['fiscal.emitir', 'fiscal.excluir'])) ||
         (collectionName == 'notas_fiscais_entrada' && hasPermission('fiscal.entrada')) ||
         (collectionName == 'creditos_cliente' && hasAnyPermission(['vendas.pedidos', 'financeiro.receber'])) ||
-        (collectionName == 'transacoes' && hasAnyPermission(['financeiro.caixa', 'financeiro.banco', 'financeiro.cheques', 'financeiro.receber', 'financeiro.pagar', 'financeiro.estornar', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'estoque.nota_avulsa'])) ||
+        (collectionName == 'transacoes' && hasAnyPermission(['financeiro.caixa', 'financeiro.banco', 'financeiro.cheques', 'financeiro.boletos', 'financeiro.receber', 'financeiro.pagar', 'financeiro.estornar', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'estoque.nota_avulsa'])) ||
         (collectionName == 'caixas_pdv' && hasAnyPermission(['vendas.pedidos', 'financeiro.caixa_registros'])) ||
         (collectionName == 'notas_avulsas' && hasPermission('estoque.nota_avulsa')) ||
         (collectionName in ['integracoes_canais', 'integracoes_produtos', 'integracoes_fila', 'pedidos_externos', 'integracoes_logs'] && hasPermission('cadastros.estoque'));
@@ -237,7 +237,9 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'quantidadeReservada', 'updatedAt']) &&
         hasAnyPermission([
           'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar', 'estoque.ajusteManual',
-          'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar'
+          'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar',
+          // Emissao de boleto consome a sequencia do nosso numero e a da remessa.
+          'financeiro.boletos'
         ]);
     }
 

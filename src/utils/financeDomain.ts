@@ -98,6 +98,35 @@ export interface ChequeDetails {
   documentoEmitente?: string;
 }
 
+/**
+ * Ciclo de vida do boleto DEPOIS de emitido. 'vencido' nao existe aqui de
+ * proposito -- e' calculado na hora de exibir (statusBoletoEfetivo em
+ * boletoEmissaoDomain.ts), comparando vencimento com hoje, nunca gravado:
+ * gravar "vencido" deixaria a tela errada assim que o dia virasse sem
+ * ninguem abrir o sistema pra atualizar.
+ */
+export type StatusBoleto = 'emitido' | 'em_remessa' | 'pago';
+
+/**
+ * Dados do boleto DEPOIS de emitido (numeracao alocada, numeros calculados
+ * via boletoDomain.ts/boletoCnabDomain.ts). Um pagamento 'Boleto' que ainda
+ * nao foi emitido nao tem este campo -- fica na aba "Aguardando emissao" de
+ * Financeiro > Boletos ate alguem emitir (ver EmitirBoletoModal). Nunca e'
+ * gravado na hora de fechar a venda: emissao e' sempre um passo seguinte,
+ * igual a compensacao de Cheque nunca acontece no fechamento.
+ */
+export interface BoletoDetails {
+  nossoNumero: string;
+  linhaDigitavel: string;
+  codigoBarras: string;
+  /** AAAA-MM-DD. */
+  vencimento: string;
+  /** AAAA-MM-DD. */
+  dataEmissao: string;
+  status: StatusBoleto;
+  numeroRemessa?: number;
+}
+
 export interface PaymentRecord {
   id: string;
   indice: number;
@@ -117,6 +146,7 @@ export interface PaymentRecord {
   dataPrevistaRecebimento?: string;
   cartao?: CardPaymentDetails;
   cheque?: ChequeDetails;
+  boleto?: BoletoDetails;
   transactionId?: string;
   formaRecebimento?: PaymentMethod;
   naturezaRecebimento?: FinancialNature;
@@ -415,11 +445,14 @@ export const isPhysicalCashPayment = (method?: string) => method === 'Dinheiro';
  * Pagamentos cujo destino e um banco cadastrado (Modulo Bancos, F18):
  * Pix/Transferencia liquidam na hora, cartao fica pendente ate a
  * conciliacao -- mas em ambos os casos o operador ja escolhe o banco na
- * venda. Dinheiro (caixa fisico) e Boleto/Pagamento a Prazo/Outros (destino
- * incerto ate a baixa) ficam de fora.
+ * venda. Boleto entrou em 2026-09-22: e' o banco de onde o titulo vai ser
+ * emitido (precisa ter convenio de boleto configurado -- ver
+ * boletoEmissaoDomain.ts), escolhido aqui pra EmitirBoletoModal nao ter
+ * que perguntar de novo. Dinheiro (caixa fisico) e Pagamento a Prazo/Outros
+ * (destino incerto ate a baixa) ficam de fora.
  */
 export const paymentRequiresBankAccount = (method: PaymentMethod) => (
-  method === 'Pix' || method === 'Transferência' || method === 'Cheque' || isCardPayment(method)
+  method === 'Pix' || method === 'Transferência' || method === 'Cheque' || method === 'Boleto' || isCardPayment(method)
 );
 
 /**
@@ -816,6 +849,20 @@ export const normalizePayments = (
         emitente: draft.chequeEmitente,
         documentoEmitente: draft.chequeDocumentoEmitente,
       });
+    } else if (draft.forma === 'Boleto') {
+      // So a data de vencimento nasce aqui, mesmo campo que Cheque usa pra
+      // compensacao -- a emissao de verdade (numero, linha digitavel,
+      // codigo de barras) e' sempre um passo seguinte, feito em Financeiro
+      // > Boletos ou no popup pos-venda (ver boletoEmissaoDomain.ts). Nunca
+      // grava record.boleto aqui.
+      const vencimento = draft.dataPrevistaRecebimento;
+      if (!vencimento || !parseDateInput(vencimento)) {
+        throw new Error(`Informe a data de vencimento do boleto do pagamento ${index + 1}.`);
+      }
+      if (Number(differenceInCalendarDays(saleDate, vencimento)) < 0) {
+        throw new Error(`A data de vencimento do boleto do pagamento ${index + 1} não pode ser anterior à data da venda.`);
+      }
+      record.dataPrevistaRecebimento = vencimento;
     }
 
     return record;

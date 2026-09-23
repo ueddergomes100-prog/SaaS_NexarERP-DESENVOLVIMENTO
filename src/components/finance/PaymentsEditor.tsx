@@ -13,7 +13,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { addDaysToDateInput, formatDateInputPtBr } from '../../utils/dateTime';
+import { addDaysToDateInput, differenceInCalendarDays, formatDateInputPtBr } from '../../utils/dateTime';
 import {
   buildCardFeeSchedulesByBrand,
   fromCents,
@@ -460,10 +460,11 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                       parcelas: method === 'Cartão de Débito' ? '1' : payment.parcelas,
                       dataVencimento: method === 'Pagamento a Prazo' ? payment.dataVencimento : '',
                       // Boleto ja' nasce com o prazo padrao da configuracao (30/60/90...).
-                      ...(method === 'Boleto' && !payment.prazoDias ? {
+                      ...(method === 'Boleto' && payment.forma !== 'Boleto' ? {
                         prazoDias: String(prazoPadraoBoleto),
                         parcelasAPrazo: '1',
                         dataPrevistaRecebimento: addDaysToDateInput(transactionDate, prazoPadraoBoleto),
+                        parcelasPersonalizadas: [],
                       } : {}),
                     });
                   }}
@@ -720,7 +721,27 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
               const parcelasBoleto = qtdBoletos > 1 && intervaloBoleto > 0 && primeiroVencimento
                 ? gerarParcelasAPrazo(paymentCents, qtdBoletos, intervaloBoleto, addDaysToDateInput(primeiroVencimento, -intervaloBoleto))
                 : [];
-              const erroBoletos = qtdBoletos > 1 ? erroDasParcelasAPrazo(qtdBoletos, intervaloBoleto) : null;
+              const personalizadas = payment.parcelasPersonalizadas || [];
+              const usaPersonalizadas = qtdBoletos > 1 && personalizadas.length === qtdBoletos;
+              // Linhas da tabela: as escolhidas na mao, ou o calendario uniforme.
+              const linhasBoleto = qtdBoletos > 1
+                ? (usaPersonalizadas
+                  ? personalizadas.map((linha, posicao) => ({ numero: posicao + 1, dias: linha.dias, vencimento: linha.vencimento, valorCentavos: parcelasBoleto[posicao]?.valorCentavos ?? Math.floor(paymentCents / qtdBoletos) }))
+                  : parcelasBoleto.map((parcela) => ({
+                    numero: parcela.numero,
+                    dias: String(differenceInCalendarDays(transactionDate, parcela.dataVencimento) ?? ''),
+                    vencimento: parcela.dataVencimento,
+                    valorCentavos: parcela.valorCentavos,
+                  })))
+                : [];
+              const erroBoletos = qtdBoletos > 1 && !usaPersonalizadas ? erroDasParcelasAPrazo(qtdBoletos, intervaloBoleto) : null;
+              const editarLinha = (posicao: number, dados: { dias: string; vencimento: string }) => {
+                const base = linhasBoleto.map(({ dias, vencimento }) => ({ dias, vencimento }));
+                base[posicao] = dados;
+                onUpdatePayment(payment.id, { parcelasPersonalizadas: base });
+              };
+              // Trocar quantidade/intervalo/1o vencimento volta ao calendario uniforme.
+              const semPersonalizacao = { parcelasPersonalizadas: [] as Array<{ dias: string; vencimento: string }> };
               return (
                 <div className="payments-editor__card-fields">
                   <div className="payments-editor__term-fields">
@@ -731,14 +752,14 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                         id={`${idPrefix}-boleto-parcelas-${payment.id}`}
                         min="1"
                         max={MAX_PARCELAS_A_PRAZO}
-                        onChange={(event) => onUpdatePayment(payment.id, { parcelasAPrazo: event.target.value })}
+                        onChange={(event) => onUpdatePayment(payment.id, { parcelasAPrazo: event.target.value, ...semPersonalizacao })}
                         step="1"
                         type="number"
                         value={payment.parcelasAPrazo || '1'}
                       />
                     </div>
                     <div className="input-group">
-                      <label htmlFor={`${idPrefix}-boleto-dias-${payment.id}`}>Dias (1º boleto e intervalo)</label>
+                      <label htmlFor={`${idPrefix}-boleto-dias-${payment.id}`}>{qtdBoletos > 1 ? 'Intervalo (dias)' : 'Dias'}</label>
                       <input
                         disabled={disabled}
                         id={`${idPrefix}-boleto-dias-${payment.id}`}
@@ -748,6 +769,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                           onUpdatePayment(payment.id, {
                             prazoDias: event.target.value,
                             dataPrevistaRecebimento: Number.isInteger(dias) && dias > 0 ? addDaysToDateInput(transactionDate, dias) : '',
+                            ...semPersonalizacao,
                           });
                         }}
                         step="1"
@@ -760,21 +782,68 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                       <input
                         disabled={disabled}
                         id={`${idPrefix}-boleto-vencimento-${payment.id}`}
-                        onChange={(event) => onUpdatePayment(payment.id, { dataPrevistaRecebimento: event.target.value })}
+                        onChange={(event) => onUpdatePayment(payment.id, { dataPrevistaRecebimento: event.target.value, ...semPersonalizacao })}
                         type="date"
                         value={payment.dataPrevistaRecebimento}
                       />
                     </div>
                   </div>
-                  {parcelasBoleto.length > 1 ? (
+                  {linhasBoleto.length > 1 ? (
                     <div className="payments-editor__term-notice">
-                      <strong>{resumoDasParcelas(parcelasBoleto, intervaloBoleto)}</strong>
-                      <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
-                        {parcelasBoleto.map((parcela) => (
-                          <span key={parcela.numero}>
-                            {parcela.numero}ª: {formatDateInputPtBr(parcela.dataVencimento)} — {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(parcela.valorCentavos))}
-                          </span>
-                        ))}
+                      <strong>{usaPersonalizadas ? 'Vencimentos escolhidos por boleto' : resumoDasParcelas(parcelasBoleto, intervaloBoleto)}</strong>
+                      <table style={{ marginTop: '8px', width: '100%', maxWidth: '460px', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <thead>
+                          <tr style={{ textAlign: 'left' }}>
+                            <th style={{ padding: '4px 6px' }}>Parc.</th>
+                            <th style={{ padding: '4px 6px' }}>Dias</th>
+                            <th style={{ padding: '4px 6px' }}>Vencimento</th>
+                            <th style={{ padding: '4px 6px', textAlign: 'right' }}>Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {linhasBoleto.map((linha, posicao) => (
+                            <tr key={linha.numero}>
+                              <td style={{ padding: '3px 6px' }}>{linha.numero}ª</td>
+                              <td style={{ padding: '3px 6px' }}>
+                                <input
+                                  aria-label={`Dias do boleto ${linha.numero}`}
+                                  disabled={disabled}
+                                  min="0"
+                                  onChange={(event) => {
+                                    const dias = Number.parseInt(event.target.value, 10);
+                                    editarLinha(posicao, {
+                                      dias: event.target.value,
+                                      vencimento: Number.isInteger(dias) && dias >= 0 ? addDaysToDateInput(transactionDate, dias) : linha.vencimento,
+                                    });
+                                  }}
+                                  step="1"
+                                  style={{ width: '70px' }}
+                                  type="number"
+                                  value={linha.dias}
+                                />
+                              </td>
+                              <td style={{ padding: '3px 6px' }}>
+                                <input
+                                  aria-label={`Vencimento do boleto ${linha.numero}`}
+                                  disabled={disabled}
+                                  min={transactionDate}
+                                  onChange={(event) => {
+                                    const dias = event.target.value ? differenceInCalendarDays(transactionDate, event.target.value) : null;
+                                    editarLinha(posicao, { dias: dias === null ? '' : String(dias), vencimento: event.target.value });
+                                  }}
+                                  type="date"
+                                  value={linha.vencimento}
+                                />
+                              </td>
+                              <td style={{ padding: '3px 6px', textAlign: 'right' }}>
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(linha.valorCentavos))}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div style={{ marginTop: '6px' }}>
+                        Mude os dias ou a data de cada boleto (ex.: 10, 15 e 30). Cada parcela vira um título em Contas a Receber.
                       </div>
                     </div>
                   ) : erroBoletos ? (

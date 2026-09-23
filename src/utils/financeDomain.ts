@@ -51,6 +51,11 @@ export interface PaymentDraft {
   chequeEmitente: string;
   chequeDocumentoEmitente: string;
   chequeNumero: string;
+  /** Boleto parcelado com vencimentos escolhidos um a um (10, 15, 30 dias...),
+   *  como na tela de parcelas do sistema antigo. Vazio/ausente = todas as
+   *  parcelas seguem o mesmo intervalo (prazoDias). So' vale com o mesmo
+   *  numero de linhas que `parcelasAPrazo`. */
+  parcelasPersonalizadas?: Array<{ dias: string; vencimento: string }>;
 }
 
 export interface CardInstallment {
@@ -143,6 +148,10 @@ export interface PaymentRecord {
    *  explodeInstallmentPaymentRecords. Titulo unico nao tem nenhum dos dois. */
   numeroParcelaAPrazo?: number;
   totalParcelasAPrazo?: number;
+  /** Boleto parcelado com datas personalizadas: o vencimento de cada parcela,
+   *  em ordem. Quando existe, explodeInstallmentPaymentRecords usa estas datas
+   *  em vez do intervalo fixo. */
+  vencimentosParcelas?: string[];
   dataPrevistaRecebimento?: string;
   cartao?: CardPaymentDetails;
   cheque?: ChequeDetails;
@@ -859,8 +868,17 @@ export const normalizePayments = (
       // pagamento a prazo -- 3x de 15 dias = 15/30/45. A data digitada e' a da
       // 1a parcela; sem ela, vem da venda + o intervalo.
       const intervaloBoleto = Number.parseInt(draft.prazoDias, 10);
-      const vencimento = draft.dataPrevistaRecebimento
-        || (Number.isInteger(intervaloBoleto) && intervaloBoleto > 0 ? addDaysToDateInput(saleDate, intervaloBoleto) : '');
+      const qtdBoletosPedida = Number.parseInt(draft.parcelasAPrazo, 10);
+      const listaPersonalizada = Array.isArray(draft.parcelasPersonalizadas)
+        && qtdBoletosPedida > 1
+        && draft.parcelasPersonalizadas.length === qtdBoletosPedida
+        ? draft.parcelasPersonalizadas
+        : null;
+      // Com datas escolhidas boleto a boleto, a 1a delas e' o vencimento base.
+      const vencimento = listaPersonalizada
+        ? String(listaPersonalizada[0]?.vencimento || '')
+        : draft.dataPrevistaRecebimento
+          || (Number.isInteger(intervaloBoleto) && intervaloBoleto > 0 ? addDaysToDateInput(saleDate, intervaloBoleto) : '');
       if (!vencimento || !parseDateInput(vencimento)) {
         throw new Error(`Informe a data de vencimento do boleto do pagamento ${index + 1}.`);
       }
@@ -875,11 +893,29 @@ export const normalizePayments = (
         if (parcelasBoleto > MAX_PARCELAS_A_PRAZO) {
           throw new Error(`O boleto aceita no máximo ${MAX_PARCELAS_A_PRAZO} parcelas.`);
         }
-        if (!Number.isInteger(intervaloBoleto) || intervaloBoleto < 1) {
-          throw new Error(`Informe de quantos em quantos dias cada boleto do pagamento ${index + 1} vence.`);
+        if (listaPersonalizada) {
+          // Vencimento de cada boleto escolhido na mao (10/15/30 dias...).
+          const datas = listaPersonalizada.map((linha, posicao) => {
+            const data = String(linha.vencimento || '');
+            if (!parseDateInput(data)) {
+              throw new Error(`Informe o vencimento do boleto ${posicao + 1} do pagamento ${index + 1}.`);
+            }
+            if (Number(differenceInCalendarDays(saleDate, data)) < 0) {
+              throw new Error(`O vencimento do boleto ${posicao + 1} do pagamento ${index + 1} não pode ser anterior à data da venda.`);
+            }
+            return data;
+          });
+          record.vencimentosParcelas = datas;
+          record.dataVencimento = datas[0];
+          record.dataPrevistaRecebimento = datas[0];
+          record.totalParcelasAPrazo = parcelasBoleto;
+        } else {
+          if (!Number.isInteger(intervaloBoleto) || intervaloBoleto < 1) {
+            throw new Error(`Informe de quantos em quantos dias cada boleto do pagamento ${index + 1} vence.`);
+          }
+          record.prazoDias = intervaloBoleto;
+          record.totalParcelasAPrazo = parcelasBoleto;
         }
-        record.prazoDias = intervaloBoleto;
-        record.totalParcelasAPrazo = parcelasBoleto;
       }
     }
 
@@ -920,6 +956,7 @@ export const explodeInstallmentPaymentRecords = (records: PaymentRecord[]): Paym
     if ((record.formaPagamento === 'Pagamento a Prazo' || ehBoleto) && totalAPrazo > 1) {
       // As datas saem da data da 1a parcela, andando de `prazoDias` em
       // `prazoDias` -- o mesmo intervalo que a pessoa informou na tela.
+      // Sem intervalo (datas personalizadas) o 1 serve so' pra gerar os valores.
       const intervalo = Math.max(1, Number(record.prazoDias) || 0);
       const primeira = String(record.dataVencimento || '');
       // A base do calculo e' "a venda", entao recua um intervalo: assim a
@@ -928,14 +965,18 @@ export const explodeInstallmentPaymentRecords = (records: PaymentRecord[]): Paym
       const parcelas = gerarParcelasAPrazo(record.valorCentavos, totalAPrazo, intervalo, base);
       if (parcelas.length !== totalAPrazo) return [record];
 
+      // Datas escolhidas parcela a parcela (boleto) mandam sobre o intervalo fixo.
+      const datasPersonalizadas = ehBoleto && record.vencimentosParcelas?.length === totalAPrazo
+        ? record.vencimentosParcelas
+        : null;
       return parcelas.map((parcela): PaymentRecord => ({
         ...record,
         id: `${record.id}-parcela-${parcela.numero}`,
         valorCentavos: parcela.valorCentavos,
         valor: fromCents(parcela.valorCentavos),
-        dataVencimento: parcela.dataVencimento,
+        dataVencimento: datasPersonalizadas ? datasPersonalizadas[parcela.numero - 1] : parcela.dataVencimento,
         // O boleto usa esta data como vencimento (o a prazo, dataVencimento).
-        ...(ehBoleto ? { dataPrevistaRecebimento: parcela.dataVencimento } : {}),
+        ...(ehBoleto ? { dataPrevistaRecebimento: datasPersonalizadas ? datasPersonalizadas[parcela.numero - 1] : parcela.dataVencimento } : {}),
         prazoDias: intervalo * parcela.numero,
         numeroParcelaAPrazo: parcela.numero,
         totalParcelasAPrazo: totalAPrazo,

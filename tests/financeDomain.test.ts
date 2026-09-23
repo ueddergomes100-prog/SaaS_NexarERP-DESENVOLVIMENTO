@@ -943,3 +943,44 @@ test('boleto parcelado com a data do 1o boleto escolhida: as demais andam de int
   const boletos = explodeInstallmentPaymentRecords([record]);
   assert.deepEqual(boletos.map((b) => b.dataVencimento), ['2026-10-05', '2026-11-04', '2026-12-04']);
 });
+
+test('boleto com vencimentos escolhidos um a um (10, 15 e 30 dias) gera 3 boletos nessas datas', () => {
+  const [record] = normalizePayments(10_000, [
+    payment({
+      forma: 'Boleto',
+      parcelasAPrazo: '3',
+      prazoDias: '',
+      dataPrevistaRecebimento: '',
+      parcelasPersonalizadas: [
+        { dias: '10', vencimento: '2026-10-03' },
+        { dias: '15', vencimento: '2026-10-08' },
+        { dias: '30', vencimento: '2026-10-23' },
+      ],
+    }),
+  ], { saleDate: '2026-09-23' });
+  assert.deepEqual(record.vencimentosParcelas, ['2026-10-03', '2026-10-08', '2026-10-23']);
+
+  const boletos = explodeInstallmentPaymentRecords([record]);
+  assert.deepEqual(boletos.map((b) => b.dataVencimento), ['2026-10-03', '2026-10-08', '2026-10-23']);
+  assert.deepEqual(boletos.map((b) => b.dataPrevistaRecebimento), ['2026-10-03', '2026-10-08', '2026-10-23']);
+  assert.equal(boletos.reduce((soma, b) => soma + b.valorCentavos, 0), 10_000);
+});
+
+test('boleto com vencimento personalizado antes da venda ou em branco e recusado', () => {
+  assert.throws(
+    () => normalizePayments(10_000, [payment({ forma: 'Boleto', parcelasAPrazo: '2', parcelasPersonalizadas: [{ dias: '5', vencimento: '2026-10-01' }, { dias: '0', vencimento: '2026-09-01' }] })], { saleDate: '2026-09-23' }),
+    /não pode ser anterior/,
+  );
+  assert.throws(
+    () => normalizePayments(10_000, [payment({ forma: 'Boleto', parcelasAPrazo: '2', parcelasPersonalizadas: [{ dias: '5', vencimento: '2026-10-01' }, { dias: '', vencimento: '' }] })], { saleDate: '2026-09-23' }),
+    /Informe o vencimento do boleto 2/,
+  );
+});
+
+test('lista personalizada com tamanho diferente do numero de parcelas e ignorada (volta ao intervalo)', () => {
+  const [record] = normalizePayments(10_000, [
+    payment({ forma: 'Boleto', parcelasAPrazo: '3', prazoDias: '30', parcelasPersonalizadas: [{ dias: '5', vencimento: '2026-09-28' }] }),
+  ], { saleDate: '2026-09-23' });
+  assert.equal(record.vencimentosParcelas, undefined);
+  assert.equal(record.prazoDias, 30);
+});

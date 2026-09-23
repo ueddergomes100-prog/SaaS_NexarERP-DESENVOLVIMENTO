@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { Barcode, Download, FileUp, Loader2, Receipt, Search } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -46,6 +46,8 @@ interface BancoBoleto {
     cnpjCedente?: string;
     nomeCedente?: string;
     instrucoes?: string;
+    multaPercentual?: number;
+    jurosMensalPercentual?: number;
     proximoNossoNumero?: number;
     proximaRemessa?: number;
   };
@@ -230,7 +232,7 @@ const Boletos: React.FC = () => {
           dados: {
             cooperativa: String(banco.agencia || ''),
             conta: String(banco.conta || ''),
-            contaDv: banco.boleto?.contaDv,
+            contaDv: banco.boleto?.contaDv || '0',
             modalidade: '01',
             nossoNumero,
           },
@@ -242,6 +244,7 @@ const Boletos: React.FC = () => {
           nossoNumero: nossoNumeroSicoobComDv(nossoNumero, {
             cooperativa: String(banco.agencia || ''),
             conta: String(banco.conta || ''),
+            contaDv: banco.boleto?.contaDv || '0',
           }),
           linhaDigitavel: linhaDigitavelDoCodigoBarras(codigoBarras),
           codigoBarras,
@@ -311,17 +314,59 @@ const Boletos: React.FC = () => {
         );
       });
 
-      const titulosRemessa: TituloRemessaSicoob[] = lista.map((t, indice) => ({
-        nossoNumero: Number(String(t.boleto?.nossoNumero || '0').slice(0, -1)) || indice + 1,
-        numeroDocumento: t.id.slice(0, 12),
-        vencimento: t.boleto?.vencimento || t.dataVencimento || hoje,
-        valorCentavos: t.valorCentavos,
-        sacado: {
-          tipoDocumento: 'CPF',
-          documento: '',
-          nome: t.clienteNome || 'CLIENTE',
-        },
-      }));
+      // O Sicoob rejeita titulo sem CPF/CNPJ e CEP do pagador -- entao o dado
+      // vem do cadastro do cliente e, se faltar, o arquivo nao sai: a mensagem
+      // diz quem completar e onde (Clientes), em vez de mandar arquivo torto.
+      const titulosRemessa: TituloRemessaSicoob[] = [];
+      const problemas: string[] = [];
+      for (const [indice, t] of lista.entries()) {
+        let numeroPedido = '';
+        let clienteId = t.clienteId || '';
+        if (t.pedidoId) {
+          const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', t.pedidoId));
+          if (pedidoSnap.exists() && pedidoSnap.data().tenantId === tenantId) {
+            numeroPedido = String(pedidoSnap.data().numeroPedido || '');
+            clienteId = clienteId || String(pedidoSnap.data().clienteId || '');
+          }
+        }
+        const clienteSnap = clienteId ? await getDoc(doc(db, 'clientes', clienteId)) : null;
+        const cliente = clienteSnap && clienteSnap.exists() && clienteSnap.data().tenantId === tenantId
+          ? clienteSnap.data() as any
+          : null;
+        const nomeCliente = String(cliente?.nome || t.clienteNome || '').trim();
+        const documento = String(cliente?.documento || '').replace(/\D/g, '');
+        const cep = String(cliente?.cep || '').replace(/\D/g, '');
+        const faltando: string[] = [];
+        if (documento.length !== 11 && documento.length !== 14) faltando.push('CPF/CNPJ');
+        if (cep.length !== 8) faltando.push('CEP');
+        if (!String(cliente?.cidade || '').trim()) faltando.push('cidade');
+        if (!String(cliente?.estado || '').trim()) faltando.push('UF');
+        if (faltando.length > 0) {
+          problemas.push(`${nomeCliente || 'Cliente sem nome'} (título ${t.descricao || t.id}): falta ${faltando.join(', ')}`);
+          continue;
+        }
+        const nossoNumero = Number(String(t.boleto?.nossoNumero || '0').slice(0, -1)) || indice + 1;
+        titulosRemessa.push({
+          nossoNumero,
+          numeroDocumento: numeroPedido || String(nossoNumero),
+          parcela: t.paymentIndex || 1,
+          vencimento: t.boleto?.vencimento || t.dataVencimento || hoje,
+          valorCentavos: t.valorCentavos,
+          sacado: {
+            tipoDocumento: documento.length === 14 ? 'CNPJ' : 'CPF',
+            documento,
+            nome: nomeCliente,
+            endereco: [cliente?.endereco, cliente?.numero].map((x) => String(x || '').trim()).filter(Boolean).join(', '),
+            bairro: String(cliente?.bairro || ''),
+            cep,
+            cidade: String(cliente?.cidade || ''),
+            uf: String(cliente?.estado || ''),
+          },
+        });
+      }
+      if (problemas.length > 0) {
+        throw new Error(`Complete o cadastro em Clientes antes de gerar a remessa — o banco exige CPF/CNPJ, CEP, cidade e UF do pagador. ${problemas.join(' | ')}`);
+      }
 
       const conteudo = montarRemessaSicoob({
         convenio: {
@@ -331,6 +376,8 @@ const Boletos: React.FC = () => {
           cnpjCedente: banco.boleto.cnpjCedente,
           nomeCedente: banco.boleto.nomeCedente,
           instrucoes: banco.boleto?.instrucoes,
+          multaPercentual: banco.boleto?.multaPercentual,
+          jurosMensalPercentual: banco.boleto?.jurosMensalPercentual,
           numeroRemessa,
         },
         titulos: titulosRemessa,
@@ -381,17 +428,29 @@ const Boletos: React.FC = () => {
       const conteudo = String(evento.target?.result || '');
       const resumo = lerArquivoRetornoSicoob(conteudo);
 
-      if (resumo.liquidados.length === 0 && resumo.paraConferir.length === 0) {
+      if (resumo.liquidados.length === 0 && resumo.paraConferir.length === 0 && resumo.informativos.length === 0) {
         showError('Nada reconhecido', 'Nenhum título foi encontrado neste arquivo. Confira se é o arquivo de retorno do Sicoob.');
+        return;
+      }
+
+      const conferir = resumo.paraConferir.slice(0, 8)
+        .map((l) => `${l.nossoNumero}${l.valorPagoCentavos ? ` (${currency.format(fromCents(l.valorPagoCentavos))})` : ''}`)
+        .join(', ');
+      const html = `<div style="text-align:left;font-size:14px">`
+        + `<b>${resumo.liquidados.length}</b> título(s) pagos (liquidação), prontos para baixa.<br/>`
+        + `<b>${resumo.informativos.length}</b> confirmação(ões) de entrada / título(s) em aberto — só informativo.<br/>`
+        + `<b>${resumo.paraConferir.length}</b> com outra ocorrência — <u>não</u> serão tocados`
+        + (conferir ? `: ${conferir}${resumo.paraConferir.length > 8 ? '…' : ''}` : '') + `.`
+        + `</div>`;
+
+      if (resumo.liquidados.length === 0) {
+        await NexusSwal.fire({ title: 'Nenhum pagamento neste arquivo', html, icon: 'info' });
         return;
       }
 
       const confirmacao = await NexusSwal.fire({
         title: 'Conferir antes de dar baixa',
-        html: `<div style="text-align:left;font-size:14px">`
-          + `<b>${resumo.liquidados.length}</b> título(s) pagos, prontos para baixa.<br/>`
-          + `<b>${resumo.paraConferir.length}</b> com ocorrência diferente de pagamento — <u>não</u> serão tocados.`
-          + `</div>`,
+        html,
         icon: 'question',
         showCancelButton: true,
         confirmButtonText: 'Dar baixa nos pagos',
@@ -493,7 +552,6 @@ const Boletos: React.FC = () => {
           <input
             ref={inputRetornoRef}
             type="file"
-            accept=".ret,.txt,.RET,.TXT"
             style={{ display: 'none' }}
             onChange={(e) => {
               const arquivo = e.target.files?.[0];

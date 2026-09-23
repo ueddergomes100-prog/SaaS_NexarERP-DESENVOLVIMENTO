@@ -16,9 +16,12 @@ import { erroDaLinhaDigitavel, linhaDigitavelDoCodigoBarras } from '../src/utils
  * (CNAB240_2000081800042995.txt), que o banco ja aceitou: cooperativa 3049,
  * conta 51215, nossos numeros 1200/1201/1202 com DV 9/6/3.
  */
-const SICOOB_REAL = { cooperativa: '3049', conta: '51215' };
+const SICOOB_REAL = { cooperativa: '3049', conta: '51215', contaDv: '0' };
 
 test('DV do nosso numero reproduz o arquivo real do Sicoob', () => {
+  // 2o arquivo real (2026-09-23): nosso numero 1330 -> DV 1. Com 4 pontos a
+  // formula fica unica (ver comentario em boletoCnabDomain.ts).
+  assert.equal(nossoNumeroSicoobComDv(1330, SICOOB_REAL), '0000013301');
   assert.equal(dvNossoNumeroSicoob(1200, SICOOB_REAL), 9);
   assert.equal(dvNossoNumeroSicoob(1201, SICOOB_REAL), 6);
   assert.equal(dvNossoNumeroSicoob(1202, SICOOB_REAL), 3);
@@ -137,4 +140,15 @@ test('valor e data batem com o arquivo real da Sol Life', () => {
   // Segmento P, posicoes 78-85 (vencimento) e 86-100 (valor).
   assert.equal(dataCnab('2026-10-06'), '06102026');
   assert.equal(valorCnab(52553), '000000000052553');
+});
+
+test('DV do nosso numero reproduz 196 titulos do arquivo de retorno real do Sicoob', () => {
+  // Pares (nosso numero, DV) tirados do retorno CNAB400 de 23/09/2026 -- o
+  // banco calculou cada DV, entao e' a prova mais forte que existe da formula.
+  const pares: Array<[number, number]> = [
+    [903, 4], [922, 4], [995, 1], [1002, 0], [1250, 7], [1282, 2], [1283, 0], [1300, 0], [1330, 1],
+  ];
+  for (const [nn, dv] of pares) {
+    assert.equal(dvNossoNumeroSicoob(nn, SICOOB_REAL), dv, `nosso numero ${nn}`);
+  }
 });

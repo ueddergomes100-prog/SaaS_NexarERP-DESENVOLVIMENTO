@@ -36,6 +36,26 @@ import { addDaysToDateInput } from './dateTime';
  * ja' aceitou, o pior caso vira "byte identico ao que ja funcionou", nao
  * "byte inventado".
  *
+ * ---------------------------------------------------------------------------
+ * O QUE O 2o ARQUIVO REAL (2026-09-23) CONFIRMOU E CORRIGIU
+ * ---------------------------------------------------------------------------
+ *
+ * Com um segundo arquivo do Sicoob (1 titulo, outro sacado) e um retorno com
+ * 196 titulos, os campos que estavam so' "copiados do template" ganharam
+ * significado -- e tres deles estavam ERRADOS na 1a versao (titulo 2, 3...
+ * herdava valor do template):
+ *
+ * - P 48-49 (e o fim do "seu numero", P 196-213) e' o NUMERO DA PARCELA da
+ *   venda (01, 02, 03), nao a posicao do titulo no arquivo.
+ * - P 61-72 = "22" + numero do documento (8 digitos) + parcela (2).
+ * - P 196-213 = "seu numero" (18 digitos): "2000"+AAAA+"0004"+BBBB+parcela.
+ *   O banco devolve esse campo no retorno (posicoes 38-62 do CNAB400).
+ * - P 118-141 / R 66-89 = juros de mora (10,00% ao mes) e multa (2,00%),
+ *   com inicio no dia seguinte ao vencimento. Agora vem do convenio.
+ * - Segmento S = 4 mensagens de 40 posicoes: multa em R$, mora diaria em
+ *   R$, referencia da nota e a instrucao de protesto.
+ * - DV do nosso numero: ver boletoCnabDomain.ts (confirmado pelo retorno).
+ *
  * ISSO NAO SUBSTITUI HOMOLOGACAO. Todo banco exige testar o arquivo de
  * remessa antes de liberar cobranca registrada -- o primeiro arquivo
  * gerado aqui tem que ir pro Sicoob como teste, nunca direto pra producao
@@ -75,11 +95,13 @@ const substituir = (
   tipo: 'num' | 'alfa' | 'texto' = 'num',
 ): string => {
   const largura = ate - de + 1;
+  // CNAB e' ASCII: o banco nao aceita acento (JOAO, nao JOAO com til).
+  const semAcento = (texto: string) => texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e]/g, ' ');
   const formatado = tipo === 'num'
     ? zerosAEsquerda(digitosDoBoleto(String(valor ?? '')), largura)
     : tipo === 'alfa'
-      ? String(valor ?? '').toUpperCase().slice(0, largura).padEnd(largura, ' ')
-      : String(valor ?? '').slice(0, largura).padEnd(largura, ' ');
+      ? semAcento(String(valor ?? '')).toUpperCase().slice(0, largura).padEnd(largura, ' ')
+      : semAcento(String(valor ?? '')).slice(0, largura).padEnd(largura, ' ');
   return base.slice(0, de - 1) + formatado + base.slice(ate);
 };
 
@@ -91,8 +113,13 @@ export interface ConvenioBoletoSicoob {
   /** CNPJ da empresa cedente, so' digitos. */
   cnpjCedente: string;
   nomeCedente: string;
-  /** Texto que sai no Segmento S -- instrucoes impressas no boleto. */
+  /** Ultima mensagem do Segmento S -- instrucao de protesto/cobranca impressa
+   *  no boleto. Padrao: o texto que o sistema antigo da Sol Life usa. */
   instrucoes?: string;
+  /** Multa apos o vencimento, em % (padrao 2). */
+  multaPercentual?: number;
+  /** Juros de mora ao MES, em % (padrao 10, o que o sistema antigo cobra). */
+  jurosMensalPercentual?: number;
   /** Numero sequencial deste arquivo (Seq.Remessa do cadastro do banco). */
   numeroRemessa: number;
 }
@@ -110,11 +137,23 @@ export interface SacadoRemessa {
   uf?: string;
 }
 
+export const INSTRUCAO_PADRAO_SICOOB = 'PROTESTO NO 7 DIA APOS O VENCIMENTO';
+export const MULTA_PADRAO_PERCENTUAL = 2;
+export const JUROS_MENSAL_PADRAO_PERCENTUAL = 10;
+
 export interface TituloRemessaSicoob {
   /** Nosso numero SEM o DV -- a funcao calcula e cola o DV. */
   nossoNumero: number;
-  /** Numero do documento que a empresa usa pra identificar o titulo (ex.: numero do pedido). */
+  /** Numero do documento que a empresa usa pra identificar o titulo (numero
+   *  do pedido). So' os 8 ultimos digitos vao no arquivo. */
   numeroDocumento: string;
+  /** Numero da parcela dentro da venda, base 1 (padrao 1). */
+  parcela?: number;
+  /** "Seu numero" (18 digitos) que o banco devolve no retorno. Padrao:
+   *  derivado do documento, do nosso numero e da parcela. */
+  seuNumero?: string;
+  /** Vai em "Ref. NF.: ..." no Segmento S (numero da nota/pedido). */
+  referencia?: string;
   /** AAAA-MM-DD. */
   vencimento: string;
   valorCentavos: number;
@@ -155,17 +194,25 @@ const montarHeaderLote = (convenio: ConvenioBoletoSicoob, dataGeracao: string): 
 
 // --- Segmento P (dados do titulo) -----------------------------------------
 
+/** "Seu numero": 2000 + AAAA + 0004 + BBBB + parcela (18 digitos), a forma
+ *  do arquivo real. AAAA = final do documento, BBBB = final do nosso numero. */
+export const seuNumeroPadrao = (titulo: TituloRemessaSicoob): string => (
+  `2000${zerosAEsquerda(digitosDoBoleto(titulo.numeroDocumento).slice(-4), 4)}0004${zerosAEsquerda(String(titulo.nossoNumero).slice(-4), 4)}${zerosAEsquerda(titulo.parcela ?? 1, 2)}`
+);
+
+const centavosDeCnab = (percentual: number): number => Math.round(Number(percentual) * 100);
+
 const montarSegmentoP = (
   convenio: ConvenioBoletoSicoob,
   titulo: TituloRemessaSicoob,
   numeroSequencial: number,
-  /** Posicao do titulo dentro da remessa, base 1 (1o titulo=1, 2o=2...). */
-  posicaoNoLote: number,
   dataGeracao: string,
 ): string => {
+  const parcela = titulo.parcela ?? 1;
   const nossoNumeroComDv = nossoNumeroSicoobComDv(titulo.nossoNumero, {
     cooperativa: convenio.cooperativa,
     conta: convenio.conta,
+    contaDv: convenio.contaDv || '0',
   });
 
   let l = TEMPLATE_SEGMENTO_P;
@@ -174,22 +221,18 @@ const montarSegmentoP = (
   l = substituir(l, 23, 35, convenio.conta, 'num');
   l = substituir(l, 36, 36, convenio.contaDv || '0', 'num');
   l = substituir(l, 38, 47, nossoNumeroComDv, 'num');
-  // 48-49: posicao do titulo dentro da remessa (01, 02, 03...) -- 50-52
-  // ("016") fica constante do template, significado exato nao confirmado.
-  l = substituir(l, 48, 49, posicaoNoLote, 'num');
-  l = substituir(l, 61, 72, titulo.numeroDocumento, 'num');
+  // 48-49: numero da PARCELA da venda (01, 02...). 50-52 ("016") constante.
+  l = substituir(l, 48, 49, parcela, 'num');
+  l = substituir(l, 61, 72, `22${zerosAEsquerda(digitosDoBoleto(titulo.numeroDocumento).slice(-8), 8)}${zerosAEsquerda(parcela, 2)}`, 'num');
   l = substituir(l, 78, 85, dataCnab(titulo.vencimento), 'num');
   l = substituir(l, 86, 100, valorCnab(titulo.valorCentavos), 'num');
-  // 110-117: data de emissao do TITULO (a data que o arquivo foi gerado),
-  // nao o vencimento -- constante entre todos os titulos de uma mesma
-  // remessa no arquivo real.
+  // 110-117: data de emissao do TITULO = data de geracao do arquivo.
   l = substituir(l, 110, 117, dataCnab(dataGeracao), 'num');
-  // 119-126: vencimento + 1 dia -- mesmo campo (e mesma incerteza sobre o
-  // significado exato) que aparece no Segmento R. Ver ressalva no topo.
+  // 119-126: juros de mora comecam no dia seguinte ao vencimento; 127-141:
+  // juros ao mes em % com 2 decimais (10,00% -> 1000).
   l = substituir(l, 119, 126, dataCnab(addDaysToDateInput(titulo.vencimento, 1)), 'num');
-  // 213: 1 digito que acompanha a posicao do titulo na remessa (1, 2, 3...)
-  // no arquivo real -- significado exato nao confirmado (ver ressalva).
-  l = substituir(l, 213, 213, posicaoNoLote, 'num');
+  l = substituir(l, 127, 141, centavosDeCnab(convenio.jurosMensalPercentual ?? JUROS_MENSAL_PADRAO_PERCENTUAL), 'num');
+  l = substituir(l, 196, 213, titulo.seuNumero || seuNumeroPadrao(titulo), 'num');
   return l;
 };
 
@@ -215,31 +258,50 @@ const montarSegmentoQ = (
 // --- Segmento R (descontos/multa/protesto -- ver ressalva no topo) --------
 
 const montarSegmentoR = (
+  convenio: ConvenioBoletoSicoob,
   titulo: TituloRemessaSicoob,
   numeroSequencial: number,
 ): string => {
   let l = TEMPLATE_SEGMENTO_R;
   l = substituir(l, 9, 13, numeroSequencial, 'num');
-  // Vencimento + 1 dia, nao o vencimento em si -- e' o que o arquivo real
-  // tem nesta posicao pros 3 titulos (provavelmente inicio da multa/mora
-  // "no dia seguinte ao vencimento"; ver ressalva no topo do arquivo).
+  // Multa: comeca no dia seguinte ao vencimento; 75-89 = % com 2 decimais.
   l = substituir(l, 67, 74, dataCnab(addDaysToDateInput(titulo.vencimento, 1)), 'num');
+  l = substituir(l, 75, 89, centavosDeCnab(convenio.multaPercentual ?? MULTA_PADRAO_PERCENTUAL), 'num');
   return l;
 };
 
 // --- Segmento S (mensagens/instrucoes) --------------------------------------
 
+/** 1234.5 -> "1234,50" (duas casas, virgula, sem separador de milhar -- como
+ *  o sistema antigo imprime nas mensagens do boleto). */
+const reaisNaMensagem = (valor: number): string => (Math.round(valor * 100) / 100).toFixed(2).replace('.', ',');
+
+/** As 4 mensagens de 40 posicoes do Segmento S: multa em R$, mora diaria em
+ *  R$, referencia e a instrucao de protesto. Exportado pra tela mostrar o
+ *  mesmo texto que vai no arquivo. */
+export const mensagensDoBoleto = (convenio: ConvenioBoletoSicoob, titulo: TituloRemessaSicoob): string[] => {
+  const valor = titulo.valorCentavos / 100;
+  const multa = valor * ((convenio.multaPercentual ?? MULTA_PADRAO_PERCENTUAL) / 100);
+  const moraDiaria = valor * ((convenio.jurosMensalPercentual ?? JUROS_MENSAL_PADRAO_PERCENTUAL) / 100) / 30;
+  return [
+    `Apos o Vencimento Multa de RS ${reaisNaMensagem(multa)}.`,
+    `Apos o Vencimento Mora Diaria de RS ${reaisNaMensagem(moraDiaria)}`,
+    titulo.referencia ? `- Ref. NF.: ${titulo.referencia}` : '',
+    convenio.instrucoes || INSTRUCAO_PADRAO_SICOOB,
+  ];
+};
+
 const montarSegmentoS = (
   convenio: ConvenioBoletoSicoob,
+  titulo: TituloRemessaSicoob,
   numeroSequencial: number,
 ): string => {
   let l = TEMPLATE_SEGMENTO_S;
   l = substituir(l, 9, 13, numeroSequencial, 'num');
-  // 14-18 ficam do template (S, branco, codigo de movimento 01, e um "3"
-  // cujo significado exato nao foi confirmado -- constante nos 3 titulos
-  // do arquivo real). O texto livre comeca em 19 e PRESERVA maiuscula/
-  // minuscula (tipo 'texto'), diferente do resto do CNAB.
-  l = substituir(l, 19, 240, convenio.instrucoes || '', 'texto');
+  // 14-18 ficam do template (S, branco, movimento 01 e o "3" constante). O
+  // texto comeca em 19 e PRESERVA maiuscula/minuscula ('texto').
+  const texto = mensagensDoBoleto(convenio, titulo).map((m) => m.slice(0, 40).padEnd(40, ' ')).join('');
+  l = substituir(l, 19, 240, texto, 'texto');
   return l;
 };
 
@@ -282,10 +344,10 @@ export const montarRemessaSicoob = (args: MontarRemessaSicoobArgs): string => {
 
   args.titulos.forEach((titulo, indice) => {
     const baseSequencial = indice * 4 + 1;
-    linhas.push(montarSegmentoP(args.convenio, titulo, baseSequencial, indice + 1, args.dataGeracao));
+    linhas.push(montarSegmentoP(args.convenio, titulo, baseSequencial, args.dataGeracao));
     linhas.push(montarSegmentoQ(titulo, baseSequencial + 1));
-    linhas.push(montarSegmentoR(titulo, baseSequencial + 2));
-    linhas.push(montarSegmentoS(args.convenio, baseSequencial + 3));
+    linhas.push(montarSegmentoR(args.convenio, titulo, baseSequencial + 2));
+    linhas.push(montarSegmentoS(args.convenio, titulo, baseSequencial + 3));
   });
 
   // Quantidade de registros do lote = header de lote + 4 por titulo + trailer de lote.
@@ -299,7 +361,8 @@ export const montarRemessaSicoob = (args: MontarRemessaSicoobArgs): string => {
   return linhas.join(CRLF) + CRLF;
 };
 
-/** Nome de arquivo sugerido pro download (.REM e' a extensao que os bancos esperam). */
+/** Nome de arquivo sugerido pro download. Extensao .txt, como o sistema
+ *  antigo grava (CNAB240_....txt) e o Sicoob aceita. */
 export const nomeArquivoRemessaSicoob = (numeroRemessa: number, dataGeracao: string): string => (
-  `remessa_sicoob_${String(numeroRemessa).padStart(4, '0')}_${dataCnab(dataGeracao)}.rem`
+  `CNAB240_sicoob_${String(numeroRemessa).padStart(4, '0')}_${dataCnab(dataGeracao)}.txt`
 );

@@ -21,7 +21,8 @@ const CONVENIO_SOL_LIFE: ConvenioBoletoSicoob = {
   contaDv: '0',
   cnpjCedente: '17926066000100',
   nomeCedente: 'SOL LIFE PRODUTOS NATURAIS LTD',
-  instrucoes: 'Apos o Vencimento Multa de RS 10,51.    Apos o Vencimento Mora Diaria de RS 1,75- Ref. NF.: 30212                       PROTESTO NO 7 DIA APOS O VENCIMENTO',
+  // multa (2%) e juros (10% a.m.) sao o padrao -- os valores em R$ das
+  // mensagens saem do valor do titulo, nao de texto digitado.
   numeroRemessa: 1763,
 };
 
@@ -40,9 +41,9 @@ const SACADO_REAL = {
 };
 
 const TITULOS_REAIS: TituloRemessaSicoob[] = [
-  { nossoNumero: 1200, numeroDocumento: '220003535001', vencimento: '2026-10-06', valorCentavos: 52553, sacado: SACADO_REAL },
-  { nossoNumero: 1201, numeroDocumento: '220003535002', vencimento: '2026-10-13', valorCentavos: 52553, sacado: SACADO_REAL },
-  { nossoNumero: 1202, numeroDocumento: '220003535003', vencimento: '2026-10-20', valorCentavos: 52554, sacado: SACADO_REAL },
+  { nossoNumero: 1200, numeroDocumento: '35350', parcela: 1, seuNumero: '200008180004299501', referencia: '30212', vencimento: '2026-10-06', valorCentavos: 52553, sacado: SACADO_REAL },
+  { nossoNumero: 1201, numeroDocumento: '35350', parcela: 2, seuNumero: '200008180004299502', referencia: '30212', vencimento: '2026-10-13', valorCentavos: 52553, sacado: SACADO_REAL },
+  { nossoNumero: 1202, numeroDocumento: '35350', parcela: 3, seuNumero: '200008180004299503', referencia: '30212', vencimento: '2026-10-20', valorCentavos: 52554, sacado: SACADO_REAL },
 ];
 
 const ARQUIVO_REAL_LINHAS = [
@@ -100,7 +101,7 @@ test('remessa sem titulo nenhum e erro, nao arquivo vazio', () => {
 
 test('um titulo a mais muda a contagem de registros nos trailers', () => {
   const quartoTitulo: TituloRemessaSicoob = {
-    nossoNumero: 1203, numeroDocumento: '220003535004', vencimento: '2026-10-27', valorCentavos: 10000, sacado: SACADO_REAL,
+    nossoNumero: 1203, numeroDocumento: '35350', parcela: 4, vencimento: '2026-10-27', valorCentavos: 10000, sacado: SACADO_REAL,
   };
   const arquivo = montarRemessaSicoob({
     convenio: CONVENIO_SOL_LIFE,
@@ -120,8 +121,8 @@ test('um titulo a mais muda a contagem de registros nos trailers', () => {
 });
 
 test('nome do arquivo de remessa segue o padrao esperado', () => {
-  assert.equal(nomeArquivoRemessaSicoob(1763, '2026-09-08'), 'remessa_sicoob_1763_08092026.rem');
-  assert.equal(nomeArquivoRemessaSicoob(7, '2026-01-05'), 'remessa_sicoob_0007_05012026.rem');
+  assert.equal(nomeArquivoRemessaSicoob(1763, '2026-09-08'), 'CNAB240_sicoob_1763_08092026.txt');
+  assert.equal(nomeArquivoRemessaSicoob(7, '2026-01-05'), 'CNAB240_sicoob_0007_05012026.txt');
 });
 
 test('nosso numero errado (nao pertence ao convenio) ainda gera arquivo -- validacao de negocio fica na tela', () => {
@@ -134,4 +135,74 @@ test('nosso numero errado (nao pertence ao convenio) ainda gera arquivo -- valid
     horaGeracao: '181914',
   });
   assert.match(arquivo, /^756/);
+});
+
+// --- 2o arquivo real (2026-09-23): 1 titulo, outro sacado, outro dia --------
+
+const ARQUIVO_REAL_2 = [
+  '75600000         217926066000100                    03049 00000005121500SOL LIFE PRODUTOS NATURAIS LTDSICOOB                                  12009202621334200194208100000                                                                     ',
+  '75600011R01  040 2017926066000100                    03049 0000000512150 SOL LIFE PRODUTOS NATURAIS LTD                                                                                000019422009202600000000                                 ',
+  '7560001300001P 010304900000000512150 000001330101016     10 220003543901     2010202600000000009514400000 02N20092026221102026000000000001000000000000000000000000000000000000000000000000000000000200040400004308401       3000   090000000000 ',
+  '7560001300002Q 012039517954000101AKSON LUIZ DE ANDRADE 13968036611       PRACA CESARIO ALVIM, 204                CENTRO         35300036CARATINGA      MG0000000000000000                                        000                            ',
+  '7560001300003R 01000000000000000000000000000000000000000000000000221102026000000000000200                                                                                                              0000000000000000 000000000000  0         ',
+  '7560001300004S 013Apos o Vencimento Multa de RS 19,03.    Apos o Vencimento Mora Diaria de RS 3,17- Ref. NF.: 16758                       PROTESTO NO 7 DIA APOS O VENCIMENTO                                                                   ',
+  '75600015         00000600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000                                                                                                                             ',
+  '75699999         000001000008000000                                                                                                                                                                                                             ',
+];
+
+test('o 2o arquivo real (1 titulo, sacado CNPJ, remessa 1942) sai identico, byte a byte', () => {
+  const arquivo = montarRemessaSicoob({
+    convenio: { ...CONVENIO_SOL_LIFE, numeroRemessa: 1942 },
+    titulos: [{
+      nossoNumero: 1330,
+      numeroDocumento: '35439',
+      parcela: 1,
+      seuNumero: '200040400004308401',
+      referencia: '16758',
+      vencimento: '2026-10-20',
+      valorCentavos: 95144,
+      sacado: {
+        tipoDocumento: 'CNPJ',
+        documento: '39517954000101',
+        nome: 'AKSON LUIZ DE ANDRADE 13968036611',
+        endereco: 'PRACA CESARIO ALVIM, 204',
+        bairro: 'CENTRO',
+        cep: '35300036',
+        cidade: 'CARATINGA',
+        uf: 'MG',
+      },
+    }],
+    dataGeracao: '2026-09-20',
+    horaGeracao: '213342',
+  });
+  const linhas = arquivo.split('\r\n').filter((l) => l.length > 0);
+  linhas.forEach((linha, i) => assert.equal(linha, ARQUIVO_REAL_2[i], `linha ${i} diverge do 2o arquivo real`));
+  assert.equal(linhas.length, ARQUIVO_REAL_2.length);
+});
+
+test('sem informar o seu numero, ele e derivado do documento, do nosso numero e da parcela', () => {
+  const arquivo = montarRemessaSicoob({
+    convenio: CONVENIO_SOL_LIFE,
+    titulos: [{ nossoNumero: 1331, numeroDocumento: '35440', parcela: 2, vencimento: '2026-10-25', valorCentavos: 10000, sacado: SACADO_REAL }],
+    dataGeracao: '2026-09-23',
+    horaGeracao: '120000',
+  });
+  const p = arquivo.split('\r\n')[2];
+  assert.equal(p.slice(195, 213), '200054400004133102');
+  assert.equal(p.slice(47, 49), '02');
+  assert.equal(p.slice(60, 72), '220003544002');
+});
+
+test('multa e juros do convenio mudam o percentual e os valores em R$ do boleto', () => {
+  const arquivo = montarRemessaSicoob({
+    convenio: { ...CONVENIO_SOL_LIFE, multaPercentual: 5, jurosMensalPercentual: 3 },
+    titulos: [{ nossoNumero: 1332, numeroDocumento: '1', vencimento: '2026-10-25', valorCentavos: 100000, sacado: SACADO_REAL }],
+    dataGeracao: '2026-09-23',
+    horaGeracao: '120000',
+  });
+  const [, , p, , r, s] = arquivo.split('\r\n');
+  assert.equal(p.slice(126, 141), '000000000000300');
+  assert.equal(r.slice(74, 89), '000000000000500');
+  assert.ok(s.includes('Multa de RS 50,00.'));
+  assert.ok(s.includes('Mora Diaria de RS 1,00'));
 });

@@ -38,6 +38,8 @@ export interface ConvenioBoleto {
   cnpjCedente?: string;
   nomeCedente?: string;
   instrucoes?: string;
+  multaPercentual?: number;
+  jurosMensalPercentual?: number;
   /** Piso do contador -- deixa continuar a numeracao de onde o sistema
    *  antigo parou, em vez de reiniciar em 1. */
   proximoNossoNumero?: number;
@@ -87,6 +89,9 @@ const emptyBankForm = () => ({
   boletoCnpjCedente: '',
   boletoNomeCedente: '',
   boletoInstrucoes: '',
+  // Padrao do sistema antigo da Sol Life: multa 2% + juros 10% ao mes.
+  boletoMultaPercentual: '2',
+  boletoJurosMensalPercentual: '10',
   boletoProximoNossoNumero: '',
   boletoProximaRemessa: '',
 });
@@ -193,6 +198,8 @@ const BancosList: React.FC = () => {
       boletoCnpjCedente: banco.boleto?.cnpjCedente || '',
       boletoNomeCedente: banco.boleto?.nomeCedente || '',
       boletoInstrucoes: banco.boleto?.instrucoes || '',
+      boletoMultaPercentual: banco.boleto?.multaPercentual != null ? String(banco.boleto.multaPercentual).replace('.', ',') : '2',
+      boletoJurosMensalPercentual: banco.boleto?.jurosMensalPercentual != null ? String(banco.boleto.jurosMensalPercentual).replace('.', ',') : '10',
       boletoProximoNossoNumero: banco.boleto?.proximoNossoNumero ? String(banco.boleto.proximoNossoNumero) : '',
       boletoProximaRemessa: banco.boleto?.proximaRemessa ? String(banco.boleto.proximaRemessa) : '',
     });
@@ -224,6 +231,8 @@ const BancosList: React.FC = () => {
       ...(modalForm.boletoCnpjCedente.trim() ? { cnpjCedente: modalForm.boletoCnpjCedente.replace(/\D/g, '') } : {}),
       ...(modalForm.boletoNomeCedente.trim() ? { nomeCedente: modalForm.boletoNomeCedente.trim() } : {}),
       ...(modalForm.boletoInstrucoes.trim() ? { instrucoes: modalForm.boletoInstrucoes.trim() } : {}),
+      multaPercentual: Number(modalForm.boletoMultaPercentual.replace(',', '.')) || 0,
+      jurosMensalPercentual: Number(modalForm.boletoJurosMensalPercentual.replace(',', '.')) || 0,
       ...(modalForm.boletoProximoNossoNumero.trim() ? { proximoNossoNumero: Number(modalForm.boletoProximoNossoNumero) || 0 } : {}),
       ...(modalForm.boletoProximaRemessa.trim() ? { proximaRemessa: Number(modalForm.boletoProximaRemessa) || 0 } : {}),
     } : { ativo: false };
@@ -703,14 +712,38 @@ const BancosList: React.FC = () => {
                       />
                     </div>
                     <div className="input-group">
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Instruções impressas no boleto</label>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Instrução de protesto/cobrança (última mensagem do boleto)</label>
                       <input
                         type="text"
-                        placeholder="Ex: Após o vencimento, multa de 2% + juros de 1% ao mês"
+                        maxLength={40}
+                        placeholder="PROTESTO NO 7 DIA APOS O VENCIMENTO"
                         value={modalForm.boletoInstrucoes}
                         onChange={(e) => setModalForm({ ...modalForm, boletoInstrucoes: e.target.value })}
                         style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
                       />
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Máx. 40 caracteres. Em branco usa "PROTESTO NO 7 DIA APOS O VENCIMENTO". As mensagens de multa e juros em R$ saem sozinhas, calculadas pelo valor de cada boleto.</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div className="input-group">
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Multa após o vencimento (%)</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={modalForm.boletoMultaPercentual}
+                          onChange={(e) => setModalForm({ ...modalForm, boletoMultaPercentual: e.target.value.replace(/[^0-9,.]/g, '') })}
+                          style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
+                        />
+                      </div>
+                      <div className="input-group">
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Juros de mora ao mês (%)</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={modalForm.boletoJurosMensalPercentual}
+                          onChange={(e) => setModalForm({ ...modalForm, boletoJurosMensalPercentual: e.target.value.replace(/[^0-9,.]/g, '') })}
+                          style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
+                        />
+                      </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                       <div className="input-group">
@@ -718,19 +751,19 @@ const BancosList: React.FC = () => {
                         <input
                           type="number"
                           min="1"
-                          placeholder="Ex: 1203"
+                          placeholder="Ex: 1331"
                           value={modalForm.boletoProximoNossoNumero}
                           onChange={(e) => setModalForm({ ...modalForm, boletoProximoNossoNumero: e.target.value })}
                           style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
                         />
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Deixe em branco pra começar do 1. Preencha pra continuar de onde o sistema antigo parou.</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Precisa ser MAIOR que o último do sistema antigo (no retorno de 23/09/2026 o maior foi 1330 → use 1331 ou mais). Repetir número gera dois boletos iguais no banco.</span>
                       </div>
                       <div className="input-group">
                         <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Próxima remessa</label>
                         <input
                           type="number"
                           min="1"
-                          placeholder="Ex: 1763"
+                          placeholder="Ex: 1943"
                           value={modalForm.boletoProximaRemessa}
                           onChange={(e) => setModalForm({ ...modalForm, boletoProximaRemessa: e.target.value })}
                           style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}

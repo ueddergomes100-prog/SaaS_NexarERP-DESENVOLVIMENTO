@@ -72,11 +72,9 @@ export const erroDoConvenioBoleto = (convenio: ConvenioBoletoCadastro | null | u
  * rejeicoes) fica de fora de proposito: dar baixa no codigo errado
  * marcaria "pago" um titulo que so' foi confirmado ou ate' rejeitado.
  *
- * RESSALVA (mesma logica de boletoCnabDomain.ts): estes codigos seguem a
- * tabela publica da FEBRABAN, mas este parser NUNCA foi conferido contra
- * um arquivo de retorno REAL do Sicoob -- so' temos o arquivo de REMESSA
- * real da Sol Life. Antes de confiar na baixa automatica em producao, e'
- * preciso testar com um arquivo de retorno de verdade (homologacao).
+ * RESSALVA: estes codigos (CNAB240) seguem a tabela publica da FEBRABAN e
+ * NUNCA foram vistos num arquivo real -- o Sicoob devolve CNAB400, tratado
+ * mais abaixo e ja' conferido contra um retorno real (2026-09-23).
  */
 const CODIGOS_OCORRENCIA_LIQUIDACAO = new Set(['06', '17']);
 
@@ -87,6 +85,12 @@ export interface LinhaRetornoLida {
   /** AAAA-MM-DD. */
   dataOcorrencia?: string;
   valorPagoCentavos?: number;
+  /** "Seu numero" que a remessa mandou (so' no CNAB400). */
+  seuNumero?: string;
+  /** AAAA-MM-DD (so' no CNAB400). */
+  vencimento?: string;
+  /** true pra ocorrencia que so' informa (entrada confirmada, titulo em ser). */
+  informativo?: boolean;
   /** true so' pros codigos de liquidacao reconhecidos -- ver a ressalva acima. */
   liquidado: boolean;
   /** Mensagem em portugues quando a linha nao pode ser aplicada automatico. */
@@ -102,15 +106,79 @@ const dataDdmmaaaaParaIso = (ddmmaaaa: string): string => {
 };
 
 /**
- * Le uma linha de 240 posicoes do arquivo de retorno CNAB240 Sicoob.
+ * RETORNO CNAB400 DO SICOOB -- LAYOUT CONFIRMADO COM ARQUIVO REAL (2026-09-23).
+ *
+ * O banco devolve o retorno em CNAB400 (arquivo "3049_..._C400_00"), mesmo a
+ * remessa sendo CNAB240. Posicoes (1-based) conferidas contra 196 titulos
+ * reais, cada um com o nosso numero + DV calculado pelo proprio banco:
+ *
+ *   1        tipo do registro (0 header, 1 detalhe, 9 trailer)
+ *   38-62    "seu numero" que a remessa mandou (P 196-213)
+ *   63-73    nosso numero (11 digitos) | 74 = DV do nosso numero
+ *   109-110  codigo da ocorrencia
+ *   111-116  data da ocorrencia (DDMMAA)  -- em liquidacao, o dia do pagamento
+ *   117-126  numero do documento
+ *   147-152  vencimento (DDMMAA)
+ *   153-165  valor do titulo (centavos)
+ *   254-266  valor pago (centavos)
+ *
+ * Ocorrencias vistas no arquivo real: 02 = entrada confirmada (149), 06 =
+ * liquidacao (34), 11 = titulo em ser/pendente (9) e 04 (4) -- esta ultima
+ * vem COM valor pago mas o significado nao esta confirmado, entao NAO da'
+ * baixa sozinha: fica em "conferir".
+ */
+export const CODIGOS_LIQUIDACAO_CNAB400 = new Set(['06']);
+const CODIGOS_INFORMATIVOS_CNAB400 = new Set(['02', '11']);
+
+const dataDdmmaaParaIso = (ddmmaa: string): string => {
+  const d = apenasDigitos(ddmmaa);
+  if (d.length !== 6) return '';
+  return `20${d.slice(4, 6)}-${d.slice(2, 4)}-${d.slice(0, 2)}`;
+};
+
+const formatarReais = (centavos: number): string => (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+const parseLinhaRetornoSicoob400 = (linha: string): LinhaRetornoLida => {
+  if (linha[0] !== '1') return { liquidado: false };
+
+  // Mesma chave de nossoNumeroSicoobComDv(): 9 digitos + DV (10 posicoes).
+  const nossoNumero = `${linha.slice(64, 73)}${linha[73] ?? ''}`;
+  const codigoOcorrencia = linha.slice(108, 110);
+  const dataOcorrencia = dataDdmmaaParaIso(linha.slice(110, 116));
+  const valorPagoCentavos = Number.parseInt(linha.slice(253, 266), 10) || 0;
+  const vencimento = dataDdmmaaParaIso(linha.slice(146, 152));
+  const seuNumero = linha.slice(37, 62).trim();
+
+  const liquidado = CODIGOS_LIQUIDACAO_CNAB400.has(codigoOcorrencia) && valorPagoCentavos > 0;
+  const informativo = CODIGOS_INFORMATIVOS_CNAB400.has(codigoOcorrencia);
+
+  return {
+    nossoNumero,
+    seuNumero,
+    codigoOcorrencia,
+    dataOcorrencia: dataOcorrencia || undefined,
+    vencimento: vencimento || undefined,
+    valorPagoCentavos,
+    liquidado,
+    informativo,
+    ...(liquidado || informativo ? {} : {
+      aviso: `Nosso número ${nossoNumero}: ocorrência ${codigoOcorrencia || '??'}${valorPagoCentavos > 0 ? ` com valor pago de ${formatarReais(valorPagoCentavos)}` : ''} — confira no banco antes de dar baixa.`,
+    }),
+  };
+};
+
+/**
+ * Le uma linha do arquivo de retorno do Sicoob (400 posicoes = CNAB400, o
+ * que o banco realmente manda; 240 = CNAB240, layout pelo manual publico).
  * Devolve `liquidado: false` (com aviso) pra tudo que nao for claramente
  * reconhecido -- inclusive linha maltormada -- porque o risco de NAO dar
  * baixa num titulo pago e' so' um lembrete manual; o risco de dar baixa
  * errada e' dinheiro no lugar errado.
  */
 export const parseLinhaRetornoSicoob = (linha: string): LinhaRetornoLida => {
+  if (linha.length === 400) return parseLinhaRetornoSicoob400(linha);
   if (linha.length !== 240) {
-    return { liquidado: false, aviso: `Linha com ${linha.length} posições (esperado 240) — ignorada.` };
+    return { liquidado: false, aviso: `Linha com ${linha.length} posições (esperado 400 ou 240) — ignorada.` };
   }
   const segmento = linha[13];
   if (segmento !== 'T') {
@@ -140,11 +208,13 @@ export const parseLinhaRetornoSicoob = (linha: string): LinhaRetornoLida => {
 export interface ResumoRetorno {
   totalLinhas: number;
   liquidados: LinhaRetornoLida[];
+  /** Entrada confirmada / titulo em ser: informativo, nao pede nenhuma acao. */
+  informativos: LinhaRetornoLida[];
   paraConferir: LinhaRetornoLida[];
 }
 
 /** Le o arquivo de retorno inteiro (texto bruto) e separa o que pode virar
- *  baixa automatica do que precisa de conferencia manual. */
+ *  baixa automatica do que so' informa e do que precisa de conferencia. */
 export const lerArquivoRetornoSicoob = (conteudo: string): ResumoRetorno => {
   const linhas = conteudo.split(/\r?\n/).filter((l) => l.length > 0);
   const lidas = linhas.map(parseLinhaRetornoSicoob).filter((l) => l.nossoNumero || l.aviso);
@@ -152,6 +222,7 @@ export const lerArquivoRetornoSicoob = (conteudo: string): ResumoRetorno => {
   return {
     totalLinhas: linhas.length,
     liquidados: lidas.filter((l) => l.liquidado),
-    paraConferir: lidas.filter((l) => !l.liquidado && l.nossoNumero),
+    informativos: lidas.filter((l) => !l.liquidado && l.informativo),
+    paraConferir: lidas.filter((l) => !l.liquidado && !l.informativo && l.nossoNumero),
   };
 };

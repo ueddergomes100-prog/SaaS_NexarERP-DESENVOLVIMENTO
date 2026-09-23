@@ -9,32 +9,33 @@ import { digitosDoBoleto, montarCodigoBarras, zerosAEsquerda } from './boletoDom
  * posicoes do codigo de barras.
  *
  * ---------------------------------------------------------------------------
- * RESSALVA IMPORTANTE, REGISTRADA DE PROPOSITO
+ * DV DO NOSSO NUMERO -- CONFIRMADO CONTRA DADO REAL (2026-09-23)
  * ---------------------------------------------------------------------------
  *
- * Os parametros do Sicoob abaixo foram tirados por COMPARACAO com o arquivo
- * de remessa real da Sol Life (CNAB240_2000081800042995.txt, 3 titulos:
- * nosso numero 1200/1201/1202, DV 9/6/3, cooperativa 3049, conta 51215).
+ * Em 2026-09-21 so' havia 3 titulos reais (nosso numero 1200/1201/1202) e oito
+ * combinacoes de tamanho reproduziam os mesmos 3 DVs. Em 2026-09-23 chegaram
+ * mais dados reais do Sicoob: um segundo arquivo de remessa (nosso numero
+ * 1330, DV 1) e um arquivo de RETORNO com 196 titulos, cada um com nosso
+ * numero + DV calculado pelo proprio banco.
  *
- * Tres titulos NAO bastam pra fixar a formula: oito combinacoes diferentes de
- * peso/tamanho reproduzem exatamente esses mesmos tres DVs. A escolhida e' a
- * que bate com a documentacao mais comum do Sicoob (pesos 3,1,9,7) E com o
- * arquivo real -- mas ela TEM de ser confirmada na homologacao com o banco,
- * que e' obrigatoria de qualquer jeito antes de emitir cobranca registrada.
+ * A unica formula que reproduz os 196 DVs do retorno (e os 4 da remessa) e':
+ * modulo 11, pesos 3,1,9,7 ciclicos da esquerda pra direita, sobre
  *
- * Por isso os tamanhos sao parametros, e nao numeros fixos no meio do
- * calculo: se a homologacao apontar diferenca, muda-se um parametro, nao a
- * formula inteira.
+ *   cooperativa (4) + conta COM O DV da conta, em 9 posicoes + nosso numero em 8
+ *
+ * (ex.: 3049 + 000512150 + 00001330). Por isso `contaDv` entra no calculo.
  */
 
 export interface ParametrosNossoNumeroSicoob {
   /** Cooperativa (agencia), 4 digitos. */
   cooperativa: string;
-  /** Conta/cedente usado no calculo do DV. */
+  /** Conta do cedente, sem o DV. */
   conta: string;
-  /** Quantos digitos a conta ocupa no calculo. Ver a ressalva acima. */
+  /** DV da conta -- entra no calculo do DV do nosso numero (ver acima). */
+  contaDv?: string;
+  /** Quantos digitos conta+DV ocupam no calculo (9 confirmado pelo banco). */
   digitosDaConta?: number;
-  /** Quantos digitos o nosso numero ocupa no calculo. */
+  /** Quantos digitos o nosso numero ocupa no calculo (8 confirmado pelo banco). */
   digitosDoNossoNumero?: number;
 }
 
@@ -49,8 +50,8 @@ const PESOS_SICOOB = [3, 1, 9, 7];
  */
 export const dvNossoNumeroSicoob = (nossoNumero: string | number, p: ParametrosNossoNumeroSicoob): number => {
   const sequencia = zerosAEsquerda(p.cooperativa, 4)
-    + zerosAEsquerda(p.conta, p.digitosDaConta ?? 8)
-    + zerosAEsquerda(nossoNumero, p.digitosDoNossoNumero ?? 9);
+    + zerosAEsquerda(`${digitosDoBoleto(p.conta)}${digitosDoBoleto(p.contaDv ?? '')}`, p.digitosDaConta ?? 9)
+    + zerosAEsquerda(nossoNumero, p.digitosDoNossoNumero ?? 8);
 
   let soma = 0;
   for (let i = 0; i < sequencia.length; i += 1) {
@@ -60,9 +61,10 @@ export const dvNossoNumeroSicoob = (nossoNumero: string | number, p: ParametrosN
   return (dv === 10 || dv === 11) ? 0 : dv;
 };
 
-/** Nosso numero com o DV colado, do jeito que sai impresso e vai na remessa. */
+/** Nosso numero com o DV colado, do jeito que sai impresso e vai na remessa
+ *  (9 digitos + DV = 10 posicoes, como no arquivo real do banco). */
 export const nossoNumeroSicoobComDv = (nossoNumero: string | number, p: ParametrosNossoNumeroSicoob): string => {
-  const base = zerosAEsquerda(nossoNumero, p.digitosDoNossoNumero ?? 9);
+  const base = zerosAEsquerda(nossoNumero, 9);
   return `${base}${dvNossoNumeroSicoob(nossoNumero, p)}`;
 };
 
@@ -98,6 +100,7 @@ export const campoLivreSicoob = (dados: DadosBoletoSicoob): string => {
   const nossoNumero = nossoNumeroSicoobComDv(dados.nossoNumero, {
     cooperativa: dados.cooperativa,
     conta: dados.conta,
+    contaDv: dados.contaDv,
     digitosDaConta: dados.digitosDaConta,
     digitosDoNossoNumero: dados.digitosDoNossoNumero,
   });

@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft } from 'lucide-react';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import PedidoPrintModelo from './PedidoPrintModelo';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from './pedidoPrintLoteConstants';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
+import { showWarning } from '../../utils/alerts';
+import { mensagemSegundaViaLote } from '../../utils/pedidoImpressaoDomain';
 import { usePrintAndClose } from '../../hooks/usePrintAndClose';
 import '../OS/OsPrint.css'; // Reusing OS print styles
 import './PedidoPrintLote.css';
@@ -103,7 +105,25 @@ const PedidoPrintLote: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, tenantId, location.search, vendasVisiveisDeUsuarioId]);
 
-  const handlePrint = usePrintAndClose('/pedidos-venda');
+  const dispararImpressao = usePrintAndClose('/pedidos-venda');
+
+  // Mesma logica de PedidoPrint.tsx, so que pro lote inteiro: marca todos
+  // como impressos e avisa (uma vez so) quantos ja eram 2a via, antes do
+  // dialogo do navegador abrir.
+  const handlePrint = async () => {
+    const jaImpressos = pedidos.filter((p) => p.impresso === true).length;
+    if (jaImpressos > 0) {
+      showWarning('2ª via', mensagemSegundaViaLote(jaImpressos));
+    }
+    try {
+      await Promise.all(pedidos.map((p) => (
+        updateDoc(doc(db, 'pedidos_venda', p.id), { impresso: true, impressoEm: serverTimestamp() })
+      )));
+    } catch (error) {
+      console.error('Erro ao marcar pedidos como impressos:', error);
+    }
+    dispararImpressao();
+  };
 
   if (loading) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando pedidos para impressão...</div>;

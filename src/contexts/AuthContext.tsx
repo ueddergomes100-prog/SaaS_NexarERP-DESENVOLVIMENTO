@@ -34,6 +34,7 @@ import {
   parseAgenteDigitalAtivo,
   parseTrabalhaComPreVenda,
 } from '../utils/preVendaDomain';
+import { DEFAULT_CONFERENCIA_MERCADORIA } from '../utils/conferenciaDomain';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -81,6 +82,11 @@ interface AuthContextType {
   /** Config da empresa: "Permitir venda sem estoque" (`venderSemEstoque`).
    *  O app do vendedor externo segue a mesma regra das demais telas de venda. */
   permiteVendaSemEstoque: boolean;
+  /** Config da empresa: Conferência de mercadoria (Módulo 12) ligada.
+   *  Governa se a pré-venda nasce com `statusConferencia: 'aguardando'` e
+   *  entra na Fila de Expedição -- tanto na tela de Pedido de Venda quanto
+   *  na pré-venda criada pelo app do vendedor externo. */
+  conferenciaMercadoriaAtiva: boolean;
   /** Config da empresa: recebe pedido pelo agente digital (WhatsApp) --
    *  ver DEFAULT_AGENTE_DIGITAL_ATIVO em preVendaDomain.ts. Governa se a
    *  aba "Pendentes" aparece na listagem de Pedidos de Venda. */
@@ -167,6 +173,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [habilitarTelaPrecificacao, setHabilitarTelaPrecificacao] = useState(DEFAULT_HABILITAR_TELA_PRECIFICACAO);
   const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
   const [permiteVendaSemEstoque, setPermiteVendaSemEstoque] = useState(false);
+  const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(DEFAULT_CONFERENCIA_MERCADORIA);
   const [agenteDigitalAtivo, setAgenteDigitalAtivo] = useState(DEFAULT_AGENTE_DIGITAL_ATIVO);
   const [temVendedorCadastrado, setTemVendedorCadastrado] = useState(false);
   const [acessoAppMobile, setAcessoAppMobile] = useState(false);
@@ -419,6 +426,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setTrabalhaComPreVenda(DEFAULT_TRABALHA_COM_PRE_VENDA);
       setPermiteVendaSemEstoque(false);
       setAgenteDigitalAtivo(DEFAULT_AGENTE_DIGITAL_ATIVO);
+      setConferenciaMercadoriaAtiva(DEFAULT_CONFERENCIA_MERCADORIA);
       return;
     }
 
@@ -444,6 +452,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setTrabalhaComPreVenda(parseTrabalhaComPreVenda(snap.exists() ? snap.data().trabalhaComPreVenda : undefined));
       setAgenteDigitalAtivo(parseAgenteDigitalAtivo(snap.exists() ? snap.data().agenteDigitalAtivo : undefined));
       setPermiteVendaSemEstoque(snap.exists() && snap.data().venderSemEstoque === true);
+      // Mesma leitura: governa se a pre-venda (computador OU app do
+      // vendedor externo) nasce 'aguardando' conferencia -- ver
+      // criarPreVendaExterna em vendedorExternoVendaService.ts.
+      setConferenciaMercadoriaAtiva(snap.exists() && snap.data().conferenciaMercadoria === true);
     }, (error) => {
       // Falha de leitura MANTEM o valor atual de proposito. Cair pro
       // default (false) aqui abriria as vendas de todo mundo pro
@@ -607,7 +619,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, permiteVendaSemEstoque, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
       {children}
     </AuthContext.Provider>
   );

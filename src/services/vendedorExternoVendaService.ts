@@ -76,12 +76,18 @@ export interface CriarPreVendaExternaParams {
    *  o primeiro envio chegou a gravar, a transacao so' devolve o que ja
    *  existe. Sem ele, gera id novo como antes. */
   idDocumento?: string;
+  /** Config da empresa (Modulo 12). Quando ligada, a pre-venda nasce
+   *  'aguardando' conferencia e entra na Fila de Expedicao -- mesmo
+   *  comportamento que a pre-venda gravada em PedidoVendaForm.tsx ja tem;
+   *  antes desta pre-venda (app do vendedor externo) nunca ganhava o campo,
+   *  entao nunca aparecia na fila. */
+  conferenciaMercadoriaAtiva?: boolean;
 }
 
 export const criarPreVendaExterna = async (
   params: CriarPreVendaExternaParams,
 ): Promise<{ id: string; numeroPedido: string }> => {
-  const { tenantId, usuarioId, vendedorId, vendedorNome, clienteId, clienteNome, itens, permitirVendaSemEstoque, idDocumento, observacao, comNotaFiscal } = params;
+  const { tenantId, usuarioId, vendedorId, vendedorNome, clienteId, clienteNome, itens, permitirVendaSemEstoque, idDocumento, observacao, comNotaFiscal, conferenciaMercadoriaAtiva } = params;
 
   const valorTotalItens = itens.reduce((soma, item) => soma + item.subtotal, 0);
   const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
@@ -134,6 +140,10 @@ export const criarPreVendaExterna = async (
       // (bot do WhatsApp), que nao e' o caso aqui. Ver preVendaDomain.ts.
       origem: 'balcao' as OrigemPedido,
       estoqueReservado: itens.length > 0,
+      // Mesma regra de PedidoVendaForm.tsx: com o modulo de conferencia
+      // ligado, a pre-venda ja nasce 'aguardando' e cai direto na Fila de
+      // Expedicao -- sem isso a pre-venda do app nunca era vista pela loja.
+      ...(conferenciaMercadoriaAtiva ? { statusConferencia: 'aguardando' as const } : {}),
       observacao: (observacao || '').trim(),
       // Marca do vendedor: a loja ve na pre-venda se o pedido leva nota fiscal. So' grava quando
       // foi informado (nunca undefined no Firestore) -- venda de balcao nao tem o campo.

@@ -91,6 +91,7 @@ const OrdensProducaoList = lazy(() => import('../pages/Producao/OrdensProducaoLi
 const OrdemProducaoForm = lazy(() => import('../pages/Producao/OrdemProducaoForm'));
 const RelatorioProducao = lazy(() => import('../pages/Producao/RelatorioProducao'));
 const MinutaPrint = lazy(() => import('../pages/Expedicao/MinutaPrint'));
+const MinutaPrintLote = lazy(() => import('../pages/Expedicao/MinutaPrintLote'));
 const FilaExpedicao = lazy(() => import('../pages/Expedicao/FilaExpedicao'));
 const RotasList = lazy(() => import('../pages/Rotas/RotasList'));
 const RotaForm = lazy(() => import('../pages/Rotas/RotaForm'));
@@ -214,6 +215,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'operacoes/rotas/:id', element: <RotaForm /> },
   { path: 'operacoes/motoristas', element: <MotoristasList /> },
   { path: 'operacoes/expedicao/minuta/:pedidoId', element: <MinutaPrint /> },
+  { path: 'operacoes/expedicao/minuta-lote', element: <MinutaPrintLote /> },
   { path: 'operacoes/conferencia/:pedidoId', element: <ConferenciaForm /> },
 
   { path: 'compras/:moduleId', element: <RoadmapModule /> },

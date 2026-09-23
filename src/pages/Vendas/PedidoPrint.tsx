@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft } from 'lucide-react';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import PedidoPrintModelo from './PedidoPrintModelo';
@@ -10,9 +10,10 @@ import {
   MENSAGEM_VENDA_DE_OUTRO_USUARIO,
   TITULO_VENDA_DE_OUTRO_USUARIO,
 } from '../../utils/visibilidadeVendasDomain';
-import { showError } from '../../utils/alerts';
+import { showError, showWarning } from '../../utils/alerts';
 import { parcelasParaImpressao } from '../../utils/parcelasExibicaoDomain';
 import { ehPreVenda } from '../../utils/preVendaDomain';
+import { MENSAGEM_SEGUNDA_VIA } from '../../utils/pedidoImpressaoDomain';
 import { usePrintAndClose } from '../../hooks/usePrintAndClose';
 import '../OS/OsPrint.css'; // Reusing OS print styles
 
@@ -100,7 +101,27 @@ const PedidoPrint: React.FC = () => {
     fetchPedido();
   }, [id, navigate, currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
-  const handlePrint = usePrintAndClose('/pedidos-venda');
+  const dispararImpressao = usePrintAndClose('/pedidos-venda');
+
+  // Marca o pedido como impresso ANTES de abrir o dialogo de impressao (nao
+  // depois): usePrintAndClose fecha a aba assim que o dialogo fecha, entao
+  // gravar depois nunca chegaria a rodar. Aviso de 2a via primeiro, pra
+  // quem imprime de novo por engano ainda ver o texto antes do dialogo do
+  // navegador tomar a tela.
+  const handlePrint = async () => {
+    if (pedidoData?.impresso === true) {
+      showWarning('2ª via', MENSAGEM_SEGUNDA_VIA);
+    }
+    if (id) {
+      try {
+        await updateDoc(doc(db, 'pedidos_venda', id), { impresso: true, impressoEm: serverTimestamp() });
+      } catch (error) {
+        // Nao bloqueia a impressao por causa disso -- so a marcacao falhou.
+        console.error('Erro ao marcar pedido como impresso:', error);
+      }
+    }
+    dispararImpressao();
+  };
 
   if (loading) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando dados para impressão...</div>;

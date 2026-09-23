@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, ChevronDown, Filter, Truck } from 'lucide-react';
+import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, ChevronDown, Filter, Truck, CheckCircle2 } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -54,6 +54,8 @@ interface PedidoVendaData {
   statusConferencia?: string;
   /** Marca do vendedor externo (COM/SEM nota fiscal); ausente = nao informado. */
   comNotaFiscal?: boolean;
+  /** true depois da 1a impressao do Recibo/Pre-venda -- ver PedidoPrint.tsx. */
+  impresso?: boolean;
   vendedorId?: string;
   vendedorNome?: string;
   usuarioResponsavelId?: string;
@@ -510,9 +512,27 @@ const PedidoVendas: React.FC = () => {
     setSelectedIds(new Set(idsToSelect));
   };
 
-  const handlePrintSelected = () => {
+  // Pergunta qual documento antes de imprimir em lote -- antes ia direto pro
+  // Recibo/Pre-venda, e quem queria a Minuta de Entrega (papel de separacao,
+  // sem valores) tinha que abrir pedido por pedido.
+  const handlePrintSelected = async () => {
     if (selectedIds.size === 0) return;
-    navigate(`/pedidos-venda/print-lote?ids=${Array.from(selectedIds).join(',')}`);
+    const ids = Array.from(selectedIds).join(',');
+    const escolha = await NexusSwal.fire({
+      title: 'Imprimir o quê?',
+      text: `${selectedIds.size} ${selectedIds.size === 1 ? 'pedido selecionado' : 'pedidos selecionados'}.`,
+      icon: 'question',
+      showDenyButton: true,
+      showCancelButton: true,
+      confirmButtonText: 'Recibo / Pré-venda',
+      denyButtonText: 'Minuta de Entrega',
+      cancelButtonText: 'Cancelar',
+    });
+    if (escolha.isConfirmed) {
+      navigate(`/pedidos-venda/print-lote?ids=${ids}`);
+    } else if (escolha.isDenied) {
+      navigate(`/operacoes/expedicao/minuta-lote?ids=${ids}`);
+    }
   };
 
   return (
@@ -769,6 +789,7 @@ const PedidoVendas: React.FC = () => {
                     </FiltroColuna>
                   </th>
                 )}
+                <th style={{ padding: '16px', textAlign: 'center' }} title="Já foi impresso (Recibo/Pré-venda)?">Imp.</th>
                 <th style={{ padding: '16px', textAlign: 'right' }}>Total (R$)</th>
                 <th style={{ padding: '16px', textAlign: 'center' }}>Ações</th>
               </tr>
@@ -776,11 +797,11 @@ const PedidoVendas: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={conferenciaMercadoriaAtiva ? 10 : 9} style={{ textAlign: 'center', padding: '40px' }}>Carregando pedidos...</td>
+                  <td colSpan={conferenciaMercadoriaAtiva ? 11 : 10} style={{ textAlign: 'center', padding: '40px' }}>Carregando pedidos...</td>
                 </tr>
               ) : filteredPedidos.length === 0 ? (
                 <tr>
-                  <td colSpan={conferenciaMercadoriaAtiva ? 10 : 9} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={conferenciaMercadoriaAtiva ? 11 : 10} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <ShoppingCart size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>Nenhum pedido de venda encontrado.</p>
                   </td>
@@ -861,6 +882,9 @@ const PedidoVendas: React.FC = () => {
                         )}
                       </td>
                     )}
+                    <td style={{ padding: '16px', textAlign: 'center' }} title={p.impresso ? 'Já impresso' : 'Ainda não impresso'}>
+                      {p.impresso ? <CheckCircle2 size={18} color="#10b981" style={{ display: 'inline-block' }} /> : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                    </td>
                     <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700 }}>
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valorTotal)}
                     </td>

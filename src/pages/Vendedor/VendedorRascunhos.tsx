@@ -43,7 +43,7 @@ const caminhoDeEdicao = (rascunho: RascunhoVenda) => `/vendedor/${rascunho.tipo 
  */
 const VendedorRascunhos: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, currentUser, userNome, trabalhaComPreVenda, permiteVendaSemEstoque } = useAuth();
+  const { tenantId, currentUser, userNome, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva } = useAuth();
   const [rascunhos, setRascunhos] = useState<RascunhoVenda[]>(() => (
     tenantId && currentUser ? listarRascunhos(tenantId, currentUser.uid) : []
   ));
@@ -110,6 +110,7 @@ const VendedorRascunhos: React.FC = () => {
         // demais telas de venda -- antes estava fixo em false.
         permitirVendaSemEstoque: permiteVendaSemEstoque,
         idDocumento: rascunho.localId,
+        conferenciaMercadoriaAtiva,
       });
       return `Pré-venda #${numeroPedido} enviada`;
     }

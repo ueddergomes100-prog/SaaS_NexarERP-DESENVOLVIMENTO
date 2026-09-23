@@ -4,25 +4,36 @@ import {
   BarChart2,
   ChevronLeft,
   ChevronRight,
-  Download,
   Eye,
+  FileText,
   FilterX,
   Loader2,
+  Printer,
   Search,
   Users,
 } from 'lucide-react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '../../services/firebase';
-import { useAuth } from '../../contexts/AuthContext';
 import {
   dateInputToUtcEnd,
   dateInputToUtcStart,
   formatDateInputPtBr,
   getDateInputInTimeZone,
 } from '../../utils/dateTime';
-import { contaComoFaturamento } from '../../utils/preVendaDomain';
-import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { fromCents, toCents } from '../../utils/financeDomain';
+import {
+  enriquecerVendas,
+  resumoPorVendedor,
+  totaisVendas,
+  vendaNoPeriodo,
+} from '../../utils/relatorioVendasDomain';
+import {
+  indicadoresVendas,
+  secaoDetalheVendas,
+  secaoResumoVendedor,
+  secaoVendasPorVendedorDetalhe,
+} from '../../utils/relatorioVendasPdf';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { useDadosRelatorioVendas } from '../../hooks/useDadosRelatorioVendas';
+import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
 import CampoComSugestoes from '../../components/common/CampoComSugestoes';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -42,14 +53,6 @@ interface Filters {
   maxValue: string;
 }
 
-interface ReportData {
-  sales: any[];
-  transactions: any[];
-  users: Record<string, any>;
-  products: Record<string, any>;
-  returns: any[];
-}
-
 const initialFilters = (): Filters => {
   const today = getDateInputInTimeZone();
   return {
@@ -67,18 +70,6 @@ const initialFilters = (): Filters => {
   };
 };
 
-const toDate = (value: any): Date | null => {
-  if (!value) return null;
-  if (typeof value.toDate === 'function') return value.toDate();
-  if (value.seconds) return new Date(value.seconds * 1000);
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return dateInputToUtcStart(value);
-  }
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
-
-const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -91,69 +82,13 @@ const inputStyle: React.CSSProperties = {
 
 const RelatoriosVendas: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, currentUser, vendasVisiveisDeUsuarioId } = useAuth();
-  const [data, setData] = useState<ReportData>({ sales: [], transactions: [], users: {}, products: {}, returns: [] });
+  const { data, loading, error } = useDadosRelatorioVendas();
   const [filters, setFilters] = useState<Filters>(initialFilters);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [sortBy, setSortBy] = useState<'date' | 'number' | 'customer' | 'seller' | 'value' | 'status'>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      if (!tenantId || !currentUser) {
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      setError('');
-      try {
-        const tenantQuery = (name: string) => query(collection(db, name), where('tenantId', '==', tenantId));
-        const [salesSnap, transactionsSnap, usersSnap, productsSnap, returnsSnap] = await Promise.all([
-          getDocs(tenantQuery('pedidos_venda')),
-          getDocs(tenantQuery('transacoes')),
-          getDocs(tenantQuery('usuarios')),
-          getDocs(tenantQuery('estoque')),
-          getDocs(tenantQuery('devolucoes_venda')),
-        ]);
-
-        if (cancelled) return;
-        const users: Record<string, any> = {};
-        usersSnap.forEach((document) => { users[document.id] = { id: document.id, ...document.data() }; });
-        const products: Record<string, any> = {};
-        productsSnap.forEach((document) => { products[document.id] = { id: document.id, ...document.data() }; });
-
-        setData({
-          // Este relatorio e' de FATURAMENTO -- pedido em aberto (pre-venda
-          // do balcao ou pedido do agente aguardando confirmacao) fica de
-          // fora: nao gerou lancamento financeiro nenhum. Antes disso, todo
-          // pedido que nao fosse 'Cancelada' entrava como venda, e pedido
-          // 'Em Análise' inflava o faturamento em silencio. Pre-venda em
-          // aberto tem tela propria (Relatório de Pré-vendas em Aberto).
-          sales: filtrarVendasVisiveis(
-            salesSnap.docs.map((document) => ({ id: document.id, ...document.data() })) as any[],
-            vendasVisiveisDeUsuarioId,
-          ).filter((sale: any) => contaComoFaturamento(sale.status)),
-          transactions: transactionsSnap.docs.map((document) => ({ id: document.id, ...document.data() })),
-          users,
-          products,
-          returns: returnsSnap.docs.map((document) => ({ id: document.id, ...document.data() })),
-        });
-      } catch (loadError) {
-        console.error('Erro ao carregar relatório de vendas:', loadError);
-        if (!cancelled) setError('Não foi possível carregar o relatório. Verifique sua conexão e permissões.');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    void load();
-    return () => { cancelled = true; };
-  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
+  const [previewAberto, setPreviewAberto] = useState<'vendas' | 'vendedor' | null>(null);
 
   const options = useMemo(() => {
     const customers = Array.from(new Set(data.sales.map((sale) => String(sale.clienteNome || '')).filter(Boolean))).sort();
@@ -167,95 +102,7 @@ const RelatoriosVendas: React.FC = () => {
     return { customers, paymentMethods, statuses, categories };
   }, [data]);
 
-  const enrichedSales = useMemo(() => {
-    const transactionsBySale = new Map<string, any[]>();
-    data.transactions.forEach((transaction) => {
-      const saleId = transaction.pedidoId || (transaction.sourceType === 'pedido_venda' ? transaction.sourceId : '');
-      if (!saleId) return;
-      const current = transactionsBySale.get(saleId) || [];
-      current.push(transaction);
-      transactionsBySale.set(saleId, current);
-    });
-
-    const returnsBySale = new Map<string, number>();
-    data.returns
-      .filter((item) => item.status === 'concluida')
-      .forEach((item) => {
-        const saleId = item.pedidoVendaId || item.pedidoOrigemId;
-        if (saleId) {
-          returnsBySale.set(
-            saleId,
-            (returnsBySale.get(saleId) || 0) +
-              Number(item.valorTotalDevolvidoCentavos ?? toCents(item.valorTotalDevolvido)),
-          );
-        }
-      });
-
-    return data.sales.map((sale) => {
-      const saleTransactions = transactionsBySale.get(sale.id) || [];
-      const sellerId = sale.vendedorId || sale.usuarioResponsavelId || '';
-      const seller = data.users[sellerId];
-      const sellerName = sale.vendedorNome || seller?.nome || seller?.nomeResponsavel || seller?.email || 'Não identificado';
-      const grossCents = Number(sale.valorTotalItensCentavos ?? toCents(Number(sale.valorTotal || 0) + Number(sale.valorTotalDescontos || 0)));
-      const discountCents = Number(sale.valorTotalDescontosCentavos ?? toCents(sale.valorTotalDescontos));
-      const saleTotalCents = Number(sale.valorTotalCentavos ?? toCents(sale.valorTotal));
-      const returnedCents = returnsBySale.get(sale.id) || 0;
-      const cancelled = sale.status === 'Cancelada';
-      const netCents = cancelled ? 0 : Math.max(0, saleTotalCents - returnedCents);
-      const rawReceivedCents = cancelled ? 0 : saleTransactions
-        .filter((transaction) => transaction.tipo === 'entrada' && transaction.status === 'Paga')
-        .reduce((sum, transaction) => sum + Number(transaction.valorCentavos ?? toCents(transaction.valor)), 0);
-      const rawPendingCents = cancelled ? 0 : saleTransactions
-        .filter((transaction) => transaction.tipo === 'entrada' && transaction.status === 'Pendente')
-        .reduce((sum, transaction) => sum + Number(transaction.valorCentavos ?? toCents(transaction.valor)), 0);
-      const fallbackReceivedCents = Number(sale.totalRecebidoCentavos ?? toCents(sale.totalRecebido));
-      const fallbackPendingCents = Number(sale.totalPendenteCentavos ?? toCents(sale.totalPendente));
-      const receivedCents = cancelled
-        ? 0
-        : Math.min(netCents, rawReceivedCents || fallbackReceivedCents);
-      const pendingCents = cancelled
-        ? 0
-        : Math.min(Math.max(0, netCents - receivedCents), rawPendingCents || fallbackPendingCents);
-      const payments = Array.isArray(sale.pagamentos) && sale.pagamentos.length > 0
-        ? sale.pagamentos
-        : [{ formaPagamento: sale.formaPagamento || 'Não informado', condicaoPagamento: sale.condicaoPagamento || (String(sale.formaPagamento).includes('Prazo') ? 'aprazo' : 'avista'), valorCentavos: saleTotalCents }];
-      const paymentMethods = Array.from(new Set(payments.map((payment: any) => payment.formaPagamento).filter(Boolean)));
-      const paymentCondition = sale.condicaoPagamento || (payments.some((payment: any) => payment.condicaoPagamento === 'aprazo') ? 'aprazo' : 'avista');
-      const storedCardFeeCents = sale.totalTaxasPagamentoCentavos !== undefined
-        ? Number(sale.totalTaxasPagamentoCentavos)
-        : sale.totalTaxasPagamento !== undefined
-          ? toCents(sale.totalTaxasPagamento)
-          : payments.reduce((sum: number, payment: any) => (
-              sum + Number(payment.cartao?.valorTaxaCentavos ?? toCents(payment.cartao?.valorTaxa))
-            ), 0);
-      const cardFeeCents = cancelled ? 0 : Math.min(netCents, Math.max(0, storedCardFeeCents));
-      const financialNetCents = cancelled ? 0 : Math.max(0, netCents - cardFeeCents);
-      const commissionCents = cancelled ? 0 : Number(sale.comissao?.valorAtualCentavos ?? toCents(sale.comissao?.valorAtual));
-      const commissionStatus = sale.comissao?.status || 'legado_sem_snapshot';
-
-      return {
-        ...sale,
-        date: toDate(sale.dataVenda) || toDate(sale.createdAt),
-        sellerId,
-        sellerName,
-        grossCents,
-        discountCents,
-        saleTotalCents,
-        returnedCents,
-        netCents,
-        receivedCents,
-        pendingCents,
-        payments,
-        paymentMethods,
-        paymentCondition,
-        cardFeeCents,
-        financialNetCents,
-        commissionCents,
-        commissionStatus,
-        cancelled,
-      };
-    });
-  }, [data]);
+  const enrichedSales = useMemo(() => enriquecerVendas(data), [data]);
 
   const filteredSales = useMemo(() => {
     const start = dateInputToUtcStart(filters.startDate);
@@ -265,7 +112,7 @@ const RelatoriosVendas: React.FC = () => {
     const customerSearch = filters.customer.trim().toLowerCase();
 
     const filtered = enrichedSales.filter((sale) => {
-      if (!sale.date || !start || !end || sale.date < start || sale.date > end) return false;
+      if (!vendaNoPeriodo(sale, start, end)) return false;
       if (filters.sellerId && sale.sellerId !== filters.sellerId) return false;
       if (customerSearch && !String(sale.clienteNome || '').toLowerCase().includes(customerSearch)) return false;
       if (filters.paymentMethod && !sale.paymentMethods.includes(filters.paymentMethod)) return false;
@@ -297,64 +144,9 @@ const RelatoriosVendas: React.FC = () => {
     });
   }, [data.products, enrichedSales, filters, sortBy, sortDirection]);
 
-  const totals = useMemo(() => {
-    const valid = filteredSales.filter((sale) => !sale.cancelled);
-    const netCents = valid.reduce((sum, sale) => sum + sale.netCents, 0);
-    return {
-      count: valid.length,
-      cancelledCount: filteredSales.length - valid.length,
-      grossCents: valid.reduce((sum, sale) => sum + sale.grossCents, 0),
-      discountCents: valid.reduce((sum, sale) => sum + sale.discountCents, 0),
-      netCents,
-      receivedCents: valid.reduce((sum, sale) => sum + sale.receivedCents, 0),
-      pendingCents: valid.reduce((sum, sale) => sum + sale.pendingCents, 0),
-      cardFeeCents: valid.reduce((sum, sale) => sum + sale.cardFeeCents, 0),
-      financialNetCents: valid.reduce((sum, sale) => sum + sale.financialNetCents, 0),
-      commissionCents: valid.reduce((sum, sale) => sum + sale.commissionCents, 0),
-      averageCents: valid.length ? Math.round(netCents / valid.length) : 0,
-    };
-  }, [filteredSales]);
+  const totals = useMemo(() => totaisVendas(filteredSales), [filteredSales]);
 
-  const sellerSummary = useMemo(() => {
-    const map = new Map<string, any>();
-    filteredSales.forEach((sale) => {
-      const id = sale.sellerId || 'nao_identificado';
-      const current = map.get(id) || {
-        id,
-        name: sale.sellerName,
-        sales: 0,
-        cancellations: 0,
-        grossCents: 0,
-        discountCents: 0,
-        netCents: 0,
-        receivedCents: 0,
-        pendingCents: 0,
-        cardFeeCents: 0,
-        financialNetCents: 0,
-        commissionCents: 0,
-        payments: {} as Record<string, number>,
-      };
-      if (sale.cancelled) {
-        current.cancellations += 1;
-      } else {
-        current.sales += 1;
-        current.grossCents += sale.grossCents;
-        current.discountCents += sale.discountCents;
-        current.netCents += sale.netCents;
-        current.receivedCents += sale.receivedCents;
-        current.pendingCents += sale.pendingCents;
-        current.cardFeeCents += sale.cardFeeCents;
-        current.financialNetCents += sale.financialNetCents;
-        current.commissionCents += sale.commissionCents;
-        sale.payments.forEach((payment: any) => {
-          const method = payment.formaPagamento || 'Não informado';
-          current.payments[method] = (current.payments[method] || 0) + Number(payment.valorCentavos ?? toCents(payment.valor));
-        });
-      }
-      map.set(id, current);
-    });
-    return Array.from(map.values()).sort((a, b) => b.financialNetCents - a.financialNetCents);
-  }, [filteredSales]);
+  const sellerSummary = useMemo(() => resumoPorVendedor(filteredSales), [filteredSales]);
 
   useEffect(() => { setPage(1); }, [filters, pageSize, sortBy, sortDirection]);
 
@@ -369,36 +161,64 @@ const RelatoriosVendas: React.FC = () => {
     setSortDirection('desc');
   };
 
-  const exportCsv = () => {
-    const headers = ['Pedido', 'Data', 'Cliente', 'Vendedor', 'Bruto', 'Desconto', 'Venda líquida', 'Taxas de cartão', 'Receita líquida', 'Pagamento', 'Condição', 'Status', 'Recebido', 'Pendente', 'Comissão'];
-    const rows = filteredSales.map((sale) => [
-      sale.numeroPedido,
-      sale.date ? sale.date.toLocaleString('pt-BR') : '',
-      sale.clienteNome,
-      sale.sellerName,
-      fromCents(sale.grossCents).toFixed(2),
-      fromCents(sale.discountCents).toFixed(2),
-      fromCents(sale.netCents).toFixed(2),
-      fromCents(sale.cardFeeCents).toFixed(2),
-      fromCents(sale.financialNetCents).toFixed(2),
-      sale.paymentMethods.join(' + '),
-      sale.paymentCondition === 'aprazo' ? 'A prazo' : 'À vista',
-      sale.status,
-      fromCents(sale.receivedCents).toFixed(2),
-      fromCents(sale.pendingCents).toFixed(2),
-      fromCents(sale.commissionCents).toFixed(2),
-    ]);
-    const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(';')).join('\n')}`;
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `relatorio-vendas-${filters.startDate}-${filters.endDate}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  // Filtros da tela em texto, para o papel dizer de onde saiu cada numero.
+  const filtrosDescritos = useMemo(() => {
+    const vendedor = filters.sellerId ? data.users[filters.sellerId] : null;
+    const produto = filters.productId ? data.products[filters.productId] : null;
+    return [
+      vendedor && `Vendedor: ${vendedor.nome || vendedor.nomeResponsavel || vendedor.email}`,
+      filters.customer.trim() && `Cliente: ${filters.customer.trim()}`,
+      filters.paymentMethod && `Pagamento: ${filters.paymentMethod}`,
+      filters.paymentCondition && `Condição: ${filters.paymentCondition === 'aprazo' ? 'A prazo' : 'À vista'}`,
+      filters.status && `Status: ${filters.status}`,
+      produto && `Produto: ${produto.nome}`,
+      filters.category && `Categoria: ${filters.category}`,
+      filters.minValue && `Valor mínimo: ${currency.format(Number(filters.minValue))}`,
+      filters.maxValue && `Valor máximo: ${currency.format(Number(filters.maxValue))}`,
+    ].filter(Boolean) as string[];
+  }, [data.products, data.users, filters]);
+
+  const periodoDescrito = filters.startDate === filters.endDate
+    ? `Data: ${formatDateInputPtBr(filters.startDate)}`
+    : `Período: ${formatDateInputPtBr(filters.startDate)} a ${formatDateInputPtBr(filters.endDate)}`;
+
+  const documentoPreview = useMemo<DocumentoRelatorioSemEmpresa | null>(() => {
+    if (!previewAberto) return null;
+    if (previewAberto === 'vendedor') {
+      return {
+        titulo: 'Vendas por Vendedor',
+        periodo: periodoDescrito,
+        filtros: filtrosDescritos,
+        indicadores: indicadoresVendas(totals),
+        secoes: [secaoResumoVendedor(sellerSummary), secaoVendasPorVendedorDetalhe(filteredSales)],
+      };
+    }
+    return {
+      titulo: 'Relatório de Vendas',
+      periodo: periodoDescrito,
+      filtros: filtrosDescritos,
+      indicadores: indicadoresVendas(totals),
+      secoes: [
+        secaoDetalheVendas(filteredSales),
+        secaoResumoVendedor(sellerSummary, { opcional: true, padrao: false }),
+      ],
+    };
+  }, [filteredSales, filtrosDescritos, periodoDescrito, previewAberto, sellerSummary, totals]);
 
   if (loading) {
     return <div style={{ minHeight: '60vh', display: 'grid', placeItems: 'center', color: 'var(--text-muted)' }}><Loader2 className="spin-icon" size={38} /></div>;
+  }
+
+  if (previewAberto) {
+    return (
+      <RelatorioPreview
+        relatorioId={previewAberto === 'vendedor' ? 'vendas-por-vendedor' : 'relatorio-vendas'}
+        documento={documentoPreview}
+        nomeArquivo={nomeArquivoRelatorio(previewAberto === 'vendedor' ? 'Vendas por Vendedor' : 'Relatório de Vendas', filters.startDate, filters.endDate)}
+        onFechar={() => setPreviewAberto(null)}
+        rotuloFechar="Voltar aos filtros"
+      />
+    );
   }
 
   return (
@@ -408,7 +228,10 @@ const RelatoriosVendas: React.FC = () => {
           <h1 style={{ fontSize: '26px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}><BarChart2 color="var(--accent-purple)" /> Relatório de Vendas</h1>
           <p style={{ color: 'var(--text-muted)' }}>Empresa ativa: dados isolados por tenant • Período {formatDateInputPtBr(filters.startDate)} a {formatDateInputPtBr(filters.endDate)}</p>
         </div>
-        <button className="btn-secondary" onClick={exportCsv} disabled={filteredSales.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Download size={18} /> Exportar CSV filtrado</button>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <button className="btn-secondary" onClick={() => setPreviewAberto('vendedor')} disabled={filteredSales.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Users size={18} /> Relatório por vendedor</button>
+          <button className="btn-primary" onClick={() => setPreviewAberto('vendas')} disabled={filteredSales.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><FileText size={18} /> Visualizar relatório</button>
+        </div>
       </div>
 
       {error && <div role="alert" style={{ padding: '14px 16px', backgroundColor: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.3)', color: '#fecaca', borderRadius: '8px' }}>{error}</div>}
@@ -446,7 +269,10 @@ const RelatoriosVendas: React.FC = () => {
       </section>
 
       <section className="card" style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <h2 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}><Users size={20} color="var(--accent-purple)" /> Vendas por vendedor</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '16px' }}>
+          <h2 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}><Users size={20} color="var(--accent-purple)" /> Vendas por vendedor</h2>
+          <button className="btn-secondary" onClick={() => setPreviewAberto('vendedor')} disabled={sellerSummary.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Printer size={17} /> Imprimir por vendedor</button>
+        </div>
         <div className="table-wrapper"><table className="data-table"><thead><tr><th>Vendedor</th><th>Vendas</th><th>Bruto</th><th>Descontos</th><th>Cancel.</th><th>Venda líquida</th><th>Taxas cartão</th><th>Receita líquida</th><th>Ticket médio</th><th>Recebido</th><th>A receber</th><th>Pagamentos</th><th>Comissão</th></tr></thead><tbody>
           {sellerSummary.length === 0 ? <tr><td colSpan={13} style={{ textAlign: 'center', padding: '32px' }}>Nenhuma venda encontrada para os filtros.</td></tr> : sellerSummary.map((seller) => <tr key={seller.id} onClick={() => seller.id !== 'nao_identificado' && setFilter('sellerId', seller.id)} style={{ cursor: seller.id !== 'nao_identificado' ? 'pointer' : 'default' }}><td><strong>{seller.name}</strong></td><td>{seller.sales}</td><td>{currency.format(fromCents(seller.grossCents))}</td><td>{currency.format(fromCents(seller.discountCents))}</td><td>{seller.cancellations}</td><td>{currency.format(fromCents(seller.netCents))}</td><td>{currency.format(fromCents(seller.cardFeeCents))}</td><td>{currency.format(fromCents(seller.financialNetCents))}</td><td>{currency.format(fromCents(seller.sales ? Math.round(seller.netCents / seller.sales) : 0))}</td><td>{currency.format(fromCents(seller.receivedCents))}</td><td>{currency.format(fromCents(seller.pendingCents))}</td><td style={{ maxWidth: '220px', fontSize: '12px' }}>{Object.entries(seller.payments).map(([method, value]) => `${method}: ${currency.format(fromCents(Number(value)))}`).join(' • ') || '-'}</td><td>{currency.format(fromCents(seller.commissionCents))}</td></tr>)}
         </tbody></table></div>

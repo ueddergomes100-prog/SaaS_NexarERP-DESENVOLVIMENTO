@@ -1,22 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { collection, doc, getDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
-import { AlertTriangle, ArrowLeft, Loader2, Plus, Save, Trash2, Truck } from 'lucide-react';
+import { collection, doc, getDoc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
+import { AlertTriangle, ArrowLeft, Loader2, Plus, Save, Settings2, Trash2, Truck, X } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { hasTenantFullAccess } from '../../utils/roles';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
+import CampoComSugestoes from '../../components/common/CampoComSugestoes';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import {
   CATEGORIA_DESPESA_ROTA,
-  TIPOS_DESPESA_ROTA,
+  TIPO_DESPESA_OUTROS,
   avisosDaRota,
   descricaoDaDespesaNoFinanceiro,
   despesaVazia,
   despesasValidas,
+  erroDoTipoPersonalizado,
   errosDaRota,
+  normalizarTipoPersonalizado,
+  tiposDeDespesaDisponiveis,
   totaisPorTipo,
   totalDaRota,
   type DespesaRota,
@@ -51,8 +56,65 @@ const RotaForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const somenteLeitura = Boolean(id);
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, userRole, isOwner } = useAuth();
   const { items: motoristas } = useTenantCollection<MotoristaBasico>('motoristas', tenantId);
+  // Veiculos do cadastro (Cadastros > Veiculos): viram sugestao no campo Veiculo.
+  const { items: veiculosCadastrados } = useTenantCollection<{ id: string; placa?: string; modelo?: string; ativo?: boolean }>('veiculos', tenantId);
+  const opcoesVeiculo = veiculosCadastrados
+    .filter((v) => v.ativo !== false && (v.placa || v.modelo))
+    .map((v) => [v.placa, v.modelo].map((x) => String(x || '').trim()).filter(Boolean).join(' - ').toUpperCase());
+
+  // Tipos de despesa que a empresa cadastrou (configuracoes/{tenantId}.tiposDespesaRota).
+  const [tiposPersonalizados, setTiposPersonalizados] = useState<string[]>([]);
+  const [gerenciandoTipos, setGerenciandoTipos] = useState(false);
+  const [novoTipo, setNovoTipo] = useState('');
+  const [salvandoTipos, setSalvandoTipos] = useState(false);
+  const podeGerenciarTipos = hasTenantFullAccess(userRole, isOwner) && !somenteLeitura;
+  const tiposDisponiveis = tiposDeDespesaDisponiveis(tiposPersonalizados);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    getDoc(doc(db, 'configuracoes', tenantId))
+      .then((snap) => {
+        const lista = snap.exists() ? snap.data().tiposDespesaRota : [];
+        setTiposPersonalizados(Array.isArray(lista) ? lista.map(normalizarTipoPersonalizado).filter(Boolean) : []);
+      })
+      .catch((erro) => console.error('Erro ao carregar os tipos de despesa da rota:', erro));
+  }, [tenantId]);
+
+  const gravarTipos = async (novaLista: string[]) => {
+    if (!tenantId || !currentUser) return false;
+    setSalvandoTipos(true);
+    try {
+      await updateDoc(doc(db, 'configuracoes', tenantId), { tiposDespesaRota: novaLista });
+      setTiposPersonalizados(novaLista);
+      return true;
+    } catch (erro) {
+      console.error('Erro ao salvar os tipos de despesa da rota:', erro);
+      showError('Não foi possível salvar', 'Confira sua conexão e se você tem permissão de administrador.');
+      return false;
+    } finally {
+      setSalvandoTipos(false);
+    }
+  };
+
+  const adicionarTipo = async () => {
+    const erro = erroDoTipoPersonalizado(novoTipo, tiposPersonalizados);
+    if (erro) { showError('Tipo de despesa', erro); return; }
+    if (await gravarTipos([...tiposPersonalizados, normalizarTipoPersonalizado(novoTipo)])) setNovoTipo('');
+  };
+
+  const removerTipo = async (nome: string) => {
+    const confirma = await NexusSwal.fire({
+      icon: 'question',
+      title: `Remover "${nome}"?`,
+      text: 'Rotas que já usaram esse tipo continuam mostrando o nome. Ele só deixa de aparecer para novas despesas.',
+      showCancelButton: true,
+      confirmButtonText: 'Remover',
+      cancelButtonText: 'Cancelar',
+    });
+    if (confirma.isConfirmed) await gravarTipos(tiposPersonalizados.filter((t) => t !== nome));
+  };
 
   const [salvando, setSalvando] = useState(false);
   const [carregando, setCarregando] = useState(Boolean(id));
@@ -262,7 +324,13 @@ const RotaForm: React.FC = () => {
 
           <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Veículo</label>
-            <input type="text" value={rota.veiculo} onChange={(e) => setRota({ ...rota, veiculo: e.target.value })} placeholder="Placa e/ou modelo" style={{ ...estiloCampo, textTransform: 'uppercase' }} />
+            <CampoComSugestoes
+              opcoes={opcoesVeiculo}
+              value={rota.veiculo}
+              onChange={(e) => setRota({ ...rota, veiculo: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
+              placeholder={opcoesVeiculo.length > 0 ? 'Escolha o veículo ou digite a placa' : 'Placa e/ou modelo'}
+              style={{ ...estiloCampo, textTransform: 'uppercase' }}
+            />
           </div>
 
           <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -280,9 +348,16 @@ const RotaForm: React.FC = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap', marginBottom: '16px' }}>
             <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>Despesas da viagem</h3>
             {!somenteLeitura && (
-              <button type="button" className="btn-secondary" onClick={adicionarLinha} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Plus size={16} /> Adicionar despesa
-              </button>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                {podeGerenciarTipos && (
+                  <button type="button" className="btn-secondary" onClick={() => setGerenciandoTipos(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Settings2 size={16} /> Tipos de despesa
+                  </button>
+                )}
+                <button type="button" className="btn-secondary" onClick={adicionarLinha} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Plus size={16} /> Adicionar despesa
+                </button>
+              </div>
             )}
           </div>
 
@@ -302,11 +377,13 @@ const RotaForm: React.FC = () => {
                   <tr key={indice} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '8px' }}>
                       <select value={despesa.tipo} onChange={(e) => mudarDespesa(indice, { tipo: e.target.value as TipoDespesaRota })} style={{ ...estiloCampo, padding: '8px 10px' }}>
-                        {TIPOS_DESPESA_ROTA.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        {tiposDisponiveis.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        {/* Rota antiga com tipo que saiu do cadastro: continua aparecendo. */}
+                        {!tiposDisponiveis.some((t) => t.value === despesa.tipo) && <option value={despesa.tipo}>{despesa.tipo}</option>}
                       </select>
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" value={despesa.descricao} onChange={(e) => mudarDespesa(indice, { descricao: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder={despesa.tipo === 'outros' ? 'Obrigatório em "Outros"' : 'Opcional'} style={{ ...estiloCampo, padding: '8px 10px' }} />
+                      <input type="text" value={despesa.descricao} onChange={(e) => mudarDespesa(indice, { descricao: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder={despesa.tipo === TIPO_DESPESA_OUTROS ? 'Obrigatório em "Outros"' : 'Opcional'} style={{ ...estiloCampo, padding: '8px 10px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="text" value={despesa.comprovante} onChange={(e) => mudarDespesa(indice, { comprovante: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder="Nº da notinha" style={{ ...estiloCampo, padding: '8px 10px' }} />
@@ -354,6 +431,57 @@ const RotaForm: React.FC = () => {
           </p>
         </div>
       </fieldset>
+
+      {gerenciandoTipos && (
+        <div
+          onClick={() => setGerenciandoTipos(false)}
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: '460px', maxHeight: '85vh', overflowY: 'auto', padding: '24px' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px' }}>Tipos de despesa da rota</h3>
+              <button type="button" onClick={() => setGerenciandoTipos(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }} aria-label="Fechar"><X size={20} /></button>
+            </div>
+            <p style={{ margin: '0 0 16px', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Cadastre outros tipos além dos padrões (ex.: Lavagem, Estacionamento). Eles aparecem na lista de "Tipo" de toda nova despesa.
+            </p>
+
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              <input
+                type="text"
+                value={novoTipo}
+                maxLength={30}
+                onChange={(e) => setNovoTipo(aplicarCaixaAltaCadastro(e.target, e.target.value))}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void adicionarTipo(); } }}
+                placeholder="Novo tipo, ex.: LAVAGEM"
+                style={{ ...estiloCampo, flex: 1 }}
+              />
+              <button type="button" className="btn-primary" disabled={salvandoTipos} onClick={() => void adicionarTipo()} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {salvandoTipos ? <Loader2 size={16} className="spin-icon" /> : <Plus size={16} />} Adicionar
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {tiposDisponiveis.map((t) => {
+                const cadastrado = tiposPersonalizados.includes(t.value);
+                return (
+                  <div key={t.value} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-tertiary)', fontSize: '14px' }}>
+                    <span>{t.label}{!cadastrado && <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>padrão</span>}</span>
+                    {cadastrado && (
+                      <button type="button" disabled={salvandoTipos} onClick={() => void removerTipo(t.value)} title="Remover tipo" style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex' }}>
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

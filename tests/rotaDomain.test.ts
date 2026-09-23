@@ -148,3 +148,42 @@ test('descricao livre entra entre parenteses quando existe', () => {
 test('a categoria financeira e a mesma para todas as despesas de rota', () => {
   assert.equal(CATEGORIA_DESPESA_ROTA, 'DESPESAS DE ROTA');
 });
+
+// --- tipos de despesa cadastrados pela empresa (2026-09-23) -----------------
+
+import {
+  erroDoTipoPersonalizado,
+  normalizarTipoPersonalizado,
+  tiposDeDespesaDisponiveis,
+} from '../src/utils/rotaDomain';
+
+test('tipos cadastrados entram antes de "Outros", em caixa alta, sem duplicar os de fabrica', () => {
+  const lista = tiposDeDespesaDisponiveis(['lavagem', 'Estacionamento', 'combustível', 'LAVAGEM', '', 42]);
+  assert.deepEqual(lista.map((t) => t.label), [
+    'Combustível', 'Pedágio', 'Alimentação', 'Hospedagem', 'Manutenção', 'LAVAGEM', 'ESTACIONAMENTO', 'Outros',
+  ]);
+  assert.equal(lista[lista.length - 1].value, 'outros');
+});
+
+test('lista de tipos aguenta dado ruim vindo da configuracao', () => {
+  assert.equal(tiposDeDespesaDisponiveis(undefined).length, 6);
+  assert.equal(tiposDeDespesaDisponiveis('texto').length, 6);
+});
+
+test('novo tipo: recusa vazio, curto e repetido (mesmo sem acento/caixa); aceita o resto', () => {
+  assert.match(erroDoTipoPersonalizado('', []) || '', /Informe o nome/);
+  assert.match(erroDoTipoPersonalizado('a', []) || '', /mínimo 2/);
+  assert.match(erroDoTipoPersonalizado('pedagio', []) || '', /Já existe/);
+  assert.match(erroDoTipoPersonalizado('Lavagem', ['LAVAGEM']) || '', /Já existe/);
+  assert.equal(erroDoTipoPersonalizado('Lavagem', []), null);
+  assert.equal(normalizarTipoPersonalizado('  lava   jato  '), 'LAVA JATO');
+});
+
+test('resumo por tipo mostra o tipo cadastrado, e continua mostrando se ele sair do cadastro', () => {
+  const totais = totaisPorTipo([
+    { tipo: 'combustivel', descricao: '', valor: 100, comprovante: '' },
+    { tipo: 'LAVAGEM', descricao: '', valor: 30, comprovante: '' },
+    { tipo: 'outros', descricao: 'x', valor: 5, comprovante: '' },
+  ]);
+  assert.deepEqual(totais.map((t) => [t.label, t.totalCentavos]), [['Combustível', 10000], ['LAVAGEM', 3000], ['Outros', 500]]);
+});

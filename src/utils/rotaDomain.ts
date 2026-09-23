@@ -20,13 +20,11 @@
  * Regra pura: sem tela, sem Firestore.
  */
 
-export type TipoDespesaRota =
-  | 'combustivel'
-  | 'pedagio'
-  | 'alimentacao'
-  | 'hospedagem'
-  | 'manutencao'
-  | 'outros';
+/** Os tipos de fabrica ('combustivel', 'pedagio'...) mais os que a empresa
+ *  cadastrou (o proprio nome em MAIUSCULA -- ver tiposDeDespesaDisponiveis). */
+export type TipoDespesaRota = string;
+
+export const TIPO_DESPESA_OUTROS = 'outros';
 
 export const TIPOS_DESPESA_ROTA: Array<{ value: TipoDespesaRota; label: string }> = [
   { value: 'combustivel', label: 'Combustível' },
@@ -40,6 +38,48 @@ export const TIPOS_DESPESA_ROTA: Array<{ value: TipoDespesaRota; label: string }
 export const rotuloDoTipoDespesa = (tipo: string): string => (
   TIPOS_DESPESA_ROTA.find((t) => t.value === tipo)?.label || tipo
 );
+
+const semAcentoMaiusculo = (texto: string): string => texto
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toUpperCase();
+
+export const TIPO_PERSONALIZADO_MAX = 30;
+
+/** Nome de tipo cadastrado pela empresa: aparado, espacos colapsados, caixa
+ *  alta (padrao do sistema) e limitado a 30 letras. */
+export const normalizarTipoPersonalizado = (texto: unknown): string => (
+  String(texto ?? '').replace(/\s+/g, ' ').trim().toUpperCase().slice(0, TIPO_PERSONALIZADO_MAX)
+);
+
+/** Erro em portugues se o nome nao pode virar tipo novo; null se pode. */
+export const erroDoTipoPersonalizado = (texto: unknown, existentes: string[]): string | null => {
+  const nome = normalizarTipoPersonalizado(texto);
+  if (nome.length < 2) return 'Informe o nome do tipo de despesa (mínimo 2 letras).';
+  const chave = semAcentoMaiusculo(nome);
+  const jaExiste = [...TIPOS_DESPESA_ROTA.map((t) => t.label), ...existentes]
+    .some((outro) => semAcentoMaiusculo(String(outro)) === chave);
+  return jaExiste ? `Já existe o tipo "${nome}".` : null;
+};
+
+/** Lista do "Tipo" da despesa: os de fabrica, os que a empresa cadastrou e
+ *  "Outros" por ultimo. `personalizados` vem de configuracoes (lixo/duplicado
+ *  e' descartado em vez de quebrar a tela). */
+export const tiposDeDespesaDisponiveis = (personalizados: unknown): Array<{ value: TipoDespesaRota; label: string }> => {
+  const vistos = new Set(TIPOS_DESPESA_ROTA.map((t) => semAcentoMaiusculo(t.label)));
+  const extras: Array<{ value: TipoDespesaRota; label: string }> = [];
+  (Array.isArray(personalizados) ? personalizados : []).forEach((bruto) => {
+    if (typeof bruto !== 'string') return;
+    const nome = normalizarTipoPersonalizado(bruto);
+    const chave = semAcentoMaiusculo(nome);
+    if (nome.length < 2 || vistos.has(chave)) return;
+    vistos.add(chave);
+    extras.push({ value: nome, label: nome });
+  });
+  const fabrica = TIPOS_DESPESA_ROTA.filter((t) => t.value !== TIPO_DESPESA_OUTROS);
+  const outros = TIPOS_DESPESA_ROTA.filter((t) => t.value === TIPO_DESPESA_OUTROS);
+  return [...fabrica, ...extras, ...outros];
+};
 
 /** Categoria financeira das despesas de rota, no plano de contas. */
 export const CATEGORIA_DESPESA_ROTA = 'DESPESAS DE ROTA';
@@ -80,9 +120,17 @@ export const totaisPorTipo = (despesas: DespesaRota[]): Array<{ tipo: TipoDespes
     if (centavos <= 0) return;
     mapa.set(d.tipo, (mapa.get(d.tipo) || 0) + centavos);
   });
-  return TIPOS_DESPESA_ROTA
-    .filter((t) => mapa.has(t.value))
-    .map((t) => ({ tipo: t.value, label: t.label, totalCentavos: mapa.get(t.value) as number }));
+  // Tipos cadastrados pela empresa entram depois dos de fabrica (e antes de
+  // "Outros"), na ordem em que apareceram; mesmo que o tipo tenha sido
+  // apagado do cadastro depois, a rota antiga continua mostrando o nome.
+  const fabrica = TIPOS_DESPESA_ROTA.filter((t) => t.value !== TIPO_DESPESA_OUTROS && mapa.has(t.value));
+  const personalizados = Array.from(mapa.keys()).filter((t) => !TIPOS_DESPESA_ROTA.some((f) => f.value === t));
+  const outros = TIPOS_DESPESA_ROTA.filter((t) => t.value === TIPO_DESPESA_OUTROS && mapa.has(t.value));
+  return [
+    ...fabrica.map((t) => ({ tipo: t.value, label: t.label, totalCentavos: mapa.get(t.value) as number })),
+    ...personalizados.map((t) => ({ tipo: t, label: t, totalCentavos: mapa.get(t) as number })),
+    ...outros.map((t) => ({ tipo: t.value, label: t.label, totalCentavos: mapa.get(t.value) as number })),
+  ];
 };
 
 /** Despesas que valem gravar: linha em branco que a pessoa deixou na tela sai fora. */

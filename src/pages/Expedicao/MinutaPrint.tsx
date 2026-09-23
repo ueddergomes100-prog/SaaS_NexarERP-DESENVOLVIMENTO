@@ -174,12 +174,16 @@ const MinutaPrint: React.FC = () => {
   }, [pedidoId, navigate, currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
   const [vias, setVias] = useState<ViasMinuta>(1);
+  // Vira true na reimpressao (ja impressa antes, ou 2a vez nesta tela): sai o selo "2ª VIA" no papel.
+  const [segundaVia, setSegundaVia] = useState(false);
 
   const handlePrint = async () => {
     const escolhidas = await perguntarViasMinuta();
     if (!escolhidas) return;
-    if (pedidoData?.[PEDIDO_CAMPO_MINUTA_IMPRESSA] === true) {
+    const ehReimpressao = pedidoData?.[PEDIDO_CAMPO_MINUTA_IMPRESSA] === true || segundaVia;
+    if (ehReimpressao) {
       showWarning('2ª via', MENSAGEM_SEGUNDA_VIA_MINUTA);
+      setSegundaVia(true);
     }
     // Marca ANTES do dialogo do navegador (depois nao ha' garantia de rodar).
     if (pedidoId) {
@@ -198,6 +202,7 @@ const MinutaPrint: React.FC = () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     window.print();
     setVias(1);
+    setSegundaVia(true);
   };
 
   if (loading) {
@@ -230,6 +235,7 @@ const MinutaPrint: React.FC = () => {
           geradoEm={geradoEm}
           mostrarMarca={mostrarMarca}
           mostrarLocal={mostrarLocal}
+          segundaVia={segundaVia}
         />
       </ViasDaMinuta>
     </div>

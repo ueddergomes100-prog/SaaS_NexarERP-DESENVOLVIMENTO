@@ -738,3 +738,11 @@ body.light-theme .payments-editor__term-notice,
 body.light-theme .payments-editor__pending-notice {
   color: #b45309 !important;
 }
+
+/* Balao/aviso do sistema (SweetAlert: "2a via", sucesso...) nunca vai pro
+   papel -- saia impresso em cima da minuta quando o aviso ainda estava na tela. */
+@media print {
+  .swal2-container {
+    display: none !important;
+  }
+}

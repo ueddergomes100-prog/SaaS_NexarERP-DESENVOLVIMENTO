@@ -196,3 +196,20 @@
     height: auto !important;
   }
 }
+
+/* Selo pequeno de reimpressao, no canto do papel. */
+.minuta-doc {
+  position: relative;
+}
+
+.minuta-segunda-via {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  border: 1px solid #000;
+  padding: 1px 5px;
+  line-height: 1.3;
+}

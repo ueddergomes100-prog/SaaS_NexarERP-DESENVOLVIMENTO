@@ -98,6 +98,8 @@ interface MinutaPrintDocumentProps {
   operacao?: string;
   /** Padrao: sai da forma de pagamento do pedido. A troca imprime "SEM COBRANÇA". */
   condicaoPagto?: string;
+  /** Reimpressao: sai um selinho "2ª VIA" no canto do papel. */
+  segundaVia?: boolean;
 }
 
 /**
@@ -115,7 +117,7 @@ interface MinutaPrintDocumentProps {
  */
 const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({
   pedidoData, itens, configData, cliente, vendedorCodigo, usuarioNome, geradoEm, mostrarMarca = true, mostrarLocal = true,
-  titulo, rotuloNumero, operacao, condicaoPagto,
+  titulo, rotuloNumero, operacao, condicaoPagto, segundaVia,
 }) => {
   const totalColunas = 5 + (mostrarMarca ? 1 : 0) + (mostrarLocal ? 1 : 0);
   const criadoEm: Date | null = pedidoData.createdAt?.toDate ? pedidoData.createdAt.toDate() : null;
@@ -130,6 +132,7 @@ const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({
 
   return (
     <div className="a4-page minuta-doc">
+      {segundaVia && <span className="minuta-segunda-via">2ª VIA</span>}
       <div className="minuta-quadro">
         <span className="minuta-titulo">{titulo || 'MINUTA DE ENTREGA'}</span>
 

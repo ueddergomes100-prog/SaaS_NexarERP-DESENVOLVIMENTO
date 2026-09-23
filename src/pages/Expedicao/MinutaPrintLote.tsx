@@ -238,6 +238,7 @@ const MinutaPrintLote: React.FC = () => {
               geradoEm={geradoEm}
               mostrarMarca={mostrarMarca}
               mostrarLocal={mostrarLocal}
+              segundaVia={entrada.pedidoData[PEDIDO_CAMPO_MINUTA_IMPRESSA] === true}
             />
           </ViasDaMinuta>
         </div>

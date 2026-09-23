@@ -6,6 +6,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import {
@@ -305,10 +306,10 @@ const RotaForm: React.FC = () => {
                       </select>
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" value={despesa.descricao} onChange={(e) => mudarDespesa(indice, { descricao: e.target.value })} placeholder={despesa.tipo === 'outros' ? 'Obrigatório em "Outros"' : 'Opcional'} style={{ ...estiloCampo, padding: '8px 10px' }} />
+                      <input type="text" value={despesa.descricao} onChange={(e) => mudarDespesa(indice, { descricao: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder={despesa.tipo === 'outros' ? 'Obrigatório em "Outros"' : 'Opcional'} style={{ ...estiloCampo, padding: '8px 10px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" value={despesa.comprovante} onChange={(e) => mudarDespesa(indice, { comprovante: e.target.value })} placeholder="Nº da notinha" style={{ ...estiloCampo, padding: '8px 10px' }} />
+                      <input type="text" value={despesa.comprovante} onChange={(e) => mudarDespesa(indice, { comprovante: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder="Nº da notinha" style={{ ...estiloCampo, padding: '8px 10px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="number" min="0" step="0.01" value={despesa.valor || ''} onChange={(e) => mudarDespesa(indice, { valor: Number(e.target.value) || 0 })} placeholder="0,00" style={{ ...estiloCampo, padding: '8px 10px', textAlign: 'right', fontWeight: 600 }} />

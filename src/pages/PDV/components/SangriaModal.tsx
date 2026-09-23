@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Banknote, X } from 'lucide-react';
 import { currency, fromCurrencyInput } from '../pdvHelpers';
 import { fromCents } from '../../../utils/financeDomain';
+import { aplicarCaixaAltaCadastro } from '../../../utils/textoCadastroDomain';
 
 interface SangriaModalProps {
   open: boolean;
@@ -83,7 +84,7 @@ const SangriaModal: React.FC<SangriaModalProps> = ({ open, onClose, onConfirm })
             <input
               autoFocus
               value={motivoLivre}
-              onChange={(event) => setMotivoLivre(event.target.value)}
+              onChange={(event) => setMotivoLivre(aplicarCaixaAltaCadastro(event.target, event.target.value))}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') confirmar();
               }}

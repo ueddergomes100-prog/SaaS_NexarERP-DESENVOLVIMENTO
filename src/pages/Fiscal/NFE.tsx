@@ -14,6 +14,7 @@ import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import {
   DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, buildTaxesPayload, buildServiceInvoicePayload,
   buildServiceInvoiceDescription, sumServiceInvoiceAmount, usesCsosn,
@@ -2398,7 +2399,7 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
                       placeholder="Pesquise o cliente cadastrado ou digite..."
                       value={formData.clienteNome}
                       onChange={(e) => {
-                        setFormData({...formData, clienteNome: e.target.value, clienteId: ''});
+                        setFormData({...formData, clienteNome: aplicarCaixaAltaCadastro(e.target, e.target.value), clienteId: ''});
                         setIsClientDropdownOpen(true);
                       }}
                       onFocus={() => setIsClientDropdownOpen(true)}

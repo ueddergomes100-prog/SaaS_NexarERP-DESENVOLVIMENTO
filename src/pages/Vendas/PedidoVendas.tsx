@@ -83,6 +83,19 @@ const formatarDataEfetiva = (p: PedidoVendaData): string => {
   return '-';
 };
 
+/**
+ * Chave pra AGRUPAR vendedor no filtro por nome (maiuscula/minuscula e
+ * espaco nao contam) -- 2026-09-23, bug relatado: renomear um vendedor
+ * (so a caixa mudou, "antonio tato" -> "ANTONIO TATO") fazia o dropdown
+ * mostrar as duas grafias como pessoas diferentes, porque `vendedorNome` e'
+ * gravado (snapshot) em cada pedido na hora da venda, nao lido ao vivo do
+ * cadastro -- pedido antigo continua com o nome de quando foi feito.
+ *
+ * So agrupa pra exibir/filtrar; NUNCA reescreve o nome gravado no pedido
+ * (seria mexer no historico da venda).
+ */
+const chaveVendedorFiltro = (nome: string): string => nome.trim().toLowerCase().replace(/\s+/g, ' ');
+
 type FiltroDataPreset = '' | 'hoje' | 'ontem' | '7dias' | 'mes' | 'personalizado';
 
 const ROTULO_PRESET_DATA: Record<Exclude<FiltroDataPreset, '' | 'personalizado'>, string> = {
@@ -405,7 +418,17 @@ const PedidoVendas: React.FC = () => {
     return p.clienteNome?.toLowerCase().includes(searchTerm.toLowerCase()) || p.numeroPedido?.includes(searchTerm);
   });
 
-  const opcoesVendedor = Array.from(new Set(pedidosDoContexto.map(p => p.vendedorNome).filter((v): v is string => Boolean(v)))).sort((a, b) => a.localeCompare(b));
+  // Um vendedor so' aparece uma vez, mesmo com grafias diferentes entre
+  // pedidos antigos e novos -- `pedidosDoContexto` ja vem do mais recente
+  // pro mais antigo (ver o sort em `pedidos`), entao a primeira grafia
+  // encontrada por chave e' sempre a mais atual.
+  const opcoesVendedorPorChave = new Map<string, string>();
+  pedidosDoContexto.forEach((p) => {
+    if (!p.vendedorNome) return;
+    const chave = chaveVendedorFiltro(p.vendedorNome);
+    if (!opcoesVendedorPorChave.has(chave)) opcoesVendedorPorChave.set(chave, p.vendedorNome);
+  });
+  const opcoesVendedor = Array.from(opcoesVendedorPorChave.values()).sort((a, b) => a.localeCompare(b));
   const opcoesFormaPagamento = Array.from(new Set(pedidosDoContexto.map(p => p.formaPagamento).filter((v): v is string => Boolean(v)))).sort((a, b) => a.localeCompare(b));
   const opcoesConferencia = Array.from(new Set(pedidosDoContexto.map(p => p.statusConferencia).filter((v): v is string => Boolean(v))));
 
@@ -452,7 +475,7 @@ const PedidoVendas: React.FC = () => {
       : '';
 
   const filteredPedidos = pedidosDoContexto.filter(p => {
-    if (filtroVendedor && p.vendedorNome !== filtroVendedor) return false;
+    if (filtroVendedor && chaveVendedorFiltro(p.vendedorNome || '') !== chaveVendedorFiltro(filtroVendedor)) return false;
     if (filtroFormaPagamento && p.formaPagamento !== filtroFormaPagamento) return false;
     if (filtroConferencia && p.statusConferencia !== filtroConferencia) return false;
     if (periodoDataFiltro && !isWithinDateRange(dataEfetivaPedido(p), periodoDataFiltro.inicio, periodoDataFiltro.fim)) return false;

@@ -8,6 +8,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Upload } from 'lu
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import {
   decodificarArquivoTexto,
   detectarDelimitador,
@@ -635,7 +636,7 @@ const ImportarContasBase: React.FC<ImportarContasBaseProps> = ({
                       <tr key={conta.linhaId} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: problema ? 'rgba(245,158,11,0.08)' : undefined, opacity: excluido ? 0.45 : 1 }}>
                         <td style={thStyle}>
                           {editavel
-                            ? <input type="text" value={conta.descricao} onChange={(e) => atualizarConta(conta.linhaId, { descricao: e.target.value })} style={{ ...inputStyle, width: '220px' }} />
+                            ? <input type="text" value={conta.descricao} onChange={(e) => atualizarConta(conta.linhaId, { descricao: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ ...inputStyle, width: '220px' }} />
                             : conta.descricao}
                         </td>
                         <td style={thStyle}>

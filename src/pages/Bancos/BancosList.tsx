@@ -20,6 +20,7 @@ import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useT
 import { fromCents, toCents, validateBankTransfer } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
@@ -617,7 +618,7 @@ const BancosList: React.FC = () => {
                   type="text"
                   placeholder="Ex: Conta principal, Nubank PJ"
                   value={modalForm.nome}
-                  onChange={(e) => setModalForm({ ...modalForm, nome: e.target.value })}
+                  onChange={(e) => setModalForm({ ...modalForm, nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                   required
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
                 />
@@ -629,7 +630,7 @@ const BancosList: React.FC = () => {
                   type="text"
                   placeholder="Ex: Itaú, Nubank, Bradesco"
                   value={modalForm.banco}
-                  onChange={(e) => setModalForm({ ...modalForm, banco: e.target.value })}
+                  onChange={(e) => setModalForm({ ...modalForm, banco: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
                 />
               </div>
@@ -697,7 +698,7 @@ const BancosList: React.FC = () => {
                       <input
                         type="text"
                         value={modalForm.boletoNomeCedente}
-                        onChange={(e) => setModalForm({ ...modalForm, boletoNomeCedente: e.target.value })}
+                        onChange={(e) => setModalForm({ ...modalForm, boletoNomeCedente: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                         style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
                       />
                     </div>
@@ -914,7 +915,7 @@ const BancosList: React.FC = () => {
                     type="text"
                     placeholder="Ex: Tarifa de manutenção de conta"
                     value={lancamentoForm.descricao}
-                    onChange={(e) => setLancamentoForm({ ...lancamentoForm, descricao: e.target.value })}
+                    onChange={(e) => setLancamentoForm({ ...lancamentoForm, descricao: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                     style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}
                   />
                 </div>
@@ -963,7 +964,7 @@ const BancosList: React.FC = () => {
                   <input
                     type="text"
                     value={transferForm.descricao}
-                    onChange={(e) => setTransferForm({ ...transferForm, descricao: e.target.value })}
+                    onChange={(e) => setTransferForm({ ...transferForm, descricao: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                     style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}
                   />
                 </div>

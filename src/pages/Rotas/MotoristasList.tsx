@@ -4,6 +4,7 @@ import { IdCard, Loader2, Pencil, Plus, Power, Search, X } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
@@ -223,7 +224,7 @@ const MotoristasList: React.FC = () => {
             <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome *</label>
-                <input type="text" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Ex: JOÃO DA SILVA" style={{ textTransform: 'uppercase', padding: '11px 13px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
+                <input type="text" value={form.nome} onChange={(e) => setForm({ ...form, nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder="Ex: JOÃO DA SILVA" style={{ textTransform: 'uppercase', padding: '11px 13px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

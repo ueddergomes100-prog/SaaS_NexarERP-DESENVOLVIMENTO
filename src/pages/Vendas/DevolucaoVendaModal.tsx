@@ -4,6 +4,7 @@ import { collection, doc, getDocs, query, runTransaction, serverTimestamp, where
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import DevolucaoNfeModal from '../../components/common/DevolucaoNfeModal';
 import { applyStockAdjustments } from '../../utils/firestoreAtomic';
@@ -530,7 +531,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
                     type="text"
                     placeholder="Detalhes adicionais..."
                     value={observacao}
-                    onChange={e => setObservacao(e.target.value)}
+                    onChange={e => setObservacao(aplicarCaixaAltaCadastro(e.target, e.target.value))}
                     style={{ width: '100%', padding: '10px 12px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)' }}
                   />
                 </div>

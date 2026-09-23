@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError } from '../../utils/alerts';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 
 export interface ProdutoCadastradoRapido {
   id: string;
@@ -258,7 +259,7 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
               type="text"
               autoFocus
               value={nome}
-              onChange={(e) => setNome(e.target.value)}
+              onChange={(e) => setNome(aplicarCaixaAltaCadastro(e.target, e.target.value))}
               style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
             />
           </div>

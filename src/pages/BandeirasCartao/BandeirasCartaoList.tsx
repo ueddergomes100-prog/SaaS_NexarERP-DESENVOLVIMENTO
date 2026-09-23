@@ -5,6 +5,7 @@ import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'fir
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { hasModuleAccess } from '../../utils/roles';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import { pickMissingDefaults } from '../../utils/catalogDefaults';
@@ -461,7 +462,7 @@ const BandeirasCartaoList: React.FC = () => {
                   type="text"
                   placeholder="Ex: Visa, Mastercard"
                   value={modalForm.nome}
-                  onChange={(e) => setModalForm({ ...modalForm, nome: e.target.value })}
+                  onChange={(e) => setModalForm({ ...modalForm, nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                   required
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
                 />

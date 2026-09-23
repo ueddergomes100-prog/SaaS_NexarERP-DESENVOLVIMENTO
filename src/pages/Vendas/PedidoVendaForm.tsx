@@ -5,6 +5,7 @@ import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService } from '../../services/spedyService';
 import { applyStockAdjustments, applyStockFieldDeltas, describeTransactionError, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isPlatformAdminRole } from '../../utils/roles';
@@ -4151,7 +4152,7 @@ const PedidoVendaForm: React.FC = () => {
                 id="pedido-observacao"
                 type="text"
                 value={observacaoPedido}
-                onChange={(event) => setObservacaoPedido(event.target.value)}
+                onChange={(event) => setObservacaoPedido(aplicarCaixaAltaCadastro(event.target, event.target.value))}
                 disabled={isViewing && !canEditPendingOrder}
                 maxLength={200}
                 placeholder="Ex.: nº do pedido de papel, recado pro entregador (sai na minuta)"

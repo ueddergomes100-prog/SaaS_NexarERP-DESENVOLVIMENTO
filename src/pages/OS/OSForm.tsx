@@ -1912,7 +1912,7 @@ const OSForm: React.FC = () => {
                   value={servicoNomeInput}
                   ref={servicoNomeInputRef}
                   onChange={(e) => {
-                    setServicoNomeInput(e.target.value);
+                    setServicoNomeInput(aplicarCaixaAltaCadastro(e.target, e.target.value));
                     setIsServicoDropdownOpen(true);
                     const exists = servicosCatalogo.find(s => s.nome.toLowerCase() === e.target.value.toLowerCase());
                     if (exists) setServicoPrecoInput(String(exists.preco));

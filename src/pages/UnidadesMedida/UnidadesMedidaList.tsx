@@ -5,6 +5,7 @@ import { collection, query, onSnapshot, doc, where, updateDoc, addDoc, serverTim
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { pickMissingDefaults } from '../../utils/catalogDefaults';
@@ -464,7 +465,7 @@ const UnidadesMedidaList: React.FC = () => {
                   type="text" 
                   placeholder="Ex: Quilograma, Unidade, Litro" 
                   value={modalForm.nome}
-                  onChange={(e) => setModalForm({ ...modalForm, nome: e.target.value })}
+                  onChange={(e) => setModalForm({ ...modalForm, nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                   required
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
                 />

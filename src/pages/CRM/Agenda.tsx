@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
@@ -301,9 +302,9 @@ const Agenda: React.FC = () => {
                     placeholder="Buscar cliente cadastrado..." 
                     value={formData.clienteNome} 
                     onChange={(e) => {
-                      setFormData({ ...formData, clienteNome: e.target.value, clienteId: '' });
+                      setFormData({ ...formData, clienteNome: aplicarCaixaAltaCadastro(e.target, e.target.value), clienteId: '' });
                       setIsClientDropdownOpen(true);
-                    }} 
+                    }}
                     onFocus={() => setIsClientDropdownOpen(true)}
                     autoComplete="off" 
                     style={{ flex: 1 }}

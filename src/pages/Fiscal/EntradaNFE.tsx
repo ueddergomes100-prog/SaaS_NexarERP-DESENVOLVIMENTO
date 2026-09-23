@@ -18,6 +18,7 @@ import {
   type DadosDoFrete,
 } from '../../utils/freteEntradaDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { addDaysToDateInput } from '../../utils/dateTime';
 import {
   DEFAULT_REGIME_TRIBUTARIO,
@@ -1339,7 +1340,7 @@ const EntradaNFE: React.FC = () => {
                 <input
                   type="text"
                   value={fornecedorForm.nome}
-                  onChange={(e) => setFornecedorForm({ ...fornecedorForm, nome: e.target.value })}
+                  onChange={(e) => setFornecedorForm({ ...fornecedorForm, nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                   style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
                 />
               </div>

@@ -18,6 +18,7 @@ import {
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess, showWarning, NexusSwal } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { isTenantManagerRole } from '../../utils/roles';
@@ -618,7 +619,7 @@ const VendedoresList: React.FC = () => {
                   type="text"
                   placeholder="Ex: Juliano"
                   value={form.nome}
-                  onChange={(e) => setForm({ ...form, nome: e.target.value })}
+                  onChange={(e) => setForm({ ...form, nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                   autoFocus
                   style={inputStyle}
                 />

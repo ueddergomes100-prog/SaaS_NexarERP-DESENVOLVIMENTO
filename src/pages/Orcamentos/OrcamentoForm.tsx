@@ -1059,7 +1059,7 @@ const OrcamentoForm: React.FC = () => {
                     placeholder="Nome do Serviço..."
                     value={servicoNomeInput}
                     ref={servicoNomeInputRef}
-                    onChange={(e) => { setServicoNomeInput(e.target.value); setIsServicoDropdownOpen(true); }}
+                    onChange={(e) => { setServicoNomeInput(aplicarCaixaAltaCadastro(e.target, e.target.value)); setIsServicoDropdownOpen(true); }}
                     onFocus={() => setIsServicoDropdownOpen(true)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('servico'); } }}
                     style={{ paddingRight: '42px' }}

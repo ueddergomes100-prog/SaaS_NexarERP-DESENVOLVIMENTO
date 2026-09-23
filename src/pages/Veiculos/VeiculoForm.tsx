@@ -192,9 +192,9 @@ const VeiculoForm: React.FC = () => {
                 type="text"
                 name="clienteNome"
                 value={formData.clienteNome}
-                onChange={(e) => { 
-                  setFormData({ ...formData, clienteNome: e.target.value, clienteId: '' }); 
-                  setIsClientDropdownOpen(true); 
+                onChange={(e) => {
+                  setFormData({ ...formData, clienteNome: aplicarCaixaAltaCadastro(e.target, e.target.value), clienteId: '' });
+                  setIsClientDropdownOpen(true);
                 }}
                 onFocus={() => setIsClientDropdownOpen(true)}
                 placeholder="Busque ou digite o nome do cliente"

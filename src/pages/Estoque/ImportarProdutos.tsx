@@ -9,6 +9,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, PackageSearch, Up
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
 import { garantirMarcasCadastradas } from '../../utils/marcaDomain';
@@ -682,13 +683,13 @@ const ImportarProdutos: React.FC = () => {
                 {produtos.map((produto) => (
                   <tr key={produto.chave} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" value={produto.nome} onChange={(e) => atualizarProduto(produto.chave, { nome: e.target.value })} style={{ width: '220px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                      <input type="text" value={produto.nome} onChange={(e) => atualizarProduto(produto.chave, { nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '220px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" placeholder="-" value={produto.marca} onChange={(e) => atualizarProduto(produto.chave, { marca: e.target.value })} style={{ width: '110px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                      <input type="text" placeholder="-" value={produto.marca} onChange={(e) => atualizarProduto(produto.chave, { marca: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '110px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" placeholder="-" value={produto.referencia} onChange={(e) => atualizarProduto(produto.chave, { referencia: e.target.value })} style={{ width: '110px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                      <input type="text" placeholder="-" value={produto.referencia} onChange={(e) => atualizarProduto(produto.chave, { referencia: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '110px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
                       <select value={produto.unidadeId} onChange={(e) => atualizarProduto(produto.chave, { unidadeId: e.target.value })} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }}>

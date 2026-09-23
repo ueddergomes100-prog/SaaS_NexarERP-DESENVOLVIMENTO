@@ -4,6 +4,7 @@ import { collection, query, onSnapshot, where, addDoc, doc, getDoc, serverTimest
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { fromCents, toCents, transactionMovesPhysicalCash, transactionNetAmount } from '../../utils/financeDomain';
 import { dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -511,9 +512,9 @@ const Caixa: React.FC = () => {
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Descrição</label>
                 <input 
                   type="text" 
-                  value={formData.descricao} 
-                  onChange={(e) => setFormData({...formData, descricao: e.target.value})} 
-                  placeholder={modalTipo === 'entrada' ? "Ex: Troca de óleo Corsa" : "Ex: Conta de Luz"} 
+                  value={formData.descricao}
+                  onChange={(e) => setFormData({...formData, descricao: aplicarCaixaAltaCadastro(e.target, e.target.value)})}
+                  placeholder={modalTipo === 'entrada' ? "Ex: Troca de óleo Corsa" : "Ex: Conta de Luz"}
                   style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)' }}
                   required
                 />

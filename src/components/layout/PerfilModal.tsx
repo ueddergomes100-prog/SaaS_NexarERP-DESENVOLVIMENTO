@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 
 interface PerfilModalProps {
   onClose: () => void;
@@ -119,8 +120,8 @@ const PerfilModal: React.FC<PerfilModalProps> = ({ onClose, userData, configData
               <input 
                 type="text" 
                 className="input-field" 
-                value={nome} 
-                onChange={(e) => setNome(e.target.value)} 
+                value={nome}
+                onChange={(e) => setNome(aplicarCaixaAltaCadastro(e.target, e.target.value))}
                 placeholder="Como você quer ser chamado?"
                 required
                 style={{ width: '100%', paddingLeft: '38px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 10px 10px 38px', color: 'var(--text-primary)', outline: 'none' }}

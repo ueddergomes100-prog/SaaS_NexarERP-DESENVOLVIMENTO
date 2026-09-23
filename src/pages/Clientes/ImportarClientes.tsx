@@ -8,6 +8,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Upload, Users } f
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
 import {
@@ -507,7 +508,7 @@ const ImportarClientes: React.FC = () => {
                   return (
                     <tr key={cliente.linhaId} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: (problema && !excluido) ? 'rgba(245,158,11,0.08)' : undefined, opacity: excluido ? 0.5 : 1 }}>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" value={cliente.nome} onChange={(e) => atualizarCliente(cliente.linhaId, { nome: e.target.value })} style={{ ...inputStyle, width: '220px' }} title={cliente.prefixoCodigoRemovido ? `Código "${cliente.prefixoCodigoRemovido}" do sistema antigo removido do nome` : undefined} />
+                        <input type="text" value={cliente.nome} onChange={(e) => atualizarCliente(cliente.linhaId, { nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ ...inputStyle, width: '220px' }} title={cliente.prefixoCodigoRemovido ? `Código "${cliente.prefixoCodigoRemovido}" do sistema antigo removido do nome` : undefined} />
                       </td>
                       <td style={{ padding: '8px' }}>
                         <input type="text" placeholder="-" value={cliente.documento} onChange={(e) => atualizarCliente(cliente.linhaId, { documento: e.target.value.replace(/\D/g, '') })} style={{ ...inputStyle, width: '130px' }} />

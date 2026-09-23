@@ -9,6 +9,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Truck, Upload } f
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import {
   decodificarArquivoTexto,
@@ -400,7 +401,7 @@ const ImportarFornecedores: React.FC = () => {
                   return (
                     <tr key={fornecedor.linhaId} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: (problema && !excluido) ? 'rgba(245,158,11,0.08)' : undefined, opacity: excluido ? 0.5 : 1 }}>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" value={fornecedor.nome} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { nome: e.target.value })} style={{ ...inputStyle, width: '220px' }} />
+                        <input type="text" value={fornecedor.nome} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ ...inputStyle, width: '220px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
                         <input type="text" placeholder="-" value={fornecedor.documento} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { documento: e.target.value.replace(/\D/g, '') })} style={{ ...inputStyle, width: '130px' }} />

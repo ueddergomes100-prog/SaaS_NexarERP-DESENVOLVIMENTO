@@ -6,6 +6,7 @@ import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { toCents } from '../../utils/financeDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload } from 'lucide-react';
@@ -951,8 +952,8 @@ const ContasPagar: React.FC = () => {
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Descrição</label>
                 <input 
                   type="text" 
-                  value={formData.descricao} 
-                  onChange={(e) => setFormData({...formData, descricao: e.target.value})} 
+                  value={formData.descricao}
+                  onChange={(e) => setFormData({...formData, descricao: aplicarCaixaAltaCadastro(e.target, e.target.value)})}
                   placeholder="Ex: ALUGUEL MAIO, ENERGIA JUNHO, COMPRA DE PEÇAS..." 
                   style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)', textTransform: 'uppercase' }}
                   required

@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Factory, Upload }
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { getProximoCodigoMateriaPrima } from '../../utils/materiaPrimaCodigo';
 import { garantirMarcasCadastradas } from '../../utils/marcaDomain';
 import {
@@ -316,14 +317,14 @@ const ImportarMateriasPrimas: React.FC = () => {
                   return (
                     <tr key={materiaPrima.chave} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: itemOrigem?.status === 'REVISAR' && !excluida ? 'rgba(245,158,11,0.08)' : undefined, opacity: excluida ? 0.4 : 1 }}>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" value={materiaPrima.nome} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { nome: e.target.value })} style={{ width: '200px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                        <input type="text" value={materiaPrima.nome} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '200px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                         {itemOrigem?.motivo && <div style={{ fontSize: '11px', color: '#f59e0b' }}>{itemOrigem.motivo}</div>}
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" placeholder="-" value={materiaPrima.marca} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { marca: e.target.value })} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                        <input type="text" placeholder="-" value={materiaPrima.marca} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { marca: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" placeholder="-" value={materiaPrima.referencia} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { referencia: e.target.value })} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                        <input type="text" placeholder="-" value={materiaPrima.referencia} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { referencia: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
                         <input type="text" value={materiaPrima.unidade} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { unidade: e.target.value.toUpperCase() })} style={{ width: '70px', backgroundColor: 'var(--bg-tertiary)', border: !materiaPrima.unidade.trim() ? '1px solid #ef4444' : '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />

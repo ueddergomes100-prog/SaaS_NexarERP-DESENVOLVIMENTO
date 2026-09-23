@@ -8,6 +8,7 @@ import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
 import { mensagemDocumentoInvalido } from '../../utils/documentoValidacao';
 import { buscarClienteDuplicadoPorDocumento } from '../../utils/clienteDuplicadoCheck';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 
 export interface ClienteCadastradoRapido {
   id: string;
@@ -156,7 +157,7 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
               type="text"
               autoFocus
               value={nome}
-              onChange={(e) => setNome(e.target.value)}
+              onChange={(e) => setNome(aplicarCaixaAltaCadastro(e.target, e.target.value))}
               style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
             />
           </div>

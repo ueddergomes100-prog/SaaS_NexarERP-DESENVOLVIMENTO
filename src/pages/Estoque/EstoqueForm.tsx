@@ -2186,7 +2186,7 @@ const EstoqueForm: React.FC = () => {
                   <input
                     placeholder="Ex.: Saco de 20kg"
                     value={novaEmbalagem.descricao}
-                    onChange={(e) => setNovaEmbalagem(prev => ({ ...prev, descricao: e.target.value }))}
+                    onChange={(e) => setNovaEmbalagem(prev => ({ ...prev, descricao: aplicarCaixaAltaCadastro(e.target, e.target.value) }))}
                   />
                 </div>
                 <button type="button" className="btn-secondary" onClick={handleAddEmbalagem} style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { FileCheck2, X } from 'lucide-react';
 import { showError } from '../../utils/alerts';
 import { buildChequeDetails, type ChequeDetails } from '../../utils/financeDomain';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 
 /**
  * "Quadradinho" de digitação de cheque -- inspirado na tela "Digitação de
@@ -107,7 +108,7 @@ const ChequeCaptureModal: React.FC<ChequeCaptureModalProps> = ({
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
             <div className="input-group">
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Banco emissor *</label>
-              <input type="text" value={valores.bancoEmissor} onChange={(e) => atualizar({ bancoEmissor: e.target.value })} placeholder="Ex: Banco do Brasil" style={inputStyle} />
+              <input type="text" value={valores.bancoEmissor} onChange={(e) => atualizar({ bancoEmissor: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder="Ex: Banco do Brasil" style={inputStyle} />
             </div>
             <div className="input-group">
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Agência</label>
@@ -118,11 +119,11 @@ const ChequeCaptureModal: React.FC<ChequeCaptureModalProps> = ({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             <div className="input-group">
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Titular</label>
-              <input type="text" value={valores.titular} onChange={(e) => atualizar({ titular: e.target.value })} style={inputStyle} />
+              <input type="text" value={valores.titular} onChange={(e) => atualizar({ titular: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={inputStyle} />
             </div>
             <div className="input-group">
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Emitente</label>
-              <input type="text" value={valores.emitente} onChange={(e) => atualizar({ emitente: e.target.value })} style={inputStyle} />
+              <input type="text" value={valores.emitente} onChange={(e) => atualizar({ emitente: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={inputStyle} />
             </div>
           </div>
 

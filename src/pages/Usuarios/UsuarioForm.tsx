@@ -27,6 +27,7 @@ import {
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
 import { redefinirSenhaAcesso, UsuarioAcessoError } from '../../services/usuarioAcessoService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { DEFAULT_NIVEL_ACESSO } from '../../utils/visibilidadeVendasDomain';
 import { isRegistroComLogin } from '../../utils/vendedorCadastroDomain';
 
@@ -375,7 +376,7 @@ const UsuarioForm: React.FC = () => {
             type="text" 
             placeholder="Ex: João da Silva"
             value={formData.nome}
-            onChange={(e) => setFormData({...formData, nome: e.target.value})}
+            onChange={(e) => setFormData({...formData, nome: aplicarCaixaAltaCadastro(e.target, e.target.value)})}
             required
             style={{ width: '100%' }}
           />

@@ -45,6 +45,8 @@ interface Banco extends TenantCollectionItem {
   nome: string;
   ativo: boolean;
   ordem: number;
+  /** Convenio de boleto (Financeiro > Bancos): so' o prazo padrao interessa aqui. */
+  boleto?: { ativo?: boolean; prazoPadraoDias?: number };
 }
 
 /**
@@ -351,6 +353,8 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
     sortField: 'ordem',
   });
   const bancosAtivos = bancos.filter((b) => b.ativo);
+  // Prazo padrao do boleto = o configurado no banco que emite boleto (30 sem config).
+  const prazoPadraoBoleto = bancosAtivos.find((b) => b.boleto?.ativo)?.boleto?.prazoPadraoDias || 30;
   const [chequeModalPaymentId, setChequeModalPaymentId] = useState<string | null>(null);
   const paymentDoModalCheque = drafts.find((d) => d.id === chequeModalPaymentId) || null;
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeiras);
@@ -455,6 +459,12 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                       forma: method,
                       parcelas: method === 'Cartão de Débito' ? '1' : payment.parcelas,
                       dataVencimento: method === 'Pagamento a Prazo' ? payment.dataVencimento : '',
+                      // Boleto ja' nasce com o prazo padrao da configuracao (30/60/90...).
+                      ...(method === 'Boleto' && !payment.prazoDias ? {
+                        prazoDias: String(prazoPadraoBoleto),
+                        parcelasAPrazo: '1',
+                        dataPrevistaRecebimento: addDaysToDateInput(transactionDate, prazoPadraoBoleto),
+                      } : {}),
                     });
                   }}
                   options={availableMethods}
@@ -700,23 +710,82 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
               </div>
             )}
 
-            {payment.forma === 'Boleto' && (
-              <div className="payments-editor__card-fields">
-                <div className="input-group">
-                  <label htmlFor={`${idPrefix}-boleto-vencimento-${payment.id}`}>Vencimento do boleto *</label>
-                  <input
-                    disabled={disabled}
-                    id={`${idPrefix}-boleto-vencimento-${payment.id}`}
-                    onChange={(event) => onUpdatePayment(payment.id, { dataPrevistaRecebimento: event.target.value })}
-                    type="date"
-                    value={payment.dataPrevistaRecebimento}
-                  />
+            {payment.forma === 'Boleto' && (() => {
+              const qtdBoletos = Math.max(1, Number.parseInt(payment.parcelasAPrazo, 10) || 1);
+              const intervaloBoleto = Number.parseInt(payment.prazoDias, 10) || 0;
+              const primeiroVencimento = payment.dataPrevistaRecebimento
+                || (intervaloBoleto > 0 ? addDaysToDateInput(transactionDate, intervaloBoleto) : '');
+              // Mesma conta de explodeInstallmentPaymentRecords: a data digitada
+              // e' a da 1a parcela; as outras andam de `intervalo` em `intervalo`.
+              const parcelasBoleto = qtdBoletos > 1 && intervaloBoleto > 0 && primeiroVencimento
+                ? gerarParcelasAPrazo(paymentCents, qtdBoletos, intervaloBoleto, addDaysToDateInput(primeiroVencimento, -intervaloBoleto))
+                : [];
+              const erroBoletos = qtdBoletos > 1 ? erroDasParcelasAPrazo(qtdBoletos, intervaloBoleto) : null;
+              return (
+                <div className="payments-editor__card-fields">
+                  <div className="payments-editor__term-fields">
+                    <div className="input-group">
+                      <label htmlFor={`${idPrefix}-boleto-parcelas-${payment.id}`}>Parcelas (nº de boletos)</label>
+                      <input
+                        disabled={disabled}
+                        id={`${idPrefix}-boleto-parcelas-${payment.id}`}
+                        min="1"
+                        max={MAX_PARCELAS_A_PRAZO}
+                        onChange={(event) => onUpdatePayment(payment.id, { parcelasAPrazo: event.target.value })}
+                        step="1"
+                        type="number"
+                        value={payment.parcelasAPrazo || '1'}
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label htmlFor={`${idPrefix}-boleto-dias-${payment.id}`}>Dias (1º boleto e intervalo)</label>
+                      <input
+                        disabled={disabled}
+                        id={`${idPrefix}-boleto-dias-${payment.id}`}
+                        min="1"
+                        onChange={(event) => {
+                          const dias = Number.parseInt(event.target.value, 10);
+                          onUpdatePayment(payment.id, {
+                            prazoDias: event.target.value,
+                            dataPrevistaRecebimento: Number.isInteger(dias) && dias > 0 ? addDaysToDateInput(transactionDate, dias) : '',
+                          });
+                        }}
+                        step="1"
+                        type="number"
+                        value={payment.prazoDias}
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label htmlFor={`${idPrefix}-boleto-vencimento-${payment.id}`}>{qtdBoletos > 1 ? 'Vencimento do 1º boleto *' : 'Vencimento do boleto *'}</label>
+                      <input
+                        disabled={disabled}
+                        id={`${idPrefix}-boleto-vencimento-${payment.id}`}
+                        onChange={(event) => onUpdatePayment(payment.id, { dataPrevistaRecebimento: event.target.value })}
+                        type="date"
+                        value={payment.dataPrevistaRecebimento}
+                      />
+                    </div>
+                  </div>
+                  {parcelasBoleto.length > 1 ? (
+                    <div className="payments-editor__term-notice">
+                      <strong>{resumoDasParcelas(parcelasBoleto, intervaloBoleto)}</strong>
+                      <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+                        {parcelasBoleto.map((parcela) => (
+                          <span key={parcela.numero}>
+                            {parcela.numero}ª: {formatDateInputPtBr(parcela.dataVencimento)} — {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(parcela.valorCentavos))}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : erroBoletos ? (
+                    <span style={{ color: '#f59e0b' }}>{erroBoletos}</span>
+                  ) : null}
+                  <span className="payments-editor__pending-notice">
+                    {qtdBoletos > 1 ? 'Cada parcela vira um boleto. ' : ''}A emissão (número, linha digitável, código de barras) acontece depois de salvar, em Financeiro → Boletos.
+                  </span>
                 </div>
-                <span className="payments-editor__pending-notice">
-                  A emissão (número, linha digitável, código de barras) acontece depois de salvar, em Financeiro → Boletos.
-                </span>
-              </div>
-            )}
+              );
+            })()}
 
             {payment.forma === 'Dinheiro' ? (
               <span className="payments-editor__cash-notice">Este pagamento movimenta o caixa físico.</span>

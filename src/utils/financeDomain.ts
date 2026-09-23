@@ -855,7 +855,12 @@ export const normalizePayments = (
       // codigo de barras) e' sempre um passo seguinte, feito em Financeiro
       // > Boletos ou no popup pos-venda (ver boletoEmissaoDomain.ts). Nunca
       // grava record.boleto aqui.
-      const vencimento = draft.dataPrevistaRecebimento;
+      // Boleto parcelado (2026-09-23): "Parcelas" + "dias" funcionam como no
+      // pagamento a prazo -- 3x de 15 dias = 15/30/45. A data digitada e' a da
+      // 1a parcela; sem ela, vem da venda + o intervalo.
+      const intervaloBoleto = Number.parseInt(draft.prazoDias, 10);
+      const vencimento = draft.dataPrevistaRecebimento
+        || (Number.isInteger(intervaloBoleto) && intervaloBoleto > 0 ? addDaysToDateInput(saleDate, intervaloBoleto) : '');
       if (!vencimento || !parseDateInput(vencimento)) {
         throw new Error(`Informe a data de vencimento do boleto do pagamento ${index + 1}.`);
       }
@@ -863,6 +868,19 @@ export const normalizePayments = (
         throw new Error(`A data de vencimento do boleto do pagamento ${index + 1} não pode ser anterior à data da venda.`);
       }
       record.dataPrevistaRecebimento = vencimento;
+      record.dataVencimento = vencimento;
+
+      const parcelasBoleto = Number.parseInt(draft.parcelasAPrazo, 10);
+      if (Number.isFinite(parcelasBoleto) && parcelasBoleto > 1) {
+        if (parcelasBoleto > MAX_PARCELAS_A_PRAZO) {
+          throw new Error(`O boleto aceita no máximo ${MAX_PARCELAS_A_PRAZO} parcelas.`);
+        }
+        if (!Number.isInteger(intervaloBoleto) || intervaloBoleto < 1) {
+          throw new Error(`Informe de quantos em quantos dias cada boleto do pagamento ${index + 1} vence.`);
+        }
+        record.prazoDias = intervaloBoleto;
+        record.totalParcelasAPrazo = parcelasBoleto;
+      }
     }
 
     return record;
@@ -898,7 +916,8 @@ export const explodeInstallmentPaymentRecords = (records: PaymentRecord[]): Paym
   const exploded = records.flatMap((record): PaymentRecord[] => {
     // --- Pagamento a prazo parcelado -------------------------------------
     const totalAPrazo = record.totalParcelasAPrazo ?? 1;
-    if (record.formaPagamento === 'Pagamento a Prazo' && totalAPrazo > 1) {
+    const ehBoleto = record.formaPagamento === 'Boleto';
+    if ((record.formaPagamento === 'Pagamento a Prazo' || ehBoleto) && totalAPrazo > 1) {
       // As datas saem da data da 1a parcela, andando de `prazoDias` em
       // `prazoDias` -- o mesmo intervalo que a pessoa informou na tela.
       const intervalo = Math.max(1, Number(record.prazoDias) || 0);
@@ -915,6 +934,8 @@ export const explodeInstallmentPaymentRecords = (records: PaymentRecord[]): Paym
         valorCentavos: parcela.valorCentavos,
         valor: fromCents(parcela.valorCentavos),
         dataVencimento: parcela.dataVencimento,
+        // O boleto usa esta data como vencimento (o a prazo, dataVencimento).
+        ...(ehBoleto ? { dataPrevistaRecebimento: parcela.dataVencimento } : {}),
         prazoDias: intervalo * parcela.numero,
         numeroParcelaAPrazo: parcela.numero,
         totalParcelasAPrazo: totalAPrazo,

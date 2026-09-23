@@ -522,7 +522,7 @@ test('Pix/Transferência/Cartão/Boleto exigem banco de destino; Dinheiro e Paga
 
 test('Boleto exige data de vencimento e nasce pendente, sem boleto emitido ainda', () => {
   assert.throws(
-    () => normalizePayments(10_000, [payment({ forma: 'Boleto', dataPrevistaRecebimento: '' })], { saleDate: '2026-09-22' }),
+    () => normalizePayments(10_000, [payment({ forma: 'Boleto', dataPrevistaRecebimento: '', prazoDias: '' })], { saleDate: '2026-09-22' }),
     /vencimento do boleto/,
   );
   assert.throws(
@@ -889,4 +889,57 @@ test('normalizePayments guarda o total de parcelas do a prazo', () => {
   );
   assert.equal(registros[0].totalParcelasAPrazo, 3);
   assert.equal(registros[0].dataVencimento, '2026-10-21');
+});
+
+// --- Boleto parcelado (2026-09-23) ------------------------------------------
+
+test('boleto parcelado: 2x de R$ 100,00 vira dois boletos de R$ 50,00', () => {
+  const records = normalizePayments(10_000, [
+    payment({ forma: 'Boleto', parcelasAPrazo: '2', prazoDias: '30' }),
+  ], { saleDate: '2026-09-23' });
+  assert.equal(records.length, 1);
+  assert.equal(records[0].totalParcelasAPrazo, 2);
+
+  const boletos = explodeInstallmentPaymentRecords(records);
+  assert.equal(boletos.length, 2);
+  assert.deepEqual(boletos.map((b) => b.valorCentavos), [5_000, 5_000]);
+  assert.deepEqual(boletos.map((b) => b.formaPagamento), ['Boleto', 'Boleto']);
+  assert.deepEqual(boletos.map((b) => b.dataPrevistaRecebimento), ['2026-10-23', '2026-11-22']);
+  assert.deepEqual(boletos.map((b) => b.dataVencimento), ['2026-10-23', '2026-11-22']);
+  boletos.forEach((b) => {
+    assert.equal(b.status, 'pendente');
+    assert.equal(b.naturezaFinanceira, 'contas_receber');
+  });
+});
+
+test('boleto parcelado com 15 dias: 15/30/45, e a soma fecha no centavo', () => {
+  const [record] = normalizePayments(10_000, [
+    payment({ forma: 'Boleto', parcelasAPrazo: '3', prazoDias: '15' }),
+  ], { saleDate: '2026-09-23' });
+  const boletos = explodeInstallmentPaymentRecords([record]);
+  assert.deepEqual(boletos.map((b) => b.dataVencimento), ['2026-10-08', '2026-10-23', '2026-11-07']);
+  assert.equal(boletos.reduce((soma, b) => soma + b.valorCentavos, 0), 10_000);
+});
+
+test('boleto: sem data digitada, o vencimento vem da venda + prazo em dias', () => {
+  const [record] = normalizePayments(10_000, [
+    payment({ forma: 'Boleto', dataPrevistaRecebimento: '', prazoDias: '30' }),
+  ], { saleDate: '2026-09-23' });
+  assert.equal(record.dataPrevistaRecebimento, '2026-10-23');
+  assert.equal(record.totalParcelasAPrazo, undefined);
+});
+
+test('boleto parcelado sem intervalo de dias e recusado com mensagem clara', () => {
+  assert.throws(
+    () => normalizePayments(10_000, [payment({ forma: 'Boleto', parcelasAPrazo: '3', prazoDias: '', dataPrevistaRecebimento: '2026-10-23' })], { saleDate: '2026-09-23' }),
+    /de quantos em quantos dias/,
+  );
+});
+
+test('boleto parcelado com a data do 1o boleto escolhida: as demais andam de intervalo em intervalo', () => {
+  const [record] = normalizePayments(10_000, [
+    payment({ forma: 'Boleto', parcelasAPrazo: '3', prazoDias: '30', dataPrevistaRecebimento: '2026-10-05' }),
+  ], { saleDate: '2026-09-23' });
+  const boletos = explodeInstallmentPaymentRecords([record]);
+  assert.deepEqual(boletos.map((b) => b.dataVencimento), ['2026-10-05', '2026-11-04', '2026-12-04']);
 });

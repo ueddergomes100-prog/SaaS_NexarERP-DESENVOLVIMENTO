@@ -40,6 +40,8 @@ export interface ConvenioBoleto {
   instrucoes?: string;
   multaPercentual?: number;
   jurosMensalPercentual?: number;
+  /** Prazo padrao (dias) do 1o boleto e entre parcelas -- 30 => 30/60/90. */
+  prazoPadraoDias?: number;
   /** Piso do contador -- deixa continuar a numeracao de onde o sistema
    *  antigo parou, em vez de reiniciar em 1. */
   proximoNossoNumero?: number;
@@ -92,6 +94,7 @@ const emptyBankForm = () => ({
   // Padrao do sistema antigo da Sol Life: multa 2% + juros 10% ao mes.
   boletoMultaPercentual: '2',
   boletoJurosMensalPercentual: '10',
+  boletoPrazoPadraoDias: '30',
   boletoProximoNossoNumero: '',
   boletoProximaRemessa: '',
 });
@@ -200,6 +203,7 @@ const BancosList: React.FC = () => {
       boletoInstrucoes: banco.boleto?.instrucoes || '',
       boletoMultaPercentual: banco.boleto?.multaPercentual != null ? String(banco.boleto.multaPercentual).replace('.', ',') : '2',
       boletoJurosMensalPercentual: banco.boleto?.jurosMensalPercentual != null ? String(banco.boleto.jurosMensalPercentual).replace('.', ',') : '10',
+      boletoPrazoPadraoDias: banco.boleto?.prazoPadraoDias != null ? String(banco.boleto.prazoPadraoDias) : '30',
       boletoProximoNossoNumero: banco.boleto?.proximoNossoNumero ? String(banco.boleto.proximoNossoNumero) : '',
       boletoProximaRemessa: banco.boleto?.proximaRemessa ? String(banco.boleto.proximaRemessa) : '',
     });
@@ -233,6 +237,7 @@ const BancosList: React.FC = () => {
       ...(modalForm.boletoInstrucoes.trim() ? { instrucoes: modalForm.boletoInstrucoes.trim() } : {}),
       multaPercentual: Number(modalForm.boletoMultaPercentual.replace(',', '.')) || 0,
       jurosMensalPercentual: Number(modalForm.boletoJurosMensalPercentual.replace(',', '.')) || 0,
+      prazoPadraoDias: Math.max(1, Math.floor(Number(modalForm.boletoPrazoPadraoDias) || 30)),
       ...(modalForm.boletoProximoNossoNumero.trim() ? { proximoNossoNumero: Number(modalForm.boletoProximoNossoNumero) || 0 } : {}),
       ...(modalForm.boletoProximaRemessa.trim() ? { proximaRemessa: Number(modalForm.boletoProximaRemessa) || 0 } : {}),
     } : { ativo: false };
@@ -722,6 +727,18 @@ const BancosList: React.FC = () => {
                         style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
                       />
                       <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Máx. 40 caracteres. Em branco usa "PROTESTO NO 7 DIA APOS O VENCIMENTO". As mensagens de multa e juros em R$ saem sozinhas, calculadas pelo valor de cada boleto.</span>
+                    </div>
+                    <div className="input-group">
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Prazo padrão dos boletos (dias)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={modalForm.boletoPrazoPadraoDias}
+                        onChange={(e) => setModalForm({ ...modalForm, boletoPrazoPadraoDias: e.target.value })}
+                        style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
+                      />
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ao escolher Boleto na venda, o vencimento já vem daqui: 30 → 30/60/90 dias conforme o nº de parcelas. Quem vende pode trocar na hora (15 → 15/30/45).</span>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                       <div className="input-group">

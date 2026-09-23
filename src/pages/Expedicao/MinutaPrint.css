@@ -184,3 +184,15 @@
     page-break-before: always;
   }
 }
+
+/* Folha em branco no fim (o preview do navegador mostrava "2 folhas"): o
+   .a4-page tem min-height de 297mm (OsPrint.css), so' que a area imprimivel
+   e' menor por causa das margens da impressora -- os ~2cm que sobravam
+   viravam uma 2a folha vazia. Na impressao a minuta ocupa so' o que o
+   conteudo precisa. */
+@media print {
+  .minuta-doc {
+    min-height: 0 !important;
+    height: auto !important;
+  }
+}

@@ -9,6 +9,8 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService } from '../../services/spedyService';
 import { applyStockAdjustments, applyStockFieldDeltas, describeTransactionError, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { MOTIVOS_TROCA, PERMISSAO_TROCA_GERENCIAR, PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
+import { trocaService, TrocaError } from '../../services/trocaService';
 import { formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
@@ -1808,23 +1810,10 @@ const PedidoVendaForm: React.FC = () => {
    * documento como Cancelada. Nao mexe em financeiro porque nunca houve --
    * e' justamente o que diferencia isto de estornar uma venda finalizada.
    */
-  const handleCancelarPreVenda = async () => {
-    if (!currentUser || !tenantId || !id) return;
-
-    const confirm = await NexusSwal.fire({
-      title: 'Cancelar esta pré-venda?',
-      text: 'O estoque reservado volta a ficar disponível para venda. A pré-venda fica registrada como cancelada.',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Sim, cancelar',
-      cancelButtonText: 'Voltar',
-      confirmButtonColor: '#ef4444',
-      reverseButtons: true,
-    });
-    if (!confirm.isConfirmed) return;
-
-    setIsLoading(true);
-    try {
+  /** Cancela a pre-venda no banco: libera a reserva de estoque e marca Cancelada.
+   *  Usado pelo botao "Cancelar Pre-venda" e por "Converter em troca". */
+  const cancelarPreVendaNoBanco = async (nota: string) => {
+    if (!currentUser || !id) return;
       await runTransaction(db, async (transaction) => {
         const preVendaRef = doc(db, 'pedidos_venda', id);
         const snap = await transaction.get(preVendaRef);
@@ -1849,9 +1838,116 @@ const PedidoVendaForm: React.FC = () => {
         transaction.update(preVendaRef, {
           status: STATUS_CANCELADA,
           estoqueReservado: false,
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Pré-venda cancelada'),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), nota),
         });
       });
+  };
+
+  /**
+   * CONVERTER PRE-VENDA EM TROCA (2026-09-23, pedido do dono): o vendedor do app
+   * lancou como pre-venda o que era troca. Quem confere na retaguarda corrige
+   * aqui: registra a troca (mesmo cliente e itens, sem cobranca) e cancela a
+   * pre-venda, liberando a reserva de estoque.
+   *
+   * ORDEM: a troca nasce PRIMEIRO. Se ela falhar, nada foi cancelado. Se o
+   * cancelamento falhar depois, a troca ja existe e a mensagem diz isso -- so'
+   * falta cancelar a pre-venda no botao ao lado.
+   */
+  const handleConverterEmTroca = async () => {
+    if (!currentUser || !tenantId || !id) return;
+
+    if (itens.some((item) => !item.id || item.id === 'avulso')) {
+      showError('Não dá para converter', 'Esta pré-venda tem item avulso (sem produto cadastrado). Troca só aceita produto do estoque.');
+      return;
+    }
+
+    const escolha = await NexusSwal.fire({
+      title: 'Converter em troca?',
+      html: `A pré-venda <b>#${numeroPedido}</b> será <b>cancelada</b> (a reserva de estoque é liberada) e uma <b>troca sem cobrança</b> será registrada com o mesmo cliente e os mesmos itens.`,
+      icon: 'question',
+      input: 'select',
+      inputOptions: Object.fromEntries(MOTIVOS_TROCA.map((m) => [m.value, m.label])),
+      inputPlaceholder: 'Motivo da troca (vale para todos os itens)',
+      inputValidator: (valor) => (valor ? undefined : 'Escolha o motivo da troca.'),
+      showCancelButton: true,
+      confirmButtonText: 'Converter em troca',
+      cancelButtonText: 'Voltar',
+      reverseButtons: true,
+    });
+    if (!escolha.isConfirmed) return;
+    const motivo = String(escolha.value);
+
+    let motivoDescricao = '';
+    if (motivo === 'outro') {
+      const descricao = await NexusSwal.fire({
+        title: 'Descreva o motivo',
+        input: 'text',
+        inputValidator: (valor) => ((valor || '').trim().length >= 3 ? undefined : 'Descreva o motivo (mínimo 3 letras).'),
+        showCancelButton: true,
+        confirmButtonText: 'Continuar',
+        cancelButtonText: 'Voltar',
+      });
+      if (!descricao.isConfirmed) return;
+      motivoDescricao = String(descricao.value).trim();
+    }
+
+    setIsLoading(true);
+    let numeroTroca = '';
+    try {
+      const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', id));
+      if (!pedidoSnap.exists() || pedidoSnap.data().tenantId !== tenantId) throw new Error('Esta pré-venda não existe mais.');
+      const dados = pedidoSnap.data();
+      if (!isPedidoAberto(dados.status)) throw new Error('Esta pré-venda não está mais em aberto. Recarregue a tela.');
+      if (!dados.clienteId) throw new Error('Esta pré-venda não tem cliente cadastrado, e a troca exige um. Cancele e lance a troca em Trocas → Nova troca.');
+
+      const resposta = await trocaService.solicitar({
+        clienteId: String(dados.clienteId),
+        itens: (Array.isArray(dados.itens) ? dados.itens : []).map((item: any) => ({
+          id: String(item.id),
+          quantidade: Number(item.quantidade) || 0,
+          motivo,
+          ...(motivo === 'outro' ? { motivoDescricao } : {}),
+        })),
+        observacao: `Convertida da pré-venda #${numeroPedido}`,
+      });
+      numeroTroca = resposta.numeroTroca;
+
+      await cancelarPreVendaNoBanco(`Pré-venda convertida em troca #${numeroTroca}`);
+
+      setIsDirty(false);
+      await showSuccess(`Troca #${numeroTroca} registrada e pré-venda cancelada.`);
+      navigate('/vendas/trocas');
+    } catch (error) {
+      console.error('Erro ao converter pré-venda em troca:', error);
+      const mensagem = error instanceof TrocaError || error instanceof Error ? error.message : 'Tente novamente.';
+      if (numeroTroca) {
+        showError('Troca criada, mas a pré-venda não foi cancelada', `A troca #${numeroTroca} já foi registrada, porém não foi possível cancelar esta pré-venda (${mensagem}). Use o botão "Cancelar Pré-venda" para terminar.`);
+      } else {
+        showError('Não foi possível converter em troca', mensagem);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCancelarPreVenda = async () => {
+    if (!currentUser || !tenantId || !id) return;
+
+    const confirm = await NexusSwal.fire({
+      title: 'Cancelar esta pré-venda?',
+      text: 'O estoque reservado volta a ficar disponível para venda. A pré-venda fica registrada como cancelada.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, cancelar',
+      cancelButtonText: 'Voltar',
+      confirmButtonColor: '#ef4444',
+      reverseButtons: true,
+    });
+    if (!confirm.isConfirmed) return;
+
+    setIsLoading(true);
+    try {
+      await cancelarPreVendaNoBanco('Pré-venda cancelada');
 
       try {
         const { createAuditLog } = await import('../../services/logService');
@@ -3942,6 +4038,11 @@ const PedidoVendaForm: React.FC = () => {
           {isPendingFromAgent && canEditPendingOrder && (
             <button className="btn-secondary" onClick={handleRecusarPendente} disabled={isLoading} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>
               <XCircle size={18} /> Recusar Pedido
+            </button>
+          )}
+          {isPreVendaAberta && canCancelarPreVenda && (temPermissao(PERMISSAO_TROCA_SOLICITAR) || temPermissao(PERMISSAO_TROCA_GERENCIAR)) && (
+            <button className="btn-secondary" onClick={handleConverterEmTroca} disabled={isLoading} style={{ display: 'flex', alignItems: 'center', gap: '8px' }} title="Cancela a pré-venda e registra uma troca sem cobrança com os mesmos itens">
+              <RotateCcw size={18} /> Converter em troca
             </button>
           )}
           {isPreVendaAberta && canCancelarPreVenda && (

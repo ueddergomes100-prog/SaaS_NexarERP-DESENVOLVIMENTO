@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { collection, setDoc, doc, serverTimestamp, getDoc, updateDoc, query, where, getDocs } from 'firebase/firestore';
 import { db, firebaseConfig } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import {
   checarPrefixoDaEmpresa,
   checarUsername,
@@ -55,6 +55,12 @@ const UsuarioForm: React.FC = () => {
   const [salvandoPin, setSalvandoPin] = useState(false);
   const [novaSenhaAcesso, setNovaSenhaAcesso] = useState('');
   const [salvandoSenhaAcesso, setSalvandoSenhaAcesso] = useState(false);
+  // "Este funcionario e' motorista" (2026-09-23): marcar cria o cadastro de
+  // motorista ja vinculado a este usuario (motoristas/{uid}), sem digitar tudo
+  // de novo em Operacoes > Motoristas.
+  const [ehMotorista, setEhMotorista] = useState(false);
+  const [motoristaJaVinculado, setMotoristaJaVinculado] = useState(false);
+  const [dadosMotorista, setDadosMotorista] = useState({ telefone: '', cnh: '' });
 
   React.useEffect(() => {
     if (isEditing && id) {
@@ -69,10 +75,22 @@ const UsuarioForm: React.FC = () => {
             codigoVendedor: data.codigoVendedor || ''
           });
         }
+        // Ja e' motorista? O vinculo e' o documento motoristas/{uid}.
+        try {
+          const motoristaSnap = await getDoc(doc(db, 'motoristas', id));
+          if (motoristaSnap.exists() && motoristaSnap.data().tenantId === tenantId) {
+            const m = motoristaSnap.data();
+            setEhMotorista(true);
+            setMotoristaJaVinculado(true);
+            setDadosMotorista({ telefone: m.telefone || '', cnh: m.cnh || '' });
+          }
+        } catch (erro) {
+          console.error('Erro ao ler o vínculo de motorista:', erro);
+        }
       };
       fetchUser();
     }
-  }, [id, isEditing]);
+  }, [id, isEditing, tenantId]);
 
   // O prefixo do login do funcionario e' o CNPJ da empresa -- e SO ele.
   //
@@ -182,6 +200,34 @@ const UsuarioForm: React.FC = () => {
     }
   };
 
+  /** Cria/atualiza o motorista vinculado. Falha aqui NAO desfaz o usuario: avisa e segue. */
+  const salvarVinculoMotorista = async (uid: string, nome: string) => {
+    if (!ehMotorista || !tenantId || !currentUser) return;
+    try {
+      const dados = {
+        nome: nome.toUpperCase().trim(),
+        telefone: dadosMotorista.telefone.trim(),
+        cnh: dadosMotorista.cnh.trim(),
+        usuarioId: uid,
+        tenantId,
+      };
+      if (motoristaJaVinculado) {
+        await updateDoc(doc(db, 'motoristas', uid), { ...dados, ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()) });
+      } else {
+        await setDoc(doc(db, 'motoristas', uid), {
+          ...dados,
+          observacao: '',
+          ativo: true,
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+      }
+    } catch (erro) {
+      console.error('Erro ao salvar o motorista vinculado:', erro);
+      showWarning('O usuário foi salvo, mas não foi possível cadastrar como motorista. Cadastre em Operações → Motoristas.');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tenantId || !currentUser) return;
@@ -208,6 +254,7 @@ const UsuarioForm: React.FC = () => {
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        await salvarVinculoMotorista(id, formData.nome);
         showSuccess('Usuário atualizado com sucesso!');
         navigate('/usuarios');
       } catch (err) {
@@ -323,6 +370,7 @@ const UsuarioForm: React.FC = () => {
         tenantId: tenantId
       });
 
+      await salvarVinculoMotorista(novoUID, formData.nome);
       showSuccess('Usuário criado com sucesso!');
       navigate('/usuarios');
       
@@ -491,6 +539,53 @@ const UsuarioForm: React.FC = () => {
               Cadastre aqui também quando o funcionário <strong>esquecer a senha</strong> — salvar uma nova substitui a antiga e destrava na hora quem estiver bloqueado por tentativas.
             </span>
           </div>
+        )}
+
+        <div className="input-group" style={{ gridColumn: 'span 12', marginTop: '8px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: motoristaJaVinculado ? 'default' : 'pointer', fontWeight: 600 }}>
+            <input
+              type="checkbox"
+              checked={ehMotorista}
+              disabled={motoristaJaVinculado}
+              onChange={(e) => setEhMotorista(e.target.checked)}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--accent-purple)' }}
+            />
+            Este funcionário é motorista
+          </label>
+          {motoristaJaVinculado && (
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Já vinculado. Para tirar da lista de motoristas, use Operações → Motoristas.
+            </span>
+          )}
+        </div>
+
+        {ehMotorista && (
+          <>
+            <div className="input-group" style={{ gridColumn: 'span 6' }}>
+              <label>Telefone do motorista</label>
+              <input
+                type="text"
+                inputMode="tel"
+                placeholder="(00) 00000-0000"
+                value={dadosMotorista.telefone}
+                onChange={(e) => setDadosMotorista({ ...dadosMotorista, telefone: e.target.value })}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div className="input-group" style={{ gridColumn: 'span 6' }}>
+              <label>CNH</label>
+              <input
+                type="text"
+                placeholder="Número da habilitação"
+                value={dadosMotorista.cnh}
+                onChange={(e) => setDadosMotorista({ ...dadosMotorista, cnh: e.target.value })}
+                style={{ width: '100%' }}
+              />
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Ao salvar, esta pessoa já aparece na lista de motoristas das rotas.
+              </span>
+            </div>
+          </>
         )}
 
         <div className="input-group" style={{ gridColumn: 'span 12', marginTop: '8px' }}>

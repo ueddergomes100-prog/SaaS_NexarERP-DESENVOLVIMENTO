@@ -11,6 +11,8 @@ import {
   NIVEL_ACESSO_LABELS,
   type NivelAcesso,
   parseNivelAcesso,
+  podeGerenciarPermissoesDeEquipe,
+  podeSerAlvoDePermissaoPorGerente,
 } from '../../utils/visibilidadeVendasDomain';
 import PermissoesUsuarioModal from '../../components/common/PermissoesUsuarioModal';
 import {
@@ -40,6 +42,8 @@ const UsuariosList: React.FC = () => {
     currentUser,
     tenantId,
     userRole,
+    isOwner,
+    nivelAcesso,
     restringirVendasPorUsuario,
     exigirIdentificacaoVendedor,
     temVendedorCadastrado,
@@ -51,7 +55,12 @@ const UsuariosList: React.FC = () => {
   // porque as duas telas exigem permissoes diferentes (administrativo.equipe
   // vs administrativo.config) -- ver comentario em PermissoesUsuarioModal.
   const [usuarioPermissoes, setUsuarioPermissoes] = useState<UsuarioData | null>(null);
+  // Criar/inativar usuario e trocar senha continuam so' Admin/Master/Dono.
   const canManageUsers = isTenantManagerRole(userRole);
+  // Mexer na permissao (modulos liberados) de um Funcionario comum: alem de
+  // quem gerencia usuarios, agora tambem quem e' nivel Gerente (2026-09-23,
+  // pedido do dono) -- ver podeGerenciarPermissoesDeEquipe.
+  const podeGerenciarPermissoes = podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso });
 
   useEffect(() => {
     if (!tenantId) return;
@@ -206,7 +215,7 @@ const UsuariosList: React.FC = () => {
                 <th style={{ padding: '16px' }}>Perfil no Sistema</th>
                 <th style={{ padding: '16px' }}>Nível (Vendas)</th>
                 <th style={{ padding: '16px' }}>Status</th>
-                {canManageUsers && <th style={{ padding: '16px', textAlign: 'right' }}>Ações</th>}
+                {(canManageUsers || podeGerenciarPermissoes) && <th style={{ padding: '16px', textAlign: 'right' }}>Ações</th>}
               </tr>
             </thead>
             <tbody>
@@ -238,29 +247,40 @@ const UsuariosList: React.FC = () => {
                         );
                       })()}
                     </td>
-                    {canManageUsers && (
+                    {(canManageUsers || podeGerenciarPermissoes) && (
                       <td {...semAbrirLinha} style={{ padding: '16px', textAlign: 'right' }}>
                         {!isTenantManagerRole(user.role) && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                            <button
-                              className="icon-btn"
-                              style={{ color: '#8b5cf6' }}
-                              onClick={() => setUsuarioPermissoes(user)}
-                              title="Definir Permissões de Acesso"
-                            >
-                              <Shield size={18} />
-                            </button>
-                            <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => openTab(`/usuarios/editar/${user.id}`)} title="Editar Usuário">
-                              <Edit2 size={18} />
-                            </button>
-                            <button
-                              className="icon-btn"
-                              style={{ color: (user.status || 'Ativo') === 'Ativo' ? '#ef4444' : '#10b981' }}
-                              onClick={() => handleToggleStatus(user)}
-                              title={(user.status || 'Ativo') === 'Ativo' ? 'Inativar Usuário' : 'Ativar Usuário'}
-                            >
-                              <Power size={18} />
-                            </button>
+                            {(canManageUsers || podeSerAlvoDePermissaoPorGerente({
+                              targetUserId: user.id,
+                              targetRole: user.role,
+                              targetNivelAcesso: parseNivelAcesso(user.nivelAcesso),
+                              actorUserId: currentUser?.uid,
+                            })) && (
+                              <button
+                                className="icon-btn"
+                                style={{ color: '#8b5cf6' }}
+                                onClick={() => setUsuarioPermissoes(user)}
+                                title="Definir Permissões de Acesso"
+                              >
+                                <Shield size={18} />
+                              </button>
+                            )}
+                            {canManageUsers && (
+                              <>
+                                <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => openTab(`/usuarios/editar/${user.id}`)} title="Editar Usuário">
+                                  <Edit2 size={18} />
+                                </button>
+                                <button
+                                  className="icon-btn"
+                                  style={{ color: (user.status || 'Ativo') === 'Ativo' ? '#ef4444' : '#10b981' }}
+                                  onClick={() => handleToggleStatus(user)}
+                                  title={(user.status || 'Ativo') === 'Ativo' ? 'Inativar Usuário' : 'Ativar Usuário'}
+                                >
+                                  <Power size={18} />
+                                </button>
+                              </>
+                            )}
                           </div>
                         )}
                       </td>

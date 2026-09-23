@@ -22,6 +22,7 @@ import {
   type NivelAcesso,
 } from '../../utils/visibilidadeVendasDomain';
 import { checarLimiteAcessoMobile } from '../../utils/acessoMobileDomain';
+import { hasTenantFullAccess } from '../../utils/roles';
 
 interface PermissoesUsuarioModalProps {
   usuarioId: string;
@@ -41,7 +42,12 @@ interface PermissoesUsuarioModalProps {
  * bateria numa parede. O popup funciona pra quem ja esta na tela.
  */
 const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuarioId, usuarioNome, onClose, onSaved }) => {
-  const { currentUser, tenantId, restringirVendasPorUsuario } = useAuth();
+  const { currentUser, tenantId, userRole, isOwner, restringirVendasPorUsuario } = useAuth();
+  // Gerente (nivel de vendas) tambem abre este popup agora, mas so' pode
+  // mexer nos modulos liberados -- nivel de acesso e acesso mobile
+  // continuam so' Admin/Master/Dono (a regra do Firestore recusa a troca
+  // desses dois campos vinda de quem nao e' isso; ver firestore.rules).
+  const podeAlterarNivelEMobile = hasTenantFullAccess(userRole, isOwner);
   const [permissoes, setPermissoes] = useState<string[]>([]);
   const [nivelAcesso, setNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
   const [busca, setBusca] = useState('');
@@ -104,7 +110,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
   const handleSalvar = async () => {
     if (!currentUser) return;
 
-    const ligandoAcessoMobileAgora = acessoAppMobile && !acessoAppMobileOriginal;
+    const ligandoAcessoMobileAgora = podeAlterarNivelEMobile && acessoAppMobile && !acessoAppMobileOriginal;
     if (ligandoAcessoMobileAgora && tenantId) {
       const checagem = await checarLimiteAcessoMobile(tenantId);
       if (!checagem.ok) {
@@ -117,8 +123,9 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
     try {
       await updateDoc(doc(db, 'usuarios', usuarioId), {
         permissoes,
-        nivelAcesso,
-        acessoAppMobile,
+        // Gerente nao manda estes dois campos -- so' os de quem tem acesso
+        // total, pra nunca colidir com o que a regra do Firestore aceita.
+        ...(podeAlterarNivelEMobile ? { nivelAcesso, acessoAppMobile } : {}),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Permissões atualizadas'),
       });
       showSuccess('Permissões salvas!');
@@ -170,8 +177,8 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
               id="nivel-acesso-usuario"
               value={nivelAcesso}
               onChange={(e) => setNivelAcesso(parseNivelAcesso(e.target.value))}
-              disabled={isLoading}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '13px' }}
+              disabled={isLoading || !podeAlterarNivelEMobile}
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '13px', opacity: podeAlterarNivelEMobile ? 1 : 0.6 }}
             >
               {NIVEIS_ACESSO.map((nivel) => (
                 <option key={nivel} value={nivel}>{NIVEL_ACESSO_LABELS[nivel]}</option>
@@ -179,7 +186,9 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
             </select>
           </div>
           <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-            {restringirVendasPorUsuario
+            {!podeAlterarNivelEMobile
+              ? 'Só um Administrador, Master ou o Dono pode mudar o nível de acesso.'
+              : restringirVendasPorUsuario
               ? (nivelAcesso === 'funcionario'
                 ? 'Sua empresa está com "Não visualizar vendas de outro usuário" ligado: este usuário verá somente as vendas em que ele é o vendedor.'
                 : 'Este usuário verá as vendas de todos os vendedores, mesmo com a restrição ligada.')
@@ -188,18 +197,20 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
         </div>
 
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: isLoading ? 'default' : 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: (isLoading || !podeAlterarNivelEMobile) ? 'default' : 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', opacity: podeAlterarNivelEMobile ? 1 : 0.6 }}>
             <input
               type="checkbox"
               checked={acessoAppMobile}
-              disabled={isLoading}
+              disabled={isLoading || !podeAlterarNivelEMobile}
               onChange={(e) => setAcessoAppMobile(e.target.checked)}
               style={{ width: '18px', height: '18px', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
             />
             Acesso ao aplicativo mobile
           </label>
           <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-            Libera este usuário pra entrar no aplicativo do vendedor externo, com o mesmo login (CNPJ, usuário e senha) que ele já usa aqui. Consome uma vaga do limite de acesso mobile contratado pela empresa.
+            {podeAlterarNivelEMobile
+              ? 'Libera este usuário pra entrar no aplicativo do vendedor externo, com o mesmo login (CNPJ, usuário e senha) que ele já usa aqui. Consome uma vaga do limite de acesso mobile contratado pela empresa.'
+              : 'Só um Administrador, Master ou o Dono pode liberar o acesso ao aplicativo mobile.'}
           </p>
         </div>
 

@@ -4,6 +4,8 @@ import {
   DEFAULT_NIVEL_ACESSO,
   NIVEIS_ACESSO,
   podeVerVendasDeTodos,
+  podeGerenciarPermissoesDeEquipe,
+  podeSerAlvoDePermissaoPorGerente,
   filtrarLancamentosVisiveis,
   filtrarVendasVisiveis,
   isVendaDoUsuario,
@@ -13,6 +15,41 @@ import {
   somenteVendasProprias,
   vendedorDaVenda,
 } from '../src/utils/visibilidadeVendasDomain';
+
+test('podeGerenciarPermissoesDeEquipe: dono, Admin/Master e Gerente sim; Funcionario/Supervisor comum nao', () => {
+  assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Funcionario', isOwner: true, nivelAcesso: 'funcionario' }), true);
+  assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Admin', isOwner: false, nivelAcesso: 'funcionario' }), true);
+  assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Master', isOwner: false, nivelAcesso: 'funcionario' }), true);
+  assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'gerente' }), true);
+  assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'funcionario' }), false);
+  assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'supervisor' }), false);
+});
+
+test('podeSerAlvoDePermissaoPorGerente: so Funcionario comum, nunca outro Gerente nem o proprio Gerente', () => {
+  assert.equal(
+    podeSerAlvoDePermissaoPorGerente({ targetUserId: 'u1', targetRole: 'Funcionario', targetNivelAcesso: 'funcionario', actorUserId: 'gerente1' }),
+    true,
+  );
+  assert.equal(
+    podeSerAlvoDePermissaoPorGerente({ targetUserId: 'u1', targetRole: 'Funcionario', targetNivelAcesso: 'supervisor', actorUserId: 'gerente1' }),
+    true,
+  );
+  // Outro gerente: nao.
+  assert.equal(
+    podeSerAlvoDePermissaoPorGerente({ targetUserId: 'u2', targetRole: 'Funcionario', targetNivelAcesso: 'gerente', actorUserId: 'gerente1' }),
+    false,
+  );
+  // Admin/Master: nao (role diferente de Funcionario).
+  assert.equal(
+    podeSerAlvoDePermissaoPorGerente({ targetUserId: 'u3', targetRole: 'Admin', targetNivelAcesso: 'funcionario', actorUserId: 'gerente1' }),
+    false,
+  );
+  // Ele mesmo: nao.
+  assert.equal(
+    podeSerAlvoDePermissaoPorGerente({ targetUserId: 'gerente1', targetRole: 'Funcionario', targetNivelAcesso: 'gerente', actorUserId: 'gerente1' }),
+    false,
+  );
+});
 
 test('parseNivelAcesso cai no default para valor invalido ou ausente', () => {
   assert.equal(parseNivelAcesso(undefined), DEFAULT_NIVEL_ACESSO);

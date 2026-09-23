@@ -84,6 +84,47 @@ export const podeVerVendasDeTodos = (args: {
   hasTenantFullAccess(args.role, args.isOwner) || args.nivelAcesso !== 'funcionario'
 );
 
+/**
+ * ESTA PESSOA PODE MEXER NA PERMISSAO DE ACESSO DE OUTRO FUNCIONARIO?
+ *
+ * Decisao de produto (2026-09-23, pedido do dono): quem e' nivel 'gerente'
+ * passa a poder marcar/desmarcar os modulos liberados dos Funcionarios da
+ * equipe, sem precisar virar Admin/Master (que abriria TODO o sistema,
+ * inclusive Financeiro/Fiscal, sem ninguem pedir -- mesmo raciocinio do
+ * comentario no topo deste arquivo sobre nao reusar role='Admin').
+ *
+ * De proposito NAO cobre: criar/inativar usuario, trocar senha de acesso
+ * (isso continua so' Admin/Master/Dono, ver isTenantManagerRole), e o
+ * proprio ALVO tem que ser um Funcionario comum -- ver
+ * podeSerAlvoDePermissaoPorGerente, que fecha quem o gerente pode editar.
+ */
+export const podeGerenciarPermissoesDeEquipe = (args: {
+  role: unknown;
+  isOwner: boolean;
+  nivelAcesso: NivelAcesso;
+}): boolean => hasTenantFullAccess(args.role, args.isOwner) || args.nivelAcesso === 'gerente';
+
+/**
+ * O ALVO pode ter a permissao mexida por um Gerente (nao-Admin/Master)?
+ *
+ * Um Gerente nunca edita outro Gerente, Admin/Master ou o Dono, nem a si
+ * mesmo -- so' quem e' Funcionario comum (nivel funcionario/supervisor). Sem
+ * essa trava um Gerente poderia se auto-promover ou promover um colega a
+ * Gerente e destravar tudo. Admin/Master/Dono nao passam por aqui: eles ja'
+ * tem via `podeGerenciarPermissoesDeEquipe` acesso total, sem essa segunda
+ * checagem (ver uso em UsuariosList.tsx).
+ */
+export const podeSerAlvoDePermissaoPorGerente = (args: {
+  targetUserId: string;
+  targetRole: unknown;
+  targetNivelAcesso: NivelAcesso;
+  actorUserId: string | null | undefined;
+}): boolean => (
+  args.targetRole === 'Funcionario' &&
+  args.targetNivelAcesso !== 'gerente' &&
+  args.targetUserId !== args.actorUserId
+);
+
 export const parseRestringirVendasPorUsuario = (raw: unknown): boolean => {
   return raw === true;
 };

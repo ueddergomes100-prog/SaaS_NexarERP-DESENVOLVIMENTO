@@ -42,6 +42,17 @@ service cloud.firestore {
       return hasProfile() && currentRole() in ['Master', 'Admin'];
     }
 
+    // Funcionario nivel Gerente (nivelAcesso, campo de VISIBILIDADE DE
+    // VENDA -- ver visibilidadeVendasDomain.ts) tambem pode mexer na
+    // permissao de acesso de um Funcionario comum, decisao de 2026-09-23.
+    // 'administracao' e' o nome antigo do mesmo nivel, ainda gravado em
+    // empresa que marcou antes da troca de nome.
+    function isGerenteDeEquipe() {
+      return hasProfile() &&
+        currentRole() == 'Funcionario' &&
+        currentProfile().nivelAcesso in ['gerente', 'administracao'];
+    }
+
     function hasPermission(permission) {
       return hasProfile() &&
         currentProfile().permissoes is list &&
@@ -345,6 +356,22 @@ service cloud.firestore {
           request.resource.data.role == resource.data.role &&
           resource.data.role == 'Funcionario' &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(tenantUserEditableFields())
+        ) ||
+        (
+          // Gerente so' mexe em 'permissoes' (os modulos liberados) de um
+          // Funcionario comum -- nunca no proprio nivel/role, no nivel de
+          // OUTRO gerente, no Admin/Master/Dono, nem em si mesmo. Nivel de
+          // acesso, acesso mobile, criar/inativar e senha continuam so'
+          // isTenantAdmin -- ver tenantUserEditableFields() acima.
+          isGerenteDeEquipe() &&
+          resource.data.tenantId == currentTenantId() &&
+          resource.data.role == 'Funcionario' &&
+          !(resource.data.nivelAcesso in ['gerente', 'administracao']) &&
+          userId != request.auth.uid &&
+          request.resource.data.tenantId == resource.data.tenantId &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.nivelAcesso == resource.data.nivelAcesso &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['permissoes'].concat(documentAuditFields()))
         ) ||
         (
           signedIn() &&

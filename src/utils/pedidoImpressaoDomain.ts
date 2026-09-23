@@ -5,6 +5,21 @@
 
 export const MENSAGEM_SEGUNDA_VIA = 'Este pedido já foi impresso antes — esta é a 2ª via.';
 
+export const MENSAGEM_SEGUNDA_VIA_MINUTA = 'A minuta deste pedido já foi impressa antes — esta é a 2ª via.';
+
+export const mensagemSegundaViaMinutaLote = (quantidade: number): string => (
+  quantidade === 1
+    ? 'A minuta de 1 dos pedidos selecionados já tinha sido impressa antes.'
+    : `A minuta de ${quantidade} dos pedidos selecionados já tinha sido impressa antes.`
+);
+
+export type ViasMinuta = 1 | 2;
+
+/** Campos gravados no pedido quando a MINUTA e' impressa. Fica separado do
+ *  `impresso` (Recibo/Pre-venda) pra a 2a via de um papel nao aparecer so'
+ *  porque o outro ja' saiu -- a coluna "Imp." da lista acende com qualquer um. */
+export const PEDIDO_CAMPO_MINUTA_IMPRESSA = 'minutaImpressa';
+
 export const mensagemSegundaViaLote = (quantidade: number): string => (
   quantidade === 1
     ? '1 dos pedidos selecionados já tinha sido impresso antes — será a 2ª via.'

@@ -163,3 +163,24 @@
     page-break-inside: avoid;
   }
 }
+
+
+/* Vias da minuta: so' a 1a aparece na tela; na impressao cada via ocupa uma
+   folha propria (a 2a via nunca colada embaixo da 1a). */
+@media screen {
+  .minuta-via--extra {
+    display: none;
+  }
+}
+
+@media print {
+  .minuta-via {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .minuta-via--extra {
+    break-before: page;
+    page-break-before: always;
+  }
+}

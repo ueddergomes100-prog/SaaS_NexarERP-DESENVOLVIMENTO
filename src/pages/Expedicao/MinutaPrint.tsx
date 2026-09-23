@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft } from 'lucide-react';
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -15,8 +15,9 @@ import {
   MENSAGEM_VENDA_DE_OUTRO_USUARIO,
   TITULO_VENDA_DE_OUTRO_USUARIO,
 } from '../../utils/visibilidadeVendasDomain';
-import { showError } from '../../utils/alerts';
-import MinutaPrintDocument, { type MinutaCliente, type MinutaItem } from './MinutaPrintDocument';
+import { showError, showWarning } from '../../utils/alerts';
+import { MENSAGEM_SEGUNDA_VIA_MINUTA, PEDIDO_CAMPO_MINUTA_IMPRESSA, type ViasMinuta } from '../../utils/pedidoImpressaoDomain';
+import MinutaPrintDocument, { perguntarViasMinuta, ViasDaMinuta, type MinutaCliente, type MinutaItem } from './MinutaPrintDocument';
 import '../OS/OsPrint.css'; // Reusing OS print styles, mesmo padrao de PedidoPrint.tsx
 
 /**
@@ -172,8 +173,31 @@ const MinutaPrint: React.FC = () => {
     fetchMinuta();
   }, [pedidoId, navigate, currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
-  const handlePrint = () => {
+  const [vias, setVias] = useState<ViasMinuta>(1);
+
+  const handlePrint = async () => {
+    const escolhidas = await perguntarViasMinuta();
+    if (!escolhidas) return;
+    if (pedidoData?.[PEDIDO_CAMPO_MINUTA_IMPRESSA] === true) {
+      showWarning('2ª via', MENSAGEM_SEGUNDA_VIA_MINUTA);
+    }
+    // Marca ANTES do dialogo do navegador (depois nao ha' garantia de rodar).
+    if (pedidoId) {
+      try {
+        await updateDoc(doc(db, 'pedidos_venda', pedidoId), {
+          [PEDIDO_CAMPO_MINUTA_IMPRESSA]: true,
+          minutaImpressaEm: serverTimestamp(),
+        });
+      } catch (error) {
+        console.error('Erro ao marcar minuta como impressa:', error);
+        showWarning('A minuta vai imprimir, mas não foi possível marcá-la como impressa', 'Você talvez não tenha permissão para alterar pedidos.');
+      }
+    }
+    // Renderiza as vias antes de abrir o dialogo de impressao.
+    setVias(escolhidas);
+    await new Promise((resolve) => setTimeout(resolve, 150));
     window.print();
+    setVias(1);
   };
 
   if (loading) {
@@ -195,17 +219,19 @@ const MinutaPrint: React.FC = () => {
         </button>
       </div>
 
-      <MinutaPrintDocument
-        pedidoData={pedidoData}
-        itens={itens}
-        configData={configData}
-        cliente={cliente}
-        vendedorCodigo={vendedorCodigo}
-        usuarioNome={usuarioNome}
-        geradoEm={geradoEm}
-        mostrarMarca={mostrarMarca}
-        mostrarLocal={mostrarLocal}
-      />
+      <ViasDaMinuta vias={vias}>
+        <MinutaPrintDocument
+          pedidoData={pedidoData}
+          itens={itens}
+          configData={configData}
+          cliente={cliente}
+          vendedorCodigo={vendedorCodigo}
+          usuarioNome={usuarioNome}
+          geradoEm={geradoEm}
+          mostrarMarca={mostrarMarca}
+          mostrarLocal={mostrarLocal}
+        />
+      </ViasDaMinuta>
     </div>
   );
 };

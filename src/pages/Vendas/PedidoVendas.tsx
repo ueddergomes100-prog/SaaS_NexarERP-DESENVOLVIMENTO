@@ -56,6 +56,8 @@ interface PedidoVendaData {
   comNotaFiscal?: boolean;
   /** true depois da 1a impressao do Recibo/Pre-venda -- ver PedidoPrint.tsx. */
   impresso?: boolean;
+  /** true depois da 1a impressao da Minuta -- ver MinutaPrint.tsx. */
+  minutaImpressa?: boolean;
   vendedorId?: string;
   vendedorNome?: string;
   usuarioResponsavelId?: string;
@@ -905,8 +907,11 @@ const PedidoVendas: React.FC = () => {
                         )}
                       </td>
                     )}
-                    <td style={{ padding: '16px', textAlign: 'center' }} title={p.impresso ? 'Já impresso' : 'Ainda não impresso'}>
-                      {p.impresso ? <CheckCircle2 size={18} color="#10b981" style={{ display: 'inline-block' }} /> : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                    <td
+                      style={{ padding: '16px', textAlign: 'center' }}
+                      title={p.impresso && p.minutaImpressa ? 'Recibo e minuta já impressos' : p.impresso ? 'Recibo já impresso' : p.minutaImpressa ? 'Minuta já impressa' : 'Ainda não impresso'}
+                    >
+                      {(p.impresso || p.minutaImpressa) ? <CheckCircle2 size={18} color="#10b981" style={{ display: 'inline-block' }} /> : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                     </td>
                     <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700 }}>
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valorTotal)}
@@ -918,6 +923,10 @@ const PedidoVendas: React.FC = () => {
                       {controlaFiscal && authorizedCupons[p.id] && authorizedCupons[p.id].status === 'authorized' ? (
                         <button
                           onClick={() => {
+                            // O cupom abre num PDF fora do sistema: marca como impresso
+                            // ao abrir, senao esse caminho nunca acenderia o "Imp.".
+                            updateDoc(doc(db, 'pedidos_venda', p.id), { impresso: true, impressoEm: serverTimestamp() })
+                              .catch((err) => console.error('Erro ao marcar cupom como impresso:', err));
                             const cupom = authorizedCupons[p.id];
                             spedyService.openFiscalFile(cupom.spedyId, 'consumer', 'pdf')
                               .catch(err => showError('Erro ao abrir cupom fiscal', (err as Error).message));

@@ -1,4 +1,6 @@
 import React from 'react';
+import { NexusSwal } from '../../utils/alerts';
+import type { ViasMinuta } from '../../utils/pedidoImpressaoDomain';
 import {
   codigoENomeMinuta,
   condicaoPagamentoMinuta,
@@ -14,6 +16,34 @@ import {
   vendedorMinuta,
 } from '../../utils/minutaDomain';
 import './MinutaPrint.css';
+
+/** Pergunta quantas vias imprimir. null = cancelou. A minuta saia sempre com
+ *  o que estava na tela; agora quem imprime escolhe 1 ou 2 vias. */
+export const perguntarViasMinuta = async (): Promise<ViasMinuta | null> => {
+  const resposta = await NexusSwal.fire({
+    title: 'Imprimir minuta',
+    text: 'Quantas vias você quer imprimir?',
+    icon: 'question',
+    showDenyButton: true,
+    showCancelButton: true,
+    confirmButtonText: '1 via',
+    denyButtonText: '2 vias',
+    cancelButtonText: 'Cancelar',
+  });
+  if (resposta.isConfirmed) return 1;
+  if (resposta.isDenied) return 2;
+  return null;
+};
+
+/** A minuta repetida `vias` vezes, cada uma numa folha. Na tela aparece so'
+ *  a primeira (previa); as demais existem so' pra impressao. */
+export const ViasDaMinuta: React.FC<{ vias: ViasMinuta; children: React.ReactNode }> = ({ vias, children }) => (
+  <>
+    {Array.from({ length: vias }, (_, i) => (
+      <div key={i} className={i === 0 ? 'minuta-via' : 'minuta-via minuta-via--extra'}>{children}</div>
+    ))}
+  </>
+);
 
 export interface MinutaItem {
   id: string;

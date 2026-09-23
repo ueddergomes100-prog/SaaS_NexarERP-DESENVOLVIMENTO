@@ -118,6 +118,7 @@ const PedidoPrint: React.FC = () => {
       } catch (error) {
         // Nao bloqueia a impressao por causa disso -- so a marcacao falhou.
         console.error('Erro ao marcar pedido como impresso:', error);
+        showWarning('O recibo vai imprimir, mas não foi possível marcá-lo como impresso', 'Você talvez não tenha permissão para alterar pedidos.');
       }
     }
     dispararImpressao();

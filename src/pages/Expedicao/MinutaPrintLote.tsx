@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft } from 'lucide-react';
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -13,7 +13,9 @@ import {
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { usePrintAndClose } from '../../hooks/usePrintAndClose';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from '../Vendas/pedidoPrintLoteConstants';
-import MinutaPrintDocument, { type MinutaCliente, type MinutaItem } from './MinutaPrintDocument';
+import { showWarning } from '../../utils/alerts';
+import { mensagemSegundaViaMinutaLote, PEDIDO_CAMPO_MINUTA_IMPRESSA, type ViasMinuta } from '../../utils/pedidoImpressaoDomain';
+import MinutaPrintDocument, { perguntarViasMinuta, ViasDaMinuta, type MinutaCliente, type MinutaItem } from './MinutaPrintDocument';
 import '../OS/OsPrint.css'; // Reusing OS print styles
 import '../Vendas/PedidoPrintLote.css'; // .print-batch-item (quebra de pagina por item)
 
@@ -168,7 +170,27 @@ const MinutaPrintLote: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, tenantId, location.search, vendasVisiveisDeUsuarioId]);
 
-  const handlePrint = usePrintAndClose('/pedidos-venda');
+  const dispararImpressao = usePrintAndClose('/pedidos-venda');
+  const [vias, setVias] = useState<ViasMinuta>(1);
+
+  const handlePrint = async () => {
+    const escolhidas = await perguntarViasMinuta();
+    if (!escolhidas) return;
+    const jaImpressas = entradas.filter((e) => e.pedidoData[PEDIDO_CAMPO_MINUTA_IMPRESSA] === true).length;
+    if (jaImpressas > 0) showWarning('2ª via', mensagemSegundaViaMinutaLote(jaImpressas));
+    try {
+      await Promise.all(entradas.map((e) => updateDoc(doc(db, 'pedidos_venda', e.pedidoData.id), {
+        [PEDIDO_CAMPO_MINUTA_IMPRESSA]: true,
+        minutaImpressaEm: serverTimestamp(),
+      })));
+    } catch (error) {
+      console.error('Erro ao marcar minutas como impressas:', error);
+      showWarning('As minutas vão imprimir, mas não foi possível marcá-las como impressas', 'Você talvez não tenha permissão para alterar pedidos.');
+    }
+    setVias(escolhidas);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    dispararImpressao();
+  };
 
   if (loading) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando minutas...</div>;
@@ -205,17 +227,19 @@ const MinutaPrintLote: React.FC = () => {
 
       {entradas.map((entrada) => (
         <div className="print-batch-item" key={entrada.pedidoData.id}>
-          <MinutaPrintDocument
-            pedidoData={entrada.pedidoData}
-            itens={entrada.itens}
-            configData={configData}
-            cliente={entrada.cliente}
-            vendedorCodigo={entrada.vendedorCodigo}
-            usuarioNome={usuarioNome}
-            geradoEm={geradoEm}
-            mostrarMarca={mostrarMarca}
-            mostrarLocal={mostrarLocal}
-          />
+          <ViasDaMinuta vias={vias}>
+            <MinutaPrintDocument
+              pedidoData={entrada.pedidoData}
+              itens={entrada.itens}
+              configData={configData}
+              cliente={entrada.cliente}
+              vendedorCodigo={entrada.vendedorCodigo}
+              usuarioNome={usuarioNome}
+              geradoEm={geradoEm}
+              mostrarMarca={mostrarMarca}
+              mostrarLocal={mostrarLocal}
+            />
+          </ViasDaMinuta>
         </div>
       ))}
     </div>

@@ -121,6 +121,7 @@ const PedidoPrintLote: React.FC = () => {
       )));
     } catch (error) {
       console.error('Erro ao marcar pedidos como impressos:', error);
+      showWarning('Vai imprimir, mas não foi possível marcar os pedidos como impressos', 'Você talvez não tenha permissão para alterar pedidos.');
     }
     dispararImpressao();
   };

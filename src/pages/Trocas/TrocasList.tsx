@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, Eye, Repeat, Search } from 'lucide-react';
+import { AlertTriangle, Eye, Plus, Repeat, Search } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -50,14 +50,19 @@ const TrocasList: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
       <div>
         <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Repeat size={28} color="var(--accent-purple)" />
           Trocas de Mercadoria
         </h1>
         <p style={{ color: 'var(--text-muted)' }}>
-          Reposição sem cobrança de produto estragado, pedida pelo vendedor no aplicativo. Aprove, separe e confirme a entrega para dar baixa no estoque.
+          Reposição sem cobrança de produto estragado, pedida pelo vendedor no aplicativo ou lançada aqui. Aprove, separe e confirme a entrega para dar baixa no estoque.
         </p>
+      </div>
+        <button className="btn-primary" onClick={() => openTab('/vendas/trocas/nova', 'Nova troca')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Plus size={20} /> Nova troca
+        </button>
       </div>
 
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>

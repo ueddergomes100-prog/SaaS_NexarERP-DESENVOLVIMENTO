@@ -47,7 +47,8 @@ const temPermissao = (user, permissao) => (
 );
 
 const exigirSolicitar = (user) => {
-  if (!temPermissao(user, 'vendas.troca_solicitar')) {
+  // Quem gerencia as trocas na loja (desktop) tambem pode lancar uma -- ver TrocaForm.tsx.
+  if (!temPermissao(user, 'vendas.troca_solicitar') && !temPermissao(user, 'vendas.troca_gerenciar')) {
     throw new ErroTroca(403, 'Seu usuário não tem permissão para pedir troca. Peça ao administrador para liberar "Trocas" no seu cadastro.');
   }
 };

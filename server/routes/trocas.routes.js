@@ -14,6 +14,13 @@ const {
   configPermiteSemEstoque,
   planoDeLiberacao,
   planoDeEntrega,
+  STATUS_CONFERENCIA,
+  conferenciaLigada,
+  podeTransitarConferencia,
+  erroDeConferencia,
+  montarItensDaConferencia,
+  statusFinalDaConferencia,
+  aplicarQuantidadesConferidas,
 } = require('../services/trocas');
 
 const router = express.Router();
@@ -57,6 +64,13 @@ const exigirSolicitar = (user) => {
 const exigirGerenciar = (user) => {
   if (!temPermissao(user, 'vendas.troca_gerenciar')) {
     throw new ErroTroca(403, 'Seu usuário não tem permissão para gerenciar trocas. Peça ao administrador para liberar "Trocas: gerenciar" no seu cadastro.');
+  }
+};
+
+/** Conferir a troca e' trabalho da expedicao (mesma permissao da conferencia do pedido) ou de quem gerencia trocas. */
+const exigirConferencia = (user) => {
+  if (!temPermissao(user, 'operacoes.expedicao') && !temPermissao(user, 'vendas.troca_gerenciar')) {
+    throw new ErroTroca(403, 'Seu usuário não tem permissão para conferir mercadoria. Peça ao administrador para liberar "Expedição: Conferência de Mercadoria" no seu cadastro.');
   }
 };
 
@@ -187,6 +201,8 @@ router.post('/solicitar', async (req, res) => {
       }
       const seqRef = db.collection('contadores').doc(tenantId).collection('sequencias').doc('trocas');
       const seqSnap = await tx.get(seqRef);
+      // Igual a pre-venda: com a conferencia ligada, a troca ja nasce na fila da expedicao.
+      const config = await carregarConfiguracao(tx, tenantId);
       const proximo = (seqSnap.exists ? Number(seqSnap.data().valor) || 0 : 0) + 1;
       const numeroTroca = String(proximo).padStart(4, '0');
       tx.set(seqRef, { tenantId, chave: 'trocas', valor: proximo, updatedAt: TIMESTAMP() }, { merge: true });
@@ -198,6 +214,7 @@ router.post('/solicitar', async (req, res) => {
         itens,
         observacao,
         status: STATUS_TROCA.SOLICITADA,
+        ...(conferenciaLigada(config) ? { statusConferencia: STATUS_CONFERENCIA.AGUARDANDO } : {}),
         avisos,
         estoqueReservado: false,
         historico: [entradaDeHistorico(STATUS_TROCA.SOLICITADA, user, nome)],
@@ -397,6 +414,127 @@ router.post('/:id/entregar', async (req, res) => {
     return res.json({ ok: true, status: STATUS_TROCA.ENTREGUE, custoTotalCentavos: resumo.custoTotalCentavos });
   } catch (erro) {
     return responderErro(res, erro, 'entregar');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Expedicao: conferencia da mercadoria da troca (mesma tela do pedido)
+// ---------------------------------------------------------------------------
+
+/**
+ * Abre (ou reabre) a conferencia: cria/atualiza `expedicoes/{trocaId}` e marca a
+ * troca 'em_conferencia'. Devolve os itens para a tela bipar. So' o servidor
+ * escreve na troca; a tela nunca altera `trocas` (nada altera via DevTools).
+ */
+router.post('/:id/conferencia/abrir', async (req, res) => {
+  try {
+    exigirConferencia(req.user);
+    const user = req.user;
+    const nome = await nomeDoUsuario(user);
+    let resposta;
+    await db.runTransaction(async (tx) => {
+      const { ref, troca } = await lerTroca(tx, user.tenantId, req.params.id);
+      const erro = erroDeConferencia(troca);
+      if (erro) throw new ErroTroca(409, erro);
+      const expedicaoRef = db.collection('expedicoes').doc(troca.id);
+      const expedicaoSnap = await tx.get(expedicaoRef);
+      const { produtosPorId } = await lerProdutosNaTransacao(tx, user.tenantId, troca.itens);
+      const agora = new Date().toISOString();
+
+      if (expedicaoSnap.exists && expedicaoSnap.data().tenantId === user.tenantId) {
+        const exp = expedicaoSnap.data();
+        if (exp.status !== STATUS_CONFERENCIA.EM_CONFERENCIA) {
+          if (!podeTransitarConferencia(exp.status, STATUS_CONFERENCIA.EM_CONFERENCIA)) {
+            throw new ErroTroca(409, 'Transição de status inválida para reabrir esta conferência.');
+          }
+          const historico = [...(exp.historico || []), { de: exp.status, para: STATUS_CONFERENCIA.EM_CONFERENCIA, em: agora, usuarioId: user.uid, usuarioNome: nome }];
+          tx.update(expedicaoRef, { status: STATUS_CONFERENCIA.EM_CONFERENCIA, historico, alteradoPor: user.uid, alteradoEm: TIMESTAMP() });
+          tx.update(ref, { statusConferencia: STATUS_CONFERENCIA.EM_CONFERENCIA, alteradoPor: user.uid, alteradoEm: TIMESTAMP() });
+        }
+        resposta = { itens: exp.itens || montarItensDaConferencia(troca.itens, produtosPorId), status: STATUS_CONFERENCIA.EM_CONFERENCIA, abertoPorNome: exp.abertoPorNome || nome };
+      } else {
+        const itens = montarItensDaConferencia(troca.itens, produtosPorId);
+        tx.set(expedicaoRef, {
+          tenantId: user.tenantId,
+          tipo: 'troca',
+          trocaId: troca.id,
+          pedidoId: troca.id,
+          numeroPedido: troca.numeroTroca,
+          clienteNome: troca.clienteNome || '',
+          status: STATUS_CONFERENCIA.EM_CONFERENCIA,
+          itens,
+          abertoPor: user.uid,
+          abertoPorNome: nome,
+          abertoEm: TIMESTAMP(),
+          observacao: '',
+          historico: [{ de: troca.statusConferencia, para: STATUS_CONFERENCIA.EM_CONFERENCIA, em: agora, usuarioId: user.uid, usuarioNome: nome }],
+          criadoPor: user.uid,
+          criadoEm: TIMESTAMP(),
+          alteradoPor: user.uid,
+          alteradoEm: TIMESTAMP(),
+        });
+        tx.update(ref, { statusConferencia: STATUS_CONFERENCIA.EM_CONFERENCIA, alteradoPor: user.uid, alteradoEm: TIMESTAMP() });
+        resposta = { itens, status: STATUS_CONFERENCIA.EM_CONFERENCIA, abertoPorNome: nome };
+      }
+      resposta.troca = { numeroTroca: troca.numeroTroca, clienteNome: troca.clienteNome || '' };
+    });
+    registrarLog(user, { modulo: 'expedicao', acao: 'conferencia_aberta', descricao: `Conferência da troca #${resposta.troca.numeroTroca} aberta.`, registroId: req.params.id });
+    return res.json({ ok: true, ...resposta });
+  } catch (erro) {
+    return responderErro(res, erro, 'conferencia/abrir');
+  }
+});
+
+/** Fecha a conferencia como conferido ou divergente. So' as quantidades conferidas vem da tela. */
+router.post('/:id/conferencia/fechar', async (req, res) => {
+  try {
+    exigirConferencia(req.user);
+    const user = req.user;
+    const nome = await nomeDoUsuario(user);
+    const observacao = String(req.body?.observacao ?? '').replace(/\s+/g, ' ').trim().slice(0, 500);
+    let resumo;
+    await db.runTransaction(async (tx) => {
+      const { ref, troca } = await lerTroca(tx, user.tenantId, req.params.id);
+      const erro = erroDeConferencia(troca);
+      if (erro) throw new ErroTroca(409, erro);
+      const expedicaoRef = db.collection('expedicoes').doc(troca.id);
+      const expedicaoSnap = await tx.get(expedicaoRef);
+      if (!expedicaoSnap.exists || expedicaoSnap.data().tenantId !== user.tenantId) {
+        throw new ErroTroca(409, 'Registro de conferência não encontrado. Abra a conferência de novo.');
+      }
+      const exp = expedicaoSnap.data();
+      if (exp.status !== STATUS_CONFERENCIA.EM_CONFERENCIA) {
+        throw new ErroTroca(409, 'Esta conferência não está aberta. Reabra pela fila antes de fechar.');
+      }
+      const { itens, erros } = aplicarQuantidadesConferidas(exp.itens || [], req.body?.itens);
+      if (erros.length > 0) throw new ErroTroca(400, erros.join(' '));
+      const final = statusFinalDaConferencia(itens);
+      const historico = [...(exp.historico || []), { de: STATUS_CONFERENCIA.EM_CONFERENCIA, para: final, em: new Date().toISOString(), usuarioId: user.uid, usuarioNome: nome }];
+      tx.update(expedicaoRef, {
+        status: final,
+        itens,
+        observacao,
+        conferidoPor: user.uid,
+        conferidoPorNome: nome,
+        conferidoEm: TIMESTAMP(),
+        historico,
+        alteradoPor: user.uid,
+        alteradoEm: TIMESTAMP(),
+      });
+      tx.update(ref, {
+        statusConferencia: final,
+        conferidoPor: user.uid,
+        conferidoPorNome: nome,
+        conferidoEm: TIMESTAMP(),
+        alteradoPor: user.uid,
+        alteradoEm: TIMESTAMP(),
+      });
+      resumo = { numeroTroca: troca.numeroTroca, final };
+    });
+    registrarLog(user, { modulo: 'expedicao', acao: 'conferencia_fechada', descricao: `Conferência da troca #${resumo.numeroTroca} fechada como ${resumo.final === 'conferido' ? 'Conferido' : 'Divergente'}.`, registroId: req.params.id });
+    return res.json({ ok: true, statusConferencia: resumo.final });
+  } catch (erro) {
+    return responderErro(res, erro, 'conferencia/fechar');
   }
 });
 

@@ -20,6 +20,8 @@ interface PedidoExpedicaoData {
   vendedorId?: string;
   usuarioResponsavelId?: string;
   criadoPor?: string;
+  /** 'troca' = reposicao sem cobranca (colecao `trocas`); ausente = pedido/pre-venda. */
+  tipo?: 'troca';
 }
 
 // Mesmos rotulos/cores de PedidoVendas.tsx (coluna "Conferência") -- mantidos
@@ -51,6 +53,47 @@ const FilaExpedicao: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusConferencia | 'todos'>('todos');
 
+  // Trocas na MESMA fila (pedido do dono, 2026-09-24): as duas listas chegam por
+  // ouvintes separados e sao juntadas aqui, ordenadas pela data.
+  const [pedidosDaFila, setPedidosDaFila] = useState<PedidoExpedicaoData[]>([]);
+  const [trocasDaFila, setTrocasDaFila] = useState<PedidoExpedicaoData[]>([]);
+
+  useEffect(() => {
+    if (!currentUser || !tenantId) return;
+    const q = query(collection(db, 'trocas'), where('tenantId', '==', tenantId));
+    const cancelar = onSnapshot(q, (snapshot) => {
+      const lista: PedidoExpedicaoData[] = [];
+      snapshot.forEach((docSnap) => {
+        const dados = docSnap.data();
+        // So troca que ja nasceu na fila (empresa com conferencia ligada) e que ainda tem o que separar.
+        if (!dados.statusConferencia || dados.status === 'Recusada' || dados.status === 'Cancelada') return;
+        lista.push({
+          id: docSnap.id,
+          numeroPedido: String(dados.numeroTroca || ''),
+          clienteNome: dados.clienteNome,
+          createdAt: dados.createdAt,
+          statusConferencia: dados.statusConferencia,
+          status: dados.status,
+          tenantId: dados.tenantId,
+          vendedorId: dados.vendedorId,
+          usuarioResponsavelId: dados.usuarioResponsavelId,
+          criadoPor: dados.criadoPor,
+          tipo: 'troca',
+        });
+      });
+      setTrocasDaFila(lista);
+    }, (error) => {
+      console.error('Erro ao buscar trocas da fila de expedição:', error);
+    });
+    return () => cancelar();
+  }, [currentUser, tenantId]);
+
+  useEffect(() => {
+    const juntas = [...pedidosDaFila, ...filtrarVendasVisiveis(trocasDaFila, vendasVisiveisDeUsuarioId)];
+    juntas.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    setPedidos(juntas);
+  }, [pedidosDaFila, trocasDaFila, vendasVisiveisDeUsuarioId]);
+
   useEffect(() => {
     if (!currentUser || !tenantId) return;
 
@@ -68,12 +111,11 @@ const FilaExpedicao: React.FC = () => {
         // os que ja foram cancelados antes.
         if (item.statusConferencia && item.status !== 'Cancelada') data.push(item);
       });
-      data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       // A fila tambem respeita a visibilidade de vendas. ATENCAO ao ligar
       // as duas configs juntas: se quem separa a mercadoria estiver como
       // nivel 'funcionario', a fila dele fica vazia -- o separador precisa
       // ser nivel 'administracao' pra enxergar os pedidos da equipe.
-      setPedidos(filtrarVendasVisiveis(data, vendasVisiveisDeUsuarioId));
+      setPedidosDaFila(filtrarVendasVisiveis(data, vendasVisiveisDeUsuarioId));
       setLoading(false);
     }, (error) => {
       console.error('Erro ao buscar fila de expedição:', error);
@@ -182,9 +224,16 @@ const FilaExpedicao: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredPedidos.map((p) => (
-                  <tr key={p.id} {...linha(p.id, () => navigate(`/operacoes/conferencia/${p.id}`))}>
-                    <td className="font-medium">#{p.numeroPedido}</td>
+                filteredPedidos.map((p) => {
+                  const ehTroca = p.tipo === 'troca';
+                  const caminhoConferencia = ehTroca ? `/operacoes/conferencia/troca/${p.id}` : `/operacoes/conferencia/${p.id}`;
+                  const caminhoMinuta = ehTroca ? `/vendas/trocas/${p.id}/minuta` : `/operacoes/expedicao/minuta/${p.id}`;
+                  return (
+                  <tr key={`${p.tipo || 'pedido'}-${p.id}`} {...linha(`${p.tipo || 'pedido'}-${p.id}`, () => navigate(caminhoConferencia))}>
+                    <td className="font-medium">
+                      #{p.numeroPedido}
+                      {ehTroca && <span style={{ marginLeft: '8px', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, color: '#fff', backgroundColor: '#8b5cf6' }}>TROCA</span>}
+                    </td>
                     <td>{p.createdAt?.seconds ? new Date(p.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : '-'}</td>
                     <td>{p.clienteNome || 'Consumidor Final'}</td>
                     <td>
@@ -194,7 +243,7 @@ const FilaExpedicao: React.FC = () => {
                     </td>
                     <td {...semAbrirLinha} style={{ textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '8px' }}>
                       <button
-                        onClick={() => navigate(`/operacoes/conferencia/${p.id}`)}
+                        onClick={() => navigate(caminhoConferencia)}
                         className="icon-btn"
                         title={p.statusConferencia === 'aguardando' ? 'Abrir Conferência' : 'Continuar/Reabrir Conferência'}
                         style={{ color: '#3b82f6' }}
@@ -202,7 +251,7 @@ const FilaExpedicao: React.FC = () => {
                         <ClipboardCheck size={18} />
                       </button>
                       <button
-                        onClick={() => navigate(`/operacoes/expedicao/minuta/${p.id}`)}
+                        onClick={() => navigate(caminhoMinuta)}
                         className="icon-btn"
                         title="Reimprimir Minuta"
                         style={{ color: '#14b8a6' }}
@@ -211,7 +260,8 @@ const FilaExpedicao: React.FC = () => {
                       </button>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

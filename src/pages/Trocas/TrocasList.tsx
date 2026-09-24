@@ -7,6 +7,7 @@ import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from '../Vendas/pedidoPrintLoteConstants';
 import { showWarning } from '../../utils/alerts';
+import { COR_CONFERENCIA, ROTULO_CONFERENCIA } from '../../utils/conferenciaDomain';
 import { ESTILO_STATUS_TROCA, STATUS_TROCA_ORDEM, totalDeItens, type StatusTroca, type Troca } from '../../utils/trocaDomain';
 
 /**
@@ -198,6 +199,11 @@ const TrocasList: React.FC = () => {
                       <span style={{ backgroundColor: estilo.fundo, color: estilo.cor, padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 700 }}>
                         {troca.status}
                       </span>
+                      {troca.statusConferencia && troca.status !== 'Recusada' && troca.status !== 'Cancelada' && (
+                        <span title={`Conferência: ${ROTULO_CONFERENCIA[troca.statusConferencia]}`} style={{ marginLeft: '8px', backgroundColor: `${COR_CONFERENCIA[troca.statusConferencia]}20`, color: COR_CONFERENCIA[troca.statusConferencia], padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 700 }}>
+                          {ROTULO_CONFERENCIA[troca.statusConferencia]}
+                        </span>
+                      )}
                       {(troca.avisos?.length || 0) > 0 && troca.status === 'Solicitada' && (
                         <span title={troca.avisos.map((a) => a.mensagem).join('\n')} style={{ marginLeft: '8px', color: '#f59e0b', verticalAlign: 'middle', display: 'inline-flex' }}>
                           <AlertTriangle size={16} />

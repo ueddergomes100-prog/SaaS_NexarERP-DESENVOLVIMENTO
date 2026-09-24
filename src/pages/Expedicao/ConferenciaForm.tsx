@@ -21,6 +21,7 @@ import {
 } from '../../utils/conferenciaDomain';
 import { normalizeEmbalagens } from '../../utils/embalagemDomain';
 import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
+import { trocaService, TrocaError } from '../../services/trocaService';
 
 interface HistoricoEntry {
   de: string;
@@ -88,7 +89,11 @@ const playFeedbackSound = (resultado: BipagemResultado) => {
 };
 
 const ConferenciaForm: React.FC = () => {
-  const { pedidoId } = useParams();
+  // A MESMA tela confere pedido/pre-venda e TROCA (pedido do dono, 2026-09-24).
+  // Na troca, quem escreve e' o servidor (a colecao `trocas` e' so' leitura para o app).
+  const { pedidoId: pedidoIdDaRota, trocaId } = useParams();
+  const ehTroca = Boolean(trocaId);
+  const pedidoId = trocaId || pedidoIdDaRota;
   const navigate = useNavigate();
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
 
@@ -114,6 +119,10 @@ const ConferenciaForm: React.FC = () => {
   const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
 
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const qtdInputRef = useRef<HTMLInputElement>(null);
+  const observacaoRef = useRef<HTMLTextAreaElement>(null);
+  // Um campo "Qtd" manual por linha, para o Enter poder ir de linha em linha.
+  const manualRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // Busca o nome de exibicao do usuario atual pra auditoria (nome legivel,
   // nao so uid) -- mesmo fallback de tres niveis usado pro vendedor em
@@ -139,6 +148,24 @@ const ConferenciaForm: React.FC = () => {
       setIsLoading(true);
       setLoadError(null);
       try {
+        if (ehTroca) {
+          const aberta = await trocaService.abrirConferencia(pedidoId);
+          setPedido({ numeroPedido: aberta.troca.numeroTroca, clienteNome: aberta.troca.clienteNome });
+          let configTroca: Record<string, unknown> = {};
+          const configTrocaSnap = await getDoc(doc(db, 'configuracoes', tenantId));
+          if (configTrocaSnap.exists()) configTroca = configTrocaSnap.data();
+          const configDaTroca = {
+            exigirBipagem: (configTroca.exigirBipagem as boolean | undefined) ?? DEFAULT_EXIGIR_BIPAGEM,
+            bloquearExcedente: (configTroca.bloquearExcedente as boolean | undefined) ?? DEFAULT_BLOQUEAR_EXCEDENTE,
+            ordenarMinutaPorLocal: (configTroca.ordenarMinutaPorLocal as boolean | undefined) ?? DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
+          };
+          setConfig(configDaTroca);
+          setItens(configDaTroca.ordenarMinutaPorLocal ? ordenarPorLocalizacao(aberta.itens) : aberta.itens);
+          setStatus(aberta.status);
+          setAbertoPorNome(aberta.abertoPorNome);
+          return;
+        }
+
         const usuarioNome = await resolveUsuarioNome();
 
         const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', pedidoId));
@@ -310,7 +337,7 @@ const ConferenciaForm: React.FC = () => {
         }
       } catch (err) {
         console.error('Erro ao abrir conferência:', err);
-        setLoadError((err as Error).message || 'Não foi possível abrir a conferência.');
+        setLoadError(err instanceof TrocaError ? err.message : ((err as Error).message || 'Não foi possível abrir a conferência.'));
       } finally {
         setIsLoading(false);
       }
@@ -337,7 +364,7 @@ const ConferenciaForm: React.FC = () => {
     });
 
     setItens(novosItens);
-    setFeedback({ resultado, mensagem: FEEDBACK_LABELS[resultado] });
+    setFeedback({ resultado, mensagem: ehTroca ? FEEDBACK_LABELS[resultado].replace('neste pedido', 'nesta troca') : FEEDBACK_LABELS[resultado] });
     playFeedbackSound(resultado);
 
     if (!isManual) {
@@ -347,7 +374,7 @@ const ConferenciaForm: React.FC = () => {
     } else if (resultado === 'ok') {
       setManualInputs((prev) => ({ ...prev, [manualProdutoId!]: '' }));
     }
-  }, [itens, codigoInput, multiplicador, config]);
+  }, [itens, codigoInput, multiplicador, config, ehTroca]);
 
   const handleFecharConferencia = async () => {
     if (!pedidoId || !tenantId || !currentUser || !pedido) return;
@@ -371,6 +398,23 @@ const ConferenciaForm: React.FC = () => {
 
     setIsClosing(true);
     try {
+      if (ehTroca) {
+        // O servidor confere as quantidades, decide o status final e grava
+        // na troca e na expedicao numa transacao so'.
+        await trocaService.fecharConferencia(
+          pedidoId,
+          itens.map((item) => ({ produtoId: item.produtoId, quantidadeConferida: item.quantidadeConferida })),
+          observacao,
+        );
+        await NexusSwal.fire({
+          title: final === 'conferido' ? 'Conferência concluída!' : 'Conferência fechada com divergências',
+          icon: final === 'conferido' ? 'success' : 'warning',
+          confirmButtonText: 'Voltar à fila',
+        });
+        navigate('/operacoes/expedicao');
+        return;
+      }
+
       const usuarioNome = await resolveUsuarioNome();
 
       await runTransaction(db, async (transaction) => {
@@ -467,7 +511,8 @@ const ConferenciaForm: React.FC = () => {
           </button>
           <div>
             <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px 0' }}>
-              Conferência — Pedido #{pedido?.numeroPedido}
+              Conferência — {ehTroca ? 'Troca' : 'Pedido'} #{pedido?.numeroPedido}
+              {ehTroca && <span style={{ marginLeft: '10px', padding: '3px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, color: '#fff', backgroundColor: '#8b5cf6', verticalAlign: 'middle' }}>TROCA</span>}
             </h1>
             <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>
               {pedido?.clienteNome || 'Consumidor Final'} · Aberta por {abertoPorNome}
@@ -484,10 +529,13 @@ const ConferenciaForm: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '90px' }}>
             <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Qtd</label>
             <input
+              ref={qtdInputRef}
               type="number"
               min={1}
               value={multiplicador}
               onChange={(e) => setMultiplicador(e.target.value)}
+              // Enter na quantidade vai para o codigo (mesmo fluxo da tela de vendas).
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); scanInputRef.current?.focus(); } }}
               style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
@@ -498,7 +546,16 @@ const ConferenciaForm: React.FC = () => {
               type="text"
               value={codigoInput}
               onChange={(e) => setCodigoInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleScan(); } }}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                // Com codigo: confere e continua no campo (o leitor bipa em sequencia).
+                // Vazio: Enter e' "proximo campo" -- vai para a primeira quantidade
+                // manual ou, se nao ha, para as observacoes.
+                if (codigoInput.trim()) { handleScan(); return; }
+                const primeiroManual = displayItens.find((item) => podeLancarManual(item, config.exigirBipagem));
+                (primeiroManual ? manualRefs.current[primeiroManual.produtoId] : observacaoRef.current)?.focus();
+              }}
               placeholder="Aponte o leitor ou digite o código..."
               style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: '15px' }}
             />
@@ -564,11 +621,23 @@ const ConferenciaForm: React.FC = () => {
                       {podeManual ? (
                         <div style={{ display: 'flex', gap: '6px' }}>
                           <input
+                            ref={(campo) => { manualRefs.current[item.produtoId] = campo; }}
                             type="number"
                             min={1}
                             placeholder="Qtd"
                             value={manualInputs[item.produtoId] || ''}
                             onChange={(e) => setManualInputs((prev) => ({ ...prev, [item.produtoId]: e.target.value }))}
+                            onKeyDown={(e) => {
+                              if (e.key !== 'Enter') return;
+                              e.preventDefault();
+                              // Enter lanca a quantidade digitada e pula para a proxima linha
+                              // com campo manual; na ultima, volta para o codigo de barras.
+                              const quantidadeDigitada = Number(manualInputs[item.produtoId]);
+                              if (quantidadeDigitada > 0) handleScan(item.produtoId, quantidadeDigitada);
+                              const elegiveis = displayItens.filter((linha) => podeLancarManual(linha, config.exigirBipagem));
+                              const proxima = elegiveis[elegiveis.findIndex((linha) => linha.produtoId === item.produtoId) + 1];
+                              (proxima ? manualRefs.current[proxima.produtoId] : scanInputRef.current)?.focus();
+                            }}
                             style={{ width: '70px', padding: '6px 8px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)' }}
                           />
                           <button
@@ -596,8 +665,11 @@ const ConferenciaForm: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Observações</label>
           <textarea
+            ref={observacaoRef}
             value={observacao}
             onChange={(e) => setObservacao(e.target.value)}
+            // Ctrl+Enter fecha a conferencia sem sair do teclado (Enter sozinho quebra linha).
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !isClosing) { e.preventDefault(); void handleFecharConferencia(); } }}
             rows={2}
             placeholder="Alguma observação sobre esta conferência (opcional)..."
             style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', resize: 'vertical' }}

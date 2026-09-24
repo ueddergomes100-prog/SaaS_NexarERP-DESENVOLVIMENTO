@@ -44,6 +44,14 @@ export interface PreviaTroca {
   itens: ItemTroca[];
 }
 
+export interface AberturaConferenciaTroca {
+  ok: boolean;
+  itens: import('../utils/conferenciaDomain').ConferenciaItem[];
+  status: import('../utils/conferenciaDomain').StatusConferencia;
+  abertoPorNome: string;
+  troca: { numeroTroca: string; clienteNome: string };
+}
+
 export interface TrocaSolicitada {
   ok: boolean;
   id: string;
@@ -88,6 +96,12 @@ export const trocaService = {
   recusar: (id: string, motivo: string) => chamar<{ ok: boolean }>(`/${id}/recusar`, { motivo }),
   /** Loja (Solicitada ou Aprovada) ou o próprio vendedor (Solicitada). Libera a reserva se houver. */
   cancelar: (id: string, motivo?: string) => chamar<{ ok: boolean }>(`/${id}/cancelar`, { motivo: motivo || '' }),
+  /** Expedição: abre (ou reabre) a conferência de mercadoria da troca — a mesma tela da pré-venda. */
+  abrirConferencia: (id: string) => chamar<AberturaConferenciaTroca>(`/${id}/conferencia/abrir`, {}),
+  /** Expedição: fecha a conferência (conferido/divergente). Só as quantidades conferidas vão para o servidor. */
+  fecharConferencia: (id: string, itens: { produtoId: string; quantidadeConferida: number }[], observacao: string) => (
+    chamar<{ ok: boolean; statusConferencia: 'conferido' | 'divergente' }>(`/${id}/conferencia/fechar`, { itens, observacao })
+  ),
   /** Loja: confirma a entrega e baixa o estoque (uma vez). `lotes` = índice do item -> id do lote (produto com lote). */
   entregar: (id: string, lotes?: Record<number, string>) => chamar<{ ok: boolean; custoTotalCentavos: number }>(`/${id}/entregar`, { lotes: lotes || {} }),
 };

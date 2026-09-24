@@ -222,6 +222,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'operacoes/motoristas', element: <MotoristasList /> },
   { path: 'operacoes/expedicao/minuta/:pedidoId', element: <MinutaPrint /> },
   { path: 'operacoes/expedicao/minuta-lote', element: <MinutaPrintLote /> },
+  { path: 'operacoes/conferencia/troca/:trocaId', element: <ConferenciaForm /> },
   { path: 'operacoes/conferencia/:pedidoId', element: <ConferenciaForm /> },
 
   { path: 'compras/:moduleId', element: <RoadmapModule /> },

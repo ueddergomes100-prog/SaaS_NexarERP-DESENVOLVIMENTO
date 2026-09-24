@@ -77,6 +77,9 @@ export interface Troca {
   motivoRecusa?: string;
   motivoCancelamento?: string;
   custoTotalCentavos?: number;
+  /** Fila de conferencia da expedicao (so' quando a empresa liga a conferencia). */
+  statusConferencia?: 'aguardando' | 'em_conferencia' | 'conferido' | 'divergente';
+  conferidoPorNome?: string;
   createdAtMillis: number;
   tenantId: string;
 }
@@ -98,7 +101,7 @@ export const ESTILO_STATUS_TROCA: Record<StatusTroca, EstiloStatusTroca> = {
   Cancelada: { cor: '#94a3b8', fundo: 'rgba(148,163,184,0.18)', explicacao: 'Troca cancelada' },
 };
 
-export type AcaoTroca = 'aprovar' | 'recusar' | 'entregar' | 'cancelar' | 'minuta';
+export type AcaoTroca = 'aprovar' | 'recusar' | 'entregar' | 'cancelar' | 'minuta' | 'conferir';
 
 /** Quais botoes a retaguarda mostra em cada estado (o servidor confere de novo). */
 export const acoesDaLoja = (status: StatusTroca): AcaoTroca[] => {

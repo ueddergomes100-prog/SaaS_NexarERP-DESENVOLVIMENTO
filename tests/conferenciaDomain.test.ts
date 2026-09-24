@@ -14,6 +14,9 @@ import {
   type ConferenciaItem,
   conferenciaPendenteParaFaturar,
   avisoFaturarSemConferencia,
+  avisoEntregarTrocaSemConferencia,
+  COR_CONFERENCIA,
+  ROTULO_CONFERENCIA,
   ofereceMinutaAoGravarPreVenda,
   ofereceMinutaAoFinalizar,
 } from '../src/utils/conferenciaDomain';
@@ -312,4 +315,21 @@ test('pedido que veio da pre-venda nao pede minuta de novo ao faturar', () => {
 test('config desligada nao oferece minuta em momento nenhum', () => {
   assert.equal(ofereceMinutaAoFinalizar(false, true, false), false);
   assert.equal(ofereceMinutaAoFinalizar(true, false, false), false);
+});
+
+test('entregar troca sem conferir: aviso por estágio, nunca bloqueio; nada a avisar se desligada ou conferida', () => {
+  assert.equal(avisoEntregarTrocaSemConferencia(false, 'aguardando'), null);
+  assert.equal(avisoEntregarTrocaSemConferencia(true, 'conferido'), null);
+  assert.equal(avisoEntregarTrocaSemConferencia(true, undefined), null, 'troca antiga, sem status');
+  assert.match(String(avisoEntregarTrocaSemConferencia(true, 'aguardando')?.title), /ainda não foi conferida/);
+  assert.match(String(avisoEntregarTrocaSemConferencia(true, 'em_conferencia')?.title), /em andamento/);
+  assert.match(String(avisoEntregarTrocaSemConferencia(true, 'divergente')?.text), /quantidade diferente/);
+  assert.match(String(avisoEntregarTrocaSemConferencia(true, 'aguardando')?.confirmButtonText), /entregar/i);
+});
+
+test('rótulos e cores da conferência cobrem os quatro estados', () => {
+  (['aguardando', 'em_conferencia', 'conferido', 'divergente'] as const).forEach((estado) => {
+    assert.ok(ROTULO_CONFERENCIA[estado]);
+    assert.match(COR_CONFERENCIA[estado], /^#[0-9a-f]{6}$/);
+  });
 });

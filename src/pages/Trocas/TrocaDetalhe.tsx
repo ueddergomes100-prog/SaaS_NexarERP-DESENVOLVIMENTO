@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowLeft, Check, Loader2, PackageCheck, Printer, Repeat
 import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { COR_CONFERENCIA, ROTULO_CONFERENCIA, avisoEntregarTrocaSemConferencia } from '../../utils/conferenciaDomain';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { trocaService } from '../../services/trocaService';
@@ -49,7 +50,8 @@ const moeda = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency',
 const TrocaDetalhe: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { tenantId, userRole, isOwner, userPermissions } = useAuth();
+  const { tenantId, userRole, isOwner, userPermissions, conferenciaMercadoriaAtiva } = useAuth();
+  const podeConferir = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes('operacoes.expedicao');
   const podeGerenciar = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_TROCA_GERENCIAR);
 
   const [troca, setTroca] = useState<(TrocaDoc & { id: string }) | null>(null);
@@ -163,6 +165,16 @@ const TrocaDetalhe: React.FC = () => {
       showError('Escolha o lote', `"${troca.itens[semLote].nome}" controla lote e validade: escolha de qual lote a reposição saiu.`);
       return;
     }
+    // Entregar antes da conferencia nao e' bloqueio (reposicao que sai na hora
+    // existe), mas quem confirma precisa saber em que pe' esta a separacao.
+    const avisoConferencia = avisoEntregarTrocaSemConferencia(conferenciaMercadoriaAtiva, troca.statusConferencia);
+    if (avisoConferencia) {
+      const semConferir = await NexusSwal.fire({
+        icon: 'warning', title: avisoConferencia.title, text: avisoConferencia.text,
+        showCancelButton: true, confirmButtonText: avisoConferencia.confirmButtonText, cancelButtonText: 'Voltar', confirmButtonColor: '#f59e0b', reverseButtons: true,
+      });
+      if (!semConferir.isConfirmed) return;
+    }
     const r = await NexusSwal.fire({
       icon: 'question', title: `Confirmar a entrega da troca #${troca.numeroTroca}?`,
       text: 'O estoque da reposição será baixado agora, uma única vez. Não gera cobrança nem financeiro.',
@@ -195,10 +207,16 @@ const TrocaDetalhe: React.FC = () => {
           <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <Repeat size={26} color="var(--accent-purple)" /> Troca #{troca.numeroTroca}
             <span style={{ backgroundColor: estilo.fundo, color: estilo.cor, padding: '4px 12px', borderRadius: '999px', fontSize: '13px', fontWeight: 700 }}>{troca.status}</span>
+            {troca.statusConferencia && (
+              <span style={{ backgroundColor: `${COR_CONFERENCIA[troca.statusConferencia]}20`, color: COR_CONFERENCIA[troca.statusConferencia], padding: '4px 12px', borderRadius: '999px', fontSize: '13px', fontWeight: 700 }}>
+                {ROTULO_CONFERENCIA[troca.statusConferencia]}
+              </span>
+            )}
           </h1>
           <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '13px' }}>{estilo.explicacao}</p>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          {troca.statusConferencia && emAndamento && podeConferir && botao('conferir', troca.statusConferencia === 'aguardando' ? 'Abrir conferência' : 'Continuar/Reabrir conferência', <PackageCheck size={16} />, () => navigate(`/operacoes/conferencia/troca/${troca.id}`), 'secundario')}
           {acoes.includes('minuta') && botao('minuta', 'Imprimir minuta', <Printer size={16} />, () => navigate(`/vendas/trocas/${troca.id}/minuta`), 'secundario')}
           {acoes.includes('aprovar') && botao('aprovar', 'Aprovar', <Check size={16} />, () => void aprovar(), 'primario')}
           {acoes.includes('recusar') && botao('recusar', 'Recusar', <X size={16} />, () => void recusar(), 'perigo')}

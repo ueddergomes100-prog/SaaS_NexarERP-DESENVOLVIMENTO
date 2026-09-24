@@ -391,6 +391,95 @@ const planoDeEntrega = ({ itens, produtosPorId, lotesEscolhidos = {}, lotesPorId
   return { ok: erros.length === 0, erros, produtos, lotes, ajustes, itensFinais, custoTotalCentavos };
 };
 
+
+// ---------------------------------------------------------------------------
+// Conferencia de mercadoria da troca (2026-09-24)
+// ---------------------------------------------------------------------------
+//
+// Pedido do dono: troca do app e do desktop vai para a MESMA tela de
+// conferencia da pre-venda (Expedicao > Fila). A conferencia e' so' separacao:
+// fecha como 'conferido' ou 'divergente' e para ai -- quem baixa o estoque e'
+// a ENTREGA, como sempre foi. Regras identicas as do pedido
+// (src/utils/conferenciaDomain.ts).
+
+const STATUS_CONFERENCIA = {
+  AGUARDANDO: 'aguardando',
+  EM_CONFERENCIA: 'em_conferencia',
+  CONFERIDO: 'conferido',
+  DIVERGENTE: 'divergente',
+};
+
+const TRANSICOES_CONFERENCIA = {
+  aguardando: ['em_conferencia'],
+  em_conferencia: ['conferido', 'divergente'],
+  conferido: ['em_conferencia'],
+  divergente: ['em_conferencia'],
+};
+
+/** A empresa liga a conferencia em Configuracoes; desligada, a troca nao entra na fila. */
+const conferenciaLigada = (config) => config?.conferenciaMercadoria === true;
+
+const podeTransitarConferencia = (de, para) => (TRANSICOES_CONFERENCIA[de] || []).includes(para);
+
+/** Mensagem em portugues de por que a troca nao pode ser conferida agora, ou null. */
+const erroDeConferencia = (troca) => {
+  if (!troca?.statusConferencia) return 'Esta troca não está habilitada para conferência de mercadoria.';
+  if (troca.status === STATUS_TROCA.RECUSADA) return 'Esta troca foi recusada e saiu da expedição. Não há mercadoria a conferir.';
+  if (troca.status === STATUS_TROCA.CANCELADA) return 'Esta troca foi cancelada e saiu da expedição. Não há mercadoria a conferir.';
+  if (troca.status === STATUS_TROCA.ENTREGUE) return 'Esta troca já foi entregue. Não há mais o que conferir.';
+  return null;
+};
+
+/** Itens da conferencia: o que foi pedido na troca + dados do estoque para bipar (EAN) e ordenar por local. */
+const montarItensDaConferencia = (itens, produtosPorId) => (Array.isArray(itens) ? itens : []).map((item) => {
+  const produto = produtosPorId?.[item.id] || {};
+  return {
+    produtoId: item.id,
+    nome: String(item.nome || produto.nome || ''),
+    codigo: String(produto.codigo || item.codigo || ''),
+    codigoBarras: String(produto.codigoBarras || ''),
+    localizacaoEstoque: String(produto.localizacaoEstoque || ''),
+    quantidadePedida: Number(item.quantidade) || 0,
+    quantidadeConferida: 0,
+    unidadeMedidaSigla: String(item.unidadeMedidaSigla || produto.unidadeMedidaSigla || 'UN'),
+  };
+});
+
+/** 'conferido' so' quando TODO item bateu exatamente pedido == conferido. */
+const statusFinalDaConferencia = (itens) => (
+  itens.every((item) => Number(item.quantidadeConferida) === Number(item.quantidadePedida))
+    ? STATUS_CONFERENCIA.CONFERIDO
+    : STATUS_CONFERENCIA.DIVERGENTE
+);
+
+/**
+ * Aplica as quantidades que a tela mandou sobre os itens JA gravados na
+ * abertura da conferencia. So' a quantidade conferida e' aceita: pedido, nome e
+ * EAN nao mudam pelo que o navegador manda (nada altera via DevTools).
+ * @returns {{ itens: object[], erros: string[] }}
+ */
+const aplicarQuantidadesConferidas = (itensGravados, recebidos) => {
+  const erros = [];
+  if (!Array.isArray(recebidos)) return { itens: [], erros: ['Não recebi as quantidades conferidas. Recarregue a tela e tente de novo.'] };
+  const porProduto = new Map();
+  recebidos.forEach((r) => porProduto.set(String(r?.produtoId ?? ''), r));
+
+  const itens = itensGravados.map((item) => {
+    const recebido = porProduto.get(item.produtoId);
+    if (!recebido) {
+      erros.push(`Faltou a quantidade conferida de "${item.nome}". Recarregue a tela e tente de novo.`);
+      return item;
+    }
+    const quantidade = arredondar(Number(recebido.quantidadeConferida), PRECISAO_QUANTIDADE);
+    if (!Number.isFinite(quantidade) || quantidade < 0 || quantidade > 1000000) {
+      erros.push(`A quantidade conferida de "${item.nome}" é inválida.`);
+      return item;
+    }
+    return { ...item, quantidadeConferida: quantidade };
+  });
+  return { itens, erros };
+};
+
 module.exports = {
   MOTIVOS_TROCA,
   STATUS_TROCA,
@@ -409,4 +498,11 @@ module.exports = {
   planoDeReserva,
   planoDeLiberacao,
   planoDeEntrega,
+  STATUS_CONFERENCIA,
+  conferenciaLigada,
+  podeTransitarConferencia,
+  erroDeConferencia,
+  montarItensDaConferencia,
+  statusFinalDaConferencia,
+  aplicarQuantidadesConferidas,
 };

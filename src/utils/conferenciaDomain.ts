@@ -227,3 +227,54 @@ export const ofereceMinutaAoFinalizar = (
   imprimirMinutaAtiva: boolean,
   minutaJaOferecidaNaPreVenda: boolean,
 ): boolean => conferenciaAtiva && imprimirMinutaAtiva && !minutaJaOferecidaNaPreVenda;
+
+/** Rotulo e cor do status de conferencia, iguais em todas as telas (pedido, troca, fila). */
+export const ROTULO_CONFERENCIA: Record<StatusConferencia, string> = {
+  aguardando: 'Aguardando Conferência',
+  em_conferencia: 'Em Conferência',
+  conferido: 'Conferido',
+  divergente: 'Divergente',
+};
+
+export const COR_CONFERENCIA: Record<StatusConferencia, string> = {
+  aguardando: '#f59e0b',
+  em_conferencia: '#3b82f6',
+  conferido: '#10b981',
+  divergente: '#ef4444',
+};
+
+/**
+ * ENTREGAR TROCA ANTES DE CONFERIR (2026-09-24). Mesma ideia do faturamento da
+ * pre-venda: nao e' bloqueio (reposicao que sai na hora existe), e' aviso -- o
+ * sistema diz em que pe' esta a separacao e pergunta uma vez. Devolve null
+ * quando nao ha o que avisar (conferencia desligada ou ja conferida).
+ */
+export const avisoEntregarTrocaSemConferencia = (
+  conferenciaAtiva: boolean,
+  statusConferencia: StatusConferencia | string | null | undefined,
+): { title: string; text: string; confirmButtonText: string } | null => {
+  if (!conferenciaAtiva) return null;
+  const status = String(statusConferencia ?? '');
+  // Troca antiga (criada antes de a empresa ligar a conferencia) nao tem status: nada a avisar.
+  if (!status || status === 'conferido') return null;
+
+  if (status === 'em_conferencia') {
+    return {
+      title: 'A conferência está em andamento',
+      text: 'Alguém da expedição está separando esta troca agora. Se você confirmar a entrega, o estoque é baixado com as quantidades da troca, não com o que foi separado.',
+      confirmButtonText: 'Entregar mesmo assim',
+    };
+  }
+  if (status === 'divergente') {
+    return {
+      title: 'A conferência fechou com divergência',
+      text: 'A expedição separou quantidade diferente da que está na troca. Confirmar a entrega baixa o estoque com as quantidades da troca, não com as conferidas. Confira antes, ou entregue ciente da diferença.',
+      confirmButtonText: 'Entregar mesmo assim',
+    };
+  }
+  return {
+    title: 'Esta troca ainda não foi conferida',
+    text: 'A reposição ainda não passou pela conferência da expedição. Você pode confirmar a entrega assim mesmo — o estoque é baixado normalmente.',
+    confirmButtonText: 'Sim, entregar sem conferir',
+  };
+};

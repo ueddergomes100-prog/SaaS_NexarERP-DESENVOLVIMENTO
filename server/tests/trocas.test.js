@@ -16,6 +16,13 @@ const {
   planoDeReserva,
   planoDeLiberacao,
   planoDeEntrega,
+  STATUS_CONFERENCIA,
+  conferenciaLigada,
+  podeTransitarConferencia,
+  erroDeConferencia,
+  montarItensDaConferencia,
+  statusFinalDaConferencia,
+  aplicarQuantidadesConferidas,
 } = require('../services/trocas');
 
 const AGORA = new Date('2026-09-21T15:00:00.000Z');
@@ -327,4 +334,76 @@ test('estoque insuficiente diz o que fazer para aprovar mesmo assim', () => {
   });
   assert.equal(r.ok, false);
   assert.match(r.erros[0], /Permitir venda sem estoque/);
+});
+
+// ---------------------------------------------------------------------------
+// conferencia de mercadoria da troca
+// ---------------------------------------------------------------------------
+
+test('conferencia: so entra na fila quando a empresa liga a chave', () => {
+  assert.equal(conferenciaLigada({ conferenciaMercadoria: true }), true);
+  assert.equal(conferenciaLigada({ conferenciaMercadoria: false }), false);
+  assert.equal(conferenciaLigada({}), false);
+  assert.equal(conferenciaLigada(undefined), false);
+});
+
+test('conferencia: maquina de estados igual a do pedido', () => {
+  assert.equal(podeTransitarConferencia('aguardando', 'em_conferencia'), true);
+  assert.equal(podeTransitarConferencia('aguardando', 'conferido'), false);
+  assert.equal(podeTransitarConferencia('em_conferencia', 'conferido'), true);
+  assert.equal(podeTransitarConferencia('em_conferencia', 'divergente'), true);
+  assert.equal(podeTransitarConferencia('conferido', 'em_conferencia'), true);
+  assert.equal(podeTransitarConferencia('divergente', 'em_conferencia'), true);
+  assert.equal(STATUS_CONFERENCIA.AGUARDANDO, 'aguardando');
+});
+
+test('conferencia: troca sem a marca, recusada, cancelada ou entregue nao abre, com mensagem em portugues', () => {
+  assert.match(erroDeConferencia({ status: 'Aprovada' }), /não está habilitada/);
+  assert.match(erroDeConferencia({ status: 'Recusada', statusConferencia: 'aguardando' }), /recusada/);
+  assert.match(erroDeConferencia({ status: 'Cancelada', statusConferencia: 'aguardando' }), /cancelada/);
+  assert.match(erroDeConferencia({ status: 'Entregue', statusConferencia: 'conferido' }), /já foi entregue/);
+  assert.equal(erroDeConferencia({ status: 'Solicitada', statusConferencia: 'aguardando' }), null);
+  assert.equal(erroDeConferencia({ status: 'Aprovada', statusConferencia: 'divergente' }), null);
+});
+
+test('conferencia: itens vem do pedido da troca e do estoque (EAN e local), com quantidade conferida zerada', () => {
+  const itens = montarItensDaConferencia(
+    [{ id: 'p1', nome: 'GRANOLA 1KG', codigo: '1019', quantidade: 2, unidadeMedidaSigla: 'UN' }, { id: 'p2', nome: 'CHA', quantidade: 3 }],
+    { p1: { codigo: '1019', codigoBarras: '7891234567895', localizacaoEstoque: 'A-01' } },
+  );
+  assert.deepEqual(itens[0], { produtoId: 'p1', nome: 'GRANOLA 1KG', codigo: '1019', codigoBarras: '7891234567895', localizacaoEstoque: 'A-01', quantidadePedida: 2, quantidadeConferida: 0, unidadeMedidaSigla: 'UN' });
+  assert.equal(itens[1].codigoBarras, '');
+  assert.equal(itens[1].unidadeMedidaSigla, 'UN');
+  assert.equal(Object.values(itens[1]).includes(undefined), false);
+});
+
+test('conferencia: status final so e conferido quando tudo bate exato', () => {
+  assert.equal(statusFinalDaConferencia([{ quantidadePedida: 2, quantidadeConferida: 2 }, { quantidadePedida: 1, quantidadeConferida: 1 }]), 'conferido');
+  assert.equal(statusFinalDaConferencia([{ quantidadePedida: 2, quantidadeConferida: 1 }]), 'divergente');
+  assert.equal(statusFinalDaConferencia([{ quantidadePedida: 2, quantidadeConferida: 3 }]), 'divergente');
+});
+
+test('conferencia: so a quantidade conferida vem da tela; pedido, nome e EAN ficam como foram gravados', () => {
+  const gravados = [
+    { produtoId: 'p1', nome: 'GRANOLA', codigoBarras: '789', quantidadePedida: 2, quantidadeConferida: 0 },
+    { produtoId: 'p2', nome: 'CHA', codigoBarras: '', quantidadePedida: 1, quantidadeConferida: 0 },
+  ];
+  const { itens, erros } = aplicarQuantidadesConferidas(gravados, [
+    { produtoId: 'p1', quantidadeConferida: 2, quantidadePedida: 999, nome: 'HACKEADO' },
+    { produtoId: 'p2', quantidadeConferida: 0 },
+  ]);
+  assert.deepEqual(erros, []);
+  assert.equal(itens[0].quantidadeConferida, 2);
+  assert.equal(itens[0].quantidadePedida, 2);
+  assert.equal(itens[0].nome, 'GRANOLA');
+  assert.equal(itens[1].quantidadeConferida, 0);
+});
+
+test('conferencia: quantidade faltando, negativa ou absurda e recusada em portugues', () => {
+  const gravados = [{ produtoId: 'p1', nome: 'GRANOLA', quantidadePedida: 2, quantidadeConferida: 0 }];
+  assert.match(aplicarQuantidadesConferidas(gravados, [])[ 'erros' ][0], /Faltou a quantidade conferida de "GRANOLA"/);
+  assert.match(aplicarQuantidadesConferidas(gravados, [{ produtoId: 'p1', quantidadeConferida: -1 }]).erros[0], /inválida/);
+  assert.match(aplicarQuantidadesConferidas(gravados, [{ produtoId: 'p1', quantidadeConferida: 'abc' }]).erros[0], /inválida/);
+  assert.match(aplicarQuantidadesConferidas(gravados, [{ produtoId: 'p1', quantidadeConferida: 5000000 }]).erros[0], /inválida/);
+  assert.match(aplicarQuantidadesConferidas(gravados, null).erros[0], /Recarregue/);
 });

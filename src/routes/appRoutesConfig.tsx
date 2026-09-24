@@ -29,6 +29,7 @@ const PedidoPrintLote = lazy(() => import('../pages/Vendas/PedidoPrintLote'));
 const EstoqueList = lazy(() => import('../pages/Estoque/EstoqueList'));
 const EstoqueForm = lazy(() => import('../pages/Estoque/EstoqueForm'));
 const ImportarProdutos = lazy(() => import('../pages/Estoque/ImportarProdutos'));
+const ImportarDadosFiscais = lazy(() => import('../pages/Estoque/ImportarDadosFiscais'));
 const ImportarComposicao = lazy(() => import('../pages/Estoque/ImportarComposicao'));
 const AjusteEstoque = lazy(() => import('../pages/Estoque/AjusteEstoque'));
 const RelatorioEstoque = lazy(() => import('../pages/Estoque/RelatorioEstoque'));
@@ -133,6 +134,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'estoque/nova', element: <EstoqueForm /> },
   { path: 'estoque/editar/:id', element: <EstoqueForm /> },
   { path: 'estoque/importar', element: <ImportarProdutos /> },
+  { path: 'estoque/importar-fiscal', element: <ImportarDadosFiscais /> },
   { path: 'estoque/importar-composicao', element: <ImportarComposicao /> },
   { path: 'estoque/ajuste', element: <AjusteEstoque /> },
   { path: 'estoque/relatorio', element: <RelatorioEstoque /> },

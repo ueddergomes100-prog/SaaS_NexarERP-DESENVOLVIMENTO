@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Send, Trash2, XCircle } from 'lucide-react';
+import { CheckCircle2, MessageCircle, Send, Trash2, XCircle } from 'lucide-react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { NexusSwal, showError } from '../../utils/alerts';
+import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { criarOrcamentoExterno, criarPreVendaExterna } from '../../services/vendedorExternoVendaService';
 import { trocaService } from '../../services/trocaService';
 import VendedorHeader from './VendedorHeader';
+import type { MinutaCliente } from '../Expedicao/MinutaPrintDocument';
+import { enviarMinutaPorWhatsApp, gerarMinutaRascunhoPdf, nomeArquivoMinutaRascunho } from './vendedorMinutaPdf';
 import { comNotaFiscalDaEscolha } from '../../utils/pedidoVendedorDomain';
 import {
   listarRascunhos,
@@ -49,6 +53,7 @@ const VendedorRascunhos: React.FC = () => {
   ));
   const [enviando, setEnviando] = useState(false);
   const [resultados, setResultados] = useState<ResultadoEnvio[]>([]);
+  const [gerandoMinuta, setGerandoMinuta] = useState<string | null>(null);
 
   const recarregar = () => {
     if (tenantId && currentUser) setRascunhos(listarRascunhos(tenantId, currentUser.uid));
@@ -72,6 +77,63 @@ const VendedorRascunhos: React.FC = () => {
       recarregar();
     } catch (error) {
       showError('Não foi possível excluir', error instanceof Error ? error.message : 'Tente novamente.');
+    }
+  };
+
+  /**
+   * Manda a minuta do rascunho (PDF, sem valores) pro WhatsApp do cliente
+   * conferir o pedido antes de ele ir pra loja. Nao envia nem altera o
+   * rascunho. Cadastro do cliente e nome da empresa sao complemento: se nao
+   * carregarem (sem internet, por exemplo), a minuta sai com o que o
+   * rascunho ja tem.
+   */
+  const handleEnviarMinuta = async (rascunho: RascunhoVenda) => {
+    if (!tenantId || gerandoMinuta) return;
+    setGerandoMinuta(rascunho.localId);
+    try {
+      let cliente: MinutaCliente | null = null;
+      try {
+        const clienteSnap = await getDoc(doc(db, 'clientes', rascunho.cliente.id));
+        if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) cliente = clienteSnap.data() as MinutaCliente;
+      } catch {
+        // Sai so' com o nome e o telefone que o rascunho guardou.
+      }
+      let nomeEmpresa = '';
+      try {
+        const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
+        nomeEmpresa = String(configSnap.data()?.nomeOficina || '').trim();
+      } catch {
+        // Cabecalho sem o nome da filial.
+      }
+
+      const telefone = cliente?.celular || cliente?.telefone || rascunho.cliente.telefone || '';
+      const pdf = gerarMinutaRascunhoPdf({
+        rascunho,
+        cliente,
+        nomeEmpresa,
+        vendedorNome: userNome || currentUser?.displayName || 'Vendedor',
+        geradoEm: new Date(),
+      });
+      const resultado = await enviarMinutaPorWhatsApp(
+        pdf,
+        nomeArquivoMinutaRascunho(rascunho.cliente.nome),
+        telefone,
+        `Olá, ${rascunho.cliente.nome}! Segue a minuta do seu pedido para conferência.`,
+      );
+      if (resultado === 'baixado') {
+        showWarning(
+          'Minuta baixada',
+          telefone
+            ? 'Abrimos a conversa do cliente no WhatsApp. Anexe o PDF que acabou de ser baixado.'
+            : 'Este cliente não tem telefone cadastrado. Abra o WhatsApp e anexe o PDF que acabou de ser baixado.',
+        );
+      } else if (resultado === 'compartilhado') {
+        showSuccess('Minuta enviada para o compartilhamento.');
+      }
+    } catch (error) {
+      showError('Não foi possível gerar a minuta', error instanceof Error && error.message ? error.message : 'Tente novamente.');
+    } finally {
+      setGerandoMinuta(null);
     }
   };
 
@@ -240,6 +302,22 @@ const VendedorRascunhos: React.FC = () => {
                   </div>
                 )}
               </button>
+              {rascunho.tipo === 'pedido' && (
+                <button
+                  type="button"
+                  aria-label="Enviar minuta pelo WhatsApp"
+                  title="Enviar minuta pelo WhatsApp"
+                  disabled={enviando || gerandoMinuta !== null}
+                  onClick={() => void handleEnviarMinuta(rascunho)}
+                  style={{
+                    width: '38px', height: '38px', borderRadius: '10px', flexShrink: 0, display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)',
+                    color: '#22c55e', cursor: 'pointer', opacity: gerandoMinuta === rascunho.localId ? 0.5 : 1,
+                  }}
+                >
+                  <MessageCircle size={16} />
+                </button>
+              )}
               <button
                 type="button"
                 aria-label="Excluir rascunho"

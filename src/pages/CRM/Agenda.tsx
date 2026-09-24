@@ -39,6 +39,8 @@ const Agenda: React.FC = () => {
     veiculo: '',
     servico: ''
   });
+  // Id do agendamento que esta sendo EDITADO (vazio = criando um novo).
+  const [agendamentoEmEdicao, setAgendamentoEmEdicao] = useState<string | null>(null);
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   
@@ -107,6 +109,32 @@ const Agenda: React.FC = () => {
 
   const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
+  const fecharModal = () => {
+    setIsModalOpen(false);
+    setAgendamentoEmEdicao(null);
+    setIsClientDropdownOpen(false);
+    setIsVeiculoDropdownOpen(false);
+    setVeiculosDoCliente([]);
+    setFormData((atual) => ({ ...atual, clienteId: '', clienteNome: '', veiculo: '', servico: '' }));
+  };
+
+  const abrirNovoAgendamento = () => {
+    setAgendamentoEmEdicao(null);
+    setFormData({ data: new Date().toISOString().split('T')[0], hora: '09:00', clienteId: '', clienteNome: '', veiculo: '', servico: '' });
+    setVeiculosDoCliente([]);
+    setIsVeiculoDropdownOpen(false);
+    setIsModalOpen(true);
+  };
+
+  /** Abre o mesmo formulario do agendamento novo, ja preenchido com os dados atuais. */
+  const abrirEdicao = (ag: Agendamento) => {
+    setAgendamentoEmEdicao(ag.id);
+    setFormData({ data: ag.data, hora: ag.hora, clienteId: ag.clienteId, clienteNome: ag.clienteNome, veiculo: ag.veiculo || '', servico: ag.servico || '' });
+    setVeiculosDoCliente([]);
+    setIsVeiculoDropdownOpen(false);
+    setIsModalOpen(true);
+  };
+
   const handleSaveAgendamento = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.clienteId || !formData.data || !formData.hora) {
@@ -118,6 +146,21 @@ const Agenda: React.FC = () => {
     setIsLoading(true);
 
     try {
+      if (agendamentoEmEdicao) {
+        // Edicao: so os campos do formulario mudam; status, tenant e criacao ficam como estavam.
+        await updateDoc(doc(db, 'agendamentos', agendamentoEmEdicao), {
+          data: formData.data,
+          hora: formData.hora,
+          clienteId: formData.clienteId,
+          clienteNome: formData.clienteNome,
+          veiculo: formData.veiculo,
+          servico: formData.servico,
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Agendamento editado'),
+        });
+        showSuccess('Agendamento atualizado!');
+        fecharModal();
+        return;
+      }
       await addDoc(collection(db, 'agendamentos'), {
         ...formData,
         status: 'Agendado',
@@ -129,7 +172,7 @@ const Agenda: React.FC = () => {
       setFormData({ ...formData, clienteId: '', clienteNome: '', veiculo: '', servico: '' });
     } catch (err) {
       console.error(err);
-      showError('Erro', 'Não foi possível criar o agendamento.');
+      showError('Erro', agendamentoEmEdicao ? 'Não foi possível salvar as alterações do agendamento. Nada foi alterado: tente de novo.' : 'Não foi possível criar o agendamento.');
     } finally {
       setIsLoading(false);
     }
@@ -148,12 +191,22 @@ const Agenda: React.FC = () => {
           ${jaCancelado ? '<p style="color:#ef4444"><strong>Status:</strong> Cancelado</p>' : ''}
         </div>
       `,
+      // Agendamento ativo: Editar (principal), Cancelar Agendamento e Fechar.
+      // Cancelado nao se edita: so' Fechar.
       showDenyButton: !jaCancelado,
-      confirmButtonText: 'Fechar',
+      showCancelButton: !jaCancelado,
+      confirmButtonText: jaCancelado ? 'Fechar' : 'Editar',
       confirmButtonColor: '#8b5cf6',
       denyButtonText: 'Cancelar Agendamento',
       denyButtonColor: '#ef4444',
+      cancelButtonText: 'Fechar',
+      cancelButtonColor: '#3f3f46',
     });
+
+    if (result.isConfirmed && !jaCancelado) {
+      abrirEdicao(ag);
+      return;
+    }
 
     if (result.isDenied) {
       const confirm = await NexusSwal.fire({
@@ -202,7 +255,7 @@ const Agenda: React.FC = () => {
           </h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Gerencie reservas, agenda e fluxo de atendimento</p>
         </div>
-        <button className="btn-primary" onClick={() => setIsModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button className="btn-primary" onClick={abrirNovoAgendamento} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Plus size={18} /> Novo Agendamento
         </button>
       </div>
@@ -258,7 +311,7 @@ const Agenda: React.FC = () => {
                           style={{ backgroundColor: 'var(--bg-secondary)', padding: '6px 8px', borderRadius: '4px', fontSize: '11px', borderLeft: `3px solid ${cancelado ? '#6b7280' : '#10b981'}`, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', transition: 'filter 0.2s', opacity: cancelado ? 0.5 : 1 }}
                           onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.2)'}
                           onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
-                          title={`${ag.hora} - ${ag.clienteNome}${cancelado ? ' (Cancelado)' : ''} (Clique para opções)`}
+                          title={`${ag.hora} - ${ag.clienteNome}${cancelado ? ' (Cancelado)' : ''} (Clique para editar ou cancelar)`}
                         >
                           <strong style={{ display: 'block', color: 'var(--text-primary)', textDecoration: cancelado ? 'line-through' : 'none' }}>{ag.hora} - {ag.veiculo || 'S/V'}</strong>
                           <span style={{ color: 'var(--text-muted)' }}>{ag.clienteNome}</span>
@@ -276,10 +329,10 @@ const Agenda: React.FC = () => {
       {isModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="card" style={{ width: '100%', maxWidth: '500px', padding: '24px', position: 'relative' }}>
-            <button onClick={() => setIsModalOpen(false)} style={{ position: 'absolute', top: '16px', right: '16px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+            <button onClick={fecharModal} style={{ position: 'absolute', top: '16px', right: '16px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }} aria-label="Fechar">
               <X size={24} />
             </button>
-            <h2 style={{ margin: '0 0 24px 0', fontSize: '20px' }}>Novo Agendamento</h2>
+            <h2 style={{ margin: '0 0 24px 0', fontSize: '20px' }}>{agendamentoEmEdicao ? 'Editar Agendamento' : 'Novo Agendamento'}</h2>
             
             <form onSubmit={handleSaveAgendamento} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               
@@ -392,9 +445,9 @@ const Agenda: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
-                <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={() => setIsModalOpen(false)}>Cancelar</button>
+                <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={fecharModal}>Cancelar</button>
                 <button type="submit" className="btn-primary" style={{ flex: 1 }} disabled={isLoading || !formData.clienteId}>
-                  {isLoading ? 'Salvando...' : 'Confirmar Agendamento'}
+                  {isLoading ? 'Salvando...' : (agendamentoEmEdicao ? 'Salvar alterações' : 'Confirmar Agendamento')}
                 </button>
               </div>
             </form>

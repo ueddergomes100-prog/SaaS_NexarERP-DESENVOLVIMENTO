@@ -10,6 +10,7 @@ import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
 import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, CSOSN_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
 import { computeAvailableStock } from '../../utils/estoqueReservaDomain';
+import { opcoesDeCategoria, separarCategoriasPorSituacao } from '../../utils/categoriaDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM, formatFatorConversao, normalizeEmbalagens } from '../../utils/embalagemDomain';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
@@ -430,6 +431,7 @@ const EstoqueForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
+  const [categoriasInativasDB, setCategoriasInativasDB] = useState<string[]>([]);
   const [marcasDB, setMarcasDB] = useState<string[]>([]);
   const [fornecedoresDB, setFornecedoresDB] = useState<string[]>([]);
   const [unidadesDB, setUnidadesDB] = useState<UnidadeMedida[]>([]);
@@ -516,12 +518,14 @@ const EstoqueForm: React.FC = () => {
 
         const qCat = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
         const snapCat = await getDocs(qCat);
-        const cats: string[] = [];
-        snapCat.forEach(d => {
-          const data = d.data();
-          if (data.tipo === 'Peça' || data.tipo === 'Produto' || !data.tipo) cats.push(data.nome);
-        });
-        setCategoriasDB(cats);
+        // Categoria inativa nao aparece pra escolha (ver categoriaDomain.ts);
+        // a do proprio produto continua visivel, marcada como inativa.
+        const { ativas, inativas } = separarCategoriasPorSituacao(
+          snapCat.docs.map((d) => d.data()),
+          (tipo) => tipo === 'Peça' || tipo === 'Produto' || tipo === '',
+        );
+        setCategoriasDB(ativas);
+        setCategoriasInativasDB(inativas);
 
         // Marca so' alimenta a lista de sugestoes do campo -- e' acessorio.
         // Fica num try proprio porque ja' derrubou o cadastro inteiro: a
@@ -1478,7 +1482,9 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>Categoria *</label>
                   <select name="categoria" value={formData.categoria} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
-                    {categoriasDB.map((cat, idx) => <option key={idx} value={cat}>{cat}</option>)}
+                    {opcoesDeCategoria({ ativas: categoriasDB, inativas: categoriasInativasDB }, formData.categoria).map((opcao) => (
+                      <option key={opcao.valor} value={opcao.valor}>{opcao.rotulo}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="input-group">

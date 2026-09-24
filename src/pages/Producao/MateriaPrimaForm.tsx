@@ -11,6 +11,7 @@ import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialS
 import { chaveComponente, computeEstoquePrevisto } from '../../utils/producaoDomain';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { separarCategoriasPorSituacao } from '../../utils/categoriaDomain';
 import CampoComSugestoes from '../../components/common/CampoComSugestoes';
 
 const inputStyle: React.CSSProperties = {
@@ -69,11 +70,12 @@ const MateriaPrimaForm: React.FC = () => {
       try {
         const qCat = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
         const snapCat = await getDocs(qCat);
-        const cats: string[] = [];
-        snapCat.forEach(d => {
-          if (d.data().tipo === 'Matéria-Prima') cats.push(d.data().nome);
-        });
-        setCategoriasDB(cats);
+        // So' sugere categoria ativa (categoriaDomain.ts). O campo e' texto livre,
+        // entao a categoria atual da materia-prima nunca some da tela.
+        setCategoriasDB(separarCategoriasPorSituacao(
+          snapCat.docs.map((d) => d.data()),
+          (tipo) => tipo === 'Matéria-Prima',
+        ).ativas);
 
         // Try proprio: marca e' so' sugestao do campo. Ver o comentario em
         // EstoqueForm.tsx -- esta mesma consulta derrubou o cadastro inteiro

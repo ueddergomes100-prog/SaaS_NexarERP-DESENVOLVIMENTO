@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showError } from '../../utils/alerts';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { separarCategoriasPorSituacao } from '../../utils/categoriaDomain';
 
 export interface ProdutoCadastradoRapido {
   id: string;
@@ -97,11 +98,11 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
       .then((snap) => {
         // Mesmo filtro de EstoqueForm.tsx: categoria de servico nao entra
         // na lista de um cadastro rapido que so cria produto.
-        const nomes = snap.docs
-          .map((d) => d.data())
-          .filter((data) => data.tipo === 'Peça' || data.tipo === 'Produto' || !data.tipo)
-          .map((data) => String(data.nome || ''))
-          .filter(Boolean);
+        // Categoria inativa nao aparece (categoriaDomain.ts): aqui o produto e' novo.
+        const nomes = separarCategoriasPorSituacao(
+          snap.docs.map((d) => d.data()),
+          (tipo) => tipo === 'Peça' || tipo === 'Produto' || tipo === '',
+        ).ativas;
         setCategoriasDB(nomes);
         setCategoria((atual) => atual || nomes[0] || '');
       })

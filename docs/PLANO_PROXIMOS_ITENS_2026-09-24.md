@@ -82,12 +82,30 @@ Ver `docs/PLANO_LOTE_VALIDADE.md` (decisões do dono já registradas: configura�
 
 ---
 
+
+## 4.1 Despesas de VEÍCULO ligadas ao Contas a Pagar (ideia do dono, 24/09 — a decidir)
+
+**Pedido:** "vincular a tela de veículos com contas a pagar, algo assim, para lançar despesas de veículos, ou outra ideia".
+
+**Achado importante (levantado em 24/09):** a tela **Cadastros → Veículos é de veículo de CLIENTE** (`VeiculoForm.tsx` exige `clienteId`; serve à Ordem de Serviço e à Agenda). **Não existe cadastro de veículo da própria empresa (frota).** Já existe controle de **despesas de viagem por motorista/rota** (Rotas e Despesas: `rotaDomain.ts`, `RotaForm.tsx`, `MotoristasList.tsx`), que lança cada despesa como linha própria no financeiro.
+
+**Opções (escolher com o dono):**
+- **A) Frota própria (recomendada):** novo cadastro **Veículos da empresa** (placa, modelo, ano, tipo, motorista padrão, KM, situação) — separado do veículo de cliente (coleção nova, ex.: `frota` → ⚠️ rules em dev e produção ANTES do front). Em **Contas a Pagar / lançamento de despesa** ganha o campo opcional **"Veículo"** (e "Motorista"). Cada despesa (combustível, manutenção, IPVA, seguro, multa, pedágio, pneus...) grava `veiculoId/veiculoNome` na transação. Relatório **custo por veículo** (PDF, por período/tipo de despesa) e custo por KM se houver KM.
+- **B) Só vincular, sem cadastro novo:** campo "Veículo" (texto ou lista) na despesa; mais rápido, mas sem relatório confiável (digitação livre). Não recomendada.
+- **C) Reaproveitar Rotas e Despesas:** despesa de veículo = despesa de rota sem viagem. Aproveita a tela pronta, mas mistura viagem com manutenção/IPVA. Só se o dono quiser tudo num lugar.
+- **D) Despesas recorrentes:** IPVA/seguro/licenciamento com parcelas (junta com a seção 3 — despesa parcelada) e alerta de vencimento por veículo.
+
+**Também decidir:** o combustível/manutenção da **rota** (motorista) passa a apontar para o veículo da frota? (proposta: sim, campo opcional na rota); permissão (`operacoes.rotas` ou financeiro); se veículo de cliente deve poder virar despesa (ex.: peça comprada para OS) — provavelmente **não**, isso é custo da OS.
+
+**Ordem:** entra junto/depois da seção 3 (despesa parcelada), porque compartilha a tela de lançamento de despesa.
+
 ## 5. Ordem sugerida na próxima sessão
 
 1. **Testar e enviar** `3d9de10` (seção 0).
 2. **Erro de Configurações** (seção 1) — pequeno e destrava o uso; perguntar o papel do usuário.
 3. **Despesas parceladas + cheque** (seção 3) — financeiro; começar pelo domínio puro + testes, depois PagamentoCard/Contas a Pagar, depois a fila de cheques emitidos.
 4. **Insumos** (seção 2) — publicar rules em dev e produção **antes** do frontend.
-5. **Lote e Validade** fases 1→3 e só depois a fase 4 (baixa por lote nas vendas).
+5. **Despesas de veículo** (seção 4.1) junto com a despesa parcelada/cheque, depois de decidir a opção A/B/C/D.
+6. **Lote e Validade** fases 1→3 e só depois a fase 4 (baixa por lote nas vendas).
 
 Regras permanentes (valem em tudo): responder em pt-BR; erro de tela em português dizendo o que fazer; nunca gravar `undefined` no Firestore; não contornar cadastro incompleto do cliente na lógica; relatório sempre em PDF na tela; nada roda contra produção a partir da máquina local; push para dev/production só quando o dono pedir; conferir `git log`/`git status` antes de commitar (outra janela pode estar mexendo); `npm run typecheck` (não `tsc --noEmit -p .`).

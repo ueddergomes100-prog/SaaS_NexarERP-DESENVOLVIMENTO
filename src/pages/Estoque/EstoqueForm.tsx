@@ -832,6 +832,11 @@ const EstoqueForm: React.FC = () => {
       if (produtoAtualizado.exists()) {
         setProdutoOriginal(produtoAtualizado.data());
         setHistoricoPrecos(produtoAtualizado.data().historicoPrecos || []);
+        // Produto com composicao passa a ser "produzido internamente" (o
+        // servico marca no banco); a tela acompanha, senao o proximo Salvar
+        // desmarcaria de novo.
+        const produzido = produtoAtualizado.data().produzidoInternamente === true;
+        setFormData(prev => (prev.produzidoInternamente === produzido ? prev : { ...prev, produzidoInternamente: produzido }));
       }
       showSuccess('Composição salva!');
     } catch (error) {

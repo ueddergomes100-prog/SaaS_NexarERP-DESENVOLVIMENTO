@@ -10,7 +10,7 @@ import { chaveComponente, computeEstoquePrevisto } from '../../utils/producaoDom
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
-import { sincronizarCustosDaProducao } from '../../services/custoProducaoService';
+import { contextoDeReajuste, sincronizarCustosDaProducao } from '../../services/custoProducaoService';
 import { mostrarImpactoDeCusto } from '../../utils/impactoCustoAlert';
 import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
 import {
@@ -56,7 +56,7 @@ const MateriasPrimasList: React.FC = () => {
         origemDaMudanca: 'Atualização manual do custo',
         todos: true,
       });
-      await mostrarImpactoDeCusto(resultado, resultado.impactos.length > 0 ? 'Custo dos produtos acabados atualizado' : 'Custo dos produtos acabados conferido');
+      await mostrarImpactoDeCusto(resultado, resultado.impactos.length > 0 ? 'Custo dos produtos acabados atualizado' : 'Custo dos produtos acabados conferido', contextoDeReajuste(tenantId, currentUser.uid));
     } catch (erro) {
       console.error('Erro ao atualizar o custo dos produtos acabados:', erro);
       showError('Não foi possível atualizar o custo', 'Confira sua conexão e tente de novo. Nenhum produto foi alterado pela metade: o que já estava gravado continua como estava.');

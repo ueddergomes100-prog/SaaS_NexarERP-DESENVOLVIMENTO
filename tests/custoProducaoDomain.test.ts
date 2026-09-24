@@ -6,7 +6,9 @@ import {
   descricaoDoMotivo,
   entradaDeHistorico,
   htmlDoImpactoDeCusto,
+  montarAtualizacaoDePreco,
   planejarRecalculoDeCustos,
+  precoManterMargem,
   resumirImpacto,
   type ProdutoParaCusto,
   type ReceitaDoProduto,
@@ -179,12 +181,52 @@ test('aviso ao usuário: mostra custo, margem, a regra do preço e escapa texto 
   assert.match(html, /preço de venda não foi alterado/);
   assert.equal(html.includes('<b>CAPIM</b>'), false);
   assert.match(html, /&lt;b&gt;CAPIM&lt;\/b&gt;/);
-  assert.equal(htmlDoImpactoDeCusto({ impactos: [], emCiclo: [], idsEmCiclo: [], produtosConferidos: 3, comReceitaSemMarcacao: [] }), '');
+  assert.equal(htmlDoImpactoDeCusto({ impactos: [], emCiclo: [], idsEmCiclo: [], produtosConferidos: 3, marcadosComoProduzidos: [] }), '');
 });
 
-test('conferência geral lista produto com composição que não está marcado como produzido internamente', () => {
+test('aviso lista os produtos marcados como produzidos e diz que o custo já estava correto quando nada mudou', () => {
   const r = planejarRecalculoDeCustos({ mudancas: [], todos: true, receitas, produtos, custosAtuais: custosAtuais(), nomesDosComponentes: nomes });
-  assert.deepEqual(r.comReceitaSemMarcacao, [{ id: 'P3', nome: 'CAMISETA REVENDA' }]);
-  assert.match(htmlDoImpactoDeCusto(r), /Produzido internamente/);
-  assert.match(htmlDoImpactoDeCusto(r), /custo de todos já está correto/);
+  r.marcadosComoProduzidos = [{ id: 'P3', nome: 'CAMISETA REVENDA' }];
+  const html = htmlDoImpactoDeCusto(r);
+  assert.match(html, /marcados como "Produzido internamente"/);
+  assert.match(html, /CAMISETA REVENDA/);
+  assert.match(html, /custo de todos já está correto/);
+});
+
+test('reajuste escolhido: sugere o preço que mantém a margem de antes; sem preço não sugere', () => {
+  const r = planejarRecalculoDeCustos({
+    mudancas: [{ origem: 'materia_prima', id: 'M1', nome: 'CAPIM', custoAnterior: 10, custoNovo: 14 }],
+    receitas, produtos, custosAtuais: custosAtuais(), nomesDosComponentes: nomes,
+  });
+  const p1 = r.impactos.find((i) => i.produtoId === 'P1');
+  assert.ok(p1);
+  // custo 8 -> 10, preço 12 (margem 50%): mantendo 50% o preço vira 15
+  assert.equal(precoManterMargem(p1), 15);
+  assert.equal(precoManterMargem({ precoVenda: 0, margemAntes: null, custoNovo: 10 }), null);
+});
+
+test('reajuste escolhido: grava preço, margem, custo-base da precificação e histórico com motivo', () => {
+  const campos = montarAtualizacaoDePreco({ precoVenda: 12, precoCusto: 10, historicoPrecos: [{ velho: true }], temPrecos: true }, 15, 'u1', 'Reajuste após mudança de custo', new Date('2026-09-24T12:00:00Z'));
+  assert.ok(campos);
+  assert.equal(campos.precoVenda, 15);
+  assert.equal(campos.margemLucro, 50);
+  assert.equal(campos.lucroEstimado, 5);
+  assert.equal(campos.custoNaUltimaPrecificacao, 10);
+  assert.equal(campos['precos.venda'], 15);
+  const historico = campos.historicoPrecos as Array<Record<string, unknown>>;
+  assert.equal(historico.length, 2);
+  assert.equal(historico[0].precoAnterior, 12);
+  assert.equal(historico[0].precoNovo, 15);
+  assert.equal(historico[0].motivo, 'Reajuste após mudança de custo');
+  assert.equal(Object.values(campos).includes(undefined), false);
+});
+
+test('reajuste escolhido: preço inválido, zero ou igual ao atual não grava nada; sem objeto legado não mexe em precos.*', () => {
+  const base = { precoVenda: 12, precoCusto: 10, historicoPrecos: [], temPrecos: false };
+  assert.equal(montarAtualizacaoDePreco(base, 0, 'u', 'x'), null);
+  assert.equal(montarAtualizacaoDePreco(base, Number.NaN, 'u', 'x'), null);
+  assert.equal(montarAtualizacaoDePreco(base, 12, 'u', 'x'), null);
+  const campos = montarAtualizacaoDePreco(base, 13.456, undefined, 'x');
+  assert.equal(campos?.precoVenda, 13.46);
+  assert.equal('precos.venda' in (campos ?? {}), false);
 });

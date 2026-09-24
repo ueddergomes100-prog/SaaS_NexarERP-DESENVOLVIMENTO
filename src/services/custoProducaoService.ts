@@ -1,9 +1,10 @@
-import { collection, doc, getDocs, query, serverTimestamp, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, where, writeBatch } from 'firebase/firestore';
 import { db } from './firebase';
 import { chaveComponente, normalizarComponente } from '../utils/producaoDomain';
 import { margemMarkup } from '../utils/precificacaoDomain';
 import {
   entradaDeHistorico,
+  montarAtualizacaoDePreco,
   planejarRecalculoDeCustos,
   type MudancaDeCusto,
   type ProdutoParaCusto,
@@ -52,7 +53,7 @@ export const sincronizarCustosDaProducao = async (opcoes: OpcoesDeSincronizacao)
   const { tenantId } = opcoes;
   const mudancas = (opcoes.mudancas ?? []).filter((m) => m.id && m.custoAnterior !== m.custoNovo);
   const receitasAlteradas = opcoes.receitasAlteradas ?? [];
-  const vazio: ResultadoDoRecalculo = { impactos: [], emCiclo: [], idsEmCiclo: [], produtosConferidos: 0, comReceitaSemMarcacao: [] };
+  const vazio: ResultadoDoRecalculo = { impactos: [], emCiclo: [], idsEmCiclo: [], produtosConferidos: 0, marcadosComoProduzidos: [] };
   if (mudancas.length === 0 && receitasAlteradas.length === 0 && !opcoes.todos) return vazio;
 
   const [snapReceitas, snapEstoque, snapMateriasPrimas] = await Promise.all([
@@ -72,6 +73,7 @@ export const sincronizarCustosDaProducao = async (opcoes: OpcoesDeSincronizacao)
   const nomes = new Map<string, string>();
   const produtos: ProdutoParaCusto[] = [];
   const historicoPorProduto = new Map<string, unknown[]>();
+  const temBlocoAvancado = new Set<string>();
 
   snapMateriasPrimas.forEach((d) => {
     const data = d.data();
@@ -94,7 +96,35 @@ export const sincronizarCustosDaProducao = async (opcoes: OpcoesDeSincronizacao)
       produzidoInternamente: data.produzidoInternamente === true,
     });
     historicoPorProduto.set(d.id, Array.isArray(data.historicoPrecos) ? data.historicoPrecos : []);
+    if (data.avancado && typeof data.avancado === 'object') temBlocoAvancado.add(d.id);
   });
+
+  // Decisao do dono (2026-09-24): produto com composicao cadastrada E'
+  // produzido internamente. A marca so' era gravada pelo formulario do
+  // produto, e receita importada nunca a recebia -- o custo nao acompanhava
+  // nada. So' marca quando ha uma conferencia geral ou a receita acabou de
+  // ser salva; numa entrada de nota nao mexe em cadastro de ninguem.
+  const marcados: { id: string; nome: string }[] = [];
+  if (opcoes.todos || receitasAlteradas.length > 0) {
+    const receitaTemItens = new Set(receitas.filter((r) => r.itens.length > 0).map((r) => r.produtoId));
+    produtos.forEach((p) => {
+      if (!p.produzidoInternamente && receitaTemItens.has(p.id)) {
+        p.produzidoInternamente = true;
+        marcados.push({ id: p.id, nome: p.nome });
+      }
+    });
+    for (let inicio = 0; inicio < marcados.length; inicio += LIMITE_DO_LOTE) {
+      const lote = writeBatch(db);
+      marcados.slice(inicio, inicio + LIMITE_DO_LOTE).forEach((p) => {
+        lote.update(doc(db, 'estoque', p.id), {
+          produzidoInternamente: true,
+          ...(temBlocoAvancado.has(p.id) ? { 'avancado.produzidoInternamente': true } : {}),
+          updatedAt: serverTimestamp(),
+        });
+      });
+      await lote.commit();
+    }
+  }
 
   const resultado = planejarRecalculoDeCustos({
     mudancas,
@@ -105,9 +135,7 @@ export const sincronizarCustosDaProducao = async (opcoes: OpcoesDeSincronizacao)
     custosAtuais,
     nomesDosComponentes: nomes,
   });
-  // O aviso de "composicao sem marcacao" so' faz sentido quando a pessoa pediu
-  // uma conferencia geral; numa entrada de nota seria ruido.
-  if (!opcoes.todos) resultado.comReceitaSemMarcacao = [];
+  resultado.marcadosComoProduzidos = marcados;
   if (resultado.impactos.length === 0) return resultado;
 
   const agora = new Date();
@@ -142,8 +170,8 @@ export const sincronizarCustosSemFalhar = async (
 ): Promise<ResultadoDoRecalculo | null> => {
   try {
     const resultado = await sincronizarCustosDaProducao(opcoes);
-    if (mostrarAviso && (resultado.impactos.length > 0 || resultado.emCiclo.length > 0 || resultado.comReceitaSemMarcacao.length > 0)) {
-      await mostrarImpactoDeCusto(resultado);
+    if (mostrarAviso && (resultado.impactos.length > 0 || resultado.emCiclo.length > 0 || resultado.marcadosComoProduzidos.length > 0)) {
+      await mostrarImpactoDeCusto(resultado, undefined, contextoDeReajuste(opcoes.tenantId, opcoes.usuarioId));
     }
     return resultado;
   } catch (erro) {
@@ -152,3 +180,48 @@ export const sincronizarCustosSemFalhar = async (
     return null;
   }
 };
+
+export interface PrecoEscolhido {
+  produtoId: string;
+  precoNovo: number;
+}
+
+/**
+ * Grava os precos de venda que a PESSOA escolheu reajustar depois do aviso de
+ * custo. Le cada produto de novo (custo e historico de agora, nao os de quando
+ * o aviso abriu) e so' toca em produto do proprio tenant.
+ */
+export const aplicarNovosPrecos = async (opcoes: {
+  tenantId: string;
+  usuarioId?: string;
+  itens: PrecoEscolhido[];
+  motivo?: string;
+}): Promise<{ aplicados: number; ignorados: number }> => {
+  const motivo = opcoes.motivo ?? 'Preço reajustado após mudança de custo (escolha do usuário).';
+  const agora = new Date();
+  const leituras = await Promise.all(opcoes.itens.map(async (item) => ({ item, snap: await getDoc(doc(db, 'estoque', item.produtoId)) })));
+
+  const lote = writeBatch(db);
+  let aplicados = 0;
+  let ignorados = 0;
+  leituras.forEach(({ item, snap }) => {
+    const data = snap.data();
+    if (!snap.exists() || !data || data.tenantId !== opcoes.tenantId) { ignorados += 1; return; }
+    const campos = montarAtualizacaoDePreco({
+      precoVenda: numero(data.precoVenda ?? data.precos?.venda),
+      precoCusto: numero(data.precoCusto ?? data.precos?.custo),
+      historicoPrecos: Array.isArray(data.historicoPrecos) ? data.historicoPrecos : [],
+      temPrecos: Boolean(data.precos) && typeof data.precos === 'object',
+    }, item.precoNovo, opcoes.usuarioId, motivo, agora);
+    if (!campos) { ignorados += 1; return; }
+    lote.update(snap.ref, { ...campos, updatedAt: serverTimestamp() });
+    aplicados += 1;
+  });
+  if (aplicados > 0) await lote.commit();
+  return { aplicados, ignorados };
+};
+
+/** Liga o aviso de custo a gravacao de preco escolhido (o aviso nao conhece o Firestore). */
+export const contextoDeReajuste = (tenantId: string, usuarioId?: string) => ({
+  aplicarPrecos: (itens: PrecoEscolhido[]) => aplicarNovosPrecos({ tenantId, usuarioId, itens }),
+});

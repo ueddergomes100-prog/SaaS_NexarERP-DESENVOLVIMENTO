@@ -115,12 +115,11 @@ export interface ResultadoDoRecalculo {
   /** Quantos produtos com receita foram conferidos. */
   produtosConferidos: number;
   /**
-   * Produtos que TEM composicao mas nao estao marcados como "Produzido
-   * internamente": o custo deles continua manual (regra do cadastro do
-   * produto). Listado para a pessoa corrigir o cadastro -- o sistema nao
-   * decide isso sozinho.
+   * Produtos que tinham composicao mas nao estavam marcados como "Produzido
+   * internamente" e foram marcados agora (decisao do dono, 2026-09-24: quem
+   * tem receita e' produzido aqui). Preenchido pelo servico, que e' quem grava.
    */
-  comReceitaSemMarcacao: { id: string; nome: string }[];
+  marcadosComoProduzidos: { id: string; nome: string }[];
 }
 
 export interface EntradaDoPlanejamento {
@@ -272,13 +271,7 @@ export const planejarRecalculoDeCustos = (entrada: EntradaDoPlanejamento): Resul
     return p && custoVemDaReceita(p, r);
   }).length;
 
-  const comReceitaSemMarcacao = entrada.receitas
-    .filter((r) => r.itens.length > 0)
-    .map((r) => produtoPorId.get(r.produtoId))
-    .filter((p): p is ProdutoParaCusto => Boolean(p) && !(p as ProdutoParaCusto).produzidoInternamente)
-    .map((p) => ({ id: p.id, nome: p.nome }));
-
-  return { impactos: impactosValidos, emCiclo, idsEmCiclo, produtosConferidos, comReceitaSemMarcacao };
+  return { impactos: impactosValidos, emCiclo, idsEmCiclo, produtosConferidos, marcadosComoProduzidos: [] };
 };
 
 // ---------------------------------------------------------------------------
@@ -326,7 +319,7 @@ export const entradaDeHistorico = (
 // Aviso ao usuario
 // ---------------------------------------------------------------------------
 
-const escaparHtml = (texto: string): string => String(texto)
+export const escaparHtml = (texto: string): string => String(texto)
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
   .replace(/>/g, '&gt;')
@@ -361,7 +354,7 @@ export const resumirImpacto = (resultado: ResultadoDoRecalculo): ResumoDoImpacto
  * `limite` corta a tabela para a janela nao virar uma parede de linhas.
  */
 export const htmlDoImpactoDeCusto = (resultado: ResultadoDoRecalculo, limite = 25): string => {
-  if (resultado.impactos.length === 0 && resultado.emCiclo.length === 0 && resultado.comReceitaSemMarcacao.length === 0) return '';
+  if (resultado.impactos.length === 0 && resultado.emCiclo.length === 0 && resultado.marcadosComoProduzidos.length === 0) return '';
   const resumo = resumirImpacto(resultado);
   const mostrados = resultado.impactos.slice(0, limite);
   const escondidos = resultado.impactos.length - mostrados.length;
@@ -396,8 +389,8 @@ export const htmlDoImpactoDeCusto = (resultado: ResultadoDoRecalculo, limite = 2
     ? `<p style="color:#ef4444;font-size:12px;margin:8px 0 0">Atenção: a composição de ${resultado.emCiclo.slice(0, 3).map(escaparHtml).join(', ')} se refere a si mesma (um produto usa o outro). Corrija a composição; o custo desses produtos não foi calculado.</p>`
     : '';
 
-  const semMarcacao = resultado.comReceitaSemMarcacao.length > 0
-    ? `<p style="color:#f59e0b;font-size:12px;margin:10px 0 0"><strong>${resultado.comReceitaSemMarcacao.length} produto(s) têm composição mas não estão marcados como "Produzido internamente"</strong> (Cadastro do produto › Configurações Avançadas), então o custo deles continua manual: ${resultado.comReceitaSemMarcacao.slice(0, 5).map((p) => escaparHtml(p.nome)).join(', ')}${resultado.comReceitaSemMarcacao.length > 5 ? '…' : ''}. Marque-os para o custo acompanhar as matérias-primas.</p>`
+  const semMarcacao = resultado.marcadosComoProduzidos.length > 0
+    ? `<p style="font-size:12px;margin:10px 0 0;opacity:.9"><strong>${resultado.marcadosComoProduzidos.length} produto(s) foram marcados como "Produzido internamente"</strong> porque têm composição cadastrada. A partir de agora o custo deles vem da receita: ${resultado.marcadosComoProduzidos.slice(0, 5).map((p) => escaparHtml(p.nome)).join(', ')}${resultado.marcadosComoProduzidos.length > 5 ? '…' : ''}.</p>`
     : '';
   const cabecalho = resultado.impactos.length > 0
     ? `<div style="margin-bottom:8px">${titulo}.</div>`
@@ -415,8 +408,73 @@ export const htmlDoImpactoDeCusto = (resultado: ResultadoDoRecalculo, limite = 2
       </table>
     </div>
     ${escondidos > 0 ? `<div style="font-size:12px;opacity:.75;margin-top:6px">…e mais ${escondidos} produto(s). Veja todos na tela de Precificação.</div>` : ''}
-    <div style="margin-top:10px;font-size:12px;opacity:.85">O <strong>preço de venda não foi alterado</strong>. Se quiser repassar o aumento, ajuste em Estoque › Precificação. O histórico de cada produto guarda esta mudança.</div>
+    <div style="margin-top:10px;font-size:12px;opacity:.85">O <strong>preço de venda não foi alterado</strong>. Escolha abaixo se mantém os preços ou reajusta (ou ajuste depois em Estoque › Precificação). O histórico de cada produto guarda esta mudança.</div>
     ${ciclo}
     ${semMarcacao}
   </div>`;
+};
+
+// ---------------------------------------------------------------------------
+// Reajuste de preco ESCOLHIDO pela pessoa (2026-09-24)
+// ---------------------------------------------------------------------------
+//
+// O sistema nunca reajusta preco sozinho. Depois do aviso de custo, a pessoa
+// escolhe: manter os precos ou reajustar produto a produto. O valor sugerido
+// mantem a margem (markup) que o produto tinha antes; ela pode digitar outro.
+
+const arredondar2 = (valor: number): number => Math.round((valor + Number.EPSILON) * 100) / 100;
+
+/** Preco que devolve ao produto a margem de antes, com o custo novo. null sem preco/margem de referencia. */
+export const precoManterMargem = (impacto: Pick<ImpactoNoProduto, 'precoVenda' | 'margemAntes' | 'custoNovo'>): number | null => (
+  impacto.precoVenda > 0 && impacto.margemAntes !== null && impacto.custoNovo > 0
+    ? arredondar2(impacto.custoNovo * (1 + impacto.margemAntes / 100))
+    : null
+);
+
+export interface ProdutoParaReajuste {
+  precoVenda: number;
+  precoCusto: number;
+  historicoPrecos: unknown[];
+  /** O documento tem o objeto legado `precos`? So' entao os espelhos dele sao atualizados. */
+  temPrecos: boolean;
+}
+
+/**
+ * Campos do `update` para gravar um preco de venda escolhido pela pessoa.
+ * Devolve null quando o preco e' invalido ou nao muda nada. Reescreve
+ * `custoNaUltimaPrecificacao` (o preco foi definido AGORA, com o custo de hoje)
+ * e registra no historico com o motivo.
+ */
+export const montarAtualizacaoDePreco = (
+  produto: ProdutoParaReajuste,
+  precoNovo: number,
+  usuarioId: string | undefined,
+  motivo: string,
+  agora: Date = new Date(),
+): Record<string, unknown> | null => {
+  const preco = arredondar2(Number(precoNovo));
+  if (!Number.isFinite(preco) || preco <= 0 || preco === arredondar2(produto.precoVenda)) return null;
+  const margem = produto.precoCusto > 0 ? margemMarkup(preco, produto.precoCusto) : 0;
+  const lucro = preco - produto.precoCusto;
+  const iso = agora.toISOString();
+  const entrada = {
+    precoAnterior: produto.precoVenda,
+    precoNovo: preco,
+    custoAnterior: produto.precoCusto,
+    custoNovo: produto.precoCusto,
+    alteradoEm: iso,
+    ...(usuarioId ? { usuarioId } : {}),
+    motivo,
+  };
+  return {
+    precoVenda: preco,
+    margemLucro: margem,
+    lucroEstimado: lucro,
+    custoNaUltimaPrecificacao: produto.precoCusto,
+    ultimaAlteracaoPreco: iso,
+    historicoPrecos: [entrada, ...produto.historicoPrecos].slice(0, 200),
+    ...(produto.temPrecos
+      ? { 'precos.venda': preco, 'precos.margemLucro': margem, 'precos.lucroEstimado': lucro, 'precos.ultimaAlteracaoPreco': iso }
+      : {}),
+  };
 };

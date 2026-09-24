@@ -48,8 +48,9 @@ import {
   type NotaFiscalEntradaItemRecord,
   type ItemEntradaConfig,
 } from '../../utils/entradaNfeDomain';
-import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
-import { htmlDoImpactoDeCusto, type MudancaDeCusto } from '../../utils/custoProducaoDomain';
+import { contextoDeReajuste, sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
+import { mostrarImpactoDeCusto } from '../../utils/impactoCustoAlert';
+import type { MudancaDeCusto } from '../../utils/custoProducaoDomain';
 import Swal from 'sweetalert2';
 
 interface ParsedItem {
@@ -1008,13 +1009,18 @@ const EntradaNFE: React.FC = () => {
       const escolha = await NexusSwal.fire({
         icon: 'success',
         title: `Nota ${numeroImportado} importada`,
-        html: linhasResumo.map((linha) => `• ${linha}`).join('<br/>') + (impactoDeCusto ? htmlDoImpactoDeCusto(impactoDeCusto) : ''),
-        width: impactoDeCusto && impactoDeCusto.impactos.length > 0 ? 900 : undefined,
+        html: linhasResumo.map((linha) => `• ${linha}`).join('<br/>'),
         showDenyButton: true,
         confirmButtonText: 'Importar outra nota',
         denyButtonText: 'Ver histórico',
         denyButtonColor: '#3f3f46',
       });
+
+      // Depois do resumo, o aviso de custo: a pessoa escolhe manter os precos
+      // ou reajustar os produtos acabados afetados (nunca automatico).
+      if (impactoDeCusto) {
+        await mostrarImpactoDeCusto(impactoDeCusto, 'O custo dos produtos acabados mudou com esta nota', contextoDeReajuste(tenantId, currentUser.uid));
+      }
       if (escolha.isDenied) openTab('/fiscal/entrada-nfe/historico');
 
     } catch (err) {

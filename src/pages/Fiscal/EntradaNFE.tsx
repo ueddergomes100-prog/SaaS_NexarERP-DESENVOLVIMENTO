@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2, AlertTriangle, Truck, Loader2, History, Search, Link2, Unlink } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2, AlertTriangle, Truck, Loader2, History, Search, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
-import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, increment, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, addDoc, increment, runTransaction, serverTimestamp, type DocumentData, type DocumentSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
@@ -14,13 +14,11 @@ import {
   descricaoDoTituloDeFrete,
   erroDoFrete,
   freteGeraTituloProprio,
-  ratearFreteNosItens,
   somenteDigitos,
   vencimentoDoFrete,
   type DadosDoFrete,
 } from '../../utils/freteEntradaDomain';
 import {
-  ROTULO_ORIGEM_VINCULO,
   buscarCadastros,
   configDoItemSemVinculo,
   configDoItemVinculado,
@@ -30,14 +28,12 @@ import {
 } from '../../utils/vinculoItemNfeDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
-import { addDaysToDateInput } from '../../utils/dateTime';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 import {
   DEFAULT_REGIME_TRIBUTARIO,
   matchProdutoFromXmlItem,
   matchMateriaPrimaFromXmlItem,
   usesCsosn,
-  CSOSN_OPTIONS,
-  ICMS_CST_OPTIONS,
   type EstoqueItemForMatch,
   type MateriaPrimaItemForMatch,
   type RegimeTributario,
@@ -45,23 +41,49 @@ import {
 import {
   buildNotaFiscalEntradaRecord,
   buildInitialItemEntradaConfig,
+  cfopDeSaidaSugerido,
+  mensagemDeNotaDuplicada,
+  primeiraNotaAtiva,
+  semUndefined,
   type NotaFiscalEntradaItemRecord,
   type ItemEntradaConfig,
 } from '../../utils/entradaNfeDomain';
 import { contextoDeReajuste, sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import { mostrarImpactoDeCusto } from '../../utils/impactoCustoAlert';
 import type { MudancaDeCusto } from '../../utils/custoProducaoDomain';
+import CabecalhoDaNota from '../../components/fiscal/entrada/CabecalhoDaNota';
+import TotaisDaNotaCard from '../../components/fiscal/entrada/TotaisDaNotaCard';
+import PagamentoCard, { type BancoParaEntrada } from '../../components/fiscal/entrada/PagamentoCard';
+import { campoInputStyle } from '../../components/fiscal/entrada/estilos';
+import ItemDaNotaCard, { type CadastroVinculado } from '../../components/fiscal/entrada/ItemDaNotaCard';
+import PdfVisualizador from '../../components/common/PdfVisualizador';
+import { parseNfeXml, rotuloDaFormaDePagamento, type ItemDaNota, type NotaParseada } from '../../utils/nfeXmlDomain';
+import {
+  calcularCustoDaEntrada,
+  conferirNota,
+  custoMedioPonderado,
+  custoUnitarioNoEstoque,
+  fatorValido,
+  opcoesDeCustoPorRegime,
+  quantidadeNoEstoque,
+  type OpcoesDeCustoDeEntrada,
+} from '../../utils/custoEntradaDomain';
+import { numeroDaTela, precoPadraoDeItemNovo, precoPeloMarkup } from '../../utils/precificacaoEntradaDomain';
+import {
+  CATEGORIAS_DE_COMPRA,
+  conferirParcelas,
+  erroDoPagamentoAVista,
+  parcelasIniciais,
+  type DestinoDoPagamento,
+  type ModoDePagamento,
+  type ParcelaDaEntrada,
+} from '../../utils/pagamentoEntradaDomain';
+import { compactarXml } from '../../utils/xmlCompactoDomain';
+import { fromCents, toCents } from '../../utils/financeDomain';
 import Swal from 'sweetalert2';
 
-interface ParsedItem {
-  codigo: string;
-  descricao: string;
-  ncm: string;
-  cfop: string;
-  ean: string;
-  unidade: string;
-  quantidade: number;
-  valorUnitario: number;
+/** Item da nota: tudo que o XML trouxe + o total do produto com o nome que a tela ja usava. */
+interface ParsedItem extends ItemDaNota {
   valorTotal: number;
 }
 
@@ -72,6 +94,10 @@ interface Duplicata {
 }
 
 interface ParsedXML {
+  /** Leitura completa da nota (chave, serie, impostos, transporte...). */
+  nota: NotaParseada;
+  /** XML original: guardado compactado junto da entrada e usado no DANFE. */
+  xmlTexto: string;
   fornecedorNome: string;
   fornecedorCnpj: string;
   numeroNF: string;
@@ -86,6 +112,12 @@ interface ParsedXML {
 
 interface EstoqueItem extends EstoqueItemForMatch {
   quantidade: number;
+  precoCusto?: number;
+  unidadeMedidaSigla?: string;
+  descontoMaximoPercentual?: number;
+  atacado?: { ativo?: boolean; quantidadeMinima?: number; faixas?: Array<{ preco?: number; quantidadeInicial?: number }> };
+  /** fornecedorId -> quantas unidades de estoque em 1 unidade da nota (aprendido). */
+  fatoresFornecedor?: Record<string, number>;
   precoVenda?: number;
   csosn?: string;
   aliquotaIcms?: number;
@@ -99,14 +131,13 @@ interface EstoqueItem extends EstoqueItemForMatch {
 interface MateriaPrimaItem extends MateriaPrimaItemForMatch {
   quantidade: number;
   precoCusto?: number;
+  unidade?: string;
+  fatoresFornecedor?: Record<string, number>;
 }
 
 type FornecedorStatus = 'idle' | 'checking' | 'found' | 'missing';
 
 const currencyFormat = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-
-const campoLabelStyle: React.CSSProperties = { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' };
-const campoInputStyle: React.CSSProperties = { padding: '8px 10px', fontSize: '13px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', width: '100%' };
 
 const EntradaNFE: React.FC = () => {
   const navigate = useNavigate();
@@ -144,6 +175,25 @@ const EntradaNFE: React.FC = () => {
   // codigo que ESSE fornecedor usa (camada 2 do matching).
   const [itemConfigs, setItemConfigs] = useState<ItemEntradaConfig[]>([]);
 
+  // Entrada de nota completa (2026-09-24): dados que o outro ERP pede na
+  // entrada e o nosso nao tinha.
+  const [dataEntrada, setDataEntrada] = useState(getDateInputInTimeZone());
+  const [observacao, setObservacao] = useState('');
+  const [opcoesCusto, setOpcoesCusto] = useState<OpcoesDeCustoDeEntrada>(opcoesDeCustoPorRegime('simples_nacional'));
+  const [divergenciaAceita, setDivergenciaAceita] = useState(false);
+  const [modoPagamento, setModoPagamento] = useState<ModoDePagamento>('prazo');
+  const [parcelas, setParcelas] = useState<ParcelaDaEntrada[]>([]);
+  const [parcelasAceitas, setParcelasAceitas] = useState(false);
+  const [categoriaDespesa, setCategoriaDespesa] = useState<string>(CATEGORIAS_DE_COMPRA[0]);
+  const [formaPrevista, setFormaPrevista] = useState('Boleto');
+  const [destinoPagamento, setDestinoPagamento] = useState<DestinoDoPagamento>('caixa');
+  const [bancoId, setBancoId] = useState('');
+  const [bancos, setBancos] = useState<BancoParaEntrada[]>([]);
+  // Texto de markup enquanto a pessoa digita (senao o campo "pula" a cada tecla).
+  const [markupDigitado, setMarkupDigitado] = useState<Record<string, string>>({});
+  const [danfe, setDanfe] = useState<{ blob: Blob; nome: string } | null>(null);
+  const [gerandoDanfe, setGerandoDanfe] = useState(false);
+
   // Reconciliação do fornecedor do XML com o cadastro de Fornecedores --
   // a confirmação da entrada fica bloqueada até haver um fornecedor
   // vinculado (decisão combinada com o usuário: não deixa entrar nota
@@ -179,6 +229,41 @@ const EntradaNFE: React.FC = () => {
   // produto novo criado pela importacao (mesmo padrao de leitura direta
   // de configuracoes/{tenantId} ja usado em EstoqueForm.tsx/NFE.tsx).
   const [regimeTributario, setRegimeTributario] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
+  useEffect(() => {
+    setOpcoesCusto(opcoesDeCustoPorRegime(regimeTributario));
+  }, [regimeTributario]);
+
+  // Custo REAL de cada item (frete, seguro, despesas, IPI, ST, desconto, creditos)
+  // e a conferencia da nota contra ela mesma.
+  const custosDosItens = useMemo(
+    () => (parsedData ? calcularCustoDaEntrada(parsedData.items, parsedData.nota.totais, frete.valor, opcoesCusto) : []),
+    [parsedData, frete.valor, opcoesCusto],
+  );
+  const conferencia = useMemo(
+    () => (parsedData ? conferirNota(parsedData.items, parsedData.nota.totais) : null),
+    [parsedData],
+  );
+
+  // Item NOVO (ou sem preco) acompanha o custo real com o markup padrao ate a
+  // pessoa mexer no preco. Produto que JA tem preco nunca e' reajustado aqui.
+  useEffect(() => {
+    if (!parsedData) return;
+    setItemConfigs((anteriores) => {
+      let mudou = false;
+      const proximas = anteriores.map((config, idx) => {
+        const item = parsedData.items[idx];
+        if (!item || config.tipo !== 'revenda' || config.precoEditado) return config;
+        const custoUn = custoUnitarioNoEstoque(custosDosItens[idx]?.custoTotal ?? 0, item.quantidade, config.fator);
+        const sugerido = precoPadraoDeItemNovo(custoUn);
+        if (sugerido > 0 && Math.abs(sugerido - numeroDaTela(config.precoVenda)) > 0.004) {
+          mudou = true;
+          return { ...config, precoVenda: String(sugerido) };
+        }
+        return config;
+      });
+      return mudou ? proximas : anteriores;
+    });
+  }, [parsedData, custosDosItens, itemConfigs]);
 
   // Carrega produtos em estoque no carregamento para acelerar a reconciliação
   useEffect(() => {
@@ -198,6 +283,11 @@ const EntradaNFE: React.FC = () => {
             ncm: data.ncm || data.fiscal?.ncm || '',
             codigosFornecedor: data.codigosFornecedor || {},
             quantidade: Number(data.quantidade || 0),
+            precoCusto: Number(data.precoCusto ?? data.precos?.custo ?? 0),
+            unidadeMedidaSigla: data.unidadeMedidaSigla || data.unidade || '',
+            descontoMaximoPercentual: data.descontoMaximoPercentual !== undefined ? Number(data.descontoMaximoPercentual) : undefined,
+            atacado: data.atacado || undefined,
+            fatoresFornecedor: data.fatoresFornecedor || {},
             precoVenda: data.precoVenda !== undefined ? Number(data.precoVenda) : undefined,
             csosn: data.csosn || undefined,
             aliquotaIcms: data.aliquotaIcms !== undefined ? Number(data.aliquotaIcms) : undefined,
@@ -228,6 +318,8 @@ const EntradaNFE: React.FC = () => {
             codigosFornecedor: data.codigosFornecedor || {},
             quantidade: Number(data.quantidade || 0),
             precoCusto: Number(data.precoCusto || 0),
+            unidade: data.unidade || '',
+            fatoresFornecedor: data.fatoresFornecedor || {},
           });
         });
         setMateriasPrimasAtuais(list);
@@ -244,9 +336,19 @@ const EntradaNFE: React.FC = () => {
         console.error("Erro ao carregar regime tributário:", err);
       }
     };
+    const fetchBancos = async () => {
+      if (!tenantId) return;
+      try {
+        const snap = await getDocs(query(collection(db, 'bancos'), where('tenantId', '==', tenantId), where('ativo', '==', true)));
+        setBancos(snap.docs.map((d) => ({ id: d.id, nome: String(d.data().nome || d.data().banco || 'Banco') })));
+      } catch (err) {
+        console.error('Erro ao carregar bancos:', err);
+      }
+    };
     fetchEstoque();
     fetchMateriasPrimas();
     fetchRegimeTributario();
+    fetchBancos();
   }, [tenantId, versaoDosCadastros]);
 
   // Assim que o XML é lido, reconcilia o fornecedor pelo CNPJ com o
@@ -313,11 +415,14 @@ const EntradaNFE: React.FC = () => {
         return {
           ...buildInitialItemEntradaConfig(item.valorUnitario, pecaExistente, null, usaCsosn),
           origemVinculo: layer === 'ncm_nome' ? 'nome' : (layer ?? 'automatico'),
+          fator: String(fatorValido(pecaExistente.fatoresFornecedor?.[fornecedorMatch.id])),
         };
       }
       const materiaPrimaExistente = matchMateriaPrimaFromXmlItem(item, materiasPrimasAtuais, fornecedorMatch.id);
       const inicial = buildInitialItemEntradaConfig(item.valorUnitario, null, materiaPrimaExistente?.id || null, usaCsosn);
-      return materiaPrimaExistente ? { ...inicial, origemVinculo: 'automatico' } : inicial;
+      return materiaPrimaExistente
+        ? { ...inicial, origemVinculo: 'automatico', fator: String(fatorValido(materiaPrimaExistente.fatoresFornecedor?.[fornecedorMatch.id])) }
+        : inicial;
     });
     setItemConfigs(configs);
   }, [parsedData, fornecedorStatus, fornecedorMatch, estoqueAtual, materiasPrimasAtuais, regimeTributario]);
@@ -340,7 +445,9 @@ const EntradaNFE: React.FC = () => {
     const item = parsedData.items[idx];
     const fiscal = tipo === 'estoque' ? estoqueAtual.find((p) => p.id === id) : undefined;
     const config = configDoItemVinculado({ tipo, id, fiscal }, item.valorUnitario, usesCsosn(regimeTributario));
-    setItemConfigs((prev) => prev.map((atual, i) => (i === idx ? { ...config, origemVinculo: 'manual' } : atual)));
+    const cadastroEscolhido = tipo === 'estoque' ? fiscal : materiasPrimasAtuais.find((m) => m.id === id);
+    const fatorAprendido = String(fatorValido(cadastroEscolhido?.fatoresFornecedor?.[fornecedorMatch?.id ?? '']));
+    setItemConfigs((prev) => prev.map((atual, i) => (i === idx ? { ...config, origemVinculo: 'manual', fator: fatorAprendido } : atual)));
     setVinculoAberto(null);
     setBuscaVinculo('');
   };
@@ -418,6 +525,59 @@ const EntradaNFE: React.FC = () => {
   const handleAbrirVinculo = (idx: number) => {
     setBuscaVinculo('');
     setVinculoAberto((atual) => (atual === idx ? null : idx));
+  };
+
+  const handleAlterarConfigItem = (idx: number, patch: Partial<ItemEntradaConfig>) => {
+    setItemConfigs((prev) => prev.map((config, i) => (i === idx ? { ...config, ...patch } : config)));
+  };
+
+  /** Custo por unidade de ESTOQUE do item (custo real da entrada / quantidade ja convertida). */
+  const custoUnitarioDoItem = (idx: number): number => {
+    const item = parsedData?.items[idx];
+    if (!item) return 0;
+    return custoUnitarioNoEstoque(custosDosItens[idx]?.custoTotal ?? 0, item.quantidade, itemConfigs[idx]?.fator);
+  };
+
+  const limparMarkup = (chave: string) => setMarkupDigitado((atual) => {
+    if (!(chave in atual)) return atual;
+    const resto = { ...atual };
+    delete resto[chave];
+    return resto;
+  });
+
+  const handlePrecoVarejo = (idx: number, texto: string) => {
+    handleAlterarConfigItem(idx, { precoVenda: texto, precoEditado: true });
+    limparMarkup(`${idx}-v`);
+  };
+  const handleMarkupVarejo = (idx: number, texto: string) => {
+    setMarkupDigitado((atual) => ({ ...atual, [`${idx}-v`]: texto }));
+    const preco = precoPeloMarkup(custoUnitarioDoItem(idx), texto);
+    if (preco !== null) handleAlterarConfigItem(idx, { precoVenda: String(preco), precoEditado: true });
+  };
+  const handlePrecoAtacado = (idx: number, texto: string) => {
+    handleAlterarConfigItem(idx, { atacadoPreco: texto });
+    limparMarkup(`${idx}-a`);
+  };
+  const handleMarkupAtacado = (idx: number, texto: string) => {
+    setMarkupDigitado((atual) => ({ ...atual, [`${idx}-a`]: texto }));
+    const preco = precoPeloMarkup(custoUnitarioDoItem(idx), texto);
+    if (preco !== null) handleAlterarConfigItem(idx, { atacadoPreco: String(preco) });
+  };
+
+  /** DANFE feito do XML que ja esta na tela -- antes de dar entrada. */
+  const handleImprimirDanfe = async () => {
+    if (!parsedData) return;
+    setGerandoDanfe(true);
+    try {
+      const { gerarDanfePdf, nomeDoArquivoDanfe } = await import('../../utils/danfePdf');
+      const pdf = gerarDanfePdf(parsedData.nota);
+      setDanfe({ blob: pdf.output('blob'), nome: nomeDoArquivoDanfe(parsedData.nota) });
+    } catch (erro) {
+      console.error('Erro ao gerar o DANFE:', erro);
+      showError('Não foi possível gerar o DANFE', 'O XML foi lido, mas o desenho do DANFE falhou. Tente de novo; se persistir, imprima pelo portal da SEFAZ.');
+    } finally {
+      setGerandoDanfe(false);
+    }
   };
 
   const handleAlterarCampoItem = (idx: number, campo: keyof ItemEntradaConfig, valor: string) => {
@@ -502,7 +662,7 @@ const EntradaNFE: React.FC = () => {
     processFile(arquivo);
   };
 
-  const buscarNotaPelaChave = async () => {
+  const buscarNotaPelaChave = async (modo: 'importar' | 'danfe' = 'importar') => {
     const digitos = chaveBusca.replace(/\D/g, '');
     if (digitos.length !== 44) {
       showError('Chave incompleta', `A chave de acesso tem 44 números. Você digitou ${digitos.length}.`);
@@ -547,6 +707,13 @@ const EntradaNFE: React.FC = () => {
         return;
       }
 
+      if (modo === 'danfe') {
+        // So imprimir: o DANFE sai do XML sem a nota entrar no estoque.
+        const notaDaChave = parseNfeXml(resposta.xml);
+        const { gerarDanfePdf, nomeDoArquivoDanfe } = await import('../../utils/danfePdf');
+        setDanfe({ blob: gerarDanfePdf(notaDaChave).output('blob'), nome: nomeDoArquivoDanfe(notaDaChave) });
+        return;
+      }
       processarXmlDeTexto(resposta.xml, `nota-${digitos.slice(-6)}.xml`);
       setChaveBusca('');
     } catch (erro) {
@@ -559,106 +726,48 @@ const EntradaNFE: React.FC = () => {
     }
   };
 
-  // Executa o parser do XML
+  // Le o XML da nota (arquivo ou vindo da SEFAZ) pela leitura completa: chave,
+  // serie, impostos, transporte, pagamento, lote... (ver nfeXmlDomain.ts).
   const processFile = (file: File) => {
     setSelectedFile(file);
     const reader = new FileReader();
 
     reader.onload = (e) => {
       try {
-        const text = e.target?.result as string;
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(text, "text/xml");
-
-        // Verifica se houve erro de parse no navegador
-        const parseError = xmlDoc.getElementsByTagName("parsererror");
-        if (parseError.length > 0) {
-          throw new Error("Formato do arquivo XML corrompido ou inválido.");
-        }
-
-        const getValue = (tagName: string, parentNode: Element | Document = xmlDoc) => {
-          const elements = parentNode.getElementsByTagName(tagName);
-          return elements.length > 0 ? elements[0].textContent || '' : '';
-        };
-
-        // Dados do Emitente (Fornecedor)
-        const emitNode = xmlDoc.getElementsByTagName("emit")[0];
-        const fornecedorNome = emitNode ? getValue("xNome", emitNode) : 'FORNECEDOR DESCONHECIDO';
-        const fornecedorCnpj = emitNode ? getValue("CNPJ", emitNode) : '';
-
-        // Dados da Nota
-        const ideNode = xmlDoc.getElementsByTagName("ide")[0];
-        const numeroNF = ideNode ? getValue("nNF", ideNode) : '000000';
-        const dataEmissaoRaw = ideNode ? (getValue("dhEmi", ideNode) || getValue("dEmi", ideNode)) : '';
-        const dataEmissao = dataEmissaoRaw ? dataEmissaoRaw.split('T')[0] : new Date().toISOString().split('T')[0];
-
-        // Totais
-        const totalNode = xmlDoc.getElementsByTagName("ICMSTot")[0];
-        const valorTotal = totalNode ? Number(getValue("vNF", totalNode) || 0) : 0;
-        // Frete que o proprio fornecedor cobrou dentro da nota. Frete de
-        // transportadora vem em CT-e separado e o usuario digita na tela.
-        const valorFreteXml = totalNode ? Number(getValue("vFrete", totalNode) || 0) : 0;
-
-        // Duplicatas (parcelas de pagamento), se a nota trouxer -- vira
-        // um título de Contas a Pagar por parcela; sem duplicata, a
-        // entrada lança um único título com vencimento padrão.
-        const dupNodes = xmlDoc.getElementsByTagName("dup");
-        const duplicatas: Duplicata[] = [];
-        for (let i = 0; i < dupNodes.length; i++) {
-          const dupNode = dupNodes[i];
-          const vencimento = getValue("dVenc", dupNode);
-          duplicatas.push({
-            numero: getValue("nDup", dupNode) || String(i + 1),
-            vencimento: vencimento || dataEmissao,
-            valor: Number(getValue("vDup", dupNode) || 0)
-          });
-        }
-
-        // Itens da Nota
-        const detNodes = xmlDoc.getElementsByTagName("det");
-        const items: ParsedItem[] = [];
-
-        for (let i = 0; i < detNodes.length; i++) {
-          const detNode = detNodes[i];
-          const prodNode = detNode.getElementsByTagName("prod")[0];
-          if (prodNode) {
-            const eanBruto = getValue("cEAN", prodNode);
-            items.push({
-              codigo: getValue("cProd", prodNode),
-              descricao: getValue("xProd", prodNode),
-              ncm: getValue("NCM", prodNode),
-              cfop: getValue("CFOP", prodNode),
-              // XML costuma trazer "SEM GTIN" quando o produto nao tem
-              // codigo de barras -- nao e um EAN de verdade, nao usar pra
-              // matching.
-              ean: eanBruto && eanBruto.toUpperCase() !== 'SEM GTIN' ? eanBruto : '',
-              unidade: getValue("uCom", prodNode) || 'UN',
-              quantidade: Number(getValue("qCom", prodNode) || 0),
-              valorUnitario: Number(getValue("vUnCom", prodNode) || 0),
-              valorTotal: Number(getValue("vProd", prodNode) || 0)
-            });
-          }
-        }
-
-        if (items.length === 0) {
-          throw new Error("Nenhum produto identificado no corpo da nota XML.");
-        }
+        const texto = e.target?.result as string;
+        const nota = parseNfeXml(texto);
+        const hoje = getDateInputInTimeZone();
+        const dataEmissao = nota.dataEmissao || hoje;
 
         setParsedData({
-          fornecedorNome,
-          fornecedorCnpj,
-          numeroNF,
+          nota,
+          xmlTexto: texto,
+          fornecedorNome: nota.emitente.nome || 'FORNECEDOR DESCONHECIDO',
+          fornecedorCnpj: nota.emitente.documento,
+          numeroNF: nota.numero || '000000',
           dataEmissao,
-          valorTotal,
-          valorFreteXml,
-          items,
-          duplicatas
+          valorTotal: nota.totais.total,
+          valorFreteXml: nota.totais.frete,
+          items: nota.itens.map((item) => ({ ...item, valorTotal: item.valorProduto })),
+          duplicatas: nota.duplicatas.map((d) => ({ numero: d.numero, vencimento: d.vencimento || dataEmissao, valor: d.valor })),
         });
         // Frete embutido ja vem preenchido, sem transportadora: quem cobrou
         // foi o fornecedor da mercadoria, entao nao gera titulo separado.
-        setFrete({ valor: valorFreteXml, chaveCte: '', transportadoraId: '', transportadoraNome: '', vencimento: '', lancarNoFornecedor: false });
+        setFrete({ valor: nota.totais.frete, chaveCte: '', transportadoraId: '', transportadoraNome: '', vencimento: '', lancarNoFornecedor: false });
         setBuscaTransportadora('');
-
+        setDataEntrada(hoje);
+        setObservacao('');
+        setDivergenciaAceita(false);
+        setOpcoesCusto(opcoesDeCustoPorRegime(regimeTributario));
+        setModoPagamento('prazo');
+        setParcelas(parcelasIniciais(nota.duplicatas, dataEmissao, nota.totais.total));
+        setParcelasAceitas(false);
+        setCategoriaDespesa(CATEGORIAS_DE_COMPRA[0]);
+        setFormaPrevista(({ '01': 'Dinheiro', '02': 'Cheque', '03': 'Cartão', '04': 'Cartão', '14': 'Boleto', '15': 'Boleto', '16': 'Transferência', '17': 'PIX', '18': 'Transferência' } as Record<string, string>)[nota.pagamentos[0]?.forma ?? ''] ?? 'Boleto');
+        setDestinoPagamento('caixa');
+        setBancoId('');
+        setMarkupDigitado({});
+        setVinculoAberto(null);
       } catch (err) {
         console.error(err);
         showError('Erro no Processamento', (err as Error).message || 'Não foi possível ler os nós fiscais do arquivo XML.');
@@ -670,21 +779,59 @@ const EntradaNFE: React.FC = () => {
     reader.readAsText(file);
   };
 
+  /**
+   * Nota ja lancada? Confere pela CHAVE (a prova de que e' a mesma nota) e,
+   * para entrada antiga sem chave, por fornecedor + numero (+ serie). Nota
+   * EXCLUIDA nao conta: excluir e' justamente como se libera lancar de novo.
+   */
+  const verificarNotaDuplicada = async (nota: NotaParseada, fornecedorId: string, numeroNF: string) => {
+    if (!tenantId) return null;
+    const colecaoNotas = collection(db, 'notas_fiscais_entrada');
+    const encontradas: Array<{ numeroNF: string; dataEmissao: string; fornecedorNome: string; status?: string }> = [];
+    if (nota.chave) {
+      const porChave = await getDocs(query(colecaoNotas, where('tenantId', '==', tenantId), where('chaveAcesso', '==', nota.chave)));
+      porChave.forEach((d) => encontradas.push(d.data() as (typeof encontradas)[number]));
+    }
+    const porNumero = await getDocs(query(colecaoNotas, where('tenantId', '==', tenantId), where('fornecedorId', '==', fornecedorId), where('numeroNF', '==', numeroNF)));
+    porNumero.forEach((d) => {
+      const dados = d.data();
+      const mesmaSerie = !dados.serie || !nota.serie || dados.serie === nota.serie;
+      if (mesmaSerie) encontradas.push(dados as (typeof encontradas)[number]);
+    });
+    return primeiraNotaAtiva(encontradas);
+  };
+
   // Salva dados no Firestore
   const handleConfirmarEntrada = async () => {
     if (!parsedData || !tenantId || !currentUser || !fornecedorMatch) return;
     if (itemConfigs.length !== parsedData.items.length) return;
+    const nota = parsedData.nota;
 
-    // Todo item de Revenda precisa de preco de venda valido antes de
-    // gravar -- e o pedido central desta fatia, nao da pra deixar passar
-    // em branco/zero silenciosamente como o markup automatico fazia antes.
-    const itemSemPreco = parsedData.items.find((item, idx) => {
+    // ------------------------------------------------------------ validacoes
+    for (let idx = 0; idx < parsedData.items.length; idx++) {
+      const item = parsedData.items[idx];
       const config = itemConfigs[idx];
-      return config.tipo === 'revenda' && !(Number(config.precoVenda) > 0);
-    });
-    if (itemSemPreco) {
-      showError('Preço de venda obrigatório', `Informe um preço de venda válido para "${itemSemPreco.descricao}" antes de confirmar.`);
-      return;
+      if (config.classificacao !== 'novo' && !(Number(config.fator) > 0)) {
+        showError('Conversão de unidade', `Informe quantas unidades do estoque cabem em 1 ${item.unidade} de "${item.descricao}" (use 1 se a nota e o estoque usam a mesma unidade).`);
+        return;
+      }
+      if (config.tipo !== 'revenda') continue;
+      // Todo item de Revenda precisa de preco de venda valido antes de gravar.
+      if (!(numeroDaTela(config.precoVenda) > 0)) {
+        showError('Preço de venda obrigatório', `Informe um preço de venda válido para "${item.descricao}" antes de confirmar.`);
+        return;
+      }
+      const descontoMaximo = numeroDaTela(config.descontoMaximo);
+      if (descontoMaximo < 0 || descontoMaximo > 100) {
+        showError('Desconto máximo inválido', `O desconto máximo de "${item.descricao}" precisa estar entre 0% e 100%.`);
+        return;
+      }
+      if (config.atacadoAtivo && !config.atacadoBloqueado) {
+        if (!(numeroDaTela(config.atacadoPreco) > 0) || !(numeroDaTela(config.atacadoQtdMinima) > 0)) {
+          showError('Atacado incompleto', `Informe a quantidade mínima e o preço de atacado de "${item.descricao}", ou desligue o atacado desse item.`);
+          return;
+        }
+      }
     }
 
     const problemaNoFrete = erroDoFrete(frete);
@@ -693,35 +840,95 @@ const EntradaNFE: React.FC = () => {
       return;
     }
 
+    if (conferencia && !conferencia.ok && !divergenciaAceita) {
+      showError('A nota não confere', `${conferencia.avisos.join(' ')} Marque "Conferi e quero lançar mesmo assim" em Totais e conferência, ou confira o arquivo XML.`);
+      return;
+    }
+
+    const totalDevido = nota.totais.total;
+    if (modoPagamento === 'prazo') {
+      const conferenciaParcelas = conferirParcelas(parcelas, totalDevido);
+      if (conferenciaParcelas.erro) {
+        showError('Confira as parcelas', conferenciaParcelas.erro);
+        return;
+      }
+      if (conferenciaParcelas.aviso && !parcelasAceitas) {
+        showError('As parcelas não fecham com a nota', `${conferenciaParcelas.aviso} Ajuste os valores ou marque "Conferi as parcelas e quero lançar assim".`);
+        return;
+      }
+    } else {
+      const erroAVista = erroDoPagamentoAVista({ destino: destinoPagamento, bancoId });
+      if (erroAVista) {
+        showError('Pagamento à vista', erroAVista);
+        return;
+      }
+    }
+
+    // Uma nota entra numa unica gravacao (tudo ou nada): limite do Firestore por transacao.
+    if (parsedData.items.length + parcelas.length + 6 > 450) {
+      showError('Nota muito grande', 'Esta nota tem itens demais para entrar de uma vez. Divida o XML em duas partes ou fale com o suporte.');
+      return;
+    }
+
     setIsProcessing(true);
 
     NexusSwal.fire({
       title: 'Importando NF-e...',
-      text: 'Buscando produtos em estoque e lançando contas a pagar...',
+      text: 'Conferindo se a nota já foi lançada, somando estoque e lançando contas a pagar...',
       allowOutsideClick: false,
       didOpen: () => Swal.showLoading()
     });
 
     try {
+      const jaLancada = await verificarNotaDuplicada(nota, fornecedorMatch.id, parsedData.numeroNF);
+      if (jaLancada) {
+        Swal.close();
+        showError('Nota já lançada', mensagemDeNotaDuplicada(jaLancada));
+        return;
+      }
+
+      // ---------------------------------------------------------- plano da entrada
+      const agora = new Date();
+      const hojeIso = getDateInputInTimeZone();
+      const motivoDoHistorico = `Entrada de NF ${parsedData.numeroNF}`;
+      const usaCsosnNaEntrada = usesCsosn(regimeTributario);
+
+      const itensPlano = parsedData.items.map((item, idx) => {
+        const config = itemConfigs[idx];
+        const custo = custosDosItens[idx];
+        const fator = config.classificacao === 'novo' ? 1 : fatorValido(config.fator);
+        const ehMateriaPrima = config.tipo === 'materia_prima';
+        const vinculado = config.classificacao !== 'novo' && Boolean(config.matchId);
+        const colecao = ehMateriaPrima ? 'materias_primas' : 'estoque';
+        return {
+          item,
+          idx,
+          config,
+          custo,
+          fator,
+          ehMateriaPrima,
+          vinculado,
+          quantidadeEstoque: quantidadeNoEstoque(item.quantidade, fator),
+          custoUn: custoUnitarioNoEstoque(custo?.custoTotal ?? 0, item.quantidade, fator),
+          ref: vinculado ? doc(db, colecao, config.matchId as string) : doc(collection(db, colecao)),
+        };
+      });
+
+      const titulosRefs = modoPagamento === 'prazo' ? parcelas.map(() => doc(collection(db, 'transacoes'))) : [doc(collection(db, 'transacoes'))];
+      const tituloFreteRef = freteGeraTituloProprio(frete) ? doc(collection(db, 'transacoes')) : null;
+      const notaRef = doc(collection(db, 'notas_fiscais_entrada'));
+      const titulosPagarIds = [...titulosRefs.map((ref) => ref.id), ...(tituloFreteRef ? [tituloFreteRef.id] : [])];
+      const bancoRef = modoPagamento === 'avista' && destinoPagamento === 'banco' ? doc(db, 'bancos', bancoId) : null;
+      const bancoNome = bancos.find((b) => b.id === bancoId)?.nome || '';
+      const xmlCompacto = await compactarXml(parsedData.xmlTexto);
+
       let pecasAtualizadas = 0;
       let pecasCriadas = 0;
       let materiasPrimasAtualizadas = 0;
       let materiasPrimasCriadas = 0;
-      // Historico da nota de entrada (Fatia 0/N) -- so acumula os dados
-      // aqui, a gravacao acontece depois dos dois loops (itens + titulos).
       const notaItens: NotaFiscalEntradaItemRecord[] = [];
-
-      // O frete entra no CUSTO, rateado pelo valor de cada item: quem paga
-      // R$ 200 de frete nao comprou a mercadoria pelo preco da nota, comprou
-      // por ela mais o frete. Sem isto a margem da venda sai maior que a real.
-      const freteDosItens = ratearFreteNosItens(parsedData.items, frete.valor);
-      const custoDoItem = (indice: number) => freteDosItens[indice]?.custoUnitarioComFrete ?? parsedData.items[indice].valorUnitario;
-
-      // Dois itens da nota podem ir para o MESMO cadastro (vinculo manual): a
-      // quantidade entra com increment() (soma no servidor, nao sobrescreve),
-      // e o custo e' lido do banco na hora -- nao do estado da tela, que pode
-      // estar velho. As mudancas de custo alimentam o recalculo do custo dos
-      // produtos acabados que usam estes componentes.
+      // O custo que mudou em cada cadastro alimenta o recalculo do custo dos
+      // produtos acabados que usam esses componentes.
       const mudancasDeCusto = new Map<string, MudancaDeCusto>();
       const registrarMudancaDeCusto = (origem: MudancaDeCusto['origem'], id: string, nome: string, custoAnterior: number, custoNovo: number) => {
         const chave = `${origem}:${id}`;
@@ -729,233 +936,357 @@ const EntradaNFE: React.FC = () => {
         mudancasDeCusto.set(chave, { origem, id, nome, custoAnterior: existente ? existente.custoAnterior : custoAnterior, custoNovo });
       };
 
-      for (let idx = 0; idx < parsedData.items.length; idx++) {
-        const item = parsedData.items[idx];
-        const config = itemConfigs[idx];
+      // ---------------------------------------------------------- gravacao unica
+      // TUDO OU NADA (2026-09-24): estoque, custos, titulos, banco e o registro
+      // da nota entram na MESMA transacao. Antes eram gravacoes soltas: uma
+      // falha no meio deixava o estoque somado sem titulo (ou o contrario).
+      await runTransaction(db, async (transaction) => {
+        // A transacao pode ser repetida pelo Firestore: recomeca do zero.
+        notaItens.length = 0;
+        mudancasDeCusto.clear();
+        pecasAtualizadas = 0;
+        pecasCriadas = 0;
+        materiasPrimasAtualizadas = 0;
+        materiasPrimasCriadas = 0;
 
-        if (config.tipo === 'materia_prima') {
-          if (config.classificacao === 'materia_prima' && config.matchId) {
-            const materiaPrimaRef = doc(db, 'materias_primas', config.matchId);
-            const materiaPrimaAntes = await getDoc(materiaPrimaRef);
-            const custoNovoMateriaPrima = custoDoItem(idx);
-            registrarMudancaDeCusto('materia_prima', config.matchId, String(materiaPrimaAntes.data()?.nome || item.descricao), Number(materiaPrimaAntes.data()?.precoCusto || 0), custoNovoMateriaPrima);
-            await updateDoc(materiaPrimaRef, {
-              quantidade: increment(item.quantidade),
-              precoCusto: custoNovoMateriaPrima,
+        // 1. LEITURAS -- todas antes de qualquer escrita (regra do Firestore).
+        const snapshots = new Map<string, DocumentSnapshot<DocumentData>>();
+        for (const plano of itensPlano) {
+          if (plano.vinculado && !snapshots.has(plano.ref.path)) snapshots.set(plano.ref.path, await transaction.get(plano.ref));
+        }
+        const bancoSnap = bancoRef ? await transaction.get(bancoRef) : null;
+        if (bancoRef && !bancoSnap?.exists()) {
+          throw new Error('O banco selecionado não foi encontrado. Atualize a página e tente novamente.');
+        }
+        for (const plano of itensPlano) {
+          if (plano.vinculado && !snapshots.get(plano.ref.path)?.exists()) {
+            throw new Error(`O cadastro vinculado a "${plano.item.descricao}" não existe mais. Vincule outro cadastro ou cadastre o item como novo.`);
+          }
+        }
+
+        // Estado corrente de cada cadastro DENTRO desta nota: dois itens no
+        // mesmo cadastro somam sobre o resultado do primeiro, nao sobre o banco.
+        const estados = new Map<string, { quantidade: number; custoMedio: number; precoCusto: number; precoVenda: number; historico: unknown[] }>();
+
+        // 2. ESCRITAS
+        for (const plano of itensPlano) {
+          const { item, config, ref, quantidadeEstoque, custoUn, custo, fator } = plano;
+          const impostosDoItem = {
+            icms: { origem: item.icms.origem, situacao: item.icms.situacao, base: item.icms.base, aliquota: item.icms.aliquota, valor: item.icms.valor, baseSt: item.icms.baseSt, valorSt: item.icms.valorSt },
+            ipi: { situacao: item.ipi.situacao, aliquota: item.ipi.aliquota, valor: item.ipi.valor },
+            pis: { situacao: item.pis.situacao, aliquota: item.pis.aliquota, valor: item.pis.valor },
+            cofins: { situacao: item.cofins.situacao, aliquota: item.cofins.aliquota, valor: item.cofins.valor },
+          };
+          const detalhesDoRegistro = {
+            ncm: item.ncm,
+            cest: item.cest,
+            ean: item.ean,
+            cfop: item.cfop,
+            unidadeNota: item.unidade,
+            fator,
+            quantidadeEstoque,
+            custoTotal: custo?.custoTotal ?? 0,
+            custoUnitarioEstoque: custoUn,
+            impostos: impostosDoItem,
+            lote: config.lote.trim() || item.lotes[0]?.numero || '',
+            validade: config.validade || item.lotes[0]?.validade || '',
+          };
+          const lote = detalhesDoRegistro.lote;
+          const validade = detalhesDoRegistro.validade;
+          const camposDeLote = { ...(lote ? { lote } : {}), ...(validade ? { validade } : {}) };
+          const camposDoFornecedor = {
+            ...(item.codigo ? { [`codigosFornecedor.${fornecedorMatch.id}`]: item.codigo } : {}),
+            [`fatoresFornecedor.${fornecedorMatch.id}`]: fator,
+          };
+
+          // ------------------------------------------------------------ materia-prima
+          if (plano.ehMateriaPrima) {
+            if (plano.vinculado) {
+              const dados = snapshots.get(ref.path)?.data() ?? {};
+              const estado = estados.get(ref.path) ?? { quantidade: Number(dados.quantidade || 0), custoMedio: Number(dados.custoMedio ?? dados.precoCusto ?? 0), precoCusto: Number(dados.precoCusto || 0), precoVenda: 0, historico: [] };
+              registrarMudancaDeCusto('materia_prima', ref.id, String(dados.nome || item.descricao), estados.has(ref.path) ? estado.precoCusto : Number(dados.precoCusto || 0), custoUn);
+              const custoMedio = custoMedioPonderado(estado.quantidade, estado.custoMedio, quantidadeEstoque, custoUn);
+              estados.set(ref.path, { ...estado, quantidade: estado.quantidade + quantidadeEstoque, custoMedio, precoCusto: custoUn });
+              transaction.update(ref, semUndefined({
+                quantidade: increment(quantidadeEstoque),
+                precoCusto: custoUn,
+                ultimoCusto: custoUn,
+                custoMedio,
+                fornecedor: fornecedorMatch.nome,
+                ...camposDoFornecedor,
+                ...camposDeLote,
+                updatedAt: serverTimestamp(),
+                ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), motivoDoHistorico),
+              }));
+              materiasPrimasAtualizadas++;
+              notaItens.push({ itemId: ref.id, tipo: 'materia_prima', codigoXml: item.codigo, descricaoXml: item.descricao, quantidade: item.quantidade, valorUnitario: item.valorUnitario, novo: false, ...detalhesDoRegistro });
+            } else {
+              // Simplificacao deliberada, mesma do cadastro manual de
+              // Materia-Prima: unidade e fornecedor ficam como texto livre.
+              transaction.set(ref, semUndefined({
+                codigo: item.codigo,
+                nome: item.descricao.toUpperCase(),
+                categoria: 'DIVERSOS',
+                unidade: item.unidade.toUpperCase() || 'UN',
+                quantidade: quantidadeEstoque,
+                estoqueMinimo: 0,
+                precoCusto: custoUn,
+                ultimoCusto: custoUn,
+                custoMedio: custoUn,
+                fornecedor: fornecedorMatch.nome,
+                ...(item.codigo ? { codigosFornecedor: { [fornecedorMatch.id]: item.codigo } } : {}),
+                fatoresFornecedor: { [fornecedorMatch.id]: 1 },
+                ...camposDeLote,
+                tenantId,
+                createdAt: serverTimestamp(),
+                ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+              }));
+              materiasPrimasCriadas++;
+              notaItens.push({ itemId: ref.id, tipo: 'materia_prima', codigoXml: item.codigo, descricaoXml: item.descricao, quantidade: item.quantidade, valorUnitario: item.valorUnitario, novo: true, ...detalhesDoRegistro });
+            }
+            continue;
+          }
+
+          // ------------------------------------------------------------ revenda
+          // Precificacao/tributacao vem do que a pessoa preencheu na tela. Fora
+          // do Simples Nacional, os campos de ICMS/PIS/COFINS tambem sao
+          // gravados; dentro do Simples, so CSOSN/origem importam.
+          const precoNovo = numeroDaTela(config.precoVenda);
+          const camposFiscais: Record<string, unknown> = { precoVenda: precoNovo, csosn: config.csosn };
+          if (!usaCsosnNaEntrada) {
+            camposFiscais.aliquotaIcms = Number(config.aliquotaIcms) || 0;
+            camposFiscais.reducaoBaseIcms = Number(config.reducaoBaseIcms) || 0;
+            camposFiscais.cstPis = config.cstPis;
+            camposFiscais.aliquotaPis = Number(config.aliquotaPis) || 0;
+            camposFiscais.cstCofins = config.cstCofins;
+            camposFiscais.aliquotaCofins = Number(config.aliquotaCofins) || 0;
+          }
+          const descontoMaximo = config.descontoMaximo.trim() === '' ? null : numeroDaTela(config.descontoMaximo);
+          const atacadoQuantidade = numeroDaTela(config.atacadoQtdMinima);
+          const atacadoPreco = numeroDaTela(config.atacadoPreco);
+          const margem = custoUn > 0 && precoNovo > 0 ? ((precoNovo - custoUn) / custoUn) * 100 : 0;
+
+          if (plano.vinculado) {
+            const dados = snapshots.get(ref.path)?.data() ?? {};
+            const estado = estados.get(ref.path) ?? {
+              quantidade: Number(dados.quantidade || 0),
+              custoMedio: Number(dados.custoMedio ?? dados.precoCusto ?? dados.precos?.custo ?? 0),
+              precoCusto: Number(dados.precoCusto ?? dados.precos?.custo ?? 0),
+              precoVenda: Number(dados.precoVenda ?? dados.precos?.venda ?? 0),
+              historico: Array.isArray(dados.historicoPrecos) ? dados.historicoPrecos : [],
+            };
+            registrarMudancaDeCusto('estoque', ref.id, String(dados.nome || item.descricao), estados.has(ref.path) ? estado.precoCusto : Number(dados.precoCusto ?? dados.precos?.custo ?? 0), custoUn);
+            const custoMedio = custoMedioPonderado(estado.quantidade, estado.custoMedio, quantidadeEstoque, custoUn);
+            const mudouPreco = Math.abs(precoNovo - estado.precoVenda) >= 0.005;
+            const mudouCusto = Math.abs(custoUn - estado.precoCusto) >= 0.00005;
+            const historico = mudouPreco || mudouCusto
+              ? [{ precoAnterior: estado.precoVenda, precoNovo, custoAnterior: estado.precoCusto, custoNovo: custoUn, alteradoEm: agora.toISOString(), usuarioId: currentUser.uid, motivo: `${motivoDoHistorico}${mudouPreco ? ' (preço de venda alterado na entrada)' : ''}` }, ...estado.historico].slice(0, 200)
+              : estado.historico;
+            estados.set(ref.path, { quantidade: estado.quantidade + quantidadeEstoque, custoMedio, precoCusto: custoUn, precoVenda: precoNovo, historico });
+
+            const completar = dadosFiscaisParaCompletar(item, { codigoBarras: dados.codigoBarras, ncm: dados.ncm ?? dados.fiscal?.ncm });
+            const completarCest = !String(dados.cest || '').trim() && item.cest.length === 7 ? { cest: item.cest } : {};
+            const temPrecos = Boolean(dados.precos) && typeof dados.precos === 'object';
+            const atacadoAtualizado = !config.atacadoBloqueado
+              ? (config.atacadoAtivo
+                ? {
+                  atacado: { ...(dados.atacado || {}), ativo: true, quantidadeMinima: atacadoQuantidade, faixas: [{ id: dados.atacado?.faixas?.[0]?.id || 'faixa-entrada-nfe', quantidadeInicial: atacadoQuantidade, quantidadeFinal: null, ilimitado: true, preco: atacadoPreco }] },
+                  ativarAtacado: true,
+                  quantidadeMinimaAtacado: atacadoQuantidade,
+                }
+                : (dados.atacado?.ativo ? { 'atacado.ativo': false, ativarAtacado: false } : {}))
+              : {};
+
+            transaction.update(ref, semUndefined({
+              ...completar,
+              ...completarCest,
+              quantidade: increment(quantidadeEstoque),
+              precoCusto: custoUn,
+              ultimoCusto: custoUn,
+              custoMedio,
               fornecedor: fornecedorMatch.nome,
-              // Historico do fornecedor: da proxima vez este codigo ja vincula sozinho.
-              ...(item.codigo ? { [`codigosFornecedor.${fornecedorMatch.id}`]: item.codigo } : {}),
+              fornecedorId: fornecedorMatch.id,
+              ...camposDoFornecedor,
+              ...camposDeLote,
+              ...camposFiscais,
+              margemLucro: margem,
+              lucroEstimado: precoNovo - custoUn,
+              ...(descontoMaximo !== null ? { descontoMaximoPercentual: descontoMaximo } : {}),
+              ...atacadoAtualizado,
+              ...(mudouPreco || mudouCusto ? { historicoPrecos: historico } : {}),
+              ...(mudouPreco ? { custoNaUltimaPrecificacao: custoUn, ultimaAlteracaoPreco: agora.toISOString() } : {}),
+              ...(temPrecos ? { 'precos.custo': custoUn, 'precos.venda': precoNovo, 'precos.margemLucro': margem, 'precos.lucroEstimado': precoNovo - custoUn } : {}),
               updatedAt: serverTimestamp(),
-              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Entrada de NF ${parsedData.numeroNF}`),
-            });
-            materiasPrimasAtualizadas++;
-            notaItens.push({
-              itemId: config.matchId,
-              tipo: 'materia_prima',
-              codigoXml: item.codigo,
-              descricaoXml: item.descricao,
-              quantidade: item.quantidade,
-              valorUnitario: item.valorUnitario,
-              novo: false,
-            });
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), motivoDoHistorico),
+            }));
+            pecasAtualizadas++;
+            notaItens.push({ itemId: ref.id, tipo: 'revenda', codigoXml: item.codigo, descricaoXml: item.descricao, quantidade: item.quantidade, valorUnitario: item.valorUnitario, novo: false, ...detalhesDoRegistro });
           } else {
-            // Simplificacao deliberada, mesma do cadastro manual de
-            // Materia-Prima (Modulo 4 Fatia 0): unidade e fornecedor ficam
-            // como texto livre, sem linkar a Unidades de Medida/Fornecedores.
-            const novaMateriaPrimaRef = await addDoc(collection(db, 'materias_primas'), {
+            // Produto novo: NCM, CEST, EAN, origem e CFOP vem da nota; preco e
+            // tributacao, do que a pessoa preencheu na tela.
+            transaction.set(ref, semUndefined({
               codigo: item.codigo,
               nome: item.descricao.toUpperCase(),
-              categoria: 'DIVERSOS',
-              unidade: item.unidade.toUpperCase() || 'UN',
-              quantidade: item.quantidade,
+              quantidade: quantidadeEstoque,
               estoqueMinimo: 0,
-              precoCusto: custoDoItem(idx),
+              precoCusto: custoUn,
+              ultimoCusto: custoUn,
+              custoMedio: custoUn,
               fornecedor: fornecedorMatch.nome,
-              ...(item.codigo ? { codigosFornecedor: { [fornecedorMatch.id]: item.codigo } } : {}),
+              fornecedorId: fornecedorMatch.id,
+              codigosFornecedor: item.codigo ? { [fornecedorMatch.id]: item.codigo } : {},
+              fatoresFornecedor: { [fornecedorMatch.id]: 1 },
+              categoria: 'DIVERSOS',
+              unidadeMedidaId: 'un',
+              unidadeMedidaSigla: item.unidade.toUpperCase() || 'UN',
+              unidadeMedidaCasasDecimais: 0,
+              ncm: item.ncm,
+              ...(item.cest.length === 7 ? { cest: item.cest } : {}),
+              cfop: cfopDeSaidaSugerido(item.cfop),
+              codigoBarras: item.ean,
+              origem: item.icms.origem || '0',
+              ...camposDeLote,
+              ...camposFiscais,
+              margemLucro: margem,
+              lucroEstimado: precoNovo - custoUn,
+              custoNaUltimaPrecificacao: custoUn,
+              ...(descontoMaximo !== null ? { descontoMaximoPercentual: descontoMaximo } : {}),
+              ...(config.atacadoAtivo && !config.atacadoBloqueado
+                ? {
+                  atacado: { ativo: true, quantidadeMinima: atacadoQuantidade, faixas: [{ id: 'faixa-entrada-nfe', quantidadeInicial: atacadoQuantidade, quantidadeFinal: null, ilimitado: true, preco: atacadoPreco }] },
+                  ativarAtacado: true,
+                  quantidadeMinimaAtacado: atacadoQuantidade,
+                }
+                : {}),
+              tenantId,
+              createdAt: serverTimestamp(),
+              ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+            }));
+            pecasCriadas++;
+            notaItens.push({ itemId: ref.id, tipo: 'revenda', codigoXml: item.codigo, descricaoXml: item.descricao, quantidade: item.quantidade, valorUnitario: item.valorUnitario, novo: true, ...detalhesDoRegistro });
+          }
+        }
+
+        // ------------------------------------------------------------ contas a pagar
+        const categoria = categoriaDespesa;
+        if (modoPagamento === 'prazo') {
+          parcelas.forEach((parcela, indice) => {
+            const descricaoParcela = parcelas.length > 1
+              ? `COMPRA NF ${parsedData.numeroNF} - ${fornecedorMatch.nome} (Parcela ${indice + 1}/${parcelas.length})`
+              : `COMPRA NF ${parsedData.numeroNF} - ${fornecedorMatch.nome}`;
+            transaction.set(titulosRefs[indice], {
+              descricao: descricaoParcela,
+              data: parcela.vencimento,
+              valor: parcela.valor,
+              valorCentavos: toCents(parcela.valor),
+              categoria,
+              status: 'Pendente',
+              tipo: 'saida',
+              formaPagamentoPrevista: formaPrevista,
+              ...(parcelas.length > 1 ? { parcela: indice + 1, totalParcelas: parcelas.length } : {}),
+              fornecedorId: fornecedorMatch.id,
+              fornecedorNome: fornecedorMatch.nome,
+              notaFiscalEntradaNumero: parsedData.numeroNF,
               tenantId,
               createdAt: serverTimestamp(),
               ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
             });
-            materiasPrimasCriadas++;
-            notaItens.push({
-              itemId: novaMateriaPrimaRef.id,
-              tipo: 'materia_prima',
-              codigoXml: item.codigo,
-              descricaoXml: item.descricao,
-              quantidade: item.quantidade,
-              valorUnitario: item.valorUnitario,
-              novo: true,
-            });
-          }
-          continue;
-        }
-
-        // tipo === 'revenda' -- precificacao/tributacao vem do que o
-        // usuario preencheu na tela (itemConfigs), nao mais de um markup
-        // fixo. Fora do Simples Nacional, os campos extra de ICMS/PIS/
-        // COFINS tambem sao gravados; dentro do Simples, so CSOSN/origem
-        // importam (usesCsosn), entao os demais nem sao enviados.
-        const camposFiscais: Record<string, unknown> = {
-          precoVenda: Number(config.precoVenda) || 0,
-          csosn: config.csosn,
-        };
-        if (!usesCsosn(regimeTributario)) {
-          camposFiscais.aliquotaIcms = Number(config.aliquotaIcms) || 0;
-          camposFiscais.reducaoBaseIcms = Number(config.reducaoBaseIcms) || 0;
-          camposFiscais.cstPis = config.cstPis;
-          camposFiscais.aliquotaPis = Number(config.aliquotaPis) || 0;
-          camposFiscais.cstCofins = config.cstCofins;
-          camposFiscais.aliquotaCofins = Number(config.aliquotaCofins) || 0;
-        }
-
-        if (config.classificacao === 'estoque' && config.matchId) {
-          // Incrementa quantidade e memoriza o codigo que este fornecedor
-          // usa pra este item, pra a proxima importacao dele cair direto
-          // na camada 2 (mais rapida e confiavel que NCM+nome).
-          const pecaRef = doc(db, 'estoque', config.matchId);
-          const pecaAntes = await getDoc(pecaRef);
-          const dadosDaPeca = pecaAntes.data() ?? {};
-          const custoNovoPeca = custoDoItem(idx);
-          registrarMudancaDeCusto('estoque', config.matchId, String(dadosDaPeca.nome || item.descricao), Number(dadosDaPeca.precoCusto ?? dadosDaPeca.precos?.custo ?? 0), custoNovoPeca);
-          // EAN e NCM que o cadastro ainda nao tem e a nota traz: completa,
-          // sem nunca sobrescrever o que ja esta preenchido.
-          const completarCadastro = dadosFiscaisParaCompletar(item, { codigoBarras: dadosDaPeca.codigoBarras, ncm: dadosDaPeca.ncm ?? dadosDaPeca.fiscal?.ncm });
-          await updateDoc(pecaRef, {
-            ...completarCadastro,
-            quantidade: increment(item.quantidade),
-            precoCusto: custoNovoPeca,
-            fornecedor: fornecedorMatch.nome,
-            fornecedorId: fornecedorMatch.id,
-            [`codigosFornecedor.${fornecedorMatch.id}`]: item.codigo,
-            ...camposFiscais,
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Entrada de NF ${parsedData.numeroNF}`),
-          });
-          pecasAtualizadas++;
-          notaItens.push({
-            itemId: config.matchId,
-            tipo: 'revenda',
-            codigoXml: item.codigo,
-            descricaoXml: item.descricao,
-            quantidade: item.quantidade,
-            valorUnitario: item.valorUnitario,
-            novo: false,
           });
         } else {
-          // Cria novo produto ja gravando NCM, CFOP, EAN e a precificacao/
-          // tributacao que o usuario preencheu na tela (antes era um
-          // markup de 50% + CSOSN default fixo, sem input do usuario).
-          const novoProdutoRef = await addDoc(collection(db, 'estoque'), {
-            codigo: item.codigo,
-            nome: item.descricao.toUpperCase(),
-            quantidade: item.quantidade,
-            estoqueMinimo: 0,
-            precoCusto: custoDoItem(idx),
-            fornecedor: fornecedorMatch.nome,
+          // Pago na entrada: titulo PAGO e, se saiu de banco, o saldo debitado
+          // (mesmo desenho da Nota Avulsa a vista).
+          const valorCentavos = toCents(totalDevido);
+          transaction.set(titulosRefs[0], {
+            descricao: `COMPRA NF ${parsedData.numeroNF} - ${fornecedorMatch.nome}`,
+            data: hojeIso,
+            dataPagamento: hojeIso,
+            valor: fromCents(valorCentavos),
+            valorCentavos,
+            categoria,
+            status: 'Paga',
+            tipo: 'saida',
+            formaPagamento: destinoPagamento === 'banco' ? (formaPrevista === 'Dinheiro' ? 'Transferência' : formaPrevista) : 'Dinheiro',
+            naturezaFinanceira: destinoPagamento === 'banco' ? 'bancario_digital' : 'caixa_fisico',
+            movimentaCaixaFisico: destinoPagamento === 'caixa',
+            ...(destinoPagamento === 'banco' ? { bancoId, bancoNome } : {}),
             fornecedorId: fornecedorMatch.id,
-            codigosFornecedor: { [fornecedorMatch.id]: item.codigo },
-            categoria: 'DIVERSOS',
-            unidadeMedidaId: 'un',
-            unidadeMedidaSigla: item.unidade.toUpperCase() || 'UN',
-            unidadeMedidaCasasDecimais: 0,
-            ncm: item.ncm.replace(/\D/g, ''),
-            cfop: item.cfop,
-            codigoBarras: item.ean,
-            origem: '0',
-            ...camposFiscais,
+            fornecedorNome: fornecedorMatch.nome,
+            notaFiscalEntradaNumero: parsedData.numeroNF,
             tenantId,
             createdAt: serverTimestamp(),
             ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
-          pecasCriadas++;
-          notaItens.push({
-            itemId: novoProdutoRef.id,
-            tipo: 'revenda',
-            codigoXml: item.codigo,
-            descricaoXml: item.descricao,
-            quantidade: item.quantidade,
-            valorUnitario: item.valorUnitario,
-            novo: true,
+          if (bancoRef && bancoSnap) {
+            transaction.update(bancoRef, {
+              saldoCentavos: Number(bancoSnap.data()?.saldoCentavos || 0) - valorCentavos,
+              updatedAt: serverTimestamp(),
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), motivoDoHistorico),
+            });
+          }
+        }
+
+        // Frete de transportadora (ou frete a prazo do fornecedor) vira um titulo
+        // SEPARADO, com vencimento proprio. Frete embutido na nota nao passa por
+        // aqui -- ja esta no custo e quem cobra e' o mesmo fornecedor.
+        if (tituloFreteRef) {
+          const chaveCte = somenteDigitos(frete.chaveCte);
+          const credorFrete = credorDoFrete(frete, fornecedorMatch);
+          transaction.set(tituloFreteRef, {
+            descricao: descricaoDoTituloDeFrete(parsedData.numeroNF, { ...frete, transportadoraNome: credorFrete.nome }),
+            data: vencimentoDoFrete(frete, parsedData.dataEmissao),
+            valor: frete.valor,
+            categoria: 'FRETES',
+            status: 'Pendente',
+            tipo: 'saida',
+            fornecedorId: credorFrete.id,
+            fornecedorNome: credorFrete.nome,
+            ...(chaveCte ? { chaveCte } : {}),
+            notaFiscalEntradaNumero: parsedData.numeroNF,
+            tenantId,
+            createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
         }
-      }
 
-      // Lança a(s) conta(s) a pagar -- uma por duplicata da nota, ou um
-      // único título com vencimento padrão (emissão + 30 dias) quando o
-      // XML não trouxer duplicatas.
-      const duplicatasParaLancar = parsedData.duplicatas.length > 0
-        ? parsedData.duplicatas
-        : [{ numero: '1', vencimento: addDaysToDateInput(parsedData.dataEmissao, 30), valor: parsedData.valorTotal }];
-
-      const titulosPagarIds: string[] = [];
-
-      for (let i = 0; i < duplicatasParaLancar.length; i++) {
-        const parcela = duplicatasParaLancar[i];
-        const descricaoParcela = duplicatasParaLancar.length > 1
-          ? `COMPRA NF ${parsedData.numeroNF} - ${fornecedorMatch.nome} (Parcela ${i + 1}/${duplicatasParaLancar.length})`
-          : `COMPRA NF ${parsedData.numeroNF} - ${fornecedorMatch.nome}`;
-
-        const tituloRef = await addDoc(collection(db, 'transacoes'), {
-          descricao: descricaoParcela,
-          data: parcela.vencimento,
-          valor: parcela.valor,
-          categoria: 'FORNECEDORES DE PEÇAS',
-          status: 'Pendente',
-          tipo: 'saida',
-          fornecedorId: fornecedorMatch.id,
-          fornecedorNome: fornecedorMatch.nome,
+        // ------------------------------------------------------------ registro da nota
+        transaction.set(notaRef, {
+          ...buildNotaFiscalEntradaRecord({
+            numeroNF: parsedData.numeroNF,
+            dataEmissao: parsedData.dataEmissao,
+            valorTotal: parsedData.valorTotal,
+            fornecedorId: fornecedorMatch.id,
+            fornecedorNome: fornecedorMatch.nome,
+            fornecedorCnpj: parsedData.fornecedorCnpj,
+            itens: notaItens,
+            titulosPagarIds,
+            chaveAcesso: nota.chave || undefined,
+            serie: nota.serie || undefined,
+            modelo: nota.modelo || undefined,
+            naturezaOperacao: nota.naturezaOperacao || undefined,
+            dataEntrada,
+            observacao: observacao.trim() || undefined,
+            totais: { ...nota.totais },
+            custo: { creditarIcms: opcoesCusto.creditarIcms, creditarPisCofins: opcoesCusto.creditarPisCofins, frete: frete.valor },
+            pagamento: {
+              modo: modoPagamento,
+              categoria: categoriaDespesa,
+              forma: formaPrevista,
+              parcelas: modoPagamento === 'prazo' ? parcelas : [],
+              ...(modoPagamento === 'avista' ? { destino: destinoPagamento, ...(destinoPagamento === 'banco' ? { bancoId, bancoNome } : {}) } : {}),
+            },
+            transporte: {
+              modalidadeFrete: nota.transporte.modalidadeFrete,
+              transportadora: nota.transporte.transportadoraNome,
+              transportadoraDocumento: nota.transporte.transportadoraDocumento,
+              placa: nota.transporte.placa,
+              volumes: nota.transporte.volumes,
+            },
+            xmlGzipBase64: xmlCompacto || undefined,
+          }),
           tenantId,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
-        titulosPagarIds.push(tituloRef.id);
-      }
-
-      // Frete de transportadora vira um titulo SEPARADO: sao dois credores
-      // diferentes (o fornecedor da mercadoria e a transportadora), com
-      // vencimentos proprios. Frete embutido na nota do fornecedor (vFrete do
-      // XML, sem transportadora escolhida) nao passa por aqui -- ja esta no
-      // custo e quem cobra e' o mesmo fornecedor.
-      if (freteGeraTituloProprio(frete)) {
-        const chaveCte = somenteDigitos(frete.chaveCte);
-        const credorFrete = credorDoFrete(frete, fornecedorMatch);
-        const tituloFrete = await addDoc(collection(db, 'transacoes'), {
-          // Sem transportadora (frete a prazo cobrado pelo fornecedor da nota),
-          // a descricao leva o nome do fornecedor para o titulo nao ficar anonimo.
-          descricao: descricaoDoTituloDeFrete(parsedData.numeroNF, { ...frete, transportadoraNome: credorFrete.nome }),
-          data: vencimentoDoFrete(frete, parsedData.dataEmissao),
-          valor: frete.valor,
-          categoria: 'FRETES',
-          status: 'Pendente',
-          tipo: 'saida',
-          fornecedorId: credorFrete.id,
-          fornecedorNome: credorFrete.nome,
-          ...(chaveCte ? { chaveCte } : {}),
-          notaFiscalEntradaNumero: parsedData.numeroNF,
-          tenantId,
-          createdAt: serverTimestamp(),
-          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-        });
-        titulosPagarIds.push(tituloFrete.id);
-      }
-
-      // Historico da nota de entrada (Fatia 0/N -- fundacao). So grava o
-      // registro pra habilitar listagem/exclusao nas fatias seguintes;
-      // nao muda nada do que ja acontecia em estoque/transacoes acima.
-      await addDoc(collection(db, 'notas_fiscais_entrada'), {
-        ...buildNotaFiscalEntradaRecord({
-          numeroNF: parsedData.numeroNF,
-          dataEmissao: parsedData.dataEmissao,
-          valorTotal: parsedData.valorTotal,
-          fornecedorId: fornecedorMatch.id,
-          fornecedorNome: fornecedorMatch.nome,
-          fornecedorCnpj: parsedData.fornecedorCnpj,
-          itens: notaItens,
-          titulosPagarIds,
-        }),
-        tenantId,
-        createdAt: serverTimestamp(),
-        ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
       });
 
       // Cria log de auditoria
@@ -967,14 +1298,14 @@ const EntradaNFE: React.FC = () => {
           usuarioEmail: currentUser?.email || '',
           modulo: 'estoque',
           acao: 'criacao',
-          descricao: `Importação de XML NF ${parsedData.numeroNF} (${fornecedorMatch.nome}) realizada. ${pecasAtualizadas} produtos atualizados, ${pecasCriadas} novos produtos cadastrados, ${materiasPrimasAtualizadas} matérias-primas atualizadas, ${materiasPrimasCriadas} novas matérias-primas cadastradas. ${duplicatasParaLancar.length} título(s) lançado(s) em Contas a Pagar totalizando R$ ${parsedData.valorTotal.toFixed(2)}.`,
+          descricao: `Importação de XML NF ${parsedData.numeroNF} (${fornecedorMatch.nome}) realizada. ${pecasAtualizadas} produtos atualizados, ${pecasCriadas} novos produtos cadastrados, ${materiasPrimasAtualizadas} matérias-primas atualizadas, ${materiasPrimasCriadas} novas matérias-primas cadastradas. ${titulosPagarIds.length} título(s) em Contas a Pagar, nota de R$ ${totalDevido.toFixed(2)}${modoPagamento === 'avista' ? ', paga à vista' : ''}.`,
           status: 'sucesso'
         });
       } catch {
         // Ignora erros ao registrar auditoria
       }
 
-      // CUSTO DOS PRODUTOS ACABADOS: o custo de matéria-prima/semiacabado mudou
+      // CUSTO DOS PRODUTOS ACABADOS: o custo de materia-prima/semiacabado mudou
       // nesta nota, e todo produto produzido que a usa precisa acompanhar.
       // Falha aqui vira aviso -- a nota ja foi gravada e nao pode ser desfeita.
       const impactoDeCusto = await sincronizarCustosSemFalhar({
@@ -987,20 +1318,15 @@ const EntradaNFE: React.FC = () => {
       Swal.close();
       setVersaoDosCadastros((versao) => versao + 1);
 
-      // FICA NA TELA DE ENTRADA (pedido do dono, 2026-09-21).
-      //
-      // Antes daqui saia um `navigate('/estoque')`: terminava a nota e a
-      // pessoa era jogada no cadastro de produtos. Quem da entrada tem uma
-      // PILHA de notas pra lancar -- voltar tinha de ser feito a mao, nota
-      // apos nota. Agora a tela so' se limpa (handleRemoverFile) e ja' fica
-      // pronta pra proxima; o resumo do que entrou aparece no pop-up, com
+      // FICA NA TELA DE ENTRADA (pedido do dono, 2026-09-21): quem da entrada
+      // tem uma PILHA de notas pra lancar. O resumo aparece no pop-up, com
       // atalho pra quem realmente quiser sair.
       const linhasResumo = [
         `${pecasAtualizadas} produto(s) com estoque incrementado`,
         `${pecasCriadas} produto(s) novo(s) cadastrado(s)`,
         ...(materiasPrimasAtualizadas > 0 ? [`${materiasPrimasAtualizadas} matéria(s)-prima(s) atualizada(s)`] : []),
         ...(materiasPrimasCriadas > 0 ? [`${materiasPrimasCriadas} matéria(s)-prima(s) nova(s)`] : []),
-        `${titulosPagarIds.length} título(s) em Contas a Pagar${freteGeraTituloProprio(frete) ? ' (incluindo o do frete)' : ''}`,
+        `${titulosPagarIds.length} título(s) em Contas a Pagar${freteGeraTituloProprio(frete) ? ' (incluindo o do frete)' : ''}${modoPagamento === 'avista' ? ' — nota paga à vista' : ''}`,
       ];
       const numeroImportado = parsedData.numeroNF;
 
@@ -1026,7 +1352,7 @@ const EntradaNFE: React.FC = () => {
     } catch (err) {
       console.error(err);
       Swal.close();
-      showError('Erro na Importação', (err as Error).message || 'Falha ao salvar itens no banco de dados.');
+      showError('Erro na Importação', (err as Error).message || 'Falha ao salvar itens no banco de dados. Nada foi gravado: você pode tentar de novo.');
     } finally {
       setIsProcessing(false);
     }
@@ -1042,6 +1368,17 @@ const EntradaNFE: React.FC = () => {
     setShowFornecedorModal(false);
     setItemConfigs([]);
     itemConfigsInitializedForRef.current = null;
+    setDataEntrada(getDateInputInTimeZone());
+    setObservacao('');
+    setDivergenciaAceita(false);
+    setModoPagamento('prazo');
+    setParcelas([]);
+    setParcelasAceitas(false);
+    setDestinoPagamento('caixa');
+    setBancoId('');
+    setMarkupDigitado({});
+    setVinculoAberto(null);
+    setDanfe(null);
   };
 
   return (
@@ -1104,6 +1441,16 @@ const EntradaNFE: React.FC = () => {
               >
                 {buscandoPorChave ? <Loader2 size={16} className="spin-icon" /> : <Search size={16} />}
                 {buscandoPorChave ? 'Buscando na SEFAZ...' : 'Buscar nota'}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => void buscarNotaPelaChave('danfe')}
+                disabled={buscandoPorChave || chaveBusca.replace(/\D/g, '').length !== 44}
+                title="Imprime o DANFE da nota sem dar entrada no estoque"
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: buscandoPorChave || chaveBusca.replace(/\D/g, '').length !== 44 ? 0.5 : 1 }}
+              >
+                <Printer size={16} /> Só imprimir o DANFE
               </button>
             </div>
             {chaveBusca.length > 0 && (
@@ -1193,35 +1540,31 @@ const EntradaNFE: React.FC = () => {
                   </div>
                 )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-                  <div>
-                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Fornecedor</label>
-                    <strong style={{ fontSize: '15px', color: 'var(--text-primary)' }}>{parsedData.fornecedorNome}</strong>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>CNPJ do Fornecedor</label>
-                    <strong style={{ fontSize: '15px', color: 'var(--text-primary)' }}>
-                      {parsedData.fornecedorCnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5")}
-                    </strong>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Número da NF-e</label>
-                    <strong style={{ fontSize: '15px', color: 'var(--text-primary)' }}>{parsedData.numeroNF}</strong>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Data de Emissão</label>
-                    <strong style={{ fontSize: '15px', color: 'var(--text-primary)' }}>
-                      {parsedData.dataEmissao.split('-').reverse().join('/')}
-                    </strong>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Valor Total da Nota</label>
-                    <strong style={{ fontSize: '18px', color: '#10b981', fontWeight: 'bold' }}>
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parsedData.valorTotal)}
-                    </strong>
-                  </div>
-                </div>
               </div>
+
+              <CabecalhoDaNota
+                nota={parsedData.nota}
+                fornecedorNome={fornecedorMatch?.nome || parsedData.fornecedorNome}
+                fornecedorCadastrado={fornecedorStatus === 'found'}
+                dataEntrada={dataEntrada}
+                onDataEntrada={setDataEntrada}
+                observacao={observacao}
+                onObservacao={setObservacao}
+                onImprimirDanfe={() => void handleImprimirDanfe()}
+                gerandoDanfe={gerandoDanfe}
+              />
+
+              {conferencia && (
+                <TotaisDaNotaCard
+                  nota={parsedData.nota}
+                  conferencia={conferencia}
+                  opcoes={opcoesCusto}
+                  onOpcoes={setOpcoesCusto}
+                  rotuloDoRegime={regimeTributario === 'simples_nacional' ? 'Simples Nacional' : regimeTributario === 'lucro_presumido' ? 'Lucro Presumido' : 'Lucro Real'}
+                  divergenciaAceita={divergenciaAceita}
+                  onAceitarDivergencia={setDivergenciaAceita}
+                />
+              )}
 
               {/* Frete / Conhecimento de transporte (CT-e) */}
               <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)' }}>
@@ -1345,28 +1688,26 @@ const EntradaNFE: React.FC = () => {
                 )}
               </div>
 
-              {/* Card Contas a Pagar */}
-              <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                  <FileText size={18} color="var(--accent-purple)" />
-                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>
-                    Títulos a lançar em Contas a Pagar {parsedData.duplicatas.length > 0 ? `(${parsedData.duplicatas.length} duplicata(s) da nota)` : '(sem duplicata na nota — vencimento padrão de 30 dias)'}
-                  </h3>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {(parsedData.duplicatas.length > 0
-                    ? parsedData.duplicatas
-                    : [{ numero: '1', vencimento: addDaysToDateInput(parsedData.dataEmissao, 30), valor: parsedData.valorTotal }]
-                  ).map((parcela, idx) => (
-                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', fontSize: '13px' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Parcela {parcela.numero} — vence em {parcela.vencimento.split('-').reverse().join('/')}</span>
-                      <strong style={{ color: 'var(--text-primary)' }}>
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parcela.valor)}
-                      </strong>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <PagamentoCard
+                modo={modoPagamento}
+                onModo={(modo) => { setModoPagamento(modo); setParcelasAceitas(false); }}
+                parcelas={parcelas}
+                onParcelas={setParcelas}
+                totalDaNota={parsedData.nota.totais.total}
+                dataEmissao={parsedData.dataEmissao}
+                formaPrevista={formaPrevista}
+                onFormaPrevista={setFormaPrevista}
+                categoria={categoriaDespesa}
+                onCategoria={setCategoriaDespesa}
+                destino={destinoPagamento}
+                onDestino={setDestinoPagamento}
+                bancoId={bancoId}
+                onBancoId={setBancoId}
+                bancos={bancos}
+                parcelasAceitas={parcelasAceitas}
+                onAceitarParcelas={setParcelasAceitas}
+                formaNoXml={parsedData.nota.pagamentos.map((p) => `${rotuloDaFormaDePagamento(p.forma)} ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valor)}`).join(' + ')}
+              />
 
               {/* Itens da nota: classificacao Revenda/Materia-Prima +
                   precificacao/tributacao (Fatia 2/N do F22) */}
@@ -1392,129 +1733,36 @@ const EntradaNFE: React.FC = () => {
                   const correspondenteMateriaPrima = config.classificacao === 'materia_prima'
                     ? materiasPrimasAtuais.find((m) => m.id === config.matchId)
                     : undefined;
-                  const usaCsosn = usesCsosn(regimeTributario);
+                  const cadastro: CadastroVinculado | undefined = correspondenteEstoque
+                    ? { nome: correspondenteEstoque.nome, quantidade: correspondenteEstoque.quantidade, precoCusto: correspondenteEstoque.precoCusto, precoVenda: correspondenteEstoque.precoVenda, unidade: correspondenteEstoque.unidadeMedidaSigla }
+                    : correspondenteMateriaPrima
+                      ? { nome: correspondenteMateriaPrima.nome, quantidade: correspondenteMateriaPrima.quantidade, precoCusto: correspondenteMateriaPrima.precoCusto, unidade: correspondenteMateriaPrima.unidade }
+                      : undefined;
 
                   return (
-                    <div key={idx} style={{ padding: '18px 24px', borderBottom: idx < parsedData.items.length - 1 ? '1px solid var(--border-color)' : 'none' }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
-                        <div>
-                          <strong style={{ fontSize: '14px' }}>{item.descricao}</strong>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            Código XML: {item.codigo} · NCM: {item.ncm} · {item.quantidade} {item.unidade} × {currencyFormat.format(item.valorUnitario)} = <strong>{currencyFormat.format(item.valorTotal)}</strong>
-                          </div>
-                        </div>
-
-                        {config.classificacao === 'estoque' && (
-                          <span style={{ padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', whiteSpace: 'nowrap' }}>
-                            Mesclar Estoque (Revenda){correspondenteEstoque ? ` — +${correspondenteEstoque.quantidade} cadastrados` : ''}
-                          </span>
-                        )}
-                        {config.classificacao === 'materia_prima' && (
-                          <span style={{ padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', whiteSpace: 'nowrap' }}>
-                            Mesclar Matéria-Prima{correspondenteMateriaPrima ? ` — +${correspondenteMateriaPrima.quantidade} cadastrados` : ''}
-                          </span>
-                        )}
-                        {config.classificacao === 'novo' && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Item novo — classificar como:</span>
-                            <select
-                              value={config.tipo}
-                              onChange={(e) => handleAlterarTipoItem(idx, e.target.value as ItemEntradaConfig['tipo'])}
-                              className="form-select"
-                              style={{ padding: '6px 10px', fontSize: '13px' }}
-                            >
-                              <option value="revenda">Produto de Revenda</option>
-                              <option value="materia_prima">Matéria-Prima</option>
-                            </select>
-                          </div>
-                        )}
-                      </div>
-
-                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-                        {config.classificacao !== 'novo' && (
-                          <>
-                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                              {ROTULO_ORIGEM_VINCULO[config.origemVinculo ?? 'automatico']}:{' '}
-                              <strong style={{ color: 'var(--text-primary)' }}>{(correspondenteEstoque ?? correspondenteMateriaPrima)?.nome}</strong>
-                            </span>
-                            <button type="button" className="btn-secondary" onClick={() => handleAbrirVinculo(idx)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', fontSize: '12px' }}>
-                              <Link2 size={13} /> Trocar cadastro
-                            </button>
-                            <button type="button" className="btn-secondary" onClick={() => handleDesvincularItem(idx)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', fontSize: '12px' }}>
-                              <Unlink size={13} /> Desvincular (cadastrar como novo)
-                            </button>
-                          </>
-                        )}
-                        {config.classificacao === 'novo' && (
-                          <button type="button" className="btn-secondary" onClick={() => handleAbrirVinculo(idx)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', fontSize: '12px' }}>
-                            <Link2 size={13} /> Já tenho este item cadastrado — vincular
-                          </button>
-                        )}
-                      </div>
-
-                      {vinculoAberto === idx && renderPainelDeVinculo(idx, item)}
-
-                      {config.tipo === 'revenda' ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', padding: '14px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
-                          <div className="input-group">
-                            <label style={campoLabelStyle}>Preço de Venda *</label>
-                            <input
-                              type="number" step="0.01" min="0"
-                              value={config.precoVenda}
-                              onChange={(e) => handleAlterarCampoItem(idx, 'precoVenda', e.target.value)}
-                              style={campoInputStyle}
-                            />
-                          </div>
-                          <div className="input-group">
-                            <label style={campoLabelStyle}>{usaCsosn ? 'CSOSN' : 'CST ICMS'}</label>
-                            <select
-                              value={config.csosn}
-                              onChange={(e) => handleAlterarCampoItem(idx, 'csosn', e.target.value)}
-                              className="form-select"
-                              style={campoInputStyle}
-                            >
-                              <option value="">Selecione...</option>
-                              {(usaCsosn ? CSOSN_OPTIONS : ICMS_CST_OPTIONS).map((opt) => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {!usaCsosn && (
-                            <>
-                              <div className="input-group">
-                                <label style={campoLabelStyle}>Alíquota ICMS (%)</label>
-                                <input type="number" step="0.01" min="0" value={config.aliquotaIcms} onChange={(e) => handleAlterarCampoItem(idx, 'aliquotaIcms', e.target.value)} style={campoInputStyle} />
-                              </div>
-                              <div className="input-group">
-                                <label style={campoLabelStyle}>Redução Base ICMS (%)</label>
-                                <input type="number" step="0.01" min="0" value={config.reducaoBaseIcms} onChange={(e) => handleAlterarCampoItem(idx, 'reducaoBaseIcms', e.target.value)} style={campoInputStyle} />
-                              </div>
-                              <div className="input-group">
-                                <label style={campoLabelStyle}>CST PIS</label>
-                                <input type="text" value={config.cstPis} onChange={(e) => handleAlterarCampoItem(idx, 'cstPis', e.target.value)} style={campoInputStyle} />
-                              </div>
-                              <div className="input-group">
-                                <label style={campoLabelStyle}>Alíquota PIS (%)</label>
-                                <input type="number" step="0.01" min="0" value={config.aliquotaPis} onChange={(e) => handleAlterarCampoItem(idx, 'aliquotaPis', e.target.value)} style={campoInputStyle} />
-                              </div>
-                              <div className="input-group">
-                                <label style={campoLabelStyle}>CST COFINS</label>
-                                <input type="text" value={config.cstCofins} onChange={(e) => handleAlterarCampoItem(idx, 'cstCofins', e.target.value)} style={campoInputStyle} />
-                              </div>
-                              <div className="input-group">
-                                <label style={campoLabelStyle}>Alíquota COFINS (%)</label>
-                                <input type="number" step="0.01" min="0" value={config.aliquotaCofins} onChange={(e) => handleAlterarCampoItem(idx, 'aliquotaCofins', e.target.value)} style={campoInputStyle} />
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      ) : (
-                        <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                          Matéria-prima: sem preço de venda nem tributação — entra no estoque de produção pelo custo de {currencyFormat.format(item.valorUnitario)}.
-                        </p>
-                      )}
-                    </div>
+                    <ItemDaNotaCard
+                      key={idx}
+                      indice={idx}
+                      total={parsedData.items.length}
+                      item={item}
+                      config={config}
+                      custo={custosDosItens[idx]}
+                      custoUnitarioEstoque={custoUnitarioDoItem(idx)}
+                      cadastro={cadastro}
+                      usaCsosn={usesCsosn(regimeTributario)}
+                      markupVarejoDigitado={markupDigitado[`${idx}-v`]}
+                      markupAtacadoDigitado={markupDigitado[`${idx}-a`]}
+                      onAlterarTipo={(tipo) => handleAlterarTipoItem(idx, tipo)}
+                      onAlterarConfig={(patch) => handleAlterarConfigItem(idx, patch)}
+                      onAlterarCampo={(campo, valor) => handleAlterarCampoItem(idx, campo, valor)}
+                      onPrecoVarejo={(texto) => handlePrecoVarejo(idx, texto)}
+                      onMarkupVarejo={(texto) => handleMarkupVarejo(idx, texto)}
+                      onPrecoAtacado={(texto) => handlePrecoAtacado(idx, texto)}
+                      onMarkupAtacado={(texto) => handleMarkupAtacado(idx, texto)}
+                      onAbrirVinculo={() => handleAbrirVinculo(idx)}
+                      onDesvincular={() => handleDesvincularItem(idx)}
+                      painelDeVinculo={vinculoAberto === idx ? renderPainelDeVinculo(idx, item) : null}
+                    />
                   );
                 })}
               </div>
@@ -1545,6 +1793,8 @@ const EntradaNFE: React.FC = () => {
           )}
         </div>
       )}
+
+      {danfe && <PdfVisualizador titulo="DANFE" nomeArquivo={danfe.nome} pdf={danfe.blob} onFechar={() => setDanfe(null)} />}
 
       {showFornecedorModal && parsedData && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }}>

@@ -41,7 +41,7 @@ const lerAtributos = (texto: string): Record<string, string> => {
 
 /** Le o XML e devolve a raiz. Lanca `Error` em portugues quando o arquivo nao e' XML valido. */
 export const lerXml = (entrada: string): NoXml => {
-  const xml = String(entrada ?? '').replace(/^﻿/, '');
+  const xml = String(entrada ?? '').replace(/^\uFEFF/, '');
   const raiz: NoXml = { nome: '#raiz', atributos: {}, filhos: [], texto: '' };
   const pilha: NoXml[] = [raiz];
   const textos = new Map<NoXml, string[]>([[raiz, []]]);

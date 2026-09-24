@@ -3,6 +3,10 @@ import { test } from 'node:test';
 import {
   buildNotaFiscalEntradaRecord,
   buildInitialItemEntradaConfig,
+  cfopDeSaidaSugerido,
+  mensagemDeNotaDuplicada,
+  primeiraNotaAtiva,
+  semUndefined,
   findTituloBloqueandoExclusao,
   findItemSemEstoqueParaReverter,
   type NotaFiscalEntradaItemRecord,
@@ -160,4 +164,39 @@ test('findItemSemEstoqueParaReverter trata item sem documento no mapa como estoq
     new Map(),
   );
   assert.equal(result?.itemId, 'item-inexistente');
+});
+
+test('semUndefined tira a chave em qualquer profundidade e preserva o resto (Firestore recusa undefined)', () => {
+  const limpo = semUndefined({ a: 1, b: undefined, c: { d: undefined, e: 'x' }, f: [{ g: undefined, h: 2 }], i: null, j: 0 });
+  assert.deepEqual(limpo, { a: 1, c: { e: 'x' }, f: [{ h: 2 }], i: null, j: 0 });
+  assert.equal(JSON.stringify(limpo).includes('undefined'), false);
+});
+
+test('registro da nota nunca leva undefined, mesmo com campos opcionais ausentes', () => {
+  const registro = buildNotaFiscalEntradaRecord({
+    numeroNF: '1', dataEmissao: '2026-09-10', valorTotal: 10, fornecedorId: 'f', fornecedorNome: 'F', fornecedorCnpj: '1',
+    itens: [{ itemId: 'i', tipo: 'revenda', codigoXml: 'c', descricaoXml: 'd', quantidade: 1, valorUnitario: 1, novo: false, lote: undefined }],
+    titulosPagarIds: [], chaveAcesso: undefined, serie: '1',
+  });
+  assert.equal('chaveAcesso' in registro, false);
+  assert.equal('lote' in registro.itens[0], false);
+  assert.equal(registro.serie, '1');
+  assert.equal(registro.status, 'ativa');
+});
+
+test('nota duplicada: mensagem cita número, data e fornecedor; nota excluída não bloqueia', () => {
+  assert.match(mensagemDeNotaDuplicada({ numeroNF: '4243', dataEmissao: '2026-09-10', fornecedorNome: 'FORN' }), /NF 4243 de 10\/09\/2026, FORN/);
+  assert.match(mensagemDeNotaDuplicada({ numeroNF: '4243', dataEmissao: '', fornecedorNome: 'FORN' }), /exclua-o no Histórico/);
+  assert.equal(primeiraNotaAtiva<{ status?: string; id?: number }>([{ status: 'excluida', id: 1 }, { status: 'ativa', id: 2 }])?.id, 2);
+  assert.equal(primeiraNotaAtiva([{ status: 'excluida' }]), null);
+  assert.deepEqual(primeiraNotaAtiva<{ status?: string; id?: number }>([{ id: 3 }]), { id: 3 });
+});
+
+test('CFOP de saída sugerido: interestadual vira estadual, o resto não é inventado', () => {
+  assert.equal(cfopDeSaidaSugerido('5102'), '5102');
+  assert.equal(cfopDeSaidaSugerido('6102'), '5102');
+  assert.equal(cfopDeSaidaSugerido('6403'), '5403');
+  assert.equal(cfopDeSaidaSugerido('1102'), '');
+  assert.equal(cfopDeSaidaSugerido(''), '');
+  assert.equal(cfopDeSaidaSugerido('51'), '');
 });

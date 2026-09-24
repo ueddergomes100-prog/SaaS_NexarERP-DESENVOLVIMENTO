@@ -7,6 +7,13 @@
 export type NotaFiscalEntradaItemTipo = 'revenda' | 'materia_prima';
 export type NotaFiscalEntradaStatus = 'ativa' | 'excluida';
 
+export interface ImpostosDoItemRecord {
+  icms: { origem: string; situacao: string; base: number; aliquota: number; valor: number; baseSt: number; valorSt: number };
+  ipi: { situacao: string; aliquota: number; valor: number };
+  pis: { situacao: string; aliquota: number; valor: number };
+  cofins: { situacao: string; aliquota: number; valor: number };
+}
+
 export interface NotaFiscalEntradaItemRecord {
   itemId: string;
   tipo: NotaFiscalEntradaItemTipo;
@@ -15,7 +22,35 @@ export interface NotaFiscalEntradaItemRecord {
   quantidade: number;
   valorUnitario: number;
   novo: boolean;
+  // Detalhes gravados a partir de 2026-09-24 (notas antigas nao os tem).
+  ncm?: string;
+  cest?: string;
+  ean?: string;
+  cfop?: string;
+  unidadeNota?: string;
+  /** Unidades de estoque por unidade da nota. */
+  fator?: number;
+  quantidadeEstoque?: number;
+  /** Custo total pago por este item (com frete, IPI, ST, desconto...). */
+  custoTotal?: number;
+  custoUnitarioEstoque?: number;
+  impostos?: ImpostosDoItemRecord;
+  lote?: string;
+  validade?: string;
 }
+
+/** Firestore recusa `undefined` (CLAUDE.md): tira a chave de vez, em qualquer profundidade. */
+export const semUndefined = <T>(valor: T): T => {
+  if (Array.isArray(valor)) return valor.map((item) => semUndefined(item)) as unknown as T;
+  if (valor && typeof valor === 'object' && Object.getPrototypeOf(valor) === Object.prototype) {
+    return Object.fromEntries(
+      Object.entries(valor as Record<string, unknown>)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, semUndefined(v)]),
+    ) as T;
+  }
+  return valor;
+};
 
 export interface NotaFiscalEntradaRecordInput {
   numeroNF: string;
@@ -26,6 +61,22 @@ export interface NotaFiscalEntradaRecordInput {
   fornecedorCnpj: string;
   itens: NotaFiscalEntradaItemRecord[];
   titulosPagarIds: string[];
+  /** Chave de acesso (44 digitos). Base do bloqueio de nota duplicada. */
+  chaveAcesso?: string;
+  serie?: string;
+  modelo?: string;
+  naturezaOperacao?: string;
+  /** AAAA-MM-DD: dia em que a mercadoria entrou (pode ser diferente da emissao). */
+  dataEntrada?: string;
+  observacao?: string;
+  /** Totais da nota como vieram no XML. */
+  totais?: Record<string, number>;
+  /** Como o custo foi calculado (creditos aproveitados, frete lancado). */
+  custo?: { creditarIcms: boolean; creditarPisCofins: boolean; frete: number };
+  pagamento?: Record<string, unknown>;
+  transporte?: Record<string, unknown>;
+  /** XML original, gzip + base64 (ver xmlCompactoDomain). Ausente se passou do limite. */
+  xmlGzipBase64?: string;
 }
 
 export interface NotaFiscalEntradaRecord extends NotaFiscalEntradaRecordInput {
@@ -35,10 +86,33 @@ export interface NotaFiscalEntradaRecord extends NotaFiscalEntradaRecordInput {
 // Pura -- o timestamp/tenantId/metadados de responsabilidade sao
 // acrescentados pelo chamador (mesmo padrao de buildDocumentMetadata),
 // pra este helper nao depender do Firestore.
-export const buildNotaFiscalEntradaRecord = (input: NotaFiscalEntradaRecordInput): NotaFiscalEntradaRecord => ({
+export const buildNotaFiscalEntradaRecord = (input: NotaFiscalEntradaRecordInput): NotaFiscalEntradaRecord => semUndefined({
   ...input,
-  status: 'ativa',
+  status: 'ativa' as const,
 });
+
+/** Nota ja lancada que barra a mesma nota de entrar de novo. */
+export interface NotaJaLancada {
+  numeroNF: string;
+  dataEmissao: string;
+  fornecedorNome: string;
+  status?: string;
+}
+
+/**
+ * Mensagem para a nota que ja foi lancada. Nota EXCLUIDA nao conta: a pessoa
+ * excluiu justamente para poder lancar de novo.
+ */
+export const mensagemDeNotaDuplicada = (existente: NotaJaLancada): string => {
+  const emissao = existente.dataEmissao ? existente.dataEmissao.split('-').reverse().join('/') : '';
+  return `Esta nota já foi lançada: NF ${existente.numeroNF}${emissao ? ` de ${emissao}` : ''}, ${existente.fornecedorNome}. `
+    + 'Lançar de novo somaria o estoque e as contas a pagar em dobro. Se o lançamento anterior estava errado, exclua-o no Histórico de Entradas e lance esta nota outra vez.';
+};
+
+/** Entre as notas encontradas, a primeira que ainda vale (nao excluida). */
+export const primeiraNotaAtiva = <T extends { status?: string }>(notas: T[]): T | null => (
+  notas.find((nota) => (nota.status ?? 'ativa') !== 'excluida') ?? null
+);
 
 // Fatia 2/N -- classificacao Materia-Prima/Revenda + precificacao na tela
 // de lancamento (2026-08-14). Decisoes confirmadas com o usuario: item ja
@@ -67,6 +141,23 @@ export interface ItemEntradaConfig {
   aliquotaPis: string;
   cstCofins: string;
   aliquotaCofins: string;
+  /**
+   * Quantas unidades de ESTOQUE cabem em 1 unidade da NOTA (1 PCT = 1 KG -> '1';
+   * 1 CX = 12 UN -> '12'). Sem isso, nota em caixa com estoque em unidade
+   * gravava quantidade e custo por caixa.
+   */
+  fator: string;
+  /** O preco de venda foi mexido pela pessoa? Se nao, item novo acompanha o custo real. */
+  precoEditado: boolean;
+  /** Desconto maximo (%) do produto. Vazio = nao mexe no que o cadastro tem. */
+  descontoMaximo: string;
+  atacadoAtivo: boolean;
+  atacadoQtdMinima: string;
+  atacadoPreco: string;
+  /** Produto ja tem mais de uma faixa de atacado: a entrada nao mexe (edita no cadastro). */
+  atacadoBloqueado: boolean;
+  lote: string;
+  validade: string;
 }
 
 // Subconjunto dos campos fiscais de um produto de `estoque` ja cadastrado,
@@ -82,7 +173,36 @@ export interface ProdutoFiscalAtual {
   aliquotaPis?: number;
   cstCofins?: string;
   aliquotaCofins?: number;
+  descontoMaximoPercentual?: number;
+  atacado?: { ativo?: boolean; quantidadeMinima?: number; faixas?: Array<{ preco?: number; quantidadeInicial?: number }> };
 }
+
+/** Campos da entrada que nao dependem de o item ser novo ou existente. */
+const EXTRAS_PADRAO = {
+  fator: '1',
+  precoEditado: false,
+  descontoMaximo: '',
+  atacadoAtivo: false,
+  atacadoQtdMinima: '',
+  atacadoPreco: '',
+  atacadoBloqueado: false,
+  lote: '',
+  validade: '',
+};
+
+/** Atacado ja cadastrado -> campos da tela. Mais de uma faixa = so leitura. */
+const extrasDoProduto = (produto: ProdutoFiscalAtual) => {
+  const faixas = produto.atacado?.faixas ?? [];
+  const ativo = Boolean(produto.atacado?.ativo) && faixas.length > 0;
+  return {
+    ...EXTRAS_PADRAO,
+    descontoMaximo: produto.descontoMaximoPercentual ? String(produto.descontoMaximoPercentual) : '',
+    atacadoAtivo: ativo,
+    atacadoQtdMinima: ativo ? String(faixas[0].quantidadeInicial ?? produto.atacado?.quantidadeMinima ?? '') : '',
+    atacadoPreco: ativo && faixas[0].preco ? String(faixas[0].preco) : '',
+    atacadoBloqueado: faixas.length > 1,
+  };
+};
 
 const EMPTY_TAX_FIELDS = {
   precoVenda: '',
@@ -120,6 +240,9 @@ export const buildInitialItemEntradaConfig = (
       aliquotaPis: produtoExistente.aliquotaPis !== undefined ? String(produtoExistente.aliquotaPis) : '',
       cstCofins: produtoExistente.cstCofins || '',
       aliquotaCofins: produtoExistente.aliquotaCofins !== undefined ? String(produtoExistente.aliquotaCofins) : '',
+      ...extrasDoProduto(produtoExistente),
+      // Produto que JA tem preco: a entrada nunca o reajusta sozinha.
+      precoEditado: produtoExistente.precoVenda !== undefined,
     };
   }
 
@@ -129,6 +252,7 @@ export const buildInitialItemEntradaConfig = (
       matchId: materiaPrimaExistenteId,
       tipo: 'materia_prima',
       ...EMPTY_TAX_FIELDS,
+      ...EXTRAS_PADRAO,
     };
   }
 
@@ -144,6 +268,7 @@ export const buildInitialItemEntradaConfig = (
     aliquotaPis: '',
     cstCofins: '',
     aliquotaCofins: '',
+    ...EXTRAS_PADRAO,
   };
 };
 
@@ -186,4 +311,20 @@ export const findItemSemEstoqueParaReverter = (
     if (atual < item.quantidade) return item;
   }
   return null;
+};
+
+/**
+ * CFOP de SAIDA sugerido para produto novo, a partir do CFOP que o fornecedor
+ * usou na venda para nos (5102 -> 5102; 6102 interestadual -> 5102 dentro do
+ * estado; 6403/5405 de substituicao tributaria -> 5405). A nota de entrada
+ * trazia o CFOP do fornecedor direto para o campo "CFOP padrao de saida" do
+ * produto, o que estava errado para nota interestadual (6xxx) ou de compra
+ * para industrializacao. Fora dos grupos 5 e 6, nao chuta.
+ */
+export const cfopDeSaidaSugerido = (cfopDoFornecedor: string): string => {
+  const cfop = String(cfopDoFornecedor || '').replace(/\D/g, '');
+  if (cfop.length !== 4) return '';
+  if (cfop[0] === '6') return `5${cfop.slice(1)}`;
+  if (cfop[0] === '5') return cfop;
+  return '';
 };

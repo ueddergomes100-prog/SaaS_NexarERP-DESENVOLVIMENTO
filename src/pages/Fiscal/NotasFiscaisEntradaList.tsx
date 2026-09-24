@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Barcode, FileText, History, Inbox, Loader2, Package, Search, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Barcode, FileDown, FileText, History, Inbox, Loader2, Package, Printer, Search, Trash2, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, doc, documentId, onSnapshot, query, where, getDocs, runTransaction, serverTimestamp, type Timestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -15,6 +15,10 @@ import {
   type NotaFiscalEntradaStatus,
 } from '../../utils/entradaNfeDomain';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import PdfVisualizador from '../../components/common/PdfVisualizador';
+import { descompactarXml } from '../../utils/xmlCompactoDomain';
+import { parseNfeXml } from '../../utils/nfeXmlDomain';
+import { formatarChave } from '../../utils/danfePdf';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 
@@ -31,6 +35,15 @@ interface NotaFiscalEntradaDoc {
   titulosPagarIds: string[];
   motivoExclusao?: string;
   createdAt?: Timestamp;
+  // Gravados a partir de 2026-09-24 (notas antigas nao tem).
+  chaveAcesso?: string;
+  serie?: string;
+  modelo?: string;
+  naturezaOperacao?: string;
+  dataEntrada?: string;
+  observacao?: string;
+  pagamento?: { modo?: string; forma?: string; categoria?: string };
+  xmlGzipBase64?: string;
 }
 
 interface TituloPagar {
@@ -73,6 +86,8 @@ const NotasFiscaisEntradaList: React.FC = () => {
   const [periodoAte, setPeriodoAte] = useState('');
 
   const [notaSelecionada, setNotaSelecionada] = useState<NotaFiscalEntradaDoc | null>(null);
+  const [danfe, setDanfe] = useState<{ blob: Blob; nome: string } | null>(null);
+  const [preparandoXml, setPreparandoXml] = useState(false);
   const [titulos, setTitulos] = useState<TituloPagar[]>([]);
   const [carregandoTitulos, setCarregandoTitulos] = useState(false);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
@@ -132,6 +147,40 @@ const NotasFiscaisEntradaList: React.FC = () => {
       console.error('Erro ao buscar títulos da nota:', error);
     } finally {
       setCarregandoTitulos(false);
+    }
+  };
+
+  /** XML guardado na entrada -> DANFE na tela (com Imprimir e Salvar). */
+  const handleImprimirDanfe = async (nota: NotaFiscalEntradaDoc) => {
+    if (!nota.xmlGzipBase64) return;
+    setPreparandoXml(true);
+    try {
+      const xml = await descompactarXml(nota.xmlGzipBase64);
+      const notaParseada = parseNfeXml(xml);
+      const { gerarDanfePdf, nomeDoArquivoDanfe } = await import('../../utils/danfePdf');
+      setDanfe({ blob: gerarDanfePdf(notaParseada).output('blob'), nome: nomeDoArquivoDanfe(notaParseada) });
+    } catch (erro) {
+      showError('Não foi possível gerar o DANFE', erro instanceof Error ? erro.message : 'Tente novamente.');
+    } finally {
+      setPreparandoXml(false);
+    }
+  };
+
+  const handleBaixarXml = async (nota: NotaFiscalEntradaDoc) => {
+    if (!nota.xmlGzipBase64) return;
+    setPreparandoXml(true);
+    try {
+      const xml = await descompactarXml(nota.xmlGzipBase64);
+      const endereco = URL.createObjectURL(new Blob([xml], { type: 'text/xml' }));
+      const link = document.createElement('a');
+      link.href = endereco;
+      link.download = `NFe-${nota.chaveAcesso || nota.numeroNF}.xml`;
+      link.click();
+      URL.revokeObjectURL(endereco);
+    } catch (erro) {
+      showError('Não foi possível baixar o XML', erro instanceof Error ? erro.message : 'Tente novamente.');
+    } finally {
+      setPreparandoXml(false);
     }
   };
 
@@ -200,7 +249,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
         const materiaPrimaAtualPorId = new Map(materiaPrimaSnaps.map((snap) => [snap.id, Number(snap.data()?.quantidade || 0)]));
 
         const itemSemEstoqueRevenda = findItemSemEstoqueParaReverter(
-          itensRevenda.map((item) => ({ itemId: item.itemId, descricaoXml: item.descricaoXml, quantidade: item.quantidade })),
+          itensRevenda.map((item) => ({ itemId: item.itemId, descricaoXml: item.descricaoXml, quantidade: item.quantidadeEstoque ?? item.quantidade })),
           estoqueAtualPorId,
         );
         if (itemSemEstoqueRevenda) {
@@ -208,7 +257,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
         }
 
         const itemSemEstoqueMateriaPrima = findItemSemEstoqueParaReverter(
-          itensMateriaPrima.map((item) => ({ itemId: item.itemId, descricaoXml: item.descricaoXml, quantidade: item.quantidade })),
+          itensMateriaPrima.map((item) => ({ itemId: item.itemId, descricaoXml: item.descricaoXml, quantidade: item.quantidadeEstoque ?? item.quantidade })),
           materiaPrimaAtualPorId,
         );
         if (itemSemEstoqueMateriaPrima) {
@@ -224,7 +273,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
           const item = itensRevenda[idx];
           const atual = Number(snap.data()?.quantidade || 0);
           transaction.update(snap.ref, {
-            quantidade: atual - item.quantidade,
+            quantidade: atual - (item.quantidadeEstoque ?? item.quantidade),
             updatedAt: serverTimestamp(),
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), resumoMotivo),
           });
@@ -234,7 +283,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
           const item = itensMateriaPrima[idx];
           const atual = Number(snap.data()?.quantidade || 0);
           transaction.update(snap.ref, {
-            quantidade: atual - item.quantidade,
+            quantidade: atual - (item.quantidadeEstoque ?? item.quantidade),
             updatedAt: serverTimestamp(),
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), resumoMotivo),
           });
@@ -391,6 +440,8 @@ const NotasFiscaisEntradaList: React.FC = () => {
         </div>
       </div>
 
+      {danfe && <PdfVisualizador titulo="DANFE" nomeArquivo={danfe.nome} pdf={danfe.blob} onFechar={() => setDanfe(null)} />}
+
       {notaSelecionada && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }} onClick={handleFecharDetalhes}>
           <div className="card" style={{ width: '100%', maxWidth: '720px', maxHeight: '85vh', overflowY: 'auto', padding: '28px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)' }} onClick={(e) => e.stopPropagation()}>
@@ -422,6 +473,29 @@ const NotasFiscaisEntradaList: React.FC = () => {
               </div>
             </div>
 
+            {(notaSelecionada.chaveAcesso || notaSelecionada.serie || notaSelecionada.naturezaOperacao || notaSelecionada.dataEntrada || notaSelecionada.observacao || notaSelecionada.pagamento) && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '20px', fontSize: '12.5px' }}>
+                {notaSelecionada.serie && <div><span style={{ color: 'var(--text-muted)' }}>Série / Modelo:</span> <strong>{notaSelecionada.serie} / {notaSelecionada.modelo || '—'}</strong></div>}
+                {notaSelecionada.naturezaOperacao && <div><span style={{ color: 'var(--text-muted)' }}>Natureza:</span> <strong>{notaSelecionada.naturezaOperacao}</strong></div>}
+                {notaSelecionada.dataEntrada && <div><span style={{ color: 'var(--text-muted)' }}>Entrada da mercadoria:</span> <strong>{formatDateInputPtBr(notaSelecionada.dataEntrada)}</strong></div>}
+                {notaSelecionada.pagamento?.modo && <div><span style={{ color: 'var(--text-muted)' }}>Pagamento:</span> <strong>{notaSelecionada.pagamento.modo === 'avista' ? 'À vista' : 'A prazo'}{notaSelecionada.pagamento.forma ? ` · ${notaSelecionada.pagamento.forma}` : ''}</strong></div>}
+                {notaSelecionada.observacao && <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--text-muted)' }}>Observação:</span> {notaSelecionada.observacao}</div>}
+                {notaSelecionada.chaveAcesso && <div style={{ gridColumn: '1 / -1', fontFamily: 'monospace', wordBreak: 'break-all' }}><span style={{ color: 'var(--text-muted)', fontFamily: 'inherit' }}>Chave:</span> {formatarChave(notaSelecionada.chaveAcesso)}</div>}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
+              <button type="button" className="btn-secondary" disabled={!notaSelecionada.xmlGzipBase64 || preparandoXml} onClick={() => void handleImprimirDanfe(notaSelecionada)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                {preparandoXml ? <Loader2 size={15} className="spin-icon" /> : <Printer size={15} />} Imprimir DANFE
+              </button>
+              <button type="button" className="btn-secondary" disabled={!notaSelecionada.xmlGzipBase64 || preparandoXml} onClick={() => void handleBaixarXml(notaSelecionada)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                <FileDown size={15} /> Baixar XML
+              </button>
+              {!notaSelecionada.xmlGzipBase64 && (
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', alignSelf: 'center' }}>Esta nota foi lançada antes de o sistema guardar o XML: DANFE e XML só estão nas notas novas.</span>
+              )}
+            </div>
+
             {notaSelecionada.status === 'excluida' && notaSelecionada.motivoExclusao && (
               <div style={{ padding: '12px 16px', backgroundColor: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 'var(--radius-md)', marginBottom: '24px', fontSize: '13px', color: '#ef4444' }}>
                 <strong>Motivo da exclusão:</strong> {notaSelecionada.motivoExclusao}
@@ -438,8 +512,10 @@ const NotasFiscaisEntradaList: React.FC = () => {
                   <tr>
                     <th>Descrição</th>
                     <th>Tipo</th>
-                    <th style={{ textAlign: 'center' }}>Qtd.</th>
+                    <th style={{ textAlign: 'center' }}>Qtd. nota</th>
+                    <th style={{ textAlign: 'center' }}>Entrou no estoque</th>
                     <th style={{ textAlign: 'right' }}>Vlr. Unit.</th>
+                    <th style={{ textAlign: 'right' }}>Custo real (un. estoque)</th>
                     <th style={{ textAlign: 'center' }}>Cadastro</th>
                   </tr>
                 </thead>
@@ -448,9 +524,11 @@ const NotasFiscaisEntradaList: React.FC = () => {
                     <tr key={idx}>
                       <td>{item.descricaoXml}</td>
                       <td>{TIPO_ITEM_LABEL[item.tipo]}</td>
-                      <td style={{ textAlign: 'center' }}>{item.quantidade}</td>
+                      <td style={{ textAlign: 'center' }}>{item.quantidade}{item.unidadeNota ? ` ${item.unidadeNota}` : ''}</td>
+                      <td style={{ textAlign: 'center' }}>{item.quantidadeEstoque ?? item.quantidade}</td>
                       <td style={{ textAlign: 'right' }}>{currency(item.valorUnitario)}</td>
-                      <td style={{ textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>{item.novo ? 'Novo' : 'Mesclado'}</td>
+                      <td style={{ textAlign: 'right' }}>{item.custoUnitarioEstoque !== undefined ? currency(item.custoUnitarioEstoque) : '—'}</td>
+                      <td style={{ textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }} title={item.novo ? 'Foi criado um cadastro novo para este item.' : 'A quantidade foi somada a um cadastro que já existia.'}>{item.novo ? 'Cadastro novo' : 'Somado a cadastro existente'}</td>
                     </tr>
                   ))}
                 </tbody>

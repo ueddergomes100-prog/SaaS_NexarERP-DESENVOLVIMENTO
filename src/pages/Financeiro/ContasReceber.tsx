@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, where, doc, getDocs, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, doc, getDocs, serverTimestamp, runTransaction, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
-import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload } from 'lucide-react';
+import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2 } from 'lucide-react';
 import {
   applyPaymentReceipt,
   financialNatureForPayment,
   fromCents,
   paymentRequiresBankAccount,
+  reversePaymentReceipt,
   settledFinancialNatureForPayment,
   summarizePayments,
   tagPaymentAsChequeAwaitingClearance,
@@ -21,6 +22,15 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
+import { isPlatformAdminRole } from '../../utils/roles';
+import {
+  dataBrasileira,
+  montarBaixaManual,
+  planejarEstornoReceber,
+  validarDataBaixa,
+  type TituloParaEstorno,
+} from '../../utils/baixaFinanceiraDomain';
+import { pedirDadosBaixa, pedirMotivoEstorno } from '../../utils/baixaFinanceiraUi';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
 import ChequeCaptureModal from '../../components/finance/ChequeCaptureModal';
@@ -34,7 +44,7 @@ import {
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import './Financeiro.css';
 
-interface TransacaoData {
+interface TransacaoData extends TituloParaEstorno {
   id: string;
   data: string;
   descricao: string;
@@ -119,12 +129,14 @@ const ContasReceber: React.FC = () => {
   const { openTab } = useTabs();
   const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
   const [loading, setLoading] = useState(true);
-  const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
+  const { currentUser, tenantId, vendasVisiveisDeUsuarioId, userRole, userPermissions, isOwner } = useAuth();
+  const podeEstornar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.estornar'));
   
   const [modalConciliacao, setModalConciliacao] = useState<{ ativo: boolean, transacao: TransacaoData | null, creditos: any[], saldoTotal: number }>({
     ativo: false, transacao: null, creditos: [], saldoTotal: 0
   });
   const [valorAbater, setValorAbater] = useState<number>(0);
+  const [dataBaixaCredito, setDataBaixaCredito] = useState<string>(getDateInputInTimeZone());
   const [isProcessing, setIsProcessing] = useState(false);
   const [chequeBaixaState, setChequeBaixaState] = useState<{ transacao: TransacaoData; bancoId?: string; bancoNome?: string } | null>(null);
   const [clientesExpandidos, setClientesExpandidos] = useState<Set<string>>(new Set());
@@ -139,10 +151,12 @@ const ContasReceber: React.FC = () => {
     formaPgto: PaymentMethod,
     bancoId?: string,
     bancoNome?: string,
+    dataRecebimento: string = getDateInputInTimeZone(),
   ) => {
     if (!tenantId || !currentUser) return;
     const transactionRef = doc(db, 'transacoes', t.id);
-    const paymentDate = getDateInputInTimeZone();
+    // Dia em que o dinheiro entrou de verdade (pode ser anterior a hoje).
+    const paymentDate = dataRecebimento;
 
     await runTransaction(db, async (transaction) => {
       const transactionSnap = await transaction.get(transactionRef);
@@ -189,6 +203,15 @@ const ContasReceber: React.FC = () => {
         naturezaFinanceira: settlementNature,
         movimentaCaixaFisico: formaPgto === 'Dinheiro',
         ...(bancoRef ? { bancoId, bancoNome: bancoNome || null } : {}),
+        // Marca que esta baixa foi feita por "Dar Baixa" e o que ela mexeu no
+        // banco: e' o que permite estornar depois (baixaFinanceiraDomain).
+        baixaManual: montarBaixaManual({
+          origem: 'contas_receber',
+          formaPagamento: formaPgto,
+          dataPagamento: paymentDate,
+          valorCentavos: amountCents,
+          ...(bancoRef ? { bancoId, movimentoBancoCentavos: amountCents } : {}),
+        }),
         recebidoEm: serverTimestamp(),
         updatedAt: serverTimestamp(),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Recebimento confirmado'),
@@ -346,30 +369,20 @@ const ContasReceber: React.FC = () => {
   };
 
   const solicitarFormaRecebimento = async (t: TransacaoData) => {
-    const result = await NexusSwal.fire({
-      title: 'Confirmar Recebimento?',
-      text: `Selecione como foi recebido o valor líquido de R$ ${transactionNetAmount(t).toFixed(2)} referente a ${t.descricao}:`,
-      icon: 'question',
-      input: 'select',
-      inputOptions: {
-        'Dinheiro': 'Dinheiro',
-        'Pix': 'Pix',
-        'Cartão de Crédito': 'Cartão de Crédito',
-        'Cartão de Débito': 'Cartão de Débito',
-        'Transferência': 'Transferência',
-        'Cheque': 'Cheque',
-        'Outros': 'Outros'
-      },
-      inputPlaceholder: 'Selecione a forma de recebimento',
-      inputValue: t.formaPagamento && ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Outros'].includes(t.formaPagamento) ? t.formaPagamento : '',
-      showCancelButton: true,
-      confirmButtonText: 'Confirmar recebimento',
-      cancelButtonText: 'Cancelar',
-      inputValidator: (value) => value ? undefined : 'Você precisa selecionar uma forma de recebimento!'
+    const FORMAS_RECEBIMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Outros'];
+    const dados = await pedirDadosBaixa({
+      titulo: 'Confirmar Recebimento?',
+      texto: `Valor líquido de R$ ${transactionNetAmount(t).toFixed(2)} referente a ${t.descricao}.`,
+      formas: FORMAS_RECEBIMENTO,
+      formaInicial: t.formaPagamento && FORMAS_RECEBIMENTO.includes(t.formaPagamento) ? t.formaPagamento : '',
+      rotuloForma: 'Como foi recebido?',
+      mensagemSemForma: 'Escolha como foi recebido antes de confirmar.',
+      rotuloData: 'Data do recebimento (para cheque, vale a data de compensação)',
+      textoConfirmar: 'Confirmar recebimento',
     });
-
-    if (!result.isConfirmed) return;
-    const formaPgto = result.value as PaymentMethod;
+    if (!dados) return;
+    const formaPgto = dados.forma as PaymentMethod;
+    const dataRecebimento = dados.data;
 
     let bancoId: string | undefined;
     let bancoNome: string | undefined;
@@ -409,10 +422,11 @@ const ContasReceber: React.FC = () => {
     }
 
     try {
-      await confirmarRecebimento(t, formaPgto, bancoId, bancoNome);
+      await confirmarRecebimento(t, formaPgto, bancoId, bancoNome, dataRecebimento);
+      const noDia = dataRecebimento === getDateInputInTimeZone() ? '' : ` com a data de ${dataBrasileira(dataRecebimento)}`;
       showSuccess(formaPgto === 'Dinheiro'
-        ? 'Recebimento confirmado e lançado no caixa físico!'
-        : 'Recebimento confirmado no fluxo financeiro correspondente!');
+        ? `Recebimento confirmado e lançado no caixa físico${noDia}!`
+        : `Recebimento confirmado no fluxo financeiro correspondente${noDia}!`);
     } catch (error) {
       console.error('Erro ao confirmar recebimento:', error);
       showError('Erro', error instanceof Error ? error.message : 'Não foi possível aprovar a transação.');
@@ -443,6 +457,7 @@ const ContasReceber: React.FC = () => {
     if (saldoCredito > 0) {
       const sugerido = Math.min(t.valor, saldoCredito);
       setValorAbater(sugerido);
+      setDataBaixaCredito(getDateInputInTimeZone());
       setModalConciliacao({ ativo: true, transacao: t, creditos: creditosAtivos, saldoTotal: saldoCredito });
       return;
     }
@@ -457,6 +472,12 @@ const ContasReceber: React.FC = () => {
     if (valorInformado <= 0) {
       fecharModalConciliacao();
       await solicitarFormaRecebimento(t);
+      return;
+    }
+
+    const erroData = validarDataBaixa(dataBaixaCredito, getDateInputInTimeZone());
+    if (erroData) {
+      showError('Data inválida', erroData);
       return;
     }
 
@@ -476,7 +497,7 @@ const ContasReceber: React.FC = () => {
       const transactionRef = doc(db, 'transacoes', t.id);
       const creditPaymentRef = doc(collection(db, 'transacoes'));
       const creditRefs = modalConciliacao.creditos.map((credit) => doc(db, 'creditos_cliente', credit.id));
-      const paymentDate = getDateInputInTimeZone();
+      const paymentDate = dataBaixaCredito;
 
       let remainingCents = 0;
       await runTransaction(db, async (transaction) => {
@@ -619,6 +640,159 @@ const ContasReceber: React.FC = () => {
     } catch (error) {
       console.error(error);
       showError('Erro', error instanceof Error ? error.message : 'Ocorreu um erro ao processar o abatimento.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  /**
+   * ESTORNO DE BAIXA (pedido da Taiene, Shopping Rural, 24/09/2026). Desfaz
+   * TUDO que a baixa fez, numa transacao so' (ou volta tudo, ou nada):
+   *  - o titulo volta a Pendente, com a forma que tinha antes da baixa;
+   *  - o saldo do banco creditado na baixa e' retirado;
+   *  - a venda/OS de origem volta a mostrar o pagamento como pendente.
+   * Regras de quem pode ser estornado (boleto do banco, credito e cheque ficam
+   * de fora): baixaFinanceiraDomain.planejarEstornoReceber.
+   */
+  const handleEstornar = async (t: TransacaoData) => {
+    if (!currentUser || !tenantId) return;
+    if (!podeEstornar) {
+      showError('Sem permissão', 'Você não tem permissão para estornar recebimentos. Peça a um responsável liberar "Financeiro: Estornar Pagamento/Recebimento" no seu usuário.');
+      return;
+    }
+    const plano = planejarEstornoReceber(t);
+    if (!plano.permitido) {
+      showError('Não é possível estornar', plano.bloqueio);
+      return;
+    }
+
+    const doBanco = plano.bancoId && plano.ajusteBancoCentavos < 0
+      ? ` O valor de R$ ${fromCents(-plano.ajusteBancoCentavos).toFixed(2)} sai do saldo do banco.`
+      : '';
+    const motivo = await pedirMotivoEstorno({
+      titulo: 'Estornar recebimento?',
+      texto: `O recebimento de R$ ${transactionNetAmount(t).toFixed(2)} de "${t.descricao}"${t.dataPagamento ? `, recebido em ${dataBrasileira(t.dataPagamento)}` : ''}${t.formaPagamento ? ` (${t.formaPagamento})` : ''}, volta para Pendente${t.pedidoId || t.osId ? ' e a venda (ou OS) de origem passa a mostrar esse valor como a receber' : ''}.${doBanco} Depois é só dar baixa de novo com a data certa.`,
+    });
+    if (!motivo) return;
+
+    setIsProcessing(true);
+    try {
+      const transactionRef = doc(db, 'transacoes', t.id);
+      await runTransaction(db, async (transaction) => {
+        const transactionSnap = await transaction.get(transactionRef);
+        if (!transactionSnap.exists()) throw new Error('Conta a receber não encontrada.');
+        const transactionData = transactionSnap.data();
+        // Confere com o dado de agora: alguem pode ter estornado ou alterado
+        // a conta depois que a tela carregou.
+        const planoAtual = planejarEstornoReceber({ ...transactionData } as TituloParaEstorno);
+        if (!planoAtual.permitido) {
+          throw new Error(transactionData.status !== 'Paga' ? 'Este recebimento já não está mais pago. Atualize a tela.' : planoAtual.bloqueio);
+        }
+
+        // --- leituras (todas antes de qualquer escrita) ---
+        const saleId = transactionData.pedidoId || t.pedidoId;
+        const serviceOrderId = transactionData.osId || t.osId;
+        const sourceRef = saleId
+          ? doc(db, 'pedidos_venda', saleId)
+          : serviceOrderId
+            ? doc(db, 'ordens_de_servico', serviceOrderId)
+            : null;
+        const sourceSnap = sourceRef ? await transaction.get(sourceRef) : null;
+        if (sourceSnap?.exists() && sourceSnap.data().status === 'Cancelada') {
+          throw new Error(saleId ? 'A venda vinculada está cancelada, então o recebimento não pode ser estornado.' : 'A OS vinculada está cancelada, então o recebimento não pode ser estornado.');
+        }
+
+        const bancoRef = planoAtual.bancoId && planoAtual.ajusteBancoCentavos !== 0 ? doc(db, 'bancos', planoAtual.bancoId) : null;
+        let saldoAtualCentavos = 0;
+        if (bancoRef) {
+          const bancoSnap = await transaction.get(bancoRef);
+          if (!bancoSnap.exists()) throw new Error('O banco desta baixa não foi encontrado, então o saldo não pode ser corrigido.');
+          saldoAtualCentavos = Number(bancoSnap.data().saldoCentavos || 0);
+        }
+
+        // --- escritas ---
+        const valorCentavos = Number(transactionData.valorCentavos ?? toCents(transactionData.valor));
+        transaction.update(transactionRef, {
+          status: 'Pendente',
+          // Sem forma antes da baixa (titulo importado): apaga a que a baixa gravou,
+          // em vez de deixar "Pix" num titulo que ainda nao foi pago.
+          formaPagamento: planoAtual.formaAnterior ? planoAtual.formaAnterior : deleteField(),
+          naturezaFinanceira: planoAtual.naturezaAnterior,
+          movimentaCaixaFisico: false,
+          dataPagamento: deleteField(),
+          recebidoEm: deleteField(),
+          baixaManual: deleteField(),
+          estornadaEm: serverTimestamp(),
+          ultimoEstorno: {
+            motivo,
+            por: currentUser.uid,
+            dataPagamentoEstornada: transactionData.dataPagamento || null,
+            formaPagamentoEstornada: transactionData.formaPagamento || null,
+            valorCentavos,
+          },
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Recebimento estornado: ${motivo}`),
+        });
+
+        if (bancoRef) {
+          transaction.update(bancoRef, {
+            saldoCentavos: saldoAtualCentavos + planoAtual.ajusteBancoCentavos,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Estorno do recebimento "${t.descricao}"`),
+          });
+        }
+
+        if (sourceRef && sourceSnap?.exists()) {
+          const sourceData = sourceSnap.data();
+          const payments: PaymentRecord[] = Array.isArray(sourceData.pagamentos) && sourceData.pagamentos.length > 0
+            ? sourceData.pagamentos
+            : [legacyPaymentForTransaction(t.id, transactionData)];
+          const updatedPayments = reversePaymentReceipt(payments, {
+            transactionId: t.id,
+            paymentIndex: transactionData.paymentIndex,
+          });
+          const summary = summarizePayments(updatedPayments);
+          transaction.update(sourceRef, {
+            pagamentos: updatedPayments,
+            totalRecebidoCentavos: summary.receivedCents,
+            totalRecebido: summary.received,
+            totalPendenteCentavos: summary.pendingCents,
+            totalPendente: summary.pending,
+            totalTaxasPagamentoCentavos: summary.cardFeeCents,
+            totalTaxasPagamento: summary.cardFee,
+            totalLiquidoFinanceiroCentavos: summary.financialNetCents,
+            totalLiquidoFinanceiro: summary.financialNet,
+            statusPagamento: summary.pendingCents === 0
+              ? 'Paga'
+              : summary.receivedCents > 0
+                ? 'Parcial'
+                : 'Pendente',
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Recebimento estornado em Contas a Receber'),
+          });
+        }
+      });
+
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'financeiro',
+          acao: 'edicao',
+          descricao: `Recebimento "${t.descricao}" de R$ ${transactionNetAmount(t).toFixed(2)} estornado para Pendente. Motivo: ${motivo}`,
+          registroRelacionadoId: t.id,
+          status: 'sucesso',
+          critical: true,
+        });
+      } catch (logError) {
+        console.error('Erro ao registrar auditoria do estorno:', logError);
+      }
+      showSuccess('Recebimento estornado! A conta voltou para Pendente.');
+    } catch (error) {
+      console.error('Erro ao estornar recebimento:', error);
+      showError('Não foi possível estornar', error instanceof Error ? error.message : 'Tente novamente.');
     } finally {
       setIsProcessing(false);
     }
@@ -893,9 +1067,21 @@ const ContasReceber: React.FC = () => {
                                     </td>
                                     <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                                       {t.status === 'Paga' ? (
-                                        <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>
-                                          Recebida{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}
-                                        </span>
+                                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                          <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>
+                                            Recebida{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}
+                                          </span>
+                                          {podeEstornar && planejarEstornoReceber(t).mostrarBotao && (
+                                            <button
+                                              onClick={() => void handleEstornar(t)}
+                                              disabled={isProcessing}
+                                              title="Desfazer esta baixa e voltar a conta para Pendente"
+                                              style={{ backgroundColor: 'transparent', border: '1px solid #f59e0b', color: '#f59e0b', cursor: 'pointer', borderRadius: '4px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: isProcessing ? 0.6 : 1 }}
+                                            >
+                                              <Undo2 size={13} /> Estornar
+                                            </button>
+                                          )}
+                                        </div>
                                       ) : (
                                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
                                         <button
@@ -991,6 +1177,20 @@ const ContasReceber: React.FC = () => {
                 </div>
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px', display: 'block' }}>
                   Restará R$ {Math.max(0, modalConciliacao.transacao.valor - valorAbater).toFixed(2)} pendente após o abatimento.
+                </span>
+              </div>
+
+              <div className="input-group">
+                <label style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Data do recebimento</label>
+                <input
+                  type="date"
+                  value={dataBaixaCredito}
+                  max={getDateInputInTimeZone()}
+                  onChange={(e) => setDataBaixaCredito(e.target.value)}
+                  style={{ padding: '12px', fontSize: '16px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)', colorScheme: 'dark' }}
+                />
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
+                  Foi recebido em outro dia? Troque a data. Vale para a parte paga com crédito; se receber sem usar crédito, a data é perguntada na próxima tela.
                 </span>
               </div>
             </div>

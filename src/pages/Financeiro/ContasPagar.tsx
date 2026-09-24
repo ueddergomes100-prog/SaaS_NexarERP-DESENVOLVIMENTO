@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, runTransaction } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, deleteField, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -7,9 +7,17 @@ import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
-import { toCents } from '../../utils/financeDomain';
+import { fromCents, toCents } from '../../utils/financeDomain';
+import { isPlatformAdminRole } from '../../utils/roles';
+import {
+  dataBrasileira,
+  montarBaixaManual,
+  planejarEstornoPagar,
+  type TituloParaEstorno,
+} from '../../utils/baixaFinanceiraDomain';
+import { pedirDadosBaixa, pedirMotivoEstorno } from '../../utils/baixaFinanceiraUi';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
-import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload } from 'lucide-react';
+import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload, Undo2 } from 'lucide-react';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import {
   ATALHO_VENCIMENTO_PADRAO,
@@ -26,7 +34,7 @@ import {
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import './Financeiro.css';
 
-interface TransacaoData {
+interface TransacaoData extends TituloParaEstorno {
   id: string;
   data: string;
   descricao: string;
@@ -88,7 +96,8 @@ const ContasPagar: React.FC = () => {
    */
   const [atalhoVencimento, setAtalhoVencimento] = useState<AtalhoVencimento>(ATALHO_VENCIMENTO_PADRAO);
   const [agrupar, setAgrupar] = useState(false);
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const podeEstornar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.estornar'));
 
   /**
    * FORNECEDOR DO CADASTRO NO LANCAMENTO MANUAL (pedido do dono, 2026-09-21).
@@ -167,36 +176,23 @@ const ContasPagar: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser]);
 
-  const handleConciliar = async (t: TransacaoData) => {
-    const result = await NexusSwal.fire({
-      title: 'Confirmar Pagamento?',
-      text: `Selecione como foi pago o valor de R$ ${Number(t.valor).toFixed(2)} referente a ${t.descricao}:`,
-      icon: 'question',
-      input: 'select',
-      inputOptions: {
-        'Dinheiro': 'Dinheiro',
-        'Pix': 'Pix',
-        'Cartão de Crédito': 'Cartão de Crédito',
-        'Cartão de Débito': 'Cartão de Débito',
-        'Transferência': 'Transferência',
-        'Boleto': 'Boleto',
-        'Outros': 'Outros'
-      },
-      inputPlaceholder: 'Como foi pago?',
-      inputValue: t.formaPagamento && ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Boleto', 'Outros'].includes(t.formaPagamento) ? t.formaPagamento : '',
-      showCancelButton: true,
-      confirmButtonText: 'Sim, confirmar pagamento',
-      cancelButtonText: 'Cancelar',
-      inputValidator: (value) => {
-        if (!value) {
-          return 'Você precisa selecionar uma forma de pagamento!'
-        }
-      }
-    });
+  const FORMAS_PAGAMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Boleto', 'Outros'];
 
-    if (!result.isConfirmed) return;
+  const handleConciliar = async (t: TransacaoData) => {
+    const dados = await pedirDadosBaixa({
+      titulo: 'Confirmar Pagamento?',
+      texto: `Valor de R$ ${Number(t.valor).toFixed(2)} referente a ${t.descricao}.`,
+      formas: FORMAS_PAGAMENTO,
+      formaInicial: t.formaPagamento && FORMAS_PAGAMENTO.includes(t.formaPagamento) ? t.formaPagamento : '',
+      rotuloForma: 'Como foi pago?',
+      mensagemSemForma: 'Escolha como foi pago antes de confirmar.',
+      rotuloData: 'Data do pagamento',
+      textoConfirmar: 'Sim, confirmar pagamento',
+    });
+    if (!dados) return;
     if (!currentUser) return;
-    const formaPgto = result.value as string;
+    const formaPgto = dados.forma;
+    const dataPagamento = dados.data;
 
     let bancoId: string | undefined;
     let bancoNome: string | undefined;
@@ -229,7 +225,6 @@ const ContasPagar: React.FC = () => {
 
     try {
       const docRef = doc(db, 'transacoes', t.id);
-      const dataPagamento = new Date().toISOString().split('T')[0];
       const valorCentavos = toCents(t.valor);
 
       if (bancoId) {
@@ -246,6 +241,14 @@ const ContasPagar: React.FC = () => {
             valorCentavos,
             bancoId,
             bancoNome: bancoNome || null,
+            baixaManual: montarBaixaManual({
+              origem: 'contas_pagar',
+              formaPagamento: formaPgto,
+              dataPagamento,
+              valorCentavos,
+              bancoId,
+              movimentoBancoCentavos: -valorCentavos,
+            }),
             updatedAt: serverTimestamp(),
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Pagamento confirmado'),
           });
@@ -261,13 +264,118 @@ const ContasPagar: React.FC = () => {
           formaPagamento: formaPgto,
           dataPagamento,
           valorCentavos,
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+          baixaManual: montarBaixaManual({
+            origem: 'contas_pagar',
+            formaPagamento: formaPgto,
+            dataPagamento,
+            valorCentavos,
+          }),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Pagamento confirmado'),
         });
       }
-      showSuccess('Pagamento registrado no Fluxo de Caixa!');
+      showSuccess(dataPagamento === getDateInputInTimeZone()
+        ? 'Pagamento registrado no Fluxo de Caixa!'
+        : `Pagamento registrado com a data de ${dataBrasileira(dataPagamento)}!`);
     } catch (err) {
       console.error(err);
       showError('Erro', err instanceof Error ? err.message : 'Não foi possível confirmar o pagamento.');
+    }
+  };
+
+  /**
+   * ESTORNO DE BAIXA (pedido da Taiene, Shopping Rural, 24/09/2026). Volta a
+   * conta para Pendente E devolve ao banco o que a baixa debitou -- o estorno
+   * do Fluxo de Caixa so' trocava o status e deixava o saldo do banco errado.
+   * Regras de quem pode ser estornado: baixaFinanceiraDomain.planejarEstornoPagar.
+   */
+  const handleEstornar = async (t: TransacaoData) => {
+    if (!currentUser || !tenantId) return;
+    if (!podeEstornar) {
+      showError('Sem permissão', 'Você não tem permissão para estornar pagamentos. Peça a um responsável liberar "Financeiro: Estornar Pagamento/Recebimento" no seu usuário.');
+      return;
+    }
+    const plano = planejarEstornoPagar(t);
+    if (!plano.permitido) {
+      showError('Não é possível estornar', plano.bloqueio);
+      return;
+    }
+
+    const paraBanco = plano.bancoId && plano.ajusteBancoCentavos > 0
+      ? ` e R$ ${fromCents(plano.ajusteBancoCentavos).toFixed(2)} voltam para o saldo do banco${t.bancoNome ? ` ${t.bancoNome}` : ''}`
+      : '';
+    const motivo = await pedirMotivoEstorno({
+      titulo: 'Estornar pagamento?',
+      texto: `A conta "${t.descricao}" de R$ ${Number(t.valor).toFixed(2)}, paga${t.dataPagamento ? ` em ${dataBrasileira(t.dataPagamento)}` : ''}${t.formaPagamento ? ` (${t.formaPagamento})` : ''}, volta para Pendente${paraBanco}. Depois é só dar baixa de novo com a data certa.`,
+    });
+    if (!motivo) return;
+
+    try {
+      const docRef = doc(db, 'transacoes', t.id);
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(docRef);
+        if (!snap.exists()) throw new Error('Conta não encontrada.');
+        const atual = { id: snap.id, ...snap.data() } as TransacaoData;
+        // Confere de novo com o dado de agora: alguem pode ter estornado ou
+        // alterado a conta depois que a tela carregou.
+        const planoAtual = planejarEstornoPagar(atual);
+        if (!planoAtual.permitido) {
+          throw new Error(atual.status !== 'Paga' ? 'Esta conta já não está mais paga. Atualize a tela.' : planoAtual.bloqueio);
+        }
+
+        let saldoAtualCentavos = 0;
+        const bancoRef = planoAtual.bancoId ? doc(db, 'bancos', planoAtual.bancoId) : null;
+        if (bancoRef && planoAtual.ajusteBancoCentavos !== 0) {
+          const bancoSnap = await transaction.get(bancoRef);
+          if (!bancoSnap.exists()) throw new Error('O banco desta baixa não foi encontrado, então o saldo não pode ser devolvido.');
+          saldoAtualCentavos = Number(bancoSnap.data().saldoCentavos || 0);
+        }
+
+        transaction.update(docRef, {
+          status: 'Pendente',
+          dataPagamento: deleteField(),
+          bancoId: deleteField(),
+          bancoNome: deleteField(),
+          baixaManual: deleteField(),
+          estornadaEm: serverTimestamp(),
+          ultimoEstorno: {
+            motivo,
+            por: currentUser.uid,
+            dataPagamentoEstornada: atual.dataPagamento || null,
+            formaPagamentoEstornada: atual.formaPagamento || null,
+            valorCentavos: Number(atual.valorCentavos ?? toCents(atual.valor)),
+          },
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Pagamento estornado: ${motivo}`),
+        });
+        if (bancoRef && planoAtual.ajusteBancoCentavos !== 0) {
+          transaction.update(bancoRef, {
+            saldoCentavos: saldoAtualCentavos + planoAtual.ajusteBancoCentavos,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Estorno do pagamento "${t.descricao}"`),
+          });
+        }
+      });
+
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'financeiro',
+          acao: 'edicao',
+          descricao: `Pagamento "${t.descricao}" de R$ ${Number(t.valor).toFixed(2)} estornado para Pendente. Motivo: ${motivo}`,
+          registroRelacionadoId: t.id,
+          status: 'sucesso',
+          critical: true,
+        });
+      } catch (logError) {
+        console.error('Erro ao registrar auditoria do estorno:', logError);
+      }
+      showSuccess('Pagamento estornado! A conta voltou para Pendente.');
+    } catch (err) {
+      console.error('Erro ao estornar pagamento:', err);
+      showError('Não foi possível estornar', err instanceof Error ? err.message : 'Tente novamente.');
     }
   };
 
@@ -415,9 +523,20 @@ const ContasPagar: React.FC = () => {
    */
   const acoesDoTitulo = (t: TransacaoData) => (
     t.status === 'Paga' ? (
-      <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>
-        Paga{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}
-      </span>
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>
+          Paga{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}
+        </span>
+        {podeEstornar && planejarEstornoPagar(t).mostrarBotao && (
+          <button
+            onClick={() => void handleEstornar(t)}
+            title="Desfazer esta baixa e voltar a conta para Pendente"
+            style={{ backgroundColor: 'transparent', border: '1px solid #f59e0b', color: '#f59e0b', cursor: 'pointer', borderRadius: '4px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
+          >
+            <Undo2 size={13} /> Estornar
+          </button>
+        )}
+      </div>
     ) : (
     <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
       {(!t.osId && !t.vendaId) && (

@@ -1180,6 +1180,50 @@ export const applyPaymentReceipt = (
   ];
 };
 
+/**
+ * Desfaz applyPaymentReceipt: o pagamento confirmado volta a pendente, sem
+ * os dados do recebimento (forma, natureza, data). Usado no ESTORNO de baixa
+ * de Contas a Receber -- a venda/OS de origem precisa voltar a mostrar o
+ * pagamento como pendente, senao ela continua constando como paga.
+ *
+ * So' desfaz pagamento inteiro confirmado. O recibo parcial que o abatimento
+ * com credito cria (sourcePaymentTransactionId) nao passa por aqui.
+ */
+export const reversePaymentReceipt = (
+  payments: PaymentRecord[],
+  args: { transactionId: string; paymentIndex?: number },
+): PaymentRecord[] => {
+  const targetIndex = payments.findIndex((payment) => (
+    payment.status === 'confirmado' && (
+      payment.transactionId === args.transactionId ||
+      (
+        payment.transactionId === undefined &&
+        args.paymentIndex !== undefined &&
+        payment.indice === args.paymentIndex
+      )
+    )
+  ));
+  if (targetIndex < 0) {
+    throw new Error('O pagamento desta conta não foi encontrado como recebido na venda. Atualize a tela e confira se ele já não foi estornado.');
+  }
+
+  return payments.map((payment, index) => {
+    if (index !== targetIndex) return payment;
+    // Tira as chaves do recebimento de verdade (nao deixa `undefined`: o
+    // Firestore recusa o documento inteiro).
+    const pendente: PaymentRecord = {
+      ...payment,
+      status: 'pendente',
+      naturezaFinanceira: financialNatureForPayment(payment.formaPagamento),
+      movimentaCaixaFisico: false,
+    };
+    delete pendente.recebidoEm;
+    delete pendente.formaRecebimento;
+    delete pendente.naturezaRecebimento;
+    return pendente;
+  });
+};
+
 const clampPercentual = (valor: number) => Math.max(0, Math.min(100, valor));
 
 /**

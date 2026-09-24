@@ -4,30 +4,24 @@ import { ArrowLeft, Printer } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import {
-  DEFAULT_MINUTA_MOSTRAR_LOCAL,
-  DEFAULT_MINUTA_MOSTRAR_MARCA,
-  DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
-  ordenarPorLocalizacao,
-} from '../../utils/conferenciaDomain';
-import { rotuloDoMotivoTroca } from '../../utils/trocaDomain';
-import MinutaPrintDocument, { type MinutaCliente, type MinutaItem } from '../Expedicao/MinutaPrintDocument';
+import { DEFAULT_MINUTA_MOSTRAR_LOCAL, DEFAULT_MINUTA_MOSTRAR_MARCA } from '../../utils/conferenciaDomain';
+import MinutaPrintDocument from '../Expedicao/MinutaPrintDocument';
+import { montarMinutaDeTroca, nomeDoUsuarioLogado, type MinutaTrocaMontada } from './minutaTrocaLoader';
 import '../OS/OsPrint.css';
 
 /**
  * Minuta de entrega da TROCA: o mesmo papel da minuta de venda (separacao e
  * entrega, sem valores), com o titulo "MINUTA DE TROCA — SEM COBRANÇA" e a
  * condicao "SEM COBRANÇA", pro entregador nao cobrar nada.
+ *
+ * Varias de uma vez: TrocaMinutaPrintLote (mesma montagem, minutaTrocaLoader).
  */
 const TrocaMinutaPrint: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { currentUser, tenantId } = useAuth();
-  const [trocaData, setTrocaData] = useState<Record<string, unknown> | null>(null);
-  const [itens, setItens] = useState<MinutaItem[]>([]);
+  const [minuta, setMinuta] = useState<MinutaTrocaMontada | null>(null);
   const [configData, setConfigData] = useState<Record<string, unknown> | null>(null);
-  const [cliente, setCliente] = useState<MinutaCliente | null>(null);
-  const [vendedorCodigo, setVendedorCodigo] = useState('');
   const [usuarioNome, setUsuarioNome] = useState('');
   const [geradoEm] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
@@ -44,41 +38,7 @@ const TrocaMinutaPrint: React.FC = () => {
           navigate('/vendas/trocas');
           return;
         }
-        const troca = { id: snap.id, ...snap.data() } as Record<string, any>;
-        // O documento da minuta le "pedidoData": adapta os nomes da troca.
-        setTrocaData({
-          id: troca.id,
-          numeroPedido: troca.numeroTroca,
-          createdAt: troca.createdAt,
-          status: '',
-          clienteNome: troca.clienteNome,
-          observacao: troca.observacao || '',
-          vendedorNome: troca.vendedorNome,
-          pagamentos: [],
-        });
-
-        try {
-          if (troca.clienteId) {
-            const clienteSnap = await getDoc(doc(db, 'clientes', troca.clienteId));
-            if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) setCliente(clienteSnap.data() as MinutaCliente);
-          }
-        } catch (err) {
-          console.error('Erro ao buscar o cliente da minuta de troca:', err);
-        }
-        try {
-          if (troca.vendedorId) {
-            const vendedorSnap = await getDoc(doc(db, 'usuarios', troca.vendedorId));
-            if (vendedorSnap.exists() && vendedorSnap.data().tenantId === tenantId) setVendedorCodigo(String(vendedorSnap.data().codigoVendedor || ''));
-          }
-          if (currentUser) {
-            const perfilSnap = await getDoc(doc(db, 'usuarios', currentUser.uid));
-            const perfil = perfilSnap.exists() ? perfilSnap.data() : null;
-            setUsuarioNome(String(perfil?.nome || perfil?.nomeResponsavel || currentUser.displayName || currentUser.email || ''));
-          }
-        } catch (err) {
-          console.error('Erro ao buscar o usuario da minuta de troca:', err);
-          setUsuarioNome(currentUser?.displayName || currentUser?.email || '');
-        }
+        const troca = { id: snap.id, ...snap.data() } as Record<string, any> & { id: string };
 
         let config: Record<string, any> = {};
         const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
@@ -86,32 +46,10 @@ const TrocaMinutaPrint: React.FC = () => {
           config = configSnap.data();
           setConfigData(config);
         }
-
-        // Codigo, codigo de barras, marca e local vem do CADASTRO do produto (a troca so' guarda id/nome/quantidade).
-        const enriquecidos: MinutaItem[] = await Promise.all(
-          (Array.isArray(troca.itens) ? troca.itens : []).map(async (item: any): Promise<MinutaItem> => {
-            const base: MinutaItem = {
-              id: item.id,
-              // O motivo sai junto do nome: o entregador leva o produto certo e sabe por que.
-              nome: `${item.nome} — ${rotuloDoMotivoTroca(item.motivo)}${item.motivoDescricao ? ` (${item.motivoDescricao})` : ''}`,
-              quantidade: item.quantidade,
-              unidadeMedidaSigla: item.unidadeMedidaSigla,
-              unidadeMedidaCasasDecimais: item.unidadeMedidaCasasDecimais,
-            };
-            try {
-              const estoqueSnap = await getDoc(doc(db, 'estoque', item.id));
-              if (estoqueSnap.exists()) {
-                const produto = estoqueSnap.data();
-                return { ...base, codigo: produto.codigo || '', codigoBarras: String(produto.codigoBarras || '').trim(), marca: produto.marca || '', localizacaoEstoque: produto.localizacaoEstoque || '' };
-              }
-            } catch (err) {
-              console.error('Erro ao buscar dados de estoque do item da minuta de troca:', err);
-            }
-            return base;
-          }),
-        );
-        const ordenarPorLocal = config.ordenarMinutaPorLocal ?? DEFAULT_ORDENAR_MINUTA_POR_LOCAL;
-        setItens(ordenarPorLocal ? ordenarPorLocalizacao(enriquecidos) : enriquecidos);
+        if (currentUser) {
+          setUsuarioNome(await nomeDoUsuarioLogado(currentUser.uid, currentUser.displayName || currentUser.email || ''));
+        }
+        setMinuta(await montarMinutaDeTroca({ troca, tenantId, config }));
       } catch (error) {
         console.error('Erro ao buscar dados para a minuta de troca:', error);
       } finally {
@@ -122,7 +60,7 @@ const TrocaMinutaPrint: React.FC = () => {
   }, [id, navigate, currentUser, tenantId]);
 
   if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando minuta de troca...</div>;
-  if (!trocaData) return null;
+  if (!minuta) return null;
 
   return (
     <div className="print-layout-wrapper">
@@ -138,11 +76,11 @@ const TrocaMinutaPrint: React.FC = () => {
       </div>
 
       <MinutaPrintDocument
-        pedidoData={trocaData}
-        itens={itens}
+        pedidoData={minuta.trocaData}
+        itens={minuta.itens}
         configData={configData}
-        cliente={cliente}
-        vendedorCodigo={vendedorCodigo}
+        cliente={minuta.cliente}
+        vendedorCodigo={minuta.vendedorCodigo}
         usuarioNome={usuarioNome}
         geradoEm={geradoEm}
         mostrarMarca={mostrarMarca}

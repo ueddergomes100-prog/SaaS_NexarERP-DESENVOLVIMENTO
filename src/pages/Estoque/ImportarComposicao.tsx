@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Factory, Upload, 
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
+import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import { ROTULO_POR_ORIGEM } from '../../utils/producaoDomain';
 import {
   decodificarArquivoTexto,
@@ -250,6 +251,14 @@ const ImportarComposicao: React.FC = () => {
       });
       setPasso('concluido');
       showSuccess(`Composição importada para ${paraGravar.length} produto(s)!`);
+      // Receita nova: calcula o custo de cada produto a partir das materias-primas.
+      await sincronizarCustosSemFalhar({
+        tenantId,
+        usuarioId: currentUser.uid,
+        origemDaMudanca: 'Importação de composição',
+        receitasAlteradas: paraGravar.map((g) => g.produtoId),
+        todos: true,
+      });
     } catch (error) {
       console.error('Erro ao importar composições:', error);
       showError('Erro ao importar', 'Não foi possível concluir a importação. Confira sua conexão e tente novamente.');

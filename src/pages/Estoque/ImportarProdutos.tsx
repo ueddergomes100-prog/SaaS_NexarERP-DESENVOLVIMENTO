@@ -9,6 +9,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, PackageSearch, Up
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
+import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
@@ -414,6 +415,8 @@ const ImportarProdutos: React.FC = () => {
       setResultadoImportacao({ criados: produtos.length, ligouEmbalagem: precisaLigarEmbalagem });
       setPasso('concluido');
       showSuccess(`${produtos.length} produto(s) importado(s) com sucesso!`);
+      // Custo importado de semiacabado/granel: quem o usa como componente acompanha.
+      await sincronizarCustosSemFalhar({ tenantId, usuarioId: currentUser.uid, origemDaMudanca: 'Importação de produtos', todos: true });
     } catch (error) {
       console.error('Erro ao importar produtos:', error);
       showError(

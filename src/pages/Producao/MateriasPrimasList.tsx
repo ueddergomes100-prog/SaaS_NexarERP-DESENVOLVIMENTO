@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Factory, Edit, Power, Trash2, AlertTriangle, Upload } from 'lucide-react';
+import { Search, Plus, Factory, Edit, Power, Trash2, AlertTriangle, Upload, RefreshCw } from 'lucide-react';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -10,6 +10,8 @@ import { chaveComponente, computeEstoquePrevisto } from '../../utils/producaoDom
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import { sincronizarCustosDaProducao } from '../../services/custoProducaoService';
+import { mostrarImpactoDeCusto } from '../../utils/impactoCustoAlert';
 import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
 import {
   avisoInativacaoMateriaPrimaComSaldo,
@@ -39,6 +41,29 @@ const MateriasPrimasList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
 
   const { currentUser, tenantId } = useAuth();
+  const [atualizandoCustos, setAtualizandoCustos] = useState(false);
+
+  // Refaz o custo de TODOS os produtos acabados a partir das materias-primas
+  // de hoje. O sistema ja faz isso sozinho a cada mudanca; este botao existe
+  // para conferir e para acertar o que ficou velho (implantacao, importacao).
+  const handleAtualizarCustos = async () => {
+    if (!tenantId || !currentUser) return;
+    setAtualizandoCustos(true);
+    try {
+      const resultado = await sincronizarCustosDaProducao({
+        tenantId,
+        usuarioId: currentUser.uid,
+        origemDaMudanca: 'Atualização manual do custo',
+        todos: true,
+      });
+      await mostrarImpactoDeCusto(resultado, resultado.impactos.length > 0 ? 'Custo dos produtos acabados atualizado' : 'Custo dos produtos acabados conferido');
+    } catch (erro) {
+      console.error('Erro ao atualizar o custo dos produtos acabados:', erro);
+      showError('Não foi possível atualizar o custo', 'Confira sua conexão e tente de novo. Nenhum produto foi alterado pela metade: o que já estava gravado continua como estava.');
+    } finally {
+      setAtualizandoCustos(false);
+    }
+  };
   const { reservedMap } = useReservedRawMaterialStock(tenantId);
 
   useEffect(() => {
@@ -125,6 +150,9 @@ const MateriasPrimasList: React.FC = () => {
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Estoque de matéria-prima, separado do estoque de produtos acabados e itens que não dependem de produção</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn-secondary" onClick={handleAtualizarCustos} disabled={atualizandoCustos} title="Recalcula o custo de todos os produtos acabados a partir do custo atual das matérias-primas. O preço de venda não é alterado." style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <RefreshCw size={18} /> {atualizandoCustos ? 'Atualizando...' : 'Atualizar custo dos produtos acabados'}
+          </button>
           <button className="btn-secondary" onClick={() => openTab('/materias-primas/importar', 'Importar Matérias-Primas')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Upload size={18} /> Importar matérias-primas
           </button>

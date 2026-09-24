@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Factory, Upload }
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
+import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { getProximoCodigoMateriaPrima } from '../../utils/materiaPrimaCodigo';
 import { garantirMarcasCadastradas } from '../../utils/marcaDomain';
@@ -183,6 +184,8 @@ const ImportarMateriasPrimas: React.FC = () => {
       setResultadoImportacao({ criados: materiasPrimasValidas.length });
       setPasso('concluido');
       showSuccess(`${materiasPrimasValidas.length} matéria(s)-prima(s) importada(s) com sucesso!`);
+      // Custo novo de materia-prima: os produtos acabados que a usam acompanham.
+      await sincronizarCustosSemFalhar({ tenantId, usuarioId: currentUser.uid, origemDaMudanca: 'Importação de matérias-primas', todos: true });
     } catch (error) {
       console.error('Erro ao importar matérias-primas:', error);
       showError(

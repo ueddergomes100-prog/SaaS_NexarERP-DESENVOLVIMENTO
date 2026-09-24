@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2, AlertTriangle, Truck, Loader2, History, Search, Link2, Unlink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
-import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, increment, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
@@ -48,6 +48,8 @@ import {
   type NotaFiscalEntradaItemRecord,
   type ItemEntradaConfig,
 } from '../../utils/entradaNfeDomain';
+import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
+import { htmlDoImpactoDeCusto, type MudancaDeCusto } from '../../utils/custoProducaoDomain';
 import Swal from 'sweetalert2';
 
 interface ParsedItem {
@@ -95,6 +97,7 @@ interface EstoqueItem extends EstoqueItemForMatch {
 
 interface MateriaPrimaItem extends MateriaPrimaItemForMatch {
   quantidade: number;
+  precoCusto?: number;
 }
 
 type FornecedorStatus = 'idle' | 'checking' | 'found' | 'missing';
@@ -128,6 +131,10 @@ const EntradaNFE: React.FC = () => {
   // Estoque e materia-prima atuais para busca rápida local
   const [estoqueAtual, setEstoqueAtual] = useState<EstoqueItem[]>([]);
   const [materiasPrimasAtuais, setMateriasPrimasAtuais] = useState<MateriaPrimaItem[]>([]);
+  // Sobe a cada nota importada: recarrega estoque/materia-prima. Sem isso a
+  // proxima nota da mesma sessao enxergava o cadastro de ANTES da anterior
+  // (produto criado na nota 1 nao era reconhecido na nota 2 e duplicava).
+  const [versaoDosCadastros, setVersaoDosCadastros] = useState(0);
 
   // Classificacao (Revenda/Materia-Prima) + precificacao/tributacao por
   // item da nota (Fatia 2/N) -- array paralelo a parsedData.items,
@@ -219,6 +226,7 @@ const EntradaNFE: React.FC = () => {
             nome: data.nome || '',
             codigosFornecedor: data.codigosFornecedor || {},
             quantidade: Number(data.quantidade || 0),
+            precoCusto: Number(data.precoCusto || 0),
           });
         });
         setMateriasPrimasAtuais(list);
@@ -238,7 +246,7 @@ const EntradaNFE: React.FC = () => {
     fetchEstoque();
     fetchMateriasPrimas();
     fetchRegimeTributario();
-  }, [tenantId]);
+  }, [tenantId, versaoDosCadastros]);
 
   // Assim que o XML é lido, reconcilia o fornecedor pelo CNPJ com o
   // cadastro de Fornecedores. Sem match, abre o popup de cadastro rápido
@@ -708,11 +716,17 @@ const EntradaNFE: React.FC = () => {
       const freteDosItens = ratearFreteNosItens(parsedData.items, frete.valor);
       const custoDoItem = (indice: number) => freteDosItens[indice]?.custoUnitarioComFrete ?? parsedData.items[indice].valorUnitario;
 
-      // Dois itens da nota podem ir para o MESMO cadastro (vinculo manual).
-      // A quantidade e' somada aqui, item a item; ler de novo do estado da
-      // tela faria o segundo item sobrescrever o primeiro.
-      const quantidadeAtualDoEstoque = new Map<string, number>();
-      const quantidadeAtualDaMateriaPrima = new Map<string, number>();
+      // Dois itens da nota podem ir para o MESMO cadastro (vinculo manual): a
+      // quantidade entra com increment() (soma no servidor, nao sobrescreve),
+      // e o custo e' lido do banco na hora -- nao do estado da tela, que pode
+      // estar velho. As mudancas de custo alimentam o recalculo do custo dos
+      // produtos acabados que usam estes componentes.
+      const mudancasDeCusto = new Map<string, MudancaDeCusto>();
+      const registrarMudancaDeCusto = (origem: MudancaDeCusto['origem'], id: string, nome: string, custoAnterior: number, custoNovo: number) => {
+        const chave = `${origem}:${id}`;
+        const existente = mudancasDeCusto.get(chave);
+        mudancasDeCusto.set(chave, { origem, id, nome, custoAnterior: existente ? existente.custoAnterior : custoAnterior, custoNovo });
+      };
 
       for (let idx = 0; idx < parsedData.items.length; idx++) {
         const item = parsedData.items[idx];
@@ -720,13 +734,13 @@ const EntradaNFE: React.FC = () => {
 
         if (config.tipo === 'materia_prima') {
           if (config.classificacao === 'materia_prima' && config.matchId) {
-            const materiaPrimaExistente = materiasPrimasAtuais.find((m) => m.id === config.matchId);
-            const quantidadeAntes = quantidadeAtualDaMateriaPrima.get(config.matchId) ?? (materiaPrimaExistente?.quantidade || 0);
-            const novaQuantidade = quantidadeAntes + item.quantidade;
-            quantidadeAtualDaMateriaPrima.set(config.matchId, novaQuantidade);
-            await updateDoc(doc(db, 'materias_primas', config.matchId), {
-              quantidade: novaQuantidade,
-              precoCusto: custoDoItem(idx),
+            const materiaPrimaRef = doc(db, 'materias_primas', config.matchId);
+            const materiaPrimaAntes = await getDoc(materiaPrimaRef);
+            const custoNovoMateriaPrima = custoDoItem(idx);
+            registrarMudancaDeCusto('materia_prima', config.matchId, String(materiaPrimaAntes.data()?.nome || item.descricao), Number(materiaPrimaAntes.data()?.precoCusto || 0), custoNovoMateriaPrima);
+            await updateDoc(materiaPrimaRef, {
+              quantidade: increment(item.quantidade),
+              precoCusto: custoNovoMateriaPrima,
               fornecedor: fornecedorMatch.nome,
               // Historico do fornecedor: da proxima vez este codigo ja vincula sozinho.
               ...(item.codigo ? { [`codigosFornecedor.${fornecedorMatch.id}`]: item.codigo } : {}),
@@ -797,17 +811,18 @@ const EntradaNFE: React.FC = () => {
           // Incrementa quantidade e memoriza o codigo que este fornecedor
           // usa pra este item, pra a proxima importacao dele cair direto
           // na camada 2 (mais rapida e confiavel que NCM+nome).
-          const pecaExistente = estoqueAtual.find((p) => p.id === config.matchId);
-          const quantidadeAntes = quantidadeAtualDoEstoque.get(config.matchId) ?? (pecaExistente?.quantidade || 0);
-          const novaQuantidade = quantidadeAntes + item.quantidade;
-          quantidadeAtualDoEstoque.set(config.matchId, novaQuantidade);
+          const pecaRef = doc(db, 'estoque', config.matchId);
+          const pecaAntes = await getDoc(pecaRef);
+          const dadosDaPeca = pecaAntes.data() ?? {};
+          const custoNovoPeca = custoDoItem(idx);
+          registrarMudancaDeCusto('estoque', config.matchId, String(dadosDaPeca.nome || item.descricao), Number(dadosDaPeca.precoCusto ?? dadosDaPeca.precos?.custo ?? 0), custoNovoPeca);
           // EAN e NCM que o cadastro ainda nao tem e a nota traz: completa,
           // sem nunca sobrescrever o que ja esta preenchido.
-          const completarCadastro = pecaExistente ? dadosFiscaisParaCompletar(item, pecaExistente) : {};
-          await updateDoc(doc(db, 'estoque', config.matchId), {
+          const completarCadastro = dadosFiscaisParaCompletar(item, { codigoBarras: dadosDaPeca.codigoBarras, ncm: dadosDaPeca.ncm ?? dadosDaPeca.fiscal?.ncm });
+          await updateDoc(pecaRef, {
             ...completarCadastro,
-            quantidade: novaQuantidade,
-            precoCusto: custoDoItem(idx),
+            quantidade: increment(item.quantidade),
+            precoCusto: custoNovoPeca,
             fornecedor: fornecedorMatch.nome,
             fornecedorId: fornecedorMatch.id,
             [`codigosFornecedor.${fornecedorMatch.id}`]: item.codigo,
@@ -958,7 +973,18 @@ const EntradaNFE: React.FC = () => {
         // Ignora erros ao registrar auditoria
       }
 
+      // CUSTO DOS PRODUTOS ACABADOS: o custo de matéria-prima/semiacabado mudou
+      // nesta nota, e todo produto produzido que a usa precisa acompanhar.
+      // Falha aqui vira aviso -- a nota ja foi gravada e nao pode ser desfeita.
+      const impactoDeCusto = await sincronizarCustosSemFalhar({
+        tenantId,
+        usuarioId: currentUser.uid,
+        origemDaMudanca: `Entrada de NF ${parsedData.numeroNF}`,
+        mudancas: Array.from(mudancasDeCusto.values()),
+      }, { mostrarAviso: false });
+
       Swal.close();
+      setVersaoDosCadastros((versao) => versao + 1);
 
       // FICA NA TELA DE ENTRADA (pedido do dono, 2026-09-21).
       //
@@ -982,7 +1008,8 @@ const EntradaNFE: React.FC = () => {
       const escolha = await NexusSwal.fire({
         icon: 'success',
         title: `Nota ${numeroImportado} importada`,
-        html: linhasResumo.map((linha) => `• ${linha}`).join('<br/>'),
+        html: linhasResumo.map((linha) => `• ${linha}`).join('<br/>') + (impactoDeCusto ? htmlDoImpactoDeCusto(impactoDeCusto) : ''),
+        width: impactoDeCusto && impactoDeCusto.impactos.length > 0 ? 900 : undefined,
         showDenyButton: true,
         confirmButtonText: 'Importar outra nota',
         denyButtonText: 'Ver histórico',

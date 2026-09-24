@@ -5,6 +5,8 @@ import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp, wh
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
+import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
+import type { MudancaDeCusto } from '../../utils/custoProducaoDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import {
   formatSequenceValue,
@@ -348,7 +350,13 @@ const NotaAvulsaForm: React.FC = () => {
       const usaBanco = formaPagamento === 'a_vista' && destinoPagamento === 'banco';
       const numParcelasFinal = formaPagamento === 'pendente' ? numeroParcelasValido : 1;
 
+      // Custo que mudou em cada produto: alimenta o recalculo do custo dos
+      // produtos acabados que o usam como componente. Zera a cada tentativa
+      // (a transacao pode ser repetida pelo Firestore).
+      let mudancasDeCusto: MudancaDeCusto[] = [];
+
       await runTransaction(db, async (transaction) => {
+        mudancasDeCusto = [];
         // 1. LEITURAS -- todas antes de qualquer escrita (regra do Firestore).
         const nextNumero = await getNextTenantSequenceValue(transaction, db, tenantId, 'notas_avulsas', currentMax);
         const bancoRef = usaBanco ? doc(db, 'bancos', bancoId) : null;
@@ -393,6 +401,13 @@ const NotaAvulsaForm: React.FC = () => {
           // incrementar -- melhor que travar a nota inteira por um item.
           if (!snap.exists()) return;
           const quantidadeAtualEstoque = Number(snap.data()?.quantidade || 0);
+          mudancasDeCusto.push({
+            origem: 'estoque',
+            id: ref.id,
+            nome: String(snap.data()?.nome || ''),
+            custoAnterior: Number(snap.data()?.precoCusto ?? snap.data()?.precos?.custo ?? 0),
+            custoNovo: precoCusto,
+          });
           transaction.update(ref, {
             quantidade: quantidadeAtualEstoque + quantidadeBase,
             precoCusto,
@@ -509,6 +524,15 @@ const NotaAvulsaForm: React.FC = () => {
       } catch (logError) {
         console.error('Erro ao registrar auditoria da nota avulsa:', logError);
       }
+
+      // A nota ja foi gravada; o custo dos produtos acabados que usam estes
+      // itens como componente acompanha (falha vira aviso, nao erro).
+      await sincronizarCustosSemFalhar({
+        tenantId,
+        usuarioId: currentUser.uid,
+        origemDaMudanca: `Nota avulsa #${numeroFinal}`,
+        mudancas: mudancasDeCusto,
+      });
 
       showSuccess('Nota avulsa lançada com sucesso!');
       navigate('/estoque/notas-avulsas');

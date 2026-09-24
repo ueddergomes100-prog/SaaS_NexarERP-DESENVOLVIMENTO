@@ -10,6 +10,7 @@ import { getProximoCodigoMateriaPrima } from '../../utils/materiaPrimaCodigo';
 import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialStock';
 import { chaveComponente, computeEstoquePrevisto } from '../../utils/producaoDomain';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
+import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { separarCategoriasPorSituacao } from '../../utils/categoriaDomain';
 import CampoComSugestoes from '../../components/common/CampoComSugestoes';
@@ -194,11 +195,26 @@ const MateriaPrimaForm: React.FC = () => {
         // nota de entrada ou Ajuste de Estoque. Mandar o valor lido ao abrir a
         // tela sobrescreveria uma producao feita enquanto ela estava aberta.
         const { quantidade: _saldo, ...dataToSaveSemSaldo } = dataToSave;
+        // Custo de ANTES, lido do banco agora (nao o da tela, que pode estar
+        // velho): e' a base da comparacao que decide se os produtos acabados
+        // que usam esta materia-prima precisam ser recalculados.
+        const antesDaEdicao = await getDoc(doc(db, 'materias_primas', id));
+        const custoAnterior = Number(antesDaEdicao.data()?.precoCusto || 0);
         await updateDoc(doc(db, 'materias_primas', id), {
           ...dataToSaveSemSaldo,
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        if (tenantId && custoAnterior !== dataToSave.precoCusto) {
+          // O custo dos produtos acabados acompanha a materia-prima. Mostra o
+          // impacto (custo, margem, preco de venda que NAO foi mexido).
+          await sincronizarCustosSemFalhar({
+            tenantId,
+            usuarioId: currentUser.uid,
+            origemDaMudanca: 'Cadastro de matéria-prima',
+            mudancas: [{ origem: 'materia_prima', id, nome: dataToSave.nome, custoAnterior, custoNovo: dataToSave.precoCusto }],
+          });
+        }
         showSuccess('Matéria-prima atualizada!');
       } else {
         await addDoc(collection(db, 'materias_primas'), {

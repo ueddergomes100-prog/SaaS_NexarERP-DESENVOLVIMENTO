@@ -17,7 +17,9 @@ import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import CampoComSugestoes from '../../components/common/CampoComSugestoes';
 import { compararMargem, precoParaMargem } from '../../utils/precificacaoDomain';
-import { ROTULO_POR_ORIGEM, chaveComponente, normalizarComponente, type ComponenteComposicao, type OrigemComponente } from '../../utils/producaoDomain';
+import { ROTULO_POR_ORIGEM, chaveComponente, colecaoDoComponente, normalizarComponente, type ComponenteComposicao, type OrigemComponente } from '../../utils/producaoDomain';
+import { calcularCustoDaReceita } from '../../utils/custoProducaoDomain';
+import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -80,6 +82,8 @@ interface HistoricoPreco {
   custoNovo: number;
   alteradoEm: string;
   usuarioId?: string;
+  /** Preenchido quando o custo mudou sozinho (materia-prima/composicao), nao por edicao do produto. */
+  motivo?: string;
 }
 
 interface ProdutoOriginalData {
@@ -470,14 +474,9 @@ const EstoqueForm: React.FC = () => {
   // Materia-Prima, nao de um valor fixo salvo aqui. Produto de revenda
   // (nao produzido aqui) continua com o custo manual/da nota fiscal, como
   // sempre foi.
-  const custoComposicao = useMemo(() => (
-    composicaoItens.reduce((soma, item) => {
-      const componente = componentesDisponiveis.find(c => (
-        c.id === item.componenteId && c.origem === item.origem
-      ));
-      return soma + item.quantidade * (componente?.precoCusto || 0);
-    }, 0)
-  ), [composicaoItens, componentesDisponiveis]);
+  const custoComposicao = useMemo(() => calcularCustoDaReceita(composicaoItens, (origem, componenteId) => (
+    componentesDisponiveis.find(c => c.id === componenteId && c.origem === origem)?.precoCusto || 0
+  )), [composicaoItens, componentesDisponiveis]);
   const custoCalculadoPelaComposicao = formData.produzidoInternamente && composicaoItens.length > 0;
   const precoCusto = custoCalculadoPelaComposicao ? custoComposicao : toNumber(formData.precoCusto);
   const precoVenda = toNumber(formData.precoVenda);
@@ -819,6 +818,21 @@ const EstoqueForm: React.FC = () => {
         updatedAt: serverTimestamp(),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
       }, { merge: true });
+      // Receita mudou: o custo gravado do produto (e dos que o usam) precisa
+      // acompanhar agora, sem esperar alguem abrir e salvar o produto.
+      await sincronizarCustosSemFalhar({
+        tenantId,
+        usuarioId: currentUser.uid,
+        origemDaMudanca: 'Composição alterada',
+        receitasAlteradas: [id],
+      });
+      // O historico e o custo gravado mudaram por fora do formulario: relê,
+      // senao o proximo "Salvar" gravaria o historico velho por cima.
+      const produtoAtualizado = await getDoc(doc(db, 'estoque', id));
+      if (produtoAtualizado.exists()) {
+        setProdutoOriginal(produtoAtualizado.data());
+        setHistoricoPrecos(produtoAtualizado.data().historicoPrecos || []);
+      }
       showSuccess('Composição salva!');
     } catch (error) {
       console.error('Erro ao salvar composição:', error);
@@ -1055,22 +1069,50 @@ const EstoqueForm: React.FC = () => {
         }
       }
 
-      const ultimoHistorico = [...historicoPrecos];
+      // BASE FRESCA (custo e historico lidos do banco agora). O custo do
+      // produto acabado pode ter sido recalculado por fora enquanto esta tela
+      // ficou aberta (entrada de nota, cadastro de materia-prima): gravar o
+      // que a tela leu ao abrir desfaria o recalculo e apagaria as linhas
+      // novas do historico.
+      let historicoBase: HistoricoPreco[] = historicoPrecos;
+      let custoOriginalBanco = Number(produtoOriginal?.precoCusto ?? produtoOriginal?.precos?.custo ?? 0);
+      let custoParaSalvar = precoCusto;
+      if (isEditing && id) {
+        const produtoFresco = await getDoc(doc(db, 'estoque', id));
+        if (produtoFresco.exists()) {
+          const dadosFrescos = produtoFresco.data();
+          historicoBase = Array.isArray(dadosFrescos.historicoPrecos) ? dadosFrescos.historicoPrecos : historicoPrecos;
+          custoOriginalBanco = Number(dadosFrescos.precoCusto ?? dadosFrescos.precos?.custo ?? 0);
+        }
+        if (custoCalculadoPelaComposicao) {
+          const custosFrescos = new Map<string, number>();
+          await Promise.all(composicaoItens.map(async (item) => {
+            const componenteSnap = await getDoc(doc(db, colecaoDoComponente(item.origem), item.componenteId));
+            const dadosComponente = componenteSnap.data();
+            custosFrescos.set(chaveComponente(item.origem, item.componenteId), Number(dadosComponente?.precoCusto ?? dadosComponente?.precos?.custo ?? 0));
+          }));
+          custoParaSalvar = calcularCustoDaReceita(composicaoItens, (origem, componenteId) => custosFrescos.get(chaveComponente(origem, componenteId)) ?? 0);
+        }
+      }
+      const margemParaSalvar = custoParaSalvar > 0 ? ((precoVenda - custoParaSalvar) / custoParaSalvar) * 100 : 0;
+      const lucroParaSalvar = precoVenda - custoParaSalvar;
+
+      const ultimoHistorico = [...historicoBase];
       // Mesmo fallback que a carga do formulario usa (`data.precos?.venda`):
       // produto legado guarda preco no objeto `precos`, nao nos campos
       // planos. Sem isso o "preco anterior" vinha 0 e a primeira gravacao
       // registrava uma alteracao falsa de R$ 0,00 para o preco atual, mesmo
       // sem ninguem ter mudado nada.
       const originalVenda = Number(produtoOriginal?.precoVenda ?? produtoOriginal?.precos?.venda ?? 0);
-      const originalCusto = Number(produtoOriginal?.precoCusto ?? produtoOriginal?.precos?.custo ?? 0);
-      const mudouPreco = isEditing && (originalVenda !== precoVenda || originalCusto !== precoCusto);
+      const originalCusto = custoOriginalBanco;
+      const mudouPreco = isEditing && (originalVenda !== precoVenda || originalCusto !== custoParaSalvar);
       // Base da comparacao de margem: so e' reescrita quando o PRECO DE
       // VENDA muda (produto novo tambem grava). Compra que muda so o custo
       // NAO mexe nela de proposito -- e' justamente a diferenca entre as
       // duas que faz o aviso "a margem caiu" aparecer.
       const mudouPrecoVenda = !isEditing || originalVenda !== precoVenda;
       const custoNaUltimaPrecificacao = mudouPrecoVenda
-        ? precoCusto
+        ? custoParaSalvar
         : (produtoOriginal?.custoNaUltimaPrecificacao ?? null);
 
       if (mudouPreco) {
@@ -1078,7 +1120,7 @@ const EstoqueForm: React.FC = () => {
           precoAnterior: originalVenda,
           precoNovo: precoVenda,
           custoAnterior: originalCusto,
-          custoNovo: precoCusto,
+          custoNovo: custoParaSalvar,
           alteradoEm: new Date().toISOString(),
           usuarioId: currentUser?.uid
         });
@@ -1109,14 +1151,14 @@ const EstoqueForm: React.FC = () => {
         quantidade: toNumber(formData.quantidade),
         estoqueMinimo: toNumber(formData.estoqueMinimo),
         estoqueMaximo: toNumber(formData.estoqueMaximo),
-        precoCusto,
+        precoCusto: custoParaSalvar,
         precoVenda,
         precoPromocional,
         precoAVista: precoAVistaValor,
         precoAPrazo: precoAPrazoValor,
         custoNaUltimaPrecificacao,
-        margemLucro,
-        lucroEstimado,
+        margemLucro: margemParaSalvar,
+        lucroEstimado: lucroParaSalvar,
         comissaoPercentual: comissaoPercentualValor,
         descontoMaximoPercentual: toNumber(formData.descontoMaximoPercentual),
         ultimoCusto: toNumber(formData.ultimoCusto),
@@ -1185,9 +1227,9 @@ const EstoqueForm: React.FC = () => {
         precos: {
           venda: precoVenda,
           promocional: precoPromocional,
-          custo: precoCusto,
-          margemLucro,
-          lucroEstimado,
+          custo: custoParaSalvar,
+          margemLucro: margemParaSalvar,
+          lucroEstimado: lucroParaSalvar,
           ...(comissaoPercentualValor !== undefined ? { comissaoPercentual: comissaoPercentualValor } : {}),
           ...(precoAVistaValor !== undefined ? { aVista: precoAVistaValor } : {}),
           ...(precoAPrazoValor !== undefined ? { aPrazo: precoAPrazoValor } : {}),
@@ -1239,7 +1281,7 @@ const EstoqueForm: React.FC = () => {
           dataUltimaCompra: formData.dataUltimaCompra,
           leadTime: toNumber(formData.leadTime),
           quantidadeMinimaCompra: toNumber(formData.quantidadeMinimaCompra),
-          mediaCustoCompra: toNumber(formData.ultimoCusto) || precoCusto
+          mediaCustoCompra: toNumber(formData.ultimoCusto) || custoParaSalvar
         },
         atacado: {
           ativo: formData.ativarAtacado,
@@ -1324,6 +1366,16 @@ const EstoqueForm: React.FC = () => {
           });
         } catch {
           // Ignorar erro de log de auditoria.
+        }
+        // Este produto pode ser componente (semiacabado) de outros: se o
+        // custo dele mudou, o custo de quem o usa acompanha.
+        if (tenantId && custoOriginalBanco !== custoParaSalvar) {
+          await sincronizarCustosSemFalhar({
+            tenantId,
+            usuarioId: currentUser.uid,
+            origemDaMudanca: 'Cadastro de produto',
+            mudancas: [{ origem: 'estoque', id, nome: nomeProduto, custoAnterior: custoOriginalBanco, custoNovo: custoParaSalvar }],
+          });
         }
         showSuccess('Produto atualizado!');
       } else {
@@ -1758,6 +1810,7 @@ const EstoqueForm: React.FC = () => {
                           <th style={{ padding: '12px', fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Custo</th>
                           <th style={{ padding: '12px', fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Venda</th>
                           <th style={{ padding: '12px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'right', whiteSpace: 'nowrap' }}>Margem depois</th>
+                          <th style={{ padding: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>Motivo</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1820,6 +1873,9 @@ const EstoqueForm: React.FC = () => {
                                   : <span style={{ color: margemDepois < 0 ? '#ef4444' : 'var(--text-primary)' }}>
                                       {margemDepois.toFixed(1)}%
                                     </span>}
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '12.5px', color: 'var(--text-secondary)', minWidth: '220px' }}>
+                                {item.motivo || (vendaMudou ? 'Preço de venda alterado no cadastro.' : 'Custo alterado no cadastro.')}
                               </td>
                             </tr>
                           );

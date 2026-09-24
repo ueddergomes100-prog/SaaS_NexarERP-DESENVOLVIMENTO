@@ -257,6 +257,16 @@ const numero = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
  * produto) permita vender sem estoque.
  * @returns {{ ok: boolean, erros: string[], reservas: { id: string, nome: string, reservadaDepois: number }[] }}
  */
+/**
+ * A empresa deixa vender/trocar sem estoque? Le o MESMO campo que a tela grava e
+ * o resto do sistema usa: `venderSemEstoque` ("Permitir venda sem estoque" em
+ * Configuracoes). Antes esta regra procurava `permiteVendaSemEstoque`, um campo
+ * que nada grava -- entao a troca nunca liberava, mesmo com a chave ligada.
+ */
+const configPermiteSemEstoque = (config) => Boolean(config) && config.venderSemEstoque === true;
+
+const DICA_SEM_ESTOQUE = ' Para aprovar mesmo assim, ligue "Permitir venda sem estoque" em Configurações ou dê entrada do produto no Estoque.';
+
 const planoDeReserva = ({ itens, produtosPorId, permiteSemEstoque = false }) => {
   const erros = [];
   const reservas = [];
@@ -269,7 +279,7 @@ const planoDeReserva = ({ itens, produtosPorId, permiteSemEstoque = false }) => 
     const disponivel = arredondar(quantidade - reservada, PRECISAO_QUANTIDADE);
     const liberado = permiteSemEstoque || produto.permitirEstoqueNegativo === true;
     if (!liberado && disponivel < linha.quantidade) {
-      erros.push(`Estoque insuficiente para "${linha.nome}": a troca pede ${linha.quantidade}, disponível ${Math.max(0, disponivel)}.`);
+      erros.push(`Estoque insuficiente para "${linha.nome}": a troca pede ${linha.quantidade}, disponível ${Math.max(0, disponivel)}.${DICA_SEM_ESTOQUE}`);
       continue;
     }
     reservas.push({ id: linha.id, nome: linha.nome, reservadaDepois: arredondar(reservada + linha.quantidade, PRECISAO_QUANTIDADE) });
@@ -324,7 +334,7 @@ const planoDeEntrega = ({ itens, produtosPorId, lotesEscolhidos = {}, lotesPorId
     const antes = atual.quantidade;
     const depois = arredondar(antes - item.quantidade, PRECISAO_QUANTIDADE);
     if (depois < 0 && produto.permitirEstoqueNegativo !== true && contexto.permiteSemEstoque !== true) {
-      erros.push(`Estoque insuficiente para "${item.nome}": a troca pede ${item.quantidade}, há ${Math.max(0, antes)} no estoque.`);
+      erros.push(`Estoque insuficiente para "${item.nome}": a troca pede ${item.quantidade}, há ${Math.max(0, antes)} no estoque.${DICA_SEM_ESTOQUE}`);
       return;
     }
 
@@ -395,6 +405,7 @@ module.exports = {
   montarItensDaTroca,
   avisosDeHistorico,
   somarPorProduto,
+  configPermiteSemEstoque,
   planoDeReserva,
   planoDeLiberacao,
   planoDeEntrega,

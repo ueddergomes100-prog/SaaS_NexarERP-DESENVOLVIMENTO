@@ -11,6 +11,7 @@ const {
   montarItensDaTroca,
   avisosDeHistorico,
   planoDeReserva,
+  configPermiteSemEstoque,
   planoDeLiberacao,
   planoDeEntrega,
 } = require('../services/trocas');
@@ -119,7 +120,7 @@ const carregarConfiguracao = async (tx, tenantId) => {
   return snap.exists ? snap.data() : {};
 };
 
-const permiteSemEstoque = (config) => config.permiteVendaSemEstoque === true;
+const permiteSemEstoque = configPermiteSemEstoque;
 
 /** Le a troca (e confere que e' da empresa) dentro da transacao. */
 const lerTroca = async (tx, tenantId, id) => {

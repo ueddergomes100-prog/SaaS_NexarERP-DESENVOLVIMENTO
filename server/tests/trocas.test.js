@@ -12,6 +12,7 @@ const {
   montarItensDaTroca,
   avisosDeHistorico,
   somarPorProduto,
+  configPermiteSemEstoque,
   planoDeReserva,
   planoDeLiberacao,
   planoDeEntrega,
@@ -308,4 +309,22 @@ test('entrega: produto que sumiu do cadastro e erro', () => {
   const r = planoDeEntrega({ itens: [item()], produtosPorId: {}, estavaReservado: false, contexto: CONTEXTO });
   assert.equal(r.ok, false);
   assert.match(r.erros[0], /não foi encontrado/);
+});
+
+test('vender sem estoque: le o campo que a tela grava (venderSemEstoque), nao um nome que ninguem grava', () => {
+  assert.equal(configPermiteSemEstoque({ venderSemEstoque: true }), true);
+  assert.equal(configPermiteSemEstoque({ venderSemEstoque: false }), false);
+  assert.equal(configPermiteSemEstoque({}), false);
+  assert.equal(configPermiteSemEstoque(undefined), false);
+  // O nome antigo (errado) nao libera nada.
+  assert.equal(configPermiteSemEstoque({ permiteVendaSemEstoque: true }), false);
+});
+
+test('estoque insuficiente diz o que fazer para aprovar mesmo assim', () => {
+  const r = planoDeReserva({
+    itens: [{ id: 'p1', nome: 'GRANOLA 1KG', quantidade: 5 }],
+    produtosPorId: { p1: { quantidade: 0, quantidadeReservada: 0, ativo: true } },
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.erros[0], /Permitir venda sem estoque/);
 });

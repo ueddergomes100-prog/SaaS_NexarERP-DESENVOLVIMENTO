@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, deleteField, runTransaction } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -7,7 +7,7 @@ import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
-import { fromCents, toCents } from '../../utils/financeDomain';
+import { toCents } from '../../utils/financeDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import {
   dataBrasileira,
@@ -15,7 +15,8 @@ import {
   planejarEstornoPagar,
   type TituloParaEstorno,
 } from '../../utils/baixaFinanceiraDomain';
-import { pedirDadosBaixa, pedirMotivoEstorno } from '../../utils/baixaFinanceiraUi';
+import { pedirDadosBaixa } from '../../utils/baixaFinanceiraUi';
+import { estornarBaixaComConfirmacao } from '../../services/baixaFinanceiraService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload, Undo2 } from 'lucide-react';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -282,102 +283,14 @@ const ContasPagar: React.FC = () => {
     }
   };
 
-  /**
-   * ESTORNO DE BAIXA (pedido da Taiene, Shopping Rural, 24/09/2026). Volta a
-   * conta para Pendente E devolve ao banco o que a baixa debitou -- o estorno
-   * do Fluxo de Caixa so' trocava o status e deixava o saldo do banco errado.
-   * Regras de quem pode ser estornado: baixaFinanceiraDomain.planejarEstornoPagar.
-   */
-  const handleEstornar = async (t: TransacaoData) => {
-    if (!currentUser || !tenantId) return;
-    if (!podeEstornar) {
-      showError('Sem permissão', 'Você não tem permissão para estornar pagamentos. Peça a um responsável liberar "Financeiro: Estornar Pagamento/Recebimento" no seu usuário.');
-      return;
-    }
-    const plano = planejarEstornoPagar(t);
-    if (!plano.permitido) {
-      showError('Não é possível estornar', plano.bloqueio);
-      return;
-    }
-
-    const paraBanco = plano.bancoId && plano.ajusteBancoCentavos > 0
-      ? ` e R$ ${fromCents(plano.ajusteBancoCentavos).toFixed(2)} voltam para o saldo do banco${t.bancoNome ? ` ${t.bancoNome}` : ''}`
-      : '';
-    const motivo = await pedirMotivoEstorno({
-      titulo: 'Estornar pagamento?',
-      texto: `A conta "${t.descricao}" de R$ ${Number(t.valor).toFixed(2)}, paga${t.dataPagamento ? ` em ${dataBrasileira(t.dataPagamento)}` : ''}${t.formaPagamento ? ` (${t.formaPagamento})` : ''}, volta para Pendente${paraBanco}. Depois é só dar baixa de novo com a data certa.`,
-    });
-    if (!motivo) return;
-
-    try {
-      const docRef = doc(db, 'transacoes', t.id);
-      await runTransaction(db, async (transaction) => {
-        const snap = await transaction.get(docRef);
-        if (!snap.exists()) throw new Error('Conta não encontrada.');
-        const atual = { id: snap.id, ...snap.data() } as TransacaoData;
-        // Confere de novo com o dado de agora: alguem pode ter estornado ou
-        // alterado a conta depois que a tela carregou.
-        const planoAtual = planejarEstornoPagar(atual);
-        if (!planoAtual.permitido) {
-          throw new Error(atual.status !== 'Paga' ? 'Esta conta já não está mais paga. Atualize a tela.' : planoAtual.bloqueio);
-        }
-
-        let saldoAtualCentavos = 0;
-        const bancoRef = planoAtual.bancoId ? doc(db, 'bancos', planoAtual.bancoId) : null;
-        if (bancoRef && planoAtual.ajusteBancoCentavos !== 0) {
-          const bancoSnap = await transaction.get(bancoRef);
-          if (!bancoSnap.exists()) throw new Error('O banco desta baixa não foi encontrado, então o saldo não pode ser devolvido.');
-          saldoAtualCentavos = Number(bancoSnap.data().saldoCentavos || 0);
-        }
-
-        transaction.update(docRef, {
-          status: 'Pendente',
-          dataPagamento: deleteField(),
-          bancoId: deleteField(),
-          bancoNome: deleteField(),
-          baixaManual: deleteField(),
-          estornadaEm: serverTimestamp(),
-          ultimoEstorno: {
-            motivo,
-            por: currentUser.uid,
-            dataPagamentoEstornada: atual.dataPagamento || null,
-            formaPagamentoEstornada: atual.formaPagamento || null,
-            valorCentavos: Number(atual.valorCentavos ?? toCents(atual.valor)),
-          },
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Pagamento estornado: ${motivo}`),
-        });
-        if (bancoRef && planoAtual.ajusteBancoCentavos !== 0) {
-          transaction.update(bancoRef, {
-            saldoCentavos: saldoAtualCentavos + planoAtual.ajusteBancoCentavos,
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Estorno do pagamento "${t.descricao}"`),
-          });
-        }
-      });
-
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId,
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'financeiro',
-          acao: 'edicao',
-          descricao: `Pagamento "${t.descricao}" de R$ ${Number(t.valor).toFixed(2)} estornado para Pendente. Motivo: ${motivo}`,
-          registroRelacionadoId: t.id,
-          status: 'sucesso',
-          critical: true,
-        });
-      } catch (logError) {
-        console.error('Erro ao registrar auditoria do estorno:', logError);
-      }
-      showSuccess('Pagamento estornado! A conta voltou para Pendente.');
-    } catch (err) {
-      console.error('Erro ao estornar pagamento:', err);
-      showError('Não foi possível estornar', err instanceof Error ? err.message : 'Tente novamente.');
-    }
-  };
+  /** Estorno: um caminho so' para o sistema (services/baixaFinanceiraService). */
+  const handleEstornar = (t: TransacaoData) => estornarBaixaComConfirmacao({
+    titulo: t,
+    tipo: 'saida',
+    podeEstornar,
+    tenantId,
+    usuario: currentUser ? { uid: currentUser.uid, email: currentUser.email } : null,
+  });
 
   const handleOpenModal = () => {
     setFormData({

@@ -1,17 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowUpCircle, ArrowDownCircle, Search, DollarSign, Eye, EyeOff, Calendar, X, Loader2, CheckCircle, RotateCcw } from 'lucide-react';
-import { collection, query, onSnapshot, where, addDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, addDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { fromCents, toCents, transactionMovesPhysicalCash, transactionNetAmount } from '../../utils/financeDomain';
 import { dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
-import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { buildDocumentMetadata } from '../../utils/documentMetadata';
+import { estornarBaixaComConfirmacao, planejarEstornoPorTipo } from '../../services/baixaFinanceiraService';
+import type { TituloParaEstorno } from '../../utils/baixaFinanceiraDomain';
 import './Financeiro.css';
 
-interface TransacaoData {
+interface TransacaoData extends TituloParaEstorno {
   id: string;
   data: string;
   descricao: string;
@@ -218,61 +220,14 @@ const Caixa: React.FC = () => {
     }
   };
 
-  const handleEstornar = async (id: string, tipo: string) => {
-    if (!podeEstornar) {
-      showError('Sem Permissão', 'Você não tem permissão para estornar lançamentos.');
-      return;
-    }
-    if (!currentUser) return;
-
-    const result = await NexusSwal.fire({
-      title: 'Estornar Lançamento?',
-      text: `Ao estornar, este ${tipo === 'entrada' ? 'Recebimento' : 'Pagamento'} voltará para Contas a ${tipo === 'entrada' ? 'Receber' : 'Pagar'} como Pendente. Confirma?`,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#f59e0b',
-      cancelButtonColor: '#6b7280',
-      confirmButtonText: 'Sim, Estornar',
-      cancelButtonText: 'Cancelar'
-    });
-
-    if (result.isConfirmed) {
-      try {
-        const transacao = transacoes.find(t => t.id === id);
-        const transDesc = transacao?.descricao || 'Sem descrição';
-        const transValor = transacao?.valor || 0;
-
-        await updateDoc(doc(db, 'transacoes', id), {
-          status: 'Pendente',
-          movimentaCaixaFisico: false,
-          estornadaEm: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estornada no Fluxo de Caixa'),
-        });
-
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId: tenantId || '',
-            usuarioId: currentUser?.uid || '',
-            usuarioEmail: currentUser?.email || '',
-            modulo: 'financeiro',
-            acao: 'edicao',
-            descricao: `Transação "${transDesc}" de R$ ${transValor.toFixed(2)} estornada para Pendente.`,
-            registroRelacionadoId: id,
-            status: 'sucesso',
-            critical: true
-          });
-        } catch (logError) {
-          console.error('Erro ao registrar auditoria do estorno:', logError);
-        }
-
-        showSuccess('Lançamento estornado com sucesso!');
-      } catch (error) {
-        console.error("Erro ao estornar:", error);
-        showError('Erro', 'Ocorreu um erro ao estornar a transação.');
-      }
-    }
-  };
+  /** Estorno: o mesmo caminho de Contas a Pagar/Receber (services/baixaFinanceiraService). */
+  const handleEstornar = (t: TransacaoData) => estornarBaixaComConfirmacao({
+    titulo: t,
+    tipo: t.tipo,
+    podeEstornar: Boolean(podeEstornar),
+    tenantId,
+    usuario: currentUser ? { uid: currentUser.uid, email: currentUser.email } : null,
+  });
 
   return (
     <div className="financeiro-page" style={{ position: 'relative' }}>
@@ -420,17 +375,19 @@ const Caixa: React.FC = () => {
                     </td>
                     {podeEstornar && (
                       <td style={{ textAlign: 'center' }}>
+                        {planejarEstornoPorTipo(t, t.tipo).mostrarBotao && (
                         <button 
-                          onClick={() => handleEstornar(t.id, t.tipo)}
+                          onClick={() => void handleEstornar(t)}
                           style={{ 
                             background: 'none', border: 'none', cursor: 'pointer', 
                             color: '#f59e0b', display: 'flex', alignItems: 'center', 
                             justifyContent: 'center', width: '100%' 
                           }}
-                          title="Estornar e voltar para Pendente"
+                          title="Desfazer esta baixa e voltar para Pendente"
                         >
                           <RotateCcw size={18} />
                         </button>
+                        )}
                       </td>
                     )}
                   </tr>

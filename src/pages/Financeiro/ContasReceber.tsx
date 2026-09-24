@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, where, doc, getDocs, serverTimestamp, runTransaction, deleteField } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, doc, getDocs, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -7,10 +7,9 @@ import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2 } from 'lucide-react';
 import {
   applyPaymentReceipt,
-  financialNatureForPayment,
   fromCents,
+  legacyPaymentForTransaction,
   paymentRequiresBankAccount,
-  reversePaymentReceipt,
   settledFinancialNatureForPayment,
   summarizePayments,
   tagPaymentAsChequeAwaitingClearance,
@@ -30,7 +29,8 @@ import {
   validarDataBaixa,
   type TituloParaEstorno,
 } from '../../utils/baixaFinanceiraDomain';
-import { pedirDadosBaixa, pedirMotivoEstorno } from '../../utils/baixaFinanceiraUi';
+import { pedirDadosBaixa } from '../../utils/baixaFinanceiraUi';
+import { estornarBaixaComConfirmacao } from '../../services/baixaFinanceiraService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
 import ChequeCaptureModal from '../../components/finance/ChequeCaptureModal';
@@ -83,47 +83,6 @@ interface GrupoCliente {
 
 /** Regra compartilhada com o Dashboard -- ver transactionDueDateInput. */
 const dataReferenciaTransacao = (t: TransacaoData) => transactionDueDateInput(t) || undefined;
-
-const paymentMethods: PaymentMethod[] = [
-  'Dinheiro',
-  'Pix',
-  'Cartão de Crédito',
-  'Cartão de Débito',
-  'Transferência',
-  'Boleto',
-  'Pagamento a Prazo',
-  'Crédito de Devolução',
-  'Outros',
-];
-
-const asPaymentMethod = (value: unknown): PaymentMethod => {
-  const normalized = String(value || '');
-  return paymentMethods.includes(normalized as PaymentMethod)
-    ? normalized as PaymentMethod
-    : 'Outros';
-};
-
-const legacyPaymentForTransaction = (
-  transactionId: string,
-  transactionData: Record<string, any>,
-): PaymentRecord => {
-  const method = asPaymentMethod(transactionData.formaPagamento);
-  const valueCents = Number(transactionData.valorCentavos ?? toCents(transactionData.valor));
-  return {
-    id: transactionId,
-    indice: Number(transactionData.paymentIndex || 1),
-    formaPagamento: method,
-    condicaoPagamento: transactionData.condicaoPagamento === 'aprazo' || method === 'Pagamento a Prazo'
-      ? 'aprazo'
-      : 'avista',
-    valorCentavos: valueCents,
-    valor: fromCents(valueCents),
-    status: transactionData.status === 'Paga' ? 'confirmado' : 'pendente',
-    naturezaFinanceira: financialNatureForPayment(method),
-    movimentaCaixaFisico: transactionData.status === 'Paga' && method === 'Dinheiro',
-    transactionId,
-  };
-};
 
 const ContasReceber: React.FC = () => {
   const { openTab } = useTabs();
@@ -645,154 +604,17 @@ const ContasReceber: React.FC = () => {
     }
   };
 
-  /**
-   * ESTORNO DE BAIXA (pedido da Taiene, Shopping Rural, 24/09/2026). Desfaz
-   * TUDO que a baixa fez, numa transacao so' (ou volta tudo, ou nada):
-   *  - o titulo volta a Pendente, com a forma que tinha antes da baixa;
-   *  - o saldo do banco creditado na baixa e' retirado;
-   *  - a venda/OS de origem volta a mostrar o pagamento como pendente.
-   * Regras de quem pode ser estornado (boleto do banco, credito e cheque ficam
-   * de fora): baixaFinanceiraDomain.planejarEstornoReceber.
-   */
+  /** Estorno: um caminho so' para o sistema (services/baixaFinanceiraService). */
   const handleEstornar = async (t: TransacaoData) => {
-    if (!currentUser || !tenantId) return;
-    if (!podeEstornar) {
-      showError('Sem permissão', 'Você não tem permissão para estornar recebimentos. Peça a um responsável liberar "Financeiro: Estornar Pagamento/Recebimento" no seu usuário.');
-      return;
-    }
-    const plano = planejarEstornoReceber(t);
-    if (!plano.permitido) {
-      showError('Não é possível estornar', plano.bloqueio);
-      return;
-    }
-
-    const doBanco = plano.bancoId && plano.ajusteBancoCentavos < 0
-      ? ` O valor de R$ ${fromCents(-plano.ajusteBancoCentavos).toFixed(2)} sai do saldo do banco.`
-      : '';
-    const motivo = await pedirMotivoEstorno({
-      titulo: 'Estornar recebimento?',
-      texto: `O recebimento de R$ ${transactionNetAmount(t).toFixed(2)} de "${t.descricao}"${t.dataPagamento ? `, recebido em ${dataBrasileira(t.dataPagamento)}` : ''}${t.formaPagamento ? ` (${t.formaPagamento})` : ''}, volta para Pendente${t.pedidoId || t.osId ? ' e a venda (ou OS) de origem passa a mostrar esse valor como a receber' : ''}.${doBanco} Depois é só dar baixa de novo com a data certa.`,
-    });
-    if (!motivo) return;
-
     setIsProcessing(true);
     try {
-      const transactionRef = doc(db, 'transacoes', t.id);
-      await runTransaction(db, async (transaction) => {
-        const transactionSnap = await transaction.get(transactionRef);
-        if (!transactionSnap.exists()) throw new Error('Conta a receber não encontrada.');
-        const transactionData = transactionSnap.data();
-        // Confere com o dado de agora: alguem pode ter estornado ou alterado
-        // a conta depois que a tela carregou.
-        const planoAtual = planejarEstornoReceber({ ...transactionData } as TituloParaEstorno);
-        if (!planoAtual.permitido) {
-          throw new Error(transactionData.status !== 'Paga' ? 'Este recebimento já não está mais pago. Atualize a tela.' : planoAtual.bloqueio);
-        }
-
-        // --- leituras (todas antes de qualquer escrita) ---
-        const saleId = transactionData.pedidoId || t.pedidoId;
-        const serviceOrderId = transactionData.osId || t.osId;
-        const sourceRef = saleId
-          ? doc(db, 'pedidos_venda', saleId)
-          : serviceOrderId
-            ? doc(db, 'ordens_de_servico', serviceOrderId)
-            : null;
-        const sourceSnap = sourceRef ? await transaction.get(sourceRef) : null;
-        if (sourceSnap?.exists() && sourceSnap.data().status === 'Cancelada') {
-          throw new Error(saleId ? 'A venda vinculada está cancelada, então o recebimento não pode ser estornado.' : 'A OS vinculada está cancelada, então o recebimento não pode ser estornado.');
-        }
-
-        const bancoRef = planoAtual.bancoId && planoAtual.ajusteBancoCentavos !== 0 ? doc(db, 'bancos', planoAtual.bancoId) : null;
-        let saldoAtualCentavos = 0;
-        if (bancoRef) {
-          const bancoSnap = await transaction.get(bancoRef);
-          if (!bancoSnap.exists()) throw new Error('O banco desta baixa não foi encontrado, então o saldo não pode ser corrigido.');
-          saldoAtualCentavos = Number(bancoSnap.data().saldoCentavos || 0);
-        }
-
-        // --- escritas ---
-        const valorCentavos = Number(transactionData.valorCentavos ?? toCents(transactionData.valor));
-        transaction.update(transactionRef, {
-          status: 'Pendente',
-          // Sem forma antes da baixa (titulo importado): apaga a que a baixa gravou,
-          // em vez de deixar "Pix" num titulo que ainda nao foi pago.
-          formaPagamento: planoAtual.formaAnterior ? planoAtual.formaAnterior : deleteField(),
-          naturezaFinanceira: planoAtual.naturezaAnterior,
-          movimentaCaixaFisico: false,
-          dataPagamento: deleteField(),
-          recebidoEm: deleteField(),
-          baixaManual: deleteField(),
-          estornadaEm: serverTimestamp(),
-          ultimoEstorno: {
-            motivo,
-            por: currentUser.uid,
-            dataPagamentoEstornada: transactionData.dataPagamento || null,
-            formaPagamentoEstornada: transactionData.formaPagamento || null,
-            valorCentavos,
-          },
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Recebimento estornado: ${motivo}`),
-        });
-
-        if (bancoRef) {
-          transaction.update(bancoRef, {
-            saldoCentavos: saldoAtualCentavos + planoAtual.ajusteBancoCentavos,
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Estorno do recebimento "${t.descricao}"`),
-          });
-        }
-
-        if (sourceRef && sourceSnap?.exists()) {
-          const sourceData = sourceSnap.data();
-          const payments: PaymentRecord[] = Array.isArray(sourceData.pagamentos) && sourceData.pagamentos.length > 0
-            ? sourceData.pagamentos
-            : [legacyPaymentForTransaction(t.id, transactionData)];
-          const updatedPayments = reversePaymentReceipt(payments, {
-            transactionId: t.id,
-            paymentIndex: transactionData.paymentIndex,
-          });
-          const summary = summarizePayments(updatedPayments);
-          transaction.update(sourceRef, {
-            pagamentos: updatedPayments,
-            totalRecebidoCentavos: summary.receivedCents,
-            totalRecebido: summary.received,
-            totalPendenteCentavos: summary.pendingCents,
-            totalPendente: summary.pending,
-            totalTaxasPagamentoCentavos: summary.cardFeeCents,
-            totalTaxasPagamento: summary.cardFee,
-            totalLiquidoFinanceiroCentavos: summary.financialNetCents,
-            totalLiquidoFinanceiro: summary.financialNet,
-            statusPagamento: summary.pendingCents === 0
-              ? 'Paga'
-              : summary.receivedCents > 0
-                ? 'Parcial'
-                : 'Pendente',
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Recebimento estornado em Contas a Receber'),
-          });
-        }
+      await estornarBaixaComConfirmacao({
+        titulo: t,
+        tipo: 'entrada',
+        podeEstornar,
+        tenantId,
+        usuario: currentUser ? { uid: currentUser.uid, email: currentUser.email } : null,
       });
-
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId,
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'financeiro',
-          acao: 'edicao',
-          descricao: `Recebimento "${t.descricao}" de R$ ${transactionNetAmount(t).toFixed(2)} estornado para Pendente. Motivo: ${motivo}`,
-          registroRelacionadoId: t.id,
-          status: 'sucesso',
-          critical: true,
-        });
-      } catch (logError) {
-        console.error('Erro ao registrar auditoria do estorno:', logError);
-      }
-      showSuccess('Recebimento estornado! A conta voltou para Pendente.');
-    } catch (error) {
-      console.error('Erro ao estornar recebimento:', error);
-      showError('Não foi possível estornar', error instanceof Error ? error.message : 'Tente novamente.');
     } finally {
       setIsProcessing(false);
     }

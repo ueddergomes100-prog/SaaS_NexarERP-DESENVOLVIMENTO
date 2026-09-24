@@ -1180,6 +1180,51 @@ export const applyPaymentReceipt = (
   ];
 };
 
+const KNOWN_PAYMENT_METHODS: PaymentMethod[] = [
+  'Dinheiro',
+  'Pix',
+  'Cartão de Crédito',
+  'Cartão de Débito',
+  'Transferência',
+  'Boleto',
+  'Pagamento a Prazo',
+  'Crédito de Devolução',
+  'Outros',
+];
+
+export const asPaymentMethod = (value: unknown): PaymentMethod => {
+  const normalized = String(value || '');
+  return KNOWN_PAYMENT_METHODS.includes(normalized as PaymentMethod)
+    ? normalized as PaymentMethod
+    : 'Outros';
+};
+
+/**
+ * Pagamento "sintetico" de um titulo cuja venda/OS e' antiga e nao tem o
+ * array `pagamentos`: permite baixar/estornar sem esse array.
+ */
+export const legacyPaymentForTransaction = (
+  transactionId: string,
+  transactionData: Record<string, any>,
+): PaymentRecord => {
+  const method = asPaymentMethod(transactionData.formaPagamento);
+  const valueCents = Number(transactionData.valorCentavos ?? toCents(transactionData.valor));
+  return {
+    id: transactionId,
+    indice: Number(transactionData.paymentIndex || 1),
+    formaPagamento: method,
+    condicaoPagamento: transactionData.condicaoPagamento === 'aprazo' || method === 'Pagamento a Prazo'
+      ? 'aprazo'
+      : 'avista',
+    valorCentavos: valueCents,
+    valor: fromCents(valueCents),
+    status: transactionData.status === 'Paga' ? 'confirmado' : 'pendente',
+    naturezaFinanceira: financialNatureForPayment(method),
+    movimentaCaixaFisico: transactionData.status === 'Paga' && method === 'Dinheiro',
+    transactionId,
+  };
+};
+
 /**
  * Desfaz applyPaymentReceipt: o pagamento confirmado volta a pendente, sem
  * os dados do recebimento (forma, natureza, data). Usado no ESTORNO de baixa

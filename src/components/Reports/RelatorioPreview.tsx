@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { doc as firestoreDoc, getDoc } from 'firebase/firestore';
 import { ArrowLeft, FileDown, FileSpreadsheet, Loader2, Printer, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import type { jsPDF } from 'jspdf';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatCompanyAddress } from '../../utils/companyAddress';
@@ -128,7 +128,10 @@ const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
         const pdf = gerarRelatorioPdf(documentoCompleto, preferencias);
         pdfAtual.current = pdf;
         const pdfjs = await import('pdfjs-dist');
-        pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+        // Worker empacotado pelo Vite como .js. NAO usar o .mjs solto (?url): a
+        // hospedagem de producao serve .mjs como text/plain e o navegador
+        // recusa executar -- o relatorio dava "Nao foi possivel montar".
+        if (!pdfjs.GlobalWorkerOptions.workerPort) pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
         const tarefa = pdfjs.getDocument({ data: pdf.output('arraybuffer') });
         const carregado = await tarefa.promise;
         const imagens: string[] = [];

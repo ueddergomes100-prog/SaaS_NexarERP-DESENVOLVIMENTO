@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2, AlertTriangle, Truck, Loader2, History, Search } from 'lucide-react';
+import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2, AlertTriangle, Truck, Loader2, History, Search, Link2, Unlink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
 import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
@@ -10,13 +10,24 @@ import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { notaRecebidaService, NotaRecebidaError } from '../../services/notaRecebidaService';
 import {
+  credorDoFrete,
   descricaoDoTituloDeFrete,
   erroDoFrete,
   freteGeraTituloProprio,
   ratearFreteNosItens,
   somenteDigitos,
+  vencimentoDoFrete,
   type DadosDoFrete,
 } from '../../utils/freteEntradaDomain';
+import {
+  ROTULO_ORIGEM_VINCULO,
+  buscarCadastros,
+  configDoItemSemVinculo,
+  configDoItemVinculado,
+  dadosFiscaisParaCompletar,
+  sugerirVinculos,
+  type TipoCadastro,
+} from '../../utils/vinculoItemNfeDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { addDaysToDateInput } from '../../utils/dateTime';
@@ -137,7 +148,7 @@ const EntradaNFE: React.FC = () => {
    * transportadora, vira um titulo A PAGAR proprio dela -- separado do titulo
    * do fornecedor da mercadoria. Ver src/utils/freteEntradaDomain.ts.
    */
-  const [frete, setFrete] = useState<DadosDoFrete>({ valor: 0, chaveCte: '', transportadoraId: '', transportadoraNome: '' });
+  const [frete, setFrete] = useState<DadosDoFrete>({ valor: 0, chaveCte: '', transportadoraId: '', transportadoraNome: '', vencimento: '', lancarNoFornecedor: false });
   const [buscaTransportadora, setBuscaTransportadora] = useState('');
   /**
    * A transportadora e' um FORNECEDOR do tipo Transportadora -- o cadastro de
@@ -206,6 +217,7 @@ const EntradaNFE: React.FC = () => {
             id: d.id,
             codigo: data.codigo || '',
             nome: data.nome || '',
+            codigosFornecedor: data.codigosFornecedor || {},
             quantidade: Number(data.quantidade || 0),
           });
         });
@@ -286,19 +298,117 @@ const EntradaNFE: React.FC = () => {
 
     itemConfigsInitializedForRef.current = parsedData;
     const usaCsosn = usesCsosn(regimeTributario);
-    const configs = parsedData.items.map((item) => {
-      const { produto: pecaExistente } = matchProdutoFromXmlItem(item, estoqueAtual, fornecedorMatch.id);
+    const configs = parsedData.items.map((item): ItemEntradaConfig => {
+      const { produto: pecaExistente, layer } = matchProdutoFromXmlItem(item, estoqueAtual, fornecedorMatch.id);
       if (pecaExistente) {
-        return buildInitialItemEntradaConfig(item.valorUnitario, pecaExistente, null, usaCsosn);
+        return {
+          ...buildInitialItemEntradaConfig(item.valorUnitario, pecaExistente, null, usaCsosn),
+          origemVinculo: layer === 'ncm_nome' ? 'nome' : (layer ?? 'automatico'),
+        };
       }
-      const materiaPrimaExistente = matchMateriaPrimaFromXmlItem(item, materiasPrimasAtuais);
-      return buildInitialItemEntradaConfig(item.valorUnitario, null, materiaPrimaExistente?.id || null, usaCsosn);
+      const materiaPrimaExistente = matchMateriaPrimaFromXmlItem(item, materiasPrimasAtuais, fornecedorMatch.id);
+      const inicial = buildInitialItemEntradaConfig(item.valorUnitario, null, materiaPrimaExistente?.id || null, usaCsosn);
+      return materiaPrimaExistente ? { ...inicial, origemVinculo: 'automatico' } : inicial;
     });
     setItemConfigs(configs);
   }, [parsedData, fornecedorStatus, fornecedorMatch, estoqueAtual, materiasPrimasAtuais, regimeTributario]);
 
   const handleAlterarTipoItem = (idx: number, tipo: ItemEntradaConfig['tipo']) => {
     setItemConfigs((prev) => prev.map((config, i) => (i === idx ? { ...config, tipo } : config)));
+  };
+
+  /**
+   * VINCULO MANUAL (2026-09-24): liga o item da nota a um produto/materia-prima
+   * que ja existe, em vez de cadastrar de novo. Na confirmacao o codigo que o
+   * fornecedor usa fica guardado no cadastro, e da proxima vez o sistema
+   * vincula sozinho.
+   */
+  const [vinculoAberto, setVinculoAberto] = useState<number | null>(null);
+  const [buscaVinculo, setBuscaVinculo] = useState('');
+
+  const handleVincularItem = (idx: number, tipo: TipoCadastro, id: string) => {
+    if (!parsedData) return;
+    const item = parsedData.items[idx];
+    const fiscal = tipo === 'estoque' ? estoqueAtual.find((p) => p.id === id) : undefined;
+    const config = configDoItemVinculado({ tipo, id, fiscal }, item.valorUnitario, usesCsosn(regimeTributario));
+    setItemConfigs((prev) => prev.map((atual, i) => (i === idx ? { ...config, origemVinculo: 'manual' } : atual)));
+    setVinculoAberto(null);
+    setBuscaVinculo('');
+  };
+
+  const handleDesvincularItem = (idx: number) => {
+    if (!parsedData) return;
+    const config = configDoItemSemVinculo(parsedData.items[idx].valorUnitario, usesCsosn(regimeTributario));
+    setItemConfigs((prev) => prev.map((atual, i) => (i === idx ? config : atual)));
+  };
+
+  const renderPainelDeVinculo = (idx: number, item: ParsedItem) => {
+    if (!fornecedorMatch) return null;
+    const sugestoes = sugerirVinculos(item, estoqueAtual, materiasPrimasAtuais, fornecedorMatch.id);
+    const resultados = buscaVinculo.trim() ? buscarCadastros(buscaVinculo, estoqueAtual, materiasPrimasAtuais) : [];
+    const rotuloTipo = (tipo: TipoCadastro) => (tipo === 'estoque' ? 'Produto' : 'Matéria-prima');
+    const linhaStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', width: '100%', textAlign: 'left', padding: '8px 12px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px' };
+
+    return (
+      <div style={{ marginBottom: '14px', padding: '14px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+        <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '10px', lineHeight: 1.5 }}>
+          Escolha o cadastro que corresponde a <strong>{item.descricao}</strong>. O estoque será somado nele e, nas próximas notas
+          deste fornecedor com o código <strong>{item.codigo || '—'}</strong>, o sistema vincula sozinho.
+        </div>
+
+        {sugestoes.length > 0 && (
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>SUGESTÕES</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {sugestoes.map((sugestao) => (
+                <button key={`${sugestao.tipo}-${sugestao.id}`} type="button" style={linhaStyle} onClick={() => handleVincularItem(idx, sugestao.tipo, sugestao.id)}>
+                  <span>
+                    <strong>{sugestao.nome}</strong>
+                    <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>
+                      {sugestao.codigo ? `cód. ${sugestao.codigo} · ` : ''}{rotuloTipo(sugestao.tipo)}
+                    </span>
+                    <span style={{ display: 'block', fontSize: '11.5px', color: 'var(--text-muted)' }}>{sugestao.motivos.join(' · ')}</span>
+                  </span>
+                  <span style={{ fontWeight: 700, color: sugestao.pontuacao >= 80 ? '#10b981' : '#f59e0b', whiteSpace: 'nowrap' }}>{sugestao.pontuacao}%</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>BUSCAR NO CADASTRO</div>
+        <input
+          type="text"
+          value={buscaVinculo}
+          onChange={(e) => setBuscaVinculo(e.target.value)}
+          placeholder="Nome, código ou código de barras..."
+          aria-label="Buscar produto ou matéria-prima para vincular"
+          style={{ ...campoInputStyle, marginBottom: '8px' }}
+        />
+        {buscaVinculo.trim() && resultados.length === 0 && (
+          <div style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
+            Nada encontrado para "{buscaVinculo.trim()}". Confira a escrita ou deixe o item como novo.
+          </div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '240px', overflowY: 'auto' }}>
+          {resultados.map((resultado) => (
+            <button key={`${resultado.tipo}-${resultado.id}`} type="button" style={linhaStyle} onClick={() => handleVincularItem(idx, resultado.tipo, resultado.id)}>
+              <span>
+                <strong>{resultado.nome}</strong>
+                <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>
+                  {resultado.codigo ? `cód. ${resultado.codigo} · ` : ''}{rotuloTipo(resultado.tipo)}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const handleAbrirVinculo = (idx: number) => {
+    setBuscaVinculo('');
+    setVinculoAberto((atual) => (atual === idx ? null : idx));
   };
 
   const handleAlterarCampoItem = (idx: number, campo: keyof ItemEntradaConfig, valor: string) => {
@@ -537,7 +647,7 @@ const EntradaNFE: React.FC = () => {
         });
         // Frete embutido ja vem preenchido, sem transportadora: quem cobrou
         // foi o fornecedor da mercadoria, entao nao gera titulo separado.
-        setFrete({ valor: valorFreteXml, chaveCte: '', transportadoraId: '', transportadoraNome: '' });
+        setFrete({ valor: valorFreteXml, chaveCte: '', transportadoraId: '', transportadoraNome: '', vencimento: '', lancarNoFornecedor: false });
         setBuscaTransportadora('');
 
       } catch (err) {
@@ -598,6 +708,12 @@ const EntradaNFE: React.FC = () => {
       const freteDosItens = ratearFreteNosItens(parsedData.items, frete.valor);
       const custoDoItem = (indice: number) => freteDosItens[indice]?.custoUnitarioComFrete ?? parsedData.items[indice].valorUnitario;
 
+      // Dois itens da nota podem ir para o MESMO cadastro (vinculo manual).
+      // A quantidade e' somada aqui, item a item; ler de novo do estado da
+      // tela faria o segundo item sobrescrever o primeiro.
+      const quantidadeAtualDoEstoque = new Map<string, number>();
+      const quantidadeAtualDaMateriaPrima = new Map<string, number>();
+
       for (let idx = 0; idx < parsedData.items.length; idx++) {
         const item = parsedData.items[idx];
         const config = itemConfigs[idx];
@@ -605,11 +721,15 @@ const EntradaNFE: React.FC = () => {
         if (config.tipo === 'materia_prima') {
           if (config.classificacao === 'materia_prima' && config.matchId) {
             const materiaPrimaExistente = materiasPrimasAtuais.find((m) => m.id === config.matchId);
-            const novaQuantidade = (materiaPrimaExistente?.quantidade || 0) + item.quantidade;
+            const quantidadeAntes = quantidadeAtualDaMateriaPrima.get(config.matchId) ?? (materiaPrimaExistente?.quantidade || 0);
+            const novaQuantidade = quantidadeAntes + item.quantidade;
+            quantidadeAtualDaMateriaPrima.set(config.matchId, novaQuantidade);
             await updateDoc(doc(db, 'materias_primas', config.matchId), {
               quantidade: novaQuantidade,
               precoCusto: custoDoItem(idx),
               fornecedor: fornecedorMatch.nome,
+              // Historico do fornecedor: da proxima vez este codigo ja vincula sozinho.
+              ...(item.codigo ? { [`codigosFornecedor.${fornecedorMatch.id}`]: item.codigo } : {}),
               updatedAt: serverTimestamp(),
               ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Entrada de NF ${parsedData.numeroNF}`),
             });
@@ -636,6 +756,7 @@ const EntradaNFE: React.FC = () => {
               estoqueMinimo: 0,
               precoCusto: custoDoItem(idx),
               fornecedor: fornecedorMatch.nome,
+              ...(item.codigo ? { codigosFornecedor: { [fornecedorMatch.id]: item.codigo } } : {}),
               tenantId,
               createdAt: serverTimestamp(),
               ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
@@ -677,8 +798,14 @@ const EntradaNFE: React.FC = () => {
           // usa pra este item, pra a proxima importacao dele cair direto
           // na camada 2 (mais rapida e confiavel que NCM+nome).
           const pecaExistente = estoqueAtual.find((p) => p.id === config.matchId);
-          const novaQuantidade = (pecaExistente?.quantidade || 0) + item.quantidade;
+          const quantidadeAntes = quantidadeAtualDoEstoque.get(config.matchId) ?? (pecaExistente?.quantidade || 0);
+          const novaQuantidade = quantidadeAntes + item.quantidade;
+          quantidadeAtualDoEstoque.set(config.matchId, novaQuantidade);
+          // EAN e NCM que o cadastro ainda nao tem e a nota traz: completa,
+          // sem nunca sobrescrever o que ja esta preenchido.
+          const completarCadastro = pecaExistente ? dadosFiscaisParaCompletar(item, pecaExistente) : {};
           await updateDoc(doc(db, 'estoque', config.matchId), {
+            ...completarCadastro,
             quantidade: novaQuantidade,
             precoCusto: custoDoItem(idx),
             fornecedor: fornecedorMatch.nome,
@@ -775,15 +902,18 @@ const EntradaNFE: React.FC = () => {
       // custo e quem cobra e' o mesmo fornecedor.
       if (freteGeraTituloProprio(frete)) {
         const chaveCte = somenteDigitos(frete.chaveCte);
+        const credorFrete = credorDoFrete(frete, fornecedorMatch);
         const tituloFrete = await addDoc(collection(db, 'transacoes'), {
-          descricao: descricaoDoTituloDeFrete(parsedData.numeroNF, frete),
-          data: addDaysToDateInput(parsedData.dataEmissao, 30),
+          // Sem transportadora (frete a prazo cobrado pelo fornecedor da nota),
+          // a descricao leva o nome do fornecedor para o titulo nao ficar anonimo.
+          descricao: descricaoDoTituloDeFrete(parsedData.numeroNF, { ...frete, transportadoraNome: credorFrete.nome }),
+          data: vencimentoDoFrete(frete, parsedData.dataEmissao),
           valor: frete.valor,
           categoria: 'FRETES',
           status: 'Pendente',
           tipo: 'saida',
-          fornecedorId: frete.transportadoraId,
-          fornecedorNome: frete.transportadoraNome,
+          fornecedorId: credorFrete.id,
+          fornecedorNome: credorFrete.nome,
           ...(chaveCte ? { chaveCte } : {}),
           notaFiscalEntradaNumero: parsedData.numeroNF,
           tenantId,
@@ -843,7 +973,7 @@ const EntradaNFE: React.FC = () => {
         `${pecasCriadas} produto(s) novo(s) cadastrado(s)`,
         ...(materiasPrimasAtualizadas > 0 ? [`${materiasPrimasAtualizadas} matéria(s)-prima(s) atualizada(s)`] : []),
         ...(materiasPrimasCriadas > 0 ? [`${materiasPrimasCriadas} matéria(s)-prima(s) nova(s)`] : []),
-        `${duplicatasParaLancar.length} título(s) em Contas a Pagar`,
+        `${titulosPagarIds.length} título(s) em Contas a Pagar${freteGeraTituloProprio(frete) ? ' (incluindo o do frete)' : ''}`,
       ];
       const numeroImportado = parsedData.numeroNF;
 
@@ -872,7 +1002,7 @@ const EntradaNFE: React.FC = () => {
   const handleRemoverFile = () => {
     setSelectedFile(null);
     setParsedData(null);
-    setFrete({ valor: 0, chaveCte: '', transportadoraId: '', transportadoraNome: '' });
+    setFrete({ valor: 0, chaveCte: '', transportadoraId: '', transportadoraNome: '', vencimento: '', lancarNoFornecedor: false });
     setBuscaTransportadora('');
     setFornecedorMatch(null);
     setFornecedorStatus('idle');
@@ -1070,7 +1200,8 @@ const EntradaNFE: React.FC = () => {
                   O valor do frete é <strong>dividido entre os produtos</strong> (proporcional ao valor de cada um) e entra no
                   custo que vai para o estoque. Informando a <strong>transportadora</strong>, o frete vira um título a pagar
                   separado, no nome dela. Frete que o próprio fornecedor cobrou dentro da nota já vem preenchido — nesse caso
-                  deixe a transportadora em branco.
+                  deixe a transportadora em branco. Se o fornecedor cobra o frete <strong>a prazo, fora das duplicatas</strong>, marque a
+                  opção abaixo para lançar o título dele no Contas a Pagar.
                 </p>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
@@ -1134,7 +1265,36 @@ const EntradaNFE: React.FC = () => {
                       <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>{somenteDigitos(frete.chaveCte).length} de 44</span>
                     )}
                   </div>
+
+                  <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Vencimento do frete</label>
+                    <input
+                      type="date"
+                      value={vencimentoDoFrete(frete, parsedData.dataEmissao)}
+                      onChange={(e) => setFrete({ ...frete, vencimento: e.target.value })}
+                      style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+                    />
+                    <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Padrão: 30 dias da emissão da nota.</span>
+                  </div>
                 </div>
+
+                {!frete.transportadoraId && (
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginTop: '14px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={frete.lancarNoFornecedor === true}
+                      onChange={(e) => setFrete({ ...frete, lancarNoFornecedor: e.target.checked })}
+                      style={{ marginTop: '3px' }}
+                    />
+                    <span>
+                      O frete é cobrado <strong>a prazo pelo próprio fornecedor</strong>, fora das duplicatas da nota — lançar um título a pagar
+                      separado no nome de {fornecedorMatch?.nome || 'fornecedor'}.
+                      <span style={{ display: 'block', fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                        Só marque se as duplicatas acima <strong>não</strong> incluem o frete; senão ele seria pago em dobro.
+                      </span>
+                    </span>
+                  </label>
+                )}
 
                 {erroDoFrete(frete) && (
                   <div style={{ marginTop: '14px', padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid #f59e0b', color: '#fbbf24', fontSize: '13px' }}>
@@ -1146,7 +1306,7 @@ const EntradaNFE: React.FC = () => {
                   <div style={{ marginTop: '14px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                     {currencyFormat.format(frete.valor)} entra no custo dos {parsedData.items.length} produto(s).{' '}
                     {freteGeraTituloProprio(frete)
-                      ? <>Vai gerar <strong>mais um título</strong> a pagar, de {frete.transportadoraNome}.</>
+                      ? <>Vai gerar <strong>mais um título</strong> a pagar, de {credorDoFrete(frete, fornecedorMatch ?? { id: '', nome: '' }).nome}, vencendo em {vencimentoDoFrete(frete, parsedData.dataEmissao).split('-').reverse().join('/')}.</>
                       : <>Sem transportadora: <strong>não</strong> gera título separado (quem cobra é o fornecedor da nota).</>}
                   </div>
                 )}
@@ -1182,6 +1342,12 @@ const EntradaNFE: React.FC = () => {
                   <Package size={20} color="var(--accent-purple)" />
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Itens Encontrados no XML ({parsedData.items.length})</h3>
                 </div>
+                {itemConfigs.some((c) => c.classificacao === 'novo') && (
+                  <div style={{ padding: '10px 24px', borderBottom: '1px solid var(--border-color)', fontSize: '12.5px', color: '#fbbf24', lineHeight: 1.5 }}>
+                    {itemConfigs.filter((c) => c.classificacao === 'novo').length} item(ns) serão cadastrados como <strong>novos</strong>. Se algum já existe no seu
+                    cadastro, use <strong>"Já tenho este item cadastrado — vincular"</strong> para não duplicar; o sistema guarda o vínculo e reconhece sozinho nas próximas notas deste fornecedor.
+                  </div>
+                )}
 
                 {parsedData.items.map((item, idx) => {
                   const config = itemConfigs[idx];
@@ -1230,6 +1396,30 @@ const EntradaNFE: React.FC = () => {
                           </div>
                         )}
                       </div>
+
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                        {config.classificacao !== 'novo' && (
+                          <>
+                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                              {ROTULO_ORIGEM_VINCULO[config.origemVinculo ?? 'automatico']}:{' '}
+                              <strong style={{ color: 'var(--text-primary)' }}>{(correspondenteEstoque ?? correspondenteMateriaPrima)?.nome}</strong>
+                            </span>
+                            <button type="button" className="btn-secondary" onClick={() => handleAbrirVinculo(idx)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', fontSize: '12px' }}>
+                              <Link2 size={13} /> Trocar cadastro
+                            </button>
+                            <button type="button" className="btn-secondary" onClick={() => handleDesvincularItem(idx)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', fontSize: '12px' }}>
+                              <Unlink size={13} /> Desvincular (cadastrar como novo)
+                            </button>
+                          </>
+                        )}
+                        {config.classificacao === 'novo' && (
+                          <button type="button" className="btn-secondary" onClick={() => handleAbrirVinculo(idx)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', fontSize: '12px' }}>
+                            <Link2 size={13} /> Já tenho este item cadastrado — vincular
+                          </button>
+                        )}
+                      </div>
+
+                      {vinculoAberto === idx && renderPainelDeVinculo(idx, item)}
 
                       {config.tipo === 'revenda' ? (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', padding: '14px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>

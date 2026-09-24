@@ -50,9 +50,14 @@ export const buildNotaFiscalEntradaRecord = (input: NotaFiscalEntradaRecordInput
 
 export type ItemEntradaClassificacao = 'estoque' | 'materia_prima' | 'novo';
 
+/** Como o item foi ligado a um cadastro existente (a tela mostra de onde veio). */
+export type OrigemDoVinculoItem = 'ean' | 'codigo_fornecedor' | 'nome' | 'automatico' | 'manual';
+
 export interface ItemEntradaConfig {
   classificacao: ItemEntradaClassificacao;
   matchId: string | null;
+  /** So faz sentido quando classificacao != 'novo'. Vazio = nao informado. */
+  origemVinculo?: OrigemDoVinculoItem;
   tipo: NotaFiscalEntradaItemTipo;
   precoVenda: string;
   csosn: string;

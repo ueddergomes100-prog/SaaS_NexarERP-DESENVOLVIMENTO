@@ -3,6 +3,7 @@ const { authenticate } = require('../middleware/auth');
 const { canUseFiscal, resolveTenantId, loadSpedyConfig } = require('../services/spedyAcesso');
 const {
   mensagemDeFalha,
+  erroDeModeloDaChave,
   mensagemNaoEncontrada,
   resumoDaNota,
   situacaoDaNota,
@@ -47,6 +48,8 @@ router.get('/buscar', async (req, res) => {
 
     const { ok, chave, erro } = validarChaveAcesso(req.query.chave);
     if (!ok) return res.status(400).json({ error: erro });
+    const erroModelo = erroDeModeloDaChave(chave);
+    if (erroModelo) return res.status(400).json({ error: erroModelo });
 
     const tenantId = resolveTenantId(req);
     const config = await loadSpedyConfig(tenantId);
@@ -56,12 +59,13 @@ router.get('/buscar', async (req, res) => {
       const corpo = await resposta.text().catch(() => '');
       let parsed = corpo;
       try { parsed = JSON.parse(corpo); } catch { /* texto puro */ }
-      return res.status(resposta.status === 404 ? 404 : 502).json({ error: mensagemDeFalha(resposta.status, parsed) });
+      if (resposta.status === 404) return res.status(404).json({ error: mensagemNaoEncontrada(chave), situacao: 'nao_encontrada' });
+      return res.status(502).json({ error: mensagemDeFalha(resposta.status, parsed) });
     }
 
     const dados = await resposta.json();
     const nota = Array.isArray(dados?.data) ? dados.data[0] : (Array.isArray(dados) ? dados[0] : dados?.data);
-    if (!nota) return res.status(404).json({ error: mensagemNaoEncontrada(), situacao: 'nao_encontrada' });
+    if (!nota) return res.status(404).json({ error: mensagemNaoEncontrada(chave), situacao: 'nao_encontrada' });
 
     const { situacao, motivo } = situacaoDaNota(nota);
     const resumo = resumoDaNota(nota);

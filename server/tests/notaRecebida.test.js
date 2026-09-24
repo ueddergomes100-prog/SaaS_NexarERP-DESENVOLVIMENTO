@@ -2,7 +2,9 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const {
   TAMANHO_CHAVE,
+  dadosDaChave,
   digitoVerificador,
+  erroDeModeloDaChave,
   mensagemDeFalha,
   mensagemNaoEncontrada,
   resumoDaNota,
@@ -96,6 +98,43 @@ test('a mensagem de "nao achei" explica os 90 dias e o CNPJ', () => {
   assert.match(m, /90 dias/);
   assert.match(m, /CNPJ/);
   assert.match(m, /XML/);
+});
+
+const chaveComModelo = (aamm, modelo) => {
+  const base = `35${aamm}12345678000199${modelo}001000001234100001234`.slice(0, 43);
+  return base + String(digitoVerificador(base));
+};
+const AGORA = new Date('2026-09-24T12:00:00Z');
+
+test('a chave conta quem emitiu, quando e qual o numero', () => {
+  const d = dadosDaChave(chaveComModelo('2609', '55'));
+  assert.equal(d.cnpjEmitente, '12345678000199');
+  assert.equal(d.ano, 2026);
+  assert.equal(d.mes, 9);
+  assert.equal(d.modelo, '55');
+  assert.equal(d.numero, '1234');
+  assert.equal(dadosDaChave('123'), null);
+});
+
+test('nao achei, nota recente: cita numero, mes e CNPJ do emitente', () => {
+  const m = mensagemNaoEncontrada(chaveComModelo('2609', '55'), AGORA);
+  assert.match(m, /nº 1234/);
+  assert.match(m, /09\/2026/);
+  assert.match(m, /12\.345\.678\/0001-99/);
+  assert.match(m, /ainda não apareceu/);
+});
+
+test('nao achei, nota com mais de 90 dias: diz que e velha demais e manda para o XML', () => {
+  const m = mensagemNaoEncontrada(chaveComModelo('2604', '55'), AGORA);
+  assert.match(m, /há mais de 90 dias/);
+  assert.match(m, /XML/);
+});
+
+test('chave de CT-e ou NFC-e e barrada com explicacao, NF-e normal nao', () => {
+  assert.match(erroDeModeloDaChave(chaveComModelo('2609', '57')), /CT-e/);
+  assert.match(erroDeModeloDaChave(chaveComModelo('2609', '57')), /Frete/);
+  assert.match(erroDeModeloDaChave(chaveComModelo('2609', '65')), /NFC-e/);
+  assert.equal(erroDeModeloDaChave(chaveComModelo('2609', '55')), null);
 });
 
 test('falha por plano sem o recurso diz onde ativar', () => {

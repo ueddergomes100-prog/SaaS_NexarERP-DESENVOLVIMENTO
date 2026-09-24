@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   TAMANHO_CHAVE_ACESSO,
+  credorDoFrete,
+  vencimentoDoFrete,
   descricaoDoTituloDeFrete,
   digitoVerificadorDaChave,
   erroDaChaveAcesso,
@@ -154,4 +156,40 @@ test('descricao do titulo identifica a nota, a transportadora e o CT-e', () => {
 test('sem CT-e a descricao nao inventa referencia', () => {
   const d = descricaoDoTituloDeFrete('13199', frete({ valor: 50, transportadoraId: 't1', transportadoraNome: 'TRANSP X' }));
   assert.equal(d, 'FRETE NF 13199 - TRANSP X');
+});
+
+// --- frete a prazo (2026-09-24) ---------------------------------------------
+
+test('frete cobrado a parte pelo fornecedor gera titulo proprio, no nome dele', () => {
+  const f = frete({ valor: 80, lancarNoFornecedor: true });
+  assert.equal(freteGeraTituloProprio(f), true);
+  const credor = credorDoFrete(f, { id: 'f1', nome: 'FORNECEDOR A' });
+  assert.deepEqual(credor, { id: 'f1', nome: 'FORNECEDOR A', ehFornecedorDaNota: true });
+  // sem valor, marcar a opcao nao gera titulo
+  assert.equal(freteGeraTituloProprio(frete({ lancarNoFornecedor: true })), false);
+});
+
+test('com transportadora escolhida, ela e o credor mesmo com a opcao do fornecedor marcada', () => {
+  const f = frete({ valor: 80, lancarNoFornecedor: true, transportadoraId: 't1', transportadoraNome: 'TRANSP' });
+  assert.deepEqual(credorDoFrete(f, { id: 'f1', nome: 'FORNECEDOR A' }), { id: 't1', nome: 'TRANSP', ehFornecedorDaNota: false });
+});
+
+test('vencimento do frete: o informado, ou emissao + 30 dias', () => {
+  assert.equal(vencimentoDoFrete(frete({ vencimento: '2026-11-05' }), '2026-09-10'), '2026-11-05');
+  assert.equal(vencimentoDoFrete(frete(), '2026-09-10'), '2026-10-10');
+  assert.equal(vencimentoDoFrete(frete({ vencimento: 'lixo' }), '2026-09-10'), '2026-10-10');
+});
+
+test('vencimento fora do formato de data e recusado com mensagem', () => {
+  assert.match(String(erroDoFrete(frete({ valor: 10, vencimento: '05/11/2026' }))), /vencimento do frete/i);
+  assert.equal(erroDoFrete(frete({ valor: 10, vencimento: '2026-11-05' })), null);
+});
+
+test('chave de CT-e com valor e credor = fornecedor da nota passa', () => {
+  const chave = chaveValida(BASE43.slice(0, 43));
+  assert.equal(erroDoFrete(frete({ chaveCte: chave, valor: 50, lancarNoFornecedor: true })), null);
+});
+
+test('descricao sem transportadora nao deixa hifen sobrando', () => {
+  assert.equal(descricaoDoTituloDeFrete('13199', frete({ valor: 50, lancarNoFornecedor: true })), 'FRETE NF 13199');
 });

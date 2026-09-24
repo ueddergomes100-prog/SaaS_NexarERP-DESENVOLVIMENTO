@@ -1,4 +1,5 @@
 import { ratearValorPorPesos } from './notaAvulsaDomain';
+import { addDaysToDateInput } from './dateTime';
 
 /**
  * FRETE (CT-e) NA ENTRADA DE NOTA (2026-09-21).
@@ -116,18 +117,55 @@ export interface DadosDoFrete {
   /** Fornecedor do tipo Transportadora. Vazio = frete do proprio fornecedor. */
   transportadoraId: string;
   transportadoraNome: string;
+  /** Vencimento do titulo do frete (AAAA-MM-DD). Vazio = emissao da nota + 30 dias. */
+  vencimento?: string;
+  /**
+   * Frete cobrado A PRAZO pelo proprio fornecedor da nota, FORA das duplicatas
+   * (pedido do dono, 2026-09-24): gera um titulo a pagar dele, separado. Fica
+   * desligado por padrao porque, se as duplicatas ja incluem o frete, ligar
+   * faria a empresa pagar duas vezes. Ignorado quando ha transportadora.
+   */
+  lancarNoFornecedor?: boolean;
 }
 
+/** Dias de prazo padrao do frete quando ninguem informa o vencimento. */
+export const PRAZO_PADRAO_FRETE_DIAS = 30;
+
 /**
- * O frete gera um titulo PROPRIO (da transportadora)?
+ * O frete gera um titulo PROPRIO?
  *
- * So' quando ha valor E transportadora escolhida. Sem transportadora, o frete
- * foi cobrado pelo fornecedor da mercadoria dentro da propria nota -- entra no
- * custo, mas nao cria segundo titulo, senao a empresa pagaria duas vezes.
+ * So' quando ha valor E um credor: a transportadora escolhida, ou o proprio
+ * fornecedor quando a pessoa marcou que o frete foi cobrado a parte. Sem
+ * nenhum dos dois, o frete foi cobrado dentro da nota -- entra no custo, mas
+ * nao cria segundo titulo, senao a empresa pagaria duas vezes.
  */
 export const freteGeraTituloProprio = (frete: DadosDoFrete): boolean => (
-  Number(frete.valor) > 0 && Boolean(String(frete.transportadoraId || '').trim())
+  Number(frete.valor) > 0
+  && (Boolean(String(frete.transportadoraId || '').trim()) || frete.lancarNoFornecedor === true)
 );
+
+export interface CredorDoFrete {
+  id: string;
+  nome: string;
+  /** true quando o credor e' o fornecedor da mercadoria (nao uma transportadora). */
+  ehFornecedorDaNota: boolean;
+}
+
+/** Quem recebe o titulo do frete: a transportadora, se houver, senao o fornecedor da nota. */
+export const credorDoFrete = (frete: DadosDoFrete, fornecedor: { id: string; nome: string }): CredorDoFrete => {
+  const transportadoraId = String(frete.transportadoraId || '').trim();
+  if (transportadoraId) return { id: transportadoraId, nome: frete.transportadoraNome, ehFornecedorDaNota: false };
+  return { id: fornecedor.id, nome: fornecedor.nome, ehFornecedorDaNota: true };
+};
+
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Vencimento efetivo do titulo do frete (o informado, ou emissao + 30 dias). */
+export const vencimentoDoFrete = (frete: DadosDoFrete, dataEmissao: string): string => {
+  const informado = String(frete.vencimento || '').trim();
+  if (DATA_ISO.test(informado)) return informado;
+  return addDaysToDateInput(dataEmissao, PRAZO_PADRAO_FRETE_DIAS);
+};
 
 /**
  * Erro em portugues do bloco de frete, ou `null`. A tela mostra isto antes de
@@ -144,8 +182,12 @@ export const erroDoFrete = (frete: DadosDoFrete): string | null => {
   if (somenteDigitos(frete.chaveCte).length === TAMANHO_CHAVE_ACESSO && valor <= 0) {
     return 'Você informou a chave do conhecimento de transporte, mas não o valor do frete.';
   }
-  if (valor > 0 && !String(frete.transportadoraId || '').trim() && somenteDigitos(frete.chaveCte).length > 0) {
+  if (valor > 0 && !frete.lancarNoFornecedor && !String(frete.transportadoraId || '').trim() && somenteDigitos(frete.chaveCte).length > 0) {
     return 'Escolha a transportadora do conhecimento de transporte, ou apague a chave se o frete foi cobrado pelo próprio fornecedor.';
+  }
+  const vencimento = String(frete.vencimento || '').trim();
+  if (vencimento && !DATA_ISO.test(vencimento)) {
+    return 'O vencimento do frete não é uma data válida. Escolha a data no calendário.';
   }
   return null;
 };
@@ -154,5 +196,6 @@ export const erroDoFrete = (frete: DadosDoFrete): string | null => {
 export const descricaoDoTituloDeFrete = (numeroNota: string, frete: DadosDoFrete): string => {
   const chave = somenteDigitos(frete.chaveCte);
   const complemento = chave ? ` - CT-e ${chave.slice(-6)}` : '';
-  return `FRETE NF ${numeroNota} - ${frete.transportadoraNome}${complemento}`;
+  const credor = String(frete.transportadoraNome || '').trim();
+  return `FRETE NF ${numeroNota}${credor ? ` - ${credor}` : ''}${complemento}`;
 };

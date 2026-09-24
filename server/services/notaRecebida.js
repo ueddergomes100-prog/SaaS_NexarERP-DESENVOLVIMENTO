@@ -98,15 +98,75 @@ const resumoDaNota = (nota) => ({
   chave: somenteDigitos(nota?.accessKey || ''),
 });
 
+const DIAS_RETENCAO_SEFAZ = 90;
+
 /**
- * Mensagem de "não achei" -- explica os dois motivos reais (90 dias e CNPJ),
- * para a pessoa não ficar repetindo a mesma busca.
+ * O que a propria chave de acesso ja conta (44 digitos, posicoes fixas):
+ * UF(2) AAMM(4) CNPJ do emitente(14) modelo(2) serie(3) numero(9) tipo(1)
+ * codigo(8) DV(1). Serve para explicar POR QUE a nota nao aparece, sem
+ * precisar de mais nenhuma consulta.
  */
-const mensagemNaoEncontrada = () => (
-  'Esta nota ainda não chegou da SEFAZ. Só aparecem aqui notas emitidas contra o CNPJ da sua empresa '
-  + 'nos últimos 90 dias. Se a nota foi emitida agora, tente de novo em alguns minutos; '
-  + 'se for mais antiga ou de outro CNPJ, use o arquivo XML.'
+const dadosDaChave = (chave) => {
+  const c = somenteDigitos(chave);
+  if (c.length !== TAMANHO_CHAVE) return null;
+  return {
+    uf: c.slice(0, 2),
+    ano: 2000 + Number(c.slice(2, 4)),
+    mes: Number(c.slice(4, 6)),
+    cnpjEmitente: c.slice(6, 20),
+    modelo: c.slice(20, 22),
+    serie: String(Number(c.slice(22, 25))),
+    numero: String(Number(c.slice(25, 34))),
+  };
+};
+
+const formatarCnpj = (c) => (
+  c.length === 14 ? `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}` : c
 );
+
+const NOME_DO_MODELO = { 57: 'um CT-e (conhecimento de transporte)', 58: 'um MDF-e (manifesto de transporte)', 65: 'uma NFC-e (nota de consumidor)' };
+
+/**
+ * A chave nao e' de NF-e (modelo 55)? Devolve a explicacao, ou null. Barra a
+ * busca ANTES de perguntar a Spedy: colar a chave do CT-e no campo da nota e'
+ * o erro mais comum, e a resposta "nao chegou da SEFAZ" so' faria a pessoa
+ * repetir a busca.
+ */
+const erroDeModeloDaChave = (chave) => {
+  const dados = dadosDaChave(chave);
+  if (!dados || dados.modelo === '55') return null;
+  const quem = NOME_DO_MODELO[Number(dados.modelo)] || `um documento de modelo ${dados.modelo}`;
+  const dica = dados.modelo === '57'
+    ? ' O frete se lança no bloco "Frete / Conhecimento de Transporte" da nota de mercadoria, com esta chave do CT-e.'
+    : '';
+  return `Esta chave é de ${quem}, não de uma NF-e de mercadoria (modelo 55).${dica}`;
+};
+
+/**
+ * Mensagem de "não achei" -- explica o motivo REAL quando a chave permite
+ * saber (nota velha demais) e, senao, os dois motivos possiveis (90 dias e
+ * CNPJ), para a pessoa nao ficar repetindo a mesma busca. `agora` entra por
+ * parametro para o teste nao depender do relogio.
+ */
+const mensagemNaoEncontrada = (chave = '', agora = new Date()) => {
+  const dados = dadosDaChave(chave);
+  const geral = 'Esta nota ainda não chegou da SEFAZ. Só aparecem aqui notas emitidas contra o CNPJ da sua empresa '
+    + `nos últimos ${DIAS_RETENCAO_SEFAZ} dias. Se a nota foi emitida agora, tente de novo em alguns minutos; `
+    + 'se for mais antiga ou de outro CNPJ, use o arquivo XML.';
+  if (!dados || dados.mes < 1 || dados.mes > 12) return geral;
+
+  const quando = `${String(dados.mes).padStart(2, '0')}/${dados.ano}`;
+  const identificacao = `Nota nº ${dados.numero} (série ${dados.serie}), emitida em ${quando} pelo CNPJ ${formatarCnpj(dados.cnpjEmitente)}.`;
+  // Ultimo dia do mes de emissao: se ele ja passou dos 90 dias, a nota inteira passou.
+  const fimDoMes = new Date(Date.UTC(dados.ano, dados.mes, 0, 23, 59, 59));
+  const diasDesdeOFimDoMes = (agora.getTime() - fimDoMes.getTime()) / 86400000;
+  if (diasDesdeOFimDoMes > DIAS_RETENCAO_SEFAZ) {
+    return `${identificacao} Ela foi emitida há mais de ${DIAS_RETENCAO_SEFAZ} dias e a SEFAZ não entrega mais notas tão antigas. `
+      + 'Peça o arquivo XML ao fornecedor e use "Enviar arquivo XML".';
+  }
+  return `${identificacao} Ela ainda não apareceu para o CNPJ da sua empresa. Confira se a nota foi emitida contra o CNPJ certo; `
+    + 'se foi emitida agora, tente de novo em alguns minutos; se o fornecedor já enviou o arquivo, use "Enviar arquivo XML".';
+};
 
 /** Traduz a falha da Spedy para algo que o usuário resolve sozinho. */
 const mensagemDeFalha = (status, corpo) => {
@@ -126,7 +186,9 @@ const mensagemDeFalha = (status, corpo) => {
 
 module.exports = {
   TAMANHO_CHAVE,
+  dadosDaChave,
   digitoVerificador,
+  erroDeModeloDaChave,
   mensagemDeFalha,
   mensagemNaoEncontrada,
   resumoDaNota,

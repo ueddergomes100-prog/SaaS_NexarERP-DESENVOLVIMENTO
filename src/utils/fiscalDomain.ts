@@ -1,5 +1,13 @@
 import { getServiceTotal } from './osServicePricing';
 
+/** Maiusculas, sem acento, so' letras/numeros e espacos simples -- para comparar descricoes de item. */
+export const normalizarTextoDeItem = (texto: unknown): string => String(texto ?? '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toUpperCase()
+  .replace(/[^A-Z0-9]+/g, ' ')
+  .trim();
+
 export type RegimeTributario = 'simples_nacional' | 'lucro_presumido' | 'lucro_real';
 
 export const REGIME_TRIBUTARIO_OPTIONS: Array<{ value: RegimeTributario; label: string }> = [
@@ -130,10 +138,12 @@ export const matchProdutoFromXmlItem = <T extends EstoqueItemForMatch>(
   }
 
   const ncm = (item.ncm || '').trim();
-  const nome = (item.descricao || '').trim().toLowerCase();
+  // Nome comparado sem acento, caixa e pontuacao ("Óleo  Motor" = "OLEO MOTOR"):
+  // a descricao da nota e a do cadastro raramente saem iguais ao caractere.
+  const nome = normalizarTextoDeItem(item.descricao);
   if (ncm && nome) {
     const porNcmNome = estoqueAtual.find(
-      (p) => (p.ncm || '').trim() === ncm && p.nome.trim().toLowerCase() === nome,
+      (p) => (p.ncm || '').trim() === ncm && normalizarTextoDeItem(p.nome) === nome,
     );
     if (porNcmNome) return { produto: porNcmNome, layer: 'ncm_nome' };
   }
@@ -150,6 +160,8 @@ export interface MateriaPrimaItemForMatch {
   id: string;
   codigo: string;
   nome: string;
+  /** Mesmo aprendizado do estoque: fornecedorId -> cProd que ele usa (2026-09-24). */
+  codigosFornecedor?: Record<string, string>;
 }
 
 /** Reconhecimento de materia-prima na importacao de XML: codigo exato
@@ -159,16 +171,23 @@ export interface MateriaPrimaItemForMatch {
 export const matchMateriaPrimaFromXmlItem = <T extends MateriaPrimaItemForMatch>(
   item: XmlItemForMatch,
   materiasPrimasAtuais: T[],
+  fornecedorId = '',
 ): T | null => {
   const codigo = (item.codigo || '').trim().toLowerCase();
+  if (codigo && fornecedorId) {
+    const porCodigoFornecedor = materiasPrimasAtuais.find(
+      (m) => (m.codigosFornecedor?.[fornecedorId] || '').trim().toLowerCase() === codigo,
+    );
+    if (porCodigoFornecedor) return porCodigoFornecedor;
+  }
   if (codigo) {
     const porCodigo = materiasPrimasAtuais.find((m) => (m.codigo || '').trim().toLowerCase() === codigo);
     if (porCodigo) return porCodigo;
   }
 
-  const nome = (item.descricao || '').trim().toLowerCase();
+  const nome = normalizarTextoDeItem(item.descricao);
   if (nome) {
-    const porNome = materiasPrimasAtuais.find((m) => (m.nome || '').trim().toLowerCase() === nome);
+    const porNome = materiasPrimasAtuais.find((m) => normalizarTextoDeItem(m.nome) === nome);
     if (porNome) return porNome;
   }
 

@@ -102,7 +102,7 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
 
         {vinculado && cadastro && (
           <span style={{ padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', backgroundColor: config.classificacao === 'estoque' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)', color: config.classificacao === 'estoque' ? '#10b981' : '#f59e0b' }}>
-            {config.classificacao === 'estoque' ? 'Soma no cadastro (Revenda)' : 'Soma no cadastro (Matéria-Prima)'} — hoje {cadastro.quantidade}
+            {config.classificacao === 'estoque' ? 'Soma no cadastro (Revenda)' : (config.classificacao === 'insumo' ? 'Soma no cadastro (Insumo)' : 'Soma no cadastro (Matéria-Prima)')} — hoje {cadastro.quantidade}
           </span>
         )}
         {!vinculado && (
@@ -111,6 +111,7 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
             <select value={config.tipo} onChange={(e) => onAlterarTipo(e.target.value as ItemEntradaConfig['tipo'])} className="form-select" style={{ padding: '6px 10px', fontSize: '13px' }}>
               <option value="revenda">Produto de Revenda</option>
               <option value="materia_prima">Matéria-Prima</option>
+              <option value="insumo">Insumo (material de consumo)</option>
             </select>
           </div>
         )}
@@ -289,7 +290,9 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
         </div>
       ) : (
         <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-          Matéria-prima: sem preço de venda nem tributação — entra no estoque de produção pelo custo de {moeda4(custoUnitarioEstoque)} por unidade.
+          {config.tipo === 'insumo'
+            ? `Insumo (material de consumo): não é vendido e não entra na receita de produto — soma no estoque de insumos pelo custo de ${moeda4(custoUnitarioEstoque)} por unidade.`
+            : `Matéria-prima: sem preço de venda nem tributação — entra no estoque de produção pelo custo de ${moeda4(custoUnitarioEstoque)} por unidade.`}
         </p>
       )}
     </div>

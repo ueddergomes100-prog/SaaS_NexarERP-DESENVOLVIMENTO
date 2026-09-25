@@ -21,7 +21,7 @@ export { normalizarTextoDeItem };
  * Aqui so' mora a regra pura (sem tela, sem Firestore).
  */
 
-export type TipoCadastro = 'estoque' | 'materia_prima';
+export type TipoCadastro = 'estoque' | 'materia_prima' | 'insumo';
 
 export interface ItemDaNotaParaVinculo {
   codigo: string;
@@ -137,6 +137,7 @@ export const sugerirVinculos = (
   materiasPrimas: CadastroParaVinculo[],
   fornecedorId: string,
   limite = 5,
+  insumos: CadastroParaVinculo[] = [],
 ): SugestaoDeVinculo[] => {
   const todas: SugestaoDeVinculo[] = [];
   produtos.forEach((p) => {
@@ -145,6 +146,10 @@ export const sugerirVinculos = (
   });
   materiasPrimas.forEach((m) => {
     const s = pontuar('materia_prima', item, m, fornecedorId);
+    if (s) todas.push(s);
+  });
+  insumos.forEach((i) => {
+    const s = pontuar('insumo', item, i, fornecedorId);
     if (s) todas.push(s);
   });
   return todas
@@ -170,6 +175,7 @@ export const buscarCadastros = (
   produtos: CadastroParaVinculo[],
   materiasPrimas: CadastroParaVinculo[],
   limite = 20,
+  insumos: CadastroParaVinculo[] = [],
 ): ResultadoDeBusca[] => {
   const palavrasDaBusca = palavras(termo);
   if (palavrasDaBusca.length === 0) return [];
@@ -192,6 +198,7 @@ export const buscarCadastros = (
   };
   juntar('estoque', produtos);
   juntar('materia_prima', materiasPrimas);
+  juntar('insumo', insumos);
   return resultado
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .slice(0, Math.max(0, limite));
@@ -213,7 +220,9 @@ export const configDoItemVinculado = (
 ): ItemEntradaConfig => (
   alvo.tipo === 'estoque'
     ? buildInitialItemEntradaConfig(valorUnitarioXml, alvo.fiscal ?? { id: alvo.id }, null, usaCsosn)
-    : buildInitialItemEntradaConfig(valorUnitarioXml, null, alvo.id, usaCsosn)
+    : alvo.tipo === 'insumo'
+      ? buildInitialItemEntradaConfig(valorUnitarioXml, null, null, usaCsosn, alvo.id)
+      : buildInitialItemEntradaConfig(valorUnitarioXml, null, alvo.id, usaCsosn)
 );
 
 /** Desfaz o vinculo: o item volta a ser cadastro novo. */

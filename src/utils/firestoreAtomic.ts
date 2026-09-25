@@ -276,7 +276,7 @@ export interface AjusteEstoqueManualParams {
   usuarioId: string;
   usuarioNome: string;
   /** Onde mora o saldo: produto do estoque (padrao) ou materia-prima. */
-  origem?: 'estoque' | 'materia_prima';
+  origem?: 'estoque' | 'materia_prima' | 'insumo';
 }
 
 // Ajuste manual de estoque (tela AjusteEstoque.tsx). Nunca deixa negativar
@@ -289,8 +289,8 @@ export const applyAjusteEstoqueManual = async (
   db: Firestore,
   params: AjusteEstoqueManualParams
 ): Promise<{ loteId?: string; quantidadeDepois: number }> => {
-  const ehMateriaPrima = params.origem === 'materia_prima';
-  const produtoRef = doc(db, ehMateriaPrima ? 'materias_primas' : 'estoque', params.produtoId);
+  const origemDoSaldo = params.origem === 'materia_prima' || params.origem === 'insumo' ? params.origem : null;
+  const produtoRef = doc(db, origemDoSaldo === 'insumo' ? 'insumos' : (origemDoSaldo === 'materia_prima' ? 'materias_primas' : 'estoque'), params.produtoId);
   const loteRef = params.loteId ? doc(db, 'estoque_lotes', params.loteId) : null;
 
   const [produtoSnap, loteSnap] = await Promise.all([
@@ -376,7 +376,7 @@ export const applyAjusteEstoqueManual = async (
       quantidadeDepois,
       usuarioId: params.usuarioId,
       usuarioNome: params.usuarioNome,
-      ...(ehMateriaPrima ? { origem: 'materia_prima' as const } : {}),
+      ...(origemDoSaldo ? { origem: origemDoSaldo } : {}),
     }),
     createdAt: serverTimestamp(),
   });

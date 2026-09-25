@@ -69,6 +69,7 @@ const STATUS_COLOR: Record<NotaFiscalEntradaStatus, string> = {
 const TIPO_ITEM_LABEL: Record<NotaFiscalEntradaItemRecord['tipo'], string> = {
   revenda: 'Revenda',
   materia_prima: 'Matéria-Prima',
+  insumo: 'Insumo',
 };
 
 const NotasFiscaisEntradaList: React.FC = () => {
@@ -201,7 +202,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
 
     const result = await NexusSwal.fire({
       title: 'Excluir Nota de Entrada?',
-      html: `Isso reverte a quantidade somada ao estoque/matéria-prima e remove os títulos de Contas a Pagar gerados pela NF-e <strong>${nota.numeroNF}</strong> (${nota.fornecedorNome}). O cadastro dos produtos não é apagado.<br/><br/>Digite o motivo (mínimo 12 caracteres):`,
+      html: `Isso reverte a quantidade somada ao estoque, matéria-prima ou insumo e remove os títulos de Contas a Pagar gerados pela NF-e <strong>${nota.numeroNF}</strong> (${nota.fornecedorNome}). O cadastro dos itens não é apagado.<br/><br/>Digite o motivo (mínimo 12 caracteres):`,
       input: 'text',
       inputAttributes: { minlength: '12', required: 'true', placeholder: 'Motivo da exclusão...' },
       showCancelButton: true,
@@ -241,12 +242,17 @@ const NotasFiscaisEntradaList: React.FC = () => {
 
         const itensRevenda = nota.itens.filter((item) => item.tipo === 'revenda');
         const itensMateriaPrima = nota.itens.filter((item) => item.tipo === 'materia_prima');
+        const itensInsumo = nota.itens.filter((item) => item.tipo === 'insumo');
 
         const estoqueSnaps = await Promise.all(itensRevenda.map((item) => transaction.get(doc(db, 'estoque', item.itemId))));
         const materiaPrimaSnaps = await Promise.all(itensMateriaPrima.map((item) => transaction.get(doc(db, 'materias_primas', item.itemId))));
 
+        const insumoSnaps = await Promise.all(itensInsumo.map((item) => transaction.get(doc(db, 'insumos', item.itemId))));
+
         const estoqueAtualPorId = new Map(estoqueSnaps.map((snap) => [snap.id, Number(snap.data()?.quantidade || 0)]));
         const materiaPrimaAtualPorId = new Map(materiaPrimaSnaps.map((snap) => [snap.id, Number(snap.data()?.quantidade || 0)]));
+
+        const insumoAtualPorId = new Map(insumoSnaps.map((snap) => [snap.id, Number(snap.data()?.quantidade || 0)]));
 
         const itemSemEstoqueRevenda = findItemSemEstoqueParaReverter(
           itensRevenda.map((item) => ({ itemId: item.itemId, descricaoXml: item.descricaoXml, quantidade: item.quantidadeEstoque ?? item.quantidade })),
@@ -262,6 +268,14 @@ const NotasFiscaisEntradaList: React.FC = () => {
         );
         if (itemSemEstoqueMateriaPrima) {
           throw new Error(`Não é possível excluir: "${itemSemEstoqueMateriaPrima.descricaoXml}" já teve parte do estoque consumida em produção desde essa entrada.`);
+        }
+
+        const itemSemEstoqueInsumo = findItemSemEstoqueParaReverter(
+          itensInsumo.map((item) => ({ itemId: item.itemId, descricaoXml: item.descricaoXml, quantidade: item.quantidadeEstoque ?? item.quantidade })),
+          insumoAtualPorId,
+        );
+        if (itemSemEstoqueInsumo) {
+          throw new Error(`Não é possível excluir: "${itemSemEstoqueInsumo.descricaoXml}" já teve parte do estoque consumida desde essa entrada.`);
         }
 
         // Todas as leituras feitas -- a partir daqui, so escritas
@@ -281,6 +295,16 @@ const NotasFiscaisEntradaList: React.FC = () => {
 
         materiaPrimaSnaps.forEach((snap, idx) => {
           const item = itensMateriaPrima[idx];
+          const atual = Number(snap.data()?.quantidade || 0);
+          transaction.update(snap.ref, {
+            quantidade: atual - (item.quantidadeEstoque ?? item.quantidade),
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), resumoMotivo),
+          });
+        });
+
+        insumoSnaps.forEach((snap, idx) => {
+          const item = itensInsumo[idx];
           const atual = Number(snap.data()?.quantidade || 0);
           transaction.update(snap.ref, {
             quantidade: atual - (item.quantidadeEstoque ?? item.quantidade),

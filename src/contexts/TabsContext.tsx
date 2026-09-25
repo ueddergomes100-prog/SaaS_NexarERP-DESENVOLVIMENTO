@@ -87,6 +87,7 @@ const SECTION_LABELS: Array<[string, string]> = [
   ['/bancos', 'Bancos'],
   ['/fornecedores', 'Fornecedores'],
   ['/materias-primas', 'Matéria-Prima'],
+  ['/insumos', 'Insumos'],
   ['/producao/ordens', 'Ordens de Produção'],
   ['/producao/relatorios', 'Relatório de Produção'],
   ['/usuarios', 'Usuários'],
@@ -125,7 +126,7 @@ const SECTION_LABELS: Array<[string, string]> = [
  * esses dois modulos, nao o sistema inteiro -- os demais mantem "uma
  * aba por registro" (decisao original do F19).
  */
-const SINGLE_SESSION_PREFIXES = ['/materias-primas', '/producao/ordens'];
+const SINGLE_SESSION_PREFIXES = ['/materias-primas', '/insumos', '/producao/ordens'];
 
 /** Prefixo de modulo single-session que `pathname` pertence, ou null. */
 export const singleSessionPrefixFor = (pathname: string): string | null => (

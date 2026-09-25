@@ -228,6 +228,7 @@ const Sidebar: React.FC = () => {
         { label: 'Bandeiras de Cartão', to: '/bandeiras-cartao', icon: CreditCard, module: 'cadastros.bandeiras_cartao', permission: 'cadastros.bandeiras_cartao' },
         { label: 'Bancos', to: '/bancos', icon: Building2, module: 'cadastros.bancos', permission: 'cadastros.bancos' },
         { label: 'Matéria-Prima', to: '/materias-primas', icon: Factory, module: 'cadastros.materia_prima', permission: 'cadastros.materia_prima' },
+        { label: 'Insumos', to: '/insumos', icon: Package, module: 'cadastros.materia_prima', permission: 'cadastros.materia_prima' },
         // Vendedores de balcao so faz sentido pra quem trabalha com estacao
         // compartilhada. Aparece com o checkbox ligado OU enquanto houver
         // vendedor cadastrado -- desmarcar a opcao por engano nao pode fazer

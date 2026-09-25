@@ -163,6 +163,8 @@ const EntradaNFE: React.FC = () => {
   // Estoque e materia-prima atuais para busca rápida local
   const [estoqueAtual, setEstoqueAtual] = useState<EstoqueItem[]>([]);
   const [materiasPrimasAtuais, setMateriasPrimasAtuais] = useState<MateriaPrimaItem[]>([]);
+  // Insumos (material de consumo): cadastro proprio, mesmo formato da materia-prima.
+  const [insumosAtuais, setInsumosAtuais] = useState<MateriaPrimaItem[]>([]);
   // Sobe a cada nota importada: recarrega estoque/materia-prima. Sem isso a
   // proxima nota da mesma sessao enxergava o cadastro de ANTES da anterior
   // (produto criado na nota 1 nao era reconhecido na nota 2 e duplicava).
@@ -331,6 +333,28 @@ const EntradaNFE: React.FC = () => {
         console.error("Erro ao carregar matérias-primas para reconciliação:", err);
       }
     };
+    const fetchInsumos = async () => {
+      if (!tenantId) return;
+      try {
+        const snap = await getDocs(query(collection(db, 'insumos'), where('tenantId', '==', tenantId)));
+        setInsumosAtuais(snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            codigo: data.codigo || '',
+            nome: data.nome || '',
+            codigosFornecedor: data.codigosFornecedor || {},
+            quantidade: Number(data.quantidade || 0),
+            precoCusto: Number(data.precoCusto || 0),
+            unidade: data.unidade || '',
+            fatoresFornecedor: data.fatoresFornecedor || {},
+          } as MateriaPrimaItem;
+        }));
+      } catch (err) {
+        // Sem acesso a coleção (permissão) a entrada segue: só não reconhece insumos sozinha.
+        console.error("Erro ao carregar insumos para reconciliação:", err);
+      }
+    };
     const fetchRegimeTributario = async () => {
       if (!tenantId) return;
       try {
@@ -359,6 +383,7 @@ const EntradaNFE: React.FC = () => {
     };
     fetchEstoque();
     fetchMateriasPrimas();
+    fetchInsumos();
     fetchRegimeTributario();
     fetchBancos();
   }, [tenantId, versaoDosCadastros]);
@@ -431,13 +456,15 @@ const EntradaNFE: React.FC = () => {
         };
       }
       const materiaPrimaExistente = matchMateriaPrimaFromXmlItem(item, materiasPrimasAtuais, fornecedorMatch.id);
-      const inicial = buildInitialItemEntradaConfig(item.valorUnitario, null, materiaPrimaExistente?.id || null, usaCsosn);
-      return materiaPrimaExistente
-        ? { ...inicial, origemVinculo: 'automatico', fator: String(fatorValido(materiaPrimaExistente.fatoresFornecedor?.[fornecedorMatch.id])) }
+      const insumoExistente = materiaPrimaExistente ? null : matchMateriaPrimaFromXmlItem(item, insumosAtuais, fornecedorMatch.id);
+      const inicial = buildInitialItemEntradaConfig(item.valorUnitario, null, materiaPrimaExistente?.id || null, usaCsosn, insumoExistente?.id || null);
+      const reconhecido = materiaPrimaExistente ?? insumoExistente;
+      return reconhecido
+        ? { ...inicial, origemVinculo: 'automatico', fator: String(fatorValido(reconhecido.fatoresFornecedor?.[fornecedorMatch.id])) }
         : inicial;
     });
     setItemConfigs(configs);
-  }, [parsedData, fornecedorStatus, fornecedorMatch, estoqueAtual, materiasPrimasAtuais, regimeTributario]);
+  }, [parsedData, fornecedorStatus, fornecedorMatch, estoqueAtual, materiasPrimasAtuais, insumosAtuais, regimeTributario]);
 
   const handleAlterarTipoItem = (idx: number, tipo: ItemEntradaConfig['tipo']) => {
     setItemConfigs((prev) => prev.map((config, i) => (i === idx ? { ...config, tipo } : config)));
@@ -457,7 +484,7 @@ const EntradaNFE: React.FC = () => {
     const item = parsedData.items[idx];
     const fiscal = tipo === 'estoque' ? estoqueAtual.find((p) => p.id === id) : undefined;
     const config = configDoItemVinculado({ tipo, id, fiscal }, item.valorUnitario, usesCsosn(regimeTributario));
-    const cadastroEscolhido = tipo === 'estoque' ? fiscal : materiasPrimasAtuais.find((m) => m.id === id);
+    const cadastroEscolhido = tipo === 'estoque' ? fiscal : (tipo === 'insumo' ? insumosAtuais : materiasPrimasAtuais).find((m) => m.id === id);
     const fatorAprendido = String(fatorValido(cadastroEscolhido?.fatoresFornecedor?.[fornecedorMatch?.id ?? '']));
     setItemConfigs((prev) => prev.map((atual, i) => (i === idx ? { ...config, origemVinculo: 'manual', fator: fatorAprendido } : atual)));
     setVinculoAberto(null);
@@ -472,9 +499,9 @@ const EntradaNFE: React.FC = () => {
 
   const renderPainelDeVinculo = (idx: number, item: ParsedItem) => {
     if (!fornecedorMatch) return null;
-    const sugestoes = sugerirVinculos(item, estoqueAtual, materiasPrimasAtuais, fornecedorMatch.id);
-    const resultados = buscaVinculo.trim() ? buscarCadastros(buscaVinculo, estoqueAtual, materiasPrimasAtuais) : [];
-    const rotuloTipo = (tipo: TipoCadastro) => (tipo === 'estoque' ? 'Produto' : 'Matéria-prima');
+    const sugestoes = sugerirVinculos(item, estoqueAtual, materiasPrimasAtuais, fornecedorMatch.id, 5, insumosAtuais);
+    const resultados = buscaVinculo.trim() ? buscarCadastros(buscaVinculo, estoqueAtual, materiasPrimasAtuais, 20, insumosAtuais) : [];
+    const rotuloTipo = (tipo: TipoCadastro) => (tipo === 'estoque' ? 'Produto' : (tipo === 'insumo' ? 'Insumo' : 'Matéria-prima'));
     const linhaStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', width: '100%', textAlign: 'left', padding: '8px 12px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px' };
 
     return (
@@ -917,8 +944,9 @@ const EntradaNFE: React.FC = () => {
         const custo = custosDosItens[idx];
         const fator = config.classificacao === 'novo' ? 1 : fatorValido(config.fator);
         const ehMateriaPrima = config.tipo === 'materia_prima';
+        const ehInsumo = config.tipo === 'insumo';
         const vinculado = config.classificacao !== 'novo' && Boolean(config.matchId);
-        const colecao = ehMateriaPrima ? 'materias_primas' : 'estoque';
+        const colecao = ehInsumo ? 'insumos' : (ehMateriaPrima ? 'materias_primas' : 'estoque');
         return {
           item,
           idx,
@@ -926,6 +954,7 @@ const EntradaNFE: React.FC = () => {
           custo,
           fator,
           ehMateriaPrima,
+          ehInsumo,
           vinculado,
           quantidadeEstoque: quantidadeNoEstoque(item.quantidade, fator),
           custoUn: custoUnitarioNoEstoque(custo?.custoTotal ?? 0, item.quantidade, fator),
@@ -945,6 +974,8 @@ const EntradaNFE: React.FC = () => {
       let pecasCriadas = 0;
       let materiasPrimasAtualizadas = 0;
       let materiasPrimasCriadas = 0;
+      let insumosAtualizados = 0;
+      let insumosCriados = 0;
       const notaItens: NotaFiscalEntradaItemRecord[] = [];
       // O custo que mudou em cada cadastro alimenta o recalculo do custo dos
       // produtos acabados que usam esses componentes.
@@ -967,6 +998,8 @@ const EntradaNFE: React.FC = () => {
         pecasCriadas = 0;
         materiasPrimasAtualizadas = 0;
         materiasPrimasCriadas = 0;
+        insumosAtualizados = 0;
+        insumosCriados = 0;
 
         // 1. LEITURAS -- todas antes de qualquer escrita (regra do Firestore).
         const snapshots = new Map<string, DocumentSnapshot<DocumentData>>();
@@ -1019,11 +1052,13 @@ const EntradaNFE: React.FC = () => {
           };
 
           // ------------------------------------------------------------ materia-prima
-          if (plano.ehMateriaPrima) {
+          if (plano.ehMateriaPrima || plano.ehInsumo) {
+            const tipoDoRegistro = plano.ehInsumo ? 'insumo' : 'materia_prima';
             if (plano.vinculado) {
               const dados = snapshots.get(ref.path)?.data() ?? {};
               const estado = estados.get(ref.path) ?? { quantidade: Number(dados.quantidade || 0), custoMedio: Number(dados.custoMedio ?? dados.precoCusto ?? 0), precoCusto: Number(dados.precoCusto || 0), precoVenda: 0, historico: [] };
-              registrarMudancaDeCusto('materia_prima', ref.id, String(dados.nome || item.descricao), estados.has(ref.path) ? estado.precoCusto : Number(dados.precoCusto || 0), custoUn);
+              // Insumo nao compoe produto acabado: so a materia-prima realimenta o custo dele.
+              if (!plano.ehInsumo) registrarMudancaDeCusto('materia_prima', ref.id, String(dados.nome || item.descricao), estados.has(ref.path) ? estado.precoCusto : Number(dados.precoCusto || 0), custoUn);
               const custoMedio = custoMedioPonderado(estado.quantidade, estado.custoMedio, quantidadeEstoque, custoUn);
               estados.set(ref.path, { ...estado, quantidade: estado.quantidade + quantidadeEstoque, custoMedio, precoCusto: custoUn });
               transaction.update(ref, semUndefined({
@@ -1037,8 +1072,8 @@ const EntradaNFE: React.FC = () => {
                 updatedAt: serverTimestamp(),
                 ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), motivoDoHistorico),
               }));
-              materiasPrimasAtualizadas++;
-              notaItens.push({ itemId: ref.id, tipo: 'materia_prima', codigoXml: item.codigo, descricaoXml: item.descricao, quantidade: item.quantidade, valorUnitario: item.valorUnitario, novo: false, ...detalhesDoRegistro });
+              if (plano.ehInsumo) insumosAtualizados++; else materiasPrimasAtualizadas++;
+              notaItens.push({ itemId: ref.id, tipo: tipoDoRegistro, codigoXml: item.codigo, descricaoXml: item.descricao, quantidade: item.quantidade, valorUnitario: item.valorUnitario, novo: false, ...detalhesDoRegistro });
             } else {
               // Simplificacao deliberada, mesma do cadastro manual de
               // Materia-Prima: unidade e fornecedor ficam como texto livre.
@@ -1060,8 +1095,8 @@ const EntradaNFE: React.FC = () => {
                 createdAt: serverTimestamp(),
                 ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
               }));
-              materiasPrimasCriadas++;
-              notaItens.push({ itemId: ref.id, tipo: 'materia_prima', codigoXml: item.codigo, descricaoXml: item.descricao, quantidade: item.quantidade, valorUnitario: item.valorUnitario, novo: true, ...detalhesDoRegistro });
+              if (plano.ehInsumo) insumosCriados++; else materiasPrimasCriadas++;
+              notaItens.push({ itemId: ref.id, tipo: tipoDoRegistro, codigoXml: item.codigo, descricaoXml: item.descricao, quantidade: item.quantidade, valorUnitario: item.valorUnitario, novo: true, ...detalhesDoRegistro });
             }
             continue;
           }
@@ -1320,7 +1355,7 @@ const EntradaNFE: React.FC = () => {
           usuarioEmail: currentUser?.email || '',
           modulo: 'estoque',
           acao: 'criacao',
-          descricao: `Importação de XML NF ${parsedData.numeroNF} (${fornecedorMatch.nome}) realizada. ${pecasAtualizadas} produtos atualizados, ${pecasCriadas} novos produtos cadastrados, ${materiasPrimasAtualizadas} matérias-primas atualizadas, ${materiasPrimasCriadas} novas matérias-primas cadastradas. ${titulosPagarIds.length} título(s) em Contas a Pagar, nota de R$ ${totalDevido.toFixed(2)}${modoPagamentoEfetivo === 'avista' ? ', paga à vista' : ''}.`,
+          descricao: `Importação de XML NF ${parsedData.numeroNF} (${fornecedorMatch.nome}) realizada. ${pecasAtualizadas} produtos atualizados, ${pecasCriadas} novos produtos cadastrados, ${materiasPrimasAtualizadas} matérias-primas atualizadas, ${materiasPrimasCriadas} novas matérias-primas cadastradas, ${insumosAtualizados} insumos atualizados, ${insumosCriados} novos insumos cadastrados. ${titulosPagarIds.length} título(s) em Contas a Pagar, nota de R$ ${totalDevido.toFixed(2)}${modoPagamentoEfetivo === 'avista' ? ', paga à vista' : ''}.`,
           status: 'sucesso'
         });
       } catch {
@@ -1348,6 +1383,8 @@ const EntradaNFE: React.FC = () => {
         `${pecasCriadas} produto(s) novo(s) cadastrado(s)`,
         ...(materiasPrimasAtualizadas > 0 ? [`${materiasPrimasAtualizadas} matéria(s)-prima(s) atualizada(s)`] : []),
         ...(materiasPrimasCriadas > 0 ? [`${materiasPrimasCriadas} matéria(s)-prima(s) nova(s)`] : []),
+        ...(insumosAtualizados > 0 ? [`${insumosAtualizados} insumo(s) atualizado(s)`] : []),
+        ...(insumosCriados > 0 ? [`${insumosCriados} insumo(s) novo(s)`] : []),
         `${titulosPagarIds.length} título(s) em Contas a Pagar${freteGeraTituloProprio(frete) ? ' (incluindo o do frete)' : ''}${modoPagamentoEfetivo === 'avista' ? ' — nota paga à vista' : ''}`,
       ];
       const numeroImportado = parsedData.numeroNF;
@@ -1756,10 +1793,13 @@ const EntradaNFE: React.FC = () => {
                   const correspondenteMateriaPrima = config.classificacao === 'materia_prima'
                     ? materiasPrimasAtuais.find((m) => m.id === config.matchId)
                     : undefined;
+                  const correspondenteInsumo = config.classificacao === 'insumo'
+                    ? insumosAtuais.find((i) => i.id === config.matchId)
+                    : undefined;
                   const cadastro: CadastroVinculado | undefined = correspondenteEstoque
                     ? { nome: correspondenteEstoque.nome, quantidade: correspondenteEstoque.quantidade, precoCusto: correspondenteEstoque.precoCusto, precoVenda: correspondenteEstoque.precoVenda, unidade: correspondenteEstoque.unidadeMedidaSigla }
-                    : correspondenteMateriaPrima
-                      ? { nome: correspondenteMateriaPrima.nome, quantidade: correspondenteMateriaPrima.quantidade, precoCusto: correspondenteMateriaPrima.precoCusto, unidade: correspondenteMateriaPrima.unidade }
+                    : (correspondenteMateriaPrima ?? correspondenteInsumo)
+                      ? { nome: (correspondenteMateriaPrima ?? correspondenteInsumo)!.nome, quantidade: (correspondenteMateriaPrima ?? correspondenteInsumo)!.quantidade, precoCusto: (correspondenteMateriaPrima ?? correspondenteInsumo)!.precoCusto, unidade: (correspondenteMateriaPrima ?? correspondenteInsumo)!.unidade }
                       : undefined;
 
                   return (

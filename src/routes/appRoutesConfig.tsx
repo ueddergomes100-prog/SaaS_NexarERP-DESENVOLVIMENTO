@@ -88,6 +88,7 @@ const FornecedoresList = lazy(() => import('../pages/Fornecedores/FornecedoresLi
 const FornecedorForm = lazy(() => import('../pages/Fornecedores/FornecedorForm'));
 const ImportarFornecedores = lazy(() => import('../pages/Fornecedores/ImportarFornecedores'));
 const MateriasPrimasList = lazy(() => import('../pages/Producao/MateriasPrimasList'));
+const InsumosList = lazy(() => import('../pages/Producao/InsumosList'));
 const MateriaPrimaForm = lazy(() => import('../pages/Producao/MateriaPrimaForm'));
 const ImportarMateriasPrimas = lazy(() => import('../pages/Producao/ImportarMateriasPrimas'));
 const OrdensProducaoList = lazy(() => import('../pages/Producao/OrdensProducaoList'));
@@ -205,6 +206,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'fornecedores/importar', element: <ImportarFornecedores /> },
 
   { path: 'materias-primas', element: <MateriasPrimasList /> },
+  { path: 'insumos', element: <InsumosList /> },
   { path: 'materias-primas/nova', element: <MateriaPrimaForm /> },
   { path: 'materias-primas/editar/:id', element: <MateriaPrimaForm /> },
   { path: 'materias-primas/importar', element: <ImportarMateriasPrimas /> },

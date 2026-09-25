@@ -107,3 +107,18 @@ test('sugestão: "1 Kg" e "1KG" são a mesma medida; 500ML e 1L continuam difere
   assert.equal(s[0].id, 'a');
   assert.ok(s[0].pontuacao >= 60);
 });
+
+test('insumo (material de consumo) entra nas sugestões e na busca, com o tipo certo, e o vínculo não leva preço', () => {
+  const insumos: CadastroParaVinculo[] = [{ id: 'i1', codigo: 'IN1', nome: 'Caixa de papelão 30x20', codigosFornecedor: { f1: 'CX-30' } }];
+  const s = sugerirVinculos({ codigo: 'CX-30', descricao: 'Caixa papelao 30x20', ncm: '' }, produtos, materias, 'f1', 5, insumos);
+  assert.equal(s[0].id, 'i1');
+  assert.equal(s[0].tipo, 'insumo');
+  assert.equal(s[0].pontuacao, 100);
+  assert.deepEqual(buscarCadastros('papelao', produtos, materias, 20, insumos).map((r) => [r.id, r.tipo]), [['i1', 'insumo']]);
+  const config = configDoItemVinculado({ tipo: 'insumo', id: 'i1' }, 10, true);
+  assert.equal(config.classificacao, 'insumo');
+  assert.equal(config.tipo, 'insumo');
+  assert.equal(config.matchId, 'i1');
+  assert.equal(config.precoVenda, '');
+  assert.equal(config.csosn, '');
+});

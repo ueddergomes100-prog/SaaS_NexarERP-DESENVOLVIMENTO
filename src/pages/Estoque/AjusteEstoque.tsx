@@ -38,7 +38,7 @@ interface ProdutoAjuste extends SearchableProduct {
   statusAtivo?: boolean;
   /** Onde o saldo mora. Materia-prima tambem se ajusta aqui: o saldo dela so'
    * muda por producao, nota de entrada ou por este ajuste (com motivo). */
-  origem: 'estoque' | 'materia_prima';
+  origem: 'estoque' | 'materia_prima' | 'insumo';
 }
 
 /** Item já "gravado" na lista local, ainda não escrito no Firestore -- só
@@ -54,7 +54,7 @@ interface ItemAjustePendente {
   motivo: string;
   observacao?: string;
   controlarLote: boolean;
-  origem: 'estoque' | 'materia_prima';
+  origem: 'estoque' | 'materia_prima' | 'insumo';
   loteId?: string;
   loteLabel?: string;
   loteNovoCodigo?: string;
@@ -145,7 +145,34 @@ const AjusteEstoque: React.FC = () => {
         console.error('Erro ao carregar as matérias-primas do ajuste:', erroMp);
       }
 
-      setProdutos([...lista, ...materiasPrimas].sort((a, b) => a.nome.localeCompare(b.nome)));
+      // Insumo (material de consumo) tambem: saldo so muda por nota de entrada ou por aqui.
+      let insumos: ProdutoAjuste[] = [];
+      try {
+        const snapInsumos = await getDocs(query(collection(db, 'insumos'), where('tenantId', '==', tenantId)));
+        insumos = snapInsumos.docs
+          .filter((d) => d.data().ativo !== false)
+          .map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              nome: data.nome || '',
+              codigo: data.codigo || '',
+              marca: '',
+              categoria: data.categoria || '',
+              quantidade: Number(data.quantidade || 0),
+              controlarLote: false,
+              unidadeMedidaSigla: String(data.unidade || 'UN').toUpperCase(),
+              unidadeMedidaFracionado: true,
+              unidadeMedidaCasasDecimais: 4,
+              origem: 'insumo' as const,
+            };
+          });
+      } catch (erroInsumos) {
+        // Sem acesso a coleção de insumos o ajuste de produtos segue normal.
+        console.error('Erro ao carregar os insumos do ajuste:', erroInsumos);
+      }
+
+      setProdutos([...lista, ...materiasPrimas, ...insumos].sort((a, b) => a.nome.localeCompare(b.nome)));
     };
     carregarProdutos();
   }, [tenantId]);
@@ -448,7 +475,7 @@ const AjusteEstoque: React.FC = () => {
             onViewMore={() => setModalOpen(true)}
             renderItem={(produto) => (
               <div className="ajuste-estoque__option">
-                <span className="ajuste-estoque__option-nome">{produto.nome}{produto.origem === 'materia_prima' ? ' · MATÉRIA-PRIMA' : ''}</span>
+                <span className="ajuste-estoque__option-nome">{produto.nome}{produto.origem === 'materia_prima' ? ' · MATÉRIA-PRIMA' : ''}{produto.origem === 'insumo' ? ' · INSUMO' : ''}</span>
                 <span className="ajuste-estoque__option-meta">
                   {produto.codigo ? `Cód. ${produto.codigo} · ` : ''}
                   Estoque: {saldoEfetivoProduto(produto.id, produto.quantidade)}{produto.unidadeMedidaSigla ? ` ${produto.unidadeMedidaSigla}` : ''}
@@ -467,7 +494,7 @@ const AjusteEstoque: React.FC = () => {
         title="Buscar produto para ajuste"
         renderItem={(produto) => (
           <div className="ajuste-estoque__option">
-            <span className="ajuste-estoque__option-nome">{produto.nome}{produto.origem === 'materia_prima' ? ' · MATÉRIA-PRIMA' : ''}</span>
+            <span className="ajuste-estoque__option-nome">{produto.nome}{produto.origem === 'materia_prima' ? ' · MATÉRIA-PRIMA' : ''}{produto.origem === 'insumo' ? ' · INSUMO' : ''}</span>
             <span className="ajuste-estoque__option-meta">
               {produto.codigo ? `Cód. ${produto.codigo} · ` : ''}
               Estoque: {saldoEfetivoProduto(produto.id, produto.quantidade)}{produto.unidadeMedidaSigla ? ` ${produto.unidadeMedidaSigla}` : ''}
@@ -480,7 +507,7 @@ const AjusteEstoque: React.FC = () => {
         <div className="card form-section product-card">
           <div className="ajuste-estoque__produto-selecionado">
             <div>
-              <h3>{selectedProduto.nome}{selectedProduto.origem === 'materia_prima' ? ' · MATÉRIA-PRIMA' : ''}</h3>
+              <h3>{selectedProduto.nome}{selectedProduto.origem === 'materia_prima' ? ' · MATÉRIA-PRIMA' : ''}{selectedProduto.origem === 'insumo' ? ' · INSUMO' : ''}</h3>
               <p>
                 {selectedProduto.codigo ? `Código ${selectedProduto.codigo} · ` : ''}
                 Estoque atual: <strong>{saldoEfetivoProduto(selectedProduto.id, selectedProduto.quantidade)} {unidade.unidadeMedidaSigla}</strong>

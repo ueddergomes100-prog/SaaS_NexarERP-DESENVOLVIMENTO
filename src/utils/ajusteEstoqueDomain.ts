@@ -128,7 +128,7 @@ export interface AjusteEstoqueDocInput {
   /** So' vai no documento quando o item e' materia-prima -- produto (o caso
    * de sempre) continua gravado exatamente como antes. `produtoId` aponta
    * pra `materias_primas` nesse caso. */
-  origem?: 'materia_prima';
+  origem?: 'materia_prima' | 'insumo';
 }
 
 /** Monta o doc de ajustes_estoque sem nunca gravar chave com `undefined`

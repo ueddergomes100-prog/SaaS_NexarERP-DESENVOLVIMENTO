@@ -161,6 +161,9 @@ service cloud.firestore {
         (collectionName == 'frota' && hasPermission('operacoes.rotas')) ||
         (collectionName == 'rotas' && hasPermission('operacoes.rotas')) ||
         (collectionName == 'materias_primas' && hasPermission('cadastros.materia_prima')) ||
+        // Insumos (material de consumo, 2026-09-25): mesma permissao da materia-prima; a Entrada de NF-e
+        // tambem os cria/atualiza, entao aceita fiscal.entrada.
+        (collectionName == 'insumos' && hasAnyPermission(['cadastros.materia_prima', 'fiscal.entrada'])) ||
         (collectionName == 'ordens_producao' && hasPermission('operacoes.producao')) ||
         (collectionName == 'expedicoes' && hasPermission('operacoes.expedicao')) ||
         (collectionName == 'categorias' && hasPermission('cadastros.categorias')) ||
@@ -594,6 +597,7 @@ service cloud.firestore {
         'fornecedores',
         'motoristas',
         'frota',
+        'insumos',
         'rotas',
         'cotacoes_compra',
         'pedidos_compra',
@@ -643,6 +647,7 @@ service cloud.firestore {
         'fornecedores',
         'motoristas',
         'frota',
+        'insumos',
         'rotas',
         'cotacoes_compra',
         'pedidos_compra',
@@ -687,6 +692,7 @@ service cloud.firestore {
         'fornecedores',
         'motoristas',
         'frota',
+        'insumos',
         'rotas',
         'cotacoes_compra',
         'pedidos_compra',
@@ -736,6 +742,7 @@ service cloud.firestore {
         'fornecedores',
         'motoristas',
         'frota',
+        'insumos',
         'rotas',
         'cotacoes_compra',
         'pedidos_compra',

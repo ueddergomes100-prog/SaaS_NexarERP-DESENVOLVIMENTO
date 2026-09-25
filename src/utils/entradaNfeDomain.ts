@@ -4,7 +4,7 @@
 // (Fatia 3) vem depois. Nesta fatia todo item gravado e 'revenda', porque
 // a importacao ainda so escreve em `estoque` (ver EntradaNFE.tsx).
 
-export type NotaFiscalEntradaItemTipo = 'revenda' | 'materia_prima';
+export type NotaFiscalEntradaItemTipo = 'revenda' | 'materia_prima' | 'insumo';
 export type NotaFiscalEntradaStatus = 'ativa' | 'excluida';
 
 export interface ImpostosDoItemRecord {
@@ -122,7 +122,7 @@ export const primeiraNotaAtiva = <T extends { status?: string }>(notas: T[]): T 
 // aparece pra todo item de Revenda, novo ou ja cadastrado; nunca pra
 // Materia-Prima (o cadastro dela nao tem esses campos).
 
-export type ItemEntradaClassificacao = 'estoque' | 'materia_prima' | 'novo';
+export type ItemEntradaClassificacao = 'estoque' | 'materia_prima' | 'insumo' | 'novo';
 
 /** Como o item foi ligado a um cadastro existente (a tela mostra de onde veio). */
 export type OrigemDoVinculoItem = 'ean' | 'codigo_fornecedor' | 'nome' | 'automatico' | 'manual';
@@ -226,6 +226,8 @@ export const buildInitialItemEntradaConfig = (
   produtoExistente: ProdutoFiscalAtual | null,
   materiaPrimaExistenteId: string | null,
   usaCsosn: boolean,
+  /** Insumo (material de consumo, cadastro proprio) ja existente que o item da nota reconheceu. */
+  insumoExistenteId: string | null = null,
 ): ItemEntradaConfig => {
   if (produtoExistente) {
     return {
@@ -251,6 +253,17 @@ export const buildInitialItemEntradaConfig = (
       classificacao: 'materia_prima',
       matchId: materiaPrimaExistenteId,
       tipo: 'materia_prima',
+      ...EMPTY_TAX_FIELDS,
+      ...EXTRAS_PADRAO,
+    };
+  }
+
+  // Insumo nunca tem preco de venda nem tributacao de saida: nao e' vendido.
+  if (insumoExistenteId) {
+    return {
+      classificacao: 'insumo',
+      matchId: insumoExistenteId,
+      tipo: 'insumo',
       ...EMPTY_TAX_FIELDS,
       ...EXTRAS_PADRAO,
     };

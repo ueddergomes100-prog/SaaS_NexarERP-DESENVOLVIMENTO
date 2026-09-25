@@ -485,6 +485,38 @@ router.post('/:id/conferencia/abrir', async (req, res) => {
   }
 });
 
+/**
+ * GRAVACAO AUTOMATICA da conferencia (2026-09-25, "a troca tem que seguir o padrao da pre-venda"): a tela manda as
+ * quantidades a cada bipagem. So' a quantidade conferida e' aceita -- pedido, nome e EAN ficam os gravados na abertura,
+ * entao a tela (que nao escreve em `trocas`/`expedicoes` da troca) nao consegue mudar o que foi pedido.
+ */
+router.post('/:id/conferencia/salvar', async (req, res) => {
+  try {
+    exigirConferencia(req.user);
+    const user = req.user;
+    await db.runTransaction(async (tx) => {
+      const { troca } = await lerTroca(tx, user.tenantId, req.params.id);
+      const erro = erroDeConferencia(troca);
+      if (erro) throw new ErroTroca(409, erro);
+      const expedicaoRef = db.collection('expedicoes').doc(troca.id);
+      const expedicaoSnap = await tx.get(expedicaoRef);
+      if (!expedicaoSnap.exists || expedicaoSnap.data().tenantId !== user.tenantId) {
+        throw new ErroTroca(409, 'Registro de conferência não encontrado. Abra a conferência de novo.');
+      }
+      const exp = expedicaoSnap.data();
+      if (exp.status !== STATUS_CONFERENCIA.EM_CONFERENCIA) {
+        throw new ErroTroca(409, 'Esta conferência não está aberta. Reabra pela fila.');
+      }
+      const { itens, erros } = aplicarQuantidadesConferidas(exp.itens || [], req.body?.itens);
+      if (erros.length > 0) throw new ErroTroca(400, erros.join(' '));
+      tx.update(expedicaoRef, { itens, alteradoPor: user.uid, alteradoEm: TIMESTAMP() });
+    });
+    return res.json({ ok: true });
+  } catch (erro) {
+    return responderErro(res, erro, 'conferencia/salvar');
+  }
+});
+
 /** Fecha a conferencia como conferido ou divergente. So' as quantidades conferidas vem da tela. */
 router.post('/:id/conferencia/fechar', async (req, res) => {
   try {

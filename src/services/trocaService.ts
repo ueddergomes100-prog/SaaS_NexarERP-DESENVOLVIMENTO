@@ -98,6 +98,10 @@ export const trocaService = {
   cancelar: (id: string, motivo?: string) => chamar<{ ok: boolean }>(`/${id}/cancelar`, { motivo: motivo || '' }),
   /** Expedição: abre (ou reabre) a conferência de mercadoria da troca — a mesma tela da pré-venda. */
   abrirConferencia: (id: string) => chamar<AberturaConferenciaTroca>(`/${id}/conferencia/abrir`, {}),
+  /** Expedição: grava as quantidades conferidas até agora (a cada bipagem). O servidor só aceita a quantidade conferida. */
+  salvarConferencia: (id: string, itens: { produtoId: string; quantidadeConferida: number }[]) => (
+    chamar<{ ok: boolean }>(`/${id}/conferencia/salvar`, { itens })
+  ),
   /** Expedição: fecha a conferência (conferido/divergente). Só as quantidades conferidas vão para o servidor. */
   fecharConferencia: (id: string, itens: { produtoId: string; quantidadeConferida: number }[], observacao: string) => (
     chamar<{ ok: boolean; statusConferencia: 'conferido' | 'divergente' }>(`/${id}/conferencia/fechar`, { itens, observacao })

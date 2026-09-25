@@ -389,11 +389,16 @@ const ConferenciaForm: React.FC = () => {
     setSalvamento((atual) => ({ ...atual, estado: 'salvando' }));
     filaDeGravacao.current = filaDeGravacao.current.then(async () => {
       try {
-        await updateDoc(doc(db, 'expedicoes', pedidoId), {
-          itens: itensParaGravar,
-          ...(observacaoTocada.current ? { observacao: observacaoParaGravar } : {}),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
-        });
+        if (ehTroca) {
+          // Na troca quem escreve e' o servidor: ele so' aceita a quantidade conferida (nada altera via DevTools).
+          await trocaService.salvarConferencia(pedidoId, itensParaGravar.map((item) => ({ produtoId: item.produtoId, quantidadeConferida: item.quantidadeConferida })));
+        } else {
+          await updateDoc(doc(db, 'expedicoes', pedidoId), {
+            itens: itensParaGravar,
+            ...(observacaoTocada.current ? { observacao: observacaoParaGravar } : {}),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+          });
+        }
         gravacoesPendentes.current -= 1;
         setSalvamento({ estado: gravacoesPendentes.current > 0 ? 'salvando' : 'salvo', em: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) });
       } catch (err) {
@@ -402,7 +407,7 @@ const ConferenciaForm: React.FC = () => {
         setSalvamento({ estado: 'erro' });
       }
     });
-  }, [pedidoId, currentUser]);
+  }, [pedidoId, currentUser, ehTroca]);
 
   useEffect(() => { itensAtuais.current = itens; }, [itens]);
 
@@ -432,6 +437,20 @@ const ConferenciaForm: React.FC = () => {
       })();
     }, (erro) => console.error('Erro ao acompanhar o pedido da conferência:', erro));
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidoId, tenantId, ehTroca, isLoading, loadError, status]);
+
+  // Troca cancelada, recusada ou entregue com a conferencia aberta: mesma trava do pedido cancelado.
+  useEffect(() => {
+    if (!pedidoId || !tenantId || !ehTroca || isLoading || loadError || status !== 'em_conferencia') return undefined;
+    return onSnapshot(doc(db, 'trocas', pedidoId), (snap) => {
+      const situacao = snap.exists() ? String(snap.data().status || '') : '';
+      const motivo: Record<string, string> = {
+        cancelada: 'Esta troca foi cancelada e saiu da expedição.',
+        recusada: 'Esta troca foi recusada e saiu da expedição.',
+        entregue: 'Esta troca já foi entregue.',
+      };
+      if (motivo[situacao]) setLoadError(`${motivo[situacao]} Não há mais mercadoria a conferir — guarde de volta o que já foi separado.`);
+    }, (erro) => console.error('Erro ao acompanhar a troca da conferência:', erro));
   }, [pedidoId, tenantId, ehTroca, isLoading, loadError, status]);
 
   // Nao deixa fechar a aba com bipagem ainda por gravar.

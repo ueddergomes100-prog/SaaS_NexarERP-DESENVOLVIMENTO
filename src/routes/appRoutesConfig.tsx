@@ -99,6 +99,8 @@ const FilaExpedicao = lazy(() => import('../pages/Expedicao/FilaExpedicao'));
 const RotasList = lazy(() => import('../pages/Rotas/RotasList'));
 const RotaForm = lazy(() => import('../pages/Rotas/RotaForm'));
 const MotoristasList = lazy(() => import('../pages/Rotas/MotoristasList'));
+const FrotaList = lazy(() => import('../pages/Rotas/FrotaList'));
+const CustoPorVeiculo = lazy(() => import('../pages/Rotas/CustoPorVeiculo'));
 const ConferenciaForm = lazy(() => import('../pages/Expedicao/ConferenciaForm'));
 
 export const appRoutesConfig: RouteObject[] = [
@@ -220,6 +222,8 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'operacoes/rotas/nova', element: <RotaForm /> },
   { path: 'operacoes/rotas/:id', element: <RotaForm /> },
   { path: 'operacoes/motoristas', element: <MotoristasList /> },
+  { path: 'operacoes/frota', element: <FrotaList /> },
+  { path: 'operacoes/frota/custos', element: <CustoPorVeiculo /> },
   { path: 'operacoes/expedicao/minuta/:pedidoId', element: <MinutaPrint /> },
   { path: 'operacoes/expedicao/minuta-lote', element: <MinutaPrintLote /> },
   { path: 'operacoes/conferencia/troca/:trocaId', element: <ConferenciaForm /> },

@@ -21,6 +21,7 @@ import ParcelasEditor from '../../components/financeiro/ParcelasEditor';
 import { FORMAS_DE_PAGAMENTO, dividirEmParcelas } from '../../utils/pagamentoEntradaDomain';
 import type { ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
 import { avisoDeSoma, erroDaDespesa, montarTitulosDaDespesa } from '../../utils/despesaParceladaDomain';
+import { rotuloDoVeiculo, type VeiculoDaFrota } from '../../utils/frotaDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload, Undo2 } from 'lucide-react';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -58,6 +59,12 @@ interface TransacaoData extends TituloParaEstorno {
   fornecedorNome?: string;
   /** Cheque emitido para pagar esta despesa (banco, numero, data de compensacao). */
   cheque?: { numeroCheque?: string; dataCompensacao?: string } | null;
+  /** Veiculo da frota (e motorista) a que a despesa pertence. */
+  veiculoId?: string;
+  veiculoNome?: string;
+  veiculoPlaca?: string;
+  motoristaId?: string;
+  motoristaNome?: string;
 }
 
 // Espelha GrupoCliente de ContasReceber.tsx. Diferenca deliberada: uma
@@ -130,6 +137,13 @@ const ContasPagar: React.FC = () => {
    */
   const { items: bancosCadastrados } = useTenantCollection<{ id: string; nome?: string; ativo?: boolean }>('bancos', tenantId);
   const bancosParaCheque = bancosCadastrados.filter((b) => b.ativo !== false).map((b) => ({ id: b.id, nome: String(b.nome || '') }));
+  // Despesa de VEICULO da frota (2026-09-25): opcional; alimenta o relatorio de Custo por Veiculo.
+  const { items: frotaCadastrada } = useTenantCollection<VeiculoDaFrota>('frota', tenantId);
+  const { items: motoristasCadastrados } = useTenantCollection<{ id: string; nome?: string; ativo?: boolean }>('motoristas', tenantId);
+  const veiculosAtivos = frotaCadastrada.filter((v) => v.ativo !== false);
+  const motoristasAtivos = motoristasCadastrados.filter((m) => m.ativo !== false);
+  const [veiculoDaDespesa, setVeiculoDaDespesa] = useState('');
+  const [motoristaDaDespesa, setMotoristaDaDespesa] = useState('');
   const [formaDespesa, setFormaDespesa] = useState<string>('Boleto');
   const [parcelarDespesa, setParcelarDespesa] = useState(false);
   const [parcelasDespesa, setParcelasDespesa] = useState<ParcelaComCheque[]>([]);
@@ -323,6 +337,8 @@ const ContasPagar: React.FC = () => {
     });
     setBuscaFornecedor('');
     setEditingId(null);
+    setVeiculoDaDespesa('');
+    setMotoristaDaDespesa('');
     setFormaDespesa('Boleto');
     setParcelarDespesa(false);
     setParcelasDespesa([]);
@@ -352,6 +368,8 @@ const ContasPagar: React.FC = () => {
       status: t.status === 'Paga' ? 'Paga' : 'Pendente'
     });
     setBuscaFornecedor(t.fornecedorNome || '');
+    setVeiculoDaDespesa(t.veiculoId || '');
+    setMotoristaDaDespesa(t.motoristaId || '');
     setEditingId(t.id);
     setIsModalOpen(true);
   };
@@ -427,6 +445,15 @@ const ContasPagar: React.FC = () => {
         ? { fornecedorId: formData.fornecedorId, fornecedorNome: formData.fornecedorNome }
         : null;
 
+      // Veiculo/motorista da frota: so' gravam quando escolhidos; na EDICAO, quem tirou
+      // precisa limpar de verdade o que estava gravado (string vazia).
+      const veiculoEscolhido = veiculosAtivos.find((v) => v.id === veiculoDaDespesa);
+      const motoristaEscolhido = motoristasAtivos.find((m) => m.id === motoristaDaDespesa);
+      const dadosDoVeiculo = {
+        ...(veiculoEscolhido ? { veiculoId: veiculoEscolhido.id, veiculoNome: rotuloDoVeiculo(veiculoEscolhido), veiculoPlaca: veiculoEscolhido.placa } : {}),
+        ...(motoristaEscolhido ? { motoristaId: motoristaEscolhido.id, motoristaNome: String(motoristaEscolhido.nome || '') } : {}),
+      };
+
       // Despesa nova em varias parcelas e/ou em cheque: um titulo por parcela.
       if (!editingId && (parcelarDespesa || formaDespesa === 'Cheque')) {
         const dadosDaDespesa = {
@@ -434,6 +461,7 @@ const ContasPagar: React.FC = () => {
           categoria: formData.categoria,
           forma: formaDespesa,
           ...(fornecedorEscolhido || {}),
+          ...dadosDoVeiculo,
         };
         const problema = erroDaDespesa(dadosDaDespesa, parcelasDespesa, valorNum, bancosParaCheque);
         if (problema) {
@@ -470,6 +498,8 @@ const ContasPagar: React.FC = () => {
           categoria: formData.categoria.toUpperCase().trim(),
           status: formData.status,
           ...(fornecedorEscolhido || { fornecedorId: '', fornecedorNome: '' }),
+          ...(veiculoEscolhido ? dadosDoVeiculo : { veiculoId: '', veiculoNome: '', veiculoPlaca: '' }),
+          ...(motoristaEscolhido ? {} : { motoristaId: '', motoristaNome: '' }),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
         showSuccess('Conta atualizada com sucesso!');
@@ -482,6 +512,7 @@ const ContasPagar: React.FC = () => {
           status: formData.status,
           formaPagamentoPrevista: formaDespesa,
           ...(fornecedorEscolhido || {}),
+          ...dadosDoVeiculo,
           tipo: 'saida',
           tenantId,
           createdAt: serverTimestamp(),
@@ -1113,6 +1144,43 @@ const ContasPagar: React.FC = () => {
                   ))}
                 </select>
               </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    Veículo da frota <span style={{ color: 'var(--text-muted)' }}>(opcional)</span>
+                  </label>
+                  <select
+                    value={veiculoDaDespesa}
+                    onChange={(e) => {
+                      setVeiculoDaDespesa(e.target.value);
+                      // Motorista padrao do veiculo entra sozinho, se ainda nao houver escolha.
+                      const padrao = veiculosAtivos.find((v) => v.id === e.target.value)?.motoristaPadraoId;
+                      if (padrao && !motoristaDaDespesa) setMotoristaDaDespesa(padrao);
+                    }}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)' }}
+                  >
+                    <option value="">Nenhum (despesa geral)</option>
+                    {veiculosAtivos.map((v) => <option key={v.id} value={v.id}>{rotuloDoVeiculo(v)}</option>)}
+                  </select>
+                </div>
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Motorista <span style={{ color: 'var(--text-muted)' }}>(opcional)</span></label>
+                  <select
+                    value={motoristaDaDespesa}
+                    onChange={(e) => setMotoristaDaDespesa(e.target.value)}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)' }}
+                  >
+                    <option value="">Nenhum</option>
+                    {motoristasAtivos.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                  </select>
+                </div>
+              </div>
+              {veiculosAtivos.length === 0 && (
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '-8px' }}>
+                  Nenhum veículo na frota ainda. Cadastre em Expedição › Frota para lançar despesas por veículo.
+                </div>
+              )}
 
               {!editingId && (
                 <>

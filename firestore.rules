@@ -157,6 +157,8 @@ service cloud.firestore {
         // Quem lanca e' a LOJA (decisao do dono, 2026-09-21) -- o motorista
         // nao escreve aqui pelo app.
         (collectionName == 'motoristas' && hasPermission('operacoes.rotas')) ||
+        // Frota propria (veiculos da EMPRESA, 2026-09-25): mesma permissao da rota/motorista.
+        (collectionName == 'frota' && hasPermission('operacoes.rotas')) ||
         (collectionName == 'rotas' && hasPermission('operacoes.rotas')) ||
         (collectionName == 'materias_primas' && hasPermission('cadastros.materia_prima')) ||
         (collectionName == 'ordens_producao' && hasPermission('operacoes.producao')) ||
@@ -591,6 +593,7 @@ service cloud.firestore {
         'creditos_cliente',
         'fornecedores',
         'motoristas',
+        'frota',
         'rotas',
         'cotacoes_compra',
         'pedidos_compra',
@@ -639,6 +642,7 @@ service cloud.firestore {
         'creditos_cliente',
         'fornecedores',
         'motoristas',
+        'frota',
         'rotas',
         'cotacoes_compra',
         'pedidos_compra',
@@ -682,6 +686,7 @@ service cloud.firestore {
         'creditos_cliente',
         'fornecedores',
         'motoristas',
+        'frota',
         'rotas',
         'cotacoes_compra',
         'pedidos_compra',
@@ -730,6 +735,7 @@ service cloud.firestore {
         'creditos_cliente',
         'fornecedores',
         'motoristas',
+        'frota',
         'rotas',
         'cotacoes_compra',
         'pedidos_compra',

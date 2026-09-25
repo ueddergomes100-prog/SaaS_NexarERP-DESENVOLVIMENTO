@@ -148,7 +148,7 @@ service cloud.firestore {
         // estoque_lotes: mesma logica -- exige a permissao de alterar cadastro
         // ou a de Ajuste Manual de Estoque, nunca so "ver a lista". A Entrada de NF-e (fiscal.entrada)
         // tambem cria/soma lote e a exclusao da nota o estorna.
-        (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.ajusteManual', 'fiscal.entrada'])) ||
+        (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.ajusteManual', 'fiscal.entrada', 'estoque.nota_avulsa', 'operacoes.producao'])) ||
         // Fornecedores ganhou permissao propria (antes vinha no balaio de
         // cadastros.estoque). Aceita tambem fiscal.entrada porque a Entrada de
         // XML CRIA fornecedor durante a importacao (EntradaNFE.tsx) -- sem
@@ -257,6 +257,20 @@ service cloud.firestore {
           'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar',
           // Emissao de boleto consome a sequencia do nosso numero e a da remessa.
           'financeiro.boletos'
+        ]);
+    }
+
+    // Baixa por lote (2026-09-25): a venda/OS/orcamento/devolucao mexe SO' no saldo do lote, exatamente
+    // como canAdjustStockQuantity faz com o estoque -- quem so' vende nao cria nem edita lote a mao.
+    function canAdjustLoteQuantity() {
+      return hasProfile() &&
+        resource.data.tenantId == currentTenantId() &&
+        request.resource.data.tenantId == resource.data.tenantId &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'updatedAt']) &&
+        hasAnyPermission([
+          'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar', 'estoque.ajusteManual',
+          'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar',
+          'operacoes.producao', 'estoque.nota_avulsa', 'fiscal.entrada'
         ]);
     }
 
@@ -714,6 +728,7 @@ service cloud.firestore {
       ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && (
         canWriteTenantCollection(collectionName) ||
         (collectionName == 'estoque' && canAdjustStockQuantity()) ||
+        (collectionName == 'estoque_lotes' && canAdjustLoteQuantity()) ||
         (collectionName == 'materias_primas' && canAdjustMateriaPrimaQuantity()) ||
         (collectionName == 'pedidos_venda' && canCloseConferenciaOnPedido())
       );

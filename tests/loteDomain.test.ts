@@ -165,3 +165,55 @@ test('entrada: validade digitada inválida é recusada; lotes iguais se somam', 
   assert.equal(chaveDoLote(' ab-1 '), 'AB-1');
   assert.deepEqual(somarLotesIguais([{ lote: 'A', validade: '2027-01-01', quantidade: 2 }, { lote: ' a ', validade: '2027-01-01', quantidade: 3 }]), [{ lote: 'A', validade: '2027-01-01', quantidade: 5 }]);
 });
+
+import { distribuirRetornoAosLotes, planejarBaixaPorLotes, somarLotesUsados } from '../src/utils/loteDomain';
+
+const lotesDoProduto = { P1: [lote('a', '2026-11-01', 5, 'A'), lote('b', '2027-01-01', 10, 'B'), lote('v', '2026-08-01', 3, 'V')] };
+
+test('baixa: FEFO entre lotes vigentes, pulando o vencido, divide quando um não basta', () => {
+  const plano = planejarBaixaPorLotes([{ chave: '0', produtoId: 'P1', nome: 'ARROZ', quantidade: 7 }], lotesDoProduto, HOJE);
+  assert.deepEqual(plano.porLinha['0'].map((l) => [l.loteId, l.quantidade]), [['a', 5], ['b', 2]]);
+  assert.equal(plano.semLote['0'], undefined);
+  assert.equal(plano.vencidosUsados.length, 0);
+});
+
+test('baixa: linhas do mesmo produto gastam o saldo em sequência (não usam o mesmo saldo duas vezes)', () => {
+  const plano = planejarBaixaPorLotes([
+    { chave: '0', produtoId: 'P1', nome: 'ARROZ', quantidade: 4 },
+    { chave: '1', produtoId: 'P1', nome: 'ARROZ', quantidade: 4 },
+  ], lotesDoProduto, HOJE);
+  assert.deepEqual(plano.porLinha['0'].map((l) => [l.loteId, l.quantidade]), [['a', 4]]);
+  assert.deepEqual(plano.porLinha['1'].map((l) => [l.loteId, l.quantidade]), [['a', 1], ['b', 3]]);
+});
+
+test('baixa: o que passa dos lotes sai do saldo sem lote; vencido só entra por último e avisa', () => {
+  const plano = planejarBaixaPorLotes([{ chave: '0', produtoId: 'P1', nome: 'ARROZ', quantidade: 20 }], lotesDoProduto, HOJE);
+  assert.deepEqual(plano.porLinha['0'].map((l) => [l.loteId, l.quantidade]), [['a', 5], ['b', 10], ['v', 3]]);
+  assert.equal(plano.semLote['0'], 2);
+  assert.deepEqual(plano.vencidosUsados, [{ produto: 'ARROZ', lote: 'V', validade: '2026-08-01' }]);
+});
+
+test('baixa: produto sem lote cadastrado ou que não controla lote fica fora do plano', () => {
+  const plano = planejarBaixaPorLotes([{ chave: '0', produtoId: 'OUTRO', nome: 'X', quantidade: 3 }], lotesDoProduto, HOJE);
+  assert.deepEqual(plano.porLinha, {});
+  const semLotes = planejarBaixaPorLotes([{ chave: '0', produtoId: 'P2', nome: 'Y', quantidade: 3 }], { P2: [] }, HOJE);
+  assert.deepEqual(semLotes.porLinha['0'], []);
+  assert.equal(semLotes.semLote['0'], 3);
+});
+
+test('baixa: modo informar tira primeiro do lote escolhido (mesmo vencido, avisando) e completa pelo FEFO', () => {
+  const plano = planejarBaixaPorLotes([{ chave: '0', produtoId: 'P1', nome: 'ARROZ', quantidade: 6 }], lotesDoProduto, HOJE, { '0': 'b' });
+  assert.deepEqual(plano.porLinha['0'].map((l) => [l.loteId, l.quantidade]), [['b', 6]]);
+  const vencido = planejarBaixaPorLotes([{ chave: '0', produtoId: 'P1', nome: 'ARROZ', quantidade: 5 }], lotesDoProduto, HOJE, { '0': 'v' });
+  assert.deepEqual(vencido.porLinha['0'].map((l) => [l.loteId, l.quantidade]), [['v', 3], ['a', 2]]);
+  assert.equal(vencido.vencidosUsados.length, 1);
+});
+
+test('devolução: volta ao mesmo lote, respeita o que já voltou e a parte sem lote não gera lote', () => {
+  const usados = [{ loteId: 'a', lote: 'A', validade: null, quantidade: 5 }, { loteId: 'b', lote: 'B', validade: null, quantidade: 2 }];
+  assert.deepEqual(distribuirRetornoAosLotes(usados, 0, 7).map((l) => [l.loteId, l.quantidade]), [['a', 5], ['b', 2]]);
+  assert.deepEqual(distribuirRetornoAosLotes(usados, 3, 3).map((l) => [l.loteId, l.quantidade]), [['a', 2], ['b', 1]]);
+  assert.deepEqual(distribuirRetornoAosLotes(usados, 0, 9).map((l) => [l.loteId, l.quantidade]), [['a', 5], ['b', 2]]);
+  assert.deepEqual(distribuirRetornoAosLotes(usados, 7, 2), []);
+  assert.deepEqual(somarLotesUsados([[usados[0]], [usados[0], usados[1]]]).map((l) => [l.loteId, l.quantidade]), [['a', 10], ['b', 2]]);
+});

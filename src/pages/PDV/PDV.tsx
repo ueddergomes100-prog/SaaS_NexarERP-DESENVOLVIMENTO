@@ -29,6 +29,7 @@ import {
   getNextTenantSequenceValue,
   writeTenantSequenceValue,
 } from '../../utils/firestoreAtomic';
+import { baixarLotesNaTransacao, camposDeLoteDoItem, linhasParaLote, prepararBaixaDeLotes } from '../../services/loteBaixaService';
 import {
   buildCardFeeSchedulesByBrand,
   buildCommissionSnapshot,
@@ -112,6 +113,8 @@ const PDV: React.FC = () => {
     blockedModules,
     selectedTenant,
     needsTenantSelection,
+    loteModoSaida,
+    loteAvisarVencido,
   } = useAuth();
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
   const { items: bancosDisponiveis } = useTenantCollection<Banco>('bancos', tenantId);
@@ -794,6 +797,16 @@ const PDV: React.FC = () => {
     saleLockRef.current = true;
     setSaving(true);
     try {
+      // Lote e Validade: so' o produto que controla lote entra; os demais seguem so' com o estoque.
+      const planoLotes = await prepararBaixaDeLotes({
+        db,
+        tenantId,
+        linhas: linhasParaLote(cartItems.map((item) => ({ id: item.productId, nome: item.nome, quantidade: item.quantidade, fatorConversao: item.fatorConversao }))),
+        modo: loteModoSaida,
+        avisarVencido: loteAvisarVencido,
+      });
+      if (planoLotes === null) return; // quem vende cancelou a escolha do lote
+
       const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
       let finalNumeroPedido = '';
       let newPedidoId = '';
@@ -839,6 +852,7 @@ const PDV: React.FC = () => {
           'decrement',
           allowNegativeStock,
         );
+        baixarLotesNaTransacao(transaction, db, planoLotes);
 
         writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
 
@@ -848,7 +862,7 @@ const PDV: React.FC = () => {
         }));
         const saleDiscountShare = totals.vendaDescontoCentavos;
         const grossItemsCents = Math.max(1, totals.subtotalCentavos);
-        const itens = cartItems.map((item) => {
+        const itens = cartItems.map((item, indiceDoItem) => {
           const lineGrossCents = Math.round(item.precoUnitarioCentavos * item.quantidade);
           const proportionalSaleDiscount = Math.round(saleDiscountShare * (lineGrossCents / grossItemsCents));
           const totalDiscountCents = Math.min(lineGrossCents, item.descontoCentavos + proportionalSaleDiscount);
@@ -865,6 +879,7 @@ const PDV: React.FC = () => {
             subtotalCentavos: subtotalCents,
             unidadeMedidaSigla: item.unidadeMedidaSigla,
             unidadeMedidaCasasDecimais: item.unidadeMedidaCasasDecimais,
+            ...camposDeLoteDoItem(planoLotes, String(indiceDoItem)),
             // Mesmo contrato do Pedido de Venda: item na unidade base nao
             // ganha campo de embalagem, para nao mudar o formato historico.
             ...(item.embalagemId

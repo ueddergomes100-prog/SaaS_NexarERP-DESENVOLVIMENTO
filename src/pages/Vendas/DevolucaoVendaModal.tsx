@@ -8,6 +8,9 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import DevolucaoNfeModal from '../../components/common/DevolucaoNfeModal';
 import { applyStockAdjustments } from '../../utils/firestoreAtomic';
+import { devolverAosLotesNaTransacao } from '../../services/loteBaixaService';
+import { toBaseQuantity } from '../../utils/embalagemDomain';
+import type { LoteUsado } from '../../utils/loteDomain';
 import { toStockAdjustmentItems } from '../../utils/embalagemDomain';
 import { recalculateCommissionAfterReturn, toCents } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
@@ -148,6 +151,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
       const novaDevolucaoRef = doc(collection(db, 'devolucoes_venda'));
       const saleRef = doc(db, 'pedidos_venda', pedidoId);
       let vendedorDaVendaOriginal: { id?: string; nome?: string } = {};
+      let lotesDevolvidos: LoteUsado[] = [];
       const itensFiltrados = itens.filter((item) => item.selecionado && item.quantidadeSelecionada > 0);
       const itensDevolvidos = itensFiltrados.map((item) => ({
         id: item.id,
@@ -180,13 +184,22 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
         }
 
         const storedItems = Array.isArray(saleData.itens) ? saleData.itens : [];
-        const updatedItems = storedItems.map((storedItem: DevolucaoItem) => {
+        // Lote e Validade: o que a venda tirou de lote volta ao MESMO lote (itens gravados na venda).
+        const retornosDeLote: Array<{ lotes?: LoteUsado[]; jaDevolvido: number; quantidade: number }> = [];
+        const updatedItems = storedItems.map((storedItem: DevolucaoItem & { lotes?: LoteUsado[] }) => {
           const returnedItem = itensFiltrados.find((item) => item.id === storedItem.id && item.nome === storedItem.nome);
           if (!returnedItem) return storedItem;
           const alreadyReturned = Number(storedItem.quantidadeJaDevolvida || 0);
           const available = Number(storedItem.quantidade || 0) - alreadyReturned;
           if (returnedItem.quantidadeSelecionada > available) {
             throw new Error(`A quantidade disponível para devolução de ${storedItem.nome} foi alterada.`);
+          }
+          if (Array.isArray(storedItem.lotes) && storedItem.lotes.length > 0) {
+            retornosDeLote.push({
+              lotes: storedItem.lotes,
+              jaDevolvido: toBaseQuantity(alreadyReturned, storedItem.fatorConversao),
+              quantidade: toBaseQuantity(returnedItem.quantidadeSelecionada, storedItem.fatorConversao),
+            });
           }
           return { ...storedItem, quantidadeJaDevolvida: alreadyReturned + returnedItem.quantidadeSelecionada };
         });
@@ -203,6 +216,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
           'increment',
           true,
         );
+        lotesDevolvidos = devolverAosLotesNaTransacao(transaction, db, retornosDeLote);
 
         transaction.set(novaDevolucaoRef, {
           pedidoVendaId: pedidoId,
@@ -226,6 +240,8 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
           idempotencyKey: `devolucao:${novaDevolucaoRef.id}`,
           createdAt: serverTimestamp(),
           itensDevolvidos,
+          // Lotes repostos por esta devolucao: o estorno usa isto para retirar de novo dos mesmos lotes.
+          ...(lotesDevolvidos.length > 0 ? { lotesDevolvidos } : {}),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
 

@@ -11,6 +11,7 @@ import {
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
+import { baixarLotesNaTransacao, camposDeLoteDoItem, linhasParaLote, prepararBaixaDeLotes } from '../../services/loteBaixaService';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, reserveTenantSequence, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import {
@@ -155,7 +156,7 @@ const OrcamentoForm: React.FC = () => {
 
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido } = useAuth();
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
   const canVerAuditoria = hasModuleAccess({ role: userRole, isOwner, permissions: userPermissions, requiredPermission: 'administrativo.logs' });
   const [auditoriaAberta, setAuditoriaAberta] = useState(false);
@@ -748,6 +749,19 @@ const OrcamentoForm: React.FC = () => {
 
         if (!tenantId) throw new Error('Tenant nao carregado.');
         if (!currentUser) throw new Error('Usuário não autenticado.');
+        // Lote e Validade: so' o produto que controla lote entra; os demais seguem so' com o estoque.
+        const planoLotes = await prepararBaixaDeLotes({
+          db,
+          tenantId,
+          linhas: linhasParaLote(soPecas.map((i) => ({ id: i.id, nome: i.nome, quantidade: i.quantidade }))),
+          modo: loteModoSaida,
+          avisarVencido: loteAvisarVencido,
+        });
+        if (planoLotes === null) {
+          setIsLoading(false);
+          submitLockRef.current = false;
+          return;
+        }
         const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
         let novaVendaId = '';
 
@@ -755,7 +769,7 @@ const OrcamentoForm: React.FC = () => {
           const nextPedido = await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
           const newVendaRef = doc(collection(db, 'pedidos_venda'));
           novaVendaId = newVendaRef.id;
-          const vendaItens = soPecas.map(i => ({
+          const vendaItens = soPecas.map((i, indiceDoItem) => ({
             id: i.id,
             nome: i.nome,
             // Codigo real do produto (nao o id do Firestore) -- e' o que a
@@ -766,7 +780,8 @@ const OrcamentoForm: React.FC = () => {
             precoUnitario: i.preco,
             quantidade: i.quantidade,
             desconto: 0,
-            subtotal: i.preco * i.quantidade
+            subtotal: i.preco * i.quantidade,
+            ...camposDeLoteDoItem(planoLotes, String(indiceDoItem)),
           }));
 
           await applyStockAdjustments(
@@ -776,6 +791,7 @@ const OrcamentoForm: React.FC = () => {
             'decrement',
             permitirVendaSemEstoque
           );
+          baixarLotesNaTransacao(transaction, db, planoLotes);
 
           writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
 

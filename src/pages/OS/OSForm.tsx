@@ -6,6 +6,8 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showSuccess, showError, showWarning } from '../../utils/alerts';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
+import { baixarLotesNaTransacao, devolucaoTotalDosLotes, devolverAosLotesNaTransacao, linhasParaLote, prepararBaixaDeLotes } from '../../services/loteBaixaService';
+import { somarLotesUsados, type PlanoDeLotes } from '../../utils/loteDomain';
 import { applyStockAdjustments, applyStockFieldDeltas, describeTransactionError, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import {
   computeReservationCommit,
@@ -277,7 +279,7 @@ const OSForm: React.FC = () => {
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido } = useAuth();
   const canVerAuditoria = hasModuleAccess({ role: userRole, isOwner, permissions: userPermissions, requiredPermission: 'administrativo.logs' });
   const [auditoriaAberta, setAuditoriaAberta] = useState(false);
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
@@ -1108,6 +1110,23 @@ const OSForm: React.FC = () => {
         }
       }
 
+      // Lote e Validade: so' o produto que controla lote entra; os demais seguem so' com o estoque.
+      // A baixa de estoque da OS acontece ao FINALIZAR (ou ao confirmar a reserva), entao e' ali que o lote sai.
+      let planoLotes: PlanoDeLotes | null = null;
+      if (formData.status === 'Finalizada' && !formData.estoqueBaixado && pecasSelecionadas.length > 0) {
+        planoLotes = await prepararBaixaDeLotes({
+          db,
+          tenantId,
+          linhas: linhasParaLote(pecasSelecionadas.map((peca) => ({ id: peca.id, nome: peca.nome, quantidade: peca.quantidade }))),
+          modo: loteModoSaida,
+          avisarVencido: loteAvisarVencido,
+        });
+        if (planoLotes === null) return false; // quem operou cancelou a escolha do lote (o finally solta o bloqueio)
+      }
+      // Lotes de onde as pecas sairam, guardados na OS para o retorno/cancelamento devolver ao mesmo lote.
+      // undefined = nao mexe no que ja esta gravado; [] = limpa (as pecas voltaram).
+      let lotesBaixadosDaOs: ReturnType<typeof somarLotesUsados> | undefined;
+
       let finalNumeroOS = formData.numeroOS;
       const currentMaxOs = !isEditing
         ? await getCurrentMaxSequence(db, 'ordens_de_servico', tenantId, 'numeroOS').catch(() => 0)
@@ -1208,6 +1227,8 @@ const OSForm: React.FC = () => {
           } else {
             await applyStockAdjustments(transaction, db, pecasItems, 'decrement', permitirVendaSemEstoque);
           }
+          baixarLotesNaTransacao(transaction, db, planoLotes);
+          lotesBaixadosDaOs = planoLotes ? somarLotesUsados(Object.values(planoLotes.porLinha)) : [];
           estoqueFoiBaixado = true;
         } else if (deveRetornarEstoque) {
           if (hasOrphanReservation) {
@@ -1215,6 +1236,9 @@ const OSForm: React.FC = () => {
             await applyStockFieldDeltas(transaction, db, deltas, true);
           } else {
             await applyStockAdjustments(transaction, db, pecasItems, 'increment', true);
+            // Volta ao MESMO lote de onde a baixa tirou (guardado na OS).
+            devolverAosLotesNaTransacao(transaction, db, devolucaoTotalDosLotes([{ lotes: existingOsData?.lotesBaixados }]));
+            lotesBaixadosDaOs = [];
           }
         } else if (formData.status === 'Cancelada' && hasOrphanReservation) {
           const deltas = computeReservationRelease(previousReserved);
@@ -1303,6 +1327,7 @@ const OSForm: React.FC = () => {
           },
           statusColor: getStatusColor(formData.status),
           estoqueBaixado: estoqueFoiBaixado,
+          ...(lotesBaixadosDaOs !== undefined ? { lotesBaixados: lotesBaixadosDaOs } : {}),
           estoqueReservado: novoEstoqueReservado,
           formaPagamento: paymentSummary?.paymentMethodLabel || formData.formaPagamento,
           statusPagamento: formData.status === 'Cancelada'

@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService } from '../../services/spedyService';
+import * as loteBaixa from '../../services/loteBaixaService';
 import { applyStockAdjustments, applyStockFieldDeltas, describeTransactionError, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { MOTIVOS_TROCA, PERMISSAO_TROCA_GERENCIAR, PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
@@ -424,7 +425,8 @@ const PedidoVendaForm: React.FC = () => {
   // (gravar/finalizar/cancelar). State aqui seria uma segunda copia da
   // verdade, que envelhece se outra aba mexer na mesma pre-venda.
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido } = useAuth();
+  const { baixarLotesNaTransacao, camposDeLoteDoItem, devolucaoTotalDosLotes, devolverAosLotesNaTransacao, estornarLotesDaDevolucaoNaTransacao, linhasParaLote, prepararBaixaDeLotes } = loteBaixa;
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
   const canReturnVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao'));
   // Pedido pendente do agente de WhatsApp: nasce com status "Em Analise"
@@ -581,7 +583,7 @@ const PedidoVendaForm: React.FC = () => {
 
   const fetchDevolucoes = async (pedidoId: string) => {
     try {
-      const qDevolucoes = query(collection(db, 'devolucoes_venda'), where('pedidoVendaId', '==', pedidoId));
+      const qDevolucoes = query(collection(db, 'devolucoes_venda'), where('tenantId', '==', tenantId), where('pedidoVendaId', '==', pedidoId));
       const snap = await getDocs(qDevolucoes);
       const lista: DevolucaoVenda[] = snap.docs.map((docSnap) => ({
         id: docSnap.id,
@@ -810,6 +812,7 @@ const PedidoVendaForm: React.FC = () => {
             try {
               const qNota = query(
                 collection(db, 'notas_fiscais'),
+                where('tenantId', '==', tenantId),
                 where('pedidoId', '==', id),
                 where('tipo', '==', 'NFC-e')
               );
@@ -2327,6 +2330,20 @@ const PedidoVendaForm: React.FC = () => {
     let vendedorGravado: { id?: string; nome?: string } = {};
 
     try {
+      // Lote e Validade: so' o produto que controla lote entra; os demais seguem so' com o estoque.
+      const planoLotes = await prepararBaixaDeLotes({
+        db,
+        tenantId,
+        linhas: linhasParaLote(itens.map((item) => ({ id: item.id, nome: item.nome, quantidade: item.quantidade, fatorConversao: item.fatorConversao }))),
+        modo: loteModoSaida,
+        avisarVencido: loteAvisarVencido,
+      });
+      if (planoLotes === null) {
+        setIsLoading(false); // quem vende cancelou a escolha do lote
+        return false;
+      }
+      const itensComLote = itens.map((item, indice) => ({ ...item, ...camposDeLoteDoItem(planoLotes, String(indice)) }));
+
       // 1. Cadastrar Cliente (se não existir)
       let clienteIdParaSalvar: string | null = clienteEncontrado?.id || null;
       if (!clienteEncontrado) {
@@ -2511,6 +2528,7 @@ const PedidoVendaForm: React.FC = () => {
             permitirVendaSemEstoque
           );
         }
+        baixarLotesNaTransacao(transaction, db, planoLotes);
 
         if (!finalizandoPedidoAberto) {
           writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
@@ -2547,7 +2565,7 @@ const PedidoVendaForm: React.FC = () => {
           clienteId: clienteIdParaSalvar,
           clienteNome: finalClienteNome,
           observacao: observacaoPedido.trim(),
-          itens,
+          itens: itensComLote,
           valorTotalItens,
           valorTotalItensCentavos: toCents(valorTotalItens),
           valorTotalDescontos,
@@ -3512,6 +3530,8 @@ const PedidoVendaForm: React.FC = () => {
           'increment',
           true
         );
+        // Lote e Validade: o cancelamento devolve ao MESMO lote de onde a venda tirou (itens gravados na venda).
+        devolverAosLotesNaTransacao(transaction, db, devolucaoTotalDosLotes(saleData.itens));
 
         transaction.update(saleRef, {
           status: 'Cancelada',
@@ -3708,6 +3728,7 @@ const PedidoVendaForm: React.FC = () => {
           'decrement',
           true,
         );
+        estornarLotesDaDevolucaoNaTransacao(transaction, db, devolucaoData.lotesDevolvidos);
 
         const valorDevolvidoCentavos = toCents(devolucaoData.valorTotalDevolvido || 0);
         const savedCommission = saleData.comissao?.regraVersion

@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showError, showSuccess, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { prepararEstornoDeEntradaEmLotes } from '../../services/loteBaixaService';
 import { STATUS_NOTA_AVULSA_ATIVA, STATUS_NOTA_AVULSA_CANCELADA, quantidadeEstoqueNotaAvulsaItem, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
@@ -142,6 +143,8 @@ const NotasAvulsasList: React.FC = () => {
           produtoId, ref: doc(db, 'estoque', produtoId), ...dados,
         }));
         const produtoSnaps = await Promise.all(produtoRefs.map(({ ref }) => transaction.get(ref)));
+        // Lote e Validade: confere (leitura) que os lotes desta nota ainda tem o saldo que entrou.
+        const retirarLotes = await prepararEstornoDeEntradaEmLotes(transaction, db, notaSnap.data().lotesEntrada, `a nota avulsa #${nota.numero}`);
 
         // Reverte o estoque -- bloqueia se ja foi vendido/usado mais do que
         // esta nota trouxe (ficaria negativo). Mesma logica de qualquer
@@ -156,6 +159,8 @@ const NotasAvulsasList: React.FC = () => {
           }
           transaction.update(ref, { quantidade: quantidadeDepois, updatedAt: serverTimestamp() });
         });
+
+        retirarLotes();
 
         transaction.update(notaRef, {
           status: STATUS_NOTA_AVULSA_CANCELADA,

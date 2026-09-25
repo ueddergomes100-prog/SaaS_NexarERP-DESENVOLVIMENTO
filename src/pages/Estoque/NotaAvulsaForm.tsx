@@ -8,6 +8,7 @@ import { showError, showSuccess } from '../../utils/alerts';
 import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import type { MudancaDeCusto } from '../../utils/custoProducaoDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { gravarEntradasEmLotesNaTransacao, lotesDaEntradaParaGravar, pedirLotesDeEntrada, prepararEntradasEmLotes, produtosQueControlamLote, type EntradaDeLotePreparada } from '../../services/loteBaixaService';
 import {
   formatSequenceValue,
   getCurrentMaxSequence,
@@ -355,6 +356,31 @@ const NotaAvulsaForm: React.FC = () => {
       // (a transacao pode ser repetida pelo Firestore).
       let mudancasDeCusto: MudancaDeCusto[] = [];
 
+      // Lote e Validade: so' o produto que controla lote pede lote e validade; os demais entram como sempre.
+      const totaisPorProduto = new Map<string, { nome: string; quantidade: number }>();
+      itensComRateio.forEach((item) => {
+        const atual = totaisPorProduto.get(item.produtoId);
+        totaisPorProduto.set(item.produtoId, { nome: item.produtoNome, quantidade: (atual?.quantidade || 0) + quantidadeEstoqueNotaAvulsaItem(item) });
+      });
+      const produtosComLote = await produtosQueControlamLote(db, [...totaisPorProduto.keys()]);
+      let entradasDeLote: EntradaDeLotePreparada[] = [];
+      if (produtosComLote.size > 0) {
+        const informados = await pedirLotesDeEntrada(
+          [...produtosComLote].map((produtoId) => ({ chave: produtoId, nome: totaisPorProduto.get(produtoId)?.nome || 'Produto', quantidade: totaisPorProduto.get(produtoId)?.quantidade || 0 })),
+          'Lote e validade da nota avulsa',
+        );
+        if (informados === null) {
+          setIsSaving(false);
+          return;
+        }
+        entradasDeLote = await prepararEntradasEmLotes(db, tenantId, [...produtosComLote].map((produtoId) => ({
+          produtoId,
+          lote: informados[produtoId].lote,
+          validade: informados[produtoId].validade,
+          quantidade: totaisPorProduto.get(produtoId)?.quantidade || 0,
+        })));
+      }
+
       await runTransaction(db, async (transaction) => {
         mudancasDeCusto = [];
         // 1. LEITURAS -- todas antes de qualquer escrita (regra do Firestore).
@@ -414,6 +440,8 @@ const NotaAvulsaForm: React.FC = () => {
             updatedAt: serverTimestamp(),
           });
         });
+
+        gravarEntradasEmLotesNaTransacao(transaction, db, tenantId, entradasDeLote, buildDocumentMetadata(currentUser.uid, serverTimestamp()), `Nota Avulsa #${numeroFinal}`);
 
         const notaRef = doc(collection(db, 'notas_avulsas'));
 
@@ -493,6 +521,8 @@ const NotaAvulsaForm: React.FC = () => {
           fornecedorId: fornecedorSelecionado.id,
           fornecedorNome: fornecedorSelecionado.nome,
           itens: itensComRateio,
+          // Lotes que esta nota criou/somou: o cancelamento usa isto para desfazer o saldo de cada lote.
+          ...(entradasDeLote.length > 0 ? { lotesEntrada: lotesDaEntradaParaGravar(entradasDeLote) } : {}),
           ...(freteValor > 0 ? { frete: freteValor } : {}),
           ...(descontoValor > 0 ? { desconto: descontoValor } : {}),
           valorTotal: totalNota,

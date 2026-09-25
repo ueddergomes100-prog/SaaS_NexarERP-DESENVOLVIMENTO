@@ -250,3 +250,128 @@ export const somarLotesIguais = (lotes: LoteParaEntrada[]): LoteParaEntrada[] =>
   });
   return [...mapa.values()];
 };
+
+/* ------------------------------------------------------------------------------------------------
+ * FASE 4 -- BAIXA POR LOTE NAS VENDAS (2026-09-25)
+ *
+ * Regra do dono: SO' o produto marcado "Controlar lote" entra nisto; os demais seguem so' com o
+ * estoque normal. O que a venda tira de lote e' um PEDACO do estoque: `estoque.quantidade` continua
+ * sendo o total, e o que nao cabe nos lotes sai do "saldo sem lote" (estoque anterior a ligar o
+ * controle). Nada trava por causa do saldo sem lote.
+ * ---------------------------------------------------------------------------------------------- */
+
+export interface LinhaParaLote {
+  /** Identifica a linha da venda (indice ou id); a resposta vem indexada por ela. */
+  chave: string;
+  produtoId: string;
+  nome: string;
+  /** Sempre na unidade BASE do estoque (ja convertida pelo fator de embalagem). */
+  quantidade: number;
+}
+
+export interface LoteUsado {
+  loteId: string;
+  lote: string;
+  validade: string | null;
+  /** Unidade base do estoque. */
+  quantidade: number;
+}
+
+export interface PlanoDeLotes {
+  /** Lotes tirados por linha (so' linhas de produto que controla lote). */
+  porLinha: Record<string, LoteUsado[]>;
+  /** Parte de cada linha que saiu do saldo SEM lote. */
+  semLote: Record<string, number>;
+  /** Lotes vencidos usados: a tela so' AVISA (decisao do dono), nunca bloqueia. */
+  vencidosUsados: Array<{ produto: string; lote: string; validade: string | null }>;
+}
+
+/**
+ * Reparte cada linha pelos lotes do produto, na ordem das linhas, gastando o saldo de um lote antes
+ * de a linha seguinte olhar para ele. `preferidos` (modo "informar o lote") diz de que lote a linha
+ * quer sair PRIMEIRO; o que sobrar segue o FEFO. Lote vencido so' entra quando os vigentes nao
+ * cobrem a quantidade -- ou quando foi escolhido a mao (e ai so' avisa).
+ */
+export const planejarBaixaPorLotes = (
+  linhas: LinhaParaLote[],
+  lotesPorProduto: Record<string, LoteSaldo[]>,
+  hoje: string,
+  preferidos: Record<string, string> = {},
+): PlanoDeLotes => {
+  const saldo = new Map<string, number>();
+  Object.values(lotesPorProduto).forEach((lista) => lista.forEach((l) => saldo.set(l.id, Number(l.quantidade) || 0)));
+  const plano: PlanoDeLotes = { porLinha: {}, semLote: {}, vencidosUsados: [] };
+  const avisados = new Set<string>();
+
+  const retirar = (linha: LinhaParaLote, lote: LoteSaldo, quantidade: number, usados: LoteUsado[]): number => {
+    const disponivel = saldo.get(lote.id) || 0;
+    const usar = Math.round(Math.min(quantidade, disponivel) * 10000) / 10000;
+    if (usar <= 0) return 0;
+    saldo.set(lote.id, Math.round((disponivel - usar) * 10000) / 10000);
+    const existente = usados.find((u) => u.loteId === lote.id);
+    if (existente) existente.quantidade = Math.round((existente.quantidade + usar) * 10000) / 10000;
+    else usados.push({ loteId: lote.id, lote: lote.lote, validade: lote.validade ? String(lote.validade) : null, quantidade: usar });
+    if (situacaoDoLote(lote.validade, hoje) === 'vencido' && !avisados.has(`${linha.chave}|${lote.id}`)) {
+      avisados.add(`${linha.chave}|${lote.id}`);
+      plano.vencidosUsados.push({ produto: linha.nome, lote: lote.lote, validade: lote.validade ? String(lote.validade) : null });
+    }
+    return usar;
+  };
+
+  for (const linha of linhas) {
+    const lotes = lotesPorProduto[linha.produtoId];
+    if (!lotes) continue;
+    let restante = Math.round((Number(linha.quantidade) || 0) * 10000) / 10000;
+    const usados: LoteUsado[] = [];
+
+    const escolhido = preferidos[linha.chave] ? lotes.find((l) => l.id === preferidos[linha.chave]) : undefined;
+    if (escolhido) restante = Math.round((restante - retirar(linha, escolhido, restante, usados)) * 10000) / 10000;
+
+    const fefo = ordenarLotesFefo(lotes.filter((l) => l.id !== escolhido?.id));
+    const vigentes = fefo.filter((l) => situacaoDoLote(l.validade, hoje) !== 'vencido');
+    const vencidos = fefo.filter((l) => situacaoDoLote(l.validade, hoje) === 'vencido');
+    for (const lote of [...vigentes, ...vencidos]) {
+      if (restante <= 0) break;
+      restante = Math.round((restante - retirar(linha, lote, restante, usados)) * 10000) / 10000;
+    }
+
+    plano.porLinha[linha.chave] = usados;
+    if (restante > 0) plano.semLote[linha.chave] = restante;
+  }
+  return plano;
+};
+
+/**
+ * Devolucao/estorno: devolve ao MESMO lote de onde a venda tirou. Considera as `jaDevolvida`
+ * unidades que ja voltaram (na ordem em que foram tiradas) e devolve `quantidade` a partir dali.
+ * A parte que a venda tirou do saldo sem lote volta para o saldo sem lote (fica so' no estoque).
+ */
+export const distribuirRetornoAosLotes = (lotesDoItem: LoteUsado[], jaDevolvida: number, quantidade: number): LoteUsado[] => {
+  let pular = Math.max(0, Number(jaDevolvida) || 0);
+  let devolver = Math.max(0, Number(quantidade) || 0);
+  const saida: LoteUsado[] = [];
+  for (const lote of lotesDoItem) {
+    if (devolver <= 0) break;
+    let disponivel = Number(lote.quantidade) || 0;
+    if (pular > 0) {
+      const descartado = Math.min(pular, disponivel);
+      pular = Math.round((pular - descartado) * 10000) / 10000;
+      disponivel = Math.round((disponivel - descartado) * 10000) / 10000;
+    }
+    if (disponivel <= 0) continue;
+    const volta = Math.round(Math.min(devolver, disponivel) * 10000) / 10000;
+    devolver = Math.round((devolver - volta) * 10000) / 10000;
+    saida.push({ ...lote, quantidade: volta });
+  }
+  return saida;
+};
+
+/** Soma o que varias linhas tiraram do MESMO lote (uma escrita por lote na transacao). */
+export const somarLotesUsados = (listas: LoteUsado[][]): LoteUsado[] => {
+  const mapa = new Map<string, LoteUsado>();
+  listas.flat().forEach((l) => {
+    const atual = mapa.get(l.loteId);
+    mapa.set(l.loteId, atual ? { ...atual, quantidade: Math.round((atual.quantidade + l.quantidade) * 10000) / 10000 } : { ...l });
+  });
+  return [...mapa.values()];
+};

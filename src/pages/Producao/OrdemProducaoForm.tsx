@@ -11,6 +11,20 @@ import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import {
+  baixarLotesNaTransacao,
+  devolucaoTotalDosLotes,
+  devolverAosLotesNaTransacao,
+  gravarEntradasEmLotesNaTransacao,
+  lotesDaEntradaParaGravar,
+  pedirLotesDeEntrada,
+  prepararBaixaDeLotes,
+  prepararEntradasEmLotes,
+  prepararEstornoDeEntradaEmLotes,
+  produtosQueControlamLote,
+  type EntradaDeLotePreparada,
+} from '../../services/loteBaixaService';
+import { somarLotesUsados, type PlanoDeLotes } from '../../utils/loteDomain';
 import { chaveComponente, colecaoDoComponente, normalizarComponente, type OrigemComponente } from '../../utils/producaoDomain';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
@@ -93,7 +107,7 @@ const OrdemProducaoForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditing = !!id;
-  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido } = useAuth();
   const canManageProducao = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('operacoes.producao'));
 
   const [isFetching, setIsFetching] = useState(isEditing);
@@ -428,8 +442,14 @@ const OrdemProducaoForm: React.FC = () => {
 
         const produtoSnap = await transaction.get(produtoRef);
         const componenteSnaps = await Promise.all(componenteRefs.map((ref) => transaction.get(ref)));
+        // Lote e Validade: o lote que a producao criou precisa ainda ter o saldo (senao parte ja foi vendida).
+        const ordemSnapAtual = await transaction.get(ordemRef);
+        const retirarLotesProduzidos = await prepararEstornoDeEntradaEmLotes(transaction, db, ordemSnapAtual.data()?.lotesProduzidos, 'a produção');
 
         const quantidadeProduzida = ordem.quantidadeProduzida || 0;
+        retirarLotesProduzidos();
+        // Componentes que controlam lote voltam ao MESMO lote de onde a producao tirou.
+        devolverAosLotesNaTransacao(transaction, db, devolucaoTotalDosLotes([{ lotes: ordemSnapAtual.data()?.lotesConsumidos }]));
         if (produtoSnap.exists()) {
           const quantidadeProdutoAtual = Number(produtoSnap.data().quantidade || 0);
           if (quantidadeProdutoAtual < quantidadeProduzida) {
@@ -547,6 +567,31 @@ const OrdemProducaoForm: React.FC = () => {
     try {
       let itensConsumidosFinal: ItemConsumido[] = [];
 
+      // Lote e Validade (so' produto marcado "Controlar lote"; os demais seguem so' com o estoque):
+      // 1) o produto ACABADO que controla lote pede o lote e a validade do que foi produzido;
+      // 2) componente do estoque (semiacabado) que controla lote sai do lote pela regra da configuracao.
+      let entradasDeLote: EntradaDeLotePreparada[] = [];
+      if ((await produtosQueControlamLote(db, [ordem.produtoId])).has(ordem.produtoId)) {
+        const informado = await pedirLotesDeEntrada([{ chave: 'produzido', nome: ordem.produtoNome, quantidade: quantidadeProduzida }], 'Lote da produção');
+        if (informado === null) return false;
+        entradasDeLote = await prepararEntradasEmLotes(db, tenantId, [{
+          produtoId: ordem.produtoId,
+          lote: informado.produzido.lote,
+          validade: informado.produzido.validade,
+          quantidade: quantidadeProduzida,
+        }]);
+      }
+      const linhasDosComponentes = composicaoPreview
+        .map((item, indice) => ({
+          chave: String(indice),
+          produtoId: item.origem === 'estoque' ? item.componenteId : '',
+          nome: item.componenteNome,
+          quantidade: Math.max(0, item.quantidadePorUnidade * quantidadeProduzida + Math.max(0, Number(item.perdaExtra) || 0) - Math.max(0, Number(item.sobra) || 0)),
+        }))
+        .filter((linha) => linha.produtoId && linha.quantidade > 0);
+      const planoLotes: PlanoDeLotes | null = await prepararBaixaDeLotes({ db, tenantId, linhas: linhasDosComponentes, modo: loteModoSaida, avisarVencido: loteAvisarVencido });
+      if (planoLotes === null) return false;
+
       await runTransaction(db, async (transaction) => {
         const ordemRef = doc(db, 'ordens_producao', id);
         // Cada componente e' baixado na SUA colecao: matéria-prima em
@@ -604,10 +649,16 @@ const OrdemProducaoForm: React.FC = () => {
           });
         }
 
+        gravarEntradasEmLotesNaTransacao(transaction, db, tenantId, entradasDeLote, buildDocumentMetadata(currentUser.uid, serverTimestamp()), `Produção ${ordem.numero}`);
+        baixarLotesNaTransacao(transaction, db, planoLotes);
+
         transaction.update(ordemRef, {
           status: 'finalizada',
           quantidadeProduzida,
           itensConsumidos,
+          // Lotes para o estorno desfazer: o que a producao criou e de onde os componentes sairam.
+          ...(entradasDeLote.length > 0 ? { lotesProduzidos: lotesDaEntradaParaGravar(entradasDeLote) } : {}),
+          ...(planoLotes && Object.keys(planoLotes.porLinha).length > 0 ? { lotesConsumidos: somarLotesUsados(Object.values(planoLotes.porLinha)) } : {}),
           dataFim: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Ordem finalizada'),
         });

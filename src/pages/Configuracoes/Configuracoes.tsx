@@ -1,3 +1,4 @@
+import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
 import React, { useState, useEffect } from 'react';
 import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy } from 'lucide-react';
 import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
@@ -248,6 +249,9 @@ const Configuracoes: React.FC = () => {
   // real so por causa disso (bug achado ao vivo: salvar com a leitura
   // falhando zerava a integracao Spedy do tenant).
   const [spedyPrivateConfigLoadFailed, setSpedyPrivateConfigLoadFailed] = useState(false);
+  // A chave da Spedy so' e' lida por Master/Admin (firestore.rules). Para os demais
+  // usuarios isso e' o esperado, nao um erro: o campo fica travado com uma nota.
+  const [semAcessoAChaveSpedy, setSemAcessoAChaveSpedy] = useState(false);
   const [mostrarSpedyApiKey, setMostrarSpedyApiKey] = useState(false);
 
   // Numeracao fiscal (serie + sequencial) por tipo de documento -- existe
@@ -285,9 +289,14 @@ const Configuracoes: React.FC = () => {
             }
             setSpedyPrivateConfigLoadFailed(false);
           } catch (privateError) {
-            console.warn('Nao foi possivel carregar configuracoes privadas:', privateError);
             setSpedyPrivateConfigLoadFailed(true);
-            showError('Aviso', 'Não foi possível carregar a chave da integração fiscal (Spedy) já configurada. Salvar aqui não vai apagá-la, mas o campo abaixo pode aparecer vazio mesmo com uma chave já cadastrada.');
+            if (erroDeAcessoNegado(privateError)) {
+              // Usuario sem papel de administrador: esperado, sem pop-up.
+              setSemAcessoAChaveSpedy(true);
+            } else {
+              console.warn('Nao foi possivel carregar configuracoes privadas:', privateError);
+              showError('Não foi possível carregar a chave da Spedy', 'A conexão falhou ao buscar a chave da integração fiscal já configurada. Recarregue a tela. Salvar aqui não apaga a chave, mas o campo pode aparecer vazio mesmo com uma chave já cadastrada.');
+            }
           }
           let receitas = data.planoContasReceitas || [];
           if (typeof receitas === 'string') receitas = receitas.split('\n').filter((c: string) => c.trim() !== '');
@@ -2715,7 +2724,7 @@ const Configuracoes: React.FC = () => {
                         placeholder="Insira a chave obtida no painel Spedy"
                         value={formData.spedyApiKey || ''}
                         onChange={handleChange}
-                        disabled={!isEditingMode}
+                        disabled={!isEditingMode || semAcessoAChaveSpedy}
                         style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 44px 12px 16px', color: 'var(--text-primary)' }}
                       />
                       <button
@@ -2728,7 +2737,11 @@ const Configuracoes: React.FC = () => {
                         {mostrarSpedyApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
                       </button>
                     </div>
-                    <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Esta chave é única por empresa (CNPJ) e pode ser encontrada no painel da Spedy.</p>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      {semAcessoAChaveSpedy
+                        ? 'Só o administrador da empresa vê e altera esta chave. A integração continua funcionando normalmente.'
+                        : 'Esta chave é única por empresa (CNPJ) e pode ser encontrada no painel da Spedy.'}
+                    </p>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>

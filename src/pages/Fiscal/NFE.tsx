@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Receipt, Plus, Search, CheckCircle,
   XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings,
-  ChevronLeft, ChevronRight, MessageCircle, Loader2, FilePenLine, RotateCcw
+  ChevronLeft, ChevronRight, MessageCircle, Loader2, FilePenLine, RotateCcw, Mail
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
@@ -11,6 +11,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { spedyService } from '../../services/spedyService';
 import type { SpedyInvoice } from '../../services/spedyService';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { notaEmailService } from '../../services/notaEmailService';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -53,6 +54,8 @@ interface LocalInvoice {
   pedidoId?: string | null;
   osId?: string | null;
   clienteId?: string | null;
+  /** Resultado do ultimo e-mail ao cliente (gravado pelo servidor). */
+  emailEnvio?: { status?: 'enviado' | 'erro'; para?: string; erro?: string } | null;
   /** Tentativa de emissao em uso na Spedy (1 = original). Ver reenvioNotaDomain.ts. */
   tentativaEmissao?: number | null;
   /** Cartas de correcao (CC-e) ja enviadas -- gravadas pelo servidor. */
@@ -146,6 +149,8 @@ const NFE: React.FC = () => {
 
   // Configurações
   const [config, setConfig] = useState<FiscalConfig | null>(null);
+  // A empresa configurou o SMTP em Configuracoes: o e-mail da NF-e sai pelo sistema. Sem isso, segue o envio da Spedy como sempre foi.
+  const [emailPeloSistema, setEmailPeloSistema] = useState(false);
   const [isConfigLoading, setIsConfigLoading] = useState(true);
   const [regimeTributario, setRegimeTributario] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
   const [nfseConfig, setNfseConfig] = useState<NfseConfig>({ habilitada: false });
@@ -261,6 +266,7 @@ const NFE: React.FC = () => {
   const {
     progresso, setProgresso, segundosEsperando, abrindoDanfe: abrindoDanfeProgresso,
     notaEmAcompanhamentoRef, fechar: fecharProgresso, abrirDanfe: abrirDanfeDoProgresso, acompanhar: acompanharNota,
+    emailNota, reenviarEmail,
   } = useEmissaoAcompanhamento();
 
   // Fecha dropdown do cliente ao clicar fora
@@ -292,6 +298,7 @@ const NFE: React.FC = () => {
         // base/alíquota (Presumido/Real).
         const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
         const configData = configSnap.data();
+        setEmailPeloSistema(configData?.emailNotasConfigurado === true);
         setRegimeTributario((configData?.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
 
         // 1c. Config de NFS-e do tenant (Configuracoes > Emissao Fiscal
@@ -920,6 +927,7 @@ const NFE: React.FC = () => {
           accessKey: data.accessKey || null,
           pedidoId: data.pedidoId || null,
           clienteId: data.clienteId || null,
+          emailEnvio: data.emailEnvio || null,
           tentativaEmissao: data.tentativaEmissao || null,
           cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : [],
           finalidade: data.finalidade || null,
@@ -986,6 +994,7 @@ const NFE: React.FC = () => {
           accessKey: data.accessKey || null,
           pedidoId: data.pedidoId || null,
           clienteId: data.clienteId || null,
+          emailEnvio: data.emailEnvio || null,
           tentativaEmissao: data.tentativaEmissao || null,
           cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : [],
           finalidade: data.finalidade || null,
@@ -1128,6 +1137,47 @@ const NFE: React.FC = () => {
       showError('Erro ao abrir PDF', (err as Error).message);
     } finally {
       setCarregandoPdfId(null);
+    }
+  };
+
+  /**
+   * "Enviar por e-mail" na lista: PDF + XML para o e-mail do CADASTRO do cliente, do e-mail da empresa.
+   * Mostra "Enviando...", depois "enviado com sucesso" ou o erro em portugues. Nota ja enviada pergunta antes.
+   */
+  const handleEnviarEmail = async (note: LocalInvoice) => {
+    const anterior = note.emailEnvio;
+    let forcar = false;
+    if (anterior?.status === 'enviado') {
+      const confirmar = await NexusSwal.fire({
+        title: 'Enviar o e-mail de novo?',
+        text: `Esta nota já foi enviada${anterior.para ? ` para ${anterior.para}` : ''}. Deseja enviar outra vez?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sim, enviar de novo',
+        cancelButtonText: 'Cancelar',
+      });
+      if (!confirmar.isConfirmed) return;
+      forcar = true;
+    }
+    void NexusSwal.fire({
+      title: 'Enviando e-mail ao cliente...',
+      text: 'Estamos enviando o PDF (DANFE) e o XML da nota.',
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => NexusSwal.showLoading(),
+    });
+    try {
+      const resultado = await notaEmailService.enviar(note.id, forcar);
+      await NexusSwal.fire({
+        icon: 'success',
+        title: 'E-mail enviado com sucesso',
+        text: `PDF (DANFE) e XML enviados para ${resultado.para}.`,
+        confirmButtonText: 'OK',
+      });
+      void loadLocalInvoices(false);
+    } catch (erro) {
+      await showError('Não foi possível enviar o e-mail', (erro as Error).message);
     }
   };
 
@@ -1572,7 +1622,9 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
           destination: destination,
           presenceType: 'presence',
           operationNature: referencedAccessKey ? 'Lançamento decorrente de Cupom Fiscal' : 'Venda de Mercadoria',
-          sendEmailToCustomer: !!formData.email,
+          // Com o SMTP da empresa configurado, o e-mail ao cliente (PDF + XML) sai pelo sistema, do e-mail da empresa,
+          // com pop-up de resultado (notaEmailService); ligar o envio da Spedy tambem mandaria a nota duas vezes.
+          sendEmailToCustomer: !!formData.email && !emailPeloSistema,
           receiver: {
             name: formData.clienteNome,
             federalTaxNumber: cleanDoc,
@@ -1635,6 +1687,7 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
           // So' grava a tentativa DEPOIS que a Spedy respondeu: se o envio cair
           // no meio, o proximo clique recalcula o mesmo id (sem nota duplicada).
           tentativaEmissao: escolhaReenvio ? escolhaReenvio.tentativa : 1,
+          emailDestinatario: formData.email.trim() || null,
           updatedAt: serverTimestamp(),
           data: new Date().toISOString(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Retransmitida na Spedy'),
@@ -1655,6 +1708,7 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
           status: spedyNote.status,
           processingMessage: spedyNote.processingDetail?.message || null,
           processingCode: spedyNote.processingDetail?.code || null,
+          emailDestinatario: formData.email.trim() || null,
           tenantId,
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           createdAt: serverTimestamp(),
@@ -1677,6 +1731,8 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
         codigo: spedyNote.processingDetail?.code ?? null,
         mensagem: spedyNote.processingDetail?.message ?? null,
         spedyId: spedyNote.id,
+        // Sem docId o pop-up nao dispara o e-mail (SMTP nao configurado: a Spedy e' quem envia).
+        ...(emailPeloSistema && tipoNota === 'NF-e' ? { docId: notaDocId } : {}),
         transmitindoDesdeMs: Date.now(),
       };
       setProgresso(baseProgresso); // o contador de segundos reinicia sozinho no hook
@@ -2087,6 +2143,19 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
                           </button>
                         )}
 
+                        {/* Enviar por e-mail (PDF + XML) */}
+                        {note.status === 'authorized' && note.tipo === 'NF-e' && (
+                          <button
+                            type="button"
+                            onClick={() => void handleEnviarEmail(note)}
+                            className="icon-btn"
+                            title={note.emailEnvio?.status === 'enviado' ? 'E-mail já enviado — clique para reenviar' : 'Enviar por e-mail (PDF + XML)'}
+                            style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: note.emailEnvio?.status === 'enviado' ? '#10b981' : 'var(--text-muted)', cursor: 'pointer', display: 'inline-flex' }}
+                          >
+                            <Mail size={18} />
+                          </button>
+                        )}
+
                         {/* Enviar por WhatsApp */}
                         {note.status === 'authorized' && (
                           <button
@@ -2224,6 +2293,8 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
         segundosEsperando={segundosEsperando}
         abrindoDanfe={abrindoDanfeProgresso}
         onAbrirDanfe={abrirDanfeDoProgresso}
+        email={emailNota}
+        onReenviarEmail={reenviarEmail}
         onFechar={fecharProgresso}
       />
 

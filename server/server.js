@@ -22,6 +22,7 @@ const cadastrosRoutes = require('./routes/cadastros.routes');
 const devolucaoNfeRoutes = require('./routes/devolucaoNfe.routes');
 const trocasRoutes = require('./routes/trocas.routes');
 const notaRecebidaRoutes = require('./routes/notaRecebida.routes');
+const notaEmailRoutes = require('./routes/notaEmail.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -112,6 +113,8 @@ app.use('/api/devolucao-nfe', devolucaoNfeRoutes);
 // todo movimento de estoque passam por aqui; as firestore.rules deixam a colecao so' pra leitura.
 app.use('/api/trocas', trocasRoutes);
 app.use('/api/entrada-nfe', notaRecebidaRoutes);
+// E-mail da nota fiscal ao cliente (PDF + XML) pelo SMTP da propria empresa -- ver notaEmail.routes.js.
+app.use('/api/nota-email', notaEmailRoutes);
 
 // Middleware para tratamento global de erros HTTP
 app.use((err, req, res, next) => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { spedyService, type SpedyInvoice } from '../services/spedyService';
+import { notaEmailService } from '../services/notaEmailService';
 import { showError } from '../utils/alerts';
 import {
   INTERVALO_CONSULTA_MS,
@@ -21,6 +22,15 @@ import {
 
 export type TipoNotaAcompanhada = 'NFS-e' | 'NF-e' | 'NFC-e';
 
+/** Andamento do e-mail da nota ao cliente (PDF + XML), mostrado no pop-up depois da autorizacao. */
+export interface EstadoEmailNota {
+  status: 'enviando' | 'enviado' | 'erro';
+  /** Para quem foi (e-mail do cadastro do cliente). */
+  para?: string;
+  /** Mensagem em portugues quando deu erro. */
+  mensagem?: string;
+}
+
 /** Estado do pop-up. `null` = fechado. */
 export interface ProgressoEmissao {
   tipo: TipoNotaAcompanhada;
@@ -34,6 +44,8 @@ export interface ProgressoEmissao {
   erroEnvio?: string | null;
   /** Id da nota na Spedy -- pra abrir a DANFE quando autorizada. */
   spedyId?: string;
+  /** Id do documento em `notas_fiscais` -- o e-mail ao cliente sai por ele quando a nota e' autorizada. */
+  docId?: string;
   /** Quando comecou a esperar a SEFAZ (ms) -- base do contador de segundos. */
   transmitindoDesdeMs?: number;
 }
@@ -52,6 +64,9 @@ export const useEmissaoAcompanhamento = () => {
   const [progresso, setProgresso] = useState<ProgressoEmissao | null>(null);
   const [segundosEsperando, setSegundosEsperando] = useState(0);
   const [abrindoDanfe, setAbrindoDanfe] = useState(false);
+  const [emailNota, setEmailNota] = useState<EstadoEmailNota | null>(null);
+  /** Nota cujo e-mail ja foi disparado: a autorizacao aparece em mais de um render, o e-mail sai uma vez. */
+  const emailIniciadoRef = useRef<string | null>(null);
   /** Nota que o pop-up esta acompanhando: o sync automatico da lista pula ela,
    * pra nao abrir um segundo aviso por cima. */
   const notaEmAcompanhamentoRef = useRef<string | null>(null);
@@ -68,7 +83,28 @@ export const useEmissaoAcompanhamento = () => {
     return () => clearInterval(timer);
   }, [progresso]);
 
+  const enviarEmail = async (docId: string, forcar = false) => {
+    setEmailNota({ status: 'enviando' });
+    try {
+      const resultado = await notaEmailService.enviar(docId, forcar);
+      setEmailNota({ status: 'enviado', para: resultado.para });
+    } catch (erro) {
+      setEmailNota({ status: 'erro', mensagem: (erro as Error).message });
+    }
+  };
+
+  // Nota autorizada => e-mail com PDF e XML ao cliente (so' NF-e; o servidor le o e-mail do cadastro do cliente).
+  useEffect(() => {
+    if (progresso?.desfecho !== 'autorizada' || progresso.tipo !== 'NF-e' || !progresso.docId) return;
+    if (emailIniciadoRef.current === progresso.docId) return;
+    emailIniciadoRef.current = progresso.docId;
+    void enviarEmail(progresso.docId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progresso]);
+
   const fechar = () => {
+    emailIniciadoRef.current = null;
+    setEmailNota(null);
     // Fechar no meio da espera NAO cancela a nota: ela segue na Spedy e a lista
     // atualiza sozinha. So' paramos de perguntar daqui.
     acompanhamentoIdRef.current += 1;
@@ -149,5 +185,7 @@ export const useEmissaoAcompanhamento = () => {
     }
   };
 
-  return { progresso, setProgresso, segundosEsperando, abrindoDanfe, notaEmAcompanhamentoRef, fechar, abrirDanfe, acompanhar };
+  const reenviarEmail = () => { if (progresso?.docId) void enviarEmail(progresso.docId, true); };
+
+  return { progresso, setProgresso, segundosEsperando, abrindoDanfe, notaEmAcompanhamentoRef, fechar, abrirDanfe, acompanhar, emailNota, reenviarEmail };
 };

@@ -40,6 +40,7 @@ import {
   parseTipoDescontoPadrao,
 } from '../../utils/descontoDomain';
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
+import { notaEmailService } from '../../services/notaEmailService';
 import { spedyService, type SpedyCity, type SpedyNumberingUpdate, type AmbienteNotaSefaz, type RequisitosFiscais } from '../../services/spedyService';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
 import {
@@ -255,6 +256,11 @@ const Configuracoes: React.FC = () => {
   // A chave da Spedy so' e' lida por Master/Admin (firestore.rules). Para os demais
   // usuarios isso e' o esperado, nao um erro: o campo fica travado com uma nota.
   const [semAcessoAChaveSpedy, setSemAcessoAChaveSpedy] = useState(false);
+  // E-mail das notas fiscais (2026-09-25): SMTP do e-mail da empresa, guardado so' em configuracoes_privadas
+  // (como a chave da Spedy). A senha nunca volta para a tela: vazio = manter a que ja esta salva.
+  const [smtp, setSmtp] = useState({ host: '', porta: '465', seguro: true, usuario: '', senha: '' });
+  const [smtpSenhaJaSalva, setSmtpSenhaJaSalva] = useState(false);
+  const [testandoEmail, setTestandoEmail] = useState(false);
   const [mostrarSpedyApiKey, setMostrarSpedyApiKey] = useState(false);
 
   // Numeracao fiscal (serie + sequencial) por tipo de documento -- existe
@@ -289,6 +295,15 @@ const Configuracoes: React.FC = () => {
             const privateSnap = await getDoc(doc(db, 'configuracoes_privadas', tenantId));
             if (privateSnap.exists()) {
               privateSpedyApiKey = privateSnap.data().spedyApiKey ?? privateSpedyApiKey;
+              const privado = privateSnap.data();
+              setSmtp({
+                host: String(privado.smtpHost ?? ''),
+                porta: String(privado.smtpPorta ?? '465'),
+                seguro: privado.smtpSeguro ?? Number(privado.smtpPorta ?? 465) === 465,
+                usuario: String(privado.smtpUsuario ?? ''),
+                senha: '',
+              });
+              setSmtpSenhaJaSalva(Boolean(privado.smtpSenha));
             }
             setSpedyPrivateConfigLoadFailed(false);
           } catch (privateError) {
@@ -777,9 +792,18 @@ const Configuracoes: React.FC = () => {
         await setDoc(privateDocRef, {
           tenantId,
           spedyApiKey: trimmedSpedyApiKey,
+          smtpHost: smtp.host.trim(),
+          smtpPorta: Number(smtp.porta) || 465,
+          smtpSeguro: smtp.seguro,
+          smtpUsuario: smtp.usuario.trim(),
+          ...(smtp.senha ? { smtpSenha: smtp.senha } : {}),
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         }, { merge: true });
+        if (smtp.senha) {
+          setSmtpSenhaJaSalva(true);
+          setSmtp((atual) => ({ ...atual, senha: '' }));
+        }
       }
 
       await setDoc(docRef, {
@@ -795,6 +819,8 @@ const Configuracoes: React.FC = () => {
         comissaoPadraoServicos: comissaoPadraoServicosValor,
         metaFaturamentoMensal: metaFaturamentoValor,
         endereco: enderecoCompleto,
+        // Liga o envio da NF-e por e-mail pelo sistema (NFE.tsx le esta chave). A senha em si fica so' no doc privado.
+        emailNotasConfigurado: Boolean(smtp.host.trim() && smtp.usuario.trim() && (smtp.senha || smtpSenhaJaSalva)),
         nfseAliquotaIssPadrao,
         ...limitesDesconto,
         modoLimiteDesconto: formData.modoLimiteDesconto,
@@ -2784,6 +2810,66 @@ const Configuracoes: React.FC = () => {
                         ? 'Só o administrador da empresa vê e altera esta chave. A integração continua funcionando normalmente.'
                         : 'Esta chave é única por empresa (CNPJ) e pode ser encontrada no painel da Spedy.'}
                     </p>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
+                    <div>
+                      <h4 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>E-mail das notas fiscais (envio ao cliente)</h4>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+                        Quando a NF-e é autorizada, o sistema envia o <strong>PDF (DANFE) e o XML</strong> para o e-mail do <strong>cadastro do cliente</strong>. O e-mail sai do <strong>e-mail da empresa</strong> (campo E-mail em Dados da Empresa{formData.email ? `: ${formData.email}` : ' — preencha'}), pelo servidor de e-mail (SMTP) abaixo. No Gmail e no Outlook use uma <strong>senha de aplicativo</strong>, não a senha normal.
+                      </p>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+                      <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Servidor SMTP</label>
+                        <input type="text" placeholder="Ex: smtp.gmail.com" value={smtp.host} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                      </div>
+                      <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Porta</label>
+                        <input type="text" inputMode="numeric" placeholder="465" value={smtp.porta} onChange={(e) => { const porta = e.target.value.replace(/\D/g, '').slice(0, 5); setSmtp({ ...smtp, porta, seguro: porta === '465' ? true : porta === '587' ? false : smtp.seguro }); }} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                      </div>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: 'var(--text-primary)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={smtp.seguro} onChange={(e) => setSmtp({ ...smtp, seguro: e.target.checked })} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }} />
+                      Conexão segura direta (SSL) — marcada na porta 465; desmarcada na 587
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Usuário (normalmente o próprio e-mail)</label>
+                        <input type="text" placeholder={formData.email || 'contato@suaempresa.com.br'} value={smtp.usuario} onChange={(e) => setSmtp({ ...smtp, usuario: e.target.value })} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                      </div>
+                      <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Senha do e-mail</label>
+                        <input type="password" autoComplete="new-password" placeholder={smtpSenhaJaSalva ? '•••••••• (já salva — deixe em branco para manter)' : 'Senha (ou senha de aplicativo)'} value={smtp.senha} onChange={(e) => setSmtp({ ...smtp, senha: e.target.value })} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={testandoEmail || semAcessoAChaveSpedy}
+                        onClick={async () => {
+                          if (isEditingMode) {
+                            showError('Salve antes de testar', 'O teste usa a configuração já salva. Clique em "Salvar Alterações" e depois em "Enviar e-mail de teste".');
+                            return;
+                          }
+                          setTestandoEmail(true);
+                          void NexusSwal.fire({ title: 'Enviando e-mail de teste...', text: 'Estamos enviando uma mensagem do e-mail da empresa para ele mesmo.', allowOutsideClick: false, allowEscapeKey: false, showConfirmButton: false, didOpen: () => NexusSwal.showLoading() });
+                          try {
+                            const resultado = await notaEmailService.testar();
+                            await NexusSwal.fire({ icon: 'success', title: 'E-mail enviado com sucesso', text: `Mensagem de teste enviada para ${resultado.para}. Confira a caixa de entrada (e o spam).`, confirmButtonText: 'OK' });
+                          } catch (erro) {
+                            await showError('Não foi possível enviar o e-mail', (erro as Error).message);
+                          } finally {
+                            setTestandoEmail(false);
+                          }
+                        }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                      >
+                        {testandoEmail ? <Loader2 size={16} className="spin-icon" /> : null} Enviar e-mail de teste
+                      </button>
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Manda uma mensagem do e-mail da empresa para ele mesmo, com a configuração já salva.</span>
+                    </div>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>

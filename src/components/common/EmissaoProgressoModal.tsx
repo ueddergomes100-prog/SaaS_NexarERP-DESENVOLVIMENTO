@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { CheckCircle2, Circle, ExternalLink, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, Circle, ExternalLink, Loader2, Mail, XCircle } from 'lucide-react';
+import type { EstadoEmailNota } from '../../hooks/useEmissaoAcompanhamento';
 import {
   ETAPAS_EMISSAO,
   orgaoAutorizador,
@@ -33,6 +34,9 @@ interface EmissaoProgressoModalProps {
   segundosEsperando?: number;
   abrindoDanfe?: boolean;
   onAbrirDanfe?: () => void;
+  /** E-mail da nota ao cliente (PDF + XML): aparece depois da autorizacao. */
+  email?: EstadoEmailNota | null;
+  onReenviarEmail?: () => void;
   onFechar: () => void;
 }
 
@@ -51,12 +55,14 @@ const IconeEtapa: React.FC<{ situacao: SituacaoEtapa }> = ({ situacao }) => {
 
 const EmissaoProgressoModal: React.FC<EmissaoProgressoModalProps> = ({
   aberto, tipo, clienteNome, etapa, desfecho, numero, codigo, mensagem, erroEnvio,
-  segundosEsperando = 0, abrindoDanfe = false, onAbrirDanfe, onFechar,
+  segundosEsperando = 0, abrindoDanfe = false, onAbrirDanfe, email = null, onReenviarEmail, onFechar,
 }) => {
   const terminou = desfecho !== null;
   // Enviar pra Spedy nao da' pra cancelar no meio; esperar a SEFAZ da' (a nota
   // segue la e a lista atualiza sozinha).
-  const podeFechar = terminou || etapa === 'transmitindo';
+  // Enquanto o e-mail esta sendo enviado o pop-up espera (leva alguns segundos), para o resultado nao se perder.
+  const enviandoEmail = email?.status === 'enviando';
+  const podeFechar = (terminou || etapa === 'transmitindo') && !enviandoEmail;
 
   useEffect(() => {
     if (!aberto || !podeFechar) return undefined;
@@ -131,6 +137,39 @@ const EmissaoProgressoModal: React.FC<EmissaoProgressoModalProps> = ({
                 ? `A nota já foi enviada e está esperando a resposta da ${orgaoAutorizador(tipo)}. Costuma levar alguns segundos.`
                 : 'Não feche esta janela nem emita de novo: estamos enviando a nota.'}
             </p>
+          )}
+
+          {desfecho === 'autorizada' && email && (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                padding: '12px 14px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-tertiary)', display: 'flex', flexDirection: 'column', gap: '8px',
+                border: `1px solid ${email.status === 'enviado' ? COR_SUCESSO : email.status === 'erro' ? COR_ERRO : 'var(--border-color)'}`,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                {email.status === 'enviando' && <Loader2 size={20} color="var(--accent-purple, #8b5cf6)" style={{ animation: 'spin 1s linear infinite' }} aria-hidden="true" />}
+                {email.status === 'enviado' && <CheckCircle2 size={20} color={COR_SUCESSO} aria-hidden="true" />}
+                {email.status === 'erro' && <XCircle size={20} color={COR_ERRO} aria-hidden="true" />}
+                <Mail size={16} aria-hidden="true" />
+                {email.status === 'enviando' && 'Enviando e-mail ao cliente...'}
+                {email.status === 'enviado' && 'E-mail enviado com sucesso'}
+                {email.status === 'erro' && 'Não foi possível enviar o e-mail'}
+              </div>
+              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5, wordBreak: 'break-word' }}>
+                {email.status === 'enviando' && 'Estamos enviando o PDF (DANFE) e o XML da nota para o e-mail do cliente.'}
+                {email.status === 'enviado' && `PDF (DANFE) e XML enviados para ${email.para || 'o cliente'}.`}
+                {email.status === 'erro' && email.mensagem}
+              </p>
+              {email.status === 'erro' && onReenviarEmail && (
+                <div>
+                  <button type="button" className="btn-secondary" onClick={onReenviarEmail} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 12px', fontSize: '13px' }}>
+                    <Mail size={14} /> Tentar enviar de novo
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {texto && (

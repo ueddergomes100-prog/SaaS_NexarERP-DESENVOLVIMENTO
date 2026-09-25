@@ -1,5 +1,8 @@
 # Plano: itens pendentes de 24/09/2026 (para continuar depois do reinício do limite)
 
+> **Andamento em 25/09/2026 (tudo commitado local, nada enviado):** 1 Configurações (`690fc71`) ✔ · 3 Despesas parceladas + cheque emitido (`6c8981c`) ✔ · 4.1 Frota + despesa de veículo + Custo por Veículo (`f63adb7`) ✔ · 2 Insumos (`74e053d`) ✔ · 4 Lote e Validade fases 1-3 (`71cff93`, `c2caa5d`) ✔; fase 4 (baixa por lote na venda) pendente — ver `PLANO_LOTE_VALIDADE.md` seção 6.
+> **Antes de enviar ao remoto de produção:** publicar as `firestore.rules` em PRODUÇÃO (coleções `frota` e `insumos` novas + `estoque_lotes` aceitando `fiscal.entrada`) ANTES do frontend.
+
 - **Criado em:** 2026-09-24
 - **Origem:** pedidos do dono ao longo da sessão de 24/09. Nada abaixo foi implementado ainda, exceto o que a seção 1 diz que já está commitado.
 - Complementa `docs/PLANO_LOTE_VALIDADE.md` (Lote e Validade) — leia os dois.

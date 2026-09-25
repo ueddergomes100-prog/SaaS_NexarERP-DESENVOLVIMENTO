@@ -2,7 +2,11 @@
 
 - **Criado em:** 2026-09-24
 - **Origem:** pedido do dono depois de comparar a entrada de NF-e com o ERP antigo da Sol Life.
-- **Estado:** PLANEJADO. Nada implementado ainda. As decisões da seção 1 já foram tomadas com o dono.
+- **Estado (2026-09-25):** Fases **1, 2 e 3 IMPLEMENTADAS e commitadas localmente** (`71cff93` fases 1-2, `c2caa5d` fase 3; nada enviado aos remotes). **Fase 4 (baixa por lote nas vendas) NÃO começou** — levantamento e proposta na seção 6. As decisões da seção 1 já foram tomadas com o dono.
+  - Fase 1: `src/utils/loteDomain.ts` (FEFO, situação 15/30/45, entrada) + chaves `loteModoSaida`/`loteAvisarVencido` em Configurações → Avançadas + `AuthContext`.
+  - Fase 2: tela `Estoque → Lotes e Validades` (`/estoque/lotes`, permissão do Relatório de Estoque, PDF na tela). Substituiu o placeholder "Operações — em breve".
+  - Fase 3: Entrada de NF-e exige lote/validade (digitados ou `rastro` do XML; vários lotes dividem se a soma fecha), soma/cria `estoque_lotes` na mesma transação, grava `lotes[]` no item da nota; excluir a nota estorna cada lote (bloqueia se consumido). Regra `estoque_lotes` aceita `fiscal.entrada`.
+  - Testado no navegador (dev): entrada sem lote → bloqueia em português; com lote existente soma (8 → 14); excluir a nota volta a 8.
 
 ---
 
@@ -80,3 +84,20 @@ Regras permanentes que valem aqui: relatório sempre em PDF na tela (memória `f
 - Como criar o lote inicial dos produtos que já têm estoque quando ligarem "Controlar lote"?
 - Na saída automática, lote vencido: pular e usar o próximo, ou usar mesmo assim avisando? (proposta: pular; se só houver vencido, usar e avisar.)
 - Produção (matéria-prima e produto acabado): entra no controle de lote agora ou depois?
+
+## 6. Fase 4 — levantamento (2026-09-25) e proposta
+
+**Por que ficou de fora desta rodada:** mexe em toda venda. São ~14 pontos que baixam `estoque.quantidade` hoje, todos chamando `applyStockAdjustments` / `applyStockFieldDeltas` de `src/utils/firestoreAtomic.ts`:
+`PDV.tsx` (1), `PedidoVendaForm.tsx` (reserva da pré-venda, faturamento, cancelamento, 2 estornos), `OrcamentoForm.tsx` (1), `OSForm.tsx` (5 ramos: reservar/baixar/devolver), `DevolucaoVendaModal.tsx`, `vendedorExternoVendaService.ts` (reserva do app), e a entrega da troca no servidor (`server/routes/trocas.routes.js`, já usa lote).
+
+**Restrição técnica:** o SDK web não faz *query* dentro de transação. Logo a escolha do lote precisa dos lotes lidos **antes** do `runTransaction` (`getDocs` em `estoque_lotes` por `tenantId + produtoId`), e a transação só confere/atualiza os docs escolhidos (`transaction.get` + `update`). Cada um dos ~14 pontos precisa do pré-carregamento.
+
+**Integridade:** se só alguns caminhos baixarem lote, o saldo dos lotes passa a ser MAIOR que o estoque real (deriva). Por isso é tudo-ou-nada: ou liga em todos os pontos, ou não liga.
+
+**Proposta (para o dono aprovar):**
+1. **Sem migração:** o estoque que já existe e não tem lote fica como "saldo sem lote" (= `estoque.quantidade` − soma dos lotes). A venda consome os lotes pelo FEFO primeiro e o resto sai do saldo sem lote; nunca trava por causa disso. (Dispensa o lote "SALDO INICIAL".)
+2. Lote **vencido**: o automático pula e só usa se não houver outro, avisando uma vez por venda (decisão do dono: só avisa).
+3. Cada item de venda grava `lotes: [{loteId, lote, validade, quantidade}]`; **devolução/estorno/cancelamento devolvem ao mesmo lote**.
+4. Modo **automático primeiro** (não precisa de tela nova). Modo **informar** depois: exige seletor de lote em PDV, Pedido, OS e Orçamento e no app do vendedor.
+5. Produção (MP e acabado): fica fora desta fase.
+6. Ordem: helper puro (`planejarBaixaPorLote`) + testes → `applyStockAdjustments` com plano de lotes → PDV → Pedido (faturamento/cancelamento/devolução) → OS → Orçamento → app do vendedor. Teste no navegador a cada ponto.

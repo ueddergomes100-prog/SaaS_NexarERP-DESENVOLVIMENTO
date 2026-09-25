@@ -42,6 +42,8 @@ interface ItemDaNotaCardProps {
   /** Custo por unidade de ESTOQUE (ja dividido pelo fator). */
   custoUnitarioEstoque: number;
   cadastro: CadastroVinculado | undefined;
+  /** Produto vinculado controla lote: lote e validade sao obrigatorios (vem do XML quando ha rastro). */
+  exigeLote?: boolean;
   usaCsosn: boolean;
   markupVarejoDigitado: string | undefined;
   markupAtacadoDigitado: string | undefined;
@@ -66,7 +68,7 @@ const Detalhe: React.FC<{ rotulo: string; valor: React.ReactNode }> = ({ rotulo,
 );
 
 const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
-  indice, total, item, config, custo, custoUnitarioEstoque, cadastro, usaCsosn,
+  indice, total, item, config, custo, custoUnitarioEstoque, cadastro, exigeLote = false, usaCsosn,
   markupVarejoDigitado, markupAtacadoDigitado,
   onAlterarTipo, onAlterarConfig, onAlterarCampo, onPrecoVarejo, onMarkupVarejo, onPrecoAtacado, onMarkupAtacado,
   onAbrirVinculo, onDesvincular, painelDeVinculo,
@@ -194,13 +196,18 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
       {/* Lote e validade */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '12px' }}>
         <div className="input-group">
-          <label style={campoLabelStyle}>Lote</label>
-          <input type="text" value={config.lote} onChange={(e) => onAlterarCampo('lote', e.target.value)} placeholder="Opcional" style={campoInputStyle} />
+          <label style={campoLabelStyle}>Lote{exigeLote ? ' *' : ''}</label>
+          <input type="text" value={config.lote} onChange={(e) => onAlterarCampo('lote', e.target.value)} placeholder={exigeLote ? (item.lotes[0]?.numero ? `Da nota: ${item.lotes[0].numero}` : 'Obrigatório') : 'Opcional'} style={campoInputStyle} />
         </div>
         <div className="input-group">
-          <label style={campoLabelStyle}>Validade</label>
+          <label style={campoLabelStyle}>Validade{exigeLote ? ' *' : ''}</label>
           <input type="date" value={config.validade} onChange={(e) => onAlterarCampo('validade', e.target.value)} style={campoInputStyle} />
         </div>
+        {exigeLote && (
+          <div style={{ gridColumn: '1 / -1', fontSize: '12px', color: '#f59e0b' }}>
+            Este produto controla lote: a entrada soma o saldo no lote informado (ou no que veio na nota).
+          </div>
+        )}
       </div>
 
       {config.tipo === 'revenda' ? (

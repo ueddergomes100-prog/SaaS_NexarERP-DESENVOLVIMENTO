@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Upload, FileText, Package, CheckCircle, Save, ArrowLeft, Trash2, AlertTriangle, Truck, Loader2, History, Search, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
-import { collection, query, where, getDocs, doc, getDoc, addDoc, increment, runTransaction, serverTimestamp, type DocumentData, type DocumentSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, addDoc, increment, runTransaction, serverTimestamp, type DocumentData, type DocumentReference, type DocumentSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
@@ -68,6 +68,7 @@ import {
   quantidadeNoEstoque,
   type OpcoesDeCustoDeEntrada,
 } from '../../utils/custoEntradaDomain';
+import { chaveDoLote, lotesDaEntrada, type LoteParaEntrada } from '../../utils/loteDomain';
 import { numeroDaTela, precoPadraoDeItemNovo, precoPeloMarkup } from '../../utils/precificacaoEntradaDomain';
 import {
   CATEGORIAS_DE_COMPRA,
@@ -112,6 +113,8 @@ interface ParsedXML {
 
 interface EstoqueItem extends EstoqueItemForMatch {
   quantidade: number;
+  /** Produto controla lote: a entrada EXIGE lote e validade e soma em estoque_lotes. */
+  controlarLote?: boolean;
   precoCusto?: number;
   unidadeMedidaSigla?: string;
   descontoMaximoPercentual?: number;
@@ -289,6 +292,7 @@ const EntradaNFE: React.FC = () => {
             ncm: data.ncm || data.fiscal?.ncm || '',
             codigosFornecedor: data.codigosFornecedor || {},
             quantidade: Number(data.quantidade || 0),
+            controlarLote: data.controlarLote === true,
             precoCusto: Number(data.precoCusto ?? data.precos?.custo ?? 0),
             unidadeMedidaSigla: data.unidadeMedidaSigla || data.unidade || '',
             descontoMaximoPercentual: data.descontoMaximoPercentual !== undefined ? Number(data.descontoMaximoPercentual) : undefined,
@@ -465,6 +469,31 @@ const EntradaNFE: React.FC = () => {
     });
     setItemConfigs(configs);
   }, [parsedData, fornecedorStatus, fornecedorMatch, estoqueAtual, materiasPrimasAtuais, insumosAtuais, regimeTributario]);
+
+  /**
+   * LOTE E VALIDADE (2026-09-25): item de Revenda vinculado a produto que controla
+   * lote precisa de lote e validade. Vem do que a pessoa digitou ou do `rastro` do XML.
+   */
+  const exigeLoteNoItem = (idx: number): boolean => {
+    const config = itemConfigs[idx];
+    if (!config || config.tipo !== 'revenda' || config.classificacao !== 'estoque') return false;
+    return estoqueAtual.find((p) => p.id === config.matchId)?.controlarLote === true;
+  };
+
+  const lotesDoItem = (idx: number) => {
+    if (!parsedData) return { lotes: [], erro: null };
+    const item = parsedData.items[idx];
+    const config = itemConfigs[idx];
+    const cadastro = estoqueAtual.find((p) => p.id === config.matchId);
+    return lotesDaEntrada({
+      produto: cadastro?.nome || item.descricao,
+      loteDigitado: config.lote,
+      validadeDigitada: config.validade,
+      lotesDoXml: item.lotes.map((l) => ({ numero: l.numero, validade: l.validade, quantidade: l.quantidade })),
+      quantidadeNota: item.quantidade,
+      fator: fatorValido(config.fator),
+    });
+  };
 
   const handleAlterarTipoItem = (idx: number, tipo: ItemEntradaConfig['tipo']) => {
     setItemConfigs((prev) => prev.map((config, i) => (i === idx ? { ...config, tipo } : config)));
@@ -854,6 +883,13 @@ const EntradaNFE: React.FC = () => {
         showError('Conversão de unidade', `Informe quantas unidades do estoque cabem em 1 ${item.unidade} de "${item.descricao}" (use 1 se a nota e o estoque usam a mesma unidade).`);
         return;
       }
+      if (exigeLoteNoItem(idx)) {
+        const { erro } = lotesDoItem(idx);
+        if (erro) {
+          showError('Lote e validade obrigatórios', erro);
+          return;
+        }
+      }
       if (config.tipo !== 'revenda') continue;
       // Todo item de Revenda precisa de preco de venda valido antes de gravar.
       if (!(numeroDaTela(config.precoVenda) > 0)) {
@@ -956,11 +992,35 @@ const EntradaNFE: React.FC = () => {
           ehMateriaPrima,
           ehInsumo,
           vinculado,
+          lotesDoItem: exigeLoteNoItem(idx) ? lotesDoItem(idx).lotes : [] as LoteParaEntrada[],
           quantidadeEstoque: quantidadeNoEstoque(item.quantidade, fator),
           custoUn: custoUnitarioNoEstoque(custo?.custoTotal ?? 0, item.quantidade, fator),
           ref: vinculado ? doc(db, colecao, config.matchId as string) : doc(collection(db, colecao)),
         };
       });
+
+      // Lotes: acha os que ja existem (mesmo produto + mesmo numero de lote) para SOMAR neles em vez
+      // de duplicar. Feito antes da transacao porque consulta nao roda dentro dela.
+      const lotesExistentes = new Map<string, string>();
+      for (const produtoId of new Set(itensPlano.filter((p) => p.lotesDoItem.length > 0).map((p) => p.ref.id))) {
+        const snapLotes = await getDocs(query(collection(db, 'estoque_lotes'), where('tenantId', '==', tenantId), where('produtoId', '==', produtoId)));
+        snapLotes.forEach((d) => lotesExistentes.set(`${produtoId}|${chaveDoLote(String(d.data().lote || ''))}`, d.id));
+      }
+      const lotesAgregados = new Map<string, { produtoId: string; lote: string; validade: string; quantidade: number; existente: boolean; ref: DocumentReference }>();
+      itensPlano.forEach((plano) => plano.lotesDoItem.forEach((l) => {
+        const chave = `${plano.ref.id}|${chaveDoLote(l.lote)}`;
+        const atual = lotesAgregados.get(chave);
+        if (atual) {
+          atual.quantidade = Math.round((atual.quantidade + l.quantidade) * 1e6) / 1e6;
+          return;
+        }
+        const idExistente = lotesExistentes.get(chave);
+        lotesAgregados.set(chave, {
+          produtoId: plano.ref.id, lote: l.lote, validade: l.validade, quantidade: l.quantidade,
+          existente: Boolean(idExistente),
+          ref: idExistente ? doc(db, 'estoque_lotes', idExistente) : doc(collection(db, 'estoque_lotes')),
+        });
+      }));
 
       const titulosRefs = modoPagamentoEfetivo === 'prazo' ? parcelas.map(() => doc(collection(db, 'transacoes'))) : [doc(collection(db, 'transacoes'))];
       const tituloFreteRef = freteGeraTituloProprio(frete) ? doc(collection(db, 'transacoes')) : null;
@@ -1013,6 +1073,14 @@ const EntradaNFE: React.FC = () => {
         for (const plano of itensPlano) {
           if (plano.vinculado && !snapshots.get(plano.ref.path)?.exists()) {
             throw new Error(`O cadastro vinculado a "${plano.item.descricao}" não existe mais. Vincule outro cadastro ou cadastre o item como novo.`);
+          }
+        }
+
+        // O produto pode ter passado a controlar lote entre abrir a nota e confirmar: sem lote nao grava.
+        for (const plano of itensPlano) {
+          const dadosDoProduto = plano.vinculado && !plano.ehMateriaPrima && !plano.ehInsumo ? snapshots.get(plano.ref.path)?.data() : undefined;
+          if (dadosDoProduto?.controlarLote === true && plano.lotesDoItem.length === 0) {
+            throw new Error(`"${String(dadosDoProduto.nome || plano.item.descricao)}" passou a controlar lote. Atualize a página e informe o lote e a validade do item.`);
           }
         }
 
@@ -1174,7 +1242,7 @@ const EntradaNFE: React.FC = () => {
               ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), motivoDoHistorico),
             }));
             pecasAtualizadas++;
-            notaItens.push({ itemId: ref.id, tipo: 'revenda', codigoXml: item.codigo, descricaoXml: item.descricao, quantidade: item.quantidade, valorUnitario: item.valorUnitario, novo: false, ...detalhesDoRegistro });
+            notaItens.push({ itemId: ref.id, tipo: 'revenda', codigoXml: item.codigo, descricaoXml: item.descricao, quantidade: item.quantidade, valorUnitario: item.valorUnitario, novo: false, ...detalhesDoRegistro, ...(plano.lotesDoItem.length > 0 ? { lotes: plano.lotesDoItem.map((l) => ({ loteId: (lotesAgregados.get(`${ref.id}|${chaveDoLote(l.lote)}`) as { ref: DocumentReference }).ref.id, lote: l.lote, validade: l.validade, quantidade: l.quantidade })) } : {}) });
           } else {
             // Produto novo: NCM, CEST, EAN, origem e CFOP vem da nota; preco e
             // tributacao, do que a pessoa preencheu na tela.
@@ -1220,6 +1288,25 @@ const EntradaNFE: React.FC = () => {
             notaItens.push({ itemId: ref.id, tipo: 'revenda', codigoXml: item.codigo, descricaoXml: item.descricao, quantidade: item.quantidade, valorUnitario: item.valorUnitario, novo: true, ...detalhesDoRegistro });
           }
         }
+
+        // ------------------------------------------------------------ lotes
+        lotesAgregados.forEach((l) => {
+          if (l.existente) {
+            transaction.update(l.ref, { quantidade: increment(l.quantidade), updatedAt: serverTimestamp() });
+          } else {
+            transaction.set(l.ref, semUndefined({
+              tenantId,
+              produtoId: l.produtoId,
+              lote: l.lote,
+              validade: l.validade || null,
+              quantidade: l.quantidade,
+              origemEntradaNota: parsedData.numeroNF,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+            }));
+          }
+        });
 
         // ------------------------------------------------------------ contas a pagar
         const categoria = categoriaDespesa;
@@ -1812,6 +1899,7 @@ const EntradaNFE: React.FC = () => {
                       custo={custosDosItens[idx]}
                       custoUnitarioEstoque={custoUnitarioDoItem(idx)}
                       cadastro={cadastro}
+                      exigeLote={exigeLoteNoItem(idx)}
                       usaCsosn={usesCsosn(regimeTributario)}
                       markupVarejoDigitado={markupDigitado[`${idx}-v`]}
                       markupAtacadoDigitado={markupDigitado[`${idx}-a`]}

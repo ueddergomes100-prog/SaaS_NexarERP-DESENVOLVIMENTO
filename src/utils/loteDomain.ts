@@ -1,3 +1,5 @@
+import { quantidadeNoEstoque } from './custoEntradaDomain';
+
 /*
  * LOTE E VALIDADE (2026-09-25) -- regra pura, sem Firestore. Decisoes do dono
  * (docs/PLANO_LOTE_VALIDADE.md):
@@ -165,4 +167,86 @@ export const avisoDeLoteVencido = (usados: Array<{ produto: string; lote: string
   if (usados.length === 0) return null;
   const linhas = usados.map((u) => `• ${u.produto} — lote ${u.lote}${u.validade ? ` (venceu em ${u.validade.split('-').reverse().join('/')})` : ''}`);
   return `Atenção: esta venda usa lote vencido:\n${linhas.join('\n')}\nA venda segue normalmente. Confira o produto antes de entregar.`;
+};
+
+/** Chave para comparar nome de lote sem depender de caixa ou espaco nas pontas. */
+export const chaveDoLote = (lote: string): string => String(lote ?? '').trim().toUpperCase();
+
+export interface LoteDoXml {
+  numero: string;
+  validade: string;
+  quantidade: number;
+}
+
+export interface LoteParaEntrada {
+  lote: string;
+  /** AAAA-MM-DD. */
+  validade: string;
+  /** Ja convertida para a unidade de ESTOQUE. */
+  quantidade: number;
+}
+
+/**
+ * ENTRADA DE NF-E (Fase 3): produto que controla lote EXIGE lote e validade.
+ * Prioridade: o que a pessoa digitou na tela; senao o `rastro` do XML. Se o XML
+ * trouxer varios lotes para o item, a quantidade se divide entre eles -- mas so'
+ * quando a soma bate com a quantidade da nota (senao pede para informar a mao).
+ * Nunca inventa lote nem validade: falta dado = erro em portugues.
+ */
+export const lotesDaEntrada = (params: {
+  produto: string;
+  loteDigitado: string;
+  validadeDigitada: string;
+  lotesDoXml: LoteDoXml[];
+  quantidadeNota: number;
+  fator: unknown;
+}): { lotes: LoteParaEntrada[]; erro: string | null } => {
+  const { produto, lotesDoXml, quantidadeNota, fator } = params;
+  const loteDigitado = params.loteDigitado.trim();
+  const validadeDigitada = params.validadeDigitada.trim();
+  const falta = (mensagem: string) => ({ lotes: [] as LoteParaEntrada[], erro: mensagem });
+  const validadeOk = (v: string) => diaDaData(v) !== null;
+  const orientacao = 'Preencha o lote e a validade do item na tela (a validade fica na embalagem do produto).';
+
+  if (validadeDigitada && !validadeOk(validadeDigitada)) return falta(`A validade informada para "${produto}" não é uma data válida. ${orientacao}`);
+
+  if (loteDigitado) {
+    const doXml = lotesDoXml.find((l) => chaveDoLote(l.numero) === chaveDoLote(loteDigitado));
+    const validade = validadeDigitada || (doXml && validadeOk(doXml.validade) ? doXml.validade : '');
+    if (!validade) return falta(`Informe a validade do lote "${loteDigitado}" de "${produto}". ${orientacao}`);
+    return { lotes: [{ lote: loteDigitado, validade, quantidade: quantidadeNoEstoque(quantidadeNota, fator) }], erro: null };
+  }
+
+  const comNumero = lotesDoXml.filter((l) => l.numero.trim());
+  if (comNumero.length === 0) {
+    return falta(`"${produto}" controla lote, mas a nota não trouxe o lote. Informe o lote e a validade do item na tela antes de confirmar.`);
+  }
+  if (comNumero.length === 1) {
+    const unico = comNumero[0];
+    const validade = validadeDigitada || (validadeOk(unico.validade) ? unico.validade : '');
+    if (!validade) return falta(`A nota trouxe o lote "${unico.numero}" de "${produto}" sem validade. Informe a validade do item na tela antes de confirmar.`);
+    return { lotes: [{ lote: unico.numero.trim(), validade, quantidade: quantidadeNoEstoque(quantidadeNota, fator) }], erro: null };
+  }
+
+  const soma = comNumero.reduce((total, l) => total + Number(l.quantidade || 0), 0);
+  if (Math.abs(soma - Number(quantidadeNota)) > 0.0005) {
+    return falta(`A nota traz ${comNumero.length} lotes de "${produto}" e a soma deles (${soma}) não fecha com a quantidade da nota (${quantidadeNota}). Informe o lote e a validade do item na tela.`);
+  }
+  const semValidade = comNumero.find((l) => !validadeOk(l.validade));
+  if (semValidade) return falta(`O lote "${semValidade.numero}" de "${produto}" veio sem validade na nota. Informe o lote e a validade do item na tela antes de confirmar.`);
+  return {
+    lotes: comNumero.map((l) => ({ lote: l.numero.trim(), validade: l.validade, quantidade: quantidadeNoEstoque(l.quantidade, fator) })),
+    erro: null,
+  };
+};
+
+/** Junta linhas do mesmo lote (o mesmo produto pode aparecer em 2 itens da nota) somando a quantidade. */
+export const somarLotesIguais = (lotes: LoteParaEntrada[]): LoteParaEntrada[] => {
+  const mapa = new Map<string, LoteParaEntrada>();
+  lotes.forEach((l) => {
+    const chave = chaveDoLote(l.lote);
+    const atual = mapa.get(chave);
+    mapa.set(chave, atual ? { ...atual, quantidade: Math.round((atual.quantidade + l.quantidade) * 1e6) / 1e6 } : { ...l });
+  });
+  return [...mapa.values()];
 };

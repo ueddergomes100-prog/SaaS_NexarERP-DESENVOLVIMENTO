@@ -37,6 +37,11 @@ export interface NotaFiscalEntradaItemRecord {
   impostos?: ImpostosDoItemRecord;
   lote?: string;
   validade?: string;
+  /**
+   * Lotes que ESTA entrada criou/somou em estoque_lotes (so' produto que controla lote,
+   * 2026-09-25). A exclusao da nota usa isto para desfazer o saldo de cada lote.
+   */
+  lotes?: Array<{ loteId: string; lote: string; validade: string; quantidade: number }>;
 }
 
 /** Firestore recusa `undefined` (CLAUDE.md): tira a chave de vez, em qualquer profundidade. */

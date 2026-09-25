@@ -252,6 +252,20 @@ const NotasFiscaisEntradaList: React.FC = () => {
         const estoqueAtualPorId = new Map(estoqueSnaps.map((snap) => [snap.id, Number(snap.data()?.quantidade || 0)]));
         const materiaPrimaAtualPorId = new Map(materiaPrimaSnaps.map((snap) => [snap.id, Number(snap.data()?.quantidade || 0)]));
 
+        // Lotes que esta entrada criou/somou (produto que controla lote): cada um precisa ainda ter
+        // o saldo que entrou, senao parte ja foi vendida/ajustada e o estorno deixaria o lote negativo.
+        const lotesDaNota = new Map<string, { loteId: string; lote: string; produto: string; quantidade: number }>();
+        itensRevenda.forEach((item) => (item.lotes || []).forEach((l) => {
+          const atual = lotesDaNota.get(l.loteId);
+          lotesDaNota.set(l.loteId, { loteId: l.loteId, lote: l.lote, produto: item.descricaoXml, quantidade: (atual?.quantidade || 0) + l.quantidade });
+        }));
+        const lotesParaReverter = [...lotesDaNota.values()];
+        const loteSnaps = await Promise.all(lotesParaReverter.map((l) => transaction.get(doc(db, 'estoque_lotes', l.loteId))));
+        const loteSemSaldo = lotesParaReverter.find((l, idx) => !loteSnaps[idx].exists() || Number(loteSnaps[idx].data()?.quantidade || 0) < l.quantidade - 0.0005);
+        if (loteSemSaldo) {
+          throw new Error(`Não é possível excluir: o lote "${loteSemSaldo.lote}" de "${loteSemSaldo.produto}" já teve parte do saldo vendida ou ajustada desde essa entrada.`);
+        }
+
         const insumoAtualPorId = new Map(insumoSnaps.map((snap) => [snap.id, Number(snap.data()?.quantidade || 0)]));
 
         const itemSemEstoqueRevenda = findItemSemEstoqueParaReverter(
@@ -300,6 +314,13 @@ const NotasFiscaisEntradaList: React.FC = () => {
             quantidade: atual - (item.quantidadeEstoque ?? item.quantidade),
             updatedAt: serverTimestamp(),
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), resumoMotivo),
+          });
+        });
+
+        loteSnaps.forEach((snap, idx) => {
+          transaction.update(snap.ref, {
+            quantidade: Number(snap.data()?.quantidade || 0) - lotesParaReverter[idx].quantidade,
+            updatedAt: serverTimestamp(),
           });
         });
 

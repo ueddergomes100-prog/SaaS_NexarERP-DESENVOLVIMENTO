@@ -125,3 +125,43 @@ test('rótulo dos dias e documento do PDF', () => {
   assert.deepEqual(doc.indicadores.map((i) => i.valor), ['1', '1', '1', '1', '1']);
   assert.equal(doc.secoes[0].linhas.length, 1);
 });
+
+import { chaveDoLote, lotesDaEntrada, somarLotesIguais } from '../src/utils/loteDomain';
+
+const baseEntrada = { produto: 'IOGURTE', loteDigitado: '', validadeDigitada: '', lotesDoXml: [], quantidadeNota: 10, fator: 1 };
+
+test('entrada: sem lote na nota nem na tela, pede o lote em português (não inventa)', () => {
+  const r = lotesDaEntrada(baseEntrada);
+  assert.deepEqual(r.lotes, []);
+  assert.match(String(r.erro), /controla lote, mas a nota não trouxe o lote/);
+});
+
+test('entrada: lote digitado sem validade pede a validade; com a do XML aproveita', () => {
+  assert.match(String(lotesDaEntrada({ ...baseEntrada, loteDigitado: 'L1' }).erro), /Informe a validade do lote "L1"/);
+  const r = lotesDaEntrada({ ...baseEntrada, loteDigitado: ' l1 ', lotesDoXml: [{ numero: 'L1', validade: '2027-01-31', quantidade: 10 }] });
+  assert.equal(r.erro, null);
+  assert.deepEqual(r.lotes, [{ lote: 'l1', validade: '2027-01-31', quantidade: 10 }]);
+});
+
+test('entrada: um lote no XML vira o lote, e a quantidade vai convertida para a unidade de estoque', () => {
+  const r = lotesDaEntrada({ ...baseEntrada, quantidadeNota: 3, fator: 12, lotesDoXml: [{ numero: 'A9', validade: '2027-05-01', quantidade: 3 }] });
+  assert.equal(r.erro, null);
+  assert.deepEqual(r.lotes, [{ lote: 'A9', validade: '2027-05-01', quantidade: 36 }]);
+  assert.equal(lotesDaEntrada({ ...baseEntrada, validadeDigitada: '2027-06-01', lotesDoXml: [{ numero: 'A9', validade: '', quantidade: 10 }] }).lotes[0].validade, '2027-06-01');
+  assert.match(String(lotesDaEntrada({ ...baseEntrada, lotesDoXml: [{ numero: 'A9', validade: '', quantidade: 10 }] }).erro), /sem validade/);
+});
+
+test('entrada: vários lotes no XML dividem a quantidade só quando a soma fecha', () => {
+  const xml = [{ numero: 'A', validade: '2027-01-01', quantidade: 4 }, { numero: 'B', validade: '2027-02-01', quantidade: 6 }];
+  const ok = lotesDaEntrada({ ...baseEntrada, lotesDoXml: xml });
+  assert.equal(ok.erro, null);
+  assert.deepEqual(ok.lotes.map((l) => [l.lote, l.quantidade]), [['A', 4], ['B', 6]]);
+  assert.match(String(lotesDaEntrada({ ...baseEntrada, quantidadeNota: 11, lotesDoXml: xml }).erro), /não fecha/);
+  assert.match(String(lotesDaEntrada({ ...baseEntrada, lotesDoXml: [xml[0], { numero: 'B', validade: '', quantidade: 6 }] }).erro), /veio sem validade/);
+});
+
+test('entrada: validade digitada inválida é recusada; lotes iguais se somam', () => {
+  assert.match(String(lotesDaEntrada({ ...baseEntrada, loteDigitado: 'L', validadeDigitada: '31/12/2027' }).erro), /não é uma data válida/);
+  assert.equal(chaveDoLote(' ab-1 '), 'AB-1');
+  assert.deepEqual(somarLotesIguais([{ lote: 'A', validade: '2027-01-01', quantidade: 2 }, { lote: ' a ', validade: '2027-01-01', quantidade: 3 }]), [{ lote: 'A', validade: '2027-01-01', quantidade: 5 }]);
+});

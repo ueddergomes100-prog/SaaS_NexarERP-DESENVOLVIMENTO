@@ -146,8 +146,9 @@ service cloud.firestore {
         // tela apareceria e o save seria recusado pelo backend.
         (collectionName == 'estoque' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.nota_avulsa', 'estoque.precificacao'])) ||
         // estoque_lotes: mesma logica -- exige a permissao de alterar cadastro
-        // ou a de Ajuste Manual de Estoque, nunca so "ver a lista".
-        (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.ajusteManual'])) ||
+        // ou a de Ajuste Manual de Estoque, nunca so "ver a lista". A Entrada de NF-e (fiscal.entrada)
+        // tambem cria/soma lote e a exclusao da nota o estorna.
+        (collectionName == 'estoque_lotes' && hasAnyPermission(['cadastros.estoque_alterar', 'estoque.ajusteManual', 'fiscal.entrada'])) ||
         // Fornecedores ganhou permissao propria (antes vinha no balaio de
         // cadastros.estoque). Aceita tambem fiscal.entrada porque a Entrada de
         // XML CRIA fornecedor durante a importacao (EntradaNFE.tsx) -- sem

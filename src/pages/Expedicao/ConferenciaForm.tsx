@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ScanLine, CheckCircle2, AlertTriangle, XCircle, Loader2, PackageCheck } from 'lucide-react';
-import { doc, getDoc, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, runTransaction, serverTimestamp, Timestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError } from '../../utils/alerts';
@@ -117,6 +117,20 @@ const ConferenciaForm: React.FC = () => {
   const [multiplicador, setMultiplicador] = useState<number | string>(1);
   const [feedback, setFeedback] = useState<{ resultado: BipagemResultado; mensagem: string } | null>(null);
   const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
+
+  /**
+   * GRAVACAO AUTOMATICA (2026-09-25, pedido do cliente): cada bipagem e' gravada na hora em
+   * expedicoes/{id}. Antes o progresso so' ia para o banco ao fechar a conferencia: se a tela
+   * recarregasse, o computador dormisse ou a internet caisse no meio, o separador perdia tudo e
+   * refazia o pedido. Agora reabrir a conferencia retoma exatamente do ultimo item bipado.
+   * As gravacoes entram numa fila (uma por vez, sempre com a lista COMPLETA), entao uma falha de
+   * rede e' corrigida sozinha pela bipagem seguinte.
+   */
+  const [salvamento, setSalvamento] = useState<{ estado: 'ocioso' | 'salvando' | 'salvo' | 'erro'; em?: string }>({ estado: 'ocioso' });
+  const filaDeGravacao = useRef<Promise<void>>(Promise.resolve());
+  const gravacoesPendentes = useRef(0);
+  // A observacao so' entra na gravacao automatica depois que a pessoa mexe nela (nao apaga a que ja estava salva).
+  const observacaoTocada = useRef(false);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
   const qtdInputRef = useRef<HTMLInputElement>(null);
@@ -346,6 +360,36 @@ const ConferenciaForm: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pedidoId, tenantId, currentUser]);
 
+  const gravarProgresso = useCallback((itensParaGravar: ConferenciaItem[], observacaoParaGravar: string) => {
+    if (!pedidoId || !currentUser) return;
+    gravacoesPendentes.current += 1;
+    setSalvamento((atual) => ({ ...atual, estado: 'salvando' }));
+    filaDeGravacao.current = filaDeGravacao.current.then(async () => {
+      try {
+        await updateDoc(doc(db, 'expedicoes', pedidoId), {
+          itens: itensParaGravar,
+          ...(observacaoTocada.current ? { observacao: observacaoParaGravar } : {}),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+        });
+        gravacoesPendentes.current -= 1;
+        setSalvamento({ estado: gravacoesPendentes.current > 0 ? 'salvando' : 'salvo', em: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) });
+      } catch (err) {
+        console.error('Erro ao gravar o progresso da conferência:', err);
+        gravacoesPendentes.current -= 1;
+        setSalvamento({ estado: 'erro' });
+      }
+    });
+  }, [pedidoId, currentUser]);
+
+  // Nao deixa fechar a aba com bipagem ainda por gravar.
+  useEffect(() => {
+    const aviso = (evento: BeforeUnloadEvent) => {
+      if (gravacoesPendentes.current > 0 || salvamento.estado === 'erro') evento.preventDefault();
+    };
+    window.addEventListener('beforeunload', aviso);
+    return () => window.removeEventListener('beforeunload', aviso);
+  }, [salvamento.estado]);
+
   useEffect(() => {
     if (!isLoading && !loadError) scanInputRef.current?.focus();
   }, [isLoading, loadError]);
@@ -364,6 +408,8 @@ const ConferenciaForm: React.FC = () => {
     });
 
     setItens(novosItens);
+    // So' grava quando a bipagem mudou alguma quantidade (codigo nao encontrado nao altera nada).
+    if (resultado !== 'nao_encontrado' && status === 'em_conferencia') gravarProgresso(novosItens, observacao);
     setFeedback({ resultado, mensagem: ehTroca ? FEEDBACK_LABELS[resultado].replace('neste pedido', 'nesta troca') : FEEDBACK_LABELS[resultado] });
     playFeedbackSound(resultado);
 
@@ -374,7 +420,7 @@ const ConferenciaForm: React.FC = () => {
     } else if (resultado === 'ok') {
       setManualInputs((prev) => ({ ...prev, [manualProdutoId!]: '' }));
     }
-  }, [itens, codigoInput, multiplicador, config, ehTroca]);
+  }, [itens, codigoInput, multiplicador, config, ehTroca, status, observacao, gravarProgresso]);
 
   const handleFecharConferencia = async () => {
     if (!pedidoId || !tenantId || !currentUser || !pedido) return;
@@ -576,8 +622,15 @@ const ConferenciaForm: React.FC = () => {
           </div>
         )}
 
-        <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
-          {itensConferidos} de {totalItens} itens conferidos exatamente.
+        <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)', display: 'flex', flexWrap: 'wrap', gap: '6px 16px', alignItems: 'center' }}>
+          <span>{itensConferidos} de {totalItens} itens conferidos exatamente.</span>
+          {salvamento.estado === 'salvando' && <span style={{ color: '#f59e0b' }}>Salvando...</span>}
+          {salvamento.estado === 'salvo' && <span style={{ color: '#10b981' }}>Salvo automaticamente às {salvamento.em}</span>}
+          {salvamento.estado === 'erro' && (
+            <span style={{ color: '#ef4444', fontWeight: 600 }}>
+              Não foi possível salvar as últimas bipagens (verifique a internet). Elas continuam na tela e serão salvas na próxima bipagem — não feche a página.
+            </span>
+          )}
         </p>
       </div>
 
@@ -667,7 +720,8 @@ const ConferenciaForm: React.FC = () => {
           <textarea
             ref={observacaoRef}
             value={observacao}
-            onChange={(e) => setObservacao(e.target.value)}
+            onChange={(e) => { observacaoTocada.current = true; setObservacao(e.target.value); }}
+            onBlur={() => { if (observacaoTocada.current && status === 'em_conferencia') gravarProgresso(itens, observacao); }}
             // Ctrl+Enter fecha a conferencia sem sair do teclado (Enter sozinho quebra linha).
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !isClosing) { e.preventDefault(); void handleFecharConferencia(); } }}
             rows={2}

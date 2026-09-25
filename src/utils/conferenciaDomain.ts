@@ -45,7 +45,61 @@ export interface ConferenciaItem {
   quantidadeConferida: number;
   /** Sigla da unidade vendida, so para exibicao na tela/minuta. */
   unidadeMedidaSigla?: string;
+  /** O pedido foi alterado depois de separado: este item saiu do pedido mas ja tinha mercadoria conferida. */
+  removidoDoPedido?: boolean;
 }
+
+export interface ResultadoReconciliacao {
+  itens: ConferenciaItem[];
+  mudou: boolean;
+  /** O que mudou, em portugues, para o separador ver na tela. */
+  avisos: string[];
+}
+
+/**
+ * PEDIDO ALTERADO DEPOIS DE ABRIR A CONFERENCIA (2026-09-25, pedido do cliente): a lista de itens da
+ * conferencia e' uma copia feita na primeira abertura; se o cliente cancelou ou acrescentou algo no pedido
+ * depois disso, a conferencia ficava com a lista velha. Aqui a copia e' alinhada com o pedido ATUAL sem
+ * perder o que ja foi bipado:
+ *  - item que continua no pedido: mantem o conferido e passa a valer a quantidade nova do pedido;
+ *  - item novo: entra com 0 conferido;
+ *  - item que saiu do pedido: some se nada foi conferido; se ja tinha mercadoria conferida, fica marcado
+ *    como "retirado do pedido" (pedido 0) para o separador devolver ao estoque -- nunca some em silencio.
+ */
+export const reconciliarItensDaConferencia = (salvos: ConferenciaItem[], doPedido: ConferenciaItem[]): ResultadoReconciliacao => {
+  const avisos: string[] = [];
+  const usados = new Set<number>();
+  const itens: ConferenciaItem[] = [];
+
+  doPedido.forEach((novo) => {
+    const indice = salvos.findIndex((s, i) => !usados.has(i) && s.produtoId === novo.produtoId);
+    if (indice === -1) {
+      itens.push({ ...novo, quantidadeConferida: 0 });
+      avisos.push(`Item novo no pedido: ${novo.nome} (${novo.quantidadePedida}).`);
+      return;
+    }
+    usados.add(indice);
+    const antigo = salvos[indice];
+    if (antigo.quantidadePedida !== novo.quantidadePedida) {
+      avisos.push(`Quantidade alterada: ${novo.nome} de ${antigo.quantidadePedida} para ${novo.quantidadePedida}.`);
+    }
+    const { removidoDoPedido: _removido, ...resto } = antigo;
+    itens.push({ ...resto, nome: novo.nome, quantidadePedida: novo.quantidadePedida, unidadeMedidaSigla: novo.unidadeMedidaSigla ?? antigo.unidadeMedidaSigla });
+  });
+
+  salvos.forEach((antigo, i) => {
+    if (usados.has(i)) return;
+    if (antigo.quantidadeConferida > 0) {
+      itens.push({ ...antigo, quantidadePedida: 0, removidoDoPedido: true });
+      avisos.push(`Retirado do pedido: ${antigo.nome} — já tinha ${antigo.quantidadeConferida} conferido(s); devolva ao estoque.`);
+    } else {
+      avisos.push(`Retirado do pedido: ${antigo.nome}.`);
+    }
+  });
+
+  const mudou = avisos.length > 0;
+  return { itens: mudou ? itens : salvos, mudou, avisos };
+};
 
 export type BipagemResultado = 'ok' | 'nao_encontrado' | 'excedente' | 'bloqueado_manual';
 

@@ -333,3 +333,28 @@ test('rótulos e cores da conferência cobrem os quatro estados', () => {
     assert.match(COR_CONFERENCIA[estado], /^#[0-9a-f]{6}$/);
   });
 });
+
+import { reconciliarItensDaConferencia } from '../src/utils/conferenciaDomain';
+
+const it = (produtoId: string, nome: string, pedida: number, conferida = 0): ConferenciaItem => ({ produtoId, nome, quantidadePedida: pedida, quantidadeConferida: conferida, codigoBarras: `EAN-${produtoId}` });
+
+test('pedido alterado: mantém o conferido, acompanha a quantidade nova e traz o item acrescentado', () => {
+  const r = reconciliarItensDaConferencia([it('a', 'ARROZ', 3, 2), it('b', 'FEIJAO', 1, 1)], [it('a', 'ARROZ', 5), it('b', 'FEIJAO', 1), it('c', 'SAL', 2)]);
+  assert.equal(r.mudou, true);
+  assert.deepEqual(r.itens.map((i) => [i.produtoId, i.quantidadePedida, i.quantidadeConferida]), [['a', 5, 2], ['b', 1, 1], ['c', 2, 0]]);
+  assert.equal(r.itens[0].codigoBarras, 'EAN-a');
+  assert.deepEqual(r.avisos, ['Quantidade alterada: ARROZ de 3 para 5.', 'Item novo no pedido: SAL (2).']);
+});
+
+test('pedido alterado: item retirado some se nada foi conferido; se já tinha conferido, fica marcado', () => {
+  const r = reconciliarItensDaConferencia([it('a', 'ARROZ', 3, 3), it('b', 'FEIJAO', 1, 0), it('c', 'SAL', 2, 1)], [it('a', 'ARROZ', 3)]);
+  assert.deepEqual(r.itens.map((i) => [i.produtoId, i.quantidadePedida, i.quantidadeConferida, Boolean(i.removidoDoPedido)]), [['a', 3, 3, false], ['c', 0, 1, true]]);
+  assert.equal(r.avisos.length, 2);
+});
+
+test('pedido sem alteração: devolve a mesma lista e não avisa nada', () => {
+  const salvos = [it('a', 'ARROZ', 3, 1)];
+  const r = reconciliarItensDaConferencia(salvos, [it('a', 'ARROZ', 3)]);
+  assert.equal(r.mudou, false);
+  assert.equal(r.itens, salvos);
+});

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ScanLine, CheckCircle2, AlertTriangle, XCircle, Loader2, PackageCheck } from 'lucide-react';
-import { doc, getDoc, runTransaction, serverTimestamp, Timestamp, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, runTransaction, serverTimestamp, Timestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError } from '../../utils/alerts';
@@ -15,6 +15,7 @@ import {
   DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
   ordenarPorLocalizacao,
   podeLancarManual,
+  reconciliarItensDaConferencia,
   type BipagemResultado,
   type ConferenciaItem,
   type StatusConferencia,
@@ -88,6 +89,48 @@ const playFeedbackSound = (resultado: BipagemResultado) => {
   else playTone(220, 220);
 };
 
+/**
+ * Itens da conferencia a partir dos itens do pedido, enriquecidos com estoque/{id} (codigo, EAN e local).
+ * O EAN do item vendido em embalagem e' o da EMBALAGEM -- o separador tem o saco na mao, nao a unidade.
+ * Usado ao abrir a conferencia e quando o pedido e' alterado com a conferencia em andamento.
+ */
+const montarItensDaConferencia = async (itensPedido: any[]): Promise<ConferenciaItem[]> => Promise.all(
+  itensPedido.map(async (item: any): Promise<ConferenciaItem> => {
+    const base: ConferenciaItem = {
+      produtoId: item.id,
+      nome: item.nome,
+      // Quantidade na unidade VENDIDA: bipar 1 saco fecha 1, nao 20.
+      quantidadePedida: item.quantidade,
+      quantidadeConferida: 0,
+      unidadeMedidaSigla: item.unidadeMedidaSigla,
+    };
+    if (!item.id || item.id === 'avulso') return base;
+    try {
+      const estoqueSnap = await getDoc(doc(db, 'estoque', item.id));
+      if (estoqueSnap.exists()) {
+        const produto = estoqueSnap.data();
+        const embalagemDoItem = item.embalagemId
+          ? normalizeEmbalagens(produto.embalagens).find((e) => e.id === item.embalagemId)
+          : null;
+        return {
+          ...base,
+          codigo: produto.codigo || '',
+          codigoBarras: (embalagemDoItem?.codigoBarras || produto.codigoBarras || ''),
+          localizacaoEstoque: produto.localizacaoEstoque || '',
+        };
+      }
+    } catch (err) {
+      console.error('Erro ao buscar dados de estoque do item da conferência:', err);
+    }
+    return base;
+  })
+);
+
+/** Assinatura dos itens do pedido: muda quando alguem acrescenta, retira ou muda a quantidade de um item. */
+const assinaturaDosItens = (itensPedido: any[]): string => JSON.stringify(
+  itensPedido.map((i: any) => [i.id || '', i.nome || '', Number(i.quantidade || 0), i.embalagemId || '']),
+);
+
 const ConferenciaForm: React.FC = () => {
   // A MESMA tela confere pedido/pre-venda e TROCA (pedido do dono, 2026-09-24).
   // Na troca, quem escreve e' o servidor (a colecao `trocas` e' so' leitura para o app).
@@ -131,6 +174,10 @@ const ConferenciaForm: React.FC = () => {
   const gravacoesPendentes = useRef(0);
   // A observacao so' entra na gravacao automatica depois que a pessoa mexe nela (nao apaga a que ja estava salva).
   const observacaoTocada = useRef(false);
+  // Itens do pedido como estavam da ultima vez que a conferencia olhou; e a lista atual da tela, para o ouvinte do pedido.
+  const assinaturaDoPedido = useRef('');
+  const itensAtuais = useRef<ConferenciaItem[]>([]);
+  const [avisoAlteracao, setAvisoAlteracao] = useState<string[] | null>(null);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
   const qtdInputRef = useRef<HTMLInputElement>(null);
@@ -219,42 +266,7 @@ const ConferenciaForm: React.FC = () => {
         // localizacaoEstoque) FORA da transacao -- mesmo padrao ja usado em
         // MinutaPrint.tsx (Fatia 2). So usado se a expedicao ainda nao
         // existir; se ja existe, os itens gravados la sao a fonte da verdade.
-        const itensPedido = Array.isArray(pedidoData.itens) ? pedidoData.itens : [];
-        const itensEnriquecidos: ConferenciaItem[] = await Promise.all(
-          itensPedido.map(async (item: any): Promise<ConferenciaItem> => {
-            const base: ConferenciaItem = {
-              produtoId: item.id,
-              nome: item.nome,
-              // Quantidade na unidade VENDIDA: bipar 1 saco fecha 1, nao 20.
-              quantidadePedida: item.quantidade,
-              quantidadeConferida: 0,
-              unidadeMedidaSigla: item.unidadeMedidaSigla,
-            };
-            if (!item.id || item.id === 'avulso') return base;
-            try {
-              const estoqueSnap = await getDoc(doc(db, 'estoque', item.id));
-              if (estoqueSnap.exists()) {
-                const produto = estoqueSnap.data();
-                // Item vendido em embalagem tem que ser conferido pelo EAN DA
-                // EMBALAGEM -- o separador tem um saco na mao, e o EAN da
-                // unidade nao esta impresso nele. Sem isso, bipar o saco
-                // devolveria "Codigo nao encontrado neste pedido".
-                const embalagemDoItem = item.embalagemId
-                  ? normalizeEmbalagens(produto.embalagens).find((e) => e.id === item.embalagemId)
-                  : null;
-                return {
-                  ...base,
-                  codigo: produto.codigo || '',
-                  codigoBarras: (embalagemDoItem?.codigoBarras || produto.codigoBarras || ''),
-                  localizacaoEstoque: produto.localizacaoEstoque || '',
-                };
-              }
-            } catch (err) {
-              console.error('Erro ao buscar dados de estoque do item da conferência:', err);
-            }
-            return base;
-          })
-        );
+        const itensEnriquecidos = await montarItensDaConferencia(Array.isArray(pedidoData.itens) ? pedidoData.itens : []);
         const itensIniciais = configAtual.ordenarMinutaPorLocal ? ordenarPorLocalizacao(itensEnriquecidos) : itensEnriquecidos;
 
         // Abertura sempre em transacao -- toca 2 documentos (expedicoes +
@@ -330,7 +342,18 @@ const ConferenciaForm: React.FC = () => {
           return { itens: itensIniciais, status: 'em_conferencia' as StatusConferencia, abertoPorNome: usuarioNome };
         });
 
-        setItens(resultado.itens);
+        // Pedido alterado depois da primeira abertura (item cancelado/acrescentado): alinha a copia com o pedido atual.
+        const reconciliado = reconciliarItensDaConferencia(resultado.itens, itensIniciais);
+        if (reconciliado.mudou) {
+          try {
+            await updateDoc(doc(db, 'expedicoes', pedidoId), { itens: reconciliado.itens, ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()) });
+          } catch (erroReconciliar) {
+            console.error('Erro ao gravar a lista atualizada da conferência:', erroReconciliar);
+          }
+          setAvisoAlteracao(reconciliado.avisos);
+        }
+        assinaturaDoPedido.current = assinaturaDosItens(Array.isArray(pedidoData.itens) ? pedidoData.itens : []);
+        setItens(reconciliado.itens);
         setStatus(resultado.status);
         setAbertoPorNome(resultado.abertoPorNome);
 
@@ -380,6 +403,36 @@ const ConferenciaForm: React.FC = () => {
       }
     });
   }, [pedidoId, currentUser]);
+
+  useEffect(() => { itensAtuais.current = itens; }, [itens]);
+
+  // PEDIDO ALTERADO COM A CONFERENCIA ABERTA (2026-09-25): o cliente cancela ou acrescenta item no pedido
+  // enquanto o separador ainda esta bipando. A lista da tela acompanha, sem perder o que ja foi bipado.
+  useEffect(() => {
+    if (!pedidoId || !tenantId || ehTroca || isLoading || loadError || status !== 'em_conferencia') return undefined;
+    return onSnapshot(doc(db, 'pedidos_venda', pedidoId), (snap) => {
+      if (!snap.exists()) return;
+      const dados = snap.data();
+      if (dados.status === 'Cancelada') {
+        setLoadError('Este pedido foi cancelado e saiu da expedição. Não há mais mercadoria a conferir — guarde de volta o que já foi separado.');
+        return;
+      }
+      const lista = Array.isArray(dados.itens) ? dados.itens : [];
+      const assinatura = assinaturaDosItens(lista);
+      if (assinatura === assinaturaDoPedido.current) return;
+      assinaturaDoPedido.current = assinatura;
+      void (async () => {
+        const doPedido = await montarItensDaConferencia(lista);
+        const reconciliado = reconciliarItensDaConferencia(itensAtuais.current, doPedido);
+        if (!reconciliado.mudou) return;
+        setItens(reconciliado.itens);
+        setAvisoAlteracao(reconciliado.avisos);
+        gravarProgresso(reconciliado.itens, observacao);
+        playFeedbackSound('excedente');
+      })();
+    }, (erro) => console.error('Erro ao acompanhar o pedido da conferência:', erro));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidoId, tenantId, ehTroca, isLoading, loadError, status]);
 
   // Nao deixa fechar a aba com bipagem ainda por gravar.
   useEffect(() => {
@@ -570,6 +623,18 @@ const ConferenciaForm: React.FC = () => {
         </span>
       </div>
 
+      {avisoAlteracao && avisoAlteracao.length > 0 && (
+        <div role="alert" style={{ padding: '16px 20px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.6)', backgroundColor: 'rgba(245,158,11,0.12)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
+            <strong style={{ color: '#f59e0b' }}>O pedido foi alterado — a lista abaixo já está atualizada</strong>
+            <button type="button" className="btn-secondary" onClick={() => setAvisoAlteracao(null)} style={{ padding: '4px 12px', fontSize: '13px' }}>Entendi</button>
+          </div>
+          <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px' }}>
+            {avisoAlteracao.map((linha, i) => <li key={i}>{linha}</li>)}
+          </ul>
+        </div>
+      )}
+
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '90px' }}>
@@ -656,7 +721,7 @@ const ConferenciaForm: React.FC = () => {
                   <tr key={item.produtoId}>
                     <td>{item.localizacaoEstoque || '---'}</td>
                     <td>{item.codigo || '---'}</td>
-                    <td>{item.nome}</td>
+                    <td>{item.nome}{item.removidoDoPedido && <span style={{ marginLeft: '8px', fontSize: '11px', fontWeight: 700, color: '#ef4444' }}>RETIRADO DO PEDIDO — devolva ao estoque</span>}</td>
                     <td style={{ textAlign: 'center' }}>
                       {item.quantidadePedida}
                       {item.unidadeMedidaSigla && <span style={{ color: 'var(--text-muted)' }}> {item.unidadeMedidaSigla}</span>}

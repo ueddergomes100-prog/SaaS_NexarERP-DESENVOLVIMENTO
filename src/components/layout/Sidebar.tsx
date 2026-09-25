@@ -22,6 +22,7 @@ import {
   FileCheck2,
   History,
   Inbox,
+  CalendarClock,
   Landmark,
   LayoutDashboard,
   Link2,
@@ -206,6 +207,8 @@ const Sidebar: React.FC = () => {
         { label: 'Produtos', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
         { label: 'Ajuste Manual', to: '/estoque/ajuste', icon: SlidersHorizontal, module: 'estoque.ajusteManual', permission: 'estoque.ajusteManual' },
         { label: 'Relatório de Estoque', to: '/estoque/relatorio', icon: PieChart, module: 'estoque.relatorio', permission: 'estoque.relatorio' },
+        // Lotes e Validades (2026-09-25): leitura, entao usa a permissao do Relatorio de Estoque.
+        { label: 'Lotes e Validades', to: '/estoque/lotes', icon: CalendarClock, module: 'estoque.relatorio', permission: 'estoque.relatorio' },
         { label: 'Relatório de Ajustes', to: '/estoque/relatorio-ajustes', icon: History, module: 'estoque.relatorioAjustes', permission: 'estoque.relatorioAjustes' },
         // De proposito FORA do prefixo 'fiscal.' -- Nota Avulsa e a
         // ferramenta pra quem NAO controla fiscal (compra sem XML). Ficar
@@ -339,15 +342,6 @@ const Sidebar: React.FC = () => {
         { label: 'Nuvemshop', to: '/integracoes/nuvemshop', icon: Store, module: 'integracoes.nuvemshop', permission: 'integracoes.nuvemshop' },
         { label: 'Marketplaces', to: '/integracoes/marketplaces', icon: ShoppingCart, module: 'integracoes.marketplaces', permission: 'integracoes.marketplaces' },
         { label: 'Sincronizações', to: '/integracoes/sincronizacoes', icon: Link2, module: 'integracoes.sincronizacoes', permission: 'integracoes.sincronizacoes' }
-      ]
-    },
-    {
-      id: 'operacoesDev',
-      label: 'Operações',
-      icon: Factory,
-      roadmap: true,
-      items: [
-        { label: 'Lotes e Validades', to: '/operacoes/lotes-validades', icon: Package, module: 'operacoes.lotes', permission: 'operacoes.lotes' }
       ]
     }
   ], [exigirIdentificacaoVendedor, temVendedorCadastrado]);

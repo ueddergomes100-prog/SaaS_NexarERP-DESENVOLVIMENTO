@@ -24,7 +24,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   // mesmo motivo (prefixo mais longo primeiro).
   else if (path.startsWith('/estoque/ajuste')) routeModule = 'estoque.ajusteManual';
   else if (path.startsWith('/estoque/relatorio-ajustes')) routeModule = 'estoque.relatorioAjustes';
-  else if (path.startsWith('/estoque/relatorio')) routeModule = 'estoque.relatorio';
+  else if (path.startsWith('/estoque/relatorio') || path.startsWith('/estoque/lotes')) routeModule = 'estoque.relatorio';
   else if (path.startsWith('/estoque/notas-avulsas')) routeModule = 'estoque.nota_avulsa';
   else if (path.startsWith('/estoque/precificacao')) routeModule = 'estoque.precificacao';
   else if (path.startsWith('/estoque/etiquetas')) routeModule = 'estoque.etiquetas';
@@ -86,7 +86,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/usuarios')) routePermission = 'administrativo.equipe';
   else if (path.startsWith('/estoque/ajuste')) routePermission = 'estoque.ajusteManual';
   else if (path.startsWith('/estoque/relatorio-ajustes')) routePermission = 'estoque.relatorioAjustes';
-  else if (path.startsWith('/estoque/relatorio')) routePermission = 'estoque.relatorio';
+  else if (path.startsWith('/estoque/relatorio') || path.startsWith('/estoque/lotes')) routePermission = 'estoque.relatorio';
   else if (path.startsWith('/estoque/notas-avulsas')) routePermission = 'estoque.nota_avulsa';
   else if (path.startsWith('/estoque/precificacao')) routePermission = 'estoque.precificacao';
   else if (path.startsWith('/estoque/etiquetas')) routePermission = 'estoque.etiquetas';

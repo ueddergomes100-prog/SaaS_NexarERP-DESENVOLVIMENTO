@@ -76,6 +76,7 @@ import {
   DEFAULT_MINUTA_MOSTRAR_MARCA,
   DEFAULT_MINUTA_MOSTRAR_LOCAL,
 } from '../../utils/conferenciaDomain';
+import { DEFAULT_LOTE_AVISAR_VENCIDO, DEFAULT_LOTE_MODO_SAIDA, parseLoteAvisarVencido, parseLoteModoSaida, type ModoSaidaLote } from '../../utils/loteDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import {
@@ -201,6 +202,8 @@ const Configuracoes: React.FC = () => {
     metaFaturamentoMensal: '',
     restringirVendasPorUsuario: DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO,
     conferenciaMercadoria: DEFAULT_CONFERENCIA_MERCADORIA,
+    loteModoSaida: DEFAULT_LOTE_MODO_SAIDA as ModoSaidaLote,
+    loteAvisarVencido: DEFAULT_LOTE_AVISAR_VENCIDO,
     imprimirMinutaAposVenda: DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
     exigirBipagem: DEFAULT_EXIGIR_BIPAGEM,
     bloquearExcedente: DEFAULT_BLOQUEAR_EXCEDENTE,
@@ -337,6 +340,8 @@ const Configuracoes: React.FC = () => {
               : '',
             restringirVendasPorUsuario: parseRestringirVendasPorUsuario(data.restringirVendasPorUsuario),
             conferenciaMercadoria: data.conferenciaMercadoria ?? DEFAULT_CONFERENCIA_MERCADORIA,
+            loteModoSaida: parseLoteModoSaida(data.loteModoSaida),
+            loteAvisarVencido: parseLoteAvisarVencido(data.loteAvisarVencido),
             imprimirMinutaAposVenda: data.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
             exigirBipagem: data.exigirBipagem ?? DEFAULT_EXIGIR_BIPAGEM,
             bloquearExcedente: data.bloquearExcedente ?? DEFAULT_BLOQUEAR_EXCEDENTE,
@@ -2147,6 +2152,43 @@ const Configuracoes: React.FC = () => {
                   Trabalha com conferência de mercadoria antes da expedição
                 </label>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Quando marcado, toda venda finalizada nasce com um status de conferência e passa a ser exigida a separação/bipagem antes de considerar o pedido pronto. Desligado (padrão), nenhuma venda ganha esse status e nada muda no fluxo atual.</p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Lote e Validade — saída de produto que controla lote</label>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="radio"
+                    name="loteModoSaida"
+                    checked={formData.loteModoSaida === 'automatico'}
+                    onChange={() => setFormData({ ...formData, loteModoSaida: 'automatico' })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px', marginTop: '2px' }}
+                  />
+                  <span><strong>Automático</strong> — o sistema escolhe o lote: o que vence primeiro sai primeiro (lote sem validade por último).</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="radio"
+                    name="loteModoSaida"
+                    checked={formData.loteModoSaida === 'informar'}
+                    onChange={() => setFormData({ ...formData, loteModoSaida: 'informar' })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px', marginTop: '2px' }}
+                  />
+                  <span><strong>Informar o lote</strong> — quem vende escolhe o lote do produto na hora da venda.</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.loteAvisarVencido !== false}
+                    onChange={(e) => setFormData({ ...formData, loteAvisarVencido: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Avisar quando a venda usar lote vencido
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Vale só para produto com <strong>Controlar lote</strong> ligado no cadastro; os demais seguem como sempre. Lote vencido <strong>só avisa</strong>: a venda nunca é bloqueada. No modo automático, o vencido só é usado quando não há lote dentro do prazo suficiente. A lista de vencimentos (15, 30 e 45 dias) fica em Estoque › Lotes e Validades.</p>
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>

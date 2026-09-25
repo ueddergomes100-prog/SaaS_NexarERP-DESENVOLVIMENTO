@@ -33,6 +33,7 @@ const ImportarDadosFiscais = lazy(() => import('../pages/Estoque/ImportarDadosFi
 const ImportarComposicao = lazy(() => import('../pages/Estoque/ImportarComposicao'));
 const AjusteEstoque = lazy(() => import('../pages/Estoque/AjusteEstoque'));
 const RelatorioEstoque = lazy(() => import('../pages/Estoque/RelatorioEstoque'));
+const LotesValidades = lazy(() => import('../pages/Estoque/LotesValidades'));
 const RelatorioAjustesEstoque = lazy(() => import('../pages/Estoque/RelatorioAjustesEstoque'));
 const NotasAvulsasList = lazy(() => import('../pages/Estoque/NotasAvulsasList'));
 const NotaAvulsaForm = lazy(() => import('../pages/Estoque/NotaAvulsaForm'));
@@ -141,6 +142,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'estoque/importar-composicao', element: <ImportarComposicao /> },
   { path: 'estoque/ajuste', element: <AjusteEstoque /> },
   { path: 'estoque/relatorio', element: <RelatorioEstoque /> },
+  { path: 'estoque/lotes', element: <LotesValidades /> },
   { path: 'estoque/relatorio-ajustes', element: <RelatorioAjustesEstoque /> },
   { path: 'estoque/notas-avulsas', element: <NotasAvulsasList /> },
   { path: 'estoque/notas-avulsas/nova', element: <NotaAvulsaForm /> },

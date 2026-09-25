@@ -35,6 +35,7 @@ import {
   parseTrabalhaComPreVenda,
 } from '../utils/preVendaDomain';
 import { DEFAULT_CONFERENCIA_MERCADORIA } from '../utils/conferenciaDomain';
+import { DEFAULT_LOTE_AVISAR_VENCIDO, DEFAULT_LOTE_MODO_SAIDA, parseLoteAvisarVencido, parseLoteModoSaida, type ModoSaidaLote } from '../utils/loteDomain';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -87,6 +88,9 @@ interface AuthContextType {
    *  entra na Fila de Expedição -- tanto na tela de Pedido de Venda quanto
    *  na pré-venda criada pelo app do vendedor externo. */
   conferenciaMercadoriaAtiva: boolean;
+  /** Lote e Validade: como o lote e' escolhido na saida, e se lote vencido avisa. */
+  loteModoSaida: ModoSaidaLote;
+  loteAvisarVencido: boolean;
   /** Config da empresa: recebe pedido pelo agente digital (WhatsApp) --
    *  ver DEFAULT_AGENTE_DIGITAL_ATIVO em preVendaDomain.ts. Governa se a
    *  aba "Pendentes" aparece na listagem de Pedidos de Venda. */
@@ -174,6 +178,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
   const [permiteVendaSemEstoque, setPermiteVendaSemEstoque] = useState(false);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(DEFAULT_CONFERENCIA_MERCADORIA);
+  const [loteModoSaida, setLoteModoSaida] = useState<ModoSaidaLote>(DEFAULT_LOTE_MODO_SAIDA);
+  const [loteAvisarVencido, setLoteAvisarVencido] = useState(DEFAULT_LOTE_AVISAR_VENCIDO);
   const [agenteDigitalAtivo, setAgenteDigitalAtivo] = useState(DEFAULT_AGENTE_DIGITAL_ATIVO);
   const [temVendedorCadastrado, setTemVendedorCadastrado] = useState(false);
   const [acessoAppMobile, setAcessoAppMobile] = useState(false);
@@ -427,6 +433,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPermiteVendaSemEstoque(false);
       setAgenteDigitalAtivo(DEFAULT_AGENTE_DIGITAL_ATIVO);
       setConferenciaMercadoriaAtiva(DEFAULT_CONFERENCIA_MERCADORIA);
+      setLoteModoSaida(DEFAULT_LOTE_MODO_SAIDA);
+      setLoteAvisarVencido(DEFAULT_LOTE_AVISAR_VENCIDO);
       return;
     }
 
@@ -456,6 +464,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // vendedor externo) nasce 'aguardando' conferencia -- ver
       // criarPreVendaExterna em vendedorExternoVendaService.ts.
       setConferenciaMercadoriaAtiva(snap.exists() && snap.data().conferenciaMercadoria === true);
+      setLoteModoSaida(parseLoteModoSaida(snap.exists() ? snap.data().loteModoSaida : undefined));
+      setLoteAvisarVencido(parseLoteAvisarVencido(snap.exists() ? snap.data().loteAvisarVencido : undefined));
     }, (error) => {
       // Falha de leitura MANTEM o valor atual de proposito. Cair pro
       // default (false) aqui abriria as vendas de todo mundo pro
@@ -619,7 +629,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
       {children}
     </AuthContext.Provider>
   );

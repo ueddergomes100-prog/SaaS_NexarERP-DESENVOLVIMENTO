@@ -79,6 +79,7 @@ const SECTION_LABELS: Array<[string, string]> = [
   ['/dashboard', 'Dashboard'],
   ['/clientes', 'Clientes'],
   ['/veiculos', 'Veículos'],
+  ['/estoque/lotes', 'Lotes e Validades'],
   ['/estoque', 'Estoque / Produtos'],
   ['/servicos', 'Serviços'],
   ['/categorias', 'Categorias'],

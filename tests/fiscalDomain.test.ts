@@ -97,12 +97,18 @@ const materiasPrimas: MateriaPrimaItemForMatch[] = [
   { id: 'mp-nome', codigo: '', nome: 'RESINA EPOXI' },
 ];
 
-test('matchMateriaPrimaFromXmlItem casa por codigo exato primeiro', () => {
+test('matchMateriaPrimaFromXmlItem so casa por codigo do cadastro quando o nome tambem for compativel', () => {
   const result = matchMateriaPrimaFromXmlItem(
     { codigo: 'MP-001', descricao: 'DESCRICAO DIFERENTE DO XML', ncm: '00000000' },
     materiasPrimas,
   );
-  assert.equal(result?.id, 'mp-codigo');
+  // Codigo igual mas nome sem nada em comum: coincidencia, nao reconhece sozinho.
+  assert.equal(result, null);
+  const mesmoCodigoNomeParecido = matchMateriaPrimaFromXmlItem(
+    { codigo: 'MP-001', descricao: `${materiasPrimas.find((m) => m.id === 'mp-codigo')?.nome} 25KG`, ncm: '00000000' },
+    materiasPrimas,
+  );
+  assert.equal(mesmoCodigoNomeParecido?.id, 'mp-codigo');
 });
 
 test('matchMateriaPrimaFromXmlItem cai pra nome exato quando o codigo nao bate', () => {

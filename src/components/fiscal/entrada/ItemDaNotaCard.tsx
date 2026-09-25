@@ -4,7 +4,7 @@ import type { ItemDaNota } from '../../../utils/nfeXmlDomain';
 import type { ItemEntradaConfig } from '../../../utils/entradaNfeDomain';
 import type { CustoDoItemDeEntrada } from '../../../utils/custoEntradaDomain';
 import { fatorValido, quantidadeNoEstoque } from '../../../utils/custoEntradaDomain';
-import { CSOSN_OPTIONS, ICMS_CST_OPTIONS } from '../../../utils/fiscalDomain';
+import { CSOSN_OPTIONS, ICMS_CST_OPTIONS, nomesTemPalavraEmComum } from '../../../utils/fiscalDomain';
 import { ROTULO_ORIGEM_VINCULO } from '../../../utils/vinculoItemNfeDomain';
 import {
   avisosDePreco,
@@ -128,6 +128,13 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
             </span>
             <button type="button" className="btn-secondary" onClick={onAbrirVinculo} style={botaoPequeno}><Link2 size={13} /> Trocar cadastro</button>
             <button type="button" className="btn-secondary" onClick={onDesvincular} style={botaoPequeno}><Unlink size={13} /> Desvincular (cadastrar como novo)</button>
+            {cadastro && config.origemVinculo !== 'manual' && !nomesTemPalavraEmComum(item.descricao, cadastro.nome) && (
+              <div role="alert" style={{ flexBasis: '100%', fontSize: '12.5px', color: '#f59e0b', lineHeight: 1.5 }}>
+                <strong>Confira:</strong> o nome do cadastro ({cadastro.nome}) não tem nada em comum com o item da nota. Se não for o mesmo produto, clique em
+                <strong> Trocar cadastro</strong> (busque pelo nome certo) ou em <strong>Desvincular</strong> — ao desvincular aparece a escolha
+                &quot;Item novo — classificar como&quot; (Produto de Revenda, Matéria-Prima ou Insumo).
+              </div>
+            )}
           </>
         ) : (
           <button type="button" className="btn-secondary" onClick={onAbrirVinculo} style={botaoPequeno}><Link2 size={13} /> Já tenho este item cadastrado — vincular</button>

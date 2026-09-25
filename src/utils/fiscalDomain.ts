@@ -164,6 +164,18 @@ export interface MateriaPrimaItemForMatch {
   codigosFornecedor?: Record<string, string>;
 }
 
+/**
+ * O nome do cadastro tem alguma palavra (3+ letras) em comum com a descricao da nota? Serve de trava para o
+ * reconhecimento pelo CODIGO DO CADASTRO: o codigo que o fornecedor usa (cProd) pode ser igual, por acaso, ao
+ * codigo interno de outra mercadoria ("222" = BALA DE GENGIBRE na nota, "222" = FLOCOS DE MILHO no cadastro).
+ * Sem esta trava a nota somava o estoque na mercadoria errada, sem ninguem perceber.
+ */
+export const nomesTemPalavraEmComum = (a: string, b: string): boolean => {
+  const palavrasDe = (texto: string) => new Set(normalizarTextoDeItem(texto).split(' ').filter((p) => p.length >= 3 && !/^\d+$/.test(p)));
+  const conjuntoB = palavrasDe(b);
+  return [...palavrasDe(a)].some((p) => conjuntoB.has(p));
+};
+
 /** Reconhecimento de materia-prima na importacao de XML: codigo exato
  * (o que o XML traz em cProd, comparado contra o campo texto-livre
  * `codigo` do cadastro) -> nome exato como ultimo recurso. Pura e
@@ -181,7 +193,9 @@ export const matchMateriaPrimaFromXmlItem = <T extends MateriaPrimaItemForMatch>
     if (porCodigoFornecedor) return porCodigoFornecedor;
   }
   if (codigo) {
-    const porCodigo = materiasPrimasAtuais.find((m) => (m.codigo || '').trim().toLowerCase() === codigo);
+    // So' liga pelo codigo interno se o nome tambem for compativel; codigo igual com nome sem nada a ver
+    // e' coincidencia -- fica para a pessoa vincular (a tela sugere) em vez de somar na mercadoria errada.
+    const porCodigo = materiasPrimasAtuais.find((m) => (m.codigo || '').trim().toLowerCase() === codigo && nomesTemPalavraEmComum(item.descricao, m.nome));
     if (porCodigo) return porCodigo;
   }
 

@@ -11,6 +11,8 @@ import { fromCents, toCents, settledFinancialNatureForPayment, type BoletoDetail
 import { reserveTenantSequence } from '../../utils/firestoreAtomic';
 import { codigoBarrasSicoob, nossoNumeroSicoobComDv } from '../../utils/boletoCnabDomain';
 import { formatarLinhaDigitavel, linhaDigitavelDoCodigoBarras } from '../../utils/boletoDomain';
+import { gerarPdfBoleto } from '../../utils/boletoPdf';
+import PdfVisualizador from '../../components/common/PdfVisualizador';
 import {
   erroDoConvenioBoleto,
   lerArquivoRetornoSicoob,
@@ -18,7 +20,7 @@ import {
   statusBoletoEfetivo,
   type StatusBoletoEfetivo,
 } from '../../utils/boletoEmissaoDomain';
-import { montarRemessaSicoob, nomeArquivoRemessaSicoob, type TituloRemessaSicoob } from '../../utils/boletoRemessaSicoobDomain';
+import { mensagensDoBoleto, montarRemessaSicoob, nomeArquivoRemessaSicoob, type TituloRemessaSicoob } from '../../utils/boletoRemessaSicoobDomain';
 import '../OS/OS.css';
 
 /**
@@ -43,6 +45,7 @@ interface BancoBoleto {
   boleto?: {
     ativo?: boolean;
     contaDv?: string;
+    codigoCliente?: string;
     cnpjCedente?: string;
     nomeCedente?: string;
     instrucoes?: string;
@@ -97,6 +100,7 @@ const Boletos: React.FC = () => {
   const [processando, setProcessando] = useState(false);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const inputRetornoRef = useRef<HTMLInputElement>(null);
+  const [pdfBoleto, setPdfBoleto] = useState<{ blob: Blob; nome: string } | null>(null);
 
   useEffect(() => {
     if (!tenantId || !podeAcessar) { setLoading(false); return undefined; }
@@ -233,6 +237,7 @@ const Boletos: React.FC = () => {
             cooperativa: String(banco.agencia || ''),
             conta: String(banco.conta || ''),
             contaDv: banco.boleto?.contaDv || '0',
+            ...(banco.boleto?.codigoCliente ? { codigoCliente: banco.boleto.codigoCliente } : {}),
             modalidade: '01',
             nossoNumero,
           },
@@ -274,6 +279,124 @@ const Boletos: React.FC = () => {
     } catch (erro: any) {
       console.error('Erro ao emitir boleto:', erro);
       showError('Não foi possível emitir', erro?.message || 'Tente novamente em instantes.');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  // --- Boleto para imprimir / ver -------------------------------------------
+
+  /**
+   * Recalcula codigo de barras e linha digitavel a partir do que e' verdade no cadastro (nosso numero,
+   * vencimento, valor, conta do banco) em vez de confiar no que ficou gravado no titulo: assim um
+   * boleto emitido antes de uma correcao do calculo sai certo na tela e no PDF.
+   */
+  const recalcularBoleto = (titulo: TituloBoleto) => {
+    const banco = bancosComBoleto.find((b) => b.id === titulo.bancoId) || bancosComBoleto[0];
+    if (!banco || !titulo.boleto) return null;
+    const nossoNumeroBase = Number(String(titulo.boleto.nossoNumero || '0').slice(0, -1)) || 0;
+    const vencimento = titulo.boleto.vencimento || titulo.dataVencimento || '';
+    const codigoBarras = codigoBarrasSicoob({
+      dados: {
+        cooperativa: String(banco.agencia || ''),
+        conta: String(banco.conta || ''),
+        contaDv: banco.boleto?.contaDv || '0',
+        ...(banco.boleto?.codigoCliente ? { codigoCliente: banco.boleto.codigoCliente } : {}),
+        modalidade: '01',
+        nossoNumero: nossoNumeroBase,
+      },
+      vencimento,
+      valorCentavos: titulo.valorCentavos,
+    });
+    return { banco, codigoBarras, linhaDigitavel: linhaDigitavelDoCodigoBarras(codigoBarras), nossoNumeroBase, vencimento };
+  };
+
+  const mostrarBoleto = (titulo: TituloBoleto) => {
+    const calc = recalcularBoleto(titulo);
+    void NexusSwal.fire({
+      title: 'Boleto',
+      html: `<div style="text-align:left;font-size:14px">`
+        + `<b>Nosso número:</b> ${titulo.boleto?.nossoNumero}<br/><br/>`
+        + `<b>Linha digitável:</b><br/><span style="font-family:monospace">${formatarLinhaDigitavel(calc?.linhaDigitavel || titulo.boleto?.linhaDigitavel || '')}</span>`
+        + `</div>`,
+      icon: 'info',
+    });
+  };
+
+  const imprimirBoleto = async (titulo: TituloBoleto) => {
+    if (!tenantId) return;
+    const calc = recalcularBoleto(titulo);
+    if (!calc) { showError('Sem convênio', 'Configure o convênio de boleto em Financeiro → Bancos.'); return; }
+    const { banco } = calc;
+    if (!banco.boleto?.cnpjCedente || !banco.boleto?.nomeCedente) {
+      showError('Cedente incompleto', 'Preencha o CNPJ e o nome do cedente na Configuração de Boleto do banco antes de imprimir o boleto.');
+      return;
+    }
+    setProcessando(true);
+    try {
+      let cliente: any = null;
+      let numeroPedido = '';
+      let clienteId = titulo.clienteId || '';
+      if (titulo.pedidoId) {
+        const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', titulo.pedidoId));
+        if (pedidoSnap.exists() && pedidoSnap.data().tenantId === tenantId) {
+          numeroPedido = String(pedidoSnap.data().numeroPedido || '');
+          clienteId = clienteId || String(pedidoSnap.data().clienteId || '');
+        }
+      }
+      if (clienteId) {
+        const clienteSnap = await getDoc(doc(db, 'clientes', clienteId));
+        if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) cliente = clienteSnap.data();
+      }
+      const documento = String(cliente?.documento || '').replace(/\D/g, '');
+      const formatarDoc = (d: string) => (d.length === 14
+        ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+        : d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4'));
+      const cnpj = String(banco.boleto.cnpjCedente).replace(/\D/g, '');
+      const codigoCliente = String(banco.boleto.codigoCliente || `${banco.conta || ''}${banco.boleto.contaDv || '0'}`).replace(/\D/g, '').padStart(7, '0');
+      const instrucoes = mensagensDoBoleto(
+        {
+          cooperativa: String(banco.agencia || ''),
+          conta: String(banco.conta || ''),
+          cnpjCedente: cnpj,
+          nomeCedente: banco.boleto.nomeCedente,
+          instrucoes: banco.boleto.instrucoes,
+          multaPercentual: banco.boleto.multaPercentual,
+          jurosMensalPercentual: banco.boleto.jurosMensalPercentual,
+          numeroRemessa: 0,
+        },
+        {
+          nossoNumero: calc.nossoNumeroBase,
+          numeroDocumento: numeroPedido || String(calc.nossoNumeroBase),
+          referencia: numeroPedido || undefined,
+          vencimento: calc.vencimento,
+          valorCentavos: titulo.valorCentavos,
+          sacado: { tipoDocumento: 'CPF', documento: '', nome: '' },
+        },
+      );
+      const nome = String(cliente?.nome || titulo.clienteNome || 'Cliente').trim();
+      const blob = gerarPdfBoleto({
+        bancoNome: 'SICOOB',
+        codigoBanco: '756-0',
+        beneficiarioNome: banco.boleto.nomeCedente,
+        beneficiarioCnpj: formatarDoc(cnpj),
+        agenciaCodigoBeneficiario: `${String(banco.agencia || '')} / ${codigoCliente}`,
+        pagadorNome: nome,
+        pagadorDocumento: formatarDoc(documento),
+        pagadorEndereco: [[cliente?.endereco, cliente?.numero].filter(Boolean).join(', '), cliente?.bairro, [cliente?.cidade, cliente?.estado].filter(Boolean).join('/'), cliente?.cep].filter(Boolean).join(' - '),
+        numeroDocumento: numeroPedido || String(calc.nossoNumeroBase),
+        nossoNumero: String(titulo.boleto?.nossoNumero || ''),
+        vencimento: calc.vencimento,
+        dataEmissao: titulo.boleto?.dataEmissao || getDateInputInTimeZone(),
+        valorCentavos: titulo.valorCentavos,
+        linhaDigitavel: calc.linhaDigitavel,
+        codigoBarras: calc.codigoBarras,
+        instrucoes,
+      });
+      setPdfBoleto({ blob, nome: `boleto_${titulo.boleto?.nossoNumero || 'sicoob'}.pdf` });
+    } catch (erro: any) {
+      console.error('Erro ao gerar o PDF do boleto:', erro);
+      showError('Não foi possível gerar o boleto', erro?.message || 'Tente novamente.');
     } finally {
       setProcessando(false);
     }
@@ -673,20 +796,23 @@ const Boletos: React.FC = () => {
                             Emitir
                           </button>
                         ) : (
-                          <button
-                            className="btn-secondary"
-                            style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                            onClick={() => NexusSwal.fire({
-                              title: 'Boleto',
-                              html: `<div style="text-align:left;font-size:14px">`
-                                + `<b>Nosso número:</b> ${t.boleto?.nossoNumero}<br/><br/>`
-                                + `<b>Linha digitável:</b><br/><span style="font-family:monospace">${formatarLinhaDigitavel(t.boleto?.linhaDigitavel || '')}</span>`
-                                + `</div>`,
-                              icon: 'info',
-                            })}
-                          >
-                            <Barcode size={14} /> Ver
-                          </button>
+                          <span style={{ display: 'inline-flex', gap: '6px' }}>
+                            <button
+                              className="btn-secondary"
+                              style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                              onClick={() => mostrarBoleto(t)}
+                            >
+                              <Barcode size={14} /> Ver
+                            </button>
+                            <button
+                              className="btn-primary"
+                              style={{ padding: '6px 12px', fontSize: '13px' }}
+                              onClick={() => void imprimirBoleto(t)}
+                              disabled={processando}
+                            >
+                              Imprimir
+                            </button>
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -697,6 +823,7 @@ const Boletos: React.FC = () => {
           </div>
         )}
       </div>
+      {pdfBoleto && <PdfVisualizador titulo="Boleto" nomeArquivo={pdfBoleto.nome} pdf={pdfBoleto.blob} onFechar={() => setPdfBoleto(null)} />}
     </div>
   );
 };

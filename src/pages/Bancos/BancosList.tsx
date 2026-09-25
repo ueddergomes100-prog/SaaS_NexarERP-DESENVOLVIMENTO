@@ -35,6 +35,8 @@ import { alterarSituacaoCadastro } from '../../services/cadastroService';
 export interface ConvenioBoleto {
   ativo: boolean;
   contaDv?: string;
+  /** Codigo do cliente/beneficiario impresso no boleto do Sicoob; vazio = conta + DV. */
+  codigoCliente?: string;
   cnpjCedente?: string;
   nomeCedente?: string;
   instrucoes?: string;
@@ -88,6 +90,7 @@ const emptyBankForm = () => ({
   saldoInicial: '0,00',
   boletoAtivo: false,
   boletoContaDv: '',
+  boletoCodigoCliente: '',
   boletoCnpjCedente: '',
   boletoNomeCedente: '',
   boletoInstrucoes: '',
@@ -198,6 +201,7 @@ const BancosList: React.FC = () => {
       saldoInicial: fromCents(banco.saldoInicialCentavos || 0).toFixed(2).replace('.', ','),
       boletoAtivo: banco.boleto?.ativo || false,
       boletoContaDv: banco.boleto?.contaDv || '',
+      boletoCodigoCliente: banco.boleto?.codigoCliente || '',
       boletoCnpjCedente: banco.boleto?.cnpjCedente || '',
       boletoNomeCedente: banco.boleto?.nomeCedente || '',
       boletoInstrucoes: banco.boleto?.instrucoes || '',
@@ -232,6 +236,7 @@ const BancosList: React.FC = () => {
     const boleto = modalForm.boletoAtivo ? {
       ativo: true,
       ...(modalForm.boletoContaDv.trim() ? { contaDv: modalForm.boletoContaDv.trim() } : {}),
+      ...(modalForm.boletoCodigoCliente.replace(/\D/g, '') ? { codigoCliente: modalForm.boletoCodigoCliente.replace(/\D/g, '') } : {}),
       ...(modalForm.boletoCnpjCedente.trim() ? { cnpjCedente: modalForm.boletoCnpjCedente.replace(/\D/g, '') } : {}),
       ...(modalForm.boletoNomeCedente.trim() ? { nomeCedente: modalForm.boletoNomeCedente.trim() } : {}),
       ...(modalForm.boletoInstrucoes.trim() ? { instrucoes: modalForm.boletoInstrucoes.trim() } : {}),
@@ -695,6 +700,17 @@ const BancosList: React.FC = () => {
                           onChange={(e) => setModalForm({ ...modalForm, boletoContaDv: e.target.value })}
                           style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
                         />
+                      </div>
+                      <div className="input-group">
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Código do cliente / beneficiário (opcional)</label>
+                        <input
+                          type="text"
+                          placeholder="Vazio = conta + dígito (ex: 0512150)"
+                          value={modalForm.boletoCodigoCliente}
+                          onChange={(e) => setModalForm({ ...modalForm, boletoCodigoCliente: e.target.value.replace(/\D/g, '').slice(0, 7) })}
+                          style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
+                        />
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Entra no código de barras do boleto. Confira no boleto impresso pelo Sicoob (campo "Agência / Código do Beneficiário"); se for igual à conta com o dígito, deixe em branco.</span>
                       </div>
                       <div className="input-group">
                         <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>CNPJ do cedente</label>

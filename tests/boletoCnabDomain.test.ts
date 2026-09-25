@@ -65,6 +65,19 @@ test('campo livre do Sicoob tem exatamente 25 posicoes', () => {
   assert.equal(livre.slice(5, 7), '01');   // modalidade
 });
 
+test('campo livre segue a especificacao: codigo do cliente(7) + nosso numero(7) + DV + parcela(3)', () => {
+  const livre = campoLivreSicoob({ cooperativa: '3049', conta: '51215', contaDv: '0', modalidade: '01', nossoNumero: 1200 });
+  assert.equal(livre, '1304901' + '0512150' + '0001200' + '9' + '001');
+  // Codigo do cliente informado a mao tem prioridade sobre conta+DV.
+  assert.equal(campoLivreSicoob({ cooperativa: '3049', conta: '51215', contaDv: '0', modalidade: '01', nossoNumero: 1200, codigoCliente: '123456' }).slice(7, 14), '0123456');
+  // Carne: parcela vira 3 posicoes.
+  assert.equal(campoLivreSicoob({ cooperativa: '3049', conta: '51215', contaDv: '0', modalidade: '01', nossoNumero: 1200, parcela: 2 }).slice(22), '002');
+});
+
+test('nosso numero acima de 7 digitos e recusado com mensagem em portugues', () => {
+  assert.throws(() => campoLivreSicoob({ cooperativa: '3049', conta: '51215', modalidade: '01', nossoNumero: 12345678 }), /no máximo 7 dígitos/);
+});
+
 test('codigo de barras do Sicoob tem 44 posicoes e comeca em 756', () => {
   const cb = codigoBarrasSicoob({
     dados: { cooperativa: '3049', conta: '51215', modalidade: '01', nossoNumero: 1200 },

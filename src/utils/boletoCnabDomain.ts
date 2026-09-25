@@ -78,35 +78,53 @@ export interface DadosBoletoSicoob {
   /** Modalidade de cobranca do convenio -- 01 = simples com registro. */
   modalidade: string;
   nossoNumero: string | number;
-  /** Numero da parcela dentro do carne. 01 quando nao e' carne. */
+  /** Numero da parcela dentro do carne. 001 quando nao e' carne. */
   parcela?: string | number;
+  /**
+   * Codigo do cliente/beneficiario no Sicoob (7 posicoes no campo livre). Quando nao vem, usa a conta
+   * COM o DV (Sol Life: conta 51215-0 -> 0512150) -- e' o que a formula do DV do nosso numero,
+   * confirmada com 196 titulos reais, tambem usa. Se o boleto impresso do banco mostrar outro codigo,
+   * ele e' informado no cadastro do banco (Configuracao de Boleto).
+   */
+  codigoCliente?: string;
   digitosDaConta?: number;
   digitosDoNossoNumero?: number;
 }
 
 /**
- * Campo livre do Sicoob (25 posicoes do codigo de barras):
+ * Campo livre do Sicoob (25 posicoes do codigo de barras, 20 a 44), conforme a especificacao publica
+ * da cobranca Sicoob/Bancoob (conferida em tres implementacoes de referencia):
  *
- *   carteira(1) agencia(4) modalidade(2) conta(7) nossoNumero(10) parcela(1)
+ *   carteira(1) cooperativa(4) modalidade(2) codigoCliente(7) nossoNumero(7) DV(1) parcela(3)
  *
- * Carteira 1 = cobranca simples com registro (a unica que o cliente usa
- * hoje, conforme o cadastro do sistema antigo: "Carteira Emissao Propria 01").
+ * Carteira 1 = cobranca simples com registro ("Carteira Emissao Propria 01" no sistema antigo).
+ * O nosso numero aqui tem 7 posicoes + o DV (na remessa e no retorno ele aparece com zeros a esquerda,
+ * 9 posicoes + DV). Parcela "001" quando o boleto nao e' carne.
+ *
+ * ATENCAO (2026-09-25): ate esta data o campo livre era montado com o nosso numero em 10 posicoes e a
+ * parcela em 1, fora da especificacao. So a comparacao com um boleto REAL impresso pelo Sicoob para o mesmo
+ * titulo fecha o assunto -- ver o teste "campo livre ... boleto real" (aguardando a linha digitavel).
  */
 export const campoLivreSicoob = (dados: DadosBoletoSicoob): string => {
   const carteira = '1';
   const agencia = zerosAEsquerda(dados.cooperativa, 4);
   const modalidade = zerosAEsquerda(dados.modalidade || '01', 2);
-  const conta = zerosAEsquerda(dados.conta, 7);
-  const nossoNumero = nossoNumeroSicoobComDv(dados.nossoNumero, {
+  const codigoCliente = zerosAEsquerda(digitosDoBoleto(dados.codigoCliente || '') || `${digitosDoBoleto(dados.conta)}${digitosDoBoleto(dados.contaDv ?? '')}`, 7);
+  const nossoNumeroBase = digitosDoBoleto(String(dados.nossoNumero));
+  if (nossoNumeroBase.length > 7) {
+    throw new Error('O nosso número do Sicoob tem no máximo 7 dígitos: a numeração do convênio chegou ao limite. Fale com o suporte para configurar uma nova faixa.');
+  }
+  const nossoNumero = zerosAEsquerda(nossoNumeroBase, 7);
+  const dv = dvNossoNumeroSicoob(dados.nossoNumero, {
     cooperativa: dados.cooperativa,
     conta: dados.conta,
     contaDv: dados.contaDv,
     digitosDaConta: dados.digitosDaConta,
     digitosDoNossoNumero: dados.digitosDoNossoNumero,
   });
-  const parcela = zerosAEsquerda(dados.parcela ?? 1, 1);
+  const parcela = zerosAEsquerda(dados.parcela ?? 1, 3);
 
-  return `${carteira}${agencia}${modalidade}${conta}${zerosAEsquerda(nossoNumero, 10)}${parcela}`;
+  return `${carteira}${agencia}${modalidade}${codigoCliente}${nossoNumero}${dv}${parcela}`;
 };
 
 /** Codigo de barras completo de um boleto Sicoob. */

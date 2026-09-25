@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, runTransaction } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, runTransaction, writeBatch } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -17,6 +17,10 @@ import {
 } from '../../utils/baixaFinanceiraDomain';
 import { pedirDadosBaixa } from '../../utils/baixaFinanceiraUi';
 import { estornarBaixaComConfirmacao } from '../../services/baixaFinanceiraService';
+import ParcelasEditor from '../../components/financeiro/ParcelasEditor';
+import { FORMAS_DE_PAGAMENTO, dividirEmParcelas } from '../../utils/pagamentoEntradaDomain';
+import type { ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
+import { avisoDeSoma, erroDaDespesa, montarTitulosDaDespesa } from '../../utils/despesaParceladaDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload, Undo2 } from 'lucide-react';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -52,6 +56,8 @@ interface TransacaoData extends TituloParaEstorno {
   bancoNome?: string;
   fornecedorId?: string | null;
   fornecedorNome?: string;
+  /** Cheque emitido para pagar esta despesa (banco, numero, data de compensacao). */
+  cheque?: { numeroCheque?: string; dataCompensacao?: string } | null;
 }
 
 // Espelha GrupoCliente de ContasReceber.tsx. Diferenca deliberada: uma
@@ -115,6 +121,19 @@ const ContasPagar: React.FC = () => {
   const { items: fornecedores } = useTenantCollection<{ id: string; nome?: string; codigo?: string; ativo?: boolean }>('fornecedores', tenantId);
   const fornecedoresAtivos = fornecedores.filter((f) => f.ativo !== false);
   const [buscaFornecedor, setBuscaFornecedor] = useState('');
+
+  /**
+   * DESPESA PARCELADA E CHEQUE (pedido do dono, 2026-09-24). Lancamento novo pode ser
+   * em varias parcelas (cada uma um titulo) e, pagando em Cheque, cada parcela leva o
+   * banco, o numero e a data de compensacao. O cheque so' sai do banco quando a
+   * compensacao e' confirmada em Financeiro > Cheques > Emitidos.
+   */
+  const { items: bancosCadastrados } = useTenantCollection<{ id: string; nome?: string; ativo?: boolean }>('bancos', tenantId);
+  const bancosParaCheque = bancosCadastrados.filter((b) => b.ativo !== false).map((b) => ({ id: b.id, nome: String(b.nome || '') }));
+  const [formaDespesa, setFormaDespesa] = useState<string>('Boleto');
+  const [parcelarDespesa, setParcelarDespesa] = useState(false);
+  const [parcelasDespesa, setParcelasDespesa] = useState<ParcelaComCheque[]>([]);
+  const [parcelasAceitas, setParcelasAceitas] = useState(false);
 
   // Categorias de despesa do plano de contas
   const [categoriasDespesa, setCategoriasDespesa] = useState<string[]>(['Aluguel', 'Água/Luz/Internet', 'Salários', 'Fornecedores de Peças', 'Outros']);
@@ -304,7 +323,22 @@ const ContasPagar: React.FC = () => {
     });
     setBuscaFornecedor('');
     setEditingId(null);
+    setFormaDespesa('Boleto');
+    setParcelarDespesa(false);
+    setParcelasDespesa([]);
+    setParcelasAceitas(false);
     setIsModalOpen(true);
+  };
+
+  /** Liga o parcelamento (ou o cheque) e ja monta as parcelas com o valor digitado. */
+  const prepararParcelas = (forma: string, parcelar: boolean) => {
+    setFormaDespesa(forma);
+    setParcelarDespesa(parcelar);
+    setParcelasAceitas(false);
+    if ((parcelar || forma === 'Cheque') && parcelasDespesa.length === 0) {
+      const total = parseFloat(String(formData.valor).replace(',', '.')) || 0;
+      setParcelasDespesa(dividirEmParcelas(total, 1, formData.data));
+    }
   };
 
   const handleEdit = (t: TransacaoData) => {
@@ -393,6 +427,41 @@ const ContasPagar: React.FC = () => {
         ? { fornecedorId: formData.fornecedorId, fornecedorNome: formData.fornecedorNome }
         : null;
 
+      // Despesa nova em varias parcelas e/ou em cheque: um titulo por parcela.
+      if (!editingId && (parcelarDespesa || formaDespesa === 'Cheque')) {
+        const dadosDaDespesa = {
+          descricao: formData.descricao,
+          categoria: formData.categoria,
+          forma: formaDespesa,
+          ...(fornecedorEscolhido || {}),
+        };
+        const problema = erroDaDespesa(dadosDaDespesa, parcelasDespesa, valorNum, bancosParaCheque);
+        if (problema) {
+          showError('Confira a despesa', problema);
+          return;
+        }
+        const avisoSoma = avisoDeSoma(parcelasDespesa, valorNum);
+        if (avisoSoma && !parcelasAceitas) {
+          showError('As parcelas não fecham com o valor', `${avisoSoma} Ajuste os valores ou marque "Conferi as parcelas e quero lançar assim".`);
+          return;
+        }
+        const grupoParcelasId = doc(collection(db, 'transacoes')).id;
+        const titulos = montarTitulosDaDespesa(dadosDaDespesa, parcelasDespesa, bancosParaCheque, grupoParcelasId);
+        const lote = writeBatch(db);
+        titulos.forEach((titulo) => lote.set(doc(collection(db, 'transacoes')), {
+          ...titulo,
+          tenantId,
+          createdAt: serverTimestamp(),
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        }));
+        await lote.commit();
+        showSuccess(formaDespesa === 'Cheque'
+          ? `${titulos.length} cheque(s) lançado(s)! Confirme a compensação em Financeiro › Cheques › Emitidos.`
+          : `${titulos.length} parcela(s) lançada(s) em Contas a Pagar!`);
+        setIsModalOpen(false);
+        return;
+      }
+
       if (editingId) {
         await updateDoc(doc(db, 'transacoes', editingId), {
           descricao: formData.descricao.toUpperCase().trim(),
@@ -411,6 +480,7 @@ const ContasPagar: React.FC = () => {
           valor: valorNum,
           categoria: formData.categoria.toUpperCase().trim(),
           status: formData.status,
+          formaPagamentoPrevista: formaDespesa,
           ...(fornecedorEscolhido || {}),
           tipo: 'saida',
           tenantId,
@@ -474,6 +544,16 @@ const ContasPagar: React.FC = () => {
           </button>
         </>
       )}
+      {t.formaPagamento === 'Cheque' ? (
+        // Cheque emitido nao se da baixa direto: o banco so' e' debitado quando a compensacao e' confirmada.
+        <button
+          onClick={() => openTab('/financeiro/cheques', 'Cheques')}
+          title="Este título é um cheque emitido. Confirme a compensação em Financeiro > Cheques > Emitidos."
+          style={{ backgroundColor: '#8b5cf6', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
+        >
+          <CheckCircle size={14} /> Cheque nº {t.cheque?.numeroCheque || '-'} — compensar
+        </button>
+      ) : (
       <button
         onClick={() => handleConciliar(t)}
         style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
@@ -482,6 +562,7 @@ const ContasPagar: React.FC = () => {
       >
         <CheckCircle size={14} /> Dar Baixa
       </button>
+      )}
     </div>
     )
   );
@@ -929,8 +1010,9 @@ const ContasPagar: React.FC = () => {
           zIndex: 1000
         }}>
           <div style={{
-            backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: '500px',
-            border: '1px solid var(--border-color)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)', overflow: 'hidden'
+            backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: (!editingId && (parcelarDespesa || formaDespesa === 'Cheque')) ? '980px' : '500px',
+            maxHeight: '92vh', overflowY: 'auto',
+            border: '1px solid var(--border-color)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)', overflow: 'hidden auto'
           }}>
             <div style={{
               padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -1032,11 +1114,44 @@ const ContasPagar: React.FC = () => {
                 </select>
               </div>
 
+              {!editingId && (
+                <>
+                  <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Forma de pagamento</label>
+                    <select
+                      value={formaDespesa}
+                      onChange={(e) => prepararParcelas(e.target.value, parcelarDespesa)}
+                      style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)' }}
+                    >
+                      {FORMAS_DE_PAGAMENTO.map((forma) => <option key={forma} value={forma}>{forma}</option>)}
+                    </select>
+                  </div>
+                  {formaDespesa !== 'Cheque' && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={parcelarDespesa} onChange={(e) => prepararParcelas(formaDespesa, e.target.checked)} />
+                      Parcelar esta despesa em várias vezes
+                    </label>
+                  )}
+                  {(parcelarDespesa || formaDespesa === 'Cheque') && (
+                    <ParcelasEditor
+                      parcelas={parcelasDespesa}
+                      onParcelas={setParcelasDespesa}
+                      total={parseFloat(String(formData.valor).replace(',', '.')) || 0}
+                      dataBase={getDateInputInTimeZone()}
+                      forma={formaDespesa}
+                      bancos={bancosParaCheque}
+                      aceitas={parcelasAceitas}
+                      onAceitar={setParcelasAceitas}
+                    />
+                  )}
+                </>
+              )}
+
               <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                 <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>Cancelar</button>
                 <button type="submit" className="btn-primary" disabled={isSaving} style={{ backgroundColor: '#ef4444', borderColor: '#ef4444' }}>
                   {isSaving ? <Loader2 size={18} className="spin-animation" /> : <CheckCircle size={18} />}
-                  Salvar Conta
+                  {(!editingId && (parcelarDespesa || formaDespesa === 'Cheque')) ? 'Lançar parcelas' : 'Salvar Conta'}
                 </button>
               </div>
             </form>

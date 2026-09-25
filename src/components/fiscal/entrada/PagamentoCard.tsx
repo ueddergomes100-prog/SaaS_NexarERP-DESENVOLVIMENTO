@@ -1,15 +1,13 @@
-import React, { useState } from 'react';
-import { FileText, Plus, Trash2 } from 'lucide-react';
+import React from 'react';
+import { FileText } from 'lucide-react';
 import {
   CATEGORIAS_DE_COMPRA,
   FORMAS_DE_PAGAMENTO,
-  conferirParcelas,
-  diasAteVencer,
-  dividirEmParcelas,
   type DestinoDoPagamento,
   type ModoDePagamento,
-  type ParcelaDaEntrada,
 } from '../../../utils/pagamentoEntradaDomain';
+import type { ParcelaComCheque } from '../../../utils/chequeEmitidoDomain';
+import ParcelasEditor from '../../financeiro/ParcelasEditor';
 import { campoInputStyle, campoLabelStyle, cartaoStyle, grupoStyle, moeda, tituloDoCartaoStyle } from './estilos';
 
 export interface BancoParaEntrada {
@@ -20,14 +18,16 @@ export interface BancoParaEntrada {
 interface PagamentoCardProps {
   modo: ModoDePagamento;
   onModo: (modo: ModoDePagamento) => void;
-  parcelas: ParcelaDaEntrada[];
-  onParcelas: (parcelas: ParcelaDaEntrada[]) => void;
+  parcelas: ParcelaComCheque[];
+  onParcelas: (parcelas: ParcelaComCheque[]) => void;
   totalDaNota: number;
   dataEmissao: string;
   formaPrevista: string;
   onFormaPrevista: (forma: string) => void;
   categoria: string;
   onCategoria: (categoria: string) => void;
+  /** Categorias do plano de contas da empresa; sem elas, usa a lista padrao de compras. */
+  categoriasDaEmpresa?: string[];
   destino: DestinoDoPagamento;
   onDestino: (destino: DestinoDoPagamento) => void;
   bancoId: string;
@@ -40,34 +40,13 @@ interface PagamentoCardProps {
 }
 
 const PagamentoCard: React.FC<PagamentoCardProps> = ({
-  modo, onModo, parcelas, onParcelas, totalDaNota, dataEmissao, formaPrevista, onFormaPrevista, categoria, onCategoria,
+  modo, onModo, parcelas, onParcelas, totalDaNota, dataEmissao, formaPrevista, onFormaPrevista, categoria, onCategoria, categoriasDaEmpresa,
   destino, onDestino, bancoId, onBancoId, bancos, parcelasAceitas, onAceitarParcelas, formaNoXml,
 }) => {
-  const [quantidadeParaDividir, setQuantidadeParaDividir] = useState('3');
-  const [intervalo, setIntervalo] = useState('30');
-  const conferencia = conferirParcelas(parcelas, totalDaNota);
-
-  const alterar = (indice: number, patch: Partial<ParcelaDaEntrada>) => {
-    onParcelas(parcelas.map((parcela, i) => (i === indice ? { ...parcela, ...patch } : parcela)));
-    onAceitarParcelas(false);
-  };
-
-  const dividir = () => {
-    const primeiro = parcelas[0]?.vencimento || dataEmissao;
-    onParcelas(dividirEmParcelas(totalDaNota, Number(quantidadeParaDividir), primeiro, Number(intervalo) || 30));
-    onAceitarParcelas(false);
-  };
-
-  const adicionar = () => {
-    const ultima = parcelas[parcelas.length - 1];
-    onParcelas([...parcelas, { numero: String(parcelas.length + 1), vencimento: ultima?.vencimento || dataEmissao, valor: 0 }]);
-    onAceitarParcelas(false);
-  };
-
-  const remover = (indice: number) => {
-    onParcelas(parcelas.filter((_, i) => i !== indice).map((parcela, i) => ({ ...parcela, numero: String(i + 1) })));
-    onAceitarParcelas(false);
-  };
+  // Cheque nunca e' "a vista": o dinheiro so' sai quando o cheque compensa.
+  const emCheque = formaPrevista === 'Cheque';
+  const modoEfetivo: ModoDePagamento = emCheque ? 'prazo' : modo;
+  const opcoesDeCategoria = categoriasDaEmpresa && categoriasDaEmpresa.length > 0 ? categoriasDaEmpresa : [...CATEGORIAS_DE_COMPRA];
 
   return (
     <div className="card" style={cartaoStyle}>
@@ -76,32 +55,34 @@ const PagamentoCard: React.FC<PagamentoCardProps> = ({
         <h3 style={tituloDoCartaoStyle}>Forma de pagamento — Contas a Pagar</h3>
       </div>
 
-      <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '14px' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
-          <input type="radio" name="modo-pagamento" checked={modo === 'prazo'} onChange={() => onModo('prazo')} /> A prazo (fica em Contas a Pagar)
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
-          <input type="radio" name="modo-pagamento" checked={modo === 'avista'} onChange={() => onModo('avista')} /> À vista (já paga na entrada)
-        </label>
-      </div>
-
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '14px' }}>
         <div className="input-group">
           <label style={campoLabelStyle}>Categoria da despesa</label>
           <select value={categoria} onChange={(e) => onCategoria(e.target.value)} className="form-select" style={campoInputStyle}>
-            {CATEGORIAS_DE_COMPRA.map((opcao) => <option key={opcao} value={opcao}>{opcao}</option>)}
+            {opcoesDeCategoria.map((opcao) => <option key={opcao} value={opcao}>{opcao}</option>)}
           </select>
         </div>
         <div className="input-group">
-          <label style={campoLabelStyle}>Forma de pagamento{modo === 'prazo' ? ' prevista' : ''}</label>
-          <select value={formaPrevista} onChange={(e) => onFormaPrevista(e.target.value)} className="form-select" style={campoInputStyle}>
+          <label style={campoLabelStyle}>Forma de pagamento</label>
+          <select value={formaPrevista} onChange={(e) => { onFormaPrevista(e.target.value); if (e.target.value === 'Cheque') onModo('prazo'); }} className="form-select" style={campoInputStyle}>
             {FORMAS_DE_PAGAMENTO.map((opcao) => <option key={opcao} value={opcao}>{opcao}</option>)}
           </select>
           {formaNoXml && <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>A nota informa: {formaNoXml}</span>}
         </div>
       </div>
 
-      {modo === 'avista' ? (
+      {!emCheque && (
+        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
+            <input type="radio" name="modo-pagamento" checked={modoEfetivo === 'prazo'} onChange={() => onModo('prazo')} /> A prazo (fica em Contas a Pagar)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
+            <input type="radio" name="modo-pagamento" checked={modoEfetivo === 'avista'} onChange={() => onModo('avista')} /> À vista (já paga na entrada)
+          </label>
+        </div>
+      )}
+
+      {modoEfetivo === 'avista' ? (
         <div style={grupoStyle}>
           <div style={{ fontSize: '12.5px', marginBottom: '8px' }}>Pagamento de <strong>{moeda(totalDaNota)}</strong> hoje, saindo de:</div>
           <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '10px' }}>
@@ -126,55 +107,16 @@ const PagamentoCard: React.FC<PagamentoCardProps> = ({
           </div>
         </div>
       ) : (
-        <>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {parcelas.map((parcela, indice) => {
-              const dias = diasAteVencer(dataEmissao, parcela.vencimento);
-              return (
-                <div key={indice} style={{ display: 'grid', gridTemplateColumns: '60px minmax(150px, 190px) 90px minmax(120px, 160px) auto', gap: '10px', alignItems: 'end' }}>
-                  <div><label style={campoLabelStyle}>Parcela</label><div style={{ padding: '8px 0', fontSize: '13px', fontWeight: 600 }}>{parcela.numero}</div></div>
-                  <div className="input-group">
-                    <label style={campoLabelStyle}>Vencimento</label>
-                    <input type="date" value={parcela.vencimento} onChange={(e) => alterar(indice, { vencimento: e.target.value })} style={campoInputStyle} />
-                  </div>
-                  <div><label style={campoLabelStyle}>Dias</label><div style={{ padding: '8px 0', fontSize: '13px', color: 'var(--text-muted)' }}>{dias === null ? '—' : dias}</div></div>
-                  <div className="input-group">
-                    <label style={campoLabelStyle}>Valor</label>
-                    <input type="number" step="0.01" min="0" value={parcela.valor || ''} onChange={(e) => alterar(indice, { valor: Number(e.target.value) || 0 })} style={campoInputStyle} />
-                  </div>
-                  <button type="button" className="btn-secondary" onClick={() => remover(indice)} disabled={parcelas.length <= 1} aria-label={`Remover parcela ${parcela.numero}`} style={{ padding: '8px' }}><Trash2 size={14} /></button>
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'end', marginTop: '12px' }}>
-            <button type="button" className="btn-secondary" onClick={adicionar} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}><Plus size={14} /> Adicionar parcela</button>
-            <div className="input-group" style={{ width: '80px' }}>
-              <label style={campoLabelStyle}>Dividir em</label>
-              <input type="number" min="1" max="60" value={quantidadeParaDividir} onChange={(e) => setQuantidadeParaDividir(e.target.value)} style={campoInputStyle} />
-            </div>
-            <div className="input-group" style={{ width: '110px' }}>
-              <label style={campoLabelStyle}>a cada (dias)</label>
-              <input type="number" min="1" value={intervalo} onChange={(e) => setIntervalo(e.target.value)} style={campoInputStyle} />
-            </div>
-            <button type="button" className="btn-secondary" onClick={dividir} style={{ fontSize: '12px' }}>Dividir o total em parcelas iguais</button>
-          </div>
-
-          <div style={{ marginTop: '12px', fontSize: '13px' }}>
-            Soma das parcelas: <strong>{moeda(conferencia.soma)}</strong> · Total da nota: <strong>{moeda(totalDaNota)}</strong>
-          </div>
-          {conferencia.erro && <div role="alert" style={{ marginTop: '8px', color: '#ef4444', fontSize: '13px' }}>{conferencia.erro}</div>}
-          {conferencia.aviso && (
-            <div role="alert" style={{ marginTop: '8px', padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid #f59e0b', color: '#fbbf24', fontSize: '13px', lineHeight: 1.5 }}>
-              {conferencia.aviso}
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', cursor: 'pointer', color: 'var(--text-primary)' }}>
-                <input type="checkbox" checked={parcelasAceitas} onChange={(e) => onAceitarParcelas(e.target.checked)} />
-                Conferi as parcelas e quero lançar assim
-              </label>
-            </div>
-          )}
-        </>
+        <ParcelasEditor
+          parcelas={parcelas}
+          onParcelas={onParcelas}
+          total={totalDaNota}
+          dataBase={dataEmissao}
+          forma={formaPrevista}
+          bancos={bancos}
+          aceitas={parcelasAceitas}
+          onAceitar={onAceitarParcelas}
+        />
       )}
     </div>
   );

@@ -76,8 +76,8 @@ import {
   parcelasIniciais,
   type DestinoDoPagamento,
   type ModoDePagamento,
-  type ParcelaDaEntrada,
 } from '../../utils/pagamentoEntradaDomain';
+import { camposDoTituloEmCheque, erroDosCheques, type ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
 import { compactarXml } from '../../utils/xmlCompactoDomain';
 import { fromCents, toCents } from '../../utils/financeDomain';
 import Swal from 'sweetalert2';
@@ -182,10 +182,14 @@ const EntradaNFE: React.FC = () => {
   const [opcoesCusto, setOpcoesCusto] = useState<OpcoesDeCustoDeEntrada>(opcoesDeCustoPorRegime('simples_nacional'));
   const [divergenciaAceita, setDivergenciaAceita] = useState(false);
   const [modoPagamento, setModoPagamento] = useState<ModoDePagamento>('prazo');
-  const [parcelas, setParcelas] = useState<ParcelaDaEntrada[]>([]);
+  const [parcelas, setParcelas] = useState<ParcelaComCheque[]>([]);
   const [parcelasAceitas, setParcelasAceitas] = useState(false);
   const [categoriaDespesa, setCategoriaDespesa] = useState<string>(CATEGORIAS_DE_COMPRA[0]);
+  // Plano de contas de despesas da empresa (Configuracoes); vazio = lista padrao de compras.
+  const [categoriasDaEmpresa, setCategoriasDaEmpresa] = useState<string[]>([]);
   const [formaPrevista, setFormaPrevista] = useState('Boleto');
+  // Cheque nunca e' 'a vista': o dinheiro so' sai quando o cheque compensa.
+  const modoPagamentoEfetivo: ModoDePagamento = formaPrevista === 'Cheque' ? 'prazo' : modoPagamento;
   const [destinoPagamento, setDestinoPagamento] = useState<DestinoDoPagamento>('caixa');
   const [bancoId, setBancoId] = useState('');
   const [bancos, setBancos] = useState<BancoParaEntrada[]>([]);
@@ -332,6 +336,14 @@ const EntradaNFE: React.FC = () => {
       try {
         const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
         setRegimeTributario((configSnap.data()?.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
+        const plano = configSnap.data()?.planoContasDespesas;
+        const listaDoPlano: string[] = Array.isArray(plano) ? plano : (typeof plano === 'string' ? plano.split(String.fromCharCode(10)) : []);
+        const categoriasLimpas = listaDoPlano.map((c) => String(c).trim()).filter(Boolean);
+        setCategoriasDaEmpresa(categoriasLimpas);
+        if (categoriasLimpas.length > 0) {
+          const preferida = categoriasLimpas.find((c) => c.toUpperCase() === CATEGORIAS_DE_COMPRA[0]) ?? categoriasLimpas[0];
+          setCategoriaDespesa(preferida);
+        }
       } catch (err) {
         console.error("Erro ao carregar regime tributário:", err);
       }
@@ -846,11 +858,18 @@ const EntradaNFE: React.FC = () => {
     }
 
     const totalDevido = nota.totais.total;
-    if (modoPagamento === 'prazo') {
+    if (modoPagamentoEfetivo === 'prazo') {
       const conferenciaParcelas = conferirParcelas(parcelas, totalDevido);
       if (conferenciaParcelas.erro) {
         showError('Confira as parcelas', conferenciaParcelas.erro);
         return;
+      }
+      if (formaPrevista === 'Cheque') {
+        const erroCheques = erroDosCheques(parcelas, bancos);
+        if (erroCheques) {
+          showError('Confira os cheques', erroCheques);
+          return;
+        }
       }
       if (conferenciaParcelas.aviso && !parcelasAceitas) {
         showError('As parcelas não fecham com a nota', `${conferenciaParcelas.aviso} Ajuste os valores ou marque "Conferi as parcelas e quero lançar assim".`);
@@ -914,11 +933,11 @@ const EntradaNFE: React.FC = () => {
         };
       });
 
-      const titulosRefs = modoPagamento === 'prazo' ? parcelas.map(() => doc(collection(db, 'transacoes'))) : [doc(collection(db, 'transacoes'))];
+      const titulosRefs = modoPagamentoEfetivo === 'prazo' ? parcelas.map(() => doc(collection(db, 'transacoes'))) : [doc(collection(db, 'transacoes'))];
       const tituloFreteRef = freteGeraTituloProprio(frete) ? doc(collection(db, 'transacoes')) : null;
       const notaRef = doc(collection(db, 'notas_fiscais_entrada'));
       const titulosPagarIds = [...titulosRefs.map((ref) => ref.id), ...(tituloFreteRef ? [tituloFreteRef.id] : [])];
-      const bancoRef = modoPagamento === 'avista' && destinoPagamento === 'banco' ? doc(db, 'bancos', bancoId) : null;
+      const bancoRef = modoPagamentoEfetivo === 'avista' && destinoPagamento === 'banco' ? doc(db, 'bancos', bancoId) : null;
       const bancoNome = bancos.find((b) => b.id === bancoId)?.nome || '';
       const xmlCompacto = await compactarXml(parsedData.xmlTexto);
 
@@ -1169,7 +1188,7 @@ const EntradaNFE: React.FC = () => {
 
         // ------------------------------------------------------------ contas a pagar
         const categoria = categoriaDespesa;
-        if (modoPagamento === 'prazo') {
+        if (modoPagamentoEfetivo === 'prazo') {
           parcelas.forEach((parcela, indice) => {
             const descricaoParcela = parcelas.length > 1
               ? `COMPRA NF ${parsedData.numeroNF} - ${fornecedorMatch.nome} (Parcela ${indice + 1}/${parcelas.length})`
@@ -1179,10 +1198,13 @@ const EntradaNFE: React.FC = () => {
               data: parcela.vencimento,
               valor: parcela.valor,
               valorCentavos: toCents(parcela.valor),
-              categoria,
+              categoria: categoria.toUpperCase().trim(),
               status: 'Pendente',
               tipo: 'saida',
               formaPagamentoPrevista: formaPrevista,
+              // Cheque emitido: o titulo entra na fila de Cheques (Emitidos) e o banco so' e'
+              // debitado quando a compensacao for confirmada la.
+              ...(formaPrevista === 'Cheque' ? camposDoTituloEmCheque(parcela, bancos) : {}),
               ...(parcelas.length > 1 ? { parcela: indice + 1, totalParcelas: parcelas.length } : {}),
               fornecedorId: fornecedorMatch.id,
               fornecedorNome: fornecedorMatch.nome,
@@ -1268,11 +1290,11 @@ const EntradaNFE: React.FC = () => {
             totais: { ...nota.totais },
             custo: { creditarIcms: opcoesCusto.creditarIcms, creditarPisCofins: opcoesCusto.creditarPisCofins, frete: frete.valor },
             pagamento: {
-              modo: modoPagamento,
+              modo: modoPagamentoEfetivo,
               categoria: categoriaDespesa,
               forma: formaPrevista,
-              parcelas: modoPagamento === 'prazo' ? parcelas : [],
-              ...(modoPagamento === 'avista' ? { destino: destinoPagamento, ...(destinoPagamento === 'banco' ? { bancoId, bancoNome } : {}) } : {}),
+              parcelas: modoPagamentoEfetivo === 'prazo' ? parcelas : [],
+              ...(modoPagamentoEfetivo === 'avista' ? { destino: destinoPagamento, ...(destinoPagamento === 'banco' ? { bancoId, bancoNome } : {}) } : {}),
             },
             transporte: {
               modalidadeFrete: nota.transporte.modalidadeFrete,
@@ -1298,7 +1320,7 @@ const EntradaNFE: React.FC = () => {
           usuarioEmail: currentUser?.email || '',
           modulo: 'estoque',
           acao: 'criacao',
-          descricao: `Importação de XML NF ${parsedData.numeroNF} (${fornecedorMatch.nome}) realizada. ${pecasAtualizadas} produtos atualizados, ${pecasCriadas} novos produtos cadastrados, ${materiasPrimasAtualizadas} matérias-primas atualizadas, ${materiasPrimasCriadas} novas matérias-primas cadastradas. ${titulosPagarIds.length} título(s) em Contas a Pagar, nota de R$ ${totalDevido.toFixed(2)}${modoPagamento === 'avista' ? ', paga à vista' : ''}.`,
+          descricao: `Importação de XML NF ${parsedData.numeroNF} (${fornecedorMatch.nome}) realizada. ${pecasAtualizadas} produtos atualizados, ${pecasCriadas} novos produtos cadastrados, ${materiasPrimasAtualizadas} matérias-primas atualizadas, ${materiasPrimasCriadas} novas matérias-primas cadastradas. ${titulosPagarIds.length} título(s) em Contas a Pagar, nota de R$ ${totalDevido.toFixed(2)}${modoPagamentoEfetivo === 'avista' ? ', paga à vista' : ''}.`,
           status: 'sucesso'
         });
       } catch {
@@ -1326,7 +1348,7 @@ const EntradaNFE: React.FC = () => {
         `${pecasCriadas} produto(s) novo(s) cadastrado(s)`,
         ...(materiasPrimasAtualizadas > 0 ? [`${materiasPrimasAtualizadas} matéria(s)-prima(s) atualizada(s)`] : []),
         ...(materiasPrimasCriadas > 0 ? [`${materiasPrimasCriadas} matéria(s)-prima(s) nova(s)`] : []),
-        `${titulosPagarIds.length} título(s) em Contas a Pagar${freteGeraTituloProprio(frete) ? ' (incluindo o do frete)' : ''}${modoPagamento === 'avista' ? ' — nota paga à vista' : ''}`,
+        `${titulosPagarIds.length} título(s) em Contas a Pagar${freteGeraTituloProprio(frete) ? ' (incluindo o do frete)' : ''}${modoPagamentoEfetivo === 'avista' ? ' — nota paga à vista' : ''}`,
       ];
       const numeroImportado = parsedData.numeroNF;
 
@@ -1699,6 +1721,7 @@ const EntradaNFE: React.FC = () => {
                 onFormaPrevista={setFormaPrevista}
                 categoria={categoriaDespesa}
                 onCategoria={setCategoriaDespesa}
+                categoriasDaEmpresa={categoriasDaEmpresa}
                 destino={destinoPagamento}
                 onDestino={setDestinoPagamento}
                 bancoId={bancoId}

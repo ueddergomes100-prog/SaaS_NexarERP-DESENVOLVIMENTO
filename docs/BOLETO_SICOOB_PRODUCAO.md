@@ -1,6 +1,12 @@
-# Boleto Sicoob — como emitir em produção (Sol Life) e o que ainda precisa ser confirmado
+# Boleto Sicoob — como emitir em produção (Sol Life)
 
-Atualizado em 2026-09-25.
+Atualizado em 2026-09-28.
+
+**O código de barras está confirmado.** Em 2026-09-28 o dono trouxe um boleto real da Sol Life
+impresso pelo Sicoob (nosso número 918-4, vencimento 24/08/2026, R$ 677,97) e o código de barras
+calculado pelo sistema bateu **dígito a dígito** com o do boleto — fator de vencimento, valor,
+campo livre inteiro e DV geral. Ver o teste `codigo de barras bate digito a digito com boleto real
+impresso pelo Sicoob` em `tests/boletoCnabDomain.test.ts`.
 
 ## O que o sistema faz hoje
 
@@ -19,15 +25,14 @@ O **campo livre** do código de barras estava montado fora da especificação p�
 
 `carteira(1) + cooperativa(4) + modalidade(2) + código do cliente(7) + nosso número(7) + DV(1) + parcela(3, "001")`
 
-- **Código do cliente**: se o campo do banco ficar vazio, usa **conta + dígito** (Sol Life: 51215 + 0 → `0512150`). Se o boleto impresso pelo Sicoob mostrar outro código em "Agência / Código do Beneficiário", digite esse código no banco.
+- **Código do cliente — ATENÇÃO, isto é obrigatório configurar pra Sol Life**: o boleto real conferido em 28/09 mostra "Agência/Código Beneficiário: 3049/131877-2" — ou seja, o código do cliente da Sol Life no Sicoob é **131877-2**, e **não** é derivado da conta (51215-0 dá `0512150`, que é diferente e errado). O fallback conta+DV só existe pra convênio que usa a própria conta como código de beneficiário — não é o caso daqui. **No cadastro do banco (Financeiro → Bancos → Sicoob), o campo "Código do cliente" tem que estar preenchido com `1318772`** antes de emitir qualquer boleto real.
 - O nosso número passa a ter no máximo 7 dígitos (até 9.999.999).
-- **Não existe ainda teste contra um boleto real do Sicoob.** O que fecha o assunto: a **linha digitável de um boleto impresso pelo sistema antigo** de um título que também está numa remessa (ex.: nosso número 1200, vencimento 06/10/2026, R$ 525,53, "JURACY DOS SANTOS ARAUJO"). Com ela o teste passa a comparar o código de barras inteiro.
-- Títulos emitidos **antes** desta correção têm o código antigo gravado; a tela "Ver" e o PDF recalculam na hora, então saem certos. O que foi enviado ao banco (remessa) não muda, porque a remessa não leva o código de barras.
+- **Confirmado contra boleto real do Sicoob em 2026-09-28** (ver nota no topo do arquivo). Títulos emitidos **antes** desta correção (25/09) têm o código antigo gravado; a tela "Ver" e o PDF recalculam na hora, então saem certos. O que foi enviado ao banco (remessa) não muda, porque a remessa não leva o código de barras.
 
 ## Checklist para o primeiro boleto real da Sol Life (produção)
 
 1. Publicar as `firestore.rules` em produção (o dono faz) e esperar o deploy do front.
-2. Bancos → Sicoob: agência **3049**, conta **51215**, dígito **0**, CNPJ do cedente, nome do cedente (como no sistema antigo), multa 2 %, juros 10 % a.m., instrução (até 40 caracteres).
+2. Bancos → Sicoob: agência **3049**, conta **51215**, dígito **0**, **código do cliente `1318772`** (obrigatório, ver acima), CNPJ do cedente, nome do cedente (como no sistema antigo), multa 2 %, juros 10 % a.m., instrução (até 40 caracteres).
 3. **Próximo nosso número**: maior que o último usado no sistema antigo **e** em qualquer remessa já enviada (no retorno de 23/09 o maior foi 1330 — conferir se o arquivo de 24/09 usou números maiores).
 4. **Próxima remessa**: seguinte ao último arquivo enviado ao banco.
 5. Cliente do teste com CPF/CNPJ, CEP, cidade e UF completos.
@@ -36,6 +41,5 @@ O **campo livre** do código de barras estava montado fora da especificação p�
 
 ## Pontos em aberto
 
-- Confirmar o código de barras com um boleto real (acima).
 - Layout do retorno: só a ocorrência 06 foi vista com pagamento; a 04 com valor pago segue em conferência manual até o significado ser confirmado com o banco.
 - O layout da remessa parte de um arquivo real da Sol Life; outra empresa cedente ou outro convênio pede nova homologação.

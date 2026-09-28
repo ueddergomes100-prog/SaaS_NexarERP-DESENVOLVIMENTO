@@ -68,6 +68,17 @@ export const nossoNumeroSicoobComDv = (nossoNumero: string | number, p: Parametr
   return `${base}${dvNossoNumeroSicoob(nossoNumero, p)}`;
 };
 
+/** Nosso numero do jeito que o Sicoob IMPRIME no boleto -- sem os zeros a
+ *  esquerda, com o DV separado por hifen (ex.: "0000009184" -> "918-4").
+ *  Confirmado contra o boleto real de 2026-09-28 (campo "Nosso Número": 918-4). */
+export const formatarNossoNumeroSicoobExibicao = (nossoNumeroComDv: string): string => {
+  const digitos = String(nossoNumeroComDv || '').replace(/\D/g, '');
+  if (digitos.length < 2) return digitos;
+  const dv = digitos.slice(-1);
+  const base = digitos.slice(0, -1).replace(/^0+(?=\d)/, '');
+  return `${base}-${dv}`;
+};
+
 export interface DadosBoletoSicoob {
   cooperativa: string;
   /** DV da cooperativa (1 digito). */
@@ -101,9 +112,13 @@ export interface DadosBoletoSicoob {
  * O nosso numero aqui tem 7 posicoes + o DV (na remessa e no retorno ele aparece com zeros a esquerda,
  * 9 posicoes + DV). Parcela "001" quando o boleto nao e' carne.
  *
- * ATENCAO (2026-09-25): ate esta data o campo livre era montado com o nosso numero em 10 posicoes e a
- * parcela em 1, fora da especificacao. So a comparacao com um boleto REAL impresso pelo Sicoob para o mesmo
- * titulo fecha o assunto -- ver o teste "campo livre ... boleto real" (aguardando a linha digitavel).
+ * CONFIRMADO CONTRA BOLETO REAL (2026-09-28): comparado digito a digito com um boleto da Sol Life
+ * impresso pelo Sicoob (nosso numero 918-4, vencimento 24/08/2026, R$ 677,97) -- bateu certinho, ver o
+ * teste "codigo de barras bate digito a digito com boleto real impresso pelo Sicoob" em
+ * tests/boletoCnabDomain.test.ts. O unico ponto que exigiu configuracao explicita foi o codigo do
+ * cliente: o Sicoob usa 131877-2 pra Sol Life, que NAO e' derivado da conta (51215-0) -- por isso esse
+ * campo precisa estar preenchido no cadastro do banco sempre que o Sicoob tiver atribuido um codigo de
+ * beneficiario proprio (comum), e so' cai no fallback conta+DV quando o convenio usa a propria conta.
  */
 export const campoLivreSicoob = (dados: DadosBoletoSicoob): string => {
   const carteira = '1';

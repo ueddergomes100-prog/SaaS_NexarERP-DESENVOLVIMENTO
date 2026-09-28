@@ -285,7 +285,7 @@ export const mensagensDoBoleto = (convenio: ConvenioBoletoSicoob, titulo: Titulo
   const moraDiaria = valor * ((convenio.jurosMensalPercentual ?? JUROS_MENSAL_PADRAO_PERCENTUAL) / 100) / 30;
   return [
     `Apos o Vencimento Multa de RS ${reaisNaMensagem(multa)}.`,
-    `Apos o Vencimento Mora Diaria de RS ${reaisNaMensagem(moraDiaria)}`,
+    `Apos o Vencimento Mora Diaria de RS ${reaisNaMensagem(moraDiaria)}.`,
     titulo.referencia ? `- Ref. NF.: ${titulo.referencia}` : '',
     convenio.instrucoes || INSTRUCAO_PADRAO_SICOOB,
   ];

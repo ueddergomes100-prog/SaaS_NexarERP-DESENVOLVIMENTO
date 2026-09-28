@@ -9,9 +9,10 @@ import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { fromCents, toCents, settledFinancialNatureForPayment, type BoletoDetails } from '../../utils/financeDomain';
 import { reserveTenantSequence } from '../../utils/firestoreAtomic';
-import { codigoBarrasSicoob, nossoNumeroSicoobComDv } from '../../utils/boletoCnabDomain';
+import { codigoBarrasSicoob, formatarNossoNumeroSicoobExibicao, nossoNumeroSicoobComDv } from '../../utils/boletoCnabDomain';
 import { formatarLinhaDigitavel, linhaDigitavelDoCodigoBarras } from '../../utils/boletoDomain';
 import { gerarPdfBoleto } from '../../utils/boletoPdf';
+import { formatCompanyAddress } from '../../utils/companyAddress';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
 import {
   erroDoConvenioBoleto,
@@ -268,14 +269,22 @@ const Boletos: React.FC = () => {
       });
 
       const gerado = dadosGerados as BoletoDetails | null;
-      await NexusSwal.fire({
-        title: 'Boleto emitido',
-        html: `<div style="text-align:left;font-size:14px">`
-          + `<b>Nosso número:</b> ${gerado?.nossoNumero || ''}<br/><br/>`
-          + `<b>Linha digitável:</b><br/><span style="font-family:monospace">${formatarLinhaDigitavel(gerado?.linhaDigitavel || '')}</span>`
-          + `</div>`,
-        icon: 'success',
-      });
+      try {
+        const pdf = await gerarPdfDoBoleto({ ...titulo, boleto: gerado ?? undefined, bancoId: banco.id, bancoNome: banco.nome });
+        setPdfBoleto(pdf);
+        showSuccess('Boleto emitido com sucesso.');
+      } catch (erroPdf: any) {
+        console.error('Erro ao gerar o PDF do boleto recem-emitido:', erroPdf);
+        await NexusSwal.fire({
+          title: 'Boleto emitido — PDF não pôde ser gerado agora',
+          html: `<div style="text-align:left;font-size:14px">`
+            + `<b>Nosso número:</b> ${formatarNossoNumeroSicoobExibicao(gerado?.nossoNumero || '')}<br/><br/>`
+            + `<b>Linha digitável:</b><br/><span style="font-family:monospace">${formatarLinhaDigitavel(gerado?.linhaDigitavel || '')}</span><br/><br/>`
+            + `${String(erroPdf?.message || 'Tente novamente pelo botão Imprimir.').replace(/[<>&]/g, '')}`
+            + `</div>`,
+          icon: 'warning',
+        });
+      }
     } catch (erro: any) {
       console.error('Erro ao emitir boleto:', erro);
       showError('Não foi possível emitir', erro?.message || 'Tente novamente em instantes.');
@@ -316,84 +325,113 @@ const Boletos: React.FC = () => {
     void NexusSwal.fire({
       title: 'Boleto',
       html: `<div style="text-align:left;font-size:14px">`
-        + `<b>Nosso número:</b> ${titulo.boleto?.nossoNumero}<br/><br/>`
+        + `<b>Nosso número:</b> ${formatarNossoNumeroSicoobExibicao(titulo.boleto?.nossoNumero || '')}<br/><br/>`
         + `<b>Linha digitável:</b><br/><span style="font-family:monospace">${formatarLinhaDigitavel(calc?.linhaDigitavel || titulo.boleto?.linhaDigitavel || '')}</span>`
         + `</div>`,
       icon: 'info',
     });
   };
 
-  const imprimirBoleto = async (titulo: TituloBoleto) => {
-    if (!tenantId) return;
+  /**
+   * Gera o PDF do boleto (recibo do pagador + ficha de compensacao) a partir do titulo.
+   * Usado tanto pelo botao "Imprimir" quanto logo apos a emissao, pra tela ja mostrar o
+   * boleto pronto sem precisar de um segundo clique. Lanca erro (mensagem em portugues)
+   * em vez de mostrar popup direto, pra cada chamador decidir como reagir.
+   */
+  const gerarPdfDoBoleto = async (titulo: TituloBoleto): Promise<{ blob: Blob; nome: string }> => {
+    if (!tenantId) throw new Error('Sessão sem empresa identificada. Atualize a página.');
     const calc = recalcularBoleto(titulo);
-    if (!calc) { showError('Sem convênio', 'Configure o convênio de boleto em Financeiro → Bancos.'); return; }
+    if (!calc) throw new Error('Configure o convênio de boleto em Financeiro → Bancos.');
     const { banco } = calc;
     if (!banco.boleto?.cnpjCedente || !banco.boleto?.nomeCedente) {
-      showError('Cedente incompleto', 'Preencha o CNPJ e o nome do cedente na Configuração de Boleto do banco antes de imprimir o boleto.');
-      return;
+      throw new Error('Preencha o CNPJ e o nome do cedente na Configuração de Boleto do banco antes de gerar o boleto.');
     }
+    let cliente: any = null;
+    let numeroPedido = '';
+    let clienteId = titulo.clienteId || '';
+    if (titulo.pedidoId) {
+      const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', titulo.pedidoId));
+      if (pedidoSnap.exists() && pedidoSnap.data().tenantId === tenantId) {
+        numeroPedido = String(pedidoSnap.data().numeroPedido || '');
+        clienteId = clienteId || String(pedidoSnap.data().clienteId || '');
+      }
+    }
+    if (clienteId) {
+      const clienteSnap = await getDoc(doc(db, 'clientes', clienteId));
+      if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) cliente = clienteSnap.data();
+    }
+    const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
+    const config: any = configSnap.exists() ? configSnap.data() : {};
+
+    const documento = String(cliente?.documento || '').replace(/\D/g, '');
+    const formatarDoc = (d: string) => (d.length === 14
+      ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+      : d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4'));
+    const formatarCep = (c: string) => (c.length === 8 ? c.replace(/^(\d{5})(\d{3})$/, '$1-$2') : c);
+    const cnpj = String(banco.boleto.cnpjCedente).replace(/\D/g, '');
+    const codigoCliente = String(banco.boleto.codigoCliente || `${banco.conta || ''}${banco.boleto.contaDv || '0'}`).replace(/\D/g, '').padStart(7, '0');
+    // Do jeito que o Sicoob imprime: "3049/131877-2" (sem espaco, hifen antes do ultimo digito do codigo).
+    const codigoClienteExibicao = `${codigoCliente.slice(0, -1)}-${codigoCliente.slice(-1)}`;
+    const instrucoes = mensagensDoBoleto(
+      {
+        cooperativa: String(banco.agencia || ''),
+        conta: String(banco.conta || ''),
+        cnpjCedente: cnpj,
+        nomeCedente: banco.boleto.nomeCedente,
+        instrucoes: banco.boleto.instrucoes,
+        multaPercentual: banco.boleto.multaPercentual,
+        jurosMensalPercentual: banco.boleto.jurosMensalPercentual,
+        numeroRemessa: 0,
+      },
+      {
+        nossoNumero: calc.nossoNumeroBase,
+        numeroDocumento: numeroPedido || String(calc.nossoNumeroBase),
+        referencia: numeroPedido || undefined,
+        vencimento: calc.vencimento,
+        valorCentavos: titulo.valorCentavos,
+        sacado: { tipoDocumento: 'CPF', documento: '', nome: '' },
+      },
+    );
+    const nome = String(cliente?.nome || titulo.clienteNome || 'Cliente').trim();
+    const cepEmpresa = String(config.cep || '').replace(/\D/g, '');
+    const blob = gerarPdfBoleto({
+      bancoNome: 'SICOOB',
+      codigoBanco: '756-0',
+      localPagamento: 'Pagável Preferenc. nas Cooperativas da Rede Sicoob',
+      beneficiarioNome: banco.boleto.nomeCedente,
+      beneficiarioCnpj: formatarDoc(cnpj),
+      beneficiarioEndereco: [formatCompanyAddress(config), cepEmpresa ? `CEP: ${formatarCep(cepEmpresa)}` : ''].filter(Boolean).join(', '),
+      agenciaCodigoBeneficiario: `${String(banco.agencia || '')}/${codigoClienteExibicao}`,
+      carteira: '01',
+      pagadorNome: nome,
+      pagadorDocumento: formatarDoc(documento),
+      pagadorRua: [cliente?.endereco, cliente?.numero].filter(Boolean).join(', '),
+      pagadorBairro: cliente?.bairro || '',
+      pagadorCep: cliente?.cep ? formatarCep(String(cliente.cep).replace(/\D/g, '')) : '',
+      pagadorCidade: cliente?.cidade || '',
+      pagadorUf: cliente?.estado || '',
+      numeroDocumento: numeroPedido || String(calc.nossoNumeroBase),
+      nossoNumero: formatarNossoNumeroSicoobExibicao(String(titulo.boleto?.nossoNumero || '')),
+      vencimento: calc.vencimento,
+      dataEmissao: titulo.boleto?.dataEmissao || getDateInputInTimeZone(),
+      valorCentavos: titulo.valorCentavos,
+      linhaDigitavel: calc.linhaDigitavel,
+      codigoBarras: calc.codigoBarras,
+      instrucoes,
+      empresaHeader: {
+        nome: String(config.nomeOficina || config.razaoSocial || config.nomeFantasia || banco.boleto.nomeCedente || '').trim(),
+        endereco: formatCompanyAddress(config) || undefined,
+        telefone: config.telefone || undefined,
+      },
+    });
+    return { blob, nome: `boleto_${titulo.boleto?.nossoNumero || 'sicoob'}.pdf` };
+  };
+
+  const imprimirBoleto = async (titulo: TituloBoleto) => {
     setProcessando(true);
     try {
-      let cliente: any = null;
-      let numeroPedido = '';
-      let clienteId = titulo.clienteId || '';
-      if (titulo.pedidoId) {
-        const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', titulo.pedidoId));
-        if (pedidoSnap.exists() && pedidoSnap.data().tenantId === tenantId) {
-          numeroPedido = String(pedidoSnap.data().numeroPedido || '');
-          clienteId = clienteId || String(pedidoSnap.data().clienteId || '');
-        }
-      }
-      if (clienteId) {
-        const clienteSnap = await getDoc(doc(db, 'clientes', clienteId));
-        if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) cliente = clienteSnap.data();
-      }
-      const documento = String(cliente?.documento || '').replace(/\D/g, '');
-      const formatarDoc = (d: string) => (d.length === 14
-        ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
-        : d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4'));
-      const cnpj = String(banco.boleto.cnpjCedente).replace(/\D/g, '');
-      const codigoCliente = String(banco.boleto.codigoCliente || `${banco.conta || ''}${banco.boleto.contaDv || '0'}`).replace(/\D/g, '').padStart(7, '0');
-      const instrucoes = mensagensDoBoleto(
-        {
-          cooperativa: String(banco.agencia || ''),
-          conta: String(banco.conta || ''),
-          cnpjCedente: cnpj,
-          nomeCedente: banco.boleto.nomeCedente,
-          instrucoes: banco.boleto.instrucoes,
-          multaPercentual: banco.boleto.multaPercentual,
-          jurosMensalPercentual: banco.boleto.jurosMensalPercentual,
-          numeroRemessa: 0,
-        },
-        {
-          nossoNumero: calc.nossoNumeroBase,
-          numeroDocumento: numeroPedido || String(calc.nossoNumeroBase),
-          referencia: numeroPedido || undefined,
-          vencimento: calc.vencimento,
-          valorCentavos: titulo.valorCentavos,
-          sacado: { tipoDocumento: 'CPF', documento: '', nome: '' },
-        },
-      );
-      const nome = String(cliente?.nome || titulo.clienteNome || 'Cliente').trim();
-      const blob = gerarPdfBoleto({
-        bancoNome: 'SICOOB',
-        codigoBanco: '756-0',
-        beneficiarioNome: banco.boleto.nomeCedente,
-        beneficiarioCnpj: formatarDoc(cnpj),
-        agenciaCodigoBeneficiario: `${String(banco.agencia || '')} / ${codigoCliente}`,
-        pagadorNome: nome,
-        pagadorDocumento: formatarDoc(documento),
-        pagadorEndereco: [[cliente?.endereco, cliente?.numero].filter(Boolean).join(', '), cliente?.bairro, [cliente?.cidade, cliente?.estado].filter(Boolean).join('/'), cliente?.cep].filter(Boolean).join(' - '),
-        numeroDocumento: numeroPedido || String(calc.nossoNumeroBase),
-        nossoNumero: String(titulo.boleto?.nossoNumero || ''),
-        vencimento: calc.vencimento,
-        dataEmissao: titulo.boleto?.dataEmissao || getDateInputInTimeZone(),
-        valorCentavos: titulo.valorCentavos,
-        linhaDigitavel: calc.linhaDigitavel,
-        codigoBarras: calc.codigoBarras,
-        instrucoes,
-      });
-      setPdfBoleto({ blob, nome: `boleto_${titulo.boleto?.nossoNumero || 'sicoob'}.pdf` });
+      const pdf = await gerarPdfDoBoleto(titulo);
+      setPdfBoleto(pdf);
     } catch (erro: any) {
       console.error('Erro ao gerar o PDF do boleto:', erro);
       showError('Não foi possível gerar o boleto', erro?.message || 'Tente novamente.');
@@ -769,7 +807,7 @@ const Boletos: React.FC = () => {
                         {vencimento ? vencimento.split('-').reverse().join('/') : '—'}
                       </td>
                       <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontSize: '13px' }}>
-                        {t.boleto?.nossoNumero || '—'}
+                        {t.boleto?.nossoNumero ? formatarNossoNumeroSicoobExibicao(t.boleto.nossoNumero) : '—'}
                       </td>
                       <td style={{ padding: '14px 16px' }}>
                         <span style={{

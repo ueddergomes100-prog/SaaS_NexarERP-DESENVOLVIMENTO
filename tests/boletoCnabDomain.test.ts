@@ -165,3 +165,30 @@ test('DV do nosso numero reproduz 196 titulos do arquivo de retorno real do Sico
     assert.equal(dvNossoNumeroSicoob(nn, SICOOB_REAL), dv, `nosso numero ${nn}`);
   }
 });
+
+/**
+ * CONFIRMADO CONTRA BOLETO REAL IMPRESSO PELO SICOOB (2026-09-28).
+ *
+ * Boleto real da Sol Life: nosso numero 918-4, vencimento 24/08/2026, R$ 677,97,
+ * agencia 3049, "Agencia/Codigo Beneficiario" impresso no boleto = 131877-2 (NAO
+ * e' a conta 51215-0 -- por isso o "codigo do cliente" tem que vir configurado
+ * no cadastro do banco, o fallback conta+DV so' serve quando o Sicoob usa a
+ * propria conta como codigo do beneficiario, o que nao e' o caso da Sol Life).
+ * Linha digitavel do boleto: 75691.30490 01131.877209 00091.840017 3 15480000067797,
+ * decodificada pra codigo de barras: 75693154800000677971304901131877200009184001.
+ * Bate digito a digito com o que o sistema calcula: fator de vencimento, valor,
+ * campo livre inteiro (carteira/cooperativa/modalidade/codigoCliente/nossoNumero/DV/parcela)
+ * e o DV geral do codigo de barras. Fecha em definitivo a duvida sobre o campo livre.
+ */
+test('codigo de barras bate digito a digito com boleto real impresso pelo Sicoob', () => {
+  const cb = codigoBarrasSicoob({
+    dados: {
+      cooperativa: '3049', conta: '51215', contaDv: '0', modalidade: '01',
+      nossoNumero: 918, codigoCliente: '1318772',
+    },
+    vencimento: '2026-08-24',
+    valorCentavos: 67797,
+  });
+  assert.equal(cb, '75693154800000677971304901131877200009184001');
+  assert.equal(erroDaLinhaDigitavel(linhaDigitavelDoCodigoBarras(cb)), null);
+});

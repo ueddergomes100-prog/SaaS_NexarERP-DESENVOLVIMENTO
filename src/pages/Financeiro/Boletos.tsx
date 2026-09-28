@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { collection, doc, getDoc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
+import { collection, deleteField, doc, getDoc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { Barcode, Download, FileUp, Loader2, Receipt, Search } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -288,6 +288,50 @@ const Boletos: React.FC = () => {
     } catch (erro: any) {
       console.error('Erro ao emitir boleto:', erro);
       showError('Não foi possível emitir', erro?.message || 'Tente novamente em instantes.');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  /**
+   * Desfaz a emissao (nosso numero, linha digitavel, codigo de barras) de um titulo que ainda nao foi
+   * pago -- por exemplo um boleto emitido de teste, ou emitido antes de uma correcao no calculo. O
+   * titulo volta para "Aguardando emissao". Nao mexe em nada do lado do banco: so' apaga o que ficou
+   * gravado aqui. O nosso numero que foi reservado fica "pulado" (o contador nunca anda pra tras).
+   */
+  const desfazerEmissao = async (titulo: TituloBoleto) => {
+    if (!currentUser) return;
+    const confirmacao = await NexusSwal.fire({
+      title: 'Desfazer emissão deste boleto?',
+      html: `<div style="text-align:left;font-size:14px">`
+        + `Remove o nosso número, a linha digitável e o código de barras gravados neste título. `
+        + `Ele volta para "Aguardando emissão" e pode ser emitido de novo. Isso não desfaz nada que já `
+        + `tenha sido enviado ao banco.`
+        + `</div>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Desfazer emissão',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirmacao.isConfirmed) return;
+
+    setProcessando(true);
+    try {
+      await runTransaction(db, async (transaction) => {
+        const ref = doc(db, 'transacoes', titulo.id);
+        const snap = await transaction.get(ref);
+        if (!snap.exists()) throw new Error('Título não encontrado. Atualize a página.');
+        if (snap.data().status === 'Paga') throw new Error('Este título já foi pago — não é possível desfazer a emissão.');
+        transaction.update(ref, {
+          boleto: deleteField(),
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Emissão de boleto desfeita'),
+        });
+      });
+      showSuccess('Emissão desfeita. O título voltou para "Aguardando emissão".');
+    } catch (erro: any) {
+      console.error('Erro ao desfazer emissão do boleto:', erro);
+      showError('Não foi possível desfazer', erro?.message || 'Tente novamente em instantes.');
     } finally {
       setProcessando(false);
     }
@@ -850,6 +894,17 @@ const Boletos: React.FC = () => {
                             >
                               Imprimir
                             </button>
+                            {situacao !== 'pago' && (
+                              <button
+                                className="btn-secondary"
+                                style={{ padding: '6px 12px', fontSize: '13px', color: '#ef4444' }}
+                                onClick={() => void desfazerEmissao(t)}
+                                disabled={processando}
+                                title="Remove o nosso número/linha digitável deste título e volta para Aguardando emissão"
+                              >
+                                Desfazer
+                              </button>
+                            )}
                           </span>
                         )}
                       </td>

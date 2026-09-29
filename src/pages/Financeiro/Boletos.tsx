@@ -109,6 +109,11 @@ const Boletos: React.FC = () => {
       collection(db, 'transacoes'),
       where('tenantId', '==', tenantId),
       where('formaPagamento', '==', 'Boleto'),
+      // Sem isto, despesa lancada em Contas a Pagar com forma "Boleto" (o boleto que UM FORNECEDOR
+      // mandou pra gente pagar) entrava aqui como se fosse algo que a empresa precisasse EMITIR --
+      // nao faz sentido, so' emitimos boleto pra cobrar cliente (tipo 'entrada'). O boleto do
+      // fornecedor e' so' um dado informativo da despesa; ele e' pago, nunca emitido por aqui.
+      where('tipo', '==', 'entrada'),
     );
     const unsubscribe = onSnapshot(q, (snap) => {
       const dados = snap.docs.map((d) => {

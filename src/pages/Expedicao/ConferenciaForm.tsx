@@ -13,6 +13,7 @@ import {
   DEFAULT_BLOQUEAR_EXCEDENTE,
   DEFAULT_EXIGIR_BIPAGEM,
   DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
+  encontrarItemPorCodigo,
   ordenarPorLocalizacao,
   podeLancarManual,
   reconciliarItensDaConferencia,
@@ -51,11 +52,12 @@ const FEEDBACK_LABELS: Record<BipagemResultado, string> = {
   excedente: 'Quantidade já bateu o pedido — bipagem recusada.',
   bloqueado_manual: 'Este produto tem código de barras cadastrado — bipe em vez de lançar manual.',
 };
-const FEEDBACK_COLORS: Record<BipagemResultado, string> = {
+const FEEDBACK_COLORS: Record<BipagemResultado | 'pendente', string> = {
   ok: '#10b981',
   nao_encontrado: '#ef4444',
   excedente: '#f59e0b',
   bloqueado_manual: '#f59e0b',
+  pendente: '#3b82f6',
 };
 
 // Web Audio API pra feedback sonoro -- o separador normalmente nao esta
@@ -158,7 +160,14 @@ const ConferenciaForm: React.FC = () => {
 
   const [codigoInput, setCodigoInput] = useState('');
   const [multiplicador, setMultiplicador] = useState<number | string>(1);
-  const [feedback, setFeedback] = useState<{ resultado: BipagemResultado; mensagem: string } | null>(null);
+  /**
+   * Bipagem em duas etapas (2026-09-29, pedido do dono, video de referencia do sistema antigo):
+   * bipa o codigo -> acha o item e trava aqui SEM aplicar -> foco pula pra Qtd, valor "1" ja
+   * selecionado -> Enter na Qtd e' que aplica de verdade e devolve o foco pro codigo de barras.
+   * Sem item pendente, Enter na Qtd so' move o foco (mesmo fallback de antes).
+   */
+  const [itemPendente, setItemPendente] = useState<{ produtoId: string; nome: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ resultado: BipagemResultado | 'pendente'; mensagem: string } | null>(null);
   const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
 
   /**
@@ -494,6 +503,55 @@ const ConferenciaForm: React.FC = () => {
     }
   }, [itens, codigoInput, multiplicador, config, ehTroca, status, observacao, gravarProgresso]);
 
+  /**
+   * 1ª etapa da bipagem em duas etapas: so' ACHA o item pelo codigo, sem aplicar nada. Se achar,
+   * trava em itemPendente e joga o foco pra Qtd (com "1" ja selecionado); a 2ª etapa
+   * (handleConfirmarPendente) e' quem de fato soma a quantidade. Nao encontrado da' o feedback na
+   * hora e mantem o foco no codigo, igual bipagem invalida sempre funcionou.
+   */
+  const handleResolverCodigo = useCallback(() => {
+    const codigo = codigoInput.trim();
+    if (!codigo) return;
+    const item = encontrarItemPorCodigo(itens, codigo);
+    if (!item) {
+      setItemPendente(null);
+      setFeedback({ resultado: 'nao_encontrado', mensagem: ehTroca ? FEEDBACK_LABELS.nao_encontrado.replace('neste pedido', 'nesta troca') : FEEDBACK_LABELS.nao_encontrado });
+      playFeedbackSound('nao_encontrado');
+      setCodigoInput('');
+      scanInputRef.current?.focus();
+      return;
+    }
+    setItemPendente({ produtoId: item.produtoId, nome: item.nome });
+    setFeedback({ resultado: 'pendente', mensagem: `${item.nome} — confirme a quantidade e aperte Enter.` });
+    setMultiplicador(1);
+    // O campo so' existe depois deste render (nao esta escondido, mas o foco/selecao precisa
+    // esperar o valor "1" entrar no DOM pra selecionar o texto certo).
+    requestAnimationFrame(() => { qtdInputRef.current?.focus(); qtdInputRef.current?.select(); });
+  }, [codigoInput, itens, ehTroca]);
+
+  /** 2ª etapa: aplica a quantidade confirmada no item que a 1ª etapa achou, grava, toca o som e
+   *  devolve tudo pro estado inicial (campo do codigo vazio e com foco, pronto pro proximo bipe). */
+  const handleConfirmarPendente = useCallback(() => {
+    if (!itemPendente) { scanInputRef.current?.focus(); return; }
+    const quantidade = Math.max(1, Number(multiplicador) || 1);
+    const { itens: novosItens, resultado } = aplicarBipagem(itens, itemPendente.produtoId, quantidade, {
+      bloquearExcedente: config.bloquearExcedente,
+      exigirBipagem: config.exigirBipagem,
+      manual: false,
+    });
+    setItens(novosItens);
+    if (resultado !== 'nao_encontrado' && status === 'em_conferencia') gravarProgresso(novosItens, observacao);
+    setFeedback({ resultado, mensagem: ehTroca ? FEEDBACK_LABELS[resultado].replace('neste pedido', 'nesta troca') : FEEDBACK_LABELS[resultado] });
+    playFeedbackSound(resultado);
+    setItemPendente(null);
+    setCodigoInput('');
+    setMultiplicador(1);
+    // O campo do codigo so' desbloqueia (disabled={itemPendente}) depois do re-render que
+    // setItemPendente(null) agenda -- focar sincrono aqui ainda pegaria o campo desabilitado
+    // (focus() em input disabled nao faz nada) e o foco ficaria preso na Qtd.
+    requestAnimationFrame(() => scanInputRef.current?.focus());
+  }, [itemPendente, multiplicador, itens, config, ehTroca, status, observacao, gravarProgresso]);
+
   const handleFecharConferencia = async () => {
     if (!pedidoId || !tenantId || !currentUser || !pedido) return;
     const final = computeStatusFinal(itens);
@@ -656,6 +714,28 @@ const ConferenciaForm: React.FC = () => {
 
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, minWidth: '260px' }}>
+            <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Bipar ou digitar código de barras</label>
+            <input
+              ref={scanInputRef}
+              type="text"
+              value={codigoInput}
+              disabled={Boolean(itemPendente)}
+              onChange={(e) => setCodigoInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                // Com codigo: acha o item e pula pra Qtd (2ª etapa confirma de verdade).
+                // Vazio: Enter e' "proximo campo" -- vai para a primeira quantidade
+                // manual ou, se nao ha, para as observacoes.
+                if (codigoInput.trim()) { handleResolverCodigo(); return; }
+                const primeiroManual = displayItens.find((item) => podeLancarManual(item, config.exigirBipagem));
+                (primeiroManual ? manualRefs.current[primeiroManual.produtoId] : observacaoRef.current)?.focus();
+              }}
+              placeholder="Aponte o leitor ou digite o código..."
+              style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: '15px' }}
+            />
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '90px' }}>
             <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Qtd</label>
             <input
@@ -664,34 +744,28 @@ const ConferenciaForm: React.FC = () => {
               min={1}
               value={multiplicador}
               onChange={(e) => setMultiplicador(e.target.value)}
-              // Enter na quantidade vai para o codigo (mesmo fluxo da tela de vendas).
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); scanInputRef.current?.focus(); } }}
-              style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
-            />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, minWidth: '260px' }}>
-            <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Bipar ou digitar código de barras</label>
-            <input
-              ref={scanInputRef}
-              type="text"
-              value={codigoInput}
-              onChange={(e) => setCodigoInput(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              // Com item pendente (bipou e caiu aqui): Enter APLICA de verdade e volta pro codigo.
+              // Sem item pendente (foco chegou aqui sem bipar nada): Enter so' move o foco, como antes.
               onKeyDown={(e) => {
                 if (e.key !== 'Enter') return;
                 e.preventDefault();
-                // Com codigo: confere e continua no campo (o leitor bipa em sequencia).
-                // Vazio: Enter e' "proximo campo" -- vai para a primeira quantidade
-                // manual ou, se nao ha, para as observacoes.
-                if (codigoInput.trim()) { handleScan(); return; }
-                const primeiroManual = displayItens.find((item) => podeLancarManual(item, config.exigirBipagem));
-                (primeiroManual ? manualRefs.current[primeiroManual.produtoId] : observacaoRef.current)?.focus();
+                if (itemPendente) handleConfirmarPendente();
+                else scanInputRef.current?.focus();
               }}
-              placeholder="Aponte o leitor ou digite o código..."
-              style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: '15px' }}
+              style={{
+                padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)',
+                border: itemPendente ? '1px solid #3b82f6' : '1px solid var(--border-color)',
+                boxShadow: itemPendente ? '0 0 0 2px rgba(59,130,246,0.25)' : 'none',
+              }}
             />
           </div>
-          <button className="btn-primary" onClick={() => handleScan()} style={{ height: '42px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <ScanLine size={18} /> Confirmar
+          <button
+            className="btn-primary"
+            onClick={() => (itemPendente ? handleConfirmarPendente() : handleResolverCodigo())}
+            style={{ height: '42px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <ScanLine size={18} /> {itemPendente ? 'Confirmar quantidade' : 'Confirmar'}
           </button>
         </div>
 
@@ -701,7 +775,10 @@ const ConferenciaForm: React.FC = () => {
             borderRadius: 'var(--radius-md)', backgroundColor: `${FEEDBACK_COLORS[feedback.resultado]}20`,
             color: FEEDBACK_COLORS[feedback.resultado], fontWeight: 600, fontSize: '14px',
           }}>
-            {feedback.resultado === 'ok' ? <CheckCircle2 size={20} /> : feedback.resultado === 'excedente' ? <AlertTriangle size={20} /> : <XCircle size={20} />}
+            {feedback.resultado === 'ok' ? <CheckCircle2 size={20} />
+              : feedback.resultado === 'excedente' ? <AlertTriangle size={20} />
+              : feedback.resultado === 'pendente' ? <ScanLine size={20} />
+              : <XCircle size={20} />}
             {feedback.mensagem}
           </div>
         )}

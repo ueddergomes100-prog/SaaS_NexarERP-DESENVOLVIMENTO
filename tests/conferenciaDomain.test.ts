@@ -9,6 +9,7 @@ import {
   DEFAULT_EXIGIR_BIPAGEM,
   DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA,
   DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
+  encontrarItemPorCodigo,
   ordenarPorLocalizacao,
   podeLancarManual,
   type ConferenciaItem,
@@ -86,6 +87,37 @@ test('podeLancarManual: com exigirBipagem ligado, produto SEM codigo de barras s
 // --- aplicarBipagem ---
 
 const optsPadrao = { bloquearExcedente: true, exigirBipagem: true };
+
+// --- encontrarItemPorCodigo: 1ª etapa da bipagem em duas etapas (bipa -> acha o item sem aplicar
+// -> tela pula pra Qtd -> Enter aplica de verdade). Mesma regra de casamento do aplicarBipagem.
+
+test('encontrarItemPorCodigo: acha por EAN', () => {
+  const itens = [item({ produtoId: 'p1', nome: 'Parafuso', codigoBarras: '789', quantidadePedida: 10 })];
+  assert.equal(encontrarItemPorCodigo(itens, '789')?.produtoId, 'p1');
+});
+
+test('encontrarItemPorCodigo: acha por produtoId', () => {
+  const itens = [item({ produtoId: 'p1', nome: 'Porca', quantidadePedida: 10 })];
+  assert.equal(encontrarItemPorCodigo(itens, 'p1')?.produtoId, 'p1');
+});
+
+test('encontrarItemPorCodigo: codigo nao encontrado devolve null', () => {
+  const itens = [item({ produtoId: 'p1', nome: 'Porca', codigoBarras: '789', quantidadePedida: 10 })];
+  assert.equal(encontrarItemPorCodigo(itens, '000'), null);
+});
+
+test('encontrarItemPorCodigo: codigo vazio/so espacos devolve null', () => {
+  const itens = [item({ produtoId: 'p1', nome: 'Porca', codigoBarras: '789', quantidadePedida: 10 })];
+  assert.equal(encontrarItemPorCodigo(itens, ''), null);
+  assert.equal(encontrarItemPorCodigo(itens, '   '), null);
+});
+
+test('encontrarItemPorCodigo: nao muda a quantidade, so localiza (aplicar fica por conta de aplicarBipagem)', () => {
+  const itens = [item({ produtoId: 'p1', nome: 'Parafuso', codigoBarras: '789', quantidadePedida: 10, quantidadeConferida: 3 })];
+  const achado = encontrarItemPorCodigo(itens, '789');
+  assert.equal(achado?.quantidadeConferida, 3);
+  assert.equal(itens[0].quantidadeConferida, 3);
+});
 
 test('aplicarBipagem: bipagem por EAN encontrado incrementa quantidadeConferida', () => {
   const itens = [item({ produtoId: 'p1', nome: 'Parafuso', codigoBarras: '789', quantidadePedida: 10 })];

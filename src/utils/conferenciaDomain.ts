@@ -128,6 +128,21 @@ export const podeLancarManual = (
   return !item.codigoBarras || !item.codigoBarras.trim();
 };
 
+/** Acha o item que um codigo (EAN bipado ou produtoId) bate, sem aplicar nada -- usado pelo passo
+ *  de bipagem em duas etapas (bipar -> confirma o item -> pula pra quantidade -> Enter aplica).
+ *  Mesma regra de casamento que aplicarBipagem usa por dentro. */
+export const encontrarItemPorCodigo = (
+  itens: ConferenciaItem[],
+  codigo: string,
+): ConferenciaItem | null => {
+  const codigoNormalizado = (codigo || '').trim();
+  if (!codigoNormalizado) return null;
+  return itens.find((item) => (
+    (Boolean(item.codigoBarras) && item.codigoBarras!.trim() === codigoNormalizado) ||
+    item.produtoId === codigoNormalizado
+  )) || null;
+};
+
 // Aplica uma leitura (bipada ou digitada) de EAN, ou um lancamento manual,
 // contra a lista de itens da conferencia. Nunca muta o array recebido.
 // Decisao 5: multiplicador e sempre digitado ANTES da leitura e zera a cada

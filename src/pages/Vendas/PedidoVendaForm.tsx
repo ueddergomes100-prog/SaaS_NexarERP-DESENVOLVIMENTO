@@ -263,6 +263,15 @@ const PedidoVendaForm: React.FC = () => {
 
   const [nfeDoc, setNfeDoc] = useState<LinkedNfe | null>(null);
   const [clienteNome, setClienteNome] = useState('');
+  /**
+   * Id do cliente escolhido no autocomplete (2026-09-28, bugfix). Antes, trocar o cliente so' gravava
+   * o NOME digitado -- na hora de salvar, o id era re-descoberto com clientesDisponiveis.find(nome), que
+   * pega o PRIMEIRO cliente daquele nome na lista. Com dois cadastros de mesmo nome (ex.: dois codigos
+   * diferentes pro mesmo "SUPERMERCADO KI - PAOZAO LTDA"), a troca no autocomplete nunca "pegava": o
+   * pedido continuava gravando o cliente antigo, e relatorio/minuta seguiam mostrando o codigo errado.
+   * Agora o id escolhido explicitamente tem prioridade; o nome so' desempata quando nao ha selecao.
+   */
+  const [clienteIdSelecionado, setClienteIdSelecionado] = useState<string | null>(null);
   /** Observacao do pedido: sai na Minuta de Entrega ("Obs.:"). */
   const [observacaoPedido, setObservacaoPedido] = useState('');
   /** Marca do vendedor externo: o pedido sai COM (true) ou SEM (false) nota fiscal. Ausente = nao informado. */
@@ -560,6 +569,12 @@ const PedidoVendaForm: React.FC = () => {
     : canEditAgentOrder && temPermissao('vendas.pedidos_pendentes_excluir_item');
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
+  // Codigo do cliente selecionado, pra mostrar na tela igual aparece nos relatorios -- ajuda a
+  // perceber na hora quando existe mais de um cadastro com o mesmo nome (ver clienteIdSelecionado).
+  const clienteCodigoSelecionado = useMemo(
+    () => clientesDisponiveis.find((c) => c.id === clienteIdSelecionado)?.codigo || '',
+    [clientesDisponiveis, clienteIdSelecionado],
+  );
   const { items: bancosDisponiveis } = useTenantCollection<Banco>('bancos', tenantId);
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
   const [pagamentoCartaoSimplificadoAtivo, setPagamentoCartaoSimplificadoAtivo] = useState(false);
@@ -749,6 +764,7 @@ const PedidoVendaForm: React.FC = () => {
               return;
             }
             setClienteNome(p.clienteNome || '');
+            setClienteIdSelecionado(p.clienteId || null);
             setObservacaoPedido(String(p.observacao || ''));
             setComNotaFiscalPedido(typeof p.comNotaFiscal === 'boolean' ? p.comNotaFiscal : null);
             setVendedorId(p.vendedorId || p.usuarioResponsavelId || currentUser.uid);
@@ -1563,7 +1579,13 @@ const PedidoVendaForm: React.FC = () => {
       setClienteNome('CONSUMIDOR FINAL');
     }
     const nomeClienteDigitadoOriginal = clienteNome.trim();
-    const clienteEncontrado = clientesDisponiveis.find(c => c.nome.toUpperCase() === finalClienteNome);
+    // O id escolhido no autocomplete manda quando ainda bate com o nome exibido -- so' cai pro
+    // desempate por nome (que pega o primeiro de dois cadastros homonimos) se nao houve selecao.
+    const clienteEncontrado = (
+      clienteIdSelecionado
+        ? clientesDisponiveis.find((c) => c.id === clienteIdSelecionado && c.nome.toUpperCase() === finalClienteNome)
+        : undefined
+    ) || clientesDisponiveis.find((c) => c.nome.toUpperCase() === finalClienteNome);
 
     // Mesma validacao de cliente da venda: se a empresa exige cliente
     // cadastrado, exige na pre-venda tambem -- senao o cadastro furado so
@@ -2301,7 +2323,13 @@ const PedidoVendaForm: React.FC = () => {
       setClienteNome('CONSUMIDOR FINAL');
     }
 
-    const clienteEncontrado = clientesDisponiveis.find(c => c.nome.toUpperCase() === finalClienteNome);
+    // O id escolhido no autocomplete manda quando ainda bate com o nome exibido -- so' cai pro
+    // desempate por nome (que pega o primeiro de dois cadastros homonimos) se nao houve selecao.
+    const clienteEncontrado = (
+      clienteIdSelecionado
+        ? clientesDisponiveis.find((c) => c.id === clienteIdSelecionado && c.nome.toUpperCase() === finalClienteNome)
+        : undefined
+    ) || clientesDisponiveis.find((c) => c.nome.toUpperCase() === finalClienteNome);
 
     // Validacao de Cliente Cadastrado: decide ANTES de travar o botao se da
     // pra seguir digitando um nome sem cadastro (permitir), se bloqueia, ou
@@ -4213,13 +4241,24 @@ const PedidoVendaForm: React.FC = () => {
               <h3>Dados do Cliente</h3>
             </div>
             <div className="input-group" style={{ position: 'relative' }}>
-              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome do Cliente ou Consumidor Final *</label>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                Nome do Cliente ou Consumidor Final *
+                {clienteCodigoSelecionado && (
+                  <span style={{ marginLeft: '8px', color: 'var(--text-muted)', fontWeight: 400 }}>
+                    (código #{clienteCodigoSelecionado})
+                  </span>
+                )}
+              </label>
               <ClientAutocomplete
                 value={clienteNome}
-                onChange={setClienteNome}
+                onChange={(valor) => {
+                  setClienteNome(valor);
+                  setClienteIdSelecionado(null);
+                }}
                 clients={clientesDisponiveis}
                 onSelect={(c) => {
                   setClienteNome(c.nome);
+                  setClienteIdSelecionado(c.id);
                   aplicarDescontoDoCliente(c);
                 }}
                 onBlur={handleClienteBlur}

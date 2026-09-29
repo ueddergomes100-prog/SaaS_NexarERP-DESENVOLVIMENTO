@@ -176,29 +176,94 @@ const Boletos: React.FC = () => {
 
   // --- Emissao --------------------------------------------------------
 
-  const emitirBoleto = async (titulo: TituloBoleto) => {
-    if (!tenantId || !currentUser) return;
-
+  /** Confere o convenio do banco e a data de vencimento do titulo. Devolve o banco (ja' validado)
+   *  ou lanca erro em portugues -- usado antes de emitir, tanto sozinho quanto em lote. */
+  const validarTituloParaEmissao = (titulo: TituloBoleto): BancoBoleto => {
     const banco = bancosComBoleto.find((b) => b.id === titulo.bancoId) || bancosComBoleto[0];
     if (!banco) {
-      showError(
-        'Nenhum banco preparado para boleto',
-        'Abra Financeiro → Bancos, edite o banco do Sicoob e marque "Emite boleto por este banco", preenchendo o convênio.',
-      );
-      return;
+      throw new Error('Nenhum banco preparado para boleto. Abra Financeiro → Bancos, edite o banco do Sicoob e marque "Emite boleto por este banco".');
     }
     const erroConvenio = erroDoConvenioBoleto({
       cooperativa: banco.agencia,
       conta: banco.conta,
       contaDv: banco.boleto?.contaDv,
     });
-    if (erroConvenio) { showError('Convênio incompleto', erroConvenio); return; }
+    if (erroConvenio) throw new Error(erroConvenio);
+    if (!(titulo.dataVencimento || titulo.dataPrevistaRecebimento)) {
+      throw new Error(`O título "${titulo.descricao}" está sem data de vencimento. Ajuste o título antes de emitir o boleto.`);
+    }
+    return banco;
+  };
 
+  /** Reserva o nosso numero e grava o boleto no titulo, numa transacao so'. Nao confirma nada com o
+   *  usuario nem abre PDF -- isso fica por conta de quem chama (emitirBoleto ou emitirSelecionados). */
+  const emitirUmTitulo = async (titulo: TituloBoleto, banco: BancoBoleto): Promise<BoletoDetails> => {
+    if (!tenantId || !currentUser) throw new Error('Sessão sem empresa identificada. Atualize a página.');
     const vencimento = titulo.dataVencimento || titulo.dataPrevistaRecebimento;
-    if (!vencimento) {
-      showError('Sem vencimento', `O título "${titulo.descricao}" está sem data de vencimento. Ajuste o título antes de emitir o boleto.`);
+    const chaveSequencia = `boleto_nosso_numero_${banco.id}`;
+    const piso = Number(banco.boleto?.proximoNossoNumero || 0);
+    let dadosGerados: BoletoDetails | null = null;
+
+    await runTransaction(db, async (transaction) => {
+      const tituloRef = doc(db, 'transacoes', titulo.id);
+      const tituloSnap = await transaction.get(tituloRef);
+      if (!tituloSnap.exists()) throw new Error('Título não encontrado. Atualize a página.');
+      if (tituloSnap.data().boleto) throw new Error('Este título já tem boleto emitido.');
+
+      // `piso - 1` porque reserveTenantSequence devolve o PROXIMO valor:
+      // com piso 1203 o primeiro emitido tem que sair 1203, nao 1204.
+      const nossoNumero = await reserveTenantSequence(
+        transaction, db, tenantId, chaveSequencia, Math.max(0, piso - 1),
+      );
+
+      const codigoBarras = codigoBarrasSicoob({
+        dados: {
+          cooperativa: String(banco.agencia || ''),
+          conta: String(banco.conta || ''),
+          contaDv: banco.boleto?.contaDv || '0',
+          ...(banco.boleto?.codigoCliente ? { codigoCliente: banco.boleto.codigoCliente } : {}),
+          modalidade: '01',
+          nossoNumero,
+        },
+        vencimento: vencimento!,
+        valorCentavos: titulo.valorCentavos,
+      });
+
+      dadosGerados = {
+        nossoNumero: nossoNumeroSicoobComDv(nossoNumero, {
+          cooperativa: String(banco.agencia || ''),
+          conta: String(banco.conta || ''),
+          contaDv: banco.boleto?.contaDv || '0',
+        }),
+        linhaDigitavel: linhaDigitavelDoCodigoBarras(codigoBarras),
+        codigoBarras,
+        vencimento: vencimento!,
+        dataEmissao: getDateInputInTimeZone(),
+        status: 'emitido',
+      };
+
+      transaction.update(tituloRef, {
+        boleto: dadosGerados,
+        bancoId: banco.id,
+        bancoNome: banco.nome,
+        updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Boleto emitido'),
+      });
+    });
+
+    return dadosGerados!;
+  };
+
+  const emitirBoleto = async (titulo: TituloBoleto) => {
+    if (!tenantId || !currentUser) return;
+    let banco: BancoBoleto;
+    try {
+      banco = validarTituloParaEmissao(titulo);
+    } catch (erro: any) {
+      showError('Não foi possível emitir', erro?.message || 'Tente novamente.');
       return;
     }
+    const vencimento = titulo.dataVencimento || titulo.dataPrevistaRecebimento!;
 
     const confirmacao = await NexusSwal.fire({
       title: 'Emitir boleto?',
@@ -217,60 +282,9 @@ const Boletos: React.FC = () => {
 
     setProcessando(true);
     try {
-      const chaveSequencia = `boleto_nosso_numero_${banco.id}`;
-      const piso = Number(banco.boleto?.proximoNossoNumero || 0);
-      let dadosGerados: BoletoDetails | null = null;
-
-      await runTransaction(db, async (transaction) => {
-        const tituloRef = doc(db, 'transacoes', titulo.id);
-        const tituloSnap = await transaction.get(tituloRef);
-        if (!tituloSnap.exists()) throw new Error('Título não encontrado. Atualize a página.');
-        if (tituloSnap.data().boleto) throw new Error('Este título já tem boleto emitido.');
-
-        // `piso - 1` porque reserveTenantSequence devolve o PROXIMO valor:
-        // com piso 1203 o primeiro emitido tem que sair 1203, nao 1204.
-        const nossoNumero = await reserveTenantSequence(
-          transaction, db, tenantId, chaveSequencia, Math.max(0, piso - 1),
-        );
-
-        const codigoBarras = codigoBarrasSicoob({
-          dados: {
-            cooperativa: String(banco.agencia || ''),
-            conta: String(banco.conta || ''),
-            contaDv: banco.boleto?.contaDv || '0',
-            ...(banco.boleto?.codigoCliente ? { codigoCliente: banco.boleto.codigoCliente } : {}),
-            modalidade: '01',
-            nossoNumero,
-          },
-          vencimento,
-          valorCentavos: titulo.valorCentavos,
-        });
-
-        dadosGerados = {
-          nossoNumero: nossoNumeroSicoobComDv(nossoNumero, {
-            cooperativa: String(banco.agencia || ''),
-            conta: String(banco.conta || ''),
-            contaDv: banco.boleto?.contaDv || '0',
-          }),
-          linhaDigitavel: linhaDigitavelDoCodigoBarras(codigoBarras),
-          codigoBarras,
-          vencimento,
-          dataEmissao: getDateInputInTimeZone(),
-          status: 'emitido',
-        };
-
-        transaction.update(tituloRef, {
-          boleto: dadosGerados,
-          bancoId: banco.id,
-          bancoNome: banco.nome,
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Boleto emitido'),
-        });
-      });
-
-      const gerado = dadosGerados as BoletoDetails | null;
+      const gerado = await emitirUmTitulo(titulo, banco);
       try {
-        const pdf = await gerarPdfDoBoleto({ ...titulo, boleto: gerado ?? undefined, bancoId: banco.id, bancoNome: banco.nome });
+        const pdf = await gerarPdfDoBoleto({ ...titulo, boleto: gerado, bancoId: banco.id, bancoNome: banco.nome });
         setPdfBoleto(pdf);
         showSuccess('Boleto emitido com sucesso.');
       } catch (erroPdf: any) {
@@ -288,6 +302,58 @@ const Boletos: React.FC = () => {
     } catch (erro: any) {
       console.error('Erro ao emitir boleto:', erro);
       showError('Não foi possível emitir', erro?.message || 'Tente novamente em instantes.');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  /** Emite todos os titulos marcados na aba "Aguardando emissao", um de cada vez (a reserva do nosso
+   *  numero e' atomica por banco, nao da' pra paralelizar). Sem popup de PDF por titulo -- o resumo no
+   *  final diz quantos saíram, e cada um pode ser impresso depois pela lista de Emitidos. */
+  const emitirSelecionados = async () => {
+    if (!tenantId || !currentUser) return;
+    const lista = porAba.aguardando.filter((t) => selecionados.has(t.id));
+    if (lista.length === 0) {
+      showError('Nada selecionado', 'Marque pelo menos um título de "Aguardando emissão" antes.');
+      return;
+    }
+
+    const confirmacao = await NexusSwal.fire({
+      title: `Emitir ${lista.length} boleto(s)?`,
+      html: `<div style="text-align:left;font-size:14px">`
+        + `<b>Quantidade:</b> ${lista.length}<br/>`
+        + `<b>Total:</b> ${currency.format(fromCents(lista.reduce((soma, t) => soma + t.valorCentavos, 0)))}`
+        + `</div>`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Emitir todos',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirmacao.isConfirmed) return;
+
+    setProcessando(true);
+    let emitidos = 0;
+    const falhas: string[] = [];
+    try {
+      for (const titulo of lista) {
+        try {
+          const banco = validarTituloParaEmissao(titulo);
+          await emitirUmTitulo(titulo, banco);
+          emitidos += 1;
+        } catch (erro: any) {
+          falhas.push(`${titulo.clienteNome || titulo.descricao || titulo.id}: ${erro?.message || 'erro desconhecido'}`);
+        }
+      }
+      setSelecionados(new Set());
+      if (falhas.length === 0) {
+        showSuccess(`${emitidos} boleto(s) emitido(s). Abra "Emitidos" pra ver, imprimir ou gerar a remessa.`);
+      } else {
+        await NexusSwal.fire({
+          title: `${emitidos} de ${lista.length} boleto(s) emitidos`,
+          html: `<div style="text-align:left;font-size:14px">Não deu pra emitir:<br/>${falhas.map((f) => f.replace(/[<>&]/g, '')).join('<br/>')}</div>`,
+          icon: emitidos > 0 ? 'warning' : 'error',
+        });
+      }
     } finally {
       setProcessando(false);
     }
@@ -748,6 +814,11 @@ const Boletos: React.FC = () => {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          {aba === 'aguardando' && selecionados.size > 0 && (
+            <button className="btn-primary" onClick={emitirSelecionados} disabled={processando} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Receipt size={18} /> Emitir selecionados ({selecionados.size})
+            </button>
+          )}
           <button className="btn-secondary" onClick={gerarRemessa} disabled={processando} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Download size={18} /> Gerar remessa
           </button>
@@ -816,7 +887,7 @@ const Boletos: React.FC = () => {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-tertiary)', textAlign: 'left' }}>
-                  {aba === 'emitidos' && <th style={{ padding: '14px 16px', width: '40px' }}></th>}
+                  {(aba === 'emitidos' || aba === 'aguardando') && <th style={{ padding: '14px 16px', width: '40px' }}></th>}
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Cliente</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Descrição</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Vencimento</th>
@@ -832,7 +903,7 @@ const Boletos: React.FC = () => {
                   const vencimento = t.boleto?.vencimento || t.dataVencimento || '';
                   return (
                     <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      {aba === 'emitidos' && (
+                      {(aba === 'emitidos' || aba === 'aguardando') && (
                         <td style={{ padding: '14px 16px' }}>
                           <input
                             type="checkbox"

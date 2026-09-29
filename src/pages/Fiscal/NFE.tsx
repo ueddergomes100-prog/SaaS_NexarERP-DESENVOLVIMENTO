@@ -32,6 +32,8 @@ import DevolucaoNfeModal from '../../components/common/DevolucaoNfeModal';
 import { motivoQueImpedeCartaNaTela, notaAceitaCartaCorrecao, type CartaEnviada } from '../../utils/cartaCorrecaoDomain';
 import { desfechoDoStatus, type EtapaEmissao } from '../../utils/emissaoProgressoDomain';
 import { useEmissaoAcompanhamento, type ProgressoEmissao } from '../../hooks/useEmissaoAcompanhamento';
+import type { PaymentRecord } from '../../utils/financeDomain';
+import { ratearValorPorPesos } from '../../utils/notaAvulsaDomain';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -128,6 +130,14 @@ interface PedidoVenda {
   itens: PedidoVendaItem[];
   formaPagamento: string;
   createdAt?: unknown;
+  /** Desconto GERAL do pedido (nao o desconto por item, que ja vem em cada item.desconto) --
+   *  em centavos, exatamente o que foi aplicado na venda. Usado pra ratear entre os itens na
+   *  hora de montar a nota (ver handleSelectPedido): sem isso a nota saia sempre no preco
+   *  cheio, porque so' o desconto por item chegava na Spedy. */
+  descontoGeralCentavos?: number;
+  /** Pagamentos da venda (mesmo formato salvo pelo Pedido) -- usado pra montar as duplicatas
+   *  (parcelas) da nota quando a forma e' Boleto/a prazo. */
+  pagamentos?: PaymentRecord[];
 }
 
 /** Ordem de Servico finalizada, so os campos usados pra importar como
@@ -207,6 +217,9 @@ const NFE: React.FC = () => {
   }, [allInvoices, pedidosVenda, vendasVisiveisDeUsuarioId, pedidosCanceladosIds, mostrarCanceladas]);
   const [importedPedidoItens, setImportedPedidoItens] = useState<PedidoVendaItem[]>([]);
   const [importedPedidoId, setImportedPedidoId] = useState<string>('');
+  /** Pagamentos do pedido importado -- usado so' pra montar as duplicatas (parcelas) da nota
+   *  quando a forma e' Boleto/a prazo. Ver handleSelectPedido e o payload de emissao. */
+  const [importedPedidoPagamentos, setImportedPedidoPagamentos] = useState<PaymentRecord[]>([]);
   const [atualizandoCadastro, setAtualizandoCadastro] = useState(false);
 
   // Importação de Ordens de Serviço (NFS-e) -- so servicos, nunca pecas
@@ -363,7 +376,9 @@ const NFE: React.FC = () => {
             valorTotal: dData.valorTotal || 0,
             itens: dData.itens || [],
             formaPagamento: dData.formaPagamento || '',
-            createdAt: dData.createdAt
+            createdAt: dData.createdAt,
+            descontoGeralCentavos: Number(dData.descontoGeral?.valorAplicadoCentavos || 0),
+            pagamentos: Array.isArray(dData.pagamentos) ? dData.pagamentos : [],
           });
         });
         pedidosList.sort((a, b) => {
@@ -571,6 +586,7 @@ const NFE: React.FC = () => {
     setImportedOsServicos([]);
     if (!pedidoId) {
       setImportedPedidoItens([]);
+      setImportedPedidoPagamentos([]);
       setReferencedAccessKey('');
       setFormData(prev => ({
         ...prev,
@@ -605,6 +621,22 @@ const NFE: React.FC = () => {
 
     try {
       let itemsWithTaxes = await fetchPedidoItensTaxes(pedido.itens);
+
+      // Desconto GERAL do pedido (2026-09-29, bugfix): o pedido tem dois tipos de desconto --
+      // por item (ja' vem em cada item.desconto, sempre chegou certo na nota) e geral (aplicado
+      // uma vez sobre a venda toda, nunca tocava os itens). Sem ratear o geral entre os itens
+      // aqui, a nota saia sempre no preco cheio -- o desconto do pedido simplesmente sumia.
+      // `valorTotal` tambem passa a ser gravado explicito (bruto, quantidade x preco unitario):
+      // o campo nunca existia nos itens salvos pelo Pedido de Venda (que usa `subtotal`), entao
+      // o calculo do valor do item na nota sempre caia no fallback bruto sem desconto nenhum.
+      const descontoGeralReais = (pedido.descontoGeralCentavos || 0) / 100;
+      const pesosItens = itemsWithTaxes.map((it) => Number(it.quantidade || 0) * Number(it.precoUnitario || 0));
+      const descontoGeralRateado = descontoGeralReais > 0 ? ratearValorPorPesos(descontoGeralReais, pesosItens) : itemsWithTaxes.map(() => 0);
+      itemsWithTaxes = itemsWithTaxes.map((it, i) => ({
+        ...it,
+        valorTotal: pesosItens[i],
+        desconto: Number(it.desconto || 0) + descontoGeralRateado[i],
+      }));
 
       // Casa pelo clienteId primeiro (mesmo padrao ja usado em
       // handleSelectOS abaixo) -- so pelo nome e fragil: cliente renomeado
@@ -680,6 +712,7 @@ const NFE: React.FC = () => {
       }
 
       setImportedPedidoItens(itemsWithTaxes);
+      setImportedPedidoPagamentos(pedido.pagamentos || []);
 
       setFormData(prev => ({
         ...prev,
@@ -1554,6 +1587,9 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
                 cfop,
                 ...unitFields.fields!,
                 totalAmount: itemTotal,
+                // Desconto do item (por item + fatia rateada do desconto geral do pedido, ver
+                // handleSelectPedido) -- campo confirmado no schema da Spedy (SefazInvoiceItemDto.discountAmount).
+                ...(Number(item.desconto || 0) > 0 ? { discountAmount: Number(item.desconto) } : {}),
                 makeupTotal: true,
                 // Regime Simples Nacional mantem o payload minimo (so
                 // csosn/origem, sem base/aliquota -- ja funcionava assim);
@@ -1615,6 +1651,26 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
         const destinationByState = clientState.toUpperCase() === companyState.toUpperCase() ? 'internal' : 'interstate';
         const destination = resolveInvoiceDestination(itemsPayload.find((pi) => isExportCfop(pi.cfop))?.cfop, destinationByState);
 
+        // vProd (bruto) e vDesc somados dos itens -- productAmount tem que ser o BRUTO (soma dos
+        // itens antes do desconto), nunca igual ao invoiceAmount, senao o desconto nao aparece na
+        // nota nenhuma (era exatamente o bug: os dois saiam iguais a valorNumerico, que ja e' liquido).
+        const productAmountBruto = itemsPayload.length > 0
+          ? itemsPayload.reduce((soma, it) => soma + Number(it.totalAmount || 0), 0)
+          : valorNumerico;
+        const discountAmountTotal = itemsPayload.reduce((soma, it: any) => soma + Number(it.discountAmount || 0), 0);
+
+        // Duplicatas (parcelas): so' quando a venda importada foi paga em Boleto -- o numero de
+        // cada parcela e a data de vencimento vem dos pagamentos gravados no pedido. Sem isso a
+        // nota saia sem nenhuma duplicata, mesmo quando o boleto tinha varias parcelas.
+        const pagamentosBoleto = importedPedidoId
+          ? importedPedidoPagamentos.filter((p) => p.formaPagamento === 'Boleto' && p.dataVencimento)
+          : [];
+        const duplicatesPayload = pagamentosBoleto.map((p) => ({
+          number: String(p.numeroParcelaAPrazo || 1).padStart(3, '0'),
+          dueDate: `${p.dataVencimento}T00:00:00`,
+          amount: Number(p.valor ?? p.valorCentavos / 100),
+        }));
+
         const payload = {
           integrationId,
           isFinalCustomer: true,
@@ -1649,9 +1705,11 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
               amount: valorNumerico
             }
           ],
+          ...(duplicatesPayload.length > 0 ? { duplicates: duplicatesPayload } : {}),
           total: {
             invoiceAmount: valorNumerico,
-            productAmount: valorNumerico
+            productAmount: productAmountBruto,
+            ...(discountAmountTotal > 0 ? { discountAmount: discountAmountTotal } : {}),
           },
           ...(referencedAccessKey ? {
             refNFe: referencedAccessKey,

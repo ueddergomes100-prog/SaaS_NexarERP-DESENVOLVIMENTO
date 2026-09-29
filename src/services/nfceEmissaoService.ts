@@ -186,6 +186,10 @@ export const emitirNfceDoPedido = async (pedido: PedidoParaEmissao): Promise<Nfc
     total: {
       invoiceAmount: pedido.valorTotal,
       productAmount: pedido.valorTotalItens,
+      // Sem isso o desconto do pedido nao aparecia no cupom -- productAmount (bruto) ficava maior
+      // que invoiceAmount (liquido) sem nenhum campo explicando a diferenca (2026-09-29, mesmo bug
+      // corrigido em NFE.tsx). Campo confirmado no schema da Spedy (SefazInvoiceTotalDto.discountAmount).
+      ...(pedido.valorTotalItens > pedido.valorTotal ? { discountAmount: pedido.valorTotalItens - pedido.valorTotal } : {}),
     },
   };
 

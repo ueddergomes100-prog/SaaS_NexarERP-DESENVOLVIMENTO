@@ -5,26 +5,10 @@ const fs = require('fs');
 const path = require('path');
 const { format } = require('date-fns');
 const { uploadBackup, applyRetentionPolicy } = require('./cloudStorage');
+const { COLECOES_DA_EMPRESA } = require('./backupColecoes');
 
-// Lista das coleções que usam a filtragem tenantId
-const COLLECTIONS_TO_BACKUP = [
-  'clientes',
-  'veiculos',
-  'produtos',
-  'estoque',
-  'categorias',
-  'servicos',
-  'transacoes',
-  'ordens_de_servico',
-  'lembretes',
-  'agendamentos',
-  'pedidos_venda',
-  'orcamentos',
-  'devolucoes_venda',
-  'unidades_medida',
-  'notas_fiscais',
-  'creditos_cliente'
-];
+// Lista das coleções que usam a filtragem tenantId -- ver backupColecoes.js.
+const COLLECTIONS_TO_BACKUP = COLECOES_DA_EMPRESA;
 
 /**
  * Deriva uma chave de 32 bytes a partir de qualquer senha informada (usando SHA-256)

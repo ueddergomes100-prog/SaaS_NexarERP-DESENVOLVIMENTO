@@ -1,28 +1,43 @@
-const { db } = require('../config/firebase');
+const { admin, db } = require('../config/firebase');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const { downloadBackup } = require('./cloudStorage');
 const { getEncryptionKey, generateCompanyBackup } = require('./backup');
+const { COLECOES_DA_EMPRESA, CAMPOS_DA_PLATAFORMA } = require('./backupColecoes');
 
-// Lista das coleções de destino a serem limpas e restauradas
-const COLLECTIONS_TO_RESTORE = [
-  'clientes',
-  'veiculos',
-  'produtos',
-  'estoque',
-  'categorias',
-  'servicos',
-  'transacoes',
-  'ordens_de_servico',
-  'lembretes',
-  'agendamentos',
-  'pedidos_venda',
-  'orcamentos',
-  'devolucoes_venda',
-  'unidades_medida',
-  'notas_fiscais',
-  'creditos_cliente'
-];
+// Lista das coleções de destino a serem limpas e restauradas -- ver backupColecoes.js.
+const COLLECTIONS_TO_RESTORE = COLECOES_DA_EMPRESA;
+
+/**
+ * So' limpa (e regrava) as colecoes que ESTAO no arquivo. Backup antigo foi
+ * gerado quando a lista era menor: sem esta checagem, restaurar um arquivo
+ * desses apagaria bancos, fornecedores, lotes... e nao teria o que regravar.
+ */
+const colecoesNoArquivo = (backupData) => COLLECTIONS_TO_RESTORE.filter((nome) => Array.isArray(backupData?.[nome]));
+
+/** Le os campos da plataforma de hoje (config da empresa e cadastro do dono) antes de restaurar. */
+async function lerCamposDaPlataforma(companyId) {
+  const [configSnap, donoSnap] = await Promise.all([
+    db.collection('configuracoes').doc(companyId).get(),
+    db.collection('usuarios').doc(companyId).get(),
+  ]);
+  const escolher = (snap) => {
+    const dados = snap.exists ? snap.data() : {};
+    return Object.fromEntries(CAMPOS_DA_PLATAFORMA.map((campo) => [
+      campo,
+      Object.prototype.hasOwnProperty.call(dados, campo) ? dados[campo] : admin.firestore.FieldValue.delete(),
+    ]));
+  };
+  return { config: escolher(configSnap), dono: donoSnap.exists ? escolher(donoSnap) : null };
+}
+
+/** Devolve os campos da plataforma ao valor de antes da restauracao (o que nao existia volta a nao existir). */
+async function reaplicarCamposDaPlataforma(companyId, campos) {
+  await db.collection('configuracoes').doc(companyId).set(campos.config, { merge: true });
+  if (campos.dono) {
+    await db.collection('usuarios').doc(companyId).set(campos.dono, { merge: true });
+  }
+}
 
 /**
  * Descriptografa um buffer seguro criptografado com AES-256-CBC
@@ -46,7 +61,7 @@ function decryptBuffer(buffer) {
  * Limpa todos os documentos de uma determinada empresa (tenantId) nas coleções
  * utilizando lotes (batches) de até 500 itens.
  */
-async function clearCompanyData(companyId) {
+async function clearCompanyData(companyId, colecoes) {
   console.log(`[Restauração] Limpando dados atuais da empresa ${companyId}...`);
 
   // Limpa configuracao da empresa
@@ -56,8 +71,8 @@ async function clearCompanyData(companyId) {
     console.warn(`[Restauração] Erro ao limpar 'configuracoes':`, err.message);
   }
 
-  // Limpa demais coleções estruturadas
-  for (const colName of COLLECTIONS_TO_RESTORE) {
+  // Limpa demais coleções estruturadas (so' as que o arquivo traz -- ver colecoesNoArquivo)
+  for (const colName of colecoes) {
     let hasMore = true;
     while (hasMore) {
       // Busca em blocos de 400 para garantir folga no limite de 500 operações por batch
@@ -255,13 +270,20 @@ async function restoreCompanyBackup(companyId, companyName, filename, userEmail)
     throw new Error('Erro de Integridade: O Checksum SHA-256 calculado não confere com o original do backup. Os dados podem ter sido adulterados ou corrompidos.');
   }
 
+  // Plano, modulos, limites e Spedy de HOJE -- voltam por cima no fim (5.3).
+  // Lido antes de apagar qualquer coisa: se falhar aqui, nada mudou.
+  const camposDaPlataforma = await lerCamposDaPlataforma(companyId);
+
   // Passo 5: Executar restauração (Operações de Escrita em Lote)
   try {
     // 5.1 Limpa os dados do Firestore atuais
-    await clearCompanyData(companyId);
+    await clearCompanyData(companyId, colecoesNoArquivo(data));
 
     // 5.2 Grava os dados descriptografados
     await writeRestoredData(companyId, data);
+
+    // 5.3 Restaurar dado da empresa nao volta plano/modulo/limite/Spedy no tempo.
+    await reaplicarCamposDaPlataforma(companyId, camposDaPlataforma);
 
     // Passo 6: Registrar histórico de restauração (Coleção 'restauracoes_historico')
     const restoreRecord = {

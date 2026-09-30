@@ -116,6 +116,16 @@ async function generateBackup(req, res) {
  */
 async function restoreBackup(req, res) {
   try {
+    // So' a equipe da plataforma (auditoria de 2026-09-29). Restaurar APAGA os
+    // dados atuais da empresa e regrava os do backup -- inclusive usuarios e
+    // configuracoes. Antes, qualquer Admin/Master de empresa chamava esta rota
+    // direto (a tela so' existe no painel da plataforma, mas a rota nao
+    // conferia): um Admin conseguia apagar semanas de vendas de uma vez, contra
+    // a regra "nada do sistema pode excluir".
+    if (!req.user.isPlatformAdmin) {
+      return res.status(403).json({ error: 'Só a equipe Hennder pode restaurar um backup. Fale com o suporte.' });
+    }
+
     const { backupId } = req.body;
 
     if (!backupId) {
@@ -171,6 +181,11 @@ async function restoreBackup(req, res) {
  */
 async function removeBackup(req, res) {
   try {
+    // Mesma trava da restauracao: apagar backup e' irreversivel.
+    if (!req.user.isPlatformAdmin) {
+      return res.status(403).json({ error: 'Só a equipe Hennder pode excluir um backup. Fale com o suporte.' });
+    }
+
     const { backupId } = req.body;
 
     if (!backupId) {

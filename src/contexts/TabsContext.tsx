@@ -316,13 +316,23 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const target = current.tabs.find((tab) => tab.id === id);
       if (!target || target.path === path) return current;
 
+      // A tela so' LIMPOU a propria query string (mesma tela, mesmo
+      // conteudo na frente do usuario) -- isso nunca pode fechar a aba
+      // nem juntar com outra (2026-09-30). Era o "abre a Nota Fiscal mas
+      // nao vem com o pedido": NFE.tsx importa o `?pedido=` e apaga o
+      // parametro; com uma aba "Notas Fiscais" ja' aberta (o normal pra
+      // quem emite nota o dia todo), o `/fiscal/nfe` sem query batia nos
+      // desvios abaixo, esta aba (com o pedido importado) era fechada e a
+      // antiga, vazia, aparecia no lugar.
+      const soMudouAQuery = target.path.split(/[?#]/)[0] === path.split(/[?#]/)[0];
+
       // Navegacao interna (ex: botao "Voltar" de um formulario) pousou
       // exatamente no path da propria aba-pai -- em vez de virar uma
       // segunda aba mostrando a mesma lista que ja esta aberta, fecha
       // esta e reativa a aba-pai original. So nao faz isso se esta aba
       // tiver, ela mesma, uma aba-filha aberta (senao violaria a trava de
       // fechamento com filhas pendentes).
-      if (target.parentTabId) {
+      if (target.parentTabId && !soMudouAQuery) {
         const parent = current.tabs.find((tab) => tab.id === target.parentTabId);
         const hasOwnChildren = current.tabs.some((tab) => tab.parentTabId === id);
         if (parent && parent.path === path && !hasOwnChildren) {
@@ -340,7 +350,7 @@ export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // deixando duas abas "Dashboard" na barra -- e repetir a acao empilha
       // mais uma a cada vez. So nao fecha se esta aba tiver filha propria
       // pendente (mesma trava do caso do pai, acima).
-      const existingElsewhere = current.tabs.find((tab) => tab.id !== id && tab.path === path);
+      const existingElsewhere = soMudouAQuery ? undefined : current.tabs.find((tab) => tab.id !== id && tab.path === path);
       if (existingElsewhere) {
         const hasOwnChildren = current.tabs.some((tab) => tab.parentTabId === id);
         if (!hasOwnChildren) {

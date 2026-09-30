@@ -593,6 +593,65 @@ const NFE: React.FC = () => {
     }
   };
 
+  /**
+   * NF-e que JA EXISTE pra este pedido -- autorizada ou ainda em transmissao
+   * (2026-09-30, pedido do dono: "se clicar pra transmitir uma venda que ja
+   * foi emitida, o sistema deve barrar"). Conferido no BANCO, nao na lista da
+   * tela: outra aba ou outro computador pode ter emitido agora ha pouco. Nota
+   * rejeitada ou cancelada nao conta (dai' pode emitir de novo), nem a propria
+   * nota que esta sendo retransmitida.
+   */
+  const notaNfeJaEmitidaDoPedido = async (pedidoId: string, ignorarNotaId?: string | null): Promise<LocalInvoice | null> => {
+    if (!tenantId || !pedidoId) return null;
+    const snap = await getDocs(query(
+      collection(db, 'notas_fiscais'),
+      where('tenantId', '==', tenantId),
+      where('pedidoId', '==', pedidoId),
+    ));
+    const achada = snap.docs.find((d) => {
+      const n = d.data();
+      return d.id !== ignorarNotaId
+        && n.tipo === 'NF-e'
+        && ['authorized', 'enqueued', 'processing', 'created'].includes(String(n.status));
+    });
+    if (!achada) return null;
+    const n = achada.data();
+    return {
+      id: achada.id,
+      spedyId: n.spedyId || '',
+      number: n.number || null,
+      tipo: 'NF-e',
+      clienteNome: n.clienteNome || '',
+      valor: n.valor || 0,
+      data: '',
+      status: n.status,
+      pedidoId,
+    };
+  };
+
+  /** Barra a nota duplicada: diz qual nota ja existe e, se autorizada, oferece abrir o PDF. */
+  const avisarNotaJaEmitida = async (nota: LocalInvoice, numeroPedido?: string) => {
+    const doPedido = numeroPedido ? ` do pedido #${numeroPedido}` : ' deste pedido';
+    if (nota.status !== 'authorized') {
+      await NexusSwal.fire({
+        icon: 'info',
+        title: 'Nota fiscal já enviada',
+        text: `A NF-e${doPedido} já foi transmitida e está aguardando a resposta da SEFAZ. Não emita outra: aguarde alguns instantes e clique em "Sincronizar Notas" para ver o resultado.`,
+        confirmButtonText: 'Entendi',
+      });
+      return;
+    }
+    const escolha = await NexusSwal.fire({
+      icon: 'warning',
+      title: 'Este pedido já tem nota fiscal',
+      text: `A NF-e${nota.number ? ` nº ${nota.number}` : ''}${doPedido} já foi emitida e autorizada. Não é possível emitir outra nota para a mesma venda. Quer abrir o PDF da nota?`,
+      showCancelButton: true,
+      confirmButtonText: 'Abrir PDF',
+      cancelButtonText: 'Fechar',
+    });
+    if (escolha.isConfirmed) await abrirDanfe(nota);
+  };
+
   const handleSelectPedido = async (pedidoId: string) => {
     setImportedPedidoId(pedidoId);
     // Mutuamente exclusivo com a importação de OS -- importar um pedido
@@ -626,6 +685,20 @@ const NFE: React.FC = () => {
 
     const pedido = pedidosVenda.find(p => p.id === pedidoId);
     if (!pedido) return;
+
+    try {
+      const jaEmitida = await notaNfeJaEmitidaDoPedido(pedidoId);
+      if (jaEmitida) {
+        setImportedPedidoId('');
+        setIsModalOpen(false);
+        await avisarNotaJaEmitida(jaEmitida, pedido.numeroPedido);
+        return;
+      }
+    } catch (erroConsulta) {
+      // Nao conseguiu conferir: segue -- a mesma conferencia roda de novo
+      // antes de transmitir, e ali trava.
+      console.error('Erro ao conferir se o pedido ja tem nota fiscal:', erroConsulta);
+    }
 
     NexusSwal.fire({
       title: 'Importando Pedido...',
@@ -1162,18 +1235,27 @@ const NFE: React.FC = () => {
       const ambiente = spedyNote.environmentType === 'production'
         ? 'Produção'
         : spedyNote.environmentType === 'development' ? 'Homologação' : String(spedyNote.environmentType ?? 'não definido');
+      const situacao: Record<string, string> = {
+        authorized: 'Autorizada',
+        canceled: 'CANCELADA — cancelamento registrado na SEFAZ',
+        rejected: 'Rejeitada',
+        denied: 'Denegada',
+        enqueued: 'Na fila, aguardando a SEFAZ',
+        processing: 'Em processamento na SEFAZ',
+        created: 'Criada, ainda não transmitida',
+      };
       const linhas = [
-        `Status na Spedy: ${spedyNote.status}`,
+        `Situação: ${situacao[spedyNote.status] || spedyNote.status}`,
         `Ambiente da nota: ${ambiente}`,
         `Série: ${spedyNote.series ?? '—'} · Número: ${spedyNote.number ?? '—'}`,
         `Emitida em: ${spedyNote.issuedOn || '—'}`,
-        `Código: ${spedyNote.processingDetail?.code || 'N/A'}`,
-        `Mensagem: ${spedyNote.processingDetail?.message || '—'}`,
+        ...(spedyNote.accessKey ? [`Chave de acesso: ${spedyNote.accessKey}`] : []),
+        `Retorno da SEFAZ: ${spedyNote.processingDetail?.code || '—'} ${spedyNote.processingDetail?.message || ''}`.trim(),
       ];
       await NexusSwal.fire({
         title: `Nota ${note.tipo} na Spedy`,
         html: `<div style="text-align:left;font-size:14px">${linhas.map((l) => l.replace(/[<>&]/g, '')).join('<br/>')}</div>`,
-        icon: spedyNote.status === 'authorized' ? 'success' : 'info',
+        icon: spedyNote.status === 'authorized' || spedyNote.status === 'canceled' ? 'success' : 'info',
       });
       loadLocalInvoices(false);
     } catch (err) {
@@ -1456,6 +1538,24 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
           'Lançamento avulso não suporta este regime tributário',
           `A empresa está no regime "${REGIME_TRIBUTARIO_OPTIONS.find(r => r.value === regimeTributario)?.label || regimeTributario}", que exige CST real de ICMS/PIS/COFINS por produto -- o lançamento avulso só monta o formato simplificado de Simples Nacional (CSOSN) e a Spedy vai rejeitar (SPD003). Importe um Pedido de Venda pronto em vez de lançar avulso: ele já usa os dados fiscais reais cadastrados em cada produto.`
         );
+        return;
+      }
+    }
+
+    // Ultima conferencia antes de transmitir (pega a outra aba/computador que
+    // emitiu enquanto este formulario estava aberto). Sem conseguir conferir,
+    // NAO transmite: nota fiscal em duplicidade nao tem volta simples.
+    if (formData.tipo === 'NF-e' && importedPedidoId) {
+      try {
+        const jaEmitida = await notaNfeJaEmitidaDoPedido(importedPedidoId, retransmittingInvoiceId);
+        if (jaEmitida) {
+          setIsModalOpen(false);
+          await avisarNotaJaEmitida(jaEmitida, pedidosVenda.find((p) => p.id === importedPedidoId)?.numeroPedido);
+          return;
+        }
+      } catch (erroConsulta) {
+        console.error('Erro ao conferir se o pedido ja tem nota fiscal:', erroConsulta);
+        showError('Não foi possível conferir a nota do pedido', 'Não consegui verificar se esta venda já tem nota fiscal, então a nota não foi transmitida (para não sair em duplicidade). Confira sua conexão e tente de novo.');
         return;
       }
     }
@@ -2192,11 +2292,12 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
                           </button>
                         )}
 
-                        {/* Ver a nota como a Spedy a enxerga (ambiente, serie, motivo) */}
-                        {(note.status === 'rejected' || note.status === 'denied') && (
+                        {/* Ver a nota como a Spedy/SEFAZ a enxerga (ambiente, serie, motivo). Nas CANCELADAS
+                            tambem (2026-09-30): confirma que o cancelamento foi homologado na SEFAZ. */}
+                        {(note.status === 'rejected' || note.status === 'denied' || note.status === 'canceled') && (
                           <button
                             className="icon-btn"
-                            title="Consultar na Spedy (ambiente, série e motivo)"
+                            title={note.status === 'canceled' ? 'Consultar o cancelamento na SEFAZ' : 'Consultar na Spedy (ambiente, série e motivo)'}
                             onClick={() => handleConsultarNaSpedy(note)}
                             style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
                           >

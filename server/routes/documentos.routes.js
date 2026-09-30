@@ -17,12 +17,26 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { isValidCnpj, fetchCnpjData } = require('../utils/cnpjLookup');
 const { isValidCpf, fetchCpfData } = require('../utils/cpfLookup');
+const { limitadorPorChave, MINUTO_MS } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
 router.use(authenticate);
 
-router.post('/consultar-cnpj', async (req, res) => {
+// Por usuario (nao por IP: a loja inteira divide um IP). CNPJ e' gratuito mas
+// a Receita bloqueia quem abusa; CPF e' consulta PAGA (apicpf.com).
+const porUsuario = (req) => (req.user && req.user.uid) || req.ip;
+const limiteCnpj = limitadorPorChave('documentos-cnpj', porUsuario, {
+  limite: 120,
+  mensagem: 'Muitas consultas de CNPJ em pouco tempo. Aguarde alguns minutos e tente de novo.',
+});
+const limiteCpf = limitadorPorChave('documentos-cpf', porUsuario, {
+  limite: 60,
+  janelaMs: 60 * MINUTO_MS,
+  mensagem: 'Limite de consultas de CPF por hora atingido para este usuário. Tente de novo mais tarde.',
+});
+
+router.post('/consultar-cnpj', limiteCnpj, async (req, res) => {
   const cnpj = String(req.body?.cnpj || '').replace(/\D/g, '');
 
   if (!isValidCnpj(cnpj)) {
@@ -43,7 +57,7 @@ router.post('/consultar-cnpj', async (req, res) => {
   }
 });
 
-router.post('/consultar-cpf', async (req, res) => {
+router.post('/consultar-cpf', limiteCpf, async (req, res) => {
   const cpf = String(req.body?.cpf || '').replace(/\D/g, '');
 
   if (!isValidCpf(cpf)) {

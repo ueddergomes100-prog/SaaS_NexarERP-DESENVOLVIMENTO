@@ -6,6 +6,10 @@ const { BASE_URLS, canUseFiscal, resolveTenantId, loadSpedyConfig, idSpedyValido
 const { avaliarRequisitos, validarAmbienteEnviado, mesclarConfiguracaoAtual } = require('../services/requisitosFiscais');
 const { validarCarta, motivoQueImpedeCarta } = require('../services/cartaCorrecao');
 const { buildCompanyPayload } = require('../services/spedyEmpresa');
+// Toda chamada a Spedy passa por aqui: tempo limite + erro em portugues
+// (ver utils/fetchComTimeout.js). Sem isso a tela ficava presa em
+// "Transmitindo..." quando a Spedy nao respondia.
+const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 
 const TYPE_PATHS = {
   service: 'service-invoices',
@@ -108,7 +112,7 @@ router.get('/requisitos', async (req, res) => {
     if (!companyId) {
       try {
         const cnpjEmpresa = String(config.cnpj || '').replace(/\D/g, '');
-        const lista = await fetch(`${baseUrl}/companies?pageSize=50`, { method: 'GET', headers: { 'X-Api-Key': apiKey } });
+        const lista = await fetchComTimeout(`${baseUrl}/companies?pageSize=50`, { method: 'GET', headers: { 'X-Api-Key': apiKey } }, PERFIS.spedyLeitura);
         if (lista.ok) {
           const corpo = await lista.json().catch(() => ({}));
           const itens = Array.isArray(corpo) ? corpo : (corpo.items || corpo.result?.items || []);
@@ -143,10 +147,10 @@ router.get('/requisitos', async (req, res) => {
     const ler = async (caminho) => {
       if (!companyId) return null;
       try {
-        const response = await fetch(`${baseUrl}/companies/${companyId}/${caminho}`, {
+        const response = await fetchComTimeout(`${baseUrl}/companies/${companyId}/${caminho}`, {
           method: 'GET',
           headers: { 'X-Api-Key': chaveDeLeitura }
-        });
+        }, PERFIS.spedyLeitura);
         if (!response.ok) {
           diagnostico.push(`A Spedy respondeu ${response.status} ao ler "${caminho}" da empresa.`);
           return null;
@@ -199,10 +203,10 @@ router.get('/requisitos', async (req, res) => {
 router.get('/:type', (req, res) => handleSpedyRequest(req, res, 'GET', ({ apiKey, baseUrl, typePath }) => {
   const page = Number(req.query.page || 1);
   const pageSize = Number(req.query.pageSize || 20);
-  return fetch(`${baseUrl}/${typePath}?page=${page}&pageSize=${pageSize}`, {
+  return fetchComTimeout(`${baseUrl}/${typePath}?page=${page}&pageSize=${pageSize}`, {
     method: 'GET',
     headers: { 'X-Api-Key': apiKey }
-  });
+  }, PERFIS.spedyLeitura);
 }));
 
 // Chave pra busca de cidade quando a empresa ainda nao tem a propria
@@ -262,10 +266,10 @@ router.get('/:type/cities', async (req, res) => {
     const params = new URLSearchParams();
     if (req.query.filterText) params.set('filterText', String(req.query.filterText));
     if (req.query.state) params.set('state', String(req.query.state));
-    const response = await fetch(`${baseUrl}/${typePath}/cities?${params.toString()}`, {
+    const response = await fetchComTimeout(`${baseUrl}/${typePath}/cities?${params.toString()}`, {
       method: 'GET',
       headers: { 'X-Api-Key': apiKey }
-    });
+    }, PERFIS.spedyLeitura);
     return proxyJson(res, response);
   } catch (error) {
     console.error('[Spedy Cities Proxy]', error);
@@ -340,10 +344,10 @@ router.put('/numbering', async (req, res) => {
     // que zerar a numeracao fiscal da empresa.
     let atual = null;
     try {
-      const leitura = await fetch(`${baseUrl}/companies/${companyId}/settings`, {
+      const leitura = await fetchComTimeout(`${baseUrl}/companies/${companyId}/settings`, {
         method: 'GET',
         headers: { 'X-Api-Key': masterApiKey }
-      });
+      }, PERFIS.spedyLeitura);
       if (leitura.ok) atual = await leitura.json();
     } catch (erroLeitura) {
       console.error('[Spedy Numbering] falha ao ler a configuracao atual:', erroLeitura.message);
@@ -355,11 +359,11 @@ router.put('/numbering', async (req, res) => {
     }
     const payloadFinal = mesclarConfiguracaoAtual(atual, payload);
 
-    const response = await fetch(`${baseUrl}/companies/${companyId}/settings`, {
+    const response = await fetchComTimeout(`${baseUrl}/companies/${companyId}/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': masterApiKey },
       body: JSON.stringify(payloadFinal)
-    });
+    }, PERFIS.spedyCadastro);
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
@@ -415,11 +419,11 @@ router.post('/empresa/sincronizar', async (req, res) => {
       return res.status(400).json({ error: 'A chave mestra da Spedy ainda não foi configurada pela plataforma. Fale com o suporte.' });
     }
 
-    const response = await fetch(`${BASE_URLS[environment]}/companies/${config.spedyCompanyId}`, {
+    const response = await fetchComTimeout(`${BASE_URLS[environment]}/companies/${config.spedyCompanyId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': masterApiKey },
       body: JSON.stringify(buildCompanyPayload(config)),
-    });
+    }, PERFIS.spedyCadastro);
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       return res.status(response.status).json({
@@ -434,21 +438,21 @@ router.post('/empresa/sincronizar', async (req, res) => {
 });
 
 router.get('/:type/:id', (req, res) => handleSpedyRequest(req, res, 'GET', ({ apiKey, baseUrl, typePath }) => {
-  return fetch(`${baseUrl}/${typePath}/${req.params.id}`, {
+  return fetchComTimeout(`${baseUrl}/${typePath}/${req.params.id}`, {
     method: 'GET',
     headers: { 'X-Api-Key': apiKey }
-  });
+  }, PERFIS.spedyLeitura);
 }));
 
 router.post('/:type', (req, res) => handleSpedyRequest(req, res, 'POST', ({ apiKey, baseUrl, typePath }) => {
-  return fetch(`${baseUrl}/${typePath}`, {
+  return fetchComTimeout(`${baseUrl}/${typePath}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Api-Key': apiKey
     },
     body: JSON.stringify(req.body.invoiceData || req.body)
-  });
+  }, PERFIS.spedyEmissao);
 }));
 
 // A Spedy espera o campo "reason" (CancelInvoiceRequestDto, confirmado
@@ -456,14 +460,14 @@ router.post('/:type', (req, res) => handleSpedyRequest(req, res, 'POST', ({ apiK
 // nosso proprio front/tela), que ela ignorava e devolvia "The Reason
 // field is required", achado ao vivo cancelando uma nota de teste.
 router.delete('/:type/:id', (req, res) => handleSpedyRequest(req, res, 'DELETE', ({ apiKey, baseUrl, typePath }) => {
-  return fetch(`${baseUrl}/${typePath}/${req.params.id}`, {
+  return fetchComTimeout(`${baseUrl}/${typePath}/${req.params.id}`, {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',
       'X-Api-Key': apiKey
     },
     body: JSON.stringify({ reason: req.body.justification })
-  });
+  }, PERFIS.spedyEmissao);
 }));
 
 router.get('/:type/:id/:fileType', async (req, res) => {
@@ -479,10 +483,10 @@ router.get('/:type/:id/:fileType', async (req, res) => {
 
     const tenantId = resolveTenantId(req);
     const { apiKey, baseUrl } = await loadSpedyConfig(tenantId);
-    const response = await fetch(`${baseUrl}/${typePath}/${req.params.id}/${req.params.fileType}`, {
+    const response = await fetchComTimeout(`${baseUrl}/${typePath}/${req.params.id}/${req.params.fileType}`, {
       method: 'GET',
       headers: { 'X-Api-Key': apiKey }
-    });
+    }, PERFIS.spedyArquivo);
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
@@ -541,11 +545,11 @@ router.post('/:type/:id/corrections', async (req, res) => {
     const impedimento = motivoQueImpedeCarta(notaDoc.data());
     if (impedimento) return res.status(400).json({ error: impedimento });
 
-    const response = await fetch(`${baseUrl}/product-invoices/${req.params.id}/corrections`, {
+    const response = await fetchComTimeout(`${baseUrl}/product-invoices/${req.params.id}/corrections`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
       body: JSON.stringify({ letter: carta.texto })
-    });
+    }, PERFIS.spedyEmissao);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       return res.status(response.status).json({
@@ -586,10 +590,10 @@ router.get('/:type/:id/corrections/:eventId/:fileType', async (req, res) => {
 
     const tenantId = resolveTenantId(req);
     const { apiKey, baseUrl } = await loadSpedyConfig(tenantId);
-    const response = await fetch(`${baseUrl}/product-invoices/${req.params.id}/corrections/${req.params.eventId}/${req.params.fileType}`, {
+    const response = await fetchComTimeout(`${baseUrl}/product-invoices/${req.params.id}/corrections/${req.params.eventId}/${req.params.fileType}`, {
       method: 'GET',
       headers: { 'X-Api-Key': apiKey }
-    });
+    }, PERFIS.spedyArquivo);
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));

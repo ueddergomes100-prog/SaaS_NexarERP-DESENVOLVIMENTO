@@ -1,19 +1,10 @@
 const express = require('express');
 const { admin, db } = require('../config/firebase');
 const { authenticate } = require('../middleware/auth');
+const { ipDoCliente } = require('../utils/requestIp');
+const { trustProxyHops } = require('../services/configuracaoAmbiente');
 
 const router = express.Router();
-
-const getRequestIp = (req) => {
-  const forwardedFor = req.headers['x-forwarded-for'];
-  const rawIp = Array.isArray(forwardedFor)
-    ? forwardedFor[0]
-    : String(forwardedFor || '').split(',')[0].trim();
-
-  return (rawIp || req.socket.remoteAddress || req.ip || '')
-    .replace(/^::ffff:/, '')
-    .replace(/^::1$/, '127.0.0.1');
-};
 
 /**
  * Corpo do encerramento de sessao.
@@ -111,8 +102,13 @@ router.use(authenticate);
 
 router.get('/client-info', (req, res) => {
   res.json({
-    ip: getRequestIp(req),
-    userAgent: req.get('user-agent') || ''
+    ip: ipDoCliente(req),
+    userAgent: req.get('user-agent') || '',
+    // Diagnostico do `trust proxy` (ver server.js): a cadeia inteira que o
+    // Express viu e quantos saltos ele confia. Se `ip` vier interno da
+    // hospedagem em vez do IP publico de quem chamou, TRUST_PROXY_HOPS esta errado.
+    cadeiaDeProxies: Array.isArray(req.ips) ? req.ips : [],
+    proxyHops: trustProxyHops()
   });
 });
 

@@ -8,6 +8,7 @@ const {
   notaVigenteDaDevolucao,
   prepararDevolucao,
 } = require('../services/devolucaoNfe');
+const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 
 const router = express.Router();
 router.use(authenticate);
@@ -196,11 +197,11 @@ router.post('/emitir', async (req, res) => {
       notaOriginal: preparo.notaOriginalCompleta,
     });
 
-    const response = await fetch(`${baseUrl}/product-invoices`, {
+    const response = await fetchComTimeout(`${baseUrl}/product-invoices`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
       body: JSON.stringify(payload)
-    });
+    }, PERFIS.spedyEmissao);
     const notaSpedy = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new ErroDevolucao(response.status, notaSpedy.errors?.[0]?.message || notaSpedy.error || 'A Spedy recusou a nota de devolução.');

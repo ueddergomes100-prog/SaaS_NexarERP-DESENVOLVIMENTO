@@ -11,6 +11,7 @@ const {
   montarMensagem,
   nomeDoAnexo,
 } = require('../services/emailNota');
+const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 
 const router = express.Router();
 router.use(authenticate);
@@ -76,7 +77,7 @@ const destinatarioDaNota = async (tenantId, nota) => {
 };
 
 const baixarArquivo = async ({ apiKey, baseUrl }, caminho, spedyId, extensao) => {
-  const resposta = await fetch(`${baseUrl}/${caminho}/${spedyId}/${extensao}`, { method: 'GET', headers: { 'X-Api-Key': apiKey } });
+  const resposta = await fetchComTimeout(`${baseUrl}/${caminho}/${spedyId}/${extensao}`, { method: 'GET', headers: { 'X-Api-Key': apiKey } }, PERFIS.spedyArquivo);
   if (!resposta.ok) {
     throw new ErroEmail(502, `Não consegui baixar o ${extensao.toUpperCase()} da nota na Spedy. Tente de novo em instantes.`);
   }

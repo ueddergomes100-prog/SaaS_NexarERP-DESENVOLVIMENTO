@@ -6,8 +6,14 @@ const dotenv = require('dotenv');
 // Carrega as variáveis de ambiente do arquivo .env
 dotenv.config();
 
+const { version: VERSAO } = require('./package.json');
+const { db } = require('./config/firebase');
 const { initScheduler } = require('./services/scheduler');
 const { initQueueService } = require('./services/queue');
+const { diagnosticoConfiguracao, pendenciasDeProducao, trustProxyHops, emProducao } = require('./services/configuracaoAmbiente');
+const { estadoDoFirestore } = require('./services/saude');
+const { limitadorGlobalApi } = require('./middleware/rateLimit');
+const { ipDoCliente } = require('./utils/requestIp');
 const backupRoutes = require('./routes/backup.routes');
 const spedyRoutes = require('./routes/spedy.routes');
 const spedyCompaniesRoutes = require('./routes/spedyCompanies.routes');
@@ -26,6 +32,13 @@ const notaEmailRoutes = require('./routes/notaEmail.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Quantos proxies existem entre a internet e este processo (TRUST_PROXY_HOPS,
+// padrao 1 = o proxy da hospedagem). Com isso o Express resolve `req.ip` a
+// partir do IP que o PROXY acrescentou em X-Forwarded-For, e ignora o que o
+// cliente escreveu -- e' o que faz o limite de requisicoes valer de verdade.
+// Conferir no /health: `seuIp` tem que ser o seu IP publico, nao um IP interno.
+app.set('trust proxy', trustProxyHops());
 
 const buildAllowedOrigins = () => {
   const configuredOrigins = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || '')
@@ -66,23 +79,66 @@ app.use(cors({
       return;
     }
 
-    callback(new Error(`Origem não permitida pelo CORS: ${origin}`));
+    const erro = new Error(`Origem não permitida pelo CORS: ${origin}`);
+    erro.status = 403;
+    callback(erro);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   maxAge: 86400
 }));
+
+// Uma linha por requisicao no log da hospedagem: metodo, rota, status, tempo,
+// IP e usuario (quando autenticado). Sem isso, investigar um incidente
+// dependia so' dos console.error espalhados. O segredo do webhook da Spedy
+// fica na URL e e' mascarado; /health fica fora pra nao poluir com o monitor.
+const caminhoParaLog = (url) => {
+  const caminho = String(url || '').split('?')[0];
+  return caminho.startsWith('/api/spedy-webhook/') ? '/api/spedy-webhook/***' : caminho;
+};
+app.use((req, res, next) => {
+  if (req.path === '/health') return next();
+  const inicio = process.hrtime.bigint();
+  res.on('finish', () => {
+    const ms = Number(process.hrtime.bigint() - inicio) / 1e6;
+    const uid = req.user && req.user.uid ? ` uid=${req.user.uid}` : '';
+    console.log(`[req] ${req.method} ${caminhoParaLog(req.originalUrl)} ${res.statusCode} ${ms.toFixed(0)}ms ip=${ipDoCliente(req)}${uid}`);
+  });
+  next();
+});
+
 // Limite padrao do express.json() e' 100 KB: uma NF-e com ~130 itens (cada
 // item leva o bloco de impostos) ja passava disso e voltava "request entity
 // too large", em ingles, na tela.
 app.use(express.json({ limit: '2mb' }));
 
-// Rota de Health Check
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'online',
+// Freio global por IP em todo /api (ver middleware/rateLimit.js). As rotas
+// publicas (onboarding, login do app) tem limites proprios, mais apertados.
+app.use('/api', limitadorGlobalApi);
+
+/**
+ * Health check com prova de vida do banco. Responde 503 quando o Firestore
+ * nao esta acessivel (credencial faltando, rede) -- e' isso que um monitor
+ * externo precisa pra avisar. `configuracao` diz so' se cada variavel esta
+ * PRESENTE, nunca o valor.
+ */
+app.get('/health', async (req, res) => {
+  const firestore = await estadoDoFirestore(db);
+  const configuracao = diagnosticoConfiguracao();
+  const pendencias = emProducao() ? pendenciasDeProducao(configuracao) : [];
+  res.status(firestore.ok ? 200 : 503).json({
+    status: firestore.ok ? 'online' : 'degradado',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    versao: VERSAO,
+    node: process.version,
+    firestore: firestore.ok ? 'ok' : 'erro',
+    ...(firestore.ok ? {} : { firestoreMotivo: firestore.motivo }),
+    configuracao,
+    pendencias,
+    // O IP que o servidor enxerga pra quem chamou. Tem que ser o seu IP
+    // publico; se vier um IP interno da hospedagem, TRUST_PROXY_HOPS esta errado.
+    seuIp: ipDoCliente(req),
   });
 });
 
@@ -119,6 +175,12 @@ app.use('/api/entrada-nfe', notaRecebidaRoutes);
 // E-mail da nota fiscal ao cliente (PDF + XML) pelo SMTP da propria empresa -- ver notaEmail.routes.js.
 app.use('/api/nota-email', notaEmailRoutes);
 
+// Rota que nao existe: JSON em portugues, em vez do "Cannot GET /..." em HTML
+// do Express (que ainda entregava o nome do framework de brinde).
+app.use((req, res) => {
+  res.status(404).json({ error: 'Este endereço não existe no servidor. Confira a URL ou atualize a página (F5).' });
+});
+
 // Middleware para tratamento global de erros HTTP
 // Erro que chega aqui e' da infraestrutura (corpo invalido, grande demais,
 // origem bloqueada) -- as rotas tratam os proprios. Mensagem em portugues,
@@ -137,6 +199,20 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: mensagem });
 });
 
+// Promise rejeitada sem ninguem tratando derrubaria o processo inteiro (Node
+// 15+), com toda requisicao em andamento junto. Loga e segue: o erro de uma
+// rota nao pode tirar o servidor do ar pra todos os clientes.
+process.on('unhandledRejection', (motivo) => {
+  console.error('[Processo] Promise rejeitada sem tratamento (o servidor continua no ar):', motivo);
+});
+// Excecao sincrona fora de qualquer rota: o processo esta em estado
+// indefinido, e' mais seguro encerrar e deixar a hospedagem subir de novo.
+// (Sem este handler o Node faz o mesmo, so' que sem log legivel.)
+process.on('uncaughtException', (erro) => {
+  console.error('[Processo] Erro não tratado, encerrando para a hospedagem reiniciar:', erro);
+  setTimeout(() => process.exit(1), 200).unref();
+});
+
 // Inicialização dos Serviços em Background
 console.log('[Hennder Server] Inicializando serviços...');
 
@@ -147,9 +223,34 @@ initScheduler();
 initQueueService();
 
 // Inicialização do servidor HTTP Express
-app.listen(PORT, () => {
+const servidor = app.listen(PORT, () => {
   console.log(`===========================================================`);
-  console.log(`🚀 SERVIDOR NEXUS BACKUP & RESTORE ONLINE NA PORTA :${PORT}`);
+  console.log(`🚀 SERVIDOR HENNDER ERP (v${VERSAO}) ONLINE NA PORTA :${PORT}`);
   console.log(`📅 Inicializado em: ${new Date().toLocaleString('pt-BR')}`);
+  console.log(`🔀 trust proxy = ${trustProxyHops()} | ambiente = ${process.env.NODE_ENV || 'development'}`);
+  const pendencias = emProducao() ? pendenciasDeProducao(diagnosticoConfiguracao()) : [];
+  pendencias.forEach((pendencia) => console.warn(`⚠️  [Configuração] ${pendencia}`));
   console.log(`===========================================================`);
 });
+
+// Conexao keep-alive: o Node fecha em 5 s por padrao; um proxy que reaproveita
+// a conexao por mais tempo pega "socket hang up" e devolve 502 ao usuario.
+servidor.keepAliveTimeout = 65 * 1000;
+servidor.headersTimeout = 66 * 1000;
+
+// Deploy/reinicio da hospedagem manda SIGTERM: para de aceitar conexao nova,
+// deixa as requisicoes em andamento terminarem (ate 10 s) e so' entao sai.
+// Antes, o processo morria no meio de uma emissao de nota.
+const encerrar = (sinal) => {
+  console.log(`[Processo] ${sinal} recebido: parando de aceitar conexões...`);
+  servidor.close(() => {
+    console.log('[Processo] Conexões encerradas.');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.warn('[Processo] Encerramento forçado após 10 s com requisições ainda abertas.');
+    process.exit(1);
+  }, 10 * 1000).unref();
+};
+process.on('SIGTERM', () => encerrar('SIGTERM'));
+process.on('SIGINT', () => encerrar('SIGINT'));

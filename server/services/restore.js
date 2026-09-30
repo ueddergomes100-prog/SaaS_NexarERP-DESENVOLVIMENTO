@@ -1,9 +1,13 @@
 const { admin, db } = require('../config/firebase');
 const crypto = require('crypto');
 const zlib = require('zlib');
+const { promisify } = require('util');
 const { downloadBackup } = require('./cloudStorage');
 const { getEncryptionKey, generateCompanyBackup } = require('./backup');
+const { decifrar } = require('./backupCripto');
 const { COLECOES_DA_EMPRESA, CAMPOS_DA_PLATAFORMA } = require('./backupColecoes');
+
+const gunzip = promisify(zlib.gunzip);
 
 // Lista das coleções de destino a serem limpas e restauradas -- ver backupColecoes.js.
 const COLLECTIONS_TO_RESTORE = COLECOES_DA_EMPRESA;
@@ -40,21 +44,11 @@ async function reaplicarCamposDaPlataforma(companyId, campos) {
 }
 
 /**
- * Descriptografa um buffer seguro criptografado com AES-256-CBC
- * Extrai o IV dos primeiros 16 bytes do buffer.
+ * Decifra o arquivo de backup -- formato novo (GCM, autenticado) ou o antigo
+ * (CBC), reconhecidos pelo prefixo. Ver backupCripto.js.
  */
 function decryptBuffer(buffer) {
-  const key = getEncryptionKey();
-  const iv = buffer.slice(0, 16);
-  const ciphertext = buffer.slice(16);
-  
-  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-  const decrypted = Buffer.concat([
-    decipher.update(ciphertext),
-    decipher.final()
-  ]);
-  
-  return decrypted;
+  return decifrar(buffer, getEncryptionKey());
 }
 
 /**
@@ -243,7 +237,7 @@ async function restoreCompanyBackup(companyId, companyName, filename, userEmail)
   let decryptedJson;
   try {
     const decryptedBuffer = decryptBuffer(encryptedBuffer);
-    const gunzippedBuffer = zlib.gunzipSync(decryptedBuffer);
+    const gunzippedBuffer = await gunzip(decryptedBuffer);
     decryptedJson = JSON.parse(gunzippedBuffer.toString('utf8'));
   } catch (err) {
     throw new Error(`Falha ao descriptografar ou descompactar o arquivo. Chave inválida ou arquivo corrompido: ${err.message}`);

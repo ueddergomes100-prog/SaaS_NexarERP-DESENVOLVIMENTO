@@ -9,6 +9,7 @@ const {
   situacaoDaNota,
   validarChaveAcesso,
 } = require('../services/notaRecebida');
+const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 
 const router = express.Router();
 router.use(authenticate);
@@ -27,15 +28,16 @@ const podeDarEntrada = (user) => {
   return permissoes.includes('fiscal.entrada') || canUseFiscal(user);
 };
 
+// Busca na SEFAZ (via Spedy) pode demorar: usa o perfil mais longo de leitura.
 const chamarSpedy = async (config, caminho, opcoes = {}) => {
-  const resposta = await fetch(`${config.baseUrl}${caminho}`, {
+  const resposta = await fetchComTimeout(`${config.baseUrl}${caminho}`, {
     ...opcoes,
     headers: {
       'X-Api-Key': config.apiKey,
       'Content-Type': 'application/json',
       ...(opcoes.headers || {}),
     },
-  });
+  }, PERFIS.spedyCadastro);
   return resposta;
 };
 

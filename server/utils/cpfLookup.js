@@ -5,6 +5,8 @@
 // retorno so traz nome/genero/data de nascimento, sem endereco nem
 // situacao cadastral.
 
+const { fetchComTimeout, PERFIS } = require('./fetchComTimeout');
+
 const onlyDigits = (value = '') => String(value).replace(/\D/g, '');
 
 const isValidCpf = (cpf) => {
@@ -41,12 +43,12 @@ const fetchCpfData = async (cpfInput) => {
     throw error;
   }
 
-  const response = await fetch(`https://apicpf.com/api/consulta?cpf=${cpf}`, {
+  const response = await fetchComTimeout(`https://apicpf.com/api/consulta?cpf=${cpf}`, {
     headers: {
       'X-API-KEY': apiKey,
       Accept: 'application/json'
     }
-  });
+  }, PERFIS.consultaCpf);
 
   const body = await response.json().catch(() => ({}));
 

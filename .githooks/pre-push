@@ -1,0 +1,61 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# GATE DE QUALIDADE ANTES DE PUBLICAR (auditoria de 2026-09-30).
+#
+# Push no remote `production` vira deploy automatico na Hostinger em ~1 min,
+# reiniciando o backend -- nada pode subir quebrado. Este hook roda ANTES de
+# cada push:
+#   - dev:        typecheck + testes (front e servidor)
+#   - production: typecheck + lint + testes (front e servidor)
+# e cancela o push se algo falhar.
+#
+# Ativar uma vez por clone:   git config core.hooksPath .githooks
+# Pular so' em emergencia:    SKIP_GATE=1 git push production main
+# ---------------------------------------------------------------------------
+remote="$1"
+url="$2"
+
+case "$remote" in
+  production) alvo="production" ;;
+  dev) alvo="dev" ;;
+  *)
+    case "$url" in
+      *Sistema-Nexus-Company-Commit*) alvo="production" ;;
+      *DESENVOLVIMENTO*) alvo="dev" ;;
+      *) exit 0 ;;
+    esac
+    ;;
+esac
+
+if [ "$SKIP_GATE" = "1" ]; then
+  echo "[gate] SKIP_GATE=1: verificações puladas (só em emergência)."
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+falhou() {
+  echo ""
+  echo "[gate] $1 falhou: push para '$alvo' CANCELADO. Corrija e tente de novo."
+  exit 1
+}
+
+echo "[gate] destino: $alvo"
+echo "[gate] 1/4 typecheck..."
+npm run --silent typecheck || falhou "typecheck"
+
+if [ "$alvo" = "production" ]; then
+  echo "[gate] 2/4 lint..."
+  npm run --silent lint || falhou "lint"
+else
+  echo "[gate] 2/4 lint (só em production, pulado)"
+fi
+
+echo "[gate] 3/4 testes do front..."
+npm test --silent || falhou "testes do front"
+
+echo "[gate] 4/4 testes do servidor..."
+npm --prefix server test --silent || falhou "testes do servidor"
+
+echo "[gate] tudo verde. Publicando em '$alvo'."
+exit 0

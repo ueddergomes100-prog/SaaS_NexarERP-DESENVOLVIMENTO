@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { admin, db } = require('../config/firebase');
+const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 
 const BASE_URLS = {
   sandbox: 'https://sandbox-api.spedy.com.br/v1',
@@ -68,10 +69,10 @@ router.post('/:secret', async (req, res) => {
 
     // Reconsulta o estado real via API autenticada -- nunca usa o
     // "status" que veio solto no corpo do webhook.
-    const response = await fetch(`${BASE_URLS[env]}/${typePath}/${spedyNoteId}`, {
+    const response = await fetchComTimeout(`${BASE_URLS[env]}/${typePath}/${spedyNoteId}`, {
       method: 'GET',
       headers: { 'X-Api-Key': apiKey }
-    });
+    }, PERFIS.spedyLeitura);
     if (!response.ok) return;
     const freshNote = await response.json();
 

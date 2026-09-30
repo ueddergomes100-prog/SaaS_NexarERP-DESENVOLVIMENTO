@@ -6,6 +6,8 @@
 // esta cadastrado (Clientes/Fornecedores) -- por isso o check de "CNPJ ja
 // existe no SaaS" fica em onboarding.routes.js, nao aqui.
 
+const { fetchComTimeout, PERFIS } = require('./fetchComTimeout');
+
 const onlyDigits = (value = '') => String(value).replace(/\D/g, '');
 
 const isValidCnpj = (cnpj) => {
@@ -65,12 +67,12 @@ const fetchCnpjData = async (cnpjInput) => {
       throw error;
     }
 
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/${cnpj}`, {
+    const response = await fetchComTimeout(`${baseUrl.replace(/\/$/, '')}/${cnpj}`, {
       headers: {
         Authorization: `Bearer ${bearerToken}`,
         Accept: 'application/json'
       }
-    });
+    }, PERFIS.receitaFederal);
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -99,13 +101,13 @@ const fetchCnpjData = async (cnpjInput) => {
     };
   }
 
-  const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
+  const response = await fetchComTimeout(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
     headers: {
       Accept: 'application/json',
       'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
       'User-Agent': 'HennderERP-Onboarding/1.0 (+https://hennder-erp.local)'
     }
-  });
+  }, PERFIS.receitaFederal);
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {

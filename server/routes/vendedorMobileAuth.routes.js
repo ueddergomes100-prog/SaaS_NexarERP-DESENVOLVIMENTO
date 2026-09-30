@@ -2,6 +2,7 @@ const express = require('express');
 const { admin, db } = require('../config/firebase');
 const { onlyDigits } = require('../utils/cnpjLookup');
 const { validarPin } = require('../services/vendedorPin');
+const { limitadorPublico, limitadorPorChave } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
@@ -14,8 +15,10 @@ const router = express.Router();
  * Rota PUBLICA (sem `authenticate`, diferente de vendedorPin.routes.js):
  * ninguem esta logado ainda quando isto e' chamado. A seguranca fica no
  * proprio `validarPin` (hash scrypt + bloqueio por tentativas, reaproveitado
- * sem alteracao) e no rate limit por IP abaixo, no mesmo padrao de
- * onboarding.routes.js.
+ * sem alteracao) e nos dois limites abaixo (middleware/rateLimit.js): por IP
+ * -- o IP real, resolvido pelo Express com `trust proxy`, nao o cabecalho
+ * que o cliente escreve -- e por vendedor (CNPJ + codigo), que vale mesmo
+ * que as tentativas venham de muitos IPs.
  *
  * O tenant e' resolvido pelo indice `vendedores_mobile_login/{cnpj}-{codigo}`
  * (Firestore, so' o Admin SDK le -- ver firestore.rules), escrito pelo
@@ -23,40 +26,6 @@ const router = express.Router();
  * Isto substitui o token de autenticacao que a rota /validar normal usa pra
  * saber o tenantId de quem chamou.
  */
-
-const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
-const RATE_LIMIT_MAX = 20;
-const rateLimitBuckets = new Map();
-
-const getRequestIp = (req) => {
-  const forwardedFor = req.headers['x-forwarded-for'];
-  const rawIp = Array.isArray(forwardedFor)
-    ? forwardedFor[0]
-    : String(forwardedFor || '').split(',')[0].trim();
-
-  return (rawIp || req.socket.remoteAddress || req.ip || '')
-    .replace(/^::ffff:/, '')
-    .replace(/^::1$/, '127.0.0.1');
-};
-
-const checkRateLimit = (key) => {
-  const now = Date.now();
-  const bucket = rateLimitBuckets.get(key) || { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS };
-
-  if (bucket.resetAt < now) {
-    bucket.count = 0;
-    bucket.resetAt = now + RATE_LIMIT_WINDOW_MS;
-  }
-
-  bucket.count += 1;
-  rateLimitBuckets.set(key, bucket);
-
-  if (bucket.count > RATE_LIMIT_MAX) {
-    const error = new Error('Muitas tentativas. Aguarde alguns minutos e tente novamente.');
-    error.status = 429;
-    throw error;
-  }
-};
 
 /** Mesma normalizacao de src/utils/vendedorPinDomain.ts (normalizarCodigoVendedor):
  *  "7" e "07" sao o mesmo vendedor. Precisa bater com a chave que o frontend
@@ -68,6 +37,13 @@ const normalizarCodigo = (valor) => {
   return digitos.padStart(CODIGO_DIGITOS, '0');
 };
 
+const limitePorIp = limitadorPublico('mobile-login-ip', { limite: 20 });
+const limitePorVendedor = limitadorPorChave(
+  'mobile-login-vendedor',
+  (req) => `${onlyDigits(req.body?.cnpj)}-${normalizarCodigo(req.body?.codigo)}`,
+  { limite: 10, mensagem: 'Muitas tentativas de entrar com este vendedor. Aguarde alguns minutos e tente de novo.' },
+);
+
 const responderErro = (res, erro, contexto) => {
   if (erro && typeof erro.status === 'number') {
     return res.status(erro.status).json({ error: erro.message });
@@ -76,10 +52,8 @@ const responderErro = (res, erro, contexto) => {
   return res.status(500).json({ error: 'Não foi possível concluir a operação. Tente novamente.' });
 };
 
-router.post('/mobile-login', async (req, res) => {
+router.post('/mobile-login', limitePorIp, limitePorVendedor, async (req, res) => {
   try {
-    checkRateLimit(`mobile-login:${getRequestIp(req)}`);
-
     if (!db || !admin) {
       const erro = new Error('Backend sem acesso ao Firebase.');
       erro.status = 503;

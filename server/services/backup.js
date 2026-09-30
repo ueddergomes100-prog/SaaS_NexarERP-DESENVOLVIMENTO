@@ -3,16 +3,21 @@ const crypto = require('crypto');
 const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
+const { promisify } = require('util');
 const { format } = require('date-fns');
 const { uploadBackup, applyRetentionPolicy } = require('./cloudStorage');
 const { COLECOES_DA_EMPRESA } = require('./backupColecoes');
+const { cifrar } = require('./backupCripto');
+
+const gzip = promisify(zlib.gzip);
 
 // Lista das coleções que usam a filtragem tenantId -- ver backupColecoes.js.
 const COLLECTIONS_TO_BACKUP = COLECOES_DA_EMPRESA;
 
 /**
- * Deriva uma chave de 32 bytes a partir de qualquer senha informada (usando SHA-256)
- * para evitar erros de chave inválida no algoritmo AES-256-CBC.
+ * Segredo que protege os arquivos de backup (BACKUP_ENCRYPTION_KEY). A chave
+ * em si e' derivada em backupCripto.js. Em producao a variavel e' obrigatoria:
+ * sem ela todo backup falha -- e o /health avisa (services/configuracaoAmbiente.js).
  */
 function getEncryptionKey() {
   const secret = process.env.BACKUP_ENCRYPTION_KEY;
@@ -24,32 +29,14 @@ function getEncryptionKey() {
     console.warn('[Backup] BACKUP_ENCRYPTION_KEY ausente. Usando chave local apenas para desenvolvimento.');
   }
 
-  const effectiveSecret = secret || 'HennderERPLocalDevelopmentKeyOnly2026!';
-  return crypto.createHash('sha256').update(effectiveSecret).digest();
+  return secret || 'HennderERPLocalDevelopmentKeyOnly2026!';
 }
 
 /**
- * Criptografa um buffer usando AES-256-CBC com um IV aleatório.
- * O IV (16 bytes) é colocado no início do buffer resultante.
+ * Exporta, compacta, cifra e envia o backup de UMA empresa. Nao chame direto:
+ * use generateCompanyBackup, que enfileira -- ver abaixo.
  */
-function encryptBuffer(buffer) {
-  const key = getEncryptionKey();
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-  
-  const encrypted = Buffer.concat([
-    iv,
-    cipher.update(buffer),
-    cipher.final()
-  ]);
-  
-  return encrypted;
-}
-
-/**
- * Executa a rotina de exportação, compactação, criptografia e envio do backup para o Cloud Storage.
- */
-async function generateCompanyBackup(companyId) {
+async function gerarBackupDaEmpresa(companyId) {
   if (!db) {
     throw new Error('Banco de dados Firestore não inicializado ou inacessível.');
   }
@@ -142,11 +129,12 @@ async function generateCompanyBackup(companyId) {
 
   const finalJsonString = JSON.stringify(exportData);
 
-  // 6. Compressão com Gzip (zlib)
-  const gzipBuffer = zlib.gzipSync(Buffer.from(finalJsonString, 'utf8'));
+  // 6. Compressão com Gzip -- assincrona: a versao sincrona travava o servidor
+  // inteiro (PIN, fiscal, webhook) por varios segundos numa empresa grande.
+  const gzipBuffer = await gzip(Buffer.from(finalJsonString, 'utf8'));
 
-  // 7. Criptografia AES-256-CBC
-  const encryptedBuffer = encryptBuffer(gzipBuffer);
+  // 7. Criptografia AES-256-GCM (ver backupCripto.js)
+  const encryptedBuffer = cifrar(gzipBuffer, getEncryptionKey());
 
   // 8. Nome do arquivo
   const timestamp = format(new Date(), 'yyyy-MM-dd_HH-mm');
@@ -216,6 +204,21 @@ async function generateCompanyBackup(companyId) {
     console.warn(`[Backup] Upload falhou. Backup salvo temporariamente localmente em: ${localFilePath}`);
     return { ...backupRecord, status: 'pendente', localPath: localFilePath };
   }
+}
+
+/**
+ * Um backup por vez neste processo. Cada backup carrega a empresa inteira na
+ * memoria (JSON + gzip + cifra); dois ao mesmo tempo (cron de duas empresas
+ * no mesmo horario, ou clique repetido no painel) dobravam o pico e podiam
+ * derrubar o processo na hospedagem compartilhada. A fila e' uma corrente de
+ * promessas: o proximo so' comeca quando o anterior termina, com ou sem erro.
+ */
+let filaDeBackups = Promise.resolve();
+
+function generateCompanyBackup(companyId) {
+  const execucao = filaDeBackups.then(() => gerarBackupDaEmpresa(companyId));
+  filaDeBackups = execucao.catch(() => {});
+  return execucao;
 }
 
 module.exports = {

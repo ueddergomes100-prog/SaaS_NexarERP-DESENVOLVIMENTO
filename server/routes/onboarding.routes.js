@@ -2,6 +2,9 @@ const express = require('express');
 const crypto = require('crypto');
 const { admin, auth, db } = require('../config/firebase');
 const { onlyDigits, isValidCnpj, fetchCnpjData } = require('../utils/cnpjLookup');
+const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
+const { ipDoCliente } = require('../utils/requestIp');
+const { limitadorPublico, limitadorPorChave, limitadorTotal, MINUTO_MS } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
@@ -9,20 +12,6 @@ const CODE_TTL_MS = 10 * 60 * 1000;
 const ONBOARDING_TTL_MS = 24 * 60 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
 const MAX_CODE_ATTEMPTS = 5;
-const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
-const RATE_LIMIT_MAX = 30;
-const rateLimitBuckets = new Map();
-
-const getRequestIp = (req) => {
-  const forwardedFor = req.headers['x-forwarded-for'];
-  const rawIp = Array.isArray(forwardedFor)
-    ? forwardedFor[0]
-    : String(forwardedFor || '').split(',')[0].trim();
-
-  return (rawIp || req.socket.remoteAddress || req.ip || '')
-    .replace(/^::ffff:/, '')
-    .replace(/^::1$/, '127.0.0.1');
-};
 
 const requireFirebaseAdmin = () => {
   if (!admin || !auth || !db) {
@@ -32,26 +21,44 @@ const requireFirebaseAdmin = () => {
   }
 };
 
-const checkRateLimit = (key) => {
-  const now = Date.now();
-  const bucket = rateLimitBuckets.get(key) || { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS };
-
-  if (bucket.resetAt < now) {
-    bucket.count = 0;
-    bucket.resetAt = now + RATE_LIMIT_WINDOW_MS;
-  }
-
-  bucket.count += 1;
-  rateLimitBuckets.set(key, bucket);
-
-  if (bucket.count > RATE_LIMIT_MAX) {
-    const error = new Error('Muitas tentativas. Aguarde alguns minutos e tente novamente.');
-    error.status = 429;
-    throw error;
-  }
-};
-
 const normalizeEmail = (email = '') => String(email).trim().toLowerCase();
+
+// ---------------------------------------------------------------------------
+// LIMITES DAS ROTAS PUBLICAS (ninguem esta logado aqui).
+//
+// Ate 2026-09-30 o limite era so' por IP, e o IP era lido do primeiro valor
+// de X-Forwarded-For -- que quem chama escreve. Agora o IP vem do Express
+// (`trust proxy`, ver server.js) e, alem dele, cada alvo tem o proprio teto:
+//  - por e-mail: ninguem recebe mais de 5 codigos por hora, venha de quantos
+//    IPs vier (contra "e-mail bombing" pelo nosso remetente);
+//  - por cadastro pendente: reenvio/confirmacao de codigo;
+//  - teto TOTAL da consulta de CNPJ: a Receita Federal (BrasilAPI) enxerga o
+//    IP do SERVIDOR -- se ela bloquear, o cadastro para pra todo mundo.
+// ---------------------------------------------------------------------------
+const limitePorIp = (nome) => limitadorPublico(`onboarding-${nome}`, { limite: 30 });
+const limiteCnpjPorIp = limitePorIp('cnpj');
+const limiteStartPorIp = limitePorIp('start');
+const limiteResendPorIp = limitePorIp('resend');
+const limiteVerifyPorIp = limitePorIp('verify');
+const limiteCompletePorIp = limitePorIp('complete');
+const limitePorEmail = limitadorPorChave('onboarding-email', (req) => normalizeEmail(req.body?.email), {
+  limite: 5,
+  janelaMs: 60 * MINUTO_MS,
+  mensagem: 'Este e-mail já recebeu códigos demais na última hora. Aguarde antes de pedir outro.',
+});
+const limiteReenvioPorCadastro = limitadorPorChave('onboarding-reenvio', (req) => String(req.body?.onboardingId || ''), {
+  limite: 5,
+  janelaMs: 60 * MINUTO_MS,
+  mensagem: 'Este cadastro já pediu códigos demais na última hora. Aguarde antes de pedir outro.',
+});
+const limiteVerificacaoPorCadastro = limitadorPorChave('onboarding-verificacao', (req) => String(req.body?.onboardingId || ''), {
+  limite: 30,
+  mensagem: 'Muitas tentativas de confirmar o código. Aguarde alguns minutos e tente de novo.',
+});
+const tetoConsultaCnpj = limitadorTotal('onboarding-cnpj', {
+  limite: 300,
+  mensagem: 'A validação de CNPJ recebeu pedidos demais na última hora. Tente de novo mais tarde.',
+});
 
 const normalizePhone = (phone = '') => {
   const digits = onlyDigits(phone);
@@ -171,7 +178,7 @@ const sendEmailCode = async ({ email, code, companyName }) => {
   `;
 
   if (process.env.RESEND_API_KEY && process.env.EMAIL_FROM) {
-    const response = await fetch('https://api.resend.com/emails', {
+    const response = await fetchComTimeout('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
@@ -184,7 +191,7 @@ const sendEmailCode = async ({ email, code, companyName }) => {
         html,
         text
       })
-    });
+    }, PERFIS.email);
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
@@ -194,7 +201,7 @@ const sendEmailCode = async ({ email, code, companyName }) => {
   }
 
   if (process.env.SENDGRID_API_KEY && process.env.EMAIL_FROM) {
-    const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+    const response = await fetchComTimeout('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`,
@@ -209,7 +216,7 @@ const sendEmailCode = async ({ email, code, companyName }) => {
           { type: 'text/html', value: html }
         ]
       })
-    });
+    }, PERFIS.email);
 
     if (!response.ok) {
       throw new Error('Nao foi possivel enviar o codigo por e-mail.');
@@ -281,10 +288,9 @@ const publicCnpjData = (cnpjData) => ({
   provider: cnpjData.provider
 });
 
-router.post('/validate-cnpj', async (req, res) => {
+router.post('/validate-cnpj', limiteCnpjPorIp, tetoConsultaCnpj, async (req, res) => {
   try {
     requireFirebaseAdmin();
-    checkRateLimit(`cnpj:${getRequestIp(req)}`);
 
     const cnpjData = await validateCnpjForOnboarding(req.body?.cnpj);
     return res.json({
@@ -297,12 +303,11 @@ router.post('/validate-cnpj', async (req, res) => {
   }
 });
 
-router.post('/start', async (req, res) => {
+router.post('/start', limiteStartPorIp, limitePorEmail, tetoConsultaCnpj, async (req, res) => {
   let pendingRef = null;
 
   try {
     requireFirebaseAdmin();
-    checkRateLimit(`start:${getRequestIp(req)}`);
 
     const email = normalizeEmail(req.body?.email);
     const telefone = normalizePhone(req.body?.telefone);
@@ -360,7 +365,7 @@ router.post('/start', async (req, res) => {
       },
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       expiresAt: timestampFromMillis(now + ONBOARDING_TTL_MS),
-      requestIp: getRequestIp(req),
+      requestIp: ipDoCliente(req),
       userAgent: req.get('user-agent') || ''
     });
 
@@ -384,10 +389,9 @@ router.post('/start', async (req, res) => {
   }
 });
 
-router.post('/resend-code', async (req, res) => {
+router.post('/resend-code', limiteResendPorIp, limiteReenvioPorCadastro, async (req, res) => {
   try {
     requireFirebaseAdmin();
-    checkRateLimit(`resend:${getRequestIp(req)}`);
 
     const field = 'emailVerification';
     const { ref, data } = await loadPending(req.body?.onboardingId);
@@ -463,10 +467,9 @@ const verifyCode = async ({ onboardingId, code }) => {
   return { ok: true };
 };
 
-router.post('/verify-email', async (req, res) => {
+router.post('/verify-email', limiteVerifyPorIp, limiteVerificacaoPorCadastro, async (req, res) => {
   try {
     requireFirebaseAdmin();
-    checkRateLimit(`verify-email:${getRequestIp(req)}`);
     await verifyCode({ onboardingId: req.body?.onboardingId, code: req.body?.code });
     return res.json({ ok: true });
   } catch (error) {
@@ -475,12 +478,11 @@ router.post('/verify-email', async (req, res) => {
   }
 });
 
-router.post('/complete', async (req, res) => {
+router.post('/complete', limiteCompletePorIp, async (req, res) => {
   let createdUid = null;
 
   try {
     requireFirebaseAdmin();
-    checkRateLimit(`complete:${getRequestIp(req)}`);
 
     const password = String(req.body?.password || '');
     const passwordError = assertPasswordPolicy(password);

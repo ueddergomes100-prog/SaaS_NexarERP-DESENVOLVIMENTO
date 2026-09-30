@@ -16,6 +16,7 @@ const BASE_URLS = {
 };
 
 const { buildCompanyPayload } = require('../services/spedyEmpresa');
+const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 
 router.use(authenticate);
 
@@ -97,14 +98,14 @@ router.post('/companies', async (req, res) => {
     const masterApiKey = await loadMasterApiKey(environment);
     const payload = buildCompanyPayload(config);
 
-    const response = await fetch(`${BASE_URLS[environment]}/companies`, {
+    const response = await fetchComTimeout(`${BASE_URLS[environment]}/companies`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Api-Key': masterApiKey,
       },
       body: JSON.stringify(payload),
-    });
+    }, PERFIS.spedyCadastro);
 
     if (!response.ok) {
       const message = await spedyErrorMessage(response, 'Erro ao cadastrar a empresa na Spedy.');
@@ -182,14 +183,14 @@ router.put('/companies/:tenantId/settings', async (req, res) => {
     const masterApiKey = await loadMasterApiKey(environment);
     const payload = buildCompanyPayload(config);
 
-    const response = await fetch(`${BASE_URLS[environment]}/companies/${companyId}`, {
+    const response = await fetchComTimeout(`${BASE_URLS[environment]}/companies/${companyId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
         'X-Api-Key': masterApiKey,
       },
       body: JSON.stringify(payload),
-    });
+    }, PERFIS.spedyCadastro);
 
     if (!response.ok) {
       const message = await spedyErrorMessage(response, 'Erro ao atualizar os dados da empresa na Spedy.');
@@ -236,11 +237,11 @@ router.post('/companies/:tenantId/certificate', async (req, res) => {
     form.append('certificateFile', new Blob([certificateBuffer]), 'certificado.pfx');
     form.append('password', certificadoSenha);
 
-    const response = await fetch(`${BASE_URLS[environment]}/companies/${companyId}/certificates`, {
+    const response = await fetchComTimeout(`${BASE_URLS[environment]}/companies/${companyId}/certificates`, {
       method: 'POST',
       headers: { 'X-Api-Key': masterApiKey },
       body: form,
-    });
+    }, PERFIS.spedyCadastro);
 
     if (!response.ok) {
       const message = await spedyErrorMessage(response, 'Erro ao enviar o certificado digital para a Spedy.');

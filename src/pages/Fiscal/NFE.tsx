@@ -28,7 +28,7 @@ import {
 } from '../../utils/notaFiscalItemDomain';
 import Swal from 'sweetalert2';
 import { motivoPedidoNaoEmiteNota, notaDeveAparecer } from '../../utils/notaFiscalVisibilidadeDomain';
-import { escolherIntegrationIdDoReenvio } from '../../utils/reenvioNotaDomain';
+import { escolherIntegrationIdDoReenvio, rejeicaoPrendeConfiguracaoNaNota } from '../../utils/reenvioNotaDomain';
 import { resolverInscricaoEstadualDestinatario } from '../../utils/destinatarioFiscalDomain';
 import EmissaoProgressoModal from '../../components/common/EmissaoProgressoModal';
 import CartaCorrecaoModal from '../../components/common/CartaCorrecaoModal';
@@ -65,6 +65,8 @@ interface LocalInvoice {
   emailEnvio?: { status?: 'enviado' | 'erro'; para?: string; erro?: string } | null;
   /** Tentativa de emissao em uso na Spedy (1 = original). Ver reenvioNotaDomain.ts. */
   tentativaEmissao?: number | null;
+  /** Id com que a nota foi criada na Spedy -- o reenvio usa o MESMO pra manter o numero. */
+  integrationId?: string | null;
   /** Cartas de correcao (CC-e) ja enviadas -- gravadas pelo servidor. */
   cartasCorrecao?: CartaEnviada[];
   /** 'devolucao' = NF-e de devolucao de venda (entrada), emitida pelo servidor. */
@@ -1161,6 +1163,7 @@ const NFE: React.FC = () => {
           clienteId: data.clienteId || null,
           emailEnvio: data.emailEnvio || null,
           tentativaEmissao: data.tentativaEmissao || null,
+          integrationId: data.integrationId || null,
           cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : [],
           finalidade: data.finalidade || null,
           devolucaoId: data.devolucaoId || null,
@@ -1228,6 +1231,7 @@ const NFE: React.FC = () => {
           clienteId: data.clienteId || null,
           emailEnvio: data.emailEnvio || null,
           tentativaEmissao: data.tentativaEmissao || null,
+          integrationId: data.integrationId || null,
           cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : [],
           finalidade: data.finalidade || null,
           devolucaoId: data.devolucaoId || null,
@@ -1617,6 +1621,24 @@ const NFE: React.FC = () => {
   };
 
   /**
+   * Id com que a nota rejeitada esta na Spedy: o gravado na nota ou, em nota
+   * antiga (antes de 2026-09-30 nao se gravava), o que a propria Spedy informa.
+   * null = nao deu pra saber -- quem chama NAO transmite (senao pula numero).
+   */
+  const integrationIdDaNota = async (nota: LocalInvoice | null | undefined): Promise<string | null> => {
+    if (!nota) return null;
+    if (nota.integrationId) return nota.integrationId;
+    if (!nota.spedyId) return null;
+    try {
+      const naSpedy = await consultarNotaNaSpedy(nota.tipo, nota.spedyId);
+      return naSpedy.integrationId || null;
+    } catch (erroConsulta) {
+      console.error('Nao foi possivel ler o id da nota na Spedy:', erroConsulta);
+      return null;
+    }
+  };
+
+  /**
    * Monta o corpo da NF-e (itens com impostos, destino, desconto, parcelas do boleto,
    * fatura, totais) no formato da Spedy. Uma so' funcao pra emissao normal e pra emissao
    * em lote -- as duas mandam exatamente o mesmo formato. `itens` vazio = lancamento avulso.
@@ -1945,11 +1967,23 @@ const NFE: React.FC = () => {
       // o numero) -- exceto quando a rejeicao veio da CONFIGURACAO presa na
       // nota ("Ambiente:0"): ai' vai uma nota nova. Ver reenvioNotaDomain.ts.
       const notaLocalAlvo = targetInvoiceId ? allInvoices.find((n) => n.id === targetInvoiceId) : null;
+      // O MESMO id com que a nota esta na Spedy -- senao a Spedy cria outra nota e
+      // pula o numero (a rejeitada fica como buraco na sequencia).
+      const idNaSpedy = targetInvoiceId ? await integrationIdDaNota(notaLocalAlvo) : null;
+      if (targetInvoiceId && notaLocalAlvo?.spedyId && !idNaSpedy && !rejeicaoPrendeConfiguracaoNaNota(notaLocalAlvo.processingMessage)) {
+        setProgresso(null);
+        showError(
+          'Não foi possível retransmitir agora',
+          'Não consegui confirmar com a Spedy qual é a nota original, e transmitir sem isso criaria uma nota nova, pulando a numeração. Confira sua conexão e tente de novo em instantes.',
+        );
+        return;
+      }
       const escolhaReenvio = targetInvoiceId
         ? escolherIntegrationIdDoReenvio({
             docId: targetInvoiceId,
             tentativaAtual: notaLocalAlvo?.tentativaEmissao,
             mensagemRejeicao: notaLocalAlvo?.processingMessage,
+            integrationIdAtual: idNaSpedy,
           })
         : null;
       const integrationId = escolhaReenvio ? escolhaReenvio.integrationId : pendingIntegrationIdRef.current!;
@@ -2062,6 +2096,7 @@ const NFE: React.FC = () => {
           // So' grava a tentativa DEPOIS que a Spedy respondeu: se o envio cair
           // no meio, o proximo clique recalcula o mesmo id (sem nota duplicada).
           tentativaEmissao: escolhaReenvio ? escolhaReenvio.tentativa : 1,
+          integrationId,
           emailDestinatario: formData.email.trim() || null,
           updatedAt: serverTimestamp(),
           data: new Date().toISOString(),
@@ -2084,6 +2119,7 @@ const NFE: React.FC = () => {
           processingMessage: spedyNote.processingDetail?.message || null,
           processingCode: spedyNote.processingDetail?.code || null,
           emailDestinatario: formData.email.trim() || null,
+          integrationId,
           tenantId,
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           createdAt: serverTimestamp(),
@@ -2247,8 +2283,12 @@ const NFE: React.FC = () => {
 
     // Nota rejeitada deste pedido: reenvia a MESMA (mesma regra do reenvio manual).
     const rejeitada = allInvoices.find((n) => n.pedidoId === pedido.id && n.tipo === 'NF-e' && n.finalidade !== 'devolucao' && (n.status === 'rejected' || n.status === 'denied'));
+    const idNaSpedy = rejeitada ? await integrationIdDaNota(rejeitada) : null;
+    if (rejeitada?.spedyId && !idNaSpedy && !rejeicaoPrendeConfiguracaoNaNota(rejeitada.processingMessage)) {
+      return { resultado: { estado: 'erro', mensagem: 'Não consegui confirmar com a Spedy qual é a nota rejeitada deste pedido; transmitir agora pularia a numeração. Tente de novo em instantes.' } };
+    }
     const escolha = rejeitada
-      ? escolherIntegrationIdDoReenvio({ docId: rejeitada.id, tentativaAtual: rejeitada.tentativaEmissao, mensagemRejeicao: rejeitada.processingMessage })
+      ? escolherIntegrationIdDoReenvio({ docId: rejeitada.id, tentativaAtual: rejeitada.tentativaEmissao, mensagemRejeicao: rejeitada.processingMessage, integrationIdAtual: idNaSpedy })
       : null;
     const integrationId = escolha ? escolha.integrationId : crypto.randomUUID();
 
@@ -2281,6 +2321,7 @@ const NFE: React.FC = () => {
         processingMessage: nota.processingDetail?.message || null,
         processingCode: nota.processingDetail?.code || null,
         emailDestinatario: form.email.trim() || null,
+        integrationId,
         data: new Date().toISOString(),
       };
       if (rejeitada) {

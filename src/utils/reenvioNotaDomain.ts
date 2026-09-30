@@ -21,6 +21,12 @@
  *
  * Nota nova = numero novo; o numero da rejeitada antiga fica como buraco na
  * sequencia e deve ser inutilizado na SEFAZ (a Spedy tem essa operacao).
+ *
+ * 2026-09-30 (Sol Life, "o retransmitir esta pulando a sequencia"): a PRIMEIRA
+ * emissao ia com um id aleatorio e o reenvio mandava o id do documento local --
+ * id DIFERENTE, entao a Spedy criava outra nota com o proximo numero. Agora o
+ * reenvio usa o id com que a nota realmente esta na Spedy (`integrationIdAtual`,
+ * gravado na nota local ou lido da propria Spedy); sem ele a tela nao transmite.
  */
 
 /** Rejeicao que a Spedy grava na nota e que so' uma nota nova resolve. */
@@ -44,12 +50,17 @@ export const escolherIntegrationIdDoReenvio = (params: {
   tentativaAtual?: number | null;
   /** ultima mensagem de rejeicao da nota */
   mensagemRejeicao?: string | null;
+  /** id com que a nota rejeitada ESTA na Spedy -- o reenvio usa este pra manter o numero */
+  integrationIdAtual?: string | null;
 }): EscolhaIntegrationId => {
   const atual = Math.max(1, Math.floor(Number(params.tentativaAtual) || 1));
   const notaNova = rejeicaoPrendeConfiguracaoNaNota(params.mensagemRejeicao);
   const tentativa = notaNova ? atual + 1 : atual;
+  const idAtual = String(params.integrationIdAtual ?? '').trim();
   return {
-    integrationId: tentativa === 1 ? params.docId : `${params.docId}-t${tentativa}`,
+    integrationId: !notaNova && idAtual
+      ? idAtual
+      : tentativa === 1 ? params.docId : `${params.docId}-t${tentativa}`,
     tentativa,
     notaNova,
   };

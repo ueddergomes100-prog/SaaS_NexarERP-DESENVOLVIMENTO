@@ -86,6 +86,8 @@ const legacyArgsNotice = (apiKey: string, env: SpedyEnv) => {
 
 export interface SpedyInvoice {
   id: string;
+  /** Id da nota no nosso sistema, enviado na criacao (idempotencia da Spedy). */
+  integrationId?: string | null;
   number: number | null;
   series?: string;
   status: 'enqueued' | 'authorized' | 'rejected' | 'canceled' | 'denied' | 'created' | 'processing';

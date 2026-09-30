@@ -46,3 +46,14 @@ test('tentativa invalida cai em 1', () => {
   assert.equal(escolherIntegrationIdDoReenvio({ docId: 'x', tentativaAtual: -3, mensagemRejeicao: '' }).tentativa, 1);
   assert.equal(escolherIntegrationIdDoReenvio({ docId: 'x', tentativaAtual: Number.NaN, mensagemRejeicao: '' }).tentativa, 1);
 });
+
+test('reenvio usa o id com que a nota ESTA na Spedy -- nao o do documento local (senao pula numero)', () => {
+  // Caso Sol Life 2026-09-30: 1a emissao com id aleatorio; reenvio com o id do documento criava nota nova.
+  const r = escolherIntegrationIdDoReenvio({ docId: 'docLocal', tentativaAtual: 1, mensagemRejeicao: 'Rejeição 938: ...', integrationIdAtual: '8f1c2a7e-uuid-da-primeira-emissao' });
+  assert.deepEqual(r, { integrationId: '8f1c2a7e-uuid-da-primeira-emissao', tentativa: 1, notaNova: false });
+});
+
+test('rejeicao que exige nota nova (Ambiente:0) ignora o id atual e cria a tentativa seguinte', () => {
+  const r = escolherIntegrationIdDoReenvio({ docId: 'docLocal', tentativaAtual: 1, mensagemRejeicao: MSG_AMBIENTE_0, integrationIdAtual: 'uuid-antigo' });
+  assert.deepEqual(r, { integrationId: 'docLocal-t2', tentativa: 2, notaNova: true });
+});

@@ -7,3 +7,37 @@
   RewriteCond %{REQUEST_FILENAME} !-l
   RewriteRule . /index.html [L]
 </IfModule>
+
+# ---------------------------------------------------------------------------
+# Cabecalhos de seguranca e de cache (auditoria de 2026-09-30).
+# O front de producao (accounts.nexarcompany.com.br) saia SEM nenhum
+# cabecalho de seguranca e com index.html sem Cache-Control. O arquivo
+# public/_headers (formato Netlify) e' ignorado pela Hostinger; este .htaccess
+# vale onde o site e' servido por Apache/LiteSpeed. Tudo dentro de IfModule:
+# modulo ausente = bloco ignorado, nunca erro 500.
+# ---------------------------------------------------------------------------
+<IfModule mod_headers.c>
+  Header always set Strict-Transport-Security "max-age=15552000; includeSubDomains"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+  # A pagina de entrada nunca fica em cache: depois de um deploy, um
+  # index.html velho apontaria para chunks JS que nao existem mais.
+  <FilesMatch "^(index|vendedor)\.html$">
+    Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+  </FilesMatch>
+  <FilesMatch "\.(webmanifest|json)$">
+    Header always set Cache-Control "no-cache"
+  </FilesMatch>
+  # Chunks com hash no nome (main-_QLpHcT1.js) nunca mudam: um ano de cache.
+  # sw.js e outros arquivos sem hash ficam de fora de proposito.
+  <FilesMatch "-[A-Za-z0-9_-]{8,}\.(js|css)$">
+    Header always set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+</IfModule>
+
+<IfModule mod_mime.c>
+  AddType application/manifest+json .webmanifest
+  AddType application/javascript .js .mjs
+</IfModule>

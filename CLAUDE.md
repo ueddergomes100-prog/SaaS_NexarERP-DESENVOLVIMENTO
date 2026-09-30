@@ -78,3 +78,23 @@ Duas ressalvas que valem repetir:
 Detalhes de banco, remotes e deploy estão nos documentos de arquitetura em
 [`docs/`](docs/). O essencial: **produção e desenvolvimento são projetos
 Firebase separados, e nada roda contra produção a partir da máquina local.**
+
+## 6. Toda chamada HTTP tem tempo limite
+
+Nunca use `fetch` cru. No frontend, `fetchComTimeout` de
+[`src/utils/fetchComTimeout.ts`](src/utils/fetchComTimeout.ts) (padrão 30 s;
+emissão de nota e backup têm tempos próprios em `TEMPO_LIMITE`) e
+`mensagemDeFalhaDeRede` para a mensagem ao usuário. No backend,
+`fetchComTimeout` + `PERFIS` de
+[`server/utils/fetchComTimeout.js`](server/utils/fetchComTimeout.js): o erro
+já sobe com `status` (502/504) e texto em português.
+
+## 7. Nada sobe sem passar no gate
+
+`git push` para `dev` roda typecheck + testes; para `production` roda também o
+lint (hook em [`.githooks/pre-push`](.githooks/pre-push)). Ative uma vez por
+clone com `git config core.hooksPath .githooks`. O push em `production` é
+deploy imediato e **reinicia o backend**: publique fora do horário de pico
+dos clientes. Rotas públicas do backend e limites por IP/usuário estão em
+[`server/middleware/rateLimit.js`](server/middleware/rateLimit.js); o
+`/health` mostra o que falta configurar em produção.

@@ -1,0 +1,43 @@
+# Verificacao de qualidade em todo push (auditoria de 2026-09-30).
+#
+# A Hostinger publica producao direto do push, sem esperar isto -- o gate que
+# BLOQUEIA e' o hook local (.githooks/pre-push). Este workflow e' a segunda
+# camada: fica o registro no GitHub de que cada commit passou (ou nao) em
+# typecheck, lint e testes, inclusive push feito de outra maquina sem o hook.
+name: Qualidade
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+
+      - name: Dependências do front
+        run: npm ci
+
+      - name: Dependências do servidor
+        run: npm ci --prefix server
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Testes do front
+        run: npm test
+
+      - name: Testes do servidor
+        run: npm --prefix server test

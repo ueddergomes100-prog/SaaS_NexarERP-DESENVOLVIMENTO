@@ -23,6 +23,11 @@ server/.env.*
 # GitHub -- zip de deploy nao precisa ser versionado (o nexar_deploy.zip antigo
 # ficou 3 meses no repo desatualizado, sem ninguem usar).
 *.zip
+# Exportacao/backup de dados de CLIENTE nunca vai pro GitHub (auditoria de
+# 2026-09-30: backup-sol-life-*.json estava solto na raiz, sem ignorar).
+backup-*.json
+*.backup.json
+server/storage/
 
 # AI coding session logs
 .codex-logs/

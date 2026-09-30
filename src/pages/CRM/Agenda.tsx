@@ -4,7 +4,7 @@ import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, upd
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
@@ -184,10 +184,10 @@ const Agenda: React.FC = () => {
       title: 'Detalhes do Agendamento',
       html: `
         <div style="text-align: left; padding: 10px;">
-          <p><strong>Hora:</strong> ${ag.hora}</p>
-          <p><strong>Cliente:</strong> ${ag.clienteNome}</p>
-          <p><strong>Veículo:</strong> ${ag.veiculo || 'Não informado'}</p>
-          <p><strong>Serviço:</strong> ${ag.servico || 'Não informado'}</p>
+          <p><strong>Hora:</strong> ${escaparHtml(ag.hora)}</p>
+          <p><strong>Cliente:</strong> ${escaparHtml(ag.clienteNome)}</p>
+          <p><strong>Veículo:</strong> ${escaparHtml(ag.veiculo || 'Não informado')}</p>
+          <p><strong>Serviço:</strong> ${escaparHtml(ag.servico || 'Não informado')}</p>
           ${jaCancelado ? '<p style="color:#ef4444"><strong>Status:</strong> Cancelado</p>' : ''}
         </div>
       `,

@@ -5,7 +5,7 @@ import { collection, doc, documentId, onSnapshot, query, where, getDocs, runTran
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
+import { NexusSwal, showError, showSuccess, escaparHtml } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { formatDateInputPtBr } from '../../utils/dateTime';
 import {
@@ -202,7 +202,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
 
     const result = await NexusSwal.fire({
       title: 'Excluir Nota de Entrada?',
-      html: `Isso reverte a quantidade somada ao estoque, matéria-prima ou insumo e remove os títulos de Contas a Pagar gerados pela NF-e <strong>${nota.numeroNF}</strong> (${nota.fornecedorNome}). O cadastro dos itens não é apagado.<br/><br/>Digite o motivo (mínimo 12 caracteres):`,
+      html: `Isso reverte a quantidade somada ao estoque, matéria-prima ou insumo e remove os títulos de Contas a Pagar gerados pela NF-e <strong>${escaparHtml(nota.numeroNF)}</strong> (${escaparHtml(nota.fornecedorNome)}). O cadastro dos itens não é apagado.<br/><br/>Digite o motivo (mínimo 12 caracteres):`,
       input: 'text',
       inputAttributes: { minlength: '12', required: 'true', placeholder: 'Motivo da exclusão...' },
       showCancelButton: true,

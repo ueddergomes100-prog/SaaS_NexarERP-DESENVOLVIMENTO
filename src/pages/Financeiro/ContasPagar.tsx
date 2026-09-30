@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { toCents } from '../../utils/financeDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
@@ -245,7 +245,7 @@ const ContasPagar: React.FC = () => {
       const bancoResult = await NexusSwal.fire({
         title: 'De qual banco saiu?',
         input: 'select',
-        inputOptions: Object.fromEntries(bancosDisponiveis.map((b) => [b.id, b.nome])),
+        inputOptions: Object.fromEntries(bancosDisponiveis.map((b) => [b.id, escaparHtml(b.nome)])),
         inputPlaceholder: 'Selecione o banco',
         showCancelButton: true,
         confirmButtonText: 'Confirmar',

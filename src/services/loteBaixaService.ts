@@ -78,7 +78,7 @@ const perguntarOsLotes = async (linhas: LinhaParaLote[], lotesPorProduto: Record
   if (pendentes.length === 0) return {};
   const linhasHtml = pendentes.map((linha) => {
     const opcoes = (lotesPorProduto[linha.produtoId] || [])
-      .map((l) => `<option value="${escaparHtml(l.id)}">${escaparHtml(l.lote)} — validade ${dataBr(l.validade)} — saldo ${l.quantidade}</option>`)
+      .map((l) => `<option value="${escaparHtml(l.id)}">${escaparHtml(l.lote)} — validade ${escaparHtml(dataBr(l.validade))} — saldo ${l.quantidade}</option>`)
       .join('');
     return `<div style="text-align:left;margin-bottom:14px"><div style="font-weight:600;margin-bottom:4px">${escaparHtml(linha.nome)} <span style="color:#a1a1aa;font-weight:400">· ${linha.quantidade} un.</span></div>`
       + `<select data-chave="${escaparHtml(linha.chave)}" class="swal2-select" style="margin:0;width:100%;background:#27272a;color:#fff"><option value="">Automático (o que vence primeiro)</option>${opcoes}</select></div>`;

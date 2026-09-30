@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { collection, query, onSnapshot, where, doc, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { Landmark, CreditCard, CheckCircle, Calendar, Search, Clock } from 'lucide-react';
 import {
   applyPaymentReceipt,
@@ -140,7 +140,7 @@ const Banco: React.FC = () => {
         title: 'Em qual banco caiu?',
         text: 'Esta venda não tem banco de destino definido (venda antiga). Selecione onde o valor caiu:',
         input: 'select',
-        inputOptions: Object.fromEntries(bancosAtivos.map((b) => [b.id, b.nome])),
+        inputOptions: Object.fromEntries(bancosAtivos.map((b) => [b.id, escaparHtml(b.nome)])),
         inputPlaceholder: 'Selecione o banco',
         showCancelButton: true,
         confirmButtonText: 'Continuar',

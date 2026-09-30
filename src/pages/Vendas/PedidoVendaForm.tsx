@@ -4,7 +4,7 @@ import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, 
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService } from '../../services/spedyService';
 import * as loteBaixa from '../../services/loteBaixaService';
@@ -1015,7 +1015,7 @@ const PedidoVendaForm: React.FC = () => {
         const result = await NexusSwal.fire({
           title: 'Este cliente tem crédito',
           html: `<div style="font-size:14px;line-height:1.7;">
-            <p><strong>${nome}</strong> tem <strong style="color:#10b981">R$ ${fromCents(totalCents).toFixed(2)}</strong> de crédito de devolução.</p>
+            <p><strong>${escaparHtml(nome)}</strong> tem <strong style="color:#10b981">R$ ${fromCents(totalCents).toFixed(2)}</strong> de crédito de devolução.</p>
             <p style="opacity:0.75;font-size:13px;">Deseja usar esse crédito para abater o valor desta venda?</p>
           </div>`,
           icon: 'info',
@@ -1230,10 +1230,6 @@ const PedidoVendaForm: React.FC = () => {
     setItens(itens.filter((_, i) => i !== index));
     setSelectedItemIndex((current) => (current === index ? null : current));
   };
-
-  const escaparHtml = (texto: string) => texto.replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
-  ));
 
   // Editar item ja lancado: QUANTIDADE e PRECO (duplo clique na linha, ou F5
   // com a linha selecionada). Vale a mesma regra de quando o item entrou:

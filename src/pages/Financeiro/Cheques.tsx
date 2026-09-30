@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { collection, query, onSnapshot, where, doc, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { FileCheck2, CheckCircle, AlertTriangle, Search } from 'lucide-react';
 import {
   applyPaymentReceipt,
@@ -148,7 +148,7 @@ const Cheques: React.FC = () => {
         title: 'Em qual banco compensou?',
         text: 'Este cheque não tem banco de destino definido. Selecione onde o valor caiu:',
         input: 'select',
-        inputOptions: Object.fromEntries(bancosAtivos.map((b) => [b.id, b.nome])),
+        inputOptions: Object.fromEntries(bancosAtivos.map((b) => [b.id, escaparHtml(b.nome)])),
         inputPlaceholder: 'Selecione o banco',
         showCancelButton: true,
         confirmButtonText: 'Continuar',
@@ -276,7 +276,7 @@ const Cheques: React.FC = () => {
     }
     const escolha = await NexusSwal.fire({
       title: 'Confirmar compensação do cheque?',
-      html: `O cheque nº <strong>${t.cheque?.numeroCheque || '-'}</strong> (R$ ${transactionNetAmount(t).toFixed(2)}, "${t.descricao}") saiu do banco <strong>${t.bancoNome || ''}</strong>?<br/><br/>O valor será debitado do saldo do banco. Informe o dia em que compensou:`,
+      html: `O cheque nº <strong>${escaparHtml(t.cheque?.numeroCheque || '-')}</strong> (R$ ${transactionNetAmount(t).toFixed(2)}, "${escaparHtml(t.descricao)}") saiu do banco <strong>${escaparHtml(t.bancoNome || '')}</strong>?<br/><br/>O valor será debitado do saldo do banco. Informe o dia em que compensou:`,
       icon: 'question',
       input: 'date',
       inputValue: getDateInputInTimeZone(),

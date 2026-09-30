@@ -5,7 +5,7 @@ import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, 
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs, TabActiveContext } from '../../contexts/TabsContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { spedyService } from '../../services/spedyService';
 import { isPlatformAdminRole } from '../../utils/roles';
@@ -351,7 +351,7 @@ const PedidoVendas: React.FC = () => {
 
     const result = await NexusSwal.fire({
       title: 'Recusar Pedido Pendente?',
-      html: `O pedido <strong>#${pedido.numeroPedido}</strong> (${pedido.clienteNome || 'sem cliente'}) veio de uma integração externa e ainda não gerou baixa de estoque nem lançamento financeiro — recusar só marca como cancelado, não reverte nada.<br/><br/>Digite o motivo (mínimo 8 caracteres):`,
+      html: `O pedido <strong>#${escaparHtml(pedido.numeroPedido)}</strong> (${escaparHtml(pedido.clienteNome || 'sem cliente')}) veio de uma integração externa e ainda não gerou baixa de estoque nem lançamento financeiro — recusar só marca como cancelado, não reverte nada.<br/><br/>Digite o motivo (mínimo 8 caracteres):`,
       input: 'text',
       inputAttributes: { minlength: '8', required: 'true', placeholder: 'Motivo da recusa...' },
       showCancelButton: true,

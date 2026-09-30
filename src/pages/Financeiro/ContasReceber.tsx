@@ -3,7 +3,7 @@ import { collection, query, onSnapshot, where, doc, getDocs, serverTimestamp, ru
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2 } from 'lucide-react';
 import {
   applyPaymentReceipt,
@@ -360,7 +360,7 @@ const ContasReceber: React.FC = () => {
       const bancoResult = await NexusSwal.fire({
         title: formaPgto === 'Cheque' ? 'Em qual banco vai cair quando compensar?' : 'Em qual banco caiu?',
         input: 'select',
-        inputOptions: Object.fromEntries(bancosDisponiveis.map((b) => [b.id, b.nome])),
+        inputOptions: Object.fromEntries(bancosDisponiveis.map((b) => [b.id, escaparHtml(b.nome)])),
         inputPlaceholder: 'Selecione o banco',
         showCancelButton: true,
         confirmButtonText: 'Confirmar',

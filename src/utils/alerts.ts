@@ -1,11 +1,43 @@
-import Swal from 'sweetalert2';
+import Swal, { type SweetAlertOptions } from 'sweetalert2';
 
-export const NexusSwal = Swal.mixin({
+/**
+ * Escapa texto pra ir dentro do `html:` de um pop-up. OBRIGATORIO em todo
+ * dado que veio de cadastro (nome de cliente, produto, fornecedor, descricao):
+ * o SweetAlert2 monta `html`, `footer`, os textos dos botoes e as opcoes de
+ * `inputOptions` como HTML de verdade. Sem escapar, um nome cadastrado como
+ * `<img src=x onerror=...>` roda codigo no navegador de quem abrir o pop-up,
+ * com a sessao dele -- e esse nome pode vir de fora da empresa (XML de
+ * fornecedor, pedido do agente de WhatsApp).
+ */
+export const escaparHtml = (valor: unknown): string => String(valor ?? '')
+  .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+
+const SwalBase = Swal.mixin({
   background: '#1c1c1f',
   color: '#ffffff',
   confirmButtonColor: '#8b5cf6',
   cancelButtonColor: '#3f3f46',
 });
+
+/**
+ * TITULO SEMPRE COMO TEXTO (auditoria de 2026-09-29). O `title` do
+ * SweetAlert2 tambem e' HTML, e o sistema inteiro poe nome de cadastro no
+ * titulo ("Inativar \"{produto}\"?", "{cliente} tem credito"...). Em vez de
+ * corrigir chamada por chamada, o NexusSwal troca `title` por `titleText` (mesma
+ * aparencia, mas vai como texto puro). Nenhum titulo do sistema usa marcacao
+ * -- se um dia precisar, use `html:` com escaparHtml nos dados.
+ */
+const fireOriginal = SwalBase.fire.bind(SwalBase) as (opcoes: SweetAlertOptions) => ReturnType<typeof Swal.fire>;
+SwalBase.fire = ((...args: unknown[]) => {
+  const [opcoes] = args;
+  if (opcoes && typeof opcoes === 'object' && typeof (opcoes as SweetAlertOptions).title === 'string') {
+    const { title, ...resto } = opcoes as SweetAlertOptions;
+    return fireOriginal({ ...resto, titleText: resto.titleText ?? (title as string) });
+  }
+  return (fireOriginal as (...a: unknown[]) => ReturnType<typeof Swal.fire>)(...args);
+}) as typeof Swal.fire;
+
+export const NexusSwal = SwalBase;
 
 // Toast para sucesso rápido (ex: cadastro, edição)
 export const showSuccess = (title: string) => {
@@ -91,7 +123,7 @@ export const confirmUnsavedChanges = async (): Promise<'save' | 'discard' | 'can
 // dentro dela (ver TabsContext.tsx, parentTabId) -- fecha primeiro a(s)
 // aba(s) filha(s), so depois a aba de origem pode ser fechada.
 export const warnBlockedTabClose = async (childLabels: string[]) => {
-  const items = childLabels.map((label) => `• ${label}`).join('<br/>');
+  const items = childLabels.map((label) => `• ${escaparHtml(label)}`).join('<br/>');
   return NexusSwal.fire({
     icon: 'warning',
     title: 'Não é possível fechar esta aba',

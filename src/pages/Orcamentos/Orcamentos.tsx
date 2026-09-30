@@ -94,7 +94,7 @@ const Orcamentos: React.FC = () => {
       }
 
       const colecaoGerado = orcamento.geradoTipo === 'OS' ? 'ordens_de_servico' : 'pedidos_venda';
-      let geradoData: any = null;
+      let geradoData: any;
       try {
         const geradoSnap = await getDoc(doc(db, colecaoGerado, orcamento.geradoId));
         geradoData = geradoSnap.exists() ? geradoSnap.data() : null;

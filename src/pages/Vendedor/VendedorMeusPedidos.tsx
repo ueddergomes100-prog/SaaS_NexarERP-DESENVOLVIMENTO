@@ -47,6 +47,9 @@ const VendedorMeusPedidos: React.FC = () => {
   const [erroCarga, setErroCarga] = useState('');
   const [visiveis, setVisiveis] = useState(PAGINA_MEUS_PEDIDOS);
   const [emitindoId, setEmitindoId] = useState<string | null>(null);
+  // "Agora" e' fixado quando a lista carrega (nao a cada render): a janela
+  // de 30 dias e' decidida uma vez por carga, e a renderizacao fica pura.
+  const [agoraMillis, setAgoraMillis] = useState(0);
 
   // "Minhas Vendas" marcada no cadastro do funcionario: aparecem TODAS as
   // vendas dele aqui. Sem ela, so' as dos ultimos 30 dias.
@@ -111,6 +114,7 @@ const VendedorMeusPedidos: React.FC = () => {
       });
 
       setItens([...doPedidos, ...doOrcamentos]);
+      setAgoraMillis(Date.now());
       setCarregando(false);
     })();
 
@@ -196,7 +200,7 @@ const VendedorMeusPedidos: React.FC = () => {
     }
   };
 
-  const lista = filtrarMeusPedidos(itens, { temMinhasVendas, agoraMillis: Date.now() });
+  const lista = filtrarMeusPedidos(itens, { temMinhasVendas, agoraMillis });
   const listaVisivel = lista.slice(0, visiveis);
 
   return (

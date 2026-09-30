@@ -1,4 +1,5 @@
 import { auth } from './firebase';
+import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../utils/fetchComTimeout';
 
 const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
 const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
@@ -27,10 +28,14 @@ const getAuthHeaders = async () => {
 
 const requestJson = async <T>(path: string, options: RequestInit, fallbackError: string): Promise<T> => {
   const baseUrl = ensureApiUrl();
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: { ...(await getAuthHeaders()), ...(options.headers || {}) },
-  });
+  const headers = { ...(await getAuthHeaders()), ...(options.headers || {}) };
+  let response: Response;
+  try {
+    // Cadastro de empresa e envio de certificado: o servidor fala com a Spedy no meio.
+    response = await fetchComTimeout(`${baseUrl}${path}`, { ...options, headers }, TEMPO_LIMITE.arquivo);
+  } catch (erro) {
+    throw new Error(mensagemDeFalhaDeRede(erro), { cause: erro });
+  }
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     throw new Error(data.error || fallbackError);

@@ -5,6 +5,11 @@
  * (ClienteForm.tsx) e nao foi mexido.
  */
 
+import { fetchComTimeout } from '../utils/fetchComTimeout';
+
+/** ViaCEP costuma responder em menos de 1 s; mais de 10 s e' instabilidade dele. */
+const TEMPO_LIMITE_CEP_MS = 10_000;
+
 export interface EnderecoPorCep {
   encontrado: boolean;
   logradouro: string;
@@ -28,7 +33,7 @@ export const consultarCep = async (cepBruto: string): Promise<EnderecoPorCep> =>
   }
   let dados: { erro?: boolean; logradouro?: string; bairro?: string; localidade?: string; uf?: string; ibge?: string };
   try {
-    const resposta = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+    const resposta = await fetchComTimeout(`https://viacep.com.br/ws/${cep}/json/`, {}, TEMPO_LIMITE_CEP_MS);
     if (!resposta.ok) throw new CepIndisponivelError();
     dados = await resposta.json();
   } catch {

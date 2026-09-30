@@ -1,5 +1,6 @@
 import type { User } from 'firebase/auth';
 import { getDeviceId } from './session';
+import { fetchComTimeout } from './fetchComTimeout';
 
 export const ACTIVE_SESSION_MAX_AGE_MS = 2 * 60 * 1000;
 
@@ -111,11 +112,12 @@ const fetchBackendClientInfo = async (token: string): Promise<BackendClientInfo>
   }
 
   try {
-    const response = await fetch(`${apiUrl}/api/sessions/client-info`, {
+    // So' enriquece o registro da sessao: sem resposta em 10 s, o login segue sem o IP.
+    const response = await fetchComTimeout(`${apiUrl}/api/sessions/client-info`, {
       headers: {
         Authorization: `Bearer ${token}`
       }
-    });
+    }, 10_000);
 
     if (!response.ok) {
       return {};

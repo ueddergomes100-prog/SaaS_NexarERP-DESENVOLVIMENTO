@@ -1,4 +1,5 @@
 import { auth } from './firebase';
+import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../utils/fetchComTimeout';
 
 /**
  * Cliente HTTP da NF-e de devolucao de venda. A nota e' montada NO SERVIDOR
@@ -84,13 +85,14 @@ const chamar = async <T>(rota: 'previa' | 'emitir', corpo: ParametrosDevolucaoNf
 
   let resposta: Response;
   try {
-    resposta = await fetch(`${API_URL}/api/devolucao-nfe/${rota}`, {
+    // 'emitir' espera a Spedy (e, por ela, a SEFAZ) responder.
+    resposta = await fetchComTimeout(`${API_URL}/api/devolucao-nfe/${rota}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(corpo),
-    });
-  } catch {
-    throw new DevolucaoNfeError('Não foi possível falar com o servidor. Verifique a internet e tente de novo.', 0);
+    }, rota === 'emitir' ? TEMPO_LIMITE.emissaoNota : TEMPO_LIMITE.padrao);
+  } catch (erro) {
+    throw new DevolucaoNfeError(mensagemDeFalhaDeRede(erro), 0);
   }
 
   const dados = await resposta.json().catch(() => ({}));

@@ -1,4 +1,5 @@
 import { auth } from './firebase';
+import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
 
 /**
  * Cliente da rota de senha de ACESSO (login no sistema) de um funcionario --
@@ -48,16 +49,13 @@ export const redefinirSenhaAcesso = async (usuarioId: string, novaSenha: string)
   let resposta: Response;
 
   try {
-    resposta = await fetch(`${base}/api/usuarios/redefinir-senha`, {
+    resposta = await fetchComTimeout(`${base}/api/usuarios/redefinir-senha`, {
       method: 'POST',
       headers: await getAuthHeaders(),
       body: JSON.stringify({ usuarioId, novaSenha }),
     });
-  } catch {
-    throw new UsuarioAcessoError(
-      'Não foi possível falar com o servidor. Verifique a internet e tente de novo.',
-      0,
-    );
+  } catch (erro) {
+    throw new UsuarioAcessoError(mensagemDeFalhaDeRede(erro), 0);
   }
 
   const dados = await resposta.json().catch(() => ({}));

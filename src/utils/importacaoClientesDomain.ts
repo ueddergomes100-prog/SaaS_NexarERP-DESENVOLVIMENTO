@@ -446,10 +446,10 @@ export const processarLinhasClientes = (
     // mapeados de propósito (Shopping Rural).
     const temEnderecoSeparado = mapeamento.numero !== null || mapeamento.bairro !== null || mapeamento.cidade !== null;
     const enderecoOriginal = col(mapeamento.endereco);
-    let endereco = '';
-    let numero = '';
-    let bairro = '';
-    let cidade = '';
+    let endereco: string;
+    let numero: string;
+    let bairro: string;
+    let cidade: string;
     let statusEndereco: StatusClienteImportado = 'OK';
     let motivoEndereco = '';
     if (temEnderecoSeparado) {

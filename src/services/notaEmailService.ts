@@ -1,4 +1,5 @@
 import { auth } from './firebase';
+import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../utils/fetchComTimeout';
 
 /**
  * E-mail da nota fiscal ao cliente (PDF + XML), enviado pelo servidor com o SMTP da propria empresa
@@ -36,13 +37,14 @@ const chamar = async <T>(caminho: string, corpo: Record<string, unknown>): Promi
 
   let resposta: Response;
   try {
-    resposta = await fetch(`${API_URL}/api/nota-email${caminho}`, {
+    // O servidor baixa PDF+XML na Spedy e fala com o SMTP da empresa antes de responder.
+    resposta = await fetchComTimeout(`${API_URL}/api/nota-email${caminho}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(corpo),
-    });
-  } catch {
-    throw new NotaEmailError('Não foi possível falar com o servidor. Verifique a internet e tente de novo.', 0);
+    }, TEMPO_LIMITE.arquivo);
+  } catch (erro) {
+    throw new NotaEmailError(mensagemDeFalhaDeRede(erro), 0);
   }
 
   const dados = await resposta.json().catch(() => ({}));

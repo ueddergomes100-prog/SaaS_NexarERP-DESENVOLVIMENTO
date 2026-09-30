@@ -1,4 +1,5 @@
 import { auth } from './firebase';
+import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
 
 const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
 const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
@@ -41,11 +42,16 @@ const postJson = async <T>(path: string, body: Record<string, string>, fallbackE
     throw new Error('Backend não configurado. Configure VITE_BACKEND_API_URL para usar esta consulta.');
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
-    method: 'POST',
-    headers: await getAuthHeaders(),
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+  try {
+    response = await fetchComTimeout(`${API_URL}${path}`, {
+      method: 'POST',
+      headers: await getAuthHeaders(),
+      body: JSON.stringify(body),
+    });
+  } catch (erro) {
+    throw new Error(mensagemDeFalhaDeRede(erro), { cause: erro });
+  }
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {

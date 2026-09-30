@@ -12,6 +12,10 @@ import { mensagemDocumentoInvalido } from '../../utils/documentoValidacao';
 import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton';
 import type { ConsultaCnpjResultado, ConsultaCpfResultado } from '../../services/documentoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { fetchComTimeout } from '../../utils/fetchComTimeout';
+
+/** ViaCEP responde em menos de 1 s; mais de 10 s e' instabilidade dele. */
+const TEMPO_LIMITE_CEP_MS = 10_000;
 
 const FornecedorForm: React.FC = () => {
   const navigate = useNavigate();
@@ -59,7 +63,7 @@ const FornecedorForm: React.FC = () => {
     setIsCepSearching(true);
     setCepSearchError('');
     try {
-      const response = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+      const response = await fetchComTimeout(`https://viacep.com.br/ws/${cepLimpo}/json/`, {}, TEMPO_LIMITE_CEP_MS);
       const data = await response.json();
       if (data.erro) {
         setCepSearchError('CEP não encontrado. Confira o número ou preencha o endereço manualmente.');

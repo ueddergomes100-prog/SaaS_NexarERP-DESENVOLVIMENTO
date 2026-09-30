@@ -5,6 +5,8 @@
  * inicia a sessao, nao o que a usa.
  */
 
+import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
+
 const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
 const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
 
@@ -40,16 +42,13 @@ export const loginVendedorMobile = async (
 
   let resposta: Response;
   try {
-    resposta = await fetch(`${API_URL}/api/vendedor/mobile-login`, {
+    resposta = await fetchComTimeout(`${API_URL}/api/vendedor/mobile-login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cnpj, codigo, pin }),
     });
-  } catch {
-    throw new VendedorMobileAuthError(
-      'Não foi possível falar com o servidor. Verifique a internet e tente de novo.',
-      0,
-    );
+  } catch (erro) {
+    throw new VendedorMobileAuthError(mensagemDeFalhaDeRede(erro), 0);
   }
 
   const dados = await resposta.json().catch(() => ({}));

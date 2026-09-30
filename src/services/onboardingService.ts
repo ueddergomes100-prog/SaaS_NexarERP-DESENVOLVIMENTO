@@ -1,3 +1,5 @@
+import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
+
 const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
 const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
 
@@ -57,11 +59,16 @@ const getApiError = async (response: Response, fallback: string) => {
 
 const postJson = async <T>(path: string, body: object, fallbackError: string): Promise<T> => {
   const baseUrl = ensureApiUrl();
-  const response = await fetch(`${baseUrl}/api/onboarding${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
+  let response: Response;
+  try {
+    response = await fetchComTimeout(`${baseUrl}/api/onboarding${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  } catch (erro) {
+    throw new Error(mensagemDeFalhaDeRede(erro), { cause: erro });
+  }
 
   if (!response.ok) {
     throw new Error(await getApiError(response, fallbackError));

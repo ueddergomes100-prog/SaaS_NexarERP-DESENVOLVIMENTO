@@ -1,4 +1,5 @@
 import { auth } from './firebase';
+import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
 import type { VendedorIdentificado } from '../utils/vendedorPinDomain';
 
 /**
@@ -54,18 +55,16 @@ const post = async <T>(caminho: string, corpo: Record<string, unknown>): Promise
   let resposta: Response;
 
   try {
-    resposta = await fetch(`${base}/api/vendedor-pin${caminho}`, {
+    resposta = await fetchComTimeout(`${base}/api/vendedor-pin${caminho}`, {
       method: 'POST',
       headers: await getAuthHeaders(),
       body: JSON.stringify(corpo),
     });
-  } catch {
-    // Falha de rede: a mensagem tem que dizer o que fazer, nao "Failed to
-    // fetch". No balcao, quem le isso e' o vendedor, com o cliente esperando.
-    throw new VendedorPinError(
-      'Não foi possível falar com o servidor. Verifique a internet e tente de novo.',
-      0,
-    );
+  } catch (erro) {
+    // Falha de rede ou tempo esgotado: a mensagem tem que dizer o que fazer,
+    // nao "Failed to fetch". No balcao, quem le isso e' o vendedor, com o
+    // cliente esperando.
+    throw new VendedorPinError(mensagemDeFalhaDeRede(erro), 0);
   }
 
   const dados = await resposta.json().catch(() => ({}));

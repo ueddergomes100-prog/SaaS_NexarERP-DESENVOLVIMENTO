@@ -15,6 +15,10 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { erroDoDescontoPadraoCliente, parseDescontoPadraoCliente } from '../../utils/descontoDomain';
 import { spedyService, type SpedyCity } from '../../services/spedyService';
 import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
+import { fetchComTimeout } from '../../utils/fetchComTimeout';
+
+/** ViaCEP responde em menos de 1 s; mais de 10 s e' instabilidade dele. */
+const TEMPO_LIMITE_CEP_MS = 10_000;
 
 const ClienteForm: React.FC = () => {
   const navigate = useNavigate();
@@ -133,7 +137,7 @@ const ClienteForm: React.FC = () => {
     setIsCepSearching(true);
     setCepSearchError('');
     try {
-      const response = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+      const response = await fetchComTimeout(`https://viacep.com.br/ws/${cepLimpo}/json/`, {}, TEMPO_LIMITE_CEP_MS);
       const data = await response.json();
       if (data.erro) {
         setCepSearchError('CEP não encontrado. Confira o número ou preencha o endereço manualmente.');
@@ -179,7 +183,7 @@ const ClienteForm: React.FC = () => {
     setBuscando(true);
     setErro('');
     try {
-      const response = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+      const response = await fetchComTimeout(`https://viacep.com.br/ws/${cepLimpo}/json/`, {}, TEMPO_LIMITE_CEP_MS);
       const data = await response.json();
       if (data.erro) {
         setErro('CEP não encontrado. Confira o número ou preencha o endereço manualmente.');

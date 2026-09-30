@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../../utils/fetchComTimeout';
 import Swal from 'sweetalert2';
 
 interface BackupRecord {
@@ -111,7 +112,7 @@ const SuperAdminBackup: React.FC = () => {
 
     try {
       const headers = await getAuthHeaders();
-      const res = await fetch(`${API_URL}/api/backups/tenants`, { headers });
+      const res = await fetchComTimeout(`${API_URL}/api/backups/tenants`, { headers });
       if (res.ok) {
         const data = await res.json();
         setTenants(data);
@@ -133,14 +134,14 @@ const SuperAdminBackup: React.FC = () => {
       const headers = await getAuthHeaders();
       
       // 1. Busca Histórico
-      const resHistory = await fetch(`${API_URL}/api/backups/history?tenantId=${encodeURIComponent(selectedTenant)}`, { headers });
+      const resHistory = await fetchComTimeout(`${API_URL}/api/backups/history?tenantId=${encodeURIComponent(selectedTenant)}`, { headers });
       if (resHistory.ok) {
         const historyData = await resHistory.json();
         setBackups(historyData);
       }
 
       // 2. Busca Configuração do Backup Automático
-      const resSettings = await fetch(`${API_URL}/api/backups/settings?tenantId=${encodeURIComponent(selectedTenant)}`, { headers });
+      const resSettings = await fetchComTimeout(`${API_URL}/api/backups/settings?tenantId=${encodeURIComponent(selectedTenant)}`, { headers });
       if (resSettings.ok) {
         const settingsData = await resSettings.json();
         setAutoEnabled(settingsData.enabled);
@@ -179,7 +180,7 @@ const SuperAdminBackup: React.FC = () => {
       setActionLoading(true);
       try {
         const headers = await getAuthHeaders();
-        const res = await fetch(`${API_URL}/api/backups/generate`, {
+        const res = await fetchComTimeout(`${API_URL}/api/backups/generate`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ tenantId: selectedTenant })
@@ -198,7 +199,7 @@ const SuperAdminBackup: React.FC = () => {
           Swal.fire('Erro', await getApiError(res, 'Não foi possível disparar o backup.'), 'error');
         }
       } catch (err) {
-        Swal.fire('Erro de Conexão', 'O servidor de backup está offline ou inacessível.', 'error');
+        Swal.fire('Erro de Conexão', mensagemDeFalhaDeRede(err, 'O servidor de backup está offline ou inacessível.'), 'error');
       } finally {
         setActionLoading(false);
       }
@@ -214,7 +215,7 @@ const SuperAdminBackup: React.FC = () => {
       if (!ensureApiUrl()) return;
 
       const headers = await getAuthHeaders();
-      const res = await fetch(`${API_URL}/api/backups/settings`, {
+      const res = await fetchComTimeout(`${API_URL}/api/backups/settings`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -238,7 +239,7 @@ const SuperAdminBackup: React.FC = () => {
         Swal.fire('Erro', await getApiError(res, 'Erro ao salvar configurações.'), 'error');
       }
     } catch (err) {
-      Swal.fire('Erro', 'Não foi possível conectar ao servidor de backup.', 'error');
+      Swal.fire('Erro', mensagemDeFalhaDeRede(err, 'Não foi possível conectar ao servidor de backup.'), 'error');
     } finally {
       setActionLoading(false);
     }
@@ -250,9 +251,10 @@ const SuperAdminBackup: React.FC = () => {
     setActionLoading(true);
     try {
       const headers = await getAuthHeaders();
-      const res = await fetch(`${API_URL}/api/backups/download?backupId=${encodeURIComponent(backup.id)}`, {
+      // Arquivo da empresa inteira: espera mais que uma chamada comum.
+      const res = await fetchComTimeout(`${API_URL}/api/backups/download?backupId=${encodeURIComponent(backup.id)}`, {
         headers
-      });
+      }, TEMPO_LIMITE.backup);
 
       if (!res.ok) {
         Swal.fire('Erro', await getApiError(res, 'Não foi possível baixar o backup.'), 'error');
@@ -269,7 +271,7 @@ const SuperAdminBackup: React.FC = () => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      Swal.fire('Erro', 'Não foi possível baixar o backup do servidor.', 'error');
+      Swal.fire('Erro', mensagemDeFalhaDeRede(err, 'Não foi possível baixar o backup do servidor.'), 'error');
     } finally {
       setActionLoading(false);
     }
@@ -307,11 +309,12 @@ const SuperAdminBackup: React.FC = () => {
 
       try {
         const headers = await getAuthHeaders();
-        const res = await fetch(`${API_URL}/api/backups/restore`, {
+        // Restaurar apaga e regrava a empresa inteira: e' a chamada mais longa do sistema.
+        const res = await fetchComTimeout(`${API_URL}/api/backups/restore`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ backupId: backup.id })
-        });
+        }, TEMPO_LIMITE.backup);
 
         Swal.close();
 
@@ -332,7 +335,7 @@ const SuperAdminBackup: React.FC = () => {
         }
       } catch (err) {
         Swal.close();
-        Swal.fire('Erro de Conexão', 'O servidor Express não respondeu. Operação cancelada.', 'error');
+        Swal.fire('Erro de Conexão', mensagemDeFalhaDeRede(err, 'O servidor não respondeu. Confira na lista se a restauração continuou em segundo plano antes de tentar de novo.'), 'error');
       } finally {
         setActionLoading(false);
       }
@@ -357,7 +360,7 @@ const SuperAdminBackup: React.FC = () => {
       setActionLoading(true);
       try {
         const headers = await getAuthHeaders();
-        const res = await fetch(`${API_URL}/api/backups/remove`, {
+        const res = await fetchComTimeout(`${API_URL}/api/backups/remove`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ backupId })
@@ -370,7 +373,7 @@ const SuperAdminBackup: React.FC = () => {
           Swal.fire('Erro', await getApiError(res, 'Erro ao remover backup.'), 'error');
         }
       } catch (err) {
-        Swal.fire('Erro', 'Não foi possível conectar ao servidor de backup.', 'error');
+        Swal.fire('Erro', mensagemDeFalhaDeRede(err, 'Não foi possível conectar ao servidor de backup.'), 'error');
       } finally {
         setActionLoading(false);
       }

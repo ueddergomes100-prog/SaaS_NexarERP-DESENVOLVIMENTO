@@ -1,4 +1,5 @@
 import { auth } from './firebase';
+import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
 import type { AvisoTroca, ItemTroca } from '../utils/trocaDomain';
 
 /**
@@ -69,13 +70,13 @@ const chamar = async <T>(caminho: string, corpo: Record<string, unknown>): Promi
 
   let resposta: Response;
   try {
-    resposta = await fetch(`${API_URL}/api/trocas${caminho}`, {
+    resposta = await fetchComTimeout(`${API_URL}/api/trocas${caminho}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(corpo),
     });
-  } catch {
-    throw new TrocaError('Não foi possível falar com o servidor. Verifique a internet e tente de novo.', 0);
+  } catch (erro) {
+    throw new TrocaError(mensagemDeFalhaDeRede(erro), 0);
   }
 
   const dados = await resposta.json().catch(() => ({}));

@@ -1,4 +1,5 @@
 import { auth } from './firebase';
+import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../utils/fetchComTimeout';
 
 /**
  * Busca da nota de entrada pela CHAVE DE ACESSO (2026-09-21).
@@ -57,12 +58,13 @@ const chamar = async <T>(caminho: string, init?: RequestInit): Promise<T> => {
 
   let resposta: Response;
   try {
-    resposta = await fetch(`${API_URL}/api/entrada-nfe/${caminho}`, {
+    // A busca na SEFAZ (via Spedy) pode demorar mais que uma chamada comum.
+    resposta = await fetchComTimeout(`${API_URL}/api/entrada-nfe/${caminho}`, {
       ...init,
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init?.headers || {}) },
-    });
-  } catch {
-    throw new NotaRecebidaError('Não foi possível falar com o servidor. Verifique a internet e tente de novo.', 0);
+    }, TEMPO_LIMITE.arquivo);
+  } catch (erro) {
+    throw new NotaRecebidaError(mensagemDeFalhaDeRede(erro), 0);
   }
 
   const dados = await resposta.json().catch(() => ({}));

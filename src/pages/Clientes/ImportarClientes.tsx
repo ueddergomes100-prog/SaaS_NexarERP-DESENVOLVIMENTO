@@ -8,6 +8,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Upload, Users } f
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
+import { fetchComTimeout } from '../../utils/fetchComTimeout';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
@@ -136,7 +137,8 @@ const resolverCodigosIbgePorCep = async (
       indice += 1;
       const cep = unicos[meu];
       try {
-        const resposta = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+        // Sem tempo limite, um CEP que o ViaCEP nao responde travava a importacao inteira.
+        const resposta = await fetchComTimeout(`https://viacep.com.br/ws/${cep}/json/`, {}, 10_000);
         const dados = await resposta.json();
         if (!dados.erro && dados.ibge) resultado.set(cep, String(dados.ibge));
       } catch (error) {

@@ -1,4 +1,5 @@
 import { auth } from './firebase';
+import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../utils/fetchComTimeout';
 
 const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
 const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
@@ -39,9 +40,12 @@ export class SpedyApiError extends Error {
     super(message);
     this.name = 'SpedyApiError';
     this.status = status;
-    this.retryable = status === 429 || status >= 500;
+    // 0 = a chamada nem chegou (rede fora, tempo esgotado): vale tentar de novo.
+    this.retryable = status === 0 || status === 429 || status >= 500;
   }
 }
+
+const MENSAGEM_REDE = 'Não foi possível falar com o servidor fiscal. Verifique a internet e tente de novo.';
 
 const STATUS_MESSAGE_PREFIX: Record<number, string> = {
   400: 'Dados inválidos para a Spedy: ',
@@ -61,21 +65,53 @@ const getApiError = async (response: Response, fallback: string) => {
   return new SpedyApiError(`${prefix}${message}`, response.status);
 };
 
-const requestJson = async <T>(path: string, options: RequestInit = {}, fallbackError = 'Erro ao comunicar com o backend fiscal.'): Promise<T> => {
+/**
+ * `timeoutMs`: padrao 30 s; emissao/cancelamento de nota usam
+ * TEMPO_LIMITE.emissaoNota, porque a Spedy pode esperar a SEFAZ antes de
+ * responder. Rede fora ou tempo esgotado viram SpedyApiError(status 0) com
+ * mensagem em portugues -- "Failed to fetch" nunca chega na tela.
+ */
+const requestJson = async <T>(
+  path: string,
+  options: RequestInit = {},
+  fallbackError = 'Erro ao comunicar com o backend fiscal.',
+  timeoutMs: number = TEMPO_LIMITE.padrao,
+): Promise<T> => {
   const baseUrl = ensureApiUrl();
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
-      ...(await getAuthHeaders(options.method !== 'GET')),
-      ...(options.headers || {})
-    }
-  });
+  const headers = {
+    ...(await getAuthHeaders(options.method !== 'GET')),
+    ...(options.headers || {})
+  };
+
+  let response: Response;
+  try {
+    response = await fetchComTimeout(`${baseUrl}${path}`, { ...options, headers }, timeoutMs);
+  } catch (erro) {
+    throw new SpedyApiError(mensagemDeFalhaDeRede(erro, MENSAGEM_REDE), 0);
+  }
 
   if (!response.ok) {
     throw await getApiError(response, fallbackError);
   }
 
   return response.json();
+};
+
+/** Arquivo (PDF/XML) do backend fiscal, com o mesmo tratamento de rede/tempo. */
+const requestBlob = async (path: string, fallbackError: string): Promise<Blob> => {
+  const baseUrl = ensureApiUrl();
+  const headers = await getAuthHeaders(false);
+  let response: Response;
+  try {
+    response = await fetchComTimeout(`${baseUrl}${path}`, { method: 'GET', headers }, TEMPO_LIMITE.arquivo);
+  } catch (erro) {
+    throw new SpedyApiError(mensagemDeFalhaDeRede(erro, MENSAGEM_REDE), 0);
+  }
+
+  if (!response.ok) {
+    throw await getApiError(response, fallbackError);
+  }
+  return response.blob();
 };
 
 const legacyArgsNotice = (apiKey: string, env: SpedyEnv) => {
@@ -189,7 +225,8 @@ export interface SpedyRuntimeConfig {
 export const spedyService = {
   /** O que falta pra emitir NF-e/NFC-e (ambiente, serie, certificado...). */
   async getRequisitos(): Promise<RequisitosFiscais> {
-    return requestJson<RequisitosFiscais>('/api/spedy/requisitos', { method: 'GET' }, 'Erro ao conferir os requisitos para emitir nota.');
+    // O servidor faz mais de uma consulta a Spedy nesta rota.
+    return requestJson<RequisitosFiscais>('/api/spedy/requisitos', { method: 'GET' }, 'Erro ao conferir os requisitos para emitir nota.', TEMPO_LIMITE.arquivo);
   },
 
   async getRuntimeConfig(): Promise<SpedyRuntimeConfig> {
@@ -229,7 +266,7 @@ export const spedyService = {
     return requestJson<SpedyInvoice>('/api/spedy/service', {
       method: 'POST',
       body: JSON.stringify({ invoiceData })
-    }, 'Erro ao emitir NFS-e.');
+    }, 'Erro ao emitir NFS-e.', TEMPO_LIMITE.emissaoNota);
   },
 
   async emitProductInvoice(apiKey: string, env: SpedyEnv, invoiceData: Record<string, unknown>): Promise<SpedyInvoice> {
@@ -237,7 +274,7 @@ export const spedyService = {
     return requestJson<SpedyInvoice>('/api/spedy/product', {
       method: 'POST',
       body: JSON.stringify({ invoiceData })
-    }, 'Erro ao emitir NF-e.');
+    }, 'Erro ao emitir NF-e.', TEMPO_LIMITE.emissaoNota);
   },
 
   async fetchConsumerInvoices(apiKey: string, env: SpedyEnv, page = 1, pageSize = 20): Promise<SpedyInvoiceListResponse> {
@@ -260,7 +297,7 @@ export const spedyService = {
     return requestJson<SpedyInvoice>('/api/spedy/consumer', {
       method: 'POST',
       body: JSON.stringify({ invoiceData })
-    }, 'Erro ao emitir NFC-e.');
+    }, 'Erro ao emitir NFC-e.', TEMPO_LIMITE.emissaoNota);
   },
 
   async cancelInvoice(apiKey: string, env: SpedyEnv, type: SpedyType, id: string, justification: string): Promise<{ success: boolean }> {
@@ -268,7 +305,7 @@ export const spedyService = {
     return requestJson<{ success: boolean }>(`/api/spedy/${type}/${id}`, {
       method: 'DELETE',
       body: JSON.stringify({ justification })
-    }, 'Erro ao solicitar cancelamento da nota fiscal.');
+    }, 'Erro ao solicitar cancelamento da nota fiscal.', TEMPO_LIMITE.emissaoNota);
   },
 
   /** Atualiza serie/numeracao de NF-e, NFC-e e/ou NFS-e na empresa ja
@@ -278,14 +315,15 @@ export const spedyService = {
   /** Reenvia pra Spedy os dados cadastrais da empresa (razao social, CNPJ, IE,
    *  endereco) -- e' o emitente impresso na nota. So' dono/Admin. */
   async sincronizarEmpresa(): Promise<{ ok: boolean }> {
-    return requestJson<{ ok: boolean }>('/api/spedy/empresa/sincronizar', { method: 'POST' }, 'Não foi possível atualizar os dados da empresa na Spedy.');
+    return requestJson<{ ok: boolean }>('/api/spedy/empresa/sincronizar', { method: 'POST' }, 'Não foi possível atualizar os dados da empresa na Spedy.', TEMPO_LIMITE.arquivo);
   },
 
   async updateNumbering(blocks: SpedyNumberingUpdate): Promise<{ success: boolean }> {
+    // O servidor le a configuracao atual na Spedy e so' depois grava.
     return requestJson<{ success: boolean }>('/api/spedy/numbering', {
       method: 'PUT',
       body: JSON.stringify(blocks)
-    }, 'Erro ao atualizar a numeração fiscal na Spedy.');
+    }, 'Erro ao atualizar a numeração fiscal na Spedy.', TEMPO_LIMITE.arquivo);
   },
 
   getPdfUrl(id: string, type: SpedyType): string {
@@ -305,22 +343,12 @@ export const spedyService = {
     return requestJson<{ ok: boolean; evento: CartaCorrecaoEnviada }>(`/api/spedy/product/${id}/corrections`, {
       method: 'POST',
       body: JSON.stringify({ letter })
-    }, 'Erro ao enviar a carta de correção.');
+    }, 'Erro ao enviar a carta de correção.', TEMPO_LIMITE.emissaoNota);
   },
 
   /** Abre o PDF (nova aba) ou baixa o XML de uma carta de correcao ja enviada. */
   async openCorrectionFile(id: string, eventId: string, fileType: 'pdf' | 'xml') {
-    const baseUrl = ensureApiUrl();
-    const response = await fetch(`${baseUrl}/api/spedy/product/${id}/corrections/${eventId}/${fileType}`, {
-      method: 'GET',
-      headers: await getAuthHeaders(false)
-    });
-
-    if (!response.ok) {
-      throw await getApiError(response, 'Erro ao baixar a carta de correção.');
-    }
-
-    const blob = await response.blob();
+    const blob = await requestBlob(`/api/spedy/product/${id}/corrections/${eventId}/${fileType}`, 'Erro ao baixar a carta de correção.');
     const url = URL.createObjectURL(blob);
 
     if (fileType === 'pdf') {
@@ -340,16 +368,7 @@ export const spedyService = {
 
   /** PDF (DANFE) ou XML da nota como arquivo, pra mostrar dentro do sistema / salvar com nome. */
   async baixarArquivoFiscal(id: string, type: SpedyType, fileType: 'pdf' | 'xml'): Promise<Blob> {
-    const baseUrl = ensureApiUrl();
-    const response = await fetch(`${baseUrl}/api/spedy/${type}/${id}/${fileType}`, {
-      method: 'GET',
-      headers: await getAuthHeaders(false)
-    });
-
-    if (!response.ok) {
-      throw await getApiError(response, 'Erro ao baixar arquivo fiscal.');
-    }
-    return response.blob();
+    return requestBlob(`/api/spedy/${type}/${id}/${fileType}`, 'Erro ao baixar arquivo fiscal.');
   },
 
   /** `nomeArquivo`: nome do XML baixado (ex.: "NFE 000040 - CLIENTE.xml"); sem ele, o id da Spedy. */

@@ -200,10 +200,10 @@ export const processarLinhasFornecedores = (
     // parser de 4 partes (Shopping Rural, endereco 100% empacotado)
     // quando NENHUM dos dois tem coluna mapeada.
     const temEnderecoSeparado = mapeamento.bairro !== null || mapeamento.cidade !== null;
-    let endereco = '';
-    let numero = '';
-    let bairro = '';
-    let cidade = '';
+    let endereco: string;
+    let numero: string;
+    let bairro: string;
+    let cidade: string;
     let statusEndereco: StatusFornecedorImportado = 'OK';
     let motivoEndereco = '';
 

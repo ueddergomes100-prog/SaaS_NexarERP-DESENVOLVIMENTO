@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Printer, ArrowLeft } from 'lucide-react';
 import { fromCents } from '../../utils/financeDomain';
 import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 import '../OS/OsPrint.css'; // Usando os estilos de impressão
 
 interface DescontoSnapshot {
@@ -42,7 +43,7 @@ const extractDateInput = (data: Record<string, unknown>, ...fields: string[]): s
   }
   const createdAt = data.createdAt as { toDate?: () => Date } | undefined;
   if (createdAt?.toDate) {
-    return createdAt.toDate().toISOString().slice(0, 10);
+    return getDateInputInTimeZone(createdAt.toDate());
   }
   return null;
 };

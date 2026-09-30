@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Printer, ArrowLeft } from 'lucide-react';
 import { isRevenueReversal, transactionNetAmount } from '../../utils/financeDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 import '../OS/OsPrint.css'; // Usando os estilos de impressão
 
 /**
@@ -67,7 +68,7 @@ const PrintRelatorioFinanceiro: React.FC = () => {
              } else if (t.data) {
                tDateStr = t.data;
              } else if (t.createdAt) {
-               tDateStr = new Date(t.createdAt.seconds * 1000).toISOString().split('T')[0];
+               tDateStr = getDateInputInTimeZone(new Date(t.createdAt.seconds * 1000));
              }
           }
 

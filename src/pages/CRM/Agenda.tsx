@@ -7,6 +7,7 @@ import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
 interface VeiculoBasico { id: string; placa: string; modelo: string; clienteId: string; }
@@ -32,7 +33,7 @@ const Agenda: React.FC = () => {
   // Form Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
-    data: new Date().toISOString().split('T')[0],
+    data: getDateInputInTimeZone(),
     hora: '09:00',
     clienteId: '',
     clienteNome: '',
@@ -120,7 +121,7 @@ const Agenda: React.FC = () => {
 
   const abrirNovoAgendamento = () => {
     setAgendamentoEmEdicao(null);
-    setFormData({ data: new Date().toISOString().split('T')[0], hora: '09:00', clienteId: '', clienteNome: '', veiculo: '', servico: '' });
+    setFormData({ data: getDateInputInTimeZone(), hora: '09:00', clienteId: '', clienteNome: '', veiculo: '', servico: '' });
     setVeiculosDoCliente([]);
     setIsVeiculoDropdownOpen(false);
     setIsModalOpen(true);

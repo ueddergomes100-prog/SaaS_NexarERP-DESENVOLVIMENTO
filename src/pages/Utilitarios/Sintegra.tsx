@@ -8,6 +8,7 @@ import {
   buildSintegraFile,
   type SintegraEmpresa, type SintegraNota, type SintegraNotaItem, type SintegraProduto,
 } from '../../utils/sintegraDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 
 const MESES = [
   '01 - Janeiro', '02 - Fevereiro', '03 - Março', '04 - Abril', '05 - Maio', '06 - Junho',
@@ -66,7 +67,7 @@ const Sintegra: React.FC = () => {
       const fimMs = new Date(`${dataFinal}T23:59:59`).getTime();
 
       const notasSnap = await getDocs(query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId)));
-      const notasDoMes = notasSnap.docs
+      const notasDoPeriodo = notasSnap.docs
         .map((d) => ({ id: d.id, ...d.data() } as Record<string, any>))
         .filter((nota) => {
           if (nota.tipo !== 'NF-e' && nota.tipo !== 'NFC-e') return false;
@@ -75,6 +76,18 @@ const Sintegra: React.FC = () => {
           const t = dataNota.getTime();
           return t >= inicioMs && t <= fimMs;
         });
+      // So' nota que EXISTE na SEFAZ entra no arquivo: autorizada (ou cancelada,
+      // que buildSintegraFile ja' separa). Antes entrava tudo que nao fosse
+      // cancelada -- nota rejeitada, denegada ou ainda na fila ia como emitida.
+      const notasDoMes = notasDoPeriodo.filter((nota) => ['authorized', 'canceled', 'cancelada'].includes(nota.status));
+      const notasEmProcessamento = notasDoPeriodo.filter((nota) => !['authorized', 'canceled', 'cancelada', 'rejected', 'denied', 'error'].includes(nota.status));
+      if (notasEmProcessamento.length > 0) {
+        showError(
+          'Há notas ainda sem resposta da SEFAZ',
+          `${notasEmProcessamento.length} nota(s) deste período ainda estão em processamento (sem autorização nem rejeição). Abra Notas Fiscais, atualize o status delas e gere o SINTEGRA de novo — assim nenhuma nota autorizada fica fora do arquivo.`,
+        );
+        return;
+      }
 
       const notasSemSnapshot = notasDoMes.filter((nota) => !nota.itensFiscais || nota.itensFiscais.length === 0);
       const notasValidas = notasDoMes.filter((nota) => nota.itensFiscais && nota.itensFiscais.length > 0);
@@ -93,7 +106,9 @@ const Sintegra: React.FC = () => {
         modelo: nota.tipo === 'NFC-e' ? 65 : 55,
         serie: '1',
         numero: nota.number || 0,
-        dataEmissao: (nota.createdAt?.toDate ? nota.createdAt.toDate() : new Date(nota.data)).toISOString().slice(0, 10),
+        // Data LOCAL da emissao: toISOString() e' UTC, e nota das 21h em diante
+        // saia com o dia seguinte (no ultimo dia do mes, caia no arquivo do mes seguinte).
+        dataEmissao: getDateInputInTimeZone(nota.createdAt?.toDate ? nota.createdAt.toDate() : new Date(nota.data)),
         situacao: nota.status === 'canceled' || nota.status === 'cancelada' ? 'cancelada' : 'normal',
         itens: (nota.itensFiscais || []).map((item: Record<string, any>): SintegraNotaItem => ({
           codigo: item.code,

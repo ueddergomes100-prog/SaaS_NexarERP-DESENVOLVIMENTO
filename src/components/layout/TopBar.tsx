@@ -9,6 +9,7 @@ import { isTenantManagerRole } from '../../utils/roles';
 import { productMatchesSearch, type SearchableProduct } from '../../utils/productSearch';
 import PerfilModal from './PerfilModal';
 import './Layout.css';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 
 const TopBar: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId } = useAuth();
@@ -153,7 +154,7 @@ const TopBar: React.FC = () => {
       const qContasPagar = query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('tipo', '==', 'saida'), where('status', '==', 'Pendente'));
       contasPagarUnsub = onSnapshot(qContasPagar, (snap) => {
         const temp: any[] = [];
-        const hojeStr = new Date().toISOString().split('T')[0];
+        const hojeStr = getDateInputInTimeZone();
         
         const dismissedStr = localStorage.getItem(`nexus_dismissed_notifs_${currentUser.uid}`);
         const dismissed = dismissedStr ? JSON.parse(dismissedStr) : [];

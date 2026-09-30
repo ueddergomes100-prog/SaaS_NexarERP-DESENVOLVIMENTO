@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, Car, Printer, Search, ArrowRight, BarChart2, DollarSign, ArrowUpCircle, ArrowDownCircle, Calendar, ShoppingCart, Users, Percent } from 'lucide-react';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 import '../OS/OS.css'; // Reusing OS styles for consistency
 
 const RelatoriosDiversos: React.FC = () => {
@@ -9,7 +10,7 @@ const RelatoriosDiversos: React.FC = () => {
   const getDefaultFimDate = () => {
     const d = new Date();
     d.setDate(d.getDate() + 30);
-    return d.toISOString().split('T')[0];
+    return getDateInputInTimeZone(d);
   };
 
   const getInitialState = <T,>(key: string, defaultValue: T): T => {
@@ -32,7 +33,7 @@ const RelatoriosDiversos: React.FC = () => {
 
   // Filters for Financial Reports
   const [finDataInicio, setFinDataInicio] = useState(
-    () => getInitialState('finDataInicio', new Date().toISOString().split('T')[0])
+    () => getInitialState('finDataInicio', getDateInputInTimeZone())
   );
   
   const [finDataFim, setFinDataFim] = useState(

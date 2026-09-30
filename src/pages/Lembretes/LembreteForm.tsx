@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 
 interface ClienteBasico {
   id: string;
@@ -133,7 +134,7 @@ const LembreteForm: React.FC = () => {
   const setQuickDate = (days: number) => {
     const d = new Date();
     d.setDate(d.getDate() + days);
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = getDateInputInTimeZone(d);
     setFormData(prev => ({ ...prev, dataPrevisao: dateStr }));
   };
 

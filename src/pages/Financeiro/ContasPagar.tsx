@@ -154,7 +154,7 @@ const ContasPagar: React.FC = () => {
 
   const [formData, setFormData] = useState({
     descricao: '',
-    data: new Date().toISOString().split('T')[0],
+    data: getDateInputInTimeZone(),
     valor: '',
     categoria: '',
     fornecedorId: '',
@@ -328,7 +328,7 @@ const ContasPagar: React.FC = () => {
   const handleOpenModal = () => {
     setFormData({
       descricao: '',
-      data: new Date().toISOString().split('T')[0],
+      data: getDateInputInTimeZone(),
       valor: '',
       categoria: categoriasDespesa[0] || '',
       fornecedorId: '',

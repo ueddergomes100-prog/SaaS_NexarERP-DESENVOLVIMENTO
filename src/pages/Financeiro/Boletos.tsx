@@ -22,6 +22,7 @@ import {
   type StatusBoletoEfetivo,
 } from '../../utils/boletoEmissaoDomain';
 import { mensagensDoBoleto, montarRemessaSicoob, nomeArquivoRemessaSicoob, type TituloRemessaSicoob } from '../../utils/boletoRemessaSicoobDomain';
+import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
 import '../OS/OS.css';
 
 /**
@@ -97,6 +98,7 @@ const Boletos: React.FC = () => {
   const [bancos, setBancos] = useState<BancoBoleto[]>([]);
   const [loading, setLoading] = useState(true);
   const [aba, setAba] = useState<Aba>('aguardando');
+  const [ordemNumero, inverterOrdemNumero] = useOrdemNumero('boletos.ordemNumero');
   const [busca, setBusca] = useState('');
   const [processando, setProcessando] = useState(false);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
@@ -177,7 +179,16 @@ const Boletos: React.FC = () => {
     } as Record<Aba, TituloBoleto[]>;
   }, [titulos, busca]);
 
-  const listaAtual = porAba[aba];
+  // Ordem pelo NOSSO NUMERO (a numeracao do boleto), crescente por padrao -- pedido do
+  // dono (2026-09-30). Titulo ainda sem boleto (aba Aguardando): pelo numero da venda
+  // ("Venda Direta #0064"), e o vencimento desempata as parcelas da mesma venda.
+  const numeroDaVenda = (t: TituloBoleto) => (String(t.descricao || '').match(/#\s*(\d+)/) || [])[1] || '';
+  const listaAtual = [...porAba[aba]].sort((a, b) => {
+    const porNumero = a.boleto?.nossoNumero && b.boleto?.nossoNumero
+      ? compararPorNumero(a.boleto.nossoNumero, b.boleto.nossoNumero, ordemNumero)
+      : compararPorNumero(numeroDaVenda(a), numeroDaVenda(b), ordemNumero);
+    return porNumero || String(a.dataVencimento || '').localeCompare(String(b.dataVencimento || ''));
+  });
 
   // --- Emissao --------------------------------------------------------
 
@@ -825,7 +836,12 @@ const Boletos: React.FC = () => {
             </button>
           )}
           <button className="btn-secondary" onClick={gerarRemessa} disabled={processando} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Download size={18} /> Gerar remessa
+            <Download size={18} /> {(() => {
+              // Diz o que vai no arquivo: so' os marcados na aba Emitidos, ou todos.
+              const marcadosEmitidos = porAba.emitidos.filter((t) => selecionados.has(t.id)).length;
+              if (marcadosEmitidos > 0) return `Gerar remessa (${marcadosEmitidos} marcado${marcadosEmitidos === 1 ? '' : 's'})`;
+              return porAba.emitidos.length > 0 ? `Gerar remessa (todos os ${porAba.emitidos.length})` : 'Gerar remessa';
+            })()}
           </button>
           <button className="btn-secondary" onClick={() => inputRetornoRef.current?.click()} disabled={processando} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <FileUp size={18} /> Importar retorno
@@ -896,7 +912,12 @@ const Boletos: React.FC = () => {
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Cliente</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Descrição</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Vencimento</th>
-                  <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Nosso número</th>
+                  <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>
+                    <button type="button" onClick={inverterOrdemNumero} title="Inverter a ordem"
+                      style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', font: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      {aba === 'aguardando' ? 'Nosso número (ordem da venda)' : 'Nosso número'} {ordemNumero === 'asc' ? '▲' : '▼'}
+                    </button>
+                  </th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Situação</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'right' }}>Valor</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'right' }}>Ações</th>
@@ -912,6 +933,8 @@ const Boletos: React.FC = () => {
                         <td style={{ padding: '14px 16px' }}>
                           <input
                             type="checkbox"
+                            title={aba === 'aguardando' ? 'Marcar para emitir vários boletos de uma vez' : 'Marcar para ir no arquivo de remessa (sem nenhum marcado, vão todos os emitidos)'}
+                            aria-label={aba === 'aguardando' ? `Marcar ${t.clienteNome || 'título'} para emitir` : `Marcar ${t.clienteNome || 'boleto'} para a remessa`}
                             checked={selecionados.has(t.id)}
                             onChange={(e) => {
                               const novo = new Set(selecionados);

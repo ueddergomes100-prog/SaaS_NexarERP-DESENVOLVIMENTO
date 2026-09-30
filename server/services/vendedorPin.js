@@ -31,9 +31,70 @@ const PIN_MIN_DIGITOS = 2;
 const PIN_MAX_DIGITOS = 10;
 const CODIGO_DIGITOS = 2;
 
-/** Tentativas erradas antes de bloquear, e por quanto tempo. */
+/** Tentativas erradas antes de bloquear, e por quanto tempo (o PRIMEIRO
+ *  bloqueio; os seguintes dobram -- ver duracaoDoBloqueioMinutos). */
 const MAX_TENTATIVAS = 5;
 const BLOQUEIO_MINUTOS = 5;
+const BLOQUEIO_MAXIMO_MINUTOS = 24 * 60;
+
+/**
+ * Bloqueio progressivo (auditoria de 2026-09-29): cada bloqueio seguido, sem
+ * um acerto no meio, DOBRA o tempo -- 5, 10, 20, 40 minutos... ate 24 horas.
+ * Com o bloqueio fixo de 5 minutos, quem tentasse senhas no automatico pelo
+ * login do aplicativo (rota publica, so' precisa do CNPJ e do codigo) acertava
+ * um PIN de 4 digitos em poucos dias e um de 2 digitos em menos de 2 horas.
+ * Acertar a senha, ou o responsavel cadastrar uma senha nova, zera a contagem.
+ */
+const duracaoDoBloqueioMinutos = (bloqueiosSeguidos) => Math.min(
+  BLOQUEIO_MINUTOS * (2 ** Math.max(0, Math.floor(Number(bloqueiosSeguidos) || 0))),
+  BLOQUEIO_MAXIMO_MINUTOS,
+);
+
+/** "5 minutos", "1 hora", "2h40min" -- pra mensagem de bloqueio. */
+const formatarDuracao = (minutos) => {
+  const total = Math.max(1, Math.ceil(Number(minutos) || 0));
+  if (total < 60) return `${total} minuto${total === 1 ? '' : 's'}`;
+  const horas = Math.floor(total / 60);
+  const resto = total % 60;
+  if (resto === 0) return `${horas} hora${horas === 1 ? '' : 's'}`;
+  return `${horas}h${String(resto).padStart(2, '0')}min`;
+};
+
+/**
+ * Decide, a partir do que esta' gravado no PIN, se a tentativa pode ser feita
+ * e como o registro fica se ela ERRAR. Funcao pura (testada em
+ * tests/vendedorPin.test.js).
+ *
+ * A tentativa e' contada ANTES de conferir a senha, dentro de uma transacao
+ * (ver validarPin), e desfeita se acertar. Antes disto a conta era feita
+ * DEPOIS de conferir: 100 pedidos simultaneos liam "0 erros" todos juntos e
+ * testavam 100 senhas antes do primeiro bloqueio ser gravado.
+ */
+const reservarTentativa = (dados, agoraMs) => {
+  const bloqueadoAteMs = Number(dados?.bloqueadoAteMs || 0);
+  if (bloqueadoAteMs > agoraMs) {
+    return { permitida: false, faltamMinutos: Math.ceil((bloqueadoAteMs - agoraMs) / 60000) };
+  }
+
+  const tentativa = Number(dados?.tentativasFalhas || 0) + 1;
+  const bloqueiosSeguidos = Math.max(0, Math.floor(Number(dados?.bloqueiosSeguidos || 0)));
+  if (tentativa >= MAX_TENTATIVAS) {
+    const minutosDeBloqueio = duracaoDoBloqueioMinutos(bloqueiosSeguidos);
+    return {
+      permitida: true,
+      tentativa,
+      bloqueiaSeErrar: true,
+      minutosDeBloqueio,
+      seErrar: { tentativasFalhas: 0, bloqueadoAteMs: agoraMs + minutosDeBloqueio * 60 * 1000, bloqueiosSeguidos: bloqueiosSeguidos + 1 },
+    };
+  }
+  return {
+    permitida: true,
+    tentativa,
+    bloqueiaSeErrar: false,
+    seErrar: { tentativasFalhas: tentativa, bloqueadoAteMs: null, bloqueiosSeguidos },
+  };
+};
 
 /** Parametros do scrypt. Custo alto o suficiente pra tornar forca bruta cara
  *  mesmo com poucas combinacoes possiveis, e baixo o suficiente pra nao pesar
@@ -104,6 +165,7 @@ async function definirPin({ tenantId, usuarioId, pin, autorId }) {
     // Zera qualquer bloqueio: definir senha nova destrava o funcionario.
     tentativasFalhas: 0,
     bloqueadoAte: null,
+    bloqueiosSeguidos: 0,
     definidoPor: autorId || null,
     definidoEm: admin.firestore.FieldValue.serverTimestamp(),
   });
@@ -183,51 +245,61 @@ async function validarPin({ tenantId, codigo, pin }) {
   }
 
   const pinRef = db.collection(COLECAO_PIN).doc(usuarioDoc.id);
-  const pinSnap = await pinRef.get();
-  if (!pinSnap.exists) {
-    // Mensagem distinta de propósito: o codigo do vendedor e' publico (todo
-    // mundo ve o do colega), entao nao ha segredo a proteger aqui -- e sem
-    // essa distincao o balcao ficaria travado sem saber o que fazer.
-    throw new ErroPin(409, 'Este vendedor ainda não tem senha cadastrada. Peça ao responsável para cadastrar em Usuários.');
-  }
 
-  const dadosPin = pinSnap.data();
-  const agora = Date.now();
-  const bloqueadoAte = dadosPin.bloqueadoAte ? dadosPin.bloqueadoAte.toMillis() : 0;
+  // Conta a tentativa (como se fosse errar) ANTES de conferir a senha -- ver
+  // reservarTentativa. A transacao serializa tentativas simultaneas: cada uma
+  // enxerga a contagem da anterior, entao nao passam mais de MAX_TENTATIVAS.
+  const reserva = await db.runTransaction(async (tx) => {
+    const pinSnap = await tx.get(pinRef);
+    if (!pinSnap.exists) {
+      // Mensagem distinta de propósito: o codigo do vendedor e' publico (todo
+      // mundo ve o do colega), entao nao ha segredo a proteger aqui -- e sem
+      // essa distincao o balcao ficaria travado sem saber o que fazer.
+      throw new ErroPin(409, 'Este vendedor ainda não tem senha cadastrada. Peça ao responsável para cadastrar em Usuários.');
+    }
 
-  if (bloqueadoAte > agora) {
-    const faltamSegundos = Math.ceil((bloqueadoAte - agora) / 1000);
-    const faltamMinutos = Math.ceil(faltamSegundos / 60);
-    throw new ErroPin(429, `Muitas tentativas erradas. Este vendedor está bloqueado por mais ${faltamMinutos} minuto(s). O responsável pode cadastrar uma senha nova em Usuários para liberar na hora.`);
-  }
+    const dadosPin = pinSnap.data();
+    const decisao = reservarTentativa({
+      tentativasFalhas: dadosPin.tentativasFalhas,
+      bloqueiosSeguidos: dadosPin.bloqueiosSeguidos,
+      bloqueadoAteMs: dadosPin.bloqueadoAte ? dadosPin.bloqueadoAte.toMillis() : 0,
+    }, Date.now());
 
-  const hashInformado = await scrypt(String(pin), dadosPin.pinSalt);
+    if (!decisao.permitida) {
+      throw new ErroPin(429, `Muitas tentativas erradas. Este vendedor está bloqueado por mais ${formatarDuracao(decisao.faltamMinutos)}. O responsável pode cadastrar uma senha nova em Usuários para liberar na hora.`);
+    }
+
+    tx.update(pinRef, {
+      tentativasFalhas: decisao.seErrar.tentativasFalhas,
+      bloqueadoAte: decisao.seErrar.bloqueadoAteMs
+        ? admin.firestore.Timestamp.fromMillis(decisao.seErrar.bloqueadoAteMs)
+        : null,
+      bloqueiosSeguidos: decisao.seErrar.bloqueiosSeguidos,
+    });
+    return { ...decisao, pinHash: dadosPin.pinHash, pinSalt: dadosPin.pinSalt };
+  });
+
+  const hashInformado = await scrypt(String(pin), reserva.pinSalt);
   const confere = crypto.timingSafeEqual(
     Buffer.from(hashInformado, 'hex'),
-    Buffer.from(String(dadosPin.pinHash), 'hex'),
+    Buffer.from(String(reserva.pinHash), 'hex'),
   );
 
   if (!confere) {
-    const tentativas = Number(dadosPin.tentativasFalhas || 0) + 1;
-    const vaiBloquear = tentativas >= MAX_TENTATIVAS;
-    await pinRef.update({
-      tentativasFalhas: vaiBloquear ? 0 : tentativas,
-      bloqueadoAte: vaiBloquear
-        ? admin.firestore.Timestamp.fromMillis(agora + BLOQUEIO_MINUTOS * 60 * 1000)
-        : null,
-    });
-
-    if (vaiBloquear) {
-      throw new ErroPin(429, `Senha incorreta ${MAX_TENTATIVAS} vezes. Este vendedor ficou bloqueado por ${BLOQUEIO_MINUTOS} minutos. O responsável pode cadastrar uma senha nova em Usuários para liberar na hora.`);
+    // O erro ja' ficou gravado na reserva -- aqui so' se explica.
+    if (reserva.bloqueiaSeErrar) {
+      throw new ErroPin(429, `Senha incorreta ${MAX_TENTATIVAS} vezes. Este vendedor ficou bloqueado por ${formatarDuracao(reserva.minutosDeBloqueio)}. O responsável pode cadastrar uma senha nova em Usuários para liberar na hora.`);
     }
 
-    const restantes = MAX_TENTATIVAS - tentativas;
+    const restantes = MAX_TENTATIVAS - reserva.tentativa;
     throw new ErroPin(401, `Código ou senha inválidos. Mais ${restantes} tentativa(s) antes de bloquear este vendedor.`);
   }
 
+  // Acertou: desfaz a tentativa reservada (e qualquer bloqueio que ela armou).
   await pinRef.update({
     tentativasFalhas: 0,
     bloqueadoAte: null,
+    bloqueiosSeguidos: 0,
     ultimaValidacaoEm: admin.firestore.FieldValue.serverTimestamp(),
   });
 
@@ -238,4 +310,15 @@ async function validarPin({ tenantId, codigo, pin }) {
   };
 }
 
-module.exports = { definirPin, removerPin, validarPin, ErroPin, MAX_TENTATIVAS, BLOQUEIO_MINUTOS };
+module.exports = {
+  definirPin,
+  removerPin,
+  validarPin,
+  ErroPin,
+  MAX_TENTATIVAS,
+  BLOQUEIO_MINUTOS,
+  // expostos pros testes
+  reservarTentativa,
+  duracaoDoBloqueioMinutos,
+  formatarDuracao,
+};

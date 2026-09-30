@@ -104,6 +104,16 @@ router.post('/mobile-login', async (req, res) => {
 
     const { tenantId } = indiceSnap.data();
 
+    // O indice e' gravado pela tela (firestore.rules), entao a chave pode ter
+    // sido criada com o CNPJ de OUTRA empresa. Confere que o CNPJ da chave e'
+    // o da empresa pra onde ela aponta -- senao responde igual a "nao existe".
+    const configSnap = tenantId ? await db.collection('configuracoes').doc(String(tenantId)).get() : null;
+    if (!configSnap || !configSnap.exists || onlyDigits(configSnap.data().cnpj) !== cnpj) {
+      const erro = new Error('Empresa ou código não encontrados, ou este vendedor não tem o aplicativo mobile liberado. Confira os dados ou peça pro administrador liberar em Vendedores.');
+      erro.status = 404;
+      throw erro;
+    }
+
     // validarPin ja confere hash, status Ativo e bloqueio por tentativas --
     // reaproveitado sem nenhuma alteracao.
     const identificado = await validarPin({ tenantId, codigo, pin: req.body?.pin });
@@ -113,6 +123,15 @@ router.post('/mobile-login', async (req, res) => {
     const usuarioSnap = await db.collection('usuarios').doc(identificado.vendedorId).get();
     if (!usuarioSnap.exists || usuarioSnap.data().acessoAppMobile !== true) {
       const erro = new Error('Este vendedor não tem o aplicativo mobile liberado. Peça pro administrador liberar em Vendedores.');
+      erro.status = 403;
+      throw erro;
+    }
+
+    // O PIN e' curto (a partir de 2 digitos): nunca pode abrir a conta do
+    // dono, de um Admin ou da equipe da plataforma -- so' de funcionario.
+    const papel = usuarioSnap.data().role || 'Funcionario';
+    if (papel !== 'Funcionario') {
+      const erro = new Error('Este cadastro é de administrador e não pode entrar no aplicativo pelo código e senha de vendedor. Entre pelo login normal do sistema.');
       erro.status = 403;
       throw erro;
     }

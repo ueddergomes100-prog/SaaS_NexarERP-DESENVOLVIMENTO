@@ -73,6 +73,8 @@ const escalarImpostos = (taxes, razao) => {
   );
   const copia = {};
   for (const [bloco, dados] of Object.entries(taxes)) {
+    // Valor aproximado dos tributos (Lei 12.741) fica solto em `taxes`, nao dentro de um grupo.
+    if (bloco === 'totalTax' && typeof dados === 'number') { copia[bloco] = arredondar(dados * razao, 2); continue; }
     if (!dados || typeof dados !== 'object') { copia[bloco] = dados; continue; }
     copia[bloco] = {};
     for (const [chave, valor] of Object.entries(dados)) {
@@ -222,10 +224,14 @@ const montarItensDevolucao = ({ casados, chaveOriginal, cfopEscolhido = {} }) =>
       quantity: arredondar(Number(n.quantity) * razao, 4),
       unitAmount: n.unitAmount,
       totalAmount: arredondar(Number(n.totalAmount) * razao, 2),
+      // Desconto da venda na mesma proporcao: a devolucao vale o que o cliente
+      // pagou pelos itens, nao o preco cheio (antes o desconto ficava de fora).
+      ...(Number(n.discountAmount) > 0 ? { discountAmount: arredondar(Number(n.discountAmount) * razao, 2) } : {}),
       unitTax: n.unitTax ?? n.unit,
       quantityTax: arredondar(Number(n.quantityTax ?? n.quantity) * razao, 4),
       unitTaxAmount: n.unitTaxAmount ?? n.unitAmount,
       makeupTotal: true,
+      ...(n.taxBenefitCode ? { taxBenefitCode: n.taxBenefitCode } : {}),
       taxes: escalarImpostos(n.taxes, razao),
       sourceDocument: { accessKey: chaveOriginal, itemNumber: c.itemNumber },
     };
@@ -319,7 +325,9 @@ const dataCurta = (iso) => {
 
 /** Corpo do POST /product-invoices da Spedy. */
 const montarPayloadDevolucao = ({ integrationId, receiver, itens, notaOriginal }) => {
-  const total = arredondar(itens.reduce((soma, i) => soma + i.totalAmount, 0), 2);
+  const bruto = arredondar(itens.reduce((soma, i) => soma + i.totalAmount, 0), 2);
+  const desconto = arredondar(itens.reduce((soma, i) => soma + Number(i.discountAmount || 0), 0), 2);
+  const total = arredondar(bruto - desconto, 2);
   const numero = notaOriginal.number ? ` Nº ${notaOriginal.number}` : '';
   const data = dataCurta(notaOriginal.data);
   return {
@@ -335,7 +343,7 @@ const montarPayloadDevolucao = ({ integrationId, receiver, itens, notaOriginal }
     receiver,
     items: itens,
     payments: [{ method: 'noPayment', amount: 0 }],
-    total: { invoiceAmount: total, productAmount: total },
+    total: { invoiceAmount: total, productAmount: bruto, ...(desconto > 0 ? { discountAmount: desconto } : {}) },
   };
 };
 
@@ -390,7 +398,7 @@ const prepararDevolucao = ({ devolucao, pedido, notas, cliente, notaOriginalId, 
     return { ok: false, erros: erros.length ? erros : ['Nenhum item da devolução pôde ser montado.'], ...base, itens: montagem.itens };
   }
 
-  const total = arredondar(montagem.itens.reduce((soma, i) => soma + i.totalAmount, 0), 2);
+  const total = arredondar(montagem.itens.reduce((soma, i) => soma + i.totalAmount - Number(i.discountAmount || 0), 0), 2);
   return {
     ok: true,
     erros: [],

@@ -65,7 +65,7 @@ import {
   type PaymentMethod,
   type PaymentRecord,
 } from '../../utils/financeDomain';
-import { isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields } from '../../utils/fiscalDomain';
+import { montarNfceDoPedido } from '../../services/nfceEmissaoService';
 import {
   DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
   DEFAULT_TRABALHA_COM_PRE_VENDA,
@@ -231,14 +231,6 @@ interface DevolucaoVenda {
 // desenhava a sua, com informacao diferente (a OS nem mostrava estoque).
 // Ver src/components/common/ProdutoOpcaoBusca.tsx.
 const renderProdutoRow = renderProdutoOpcaoBusca;
-
-const toSpedyPaymentMethod = (method: string) => {
-  if (method === 'Pix') return 'pix';
-  if (method.includes('Crédito')) return 'creditCard';
-  if (method.includes('Débito')) return 'debitCard';
-  if (method === 'Dinheiro') return 'money';
-  return 'other';
-};
 
 // Rotulos/cores da conferencia. Duplicados de proposito por tela (mesmo
 // criterio de FilaExpedicao.tsx e PedidoVendas.tsx) -- cada tela escolhe
@@ -3043,131 +3035,27 @@ const PedidoVendaForm: React.FC = () => {
           const apiKey = '__backend_proxy__';
           const env = runtimeConfig.spedyEnvironment;
 
-          // Prepara itens da NFC-e
-          const payloadItems = [];
-          for (const item of itens) {
-            let ncm = '87082999'; // Default fallback para autopeças
-            let cfop = 5102;      // Venda interna de mercadoria adquirida
-            let csosn = 400;      // Isento Simples Nacional
-            let origem = 0;       // Nacional
-
-            let pesoLiquidoUnitarioKg = 0;
-
-            if (item.id !== 'avulso') {
-              const pRef = doc(db, 'estoque', item.id);
-              const pSnap = await getDoc(pRef);
-              if (pSnap.exists()) {
-                const pData = pSnap.data();
-                ncm = pData.ncm || ncm;
-                cfop = Number(pData.cfop) || cfop;
-                csosn = Number(pData.csosn) || csosn;
-                origem = Number(pData.origem) || origem;
-                pesoLiquidoUnitarioKg = Number(pData.pesoLiquidoUnitarioKg) || 0;
-              }
-            }
-
-            const unitFields = resolveInvoiceUnitFields({
-              cfop,
-              unidadeComercial: item.unidadeMedidaSigla || 'UN',
-              quantidadeComercial: item.quantidade,
-              valorUnitarioComercial: item.precoUnitario,
-              // O peso liquido do cadastro e por unidade BASE; quando o item foi
-              // vendido em embalagem, cada unidade comercial pesa o fator vezes
-              // mais (1 saco de 20kg = 20 x o peso do quilo).
-              pesoLiquidoUnitarioKg: pesoLiquidoUnitarioKg * (item.fatorConversao ?? 1),
-            });
-            if (!unitFields.ok) {
-              throw new Error(`${item.nome}: ${unitFields.error}`);
-            }
-
-            payloadItems.push({
-              code: item.id === 'avulso' ? 'AVULSO' : item.id,
-              description: item.nome,
-              ncm,
-              cfop,
-              ...unitFields.fields!,
-              totalAmount: item.precoUnitario * item.quantidade,
-              makeupTotal: true,
-              taxes: {
-                icms: {
-                  origin: origem,
-                  csosn
-                },
-                pis: { cst: 7 },
-                cofins: { cst: 7 }
-              }
-            });
-          }
-
-          // Prepara dados do destinatário (opcional para NFC-e se for Consumidor Final)
-          let receiver = undefined;
-          const isConsumidorFinal = finalClienteNome === 'CONSUMIDOR FINAL';
-
-          if (!isConsumidorFinal) {
-            const qClient = query(collection(db, 'clientes'), where('tenantId', '==', tenantId), where('nome', '==', finalClienteNome));
-            const snapClient = await getDocs(qClient);
-            if (!snapClient.empty) {
-              const cData = snapClient.docs[0].data();
-              const cDoc = (cData.documento || '').replace(/\D/g, '');
-              const cCep = (cData.cep || '01001-000').replace(/\D/g, '');
-              if (cDoc) {
-                receiver = {
-                  name: finalClienteNome,
-                  federalTaxNumber: cDoc,
-                  email: cData.email || undefined,
-                  address: {
-                    street: cData.endereco || 'Rua Principal',
-                    number: cData.numero || '123',
-                    district: cData.bairro || 'Centro',
-                    postalCode: cCep,
-                    city: {
-                      code: cData.codigoIbge || '3550308',
-                      name: cData.cidade || 'São Paulo',
-                      state: cData.estado || 'SP'
-                    }
-                  }
-                };
-              }
-            }
-          }
-
-          if (!receiver) {
-            receiver = {
-              name: 'Consumidor Final',
-              federalTaxNumber: '12345678901', // CPF dummy para emissão anônima/teste
-              address: {
-                street: 'Rua Principal',
-                number: '123',
-                district: 'Centro',
-                postalCode: '01001000',
-                city: {
-                  code: '3550308',
-                  name: 'São Paulo',
-                  state: 'SP'
-                }
-              }
-            };
-          }
-
-          const spedyPayload = {
-            isFinalCustomer: true,
-            operationType: 'outgoing',
-            destination: resolveInvoiceDestination(payloadItems.find((pi) => isExportCfop(pi.cfop))?.cfop, 'internal'),
-            presenceType: 'presence',
-            operationNature: 'Venda de Mercadoria',
-            sendEmailToCustomer: false,
-            integrationId: newPedidoId,
-            receiver,
-            items: payloadItems,
-            payments: paymentRecords.map((payment) => ({
-              method: toSpedyPaymentMethod(payment.formaPagamento),
-              amount: payment.valor,
+          // Itens, destinatario e totais: montagem unica do cupom (nfceEmissaoService),
+          // a mesma do app do vendedor e do "Emitir cupom" do pedido salvo.
+          const { payload: spedyPayload, avisos: avisosCupom } = await montarNfceDoPedido({
+            id: newPedidoId,
+            tenantId,
+            clienteNome: finalClienteNome,
+            clienteId: clienteIdSelecionado,
+            itens: itens.map((item) => ({
+              id: item.id,
+              nome: item.nome,
+              quantidade: item.quantidade,
+              precoUnitario: item.precoUnitario,
+              ...(item.unidadeMedidaSigla ? { unidadeMedidaSigla: item.unidadeMedidaSigla } : {}),
+              ...(item.fatorConversao !== undefined ? { fatorConversao: item.fatorConversao } : {}),
+              ...(item.embalagemId ? { embalagemId: item.embalagemId } : {}),
             })),
-            total: {
-              invoiceAmount: valorTotalPedido,
-              productAmount: valorTotalItens
-            }
-          };
+            pagamentos: paymentRecords.map((payment) => ({ formaPagamento: payment.formaPagamento, valor: payment.valor })),
+            valorTotal: valorTotalPedido,
+            valorTotalItens,
+          });
+          if (avisosCupom.length > 0) console.warn('Cupom fiscal: cadastro a conferir --', avisosCupom.join(' '));
 
           const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload);
 
@@ -3357,134 +3245,26 @@ const PedidoVendaForm: React.FC = () => {
         return;
       }
 
-      // 2. Montar os itens com a tributação do estoque
-      const payloadItems = [];
-      for (const item of itens) {
-        let ncm = '87082999';
-        let cfop = 5102;
-        let csosn = 400;
-        let origem = 0;
-
-        let pesoLiquidoUnitarioKg = 0;
-
-        if (item.id && item.id !== 'avulso') {
-          try {
-            const docRef = doc(db, 'estoque', item.id);
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-              const pData = docSnap.data();
-              ncm = pData.ncm || '87082999';
-              cfop = Number(pData.cfop) || cfop;
-              csosn = Number(pData.csosn) || csosn;
-              origem = Number(pData.origem) || origem;
-              pesoLiquidoUnitarioKg = Number(pData.pesoLiquidoUnitarioKg) || 0;
-            }
-          } catch (err) {
-            console.error("Erro ao buscar dados fiscais do produto no estoque:", err);
-          }
-        }
-
-        const unitFields = resolveInvoiceUnitFields({
-          cfop,
-          unidadeComercial: item.unidadeMedidaSigla || 'UN',
-          quantidadeComercial: item.quantidade,
-          valorUnitarioComercial: item.precoUnitario,
-          // Mesma conversao do outro ponto de emissao: peso por unidade base
-          // x fator da embalagem em que o item foi realmente vendido.
-          pesoLiquidoUnitarioKg: pesoLiquidoUnitarioKg * (item.fatorConversao ?? 1),
-        });
-        if (!unitFields.ok) {
-          throw new Error(`${item.nome}: ${unitFields.error}`);
-        }
-
-        payloadItems.push({
-          code: item.id === 'avulso' ? 'AVULSO' : item.id,
-          description: item.nome,
-          ncm,
-          cfop,
-          ...unitFields.fields!,
-          totalAmount: item.precoUnitario * item.quantidade,
-          makeupTotal: true,
-          taxes: {
-            icms: {
-              origin: origem,
-              csosn
-            },
-            pis: { cst: 7 },
-            cofins: { cst: 7 }
-          }
-        });
-      }
-
-      // 3. Destinatário
-      let receiver = undefined;
-      const isConsumidorFinal = clienteNome.toUpperCase() === 'CONSUMIDOR FINAL';
-
-      if (!isConsumidorFinal) {
-        const qClient = query(collection(db, 'clientes'), where('tenantId', '==', tenantId), where('nome', '==', clienteNome));
-        const snapClient = await getDocs(qClient);
-        if (!snapClient.empty) {
-          const cData = snapClient.docs[0].data();
-          const cDoc = (cData.documento || '').replace(/\D/g, '');
-          const cCep = (cData.cep || '01001-000').replace(/\D/g, '');
-          if (cDoc) {
-            receiver = {
-              name: clienteNome,
-              federalTaxNumber: cDoc,
-              email: cData.email || undefined,
-              address: {
-                street: cData.endereco || 'Rua Principal',
-                number: cData.numero || '123',
-                district: cData.bairro || 'Centro',
-                postalCode: cCep,
-                city: {
-                  code: cData.codigoIbge || '3550308',
-                  name: cData.cidade || 'São Paulo',
-                  state: cData.estado || 'SP'
-                }
-              }
-            };
-          }
-        }
-      }
-
-      if (!receiver) {
-        receiver = {
-          name: 'Consumidor Final',
-          federalTaxNumber: '12345678901',
-          address: {
-            street: 'Rua Principal',
-            number: '123',
-            district: 'Centro',
-            postalCode: '01001000',
-            city: {
-              code: '3550308',
-              name: 'São Paulo',
-              state: 'SP'
-            }
-          }
-        };
-      }
-
-      const spedyPayload = {
-        isFinalCustomer: true,
-        operationType: 'outgoing',
-        destination: resolveInvoiceDestination(payloadItems.find((pi) => isExportCfop(pi.cfop))?.cfop, 'internal'),
-        presenceType: 'presence',
-        operationNature: 'Venda de Mercadoria',
-        sendEmailToCustomer: false,
-        integrationId: id,
-        receiver,
-        items: payloadItems,
-        payments: paymentDrafts.map((payment) => ({
-          method: toSpedyPaymentMethod(payment.forma),
-          amount: fromCents(toCents(payment.valor)),
+      // 2. Itens, destinatario e totais: montagem unica do cupom (nfceEmissaoService).
+      const { payload: spedyPayload, avisos: avisosCupom } = await montarNfceDoPedido({
+        id,
+        tenantId,
+        clienteNome,
+        clienteId: clienteIdSelecionado,
+        itens: itens.map((item) => ({
+          id: item.id,
+          nome: item.nome,
+          quantidade: item.quantidade,
+          precoUnitario: item.precoUnitario,
+          ...(item.unidadeMedidaSigla ? { unidadeMedidaSigla: item.unidadeMedidaSigla } : {}),
+          ...(item.fatorConversao !== undefined ? { fatorConversao: item.fatorConversao } : {}),
+          ...(item.embalagemId ? { embalagemId: item.embalagemId } : {}),
         })),
-        total: {
-          invoiceAmount: valorTotalPedido,
-          productAmount: valorTotalItens
-        }
-      };
+        pagamentos: paymentDrafts.map((payment) => ({ formaPagamento: payment.forma, valor: fromCents(toCents(payment.valor)) })),
+        valorTotal: valorTotalPedido,
+        valorTotalItens,
+      });
+      if (avisosCupom.length > 0) console.warn('Cupom fiscal: cadastro a conferir --', avisosCupom.join(' '));
 
       const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload);
 

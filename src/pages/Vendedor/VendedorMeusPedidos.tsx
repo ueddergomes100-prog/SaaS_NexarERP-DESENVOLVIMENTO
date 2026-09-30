@@ -150,6 +150,7 @@ const VendedorMeusPedidos: React.FC = () => {
         id: pedidoSnap.id,
         tenantId,
         clienteNome: pedidoData.clienteNome || 'CONSUMIDOR FINAL',
+        clienteId: pedidoData.clienteId || null,
         itens: Array.isArray(pedidoData.itens) ? pedidoData.itens : [],
         pagamentos: Array.isArray(pedidoData.pagamentos) ? pedidoData.pagamentos : [],
         valorTotal: Number(pedidoData.valorTotal || 0),

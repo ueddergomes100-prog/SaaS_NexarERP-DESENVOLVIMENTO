@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_CONTROLA_FISCAL,
   parseControlaFiscal,
-  usesCsosn, ICMS_CST_OPTIONS, matchProdutoFromXmlItem, matchMateriaPrimaFromXmlItem, buildTaxesPayload,
+  usesCsosn, ICMS_CST_OPTIONS, matchProdutoFromXmlItem, matchMateriaPrimaFromXmlItem,
   buildServiceInvoiceDescription, sumServiceInvoiceAmount, buildServiceInvoicePayload,
   isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields,
   type EstoqueItemForMatch, type MateriaPrimaItemForMatch, type OsServicoParaFatura, type NfseConfig,
@@ -133,55 +133,6 @@ test('matchMateriaPrimaFromXmlItem retorna null quando nada bate', () => {
     materiasPrimas,
   );
   assert.equal(result, null);
-});
-
-test('buildTaxesPayload no Simples Nacional manda so csosn/origem no ICMS e cst 7 fixo em PIS/COFINS', () => {
-  const payload = buildTaxesPayload({ origem: '0', csosn: '102' }, 'simples_nacional', 1000);
-  assert.deepEqual(payload.icms, { origin: 0, csosn: 102 });
-  assert.deepEqual(payload.pis, { cst: 7 });
-  assert.deepEqual(payload.cofins, { cst: 7 });
-  assert.equal(payload.ipi, undefined);
-});
-
-test('buildTaxesPayload no Lucro Presumido manda CST real de ICMS com base/aliquota/valor calculados', () => {
-  const payload = buildTaxesPayload(
-    { origem: '0', csosn: '00', aliquotaIcms: 18, reducaoBaseIcms: 0, cstPis: '01', aliquotaPis: 1.65, cstCofins: '01', aliquotaCofins: 7.6 },
-    'lucro_presumido',
-    1000,
-  );
-  assert.equal(payload.icms.cst, 0);
-  assert.equal(payload.icms.csosn, undefined);
-  assert.equal(payload.icms.baseTax, 1000);
-  assert.equal(payload.icms.rate, 18);
-  assert.equal(payload.icms.amount, 180);
-  assert.deepEqual(payload.pis, { cst: 1, baseTax: 1000, rate: 1.65, amount: 16.5 });
-  assert.deepEqual(payload.cofins, { cst: 1, baseTax: 1000, rate: 7.6, amount: 76 });
-});
-
-test('buildTaxesPayload aplica reducao de base do ICMS antes de calcular o valor', () => {
-  const payload = buildTaxesPayload(
-    { origem: '0', csosn: '20', aliquotaIcms: 18, reducaoBaseIcms: 50 },
-    'lucro_real',
-    1000,
-  );
-  assert.equal(payload.icms.baseTax, 500);
-  assert.equal(payload.icms.amount, 90);
-});
-
-test('buildTaxesPayload so inclui IPI quando o produto tem CST de IPI configurado', () => {
-  const semIpi = buildTaxesPayload({ origem: '0', csosn: '00' }, 'lucro_real', 1000);
-  assert.equal(semIpi.ipi, undefined);
-
-  const comIpi = buildTaxesPayload({ origem: '0', csosn: '00', cstIpi: '50', aliquotaIpi: 10 }, 'lucro_real', 1000);
-  assert.deepEqual(comIpi.ipi, { cst: 50, baseTax: 1000, rate: 10, amount: 100 });
-});
-
-test('buildTaxesPayload so inclui IBS/CBS quando o produto tem CST configurado (MVP parcial, sem split estadual/municipal)', () => {
-  const sem = buildTaxesPayload({ origem: '0', csosn: '00' }, 'lucro_real', 1000);
-  assert.equal(sem.ibsCbs, undefined);
-
-  const com = buildTaxesPayload({ origem: '0', csosn: '00', cstIbs: '01', cstCbs: '01', aliquotaCbs: 1 }, 'lucro_real', 1000);
-  assert.deepEqual(com.ibsCbs, { cst: 1, baseTax: 1000, cbsRate: 1, cbsAmount: 10 });
 });
 
 const servicosOS: OsServicoParaFatura[] = [

@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { collection, doc, getDocs, query, serverTimestamp, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, where, writeBatch } from 'firebase/firestore';
 import { ArrowLeft, CheckCircle2, Download, FileUp, Loader2, ScanBarcode } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,21 +14,31 @@ import {
 } from '../../utils/importacaoEstoqueDomain';
 import {
   CABECALHO_MODELO_FISCAL,
+  CAMPOS_TRIBUTACAO,
   ROTULO_STATUS_FISCAL,
+  ehTabelaIbpt,
   inferirMapeamentoFiscal,
   lerLinhasFiscais,
+  lerTabelaIbpt,
+  mapeamentoVazio,
   nomeCampo,
   planejarImportacaoFiscal,
+  planejarImportacaoIbpt,
   type CampoFiscal,
   type MapeamentoFiscal,
   type ProdutoFiscalAtual,
   type StatusLinhaFiscal,
+  type TabelaIbpt,
 } from '../../utils/importacaoFiscalDomain';
+import { DEFAULT_REGIME_TRIBUTARIO, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
 
 /**
- * Atualiza codigo de barras, NCM e CEST de produtos que JA existem, a partir
- * de uma planilha (CSV/XLSX) com a coluna Codigo (ou o nome do produto). Nunca
- * cria produto, nunca apaga dado e nao troca valor ja preenchido sem o usuario
+ * Atualiza os dados fiscais (codigo de barras, NCM, CEST e a tributacao:
+ * CSOSN/CST, CFOP, origem, CST de PIS/COFINS/IPI, enquadramento do IPI e % de
+ * tributos aproximados) de produtos que JA existem, a partir de uma planilha
+ * (CSV/XLSX) com a coluna Codigo (ou o nome do produto). Tambem aceita o
+ * arquivo oficial do IBPT, aplicado pelo NCM de cada produto. Nunca cria
+ * produto, nunca apaga dado e nao troca valor ja preenchido sem o usuario
  * mandar. Regras e testes: src/utils/importacaoFiscalDomain.ts.
  */
 
@@ -52,6 +62,19 @@ const CAMPOS_MAPA: { campo: CampoFiscal; rotulo: string }[] = [
   { campo: 'codigoBarras', rotulo: 'Código de barras' },
   { campo: 'ncm', rotulo: 'NCM' },
   { campo: 'cest', rotulo: 'CEST' },
+  { campo: 'cfop', rotulo: 'CFOP' },
+  { campo: 'csosn', rotulo: 'CSOSN / CST ICMS' },
+  { campo: 'cfopInterestadual', rotulo: 'CFOP interestadual' },
+  { campo: 'csosnInterestadual', rotulo: 'CSOSN/CST interestadual' },
+  { campo: 'origem', rotulo: 'Origem' },
+  { campo: 'cstPis', rotulo: 'CST PIS' },
+  { campo: 'cstCofins', rotulo: 'CST COFINS' },
+  { campo: 'cstIpi', rotulo: 'CST IPI' },
+  { campo: 'enquadramentoIpi', rotulo: 'Enquadramento IPI' },
+  { campo: 'percentualTributosFederal', rotulo: '% Tributos federais' },
+  { campo: 'percentualTributosEstadual', rotulo: '% Tributos estaduais' },
+  { campo: 'percentualTributosMunicipal', rotulo: '% Tributos municipais' },
+  { campo: 'percentualTributos', rotulo: '% Tributos (total)' },
 ];
 
 const celulaParaTexto = (valor: unknown): string => {
@@ -76,7 +99,10 @@ const ImportarDadosFiscais: React.FC = () => {
   const [nomeArquivo, setNomeArquivo] = useState('');
   const [cabecalho, setCabecalho] = useState<string[]>([]);
   const [linhasBrutas, setLinhasBrutas] = useState<string[][]>([]);
-  const [mapa, setMapa] = useState<MapeamentoFiscal>({ codigo: null, produto: null, codigoBarras: null, ncm: null, cest: null });
+  const [mapa, setMapa] = useState<MapeamentoFiscal>(mapeamentoVazio);
+  /** Arquivo do IBPT (por NCM) em vez de planilha por produto. */
+  const [tabelaIbpt, setTabelaIbpt] = useState<TabelaIbpt | null>(null);
+  const [regime, setRegime] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
   const [produtos, setProdutos] = useState<ProdutoFiscalAtual[]>([]);
   const [sobrescrever, setSobrescrever] = useState(false);
   const [filtro, setFiltro] = useState<StatusLinhaFiscal | 'todos'>('todos');
@@ -84,15 +110,20 @@ const ImportarDadosFiscais: React.FC = () => {
 
   const linhas = useMemo(() => lerLinhasFiscais(linhasBrutas, mapa), [linhasBrutas, mapa]);
   const plano = useMemo(
-    () => planejarImportacaoFiscal({ linhas, produtos, sobrescrever }),
-    [linhas, produtos, sobrescrever],
+    () => (tabelaIbpt
+      ? planejarImportacaoIbpt({ tabela: tabelaIbpt, produtos })
+      : planejarImportacaoFiscal({ linhas, produtos, sobrescrever, regime })),
+    [linhas, produtos, sobrescrever, regime, tabelaIbpt],
   );
 
   const baixarModelo = () => {
-    const planilha = XLSX.utils.aoa_to_sheet([CABECALHO_MODELO_FISCAL, ['10', 'ACUCAR MASCAVO 500G', '7898945717076', '17011300', '1710300']]);
+    const planilha = XLSX.utils.aoa_to_sheet([
+      CABECALHO_MODELO_FISCAL,
+      ['10', 'ACUCAR MASCAVO 500G', '7898945717076', '17011300', '', '5102', usesCsosn(regime) ? '102' : '00', '', '', '0', usesCsosn(regime) ? '99' : '01', usesCsosn(regime) ? '99' : '01', '99', '999', '13,45'],
+    ]);
     // Codigos como TEXTO: senao o Excel corta zeros da frente e vira notacao cientifica.
-    ['A2', 'C2', 'D2', 'E2'].forEach((ref) => { if (planilha[ref]) planilha[ref].t = 's'; });
-    planilha['!cols'] = [{ wch: 10 }, { wch: 40 }, { wch: 18 }, { wch: 12 }, { wch: 10 }];
+    ['A2', 'C2', 'D2', 'E2', 'F2', 'G2', 'H2', 'I2', 'J2', 'K2', 'L2', 'M2', 'N2'].forEach((ref) => { if (planilha[ref]) planilha[ref].t = 's'; });
+    planilha['!cols'] = [{ wch: 10 }, { wch: 40 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 18 }, { wch: 24 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 9 }, { wch: 18 }, { wch: 11 }];
     const livro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(livro, planilha, 'Dados fiscais');
     XLSX.writeFile(livro, 'modelo-importar-dados-fiscais.xlsx');
@@ -111,6 +142,19 @@ const ImportarDadosFiscais: React.FC = () => {
         codigoBarras: String(dados.codigoBarras ?? '').trim(),
         ncm: String(dados.ncm || dados.fiscal?.ncm || ''),
         cest: String(dados.cest || dados.fiscal?.cest || ''),
+        cfop: String(dados.cfop || dados.fiscal?.cfopPadraoSaida || ''),
+        csosn: String(dados.csosn || dados.fiscal?.csosnCst || ''),
+        cfopInterestadual: String(dados.cfopInterestadual || ''),
+        csosnInterestadual: String(dados.csosnInterestadual || ''),
+        origem: String(dados.origem ?? dados.fiscal?.origem ?? ''),
+        cstPis: String(dados.cstPis || dados.fiscal?.cstPis || ''),
+        cstCofins: String(dados.cstCofins || dados.fiscal?.cstCofins || ''),
+        cstIpi: String(dados.cstIpi || dados.fiscal?.cstIpi || ''),
+        enquadramentoIpi: String(dados.enquadramentoIpi || ''),
+        percentualTributosFederal: String(dados.percentualTributosFederal ?? ''),
+        percentualTributosEstadual: String(dados.percentualTributosEstadual ?? ''),
+        percentualTributosMunicipal: String(dados.percentualTributosMunicipal ?? ''),
+        percentualTributos: String(dados.percentualTributos ?? ''),
         embalagensBarras: embalagens.map((e) => String(e?.codigoBarras ?? '').trim()).filter(Boolean),
       };
     });
@@ -139,13 +183,35 @@ const ImportarDadosFiscais: React.FC = () => {
         showError('Planilha vazia', 'Não encontrei linhas de dados. A primeira linha deve ser o cabeçalho (Código, Produto, Código de barras, NCM, CEST).');
         return;
       }
+      // Regime da empresa: decide se a coluna CSOSN/CST aceita CSOSN ou CST.
+      const configSnap = await getDoc(doc(db, 'configuracoes', tenantId || ''));
+      setRegime(((configSnap.exists() ? configSnap.data().regimeTributario : undefined) ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
+
+      // Arquivo oficial do IBPT: vem por NCM, cada produto recebe os percentuais do seu NCM.
+      if (ehTabelaIbpt(cab.map((c) => String(c)))) {
+        const tabela = lerTabelaIbpt(cab.map((c) => String(c)), dados);
+        if (tabela.porNcm.size === 0) {
+          showError('Tabela do IBPT vazia', 'Não achei nenhum NCM no arquivo. Baixe de novo a tabela da sua UF no site do IBPT (De Olho no Imposto) e envie o CSV sem alterar.');
+          return;
+        }
+        setProdutos(await carregarProdutos());
+        setTabelaIbpt(tabela);
+        setNomeArquivo(arquivo.name);
+        setCabecalho([]);
+        setLinhasBrutas([]);
+        setFiltro('todos');
+        setPasso('conferencia');
+        return;
+      }
+      setTabelaIbpt(null);
+
       const mapaInferido = inferirMapeamentoFiscal(cab);
       if (mapaInferido.codigo === null && mapaInferido.produto === null) {
         showError('Faltou a coluna do produto', 'Não achei nenhuma coluna Código nem Produto no cabeçalho. Confira a primeira linha ou use "Baixar modelo".');
         return;
       }
-      if (mapaInferido.codigoBarras === null && mapaInferido.ncm === null && mapaInferido.cest === null) {
-        showError('Nada para importar', 'Não achei nenhuma coluna de Código de barras, NCM ou CEST no cabeçalho. Confira a primeira linha ou use "Baixar modelo".');
+      if (mapaInferido.codigoBarras === null && mapaInferido.ncm === null && mapaInferido.cest === null && CAMPOS_TRIBUTACAO.every((c) => mapaInferido[c] === null)) {
+        showError('Nada para importar', 'Não achei nenhuma coluna fiscal (Código de barras, NCM, CEST, CFOP, CSOSN, CST...) no cabeçalho. Confira a primeira linha ou use "Baixar modelo".');
         return;
       }
       setProdutos(await carregarProdutos());
@@ -189,7 +255,9 @@ const ImportarDadosFiscais: React.FC = () => {
           usuarioEmail: currentUser.email || currentUser.uid,
           modulo: 'estoque',
           acao: 'edicao',
-          descricao: `Importação de dados fiscais (código de barras, NCM, CEST): ${alvos.length} produto(s) atualizado(s) pela planilha "${nomeArquivo}".${sobrescrever ? ' Valores já preenchidos foram sobrescritos.' : ''}`,
+          descricao: tabelaIbpt
+            ? `Importação da tabela do IBPT (tributos aproximados, versão ${tabelaIbpt.versao || 'não informada'}): ${alvos.length} produto(s) atualizado(s) pelo arquivo "${nomeArquivo}".`
+            : `Importação de dados fiscais: ${alvos.length} produto(s) atualizado(s) pela planilha "${nomeArquivo}".${sobrescrever ? ' Valores já preenchidos foram sobrescritos.' : ''}`,
           registroRelacionadoId: alvos[0].produto!.id,
           status: 'sucesso',
           critical: false,
@@ -228,7 +296,7 @@ const ImportarDadosFiscais: React.FC = () => {
             <ScanBarcode size={28} color="var(--accent-purple)" /> Importar dados fiscais
           </h1>
           <p style={{ color: 'var(--text-muted)', maxWidth: '760px' }}>
-            Atualiza <strong>código de barras, NCM e CEST</strong> de produtos que já estão cadastrados, a partir de uma planilha. Não cria produto, não apaga dado e não troca o que já está preenchido sem você mandar.
+            Atualiza os <strong>dados fiscais</strong> (código de barras, NCM, CEST, CSOSN/CST, CFOP, PIS/COFINS, IPI e tributos aproximados) de produtos que já estão cadastrados, a partir de uma planilha ou da tabela do IBPT. Não cria produto, não apaga dado e não troca o que já está preenchido sem você mandar.
           </p>
         </div>
         <button className="btn-secondary" onClick={() => navigate('/estoque')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -241,7 +309,7 @@ const ImportarDadosFiscais: React.FC = () => {
           <div>
             <h2 style={{ fontSize: '18px', marginBottom: '6px' }}>1. Envie a planilha</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
-              A primeira linha é o cabeçalho. Colunas: <strong>Código</strong> (o código do produto aqui no sistema) ou <strong>Produto</strong> (o nome), e as que quiser atualizar: <strong>Código de barras</strong>, <strong>NCM</strong>, <strong>CEST</strong>. Aceita Excel (.xlsx) e CSV.
+              A primeira linha é o cabeçalho. Colunas: <strong>Código</strong> (o código do produto aqui no sistema) ou <strong>Produto</strong> (o nome), e as que quiser atualizar: <strong>Código de barras</strong>, <strong>NCM</strong>, <strong>CEST</strong>, <strong>CFOP</strong>, <strong>CSOSN/CST ICMS</strong>, <strong>CFOP interestadual</strong> e <strong>CSOSN/CST interestadual</strong> (produto com ST vendido para outro estado), <strong>Origem</strong>, <strong>CST PIS</strong>, <strong>CST COFINS</strong>, <strong>CST IPI</strong>, <strong>Enquadramento IPI</strong> e <strong>% Tributos</strong>. Aceita Excel (.xlsx) e CSV.
             </p>
           </div>
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
@@ -263,6 +331,8 @@ const ImportarDadosFiscais: React.FC = () => {
             <li>Você confere tudo na próxima tela antes de gravar. Nada é alterado agora.</li>
             <li>Código de barras que não fecha o dígito verificador, NCM sem 8 dígitos e CEST sem 7 dígitos são ignorados e explicados.</li>
             <li>O mesmo código de barras em dois produtos é recusado, para o leitor do caixa não errar de produto.</li>
+            <li>CSOSN (Simples Nacional) ou CST de ICMS é conferido com o regime da empresa em Configurações.</li>
+            <li><strong>Tabela do IBPT:</strong> envie o CSV da sua UF baixado em deolhonoimposto.ibpt.org.br, sem alterar. Cada produto recebe os percentuais de tributos aproximados do seu NCM (federal de importados para origem estrangeira).</li>
           </ul>
         </div>
       )}
@@ -274,10 +344,16 @@ const ImportarDadosFiscais: React.FC = () => {
               <div>
                 <h2 style={{ fontSize: '18px', marginBottom: '2px' }}>2. Confira antes de gravar</h2>
                 <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Arquivo: {nomeArquivo} · {produtos.length} produtos cadastrados na empresa</span>
+                {tabelaIbpt && (
+                  <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: '13px' }}>
+                    Tabela do IBPT · versão {tabelaIbpt.versao || 'não informada'} · vigente até {tabelaIbpt.vigenciaFim || 'data não informada'} · {tabelaIbpt.porNcm.size} NCMs. Os percentuais novos substituem os atuais.
+                  </span>
+                )}
               </div>
               <button className="btn-secondary" onClick={() => { setPasso('upload'); setLinhasBrutas([]); }}>Trocar arquivo</button>
             </div>
 
+            {!tabelaIbpt && (<>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}>
               {CAMPOS_MAPA.map(({ campo, rotulo }) => (
                 <label key={campo} style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -301,6 +377,7 @@ const ImportarDadosFiscais: React.FC = () => {
                 <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: '12px' }}>Desligado (recomendado): só preenche o que está vazio e mostra como “conflito” o que já tem valor diferente.</span>
               </span>
             </label>
+            </>)}
           </div>
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -386,7 +463,7 @@ const ImportarDadosFiscais: React.FC = () => {
         <div className="card" style={{ padding: '32px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'center' }}>
           <CheckCircle2 size={48} color="#10b981" />
           <h2 style={{ fontSize: '20px' }}>{atualizados} produto{atualizados === 1 ? '' : 's'} atualizado{atualizados === 1 ? '' : 's'}</h2>
-          <p style={{ color: 'var(--text-muted)', maxWidth: '520px' }}>Código de barras, NCM e CEST já valem no cadastro. Se ficaram linhas com conflito ou problema, corrija a planilha e envie de novo: o que já foi gravado não muda outra vez.</p>
+          <p style={{ color: 'var(--text-muted)', maxWidth: '520px' }}>Os dados fiscais já valem no cadastro e nas próximas notas. Se ficaram linhas com conflito ou problema, corrija a planilha e envie de novo: o que já foi gravado não muda outra vez.</p>
           <div style={{ display: 'flex', gap: '12px' }}>
             <button className="btn-secondary" onClick={() => { setPasso('upload'); setLinhasBrutas([]); }}>Importar outra planilha</button>
             <button className="btn-primary" onClick={() => navigate('/estoque')}>Ver produtos</button>

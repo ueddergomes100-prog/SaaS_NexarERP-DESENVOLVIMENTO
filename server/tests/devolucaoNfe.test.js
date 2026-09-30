@@ -301,6 +301,24 @@ test('payload final: finalidade devolucao, entrada, sem pagamento, referencia po
   assert.equal(payload.sendEmailToCustomer, true);
 });
 
+test('venda com desconto: a devolucao leva o desconto na mesma proporcao (vale o que o cliente pagou) e os tributos aproximados', () => {
+  const comDesconto = { ...itemNota('1019', 'GRANOLA 1KG', 10, 20), discountAmount: 20 };
+  comDesconto.taxes = { ...comDesconto.taxes, totalTax: 36 };
+  const notas = [{ ...NOTA, itensFiscais: [comDesconto, NOTA.itensFiscais[1]] }];
+  const r = preparar({ notas });
+  assert.equal(r.ok, true);
+  const granola = r.itens.find((i) => i.code === '1019');
+  const razao = granola.quantity / 10;
+  assert.equal(granola.discountAmount, Math.round(20 * razao * 100) / 100);
+  assert.equal(granola.taxes.totalTax, Math.round(36 * razao * 100) / 100);
+  const payload = montarPayloadDevolucao({ integrationId: 'dev-d', receiver: r.receiver, itens: r.itens, notaOriginal: notas[0] });
+  const bruto = r.itens.reduce((s, i) => s + i.totalAmount, 0);
+  assert.equal(payload.total.productAmount, bruto);
+  assert.equal(payload.total.discountAmount, granola.discountAmount);
+  assert.equal(payload.total.invoiceAmount, Math.round((bruto - granola.discountAmount) * 100) / 100);
+  assert.equal(r.valorTotal, payload.total.invoiceAmount);
+});
+
 test('payload interestadual quando o CFOP de devolucao e 2.xxx', () => {
   const notas = [{ ...NOTA, itensFiscais: [itemNota('1019', 'GRANOLA 1KG', 10, 20, 6102), NOTA.itensFiscais[1]] }];
   const r = preparar({ notas });

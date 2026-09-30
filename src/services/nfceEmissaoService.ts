@@ -1,34 +1,38 @@
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from './firebase';
 import { spedyService, type SpedyInvoice } from './spedyService';
-import { isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields } from '../utils/fiscalDomain';
+import { DEFAULT_REGIME_TRIBUTARIO, usesCsosn, type RegimeTributario } from '../utils/fiscalDomain';
+import {
+  TEXTO_OPTANTE_SIMPLES_NACIONAL, montarItemNotaFiscal, montarPagamentosNota, produtoFiscalDoCadastro,
+  somarTributos, textoTributosAproximados, type ProdutoFiscal, type ValoresTributosItem,
+} from '../utils/notaFiscalItemDomain';
+import { ratearValorPorPesos } from '../utils/notaAvulsaDomain';
 
 /**
- * Emite NFC-e pra um pedido JA SALVO -- usado pelo app do vendedor externo
- * (VendedorMeusPedidos.tsx), pra emitir a nota de um pedido que o proprio
- * vendedor ja fechou, sem precisar do desktop.
+ * NFC-e (cupom fiscal) de um pedido -- montagem UNICA, usada pelos tres
+ * pontos que emitem cupom: fim da venda e "Emitir cupom" no pedido
+ * (PedidoVendaForm.tsx) e o app do vendedor (VendedorMeusPedidos.tsx).
  *
- * O payload montado aqui e' equivalente ao que `PedidoVendaForm.tsx` ja
- * monta hoje em DOIS pontos independentes (ao finalizar a venda, e ao
- * reemitir de dentro do pedido salvo) -- mesmos campos, mesma regra de
- * NCM/CFOP/CSOSN por produto. Foi ESCRITO DE NOVO aqui, de proposito, em vez
- * de refatorar qualquer um dos dois pontos do desktop pra compartilhar
- * codigo: sao dois fluxos fiscais reais, ja em producao, e mexer neles so
- * pra ganhar reuso seria risco desnecessario pra entregar um terceiro
- * consumidor. O que e' de fato compartilhado (e seguro compartilhar) sao as
- * pecas puras -- `resolveInvoiceUnitFields`/`resolveInvoiceDestination`/
- * `isExportCfop` (fiscalDomain.ts) e o cliente da API (`spedyService`).
+ * Ate 2026-09-30 cada ponto tinha a sua copia, e as tres mandavam:
+ * NCM 87082999 / CSOSN 400 inventados quando o produto nao tinha, CSOSN
+ * mesmo com a empresa no regime normal, PIS/COFINS 07 fixo, unidade UN,
+ * sem codigo de barras, sem tributos aproximados (Lei 12.741, obrigatoria na
+ * venda ao consumidor), o id interno do banco como "codigo do produto" e --
+ * sem cliente identificado -- o CPF falso 12345678901 com endereco de Sao
+ * Paulo. Agora o item sai de notaFiscalItemDomain (mesma regra da NF-e) e,
+ * sem cliente identificado, a nota vai sem destinatario (a NFC-e permite).
  */
 
 export class NfceEmissaoError extends Error {}
 
-interface ItemPedidoParaEmissao {
+export interface ItemPedidoParaEmissao {
   id: string;
   nome: string;
   quantidade: number;
   precoUnitario: number;
   unidadeMedidaSigla?: string;
   fatorConversao?: number;
+  embalagemId?: string;
 }
 
 interface PagamentoPedidoParaEmissao {
@@ -40,65 +44,128 @@ export interface PedidoParaEmissao {
   id: string;
   tenantId: string;
   clienteNome: string;
+  clienteId?: string | null;
   itens: ItemPedidoParaEmissao[];
   pagamentos: PagamentoPedidoParaEmissao[];
   valorTotal: number;
   valorTotalItens: number;
 }
 
-const toSpedyPaymentMethod = (method: string) => {
-  if (method === 'Pix') return 'pix';
-  if (method.includes('Crédito')) return 'creditCard';
-  if (method.includes('Débito')) return 'debitCard';
-  if (method === 'Dinheiro') return 'money';
-  return 'other';
+/** Destinatario da NFC-e: so' cliente identificado com CPF/CNPJ; endereco so' se estiver completo. */
+const montarDestinatario = async (tenantId: string, clienteNome: string, clienteId?: string | null) => {
+  if (!clienteNome || clienteNome.trim().toUpperCase() === 'CONSUMIDOR FINAL') return null;
+  let cData: Record<string, unknown> | null = null;
+  if (clienteId) {
+    const snap = await getDoc(doc(db, 'clientes', clienteId));
+    if (snap.exists() && snap.data().tenantId === tenantId) cData = snap.data();
+  }
+  if (!cData) {
+    const snapClient = await getDocs(query(collection(db, 'clientes'), where('tenantId', '==', tenantId), where('nome', '==', clienteNome)));
+    if (!snapClient.empty) cData = snapClient.docs[0].data();
+  }
+  const documento = String(cData?.documento || '').replace(/\D/g, '');
+  if (!cData || !(documento.length === 11 || documento.length === 14)) return null;
+  const s = (campo: string) => String(cData?.[campo] || '').trim();
+  const enderecoCompleto = s('endereco') && s('numero') && s('bairro') && s('cep') && s('cidade') && s('estado') && s('codigoIbge');
+  return {
+    name: clienteNome,
+    federalTaxNumber: documento,
+    ...(s('email') ? { email: s('email') } : {}),
+    ...(enderecoCompleto ? {
+      address: {
+        street: s('endereco'),
+        number: s('numero'),
+        district: s('bairro'),
+        postalCode: s('cep').replace(/\D/g, ''),
+        city: { code: s('codigoIbge'), name: s('cidade'), state: s('estado') },
+      },
+    } : {}),
+  };
 };
 
-const buildReceiver = async (tenantId: string, clienteNome: string) => {
-  const isConsumidorFinal = clienteNome.toUpperCase() === 'CONSUMIDOR FINAL';
+/**
+ * Monta o corpo da NFC-e. Cadastro fiscal incompleto (sem NCM, CSOSN/CST
+ * invalido para o regime...) lanca NfceEmissaoError com o nome do produto e o
+ * que corrigir -- o cupom nao sai com dado inventado.
+ */
+export const montarNfceDoPedido = async (pedido: PedidoParaEmissao): Promise<{
+  payload: Record<string, unknown>;
+  itensFiscais: Record<string, unknown>[];
+  avisos: string[];
+}> => {
+  let regime: RegimeTributario = DEFAULT_REGIME_TRIBUTARIO;
+  const confSnap = await getDoc(doc(db, 'configuracoes', pedido.tenantId));
+  if (confSnap.exists()) regime = (confSnap.data().regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario;
 
-  if (!isConsumidorFinal) {
-    const snapClient = await getDocs(query(
-      collection(db, 'clientes'),
-      where('tenantId', '==', tenantId),
-      where('nome', '==', clienteNome),
-    ));
-    if (!snapClient.empty) {
-      const cData = snapClient.docs[0].data();
-      const cDoc = (cData.documento || '').replace(/\D/g, '');
-      const cCep = (cData.cep || '01001-000').replace(/\D/g, '');
-      if (cDoc) {
-        return {
-          name: clienteNome,
-          federalTaxNumber: cDoc,
-          email: cData.email || undefined,
-          address: {
-            street: cData.endereco || 'Rua Principal',
-            number: cData.numero || '123',
-            district: cData.bairro || 'Centro',
-            postalCode: cCep,
-            city: {
-              code: cData.codigoIbge || '3550308',
-              name: cData.cidade || 'São Paulo',
-              state: cData.estado || 'SP',
-            },
-          },
-        };
+  // Desconto da venda (por item + geral) = bruto - liquido, rateado pelos itens:
+  // a SEFAZ confere o desconto total com a soma do desconto dos itens.
+  const pesos = pedido.itens.map((it) => Number(it.quantidade || 0) * Number(it.precoUnitario || 0));
+  // Bruto somado dos proprios itens (o `valorTotalItens` gravado nao existe em pedido antigo).
+  const somaBruta = pesos.reduce((s, v) => s + v, 0);
+  const descontoTotal = Math.max(0, Math.round((somaBruta - pedido.valorTotal) * 100) / 100);
+  const descontos = descontoTotal > 0 ? ratearValorPorPesos(descontoTotal, pesos) : pesos.map(() => 0);
+
+  const itensFiscais: Record<string, unknown>[] = [];
+  const tributos: ValoresTributosItem[] = [];
+  const avisos: string[] = [];
+  for (let i = 0; i < pedido.itens.length; i += 1) {
+    const item = pedido.itens[i];
+    let produto: ProdutoFiscal = { nome: item.nome };
+    let unidadeCadastro = '';
+    if (item.id && item.id !== 'avulso') {
+      const pSnap = await getDoc(doc(db, 'estoque', item.id));
+      if (pSnap.exists()) {
+        produto = { ...produtoFiscalDoCadastro(pSnap.data(), { embalagemId: item.embalagemId }), nome: item.nome };
+        unidadeCadastro = String(pSnap.data().unidadeMedidaSigla || '');
       }
     }
+    const montado = montarItemNotaFiscal({
+      // O peso liquido do cadastro e' por unidade BASE; vendido em embalagem,
+      // cada unidade comercial pesa o fator vezes mais (so' conta em exportacao).
+      produto: { ...produto, pesoLiquidoUnitarioKg: Number(produto.pesoLiquidoUnitarioKg || 0) * (item.fatorConversao ?? 1) },
+      venda: { quantidade: item.quantidade, precoUnitario: item.precoUnitario, desconto: descontos[i], unidadeSigla: item.unidadeMedidaSigla || unidadeCadastro },
+      // NFC-e e' sempre venda presencial dentro do estado.
+      contexto: { regime, interestadual: false },
+      codigoItem: produto.codigo || (item.id === 'avulso' ? 'AVULSO' : item.id),
+    });
+    if (!montado.ok) {
+      throw new NfceEmissaoError(item.id === 'avulso'
+        ? `O item avulso "${item.nome}" não tem dados fiscais (NCM, CSOSN): o cupom fiscal só sai com produto cadastrado no Estoque.`
+        : montado.erro);
+    }
+    itensFiscais.push(montado.item);
+    tributos.push(montado.tributos);
+    avisos.push(...montado.avisos);
   }
 
-  return {
-    name: 'Consumidor Final',
-    federalTaxNumber: '12345678901',
-    address: {
-      street: 'Rua Principal',
-      number: '123',
-      district: 'Centro',
-      postalCode: '01001000',
-      city: { code: '3550308', name: 'São Paulo', state: 'SP' },
+  const tributosNota = somarTributos(tributos);
+  const informacoes = [
+    usesCsosn(regime) ? TEXTO_OPTANTE_SIMPLES_NACIONAL : '',
+    textoTributosAproximados(tributosNota, pedido.valorTotal),
+  ].filter(Boolean).join(' ');
+  const receiver = await montarDestinatario(pedido.tenantId, pedido.clienteNome, pedido.clienteId);
+  const descontoItens = itensFiscais.reduce((s, it) => s + Number(it.discountAmount || 0), 0);
+
+  const payload: Record<string, unknown> = {
+    isFinalCustomer: true,
+    operationType: 'outgoing',
+    destination: 'internal',
+    presenceType: 'presence',
+    operationNature: 'Venda de Mercadoria',
+    sendEmailToCustomer: false,
+    integrationId: pedido.id,
+    ...(informacoes ? { additionalInformation: informacoes } : {}),
+    ...(receiver ? { receiver } : {}),
+    items: itensFiscais,
+    payments: montarPagamentosNota(pedido.pagamentos, pedido.valorTotal),
+    total: {
+      invoiceAmount: pedido.valorTotal,
+      productAmount: Math.round(itensFiscais.reduce((s, it) => s + Number(it.totalAmount || 0), 0) * 100) / 100,
+      ...(descontoItens > 0 ? { discountAmount: Math.round(descontoItens * 100) / 100 } : {}),
+      ...(tributosNota.total > 0 ? { totalTax: tributosNota.total } : {}),
     },
   };
+  return { payload, itensFiscais, avisos: [...new Set(avisos)] };
 };
 
 /** Emite a NFC-e e espera (com polling curto) a autorizacao da SEFAZ,
@@ -120,78 +187,7 @@ export const emitirNfceDoPedido = async (pedido: PedidoParaEmissao): Promise<Nfc
   const apiKey = '__backend_proxy__';
   const env = runtimeConfig.spedyEnvironment;
 
-  const payloadItems: Record<string, unknown>[] = [];
-  for (const item of pedido.itens) {
-    let ncm = '87082999';
-    let cfop = 5102;
-    let csosn = 400;
-    let origem = 0;
-    let pesoLiquidoUnitarioKg = 0;
-
-    if (item.id !== 'avulso') {
-      const pSnap = await getDoc(doc(db, 'estoque', item.id));
-      if (pSnap.exists()) {
-        const pData = pSnap.data();
-        ncm = pData.ncm || ncm;
-        cfop = Number(pData.cfop) || cfop;
-        csosn = Number(pData.csosn) || csosn;
-        origem = Number(pData.origem) || origem;
-        pesoLiquidoUnitarioKg = Number(pData.pesoLiquidoUnitarioKg) || 0;
-      }
-    }
-
-    const unitFields = resolveInvoiceUnitFields({
-      cfop,
-      unidadeComercial: item.unidadeMedidaSigla || 'UN',
-      quantidadeComercial: item.quantidade,
-      valorUnitarioComercial: item.precoUnitario,
-      pesoLiquidoUnitarioKg: pesoLiquidoUnitarioKg * (item.fatorConversao ?? 1),
-    });
-    if (!unitFields.ok) {
-      throw new NfceEmissaoError(`${item.nome}: ${unitFields.error}`);
-    }
-
-    payloadItems.push({
-      code: item.id === 'avulso' ? 'AVULSO' : item.id,
-      description: item.nome,
-      ncm,
-      cfop,
-      ...unitFields.fields!,
-      totalAmount: item.precoUnitario * item.quantidade,
-      makeupTotal: true,
-      taxes: {
-        icms: { origin: origem, csosn },
-        pis: { cst: 7 },
-        cofins: { cst: 7 },
-      },
-    });
-  }
-
-  const receiver = await buildReceiver(pedido.tenantId, pedido.clienteNome);
-
-  const spedyPayload = {
-    isFinalCustomer: true,
-    operationType: 'outgoing',
-    destination: resolveInvoiceDestination((payloadItems.find((pi) => isExportCfop(pi.cfop as number)) as { cfop?: number } | undefined)?.cfop, 'internal'),
-    presenceType: 'presence',
-    operationNature: 'Venda de Mercadoria',
-    sendEmailToCustomer: false,
-    integrationId: pedido.id,
-    receiver,
-    items: payloadItems,
-    payments: pedido.pagamentos.map((payment) => ({
-      method: toSpedyPaymentMethod(payment.formaPagamento),
-      amount: payment.valor,
-    })),
-    total: {
-      invoiceAmount: pedido.valorTotal,
-      productAmount: pedido.valorTotalItens,
-      // Sem isso o desconto do pedido nao aparecia no cupom -- productAmount (bruto) ficava maior
-      // que invoiceAmount (liquido) sem nenhum campo explicando a diferenca (2026-09-29, mesmo bug
-      // corrigido em NFE.tsx). Campo confirmado no schema da Spedy (SefazInvoiceTotalDto.discountAmount).
-      ...(pedido.valorTotalItens > pedido.valorTotal ? { discountAmount: pedido.valorTotalItens - pedido.valorTotal } : {}),
-    },
-  };
+  const { payload: spedyPayload, itensFiscais: payloadItems } = await montarNfceDoPedido(pedido);
 
   const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload);
 

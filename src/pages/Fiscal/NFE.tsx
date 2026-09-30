@@ -10,18 +10,22 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { spedyService } from '../../services/spedyService';
 import type { SpedyInvoice } from '../../services/spedyService';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { notaEmailService } from '../../services/notaEmailService';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import {
-  DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, buildTaxesPayload, buildServiceInvoicePayload,
+  DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, buildServiceInvoicePayload,
   buildServiceInvoiceDescription, sumServiceInvoiceAmount, usesCsosn,
   isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields,
   type RegimeTributario, type NfseConfig, type OsServicoParaFatura, type ClienteParaFatura,
 } from '../../utils/fiscalDomain';
+import {
+  TEXTO_OPTANTE_SIMPLES_NACIONAL, destinatarioEConsumidorFinal, montarItemNotaFiscal, montarPagamentosNota,
+  percentuaisTributos, produtoFiscalDoCadastro, resolverGtin, somarTributos, textoTributosAproximados, totaisImpostosDosItens, type ValoresTributosItem,
+} from '../../utils/notaFiscalItemDomain';
 import Swal from 'sweetalert2';
 import { motivoPedidoNaoEmiteNota, notaDeveAparecer } from '../../utils/notaFiscalVisibilidadeDomain';
 import { escolherIntegrationIdDoReenvio } from '../../utils/reenvioNotaDomain';
@@ -122,6 +126,20 @@ interface PedidoVendaItem {
    * do item e de exportacao (7101/7102), pra converter a quantidade
    * comercial pra quilo antes de emitir (ver fiscalDomain.ts). */
   pesoLiquidoUnitarioKg?: number;
+  // Demais dados fiscais do cadastro (2026-09-30, ver notaFiscalItemDomain.ts).
+  cfopInterestadual?: string;
+  csosnInterestadual?: string;
+  cest?: string;
+  codigoBarras?: string;
+  beneficioFiscal?: string;
+  enquadramentoIpi?: string;
+  percentualTributosFederal?: number;
+  percentualTributosEstadual?: number;
+  percentualTributosMunicipal?: number;
+  percentualTributos?: number;
+  /** Unidade em que o item foi vendido (vem do pedido). */
+  unidadeMedidaSigla?: string;
+  embalagemId?: string;
 }
 
 interface PedidoVenda {
@@ -277,9 +295,11 @@ const NFE: React.FC = () => {
     cityServiceCode: '',
     issRate: '0',
     // Específico NF-e
-    ncm: '87082999', // Peças de veículos
+    // Lancamento avulso: NCM e CSOSN digitados pela pessoa. Nasciam com
+    // 87082999 (peca de veiculo) e 400 (nao tributada) e iam assim pra nota.
+    ncm: '',
     cfop: '5102', // Venda
-    csosn: '400' // Simples Nacional Isento
+    csosn: ''
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -455,9 +475,9 @@ const NFE: React.FC = () => {
           const currentAvulso = prev[0];
           const newNome = formData.descricao || 'Manual NF-e Item';
           const newPreco = Number(formData.valor) || 0;
-          const newNcm = formData.ncm || '87082999';
+          const newNcm = formData.ncm || '';
           const newCfop = formData.cfop || '5102';
-          const newCsosn = formData.csosn || '400';
+          const newCsosn = formData.csosn || '';
 
           if (currentAvulso &&
               currentAvulso.id === 'avulso' &&
@@ -518,27 +538,41 @@ const NFE: React.FC = () => {
           const docRef = doc(db, 'estoque', item.id);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
-            const pData = docSnap.data();
+            // Tudo do cadastro, sem inventar: o que faltar (NCM, CSOSN, CFOP) a
+            // montagem do item barra com o nome do produto (notaFiscalItemDomain).
+            // Antes caia em NCM 87082999 (autopeca) e CSOSN 400 sem avisar.
+            const f = produtoFiscalDoCadastro(docSnap.data(), { embalagemId: item.embalagemId });
             mapped.push({
               ...item,
-              codigoProduto: pData.codigo || item.id,
-              ncm: pData.ncm || '87082999',
-              cfop: pData.cfop || '5102',
-              csosn: pData.csosn || '400',
-              origem: pData.origem || '0',
-              aliquotaIcms: Number(pData.aliquotaIcms || 0),
-              reducaoBaseIcms: Number(pData.reducaoBaseIcms || 0),
-              cstPis: pData.cstPis || '',
-              aliquotaPis: Number(pData.aliquotaPis || 0),
-              cstCofins: pData.cstCofins || '',
-              aliquotaCofins: Number(pData.aliquotaCofins || 0),
-              cstIpi: pData.cstIpi || '',
-              aliquotaIpi: Number(pData.aliquotaIpi || 0),
-              cstIbs: pData.cstIbs || '',
-              aliquotaIbs: Number(pData.aliquotaIbs || 0),
-              cstCbs: pData.cstCbs || '',
-              aliquotaCbs: Number(pData.aliquotaCbs || 0),
-              pesoLiquidoUnitarioKg: Number(pData.pesoLiquidoUnitarioKg || 0)
+              codigoProduto: f.codigo || item.id,
+              ncm: f.ncm,
+              cfop: f.cfop,
+              csosn: f.csosn,
+              cfopInterestadual: f.cfopInterestadual,
+              csosnInterestadual: f.csosnInterestadual,
+              origem: f.origem,
+              aliquotaIcms: f.aliquotaIcms,
+              reducaoBaseIcms: f.reducaoBaseIcms,
+              cstPis: f.cstPis,
+              aliquotaPis: f.aliquotaPis,
+              cstCofins: f.cstCofins,
+              aliquotaCofins: f.aliquotaCofins,
+              cstIpi: f.cstIpi,
+              aliquotaIpi: f.aliquotaIpi,
+              enquadramentoIpi: f.enquadramentoIpi,
+              cstIbs: f.cstIbs,
+              aliquotaIbs: f.aliquotaIbs,
+              cstCbs: f.cstCbs,
+              aliquotaCbs: f.aliquotaCbs,
+              cest: f.cest,
+              codigoBarras: f.codigoBarras,
+              beneficioFiscal: f.beneficioFiscal,
+              percentualTributosFederal: f.percentualTributosFederal,
+              percentualTributosEstadual: f.percentualTributosEstadual,
+              percentualTributosMunicipal: f.percentualTributosMunicipal,
+              percentualTributos: f.percentualTributos,
+              pesoLiquidoUnitarioKg: f.pesoLiquidoUnitarioKg,
+              unidadeMedidaSigla: item.unidadeMedidaSigla || String(docSnap.data().unidadeMedidaSigla || ''),
             });
             continue;
           }
@@ -546,13 +580,9 @@ const NFE: React.FC = () => {
           console.error(`Erro ao carregar dados fiscais do produto ${item.id}`, err);
         }
       }
-      mapped.push({
-        ...item,
-        ncm: '87082999',
-        cfop: '5102',
-        csosn: '400',
-        origem: '0'
-      });
+      // Item avulso ou produto apagado: vai so' com o que a venda tem. NCM/CFOP/
+      // CSOSN sao digitados na aba Produtos da nota (a montagem barra se faltar).
+      mapped.push({ ...item, origem: item.origem || '0' });
     }
     return mapped;
   };
@@ -1546,70 +1576,6 @@ const NFE: React.FC = () => {
     stateTaxNumber?: string;
   }) => {
     const valorNumerico = Number(a.form.valor);
-    const itemsPayload = a.itens.length > 0
-      ? a.itens.map((item, index) => {
-          const itemTotal = Number(item.valorTotal || (item.quantidade * item.precoUnitario) || 0);
-          const unitAmount = Number(item.precoUnitario || 0);
-          const cfop = Number(item.cfop || '5102');
-          const unitFields = resolveInvoiceUnitFields({
-            cfop,
-            unidadeComercial: 'UN',
-            quantidadeComercial: Number(item.quantidade || 1),
-            valorUnitarioComercial: unitAmount,
-            pesoLiquidoUnitarioKg: item.pesoLiquidoUnitarioKg,
-          });
-          if (!unitFields.ok) {
-            throw new Error(`${item.nome}: ${unitFields.error}`);
-          }
-          return {
-            code: item.codigoProduto || item.id || `PROD-${index}`,
-            description: item.nome,
-            ncm: item.ncm || '87082999',
-            cfop,
-            ...unitFields.fields!,
-            totalAmount: itemTotal,
-            // Desconto do item (por item + fatia rateada do desconto geral do pedido, ver
-            // handleSelectPedido) -- campo confirmado no schema da Spedy (SefazInvoiceItemDto.discountAmount).
-            ...(Number(item.desconto || 0) > 0 ? { discountAmount: Number(item.desconto) } : {}),
-            makeupTotal: true,
-            // Regime Simples Nacional mantem o payload minimo (so
-            // csosn/origem, sem base/aliquota -- ja funcionava assim);
-            // Presumido/Real usam CST real com base/aliquota efetivas
-            // do produto (ver fiscalDomain.ts, formato confirmado na
-            // documentacao da Spedy).
-            taxes: buildTaxesPayload(item, regimeTributario, itemTotal)
-          };
-        })
-      : [
-          {
-            code: 'PROD-FISCAL',
-            description: a.form.descricao,
-            ncm: a.form.ncm,
-            cfop: Number(a.form.cfop),
-            unit: 'UN',
-            quantity: 1,
-            unitAmount: valorNumerico,
-            totalAmount: valorNumerico,
-            unitTax: 'UN',
-            quantityTax: 1,
-            unitTaxAmount: valorNumerico,
-            makeupTotal: true,
-            // Lançamento avulso (sem pedido importado) -- o modal so
-            // coleta NCM/CFOP/CSOSN manualmente, sem CST/aliquota real
-            // de ICMS/PIS/COFINS por item. Mantido no formato minimo
-            // de Simples Nacional mesmo pra tenants Presumido/Real;
-            // pra emissao fiel ao regime, importar de um Pedido de
-            // Venda (produto ja traz os dados reais, ver acima).
-            taxes: {
-              icms: {
-                origin: 0,
-                csosn: Number(a.form.csosn)
-              },
-              pis: { cst: 7 },
-              cofins: { cst: 7 }
-            }
-          }
-        ];
 
     // UF da empresa vem da cidade resolvida em Configuracoes -> Nota
     // Fiscal (Spedy) (nfseCidadeEstado) -- ver mesmo comentario em
@@ -1627,18 +1593,52 @@ const NFE: React.FC = () => {
     } catch (err) {
       console.warn("Erro ao buscar estado da oficina:", err);
     }
-
     const clientState = a.form.estado || 'SP';
-    const destinationByState = clientState.toUpperCase() === companyState.toUpperCase() ? 'internal' : 'interstate';
-    const destination = resolveInvoiceDestination(itemsPayload.find((pi) => isExportCfop(pi.cfop))?.cfop, destinationByState);
+    const interestadual = clientState.toUpperCase() !== companyState.toUpperCase();
+
+    // Itens: montagem UNICA (notaFiscalItemDomain) -- unidade vendida, GTIN,
+    // CEST, cBenef, CFOP do destino (5xxx/6xxx), ICMS/PIS/COFINS/IPI pelo CST
+    // do cadastro e valor aproximado dos tributos. Cadastro incompleto barra
+    // aqui com o nome do produto (a nota nao sai com dado inventado).
+    // Lancamento avulso (sem pedido) vira um item so', com o NCM/CFOP/CSOSN
+    // digitados no formulario.
+    const itensDaNota: PedidoVendaItem[] = a.itens.length > 0
+      ? a.itens
+      : [{
+          id: 'avulso', nome: a.form.descricao, quantidade: 1, precoUnitario: valorNumerico, desconto: 0, valorTotal: valorNumerico,
+          codigoProduto: 'AVULSO', ncm: a.form.ncm, cfop: a.form.cfop, csosn: a.form.csosn, origem: '0',
+        }];
+    const avisosItens: string[] = [];
+    const tributosItens: ValoresTributosItem[] = [];
+    const itemsPayload = itensDaNota.map((item, index) => {
+      const montado = montarItemNotaFiscal({
+        produto: { ...item, nome: item.nome },
+        venda: {
+          quantidade: Number(item.quantidade || 1),
+          precoUnitario: Number(item.precoUnitario || 0),
+          desconto: Number(item.desconto || 0),
+          unidadeSigla: item.unidadeMedidaSigla,
+        },
+        contexto: { regime: regimeTributario, interestadual },
+        codigoItem: item.codigoProduto || item.id || `PROD-${index}`,
+      });
+      if (!montado.ok) throw new Error(montado.erro);
+      avisosItens.push(...montado.avisos);
+      tributosItens.push(montado.tributos);
+      return montado.item;
+    });
+    const destination = resolveInvoiceDestination(
+      (itemsPayload.find((pi) => isExportCfop(pi.cfop as number)) as { cfop?: number } | undefined)?.cfop,
+      interestadual ? 'interstate' : 'internal',
+    );
 
     // vProd (bruto) e vDesc somados dos itens -- productAmount tem que ser o BRUTO (soma dos
     // itens antes do desconto), nunca igual ao invoiceAmount, senao o desconto nao aparece na
     // nota nenhuma (era exatamente o bug: os dois saiam iguais a valorNumerico, que ja e' liquido).
-    const productAmountBruto = itemsPayload.length > 0
-      ? itemsPayload.reduce((soma, it) => soma + Number(it.totalAmount || 0), 0)
-      : valorNumerico;
-    const discountAmountTotal = itemsPayload.reduce((soma, it: any) => soma + Number(it.discountAmount || 0), 0);
+    const productAmountBruto = itemsPayload.reduce((soma, it) => soma + Number(it.totalAmount || 0), 0);
+    const discountAmountTotal = itemsPayload.reduce((soma, it) => soma + Number(it.discountAmount || 0), 0);
+    const totaisImpostos = totaisImpostosDosItens(itemsPayload);
+    const tributosNota = somarTributos(tributosItens);
 
     // Duplicatas (parcelas): so' quando a venda importada foi paga em Boleto -- o numero de
     // cada parcela e a data de vencimento vem dos pagamentos gravados no pedido. Sem isso a
@@ -1664,13 +1664,24 @@ const NFE: React.FC = () => {
       }
       : null;
 
+    // Informacoes complementares [infCpl]: pedido, frase obrigatoria do Simples
+    // Nacional e o valor aproximado dos tributos (Lei 12.741).
+    const informacoesComplementares = [
+      a.numeroPedido ? `Pedido de venda nº ${a.numeroPedido}.` : '',
+      a.referencedAccessKey ? `Referente ao cupom fiscal chave ${a.referencedAccessKey}.` : '',
+      usesCsosn(regimeTributario) ? TEXTO_OPTANTE_SIMPLES_NACIONAL : '',
+      textoTributosAproximados(tributosNota, valorNumerico),
+    ].filter(Boolean).join(' ');
+
     const payload = {
       integrationId: a.integrationId,
-      isFinalCustomer: true,
+      // indFinal: contribuinte com IE comprando pra revender nao e' consumidor final.
+      isFinalCustomer: destinatarioEConsumidorFinal({ documento: a.form.documento, inscricaoEstadual: a.stateTaxNumber }),
       operationType: 'outgoing',
       destination: destination,
       presenceType: 'presence',
       operationNature: a.referencedAccessKey ? 'Lançamento decorrente de Cupom Fiscal' : 'Venda de Mercadoria',
+      ...(informacoesComplementares ? { additionalInformation: informacoesComplementares } : {}),
       // Com o SMTP da empresa configurado, o e-mail ao cliente (PDF + XML) sai pelo sistema, do e-mail da empresa,
       // com pop-up de resultado (notaEmailService); ligar o envio da Spedy tambem mandaria a nota duas vezes.
       sendEmailToCustomer: !!a.form.email && !emailPeloSistema,
@@ -1692,18 +1703,18 @@ const NFE: React.FC = () => {
         }
       },
       items: itemsPayload,
-      payments: [
-        {
-          method: 'other',
-          amount: valorNumerico
-        }
-      ],
+      // Meio de pagamento de verdade (dinheiro, pix, boleto...), nao mais "outros" fixo.
+      payments: montarPagamentosNota(a.pagamentos, valorNumerico),
       ...(duplicatesPayload.length > 0 ? { duplicates: duplicatesPayload } : {}),
       ...(billingPayload ? { billing: billingPayload } : {}),
       total: {
         invoiceAmount: valorNumerico,
         productAmount: productAmountBruto,
         ...(discountAmountTotal > 0 ? { discountAmount: discountAmountTotal } : {}),
+        ...(totaisImpostos.icmsBaseTax > 0 ? { icmsBaseTax: totaisImpostos.icmsBaseTax, icmsAmount: totaisImpostos.icmsAmount } : {}),
+        ...(totaisImpostos.pisAmount > 0 ? { pisAmount: totaisImpostos.pisAmount } : {}),
+        ...(totaisImpostos.cofinsAmount > 0 ? { cofinsAmount: totaisImpostos.cofinsAmount } : {}),
+        ...(tributosNota.total > 0 ? { totalTax: tributosNota.total } : {}),
       },
       ...(a.referencedAccessKey ? {
         refNFe: a.referencedAccessKey,
@@ -1712,7 +1723,7 @@ const NFE: React.FC = () => {
       } : {})
     };
 
-    return { payload, itemsPayload };
+    return { payload, itemsPayload, avisos: [...new Set(avisosItens)] };
   };
 
   const handleEmitir = async (e: React.FormEvent) => {
@@ -1751,12 +1762,10 @@ const NFE: React.FC = () => {
       }
 
       // Lançamento avulso (sem Pedido de Venda importado) só monta o bloco
-      // de impostos no formato de Simples Nacional (CSOSN) -- formato
-      // MINIMO documentado assim em fiscalDomain.ts/buildTaxesPayload.
-      // Empresa em Lucro Presumido/Real manda CST real (nao CSOSN) pro
-      // ICMS, senao a Spedy rejeita o payload (SPD003, "formato invalido").
-      // Importar de um Pedido de Venda ja usa buildTaxesPayload com o CST
-      // real vindo do cadastro do produto -- e o unico caminho correto pra
+      // de impostos com NCM/CFOP/CSOSN digitados -- nao tem como informar CST
+      // de PIS/COFINS nem aliquota de ICMS, que Lucro Presumido/Real exigem.
+      // Importar de um Pedido de Venda usa o cadastro completo de cada
+      // produto (notaFiscalItemDomain) -- e o unico caminho correto pra
       // esses regimes hoje.
       const semPedidoImportado = !(importedPedidoId && importedPedidoItens.length > 0);
       if (semPedidoImportado && !usesCsosn(regimeTributario)) {
@@ -1914,7 +1923,7 @@ const NFE: React.FC = () => {
         spedyNote = await spedyService.emitServiceInvoice(config.spedyApiKey, config.spedyEnvironment, payload as unknown as Record<string, unknown>);
 
       } else {
-        const { payload, itemsPayload } = await montarPayloadNfe({
+        const { payload, itemsPayload, avisos: avisosNota } = await montarPayloadNfe({
           integrationId,
           form: formData,
           itens: importedPedidoId ? importedPedidoItens : [],
@@ -1923,6 +1932,8 @@ const NFE: React.FC = () => {
           referencedAccessKey,
           stateTaxNumber: stateTaxNumberDestinatario,
         });
+        // Nao trava (a nota sai certa), mas o cadastro precisa de ajuste.
+        if (avisosNota.length > 0) showWarning('Confira o cadastro destes produtos', avisosNota.join(' '));
 
         irParaEnvio();
         spedyNote = await spedyService.emitProductInvoice(config.spedyApiKey, config.spedyEnvironment, payload);
@@ -3159,7 +3170,7 @@ const NFE: React.FC = () => {
                           <th style={{ padding: '10px 8px', width: '90px', textAlign: 'right' }}>Total</th>
                           <th style={{ padding: '10px 8px', width: '110px' }}>NCM</th>
                           <th style={{ padding: '10px 8px', width: '80px' }}>CFOP</th>
-                          <th style={{ padding: '10px 8px', width: '80px' }}>CSOSN</th>
+                          <th style={{ padding: '10px 8px', width: '80px' }}>{usesCsosn(regimeTributario) ? 'CSOSN' : 'CST ICMS'}</th>
                           <th style={{ padding: '10px 8px', width: '140px' }}>Origem</th>
                         </tr>
                       </thead>
@@ -3181,6 +3192,19 @@ const NFE: React.FC = () => {
                                   disabled={!!importedPedidoId}
                                   style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px', opacity: importedPedidoId ? 0.7 : 1 }}
                                 />
+                                {/* O que mais vai na nota, do cadastro do produto (conferencia rapida). */}
+                                {importedPedidoId && (
+                                  <span style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                                    {[
+                                      item.unidadeMedidaSigla || 'UN (sem unidade no cadastro)',
+                                      resolverGtin(item.codigoBarras) === 'SEM GTIN' ? 'SEM GTIN' : `GTIN ${resolverGtin(item.codigoBarras)}`,
+                                      item.cest ? `CEST ${item.cest}` : '',
+                                      percentuaisTributos({ ...item, nome: item.nome }).total > 0
+                                        ? `Trib. aprox. ${percentuaisTributos({ ...item, nome: item.nome }).total.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
+                                        : 'sem % de tributos (IBPT)',
+                                    ].filter(Boolean).join(' · ')}
+                                  </span>
+                                )}
                               </td>
                               <td style={{ padding: '8px', textAlign: 'center' }}>{item.quantidade}</td>
                               <td style={{ padding: '8px', textAlign: 'right', color: 'var(--text-secondary)' }}>R$ {item.precoUnitario.toFixed(2)}</td>
@@ -3191,7 +3215,7 @@ const NFE: React.FC = () => {
                                   value={item.ncm || ''}
                                   onChange={(e) => handleItemTaxChange(idx, 'ncm', e.target.value)}
                                   maxLength={8}
-                                  placeholder="87082999"
+                                  placeholder="8 dígitos"
                                   style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px' }}
                                 />
                               </td>
@@ -3208,7 +3232,7 @@ const NFE: React.FC = () => {
                                   (() => {
                                     const preview = resolveInvoiceUnitFields({
                                       cfop: item.cfop,
-                                      unidadeComercial: 'UN',
+                                      unidadeComercial: item.unidadeMedidaSigla || 'UN',
                                       quantidadeComercial: Number(item.quantidade || 1),
                                       valorUnitarioComercial: Number(item.precoUnitario || 0),
                                       pesoLiquidoUnitarioKg: item.pesoLiquidoUnitarioKg,
@@ -3229,7 +3253,7 @@ const NFE: React.FC = () => {
                                   value={item.csosn || ''}
                                   onChange={(e) => handleItemTaxChange(idx, 'csosn', e.target.value)}
                                   maxLength={3}
-                                  placeholder="400"
+                                  placeholder={usesCsosn(regimeTributario) ? '102' : '00'}
                                   style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px' }}
                                 />
                               </td>

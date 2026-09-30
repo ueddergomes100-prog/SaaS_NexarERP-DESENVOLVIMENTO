@@ -5,6 +5,10 @@ import {
   gtinValido,
   inferirMapeamentoFiscal,
   lerLinhasFiscais,
+  mapeamentoVazio,
+  ehTabelaIbpt,
+  lerTabelaIbpt,
+  planejarImportacaoIbpt,
   normalizarCest,
   normalizarCodigoBarras,
   normalizarNcm,
@@ -17,7 +21,9 @@ const produto = (extra: Partial<ProdutoFiscalAtual> & { id: string; codigo: stri
   codigoBarras: '', ncm: '', cest: '', embalagensBarras: [], ...extra,
 });
 const linha = (extra: Partial<LinhaFiscal> & { linha?: number }): LinhaFiscal => ({
-  linha: 2, codigo: '', produto: '', codigoBarras: '', ncm: '', cest: '', ...extra,
+  linha: 2, codigo: '', produto: '', codigoBarras: '', ncm: '', cest: '',
+  cfop: '', csosn: '', cfopInterestadual: '', csosnInterestadual: '', origem: '', cstPis: '', cstCofins: '', cstIpi: '', enquadramentoIpi: '',
+  percentualTributosFederal: '', percentualTributosEstadual: '', percentualTributosMunicipal: '', percentualTributos: '', ...extra,
 });
 
 test('GTIN: confere o dígito verificador de EAN-13, EAN-8 e UPC-A', () => {
@@ -54,7 +60,7 @@ test('CEST: 7 dígitos; 6 dígitos recebem o zero da frente', () => {
 
 test('cabeçalho: "Código de barras" não vira o "Código" do produto', () => {
   const m = inferirMapeamentoFiscal(['Código', 'Produto', 'Código de barras', 'NCM', 'CEST', 'Observação']);
-  assert.deepEqual(m, { codigo: 0, produto: 1, codigoBarras: 2, ncm: 3, cest: 4 });
+  assert.deepEqual(m, { ...mapeamentoVazio(), codigo: 0, produto: 1, codigoBarras: 2, ncm: 3, cest: 4 });
   const m2 = inferirMapeamentoFiscal(['Descrição', 'EAN', 'NCM/SH', 'Cód. CEST']);
   assert.equal(m2.produto, 0);
   assert.equal(m2.codigoBarras, 1);
@@ -181,4 +187,67 @@ test('CEST sem NCM (na planilha e no produto) avisa', () => {
   const { resultados } = planejarImportacaoFiscal({ linhas: [linha({ codigo: '10', cest: '1710300' })], produtos: base, sobrescrever: false });
   assert.equal(resultados[0].status, 'atualizar');
   assert.match(resultados[0].problemas.join(' '), /não tem NCM/);
+});
+
+test('tributação: cabeçalho do modelo é reconhecido coluna a coluna', () => {
+  const m = inferirMapeamentoFiscal(['Código', 'Produto', 'Código de barras', 'NCM', 'CEST', 'CFOP', 'CSOSN/CST ICMS', 'CFOP interestadual', 'CSOSN/CST interestadual', 'Origem', 'CST PIS', 'CST COFINS', 'CST IPI', 'Enquadramento IPI', '% Tributos']);
+  assert.deepEqual(m, {
+    codigo: 0, produto: 1, codigoBarras: 2, ncm: 3, cest: 4, cfop: 5, csosn: 6, cfopInterestadual: 7, csosnInterestadual: 8, origem: 9, cstPis: 10, cstCofins: 11, cstIpi: 12, enquadramentoIpi: 13,
+    percentualTributosFederal: null, percentualTributosEstadual: null, percentualTributosMunicipal: null, percentualTributos: 14,
+  });
+});
+
+test('tributação: formatos do ERP antigo são normalizados (CFOP 5.1020, CST 060, PIS 1)', () => {
+  const produtos = [produto({ id: 'a', codigo: '28', nome: 'FARINHA DE AVEIA 500G', ncm: '11041200', csosn: '00' })];
+  const { resultados } = planejarImportacaoFiscal({
+    linhas: [linha({ codigo: '28', cfop: '5.1020', csosn: '102', origem: '0', cstPis: '99', cstCofins: '99', cstIpi: '99', enquadramentoIpi: '999', percentualTributos: '13,45' })],
+    produtos, sobrescrever: true, regime: 'simples_nacional',
+  });
+  assert.equal(resultados[0].status, 'atualizar');
+  assert.deepEqual(resultados[0].grava, { cfop: '5102', csosn: '102', origem: '0', cstPis: '99', cstCofins: '99', cstIpi: '99', enquadramentoIpi: '999', percentualTributos: 13.45 });
+});
+
+test('tributação: CSOSN "00" (CST) sobre produto com CST é conflito sem "sobrescrever"; CST numa empresa do Simples é recusado', () => {
+  const produtos = [produto({ id: 'a', codigo: '28', nome: 'X', csosn: '00' })];
+  const semSobrescrever = planejarImportacaoFiscal({ linhas: [linha({ codigo: '28', csosn: '102' })], produtos, sobrescrever: false, regime: 'simples_nacional' });
+  assert.equal(semSobrescrever.resultados[0].status, 'conflito');
+  const cstNoSimples = planejarImportacaoFiscal({ linhas: [linha({ codigo: '28', csosn: '060' })], produtos, sobrescrever: true, regime: 'simples_nacional' });
+  assert.equal(cstNoSimples.resultados[0].status, 'erro');
+  assert.match(cstNoSimples.resultados[0].problemas[0], /não é um CSOSN/);
+  const cstNoNormal = planejarImportacaoFiscal({ linhas: [linha({ codigo: '28', csosn: '060' })], produtos, sobrescrever: true, regime: 'lucro_real' });
+  assert.deepEqual(cstNoNormal.resultados[0].grava, { csosn: '60' });
+});
+
+test('tributação: CST de IPI de entrada, CFOP de entrada e percentual absurdo são explicados', () => {
+  const produtos = [produto({ id: 'a', codigo: '1', nome: 'X' })];
+  const { resultados } = planejarImportacaoFiscal({ linhas: [linha({ codigo: '1', cstIpi: '01', cfop: '1102', percentualTributos: '150' })], produtos, sobrescrever: false });
+  assert.equal(resultados[0].status, 'erro');
+  assert.equal(resultados[0].problemas.length, 3);
+});
+
+test('IBPT: reconhece o arquivo oficial, ignora serviços e exceções, aplica pelo NCM e pela origem', () => {
+  const cab = ['codigo', 'ex', 'tipo', 'descricao', 'nacionalfederal', 'importadosfederal', 'estadual', 'municipal', 'vigenciainicio', 'vigenciafim', 'chave', 'versao', 'fonte'];
+  assert.equal(ehTabelaIbpt(cab), true);
+  assert.equal(ehTabelaIbpt(['Código', 'Produto', 'NCM']), false);
+  const tabela = lerTabelaIbpt(cab, [
+    ['11041200', '', '0', 'Grãos esmagados de aveia', '4,20', '6,10', '9,25', '0,00', '01/07/2026', '31/12/2026', 'X', '26.2.A', 'IBPT'],
+    ['11041200', '01', '0', 'Exceção', '1', '1', '1', '0', '', '', '', '', ''],
+    ['1401', '', '1', 'Serviço', '5', '5', '0', '2', '', '', '', '', ''],
+    ['8132010', '', '0', 'Ameixa', '3', '5', '18', '0', '', '', '', '', ''],
+  ]);
+  assert.equal(tabela.porNcm.size, 2);
+  assert.equal(tabela.versao, '26.2.A');
+  assert.deepEqual(tabela.porNcm.get('11041200'), { nacionalFederal: 4.2, importadosFederal: 6.1, estadual: 9.25, municipal: 0 });
+  assert.ok(tabela.porNcm.has('08132010'));
+
+  const produtos = [
+    produto({ id: 'a', codigo: '1', nome: 'AVEIA', ncm: '11041200', origem: '0', percentualTributos: '13.45' }),
+    produto({ id: 'b', codigo: '2', nome: 'AVEIA IMPORTADA', ncm: '11041200', origem: '1' }),
+    produto({ id: 'c', codigo: '3', nome: 'SEM NCM', ncm: '' }),
+  ];
+  const { resultados, resumo } = planejarImportacaoIbpt({ tabela, produtos });
+  assert.deepEqual(resultados[0].grava, { percentualTributosFederal: 4.2, percentualTributosEstadual: 9.25, percentualTributosMunicipal: 0, percentualTributos: 0 });
+  assert.equal(resultados[1].grava.percentualTributosFederal, 6.1);
+  assert.equal(resultados[2].status, 'erro');
+  assert.equal(resumo.atualizar, 2);
 });

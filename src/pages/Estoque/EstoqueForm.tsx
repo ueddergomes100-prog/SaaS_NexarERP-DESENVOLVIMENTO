@@ -9,6 +9,7 @@ import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
 import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, CSOSN_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
+import { ENQUADRAMENTO_IPI_PADRAO, IPI_CST_SAIDA_OPTIONS, PIS_COFINS_CST_SAIDA_OPTIONS } from '../../utils/notaFiscalItemDomain';
 import { computeAvailableStock } from '../../utils/estoqueReservaDomain';
 import { opcoesDeCategoria, separarCategoriasPorSituacao } from '../../utils/categoriaDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM, formatFatorConversao, normalizeEmbalagens } from '../../utils/embalagemDomain';
@@ -159,6 +160,16 @@ interface ProdutoFormData {
   cstIbs: string;
   cstCbs: string;
   cstIpi: string;
+  /** Venda para outro estado quando a tributacao muda (produto com ST). Vazio = derivado. */
+  cfopInterestadual: string;
+  csosnInterestadual: string;
+  /** Codigo de enquadramento legal do IPI [cEnq]; vazio = 999. */
+  enquadramentoIpi: string;
+  /** Tributos aproximados (tabela IBPT, Lei 12.741), em %. */
+  percentualTributosFederal: string;
+  percentualTributosEstadual: string;
+  percentualTributosMunicipal: string;
+  percentualTributos: string;
   aliquotaIcms: string;
   aliquotaPis: string;
   aliquotaCofins: string;
@@ -239,8 +250,11 @@ const fiscalProfiles = {
 };
 
 const cfopOptions = [
+  { value: '5101', label: '5101 - Venda de produção do estabelecimento' },
   { value: '5102', label: '5102 - Venda de mercadoria adquirida ou recebida de terceiros' },
+  { value: '5401', label: '5401 - Venda de produção do estabelecimento com ST (substituto)' },
   { value: '5405', label: '5405 - Venda de mercadoria sujeita a substituição tributária' },
+  { value: '6101', label: '6101 - Venda interestadual de produção do estabelecimento' },
   { value: '6102', label: '6102 - Venda interestadual de mercadoria adquirida de terceiros' },
   { value: '6404', label: '6404 - Venda interestadual com substituição tributária' },
   { value: '5933', label: '5933 - Prestação de serviço tributado pelo ISSQN' },
@@ -256,15 +270,6 @@ const origemOptions = [
   { value: '4', label: '4 - Nacional conforme processos produtivos básicos' },
   { value: '5', label: '5 - Nacional com conteúdo importado inferior ou igual a 40%' },
   { value: '8', label: '8 - Nacional com conteúdo importado superior a 70%' }
-];
-
-const cstOptions = [
-  { value: '', label: 'Selecione...' },
-  { value: '01', label: '01 - Operação tributável com alíquota básica' },
-  { value: '04', label: '04 - Operação tributável monofásica' },
-  { value: '06', label: '06 - Operação tributável alíquota zero' },
-  { value: '07', label: '07 - Operação isenta' },
-  { value: '49', label: '49 - Outras operações de saída' }
 ];
 
 const emptyFormData: ProdutoFormData = {
@@ -304,7 +309,7 @@ const emptyFormData: ProdutoFormData = {
   comprimento: '',
   ncm: '',
   cfop: '5102',
-  csosn: '400',
+  csosn: '',
   pesoLiquidoUnitarioKg: '',
   origem: '0',
   perfilFiscal: '',
@@ -314,6 +319,13 @@ const emptyFormData: ProdutoFormData = {
   cstIbs: '',
   cstCbs: '',
   cstIpi: '',
+  cfopInterestadual: '',
+  csosnInterestadual: '',
+  enquadramentoIpi: '',
+  percentualTributosFederal: '',
+  percentualTributosEstadual: '',
+  percentualTributosMunicipal: '',
+  percentualTributos: '',
   aliquotaIcms: '',
   aliquotaPis: '',
   aliquotaCofins: '',
@@ -619,7 +631,8 @@ const EstoqueForm: React.FC = () => {
               comprimento: String(data.comprimento ?? data.estoqueConfig?.comprimento ?? ''),
               ncm: data.ncm || data.fiscal?.ncm || '',
               cfop: data.cfop || data.fiscal?.cfopPadraoSaida || '5102',
-              csosn: data.csosn || data.fiscal?.csosnCst || '400',
+              // Sem CSOSN gravado fica vazio (antes mostrava 400 e gravava 400 no proximo salvar).
+              csosn: data.csosn || data.fiscal?.csosnCst || '',
               pesoLiquidoUnitarioKg: String(data.pesoLiquidoUnitarioKg ?? ''),
               origem: data.origem || data.fiscal?.origem || '0',
               perfilFiscal: data.perfilFiscal || data.fiscal?.perfilFiscal || '',
@@ -629,6 +642,13 @@ const EstoqueForm: React.FC = () => {
               cstIbs: data.cstIbs || data.fiscal?.cstIbs || '',
               cstCbs: data.cstCbs || data.fiscal?.cstCbs || '',
               cstIpi: data.cstIpi || data.fiscal?.cstIpi || '',
+              enquadramentoIpi: data.enquadramentoIpi || '',
+              cfopInterestadual: data.cfopInterestadual || '',
+              csosnInterestadual: data.csosnInterestadual || '',
+              percentualTributosFederal: String(data.percentualTributosFederal ?? ''),
+              percentualTributosEstadual: String(data.percentualTributosEstadual ?? ''),
+              percentualTributosMunicipal: String(data.percentualTributosMunicipal ?? ''),
+              percentualTributos: String(data.percentualTributos ?? ''),
               aliquotaIcms: String(data.aliquotaIcms ?? data.fiscal?.aliquotaIcms ?? ''),
               aliquotaPis: String(data.aliquotaPis ?? data.fiscal?.aliquotaPis ?? ''),
               aliquotaCofins: String(data.aliquotaCofins ?? data.fiscal?.aliquotaCofins ?? ''),
@@ -1192,6 +1212,11 @@ const EstoqueForm: React.FC = () => {
         // nota fiscal.
         pesoLiquidoUnitarioKg: toNumber(formData.pesoLiquidoUnitarioKg),
         cstIpi: formData.cstIpi,
+        enquadramentoIpi: formData.enquadramentoIpi.replace(/\D/g, ''),
+        percentualTributosFederal: parseComissaoPercentualInput(formData.percentualTributosFederal) ?? null,
+        percentualTributosEstadual: parseComissaoPercentualInput(formData.percentualTributosEstadual) ?? null,
+        percentualTributosMunicipal: parseComissaoPercentualInput(formData.percentualTributosMunicipal) ?? null,
+        percentualTributos: parseComissaoPercentualInput(formData.percentualTributos) ?? null,
         origem: formData.origem,
         skuSistema: skuFinal,
         slugUrl: formData.slugUrl || sugestaoSlug,
@@ -2049,19 +2074,36 @@ const EstoqueForm: React.FC = () => {
 
               <div className="form-grid-4">
                 <div className="input-group">
+                  <label>CFOP interestadual</label>
+                  <input type="text" name="cfopInterestadual" maxLength={4} placeholder="Automático" value={formData.cfopInterestadual} onChange={handleChange} />
+                  <span className="field-hint">Venda para outro estado. Em branco, o sistema troca sozinho (5102 → 6102). Produto com ST precisa informar (ex.: 6102 ou 6404, conforme o destino).</span>
+                </div>
+                <div className="input-group">
+                  <label>{usesCsosn(regimeTributario) ? 'CSOSN interestadual' : 'CST ICMS interestadual'}</label>
+                  <select name="csosnInterestadual" value={formData.csosnInterestadual} onChange={handleChange} className="form-select">
+                    <option value="">O mesmo de dentro do estado</option>
+                    {(usesCsosn(regimeTributario) ? CSOSN_OPTIONS : ICMS_CST_OPTIONS).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-grid-4">
+                <div className="input-group">
                   <label>CEST</label>
                   <input type="text" name="cest" value={formData.cest} onChange={handleChange} />
                 </div>
                 <div className="input-group">
                   <label>CST PIS</label>
                   <select name="cstPis" value={formData.cstPis} onChange={handleChange} className="form-select">
-                    {cstOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    <option value="">{usesCsosn(regimeTributario) ? 'Padrão do Simples (99)' : 'Selecione...'}</option>
+                    {PIS_COFINS_CST_SAIDA_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
                 <div className="input-group">
                   <label>CST COFINS</label>
                   <select name="cstCofins" value={formData.cstCofins} onChange={handleChange} className="form-select">
-                    {cstOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    <option value="">{usesCsosn(regimeTributario) ? 'Padrão do Simples (99)' : 'Selecione...'}</option>
+                    {PIS_COFINS_CST_SAIDA_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
                 <label className="switch-row">
@@ -2093,14 +2135,46 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>CST IPI</label>
                   <select name="cstIpi" value={formData.cstIpi} onChange={handleChange} className="form-select">
-                    {cstOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    <option value="">Sem IPI na nota</option>
+                    {IPI_CST_SAIDA_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
+                  {formData.cstIpi && !IPI_CST_SAIDA_OPTIONS.some(opt => opt.value === formData.cstIpi) && (
+                    <span className="field-hint" style={{ color: '#ef4444' }}>
+                      O código salvo ("{formData.cstIpi}") não é um CST de saída do IPI — escolha um da lista (revenda costuma usar 99), senão a nota deste produto é barrada.
+                    </span>
+                  )}
                 </div>
                 <div className="input-group">
                   <label>Alíquota IPI (%)</label>
                   <input type="number" name="aliquotaIpi" step="0.01" min="0" value={formData.aliquotaIpi} onChange={handleChange} />
                 </div>
+                <div className="input-group">
+                  <label>Enquadramento IPI</label>
+                  <input type="text" name="enquadramentoIpi" maxLength={3} placeholder={ENQUADRAMENTO_IPI_PADRAO} value={formData.enquadramentoIpi} onChange={handleChange} />
+                  <span className="field-hint">Código de enquadramento legal (cEnq). Em branco vai {ENQUADRAMENTO_IPI_PADRAO} (outros).</span>
+                </div>
               </div>
+
+              <div className="form-grid-4">
+                <div className="input-group">
+                  <label>Tributos aprox. federais (%)</label>
+                  <input type="number" name="percentualTributosFederal" step="0.01" min="0" value={formData.percentualTributosFederal} onChange={handleChange} />
+                </div>
+                <div className="input-group">
+                  <label>Tributos aprox. estaduais (%)</label>
+                  <input type="number" name="percentualTributosEstadual" step="0.01" min="0" value={formData.percentualTributosEstadual} onChange={handleChange} />
+                </div>
+                <div className="input-group">
+                  <label>Tributos aprox. municipais (%)</label>
+                  <input type="number" name="percentualTributosMunicipal" step="0.01" min="0" value={formData.percentualTributosMunicipal} onChange={handleChange} />
+                </div>
+                <div className="input-group">
+                  <label>Tributos aprox. total (%)</label>
+                  <input type="number" name="percentualTributos" step="0.01" min="0" value={formData.percentualTributos} onChange={handleChange} />
+                  <span className="field-hint">Use só quando não tiver separado por esfera.</span>
+                </div>
+              </div>
+              <span className="field-hint">Valor aproximado dos tributos (Lei 12.741) impresso na nota. Os percentuais vêm da tabela do IBPT pelo NCM — dá para importar em Estoque &gt; Importar dados fiscais.</span>
 
               <div className="grid-2-col">
                 <div className="input-group">
@@ -2116,9 +2190,7 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <div className="input-group">
                   <label>CST IBS</label>
-                  <select name="cstIbs" value={formData.cstIbs} onChange={handleChange} className="form-select">
-                    {cstOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                  </select>
+                  <input type="text" name="cstIbs" maxLength={3} placeholder="Ex.: 000" value={formData.cstIbs} onChange={handleChange} />
                 </div>
                 <div className="input-group">
                   <label>Alíquota IBS (%)</label>
@@ -2126,20 +2198,18 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>CST CBS</label>
-                  <select name="cstCbs" value={formData.cstCbs} onChange={handleChange} className="form-select">
-                    {cstOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                  </select>
+                  <input type="text" name="cstCbs" maxLength={3} placeholder="Ex.: 000" value={formData.cstCbs} onChange={handleChange} />
                 </div>
                 <div className="input-group">
                   <label>Alíquota CBS (%)</label>
                   <input type="number" name="aliquotaCbs" step="0.01" min="0" value={formData.aliquotaCbs} onChange={handleChange} />
                 </div>
               </div>
-              <span className="field-hint">IBS e CBS são os novos tributos da Reforma Tributária (substituem gradualmente ICMS/ISS e PIS/COFINS até 2033).</span>
+              <span className="field-hint">IBS e CBS são os novos tributos da Reforma Tributária (substituem gradualmente ICMS/ISS e PIS/COFINS até 2033). O CST tem 3 dígitos (tabela da Reforma); em branco, o grupo não vai na nota.</span>
 
               <div className="fiscal-tip">
                 <strong>Dica fiscal</strong>
-                <p>Revenda no Simples Nacional costuma usar CFOP 5102, CSOSN 102 e origem 0. Produtos com substituição tributária geralmente exigem CEST e CSOSN 500. Confirme sempre com a contabilidade da empresa.</p>
+                <p>Revenda no Simples Nacional costuma usar CFOP 5102, CSOSN 102 e origem 0. Produtos com substituição tributária (ICMS já retido) usam CFOP 5405, CSOSN 500 e CEST. Venda para outro estado troca o CFOP sozinha (5102 → 6102, 5405 → 6404). Confirme sempre com a contabilidade da empresa.</p>
               </div>
             </div>
           )}

@@ -278,6 +278,17 @@ export const temSubstituicaoTributaria = (p: ProdutoFiscal, regime: RegimeTribut
 
 type Impostos = Record<string, unknown>;
 
+/**
+ * ICMS-ST retido anteriormente (CSOSN 500 / CST 60): vBCSTRet, pST,
+ * vICMSSubstituto e vICMSSTRet. A SEFAZ-MG exige os quatro na venda a
+ * contribuinte -- sem eles a NF-e 000040 da Sol Life voltou com a Rejeicao 938
+ * (2026-09-30). O ERP antigo mandava os quatro ZERADOS e as notas saiam
+ * autorizadas (conferido no XML autorizado da NF 30234); o valor real viria da
+ * nota de compra com ST, que o cadastro nao guarda. Campos da Spedy:
+ * baseStRetentionAmount, stpRate, substituteAmount, stRetentionAmount.
+ */
+const ST_RETIDO_ANTERIORMENTE_ZERADO = { baseStRetentionAmount: 0, stpRate: 0, substituteAmount: 0, stRetentionAmount: 0 };
+
 const icmsDoItem = (p: ProdutoFiscal, regime: RegimeTributario, base: number): { ok: true; icms: Impostos } | { ok: false; erro: string } => {
   const origin = Number(p.origem || '0');
   const codigo = String(p.csosn ?? '').trim();
@@ -302,6 +313,7 @@ const icmsDoItem = (p: ProdutoFiscal, regime: RegimeTributario, base: number): {
       }
       return { ok: true, icms: { origin, csosn: 101, snCreditRate: rate, snCreditAmount: arred(base * rate / 100) } };
     }
+    if (codigo === '500') return { ok: true, icms: { origin, csosn: 500, ...ST_RETIDO_ANTERIORMENTE_ZERADO } };
     return { ok: true, icms: { origin, csosn: Number(codigo) } };
   }
 
@@ -317,7 +329,8 @@ const icmsDoItem = (p: ProdutoFiscal, regime: RegimeTributario, base: number): {
   if (['10', '30', '70'].includes(codigo)) {
     return { ok: false, erro: `O produto "${p.nome}" usa CST ${codigo} (ICMS por substituição tributária calculado na nota), que o sistema ainda não calcula. Confirme o CST com o contador (ST já retida usa 60). ${corrigir}` };
   }
-  if (['40', '41', '50', '60'].includes(codigo)) return { ok: true, icms: { origin, cst } };
+  if (codigo === '60') return { ok: true, icms: { origin, cst, ...ST_RETIDO_ANTERIORMENTE_ZERADO } };
+  if (['40', '41', '50'].includes(codigo)) return { ok: true, icms: { origin, cst } };
 
   const rate = num(p.aliquotaIcms);
   const reducao = codigo === '20' ? num(p.reducaoBaseIcms) : 0;

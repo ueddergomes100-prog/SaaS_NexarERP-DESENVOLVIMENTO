@@ -2509,7 +2509,10 @@ const NFE: React.FC = () => {
     const matchesSearch =
       (codigoBuscado !== '' && codigoDaNota === codigoBuscado) ||
       note.clienteNome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (note.number ? String(note.number).includes(searchTerm) : false) ||
+      // Numero da nota como aparece na tela ("000040") ou sem zeros ("40").
+      (note.number && codigoBuscado !== '' && /^[\d\s.-]+$/.test(searchTerm.trim())
+        ? String(Number(note.number)).includes(codigoBuscado)
+        : false) ||
       note.status.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesTab = selectedTab === 'Todas' || note.tipo === selectedTab;
@@ -2676,7 +2679,7 @@ const NFE: React.FC = () => {
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input
               type="text"
-              placeholder="Buscar por cliente, código do cliente ou número..."
+              placeholder="Buscar por cliente, código do cliente ou número da nota..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '10px 10px 10px 40px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}

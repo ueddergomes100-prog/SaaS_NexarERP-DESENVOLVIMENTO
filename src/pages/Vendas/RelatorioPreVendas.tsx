@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
 import { ClipboardList, Download, FilterX, Loader2, Search } from 'lucide-react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -77,6 +78,7 @@ const RelatorioPreVendas: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busca, setBusca] = useState('');
+  const [ordemNumero, inverterOrdemNumero] = useOrdemNumero('preVendas.ordemNumero');
   const [origemFiltro, setOrigemFiltro] = useState<'' | OrigemPedido>('');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
@@ -157,8 +159,8 @@ const RelatorioPreVendas: React.FC = () => {
       return linha.clienteNome.toLowerCase().includes(termo)
         || linha.numeroPedido.toLowerCase().includes(termo)
         || linha.vendedorNome.toLowerCase().includes(termo);
-    });
-  }, [linhas, busca, origemFiltro, dataInicio, dataFim]);
+    }).sort((a, b) => compararPorNumero(a.numeroPedido, b.numeroPedido, ordemNumero));
+  }, [linhas, busca, origemFiltro, dataInicio, dataFim, ordemNumero]);
 
   const totais = useMemo(() => ({
     quantidade: linhasFiltradas.length,
@@ -299,7 +301,12 @@ const RelatorioPreVendas: React.FC = () => {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-tertiary)', textAlign: 'left' }}>
-                  <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Número</th>
+                  <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>
+                  <button type="button" onClick={inverterOrdemNumero} title="Inverter a ordem pelo número"
+                    style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', font: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Número {ordemNumero === 'asc' ? '▲' : '▼'}
+                  </button>
+                  </th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Data</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Em aberto</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Cliente</th>

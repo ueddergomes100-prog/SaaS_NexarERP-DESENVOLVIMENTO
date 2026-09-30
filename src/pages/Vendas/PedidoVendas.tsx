@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
 import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, ChevronDown, Filter, Truck, CheckCircle2 } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -233,6 +234,7 @@ const PedidoVendas: React.FC = () => {
   const [pedidos, setPedidos] = useState<PedidoVendaData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [ordemNumero, inverterOrdemNumero] = useOrdemNumero('pedidos.ordemNumero');
   const [activeTab, setActiveTab] = useState('Ativos');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   /** Linha destacada por um clique simples (distinta de selectedIds, que sao
@@ -482,7 +484,7 @@ const PedidoVendas: React.FC = () => {
     if (filtroConferencia && p.statusConferencia !== filtroConferencia) return false;
     if (periodoDataFiltro && !isWithinDateRange(dataEfetivaPedido(p), periodoDataFiltro.inicio, periodoDataFiltro.fim)) return false;
     return true;
-  });
+  }).sort((a, b) => compararPorNumero(a.numeroPedido, b.numeroPedido, ordemNumero));
 
   const filtrosDeColunaAtivos = [
     filtroVendedor && { rotulo: 'Vendedor', valor: filtroVendedor, limpar: () => setFiltroVendedor('') },
@@ -720,7 +722,12 @@ const PedidoVendas: React.FC = () => {
                     aria-label="Selecionar todos os pedidos visíveis"
                   />
                 </th>
-                <th style={{ padding: '16px' }}>Nº Pedido</th>
+                <th style={{ padding: '16px' }}>
+                  <button type="button" onClick={inverterOrdemNumero} title="Inverter a ordem pelo número"
+                    style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', font: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Nº Pedido {ordemNumero === 'asc' ? '▲' : '▼'}
+                  </button>
+                </th>
                 <th style={{ padding: '16px' }}>
                   Data
                   <FiltroColuna ativo={Boolean(filtroDataPreset)}>

@@ -133,7 +133,7 @@ test('regime normal: ICMS destacado sobre (valor - desconto), com reducao no CST
   assert.equal(cst20.taxes.icms.amount, 90);
 
   const cst60 = montar({ ...farinha, csosn: '60', cest: '1703100', cstPis: '01', cstCofins: '01' }, undefined, lr).item as Record<string, any>;
-  assert.deepEqual(cst60.taxes.icms, { origin: 0, cst: 60 });
+  assert.deepEqual(cst60.taxes.icms, { origin: 0, cst: 60, baseStRetentionAmount: 0, stpRate: 0, substituteAmount: 0, stRetentionAmount: 0 });
 });
 
 test('ST calculada na nota (CSOSN 201/202, CST 10/30/70) barra em vez de sair errado', () => {
@@ -194,7 +194,8 @@ test('produto com ST vendido para outro estado: sem CFOP interestadual no cadast
   // Dentro do estado, o CFOP/CSOSN interestadual nao interfere.
   const interno = montar({ ...granolaSt, cfopInterestadual: '6102', csosnInterestadual: '102' }).item as Record<string, any>;
   assert.equal(interno.cfop, 5405);
-  assert.deepEqual(interno.taxes.icms, { origin: 0, csosn: 500 });
+  // CSOSN 500 leva o ST retido anteriormente zerado (Rejeicao 938 sem ele; o ERP antigo mandava assim).
+  assert.deepEqual(interno.taxes.icms, { origin: 0, csosn: 500, baseStRetentionAmount: 0, stpRate: 0, substituteAmount: 0, stRetentionAmount: 0 });
 
   const cfopErrado = montarItemNotaFiscal({ produto: { ...granolaSt, cfopInterestadual: '5102' }, venda: { quantidade: 1, precoUnitario: 10, desconto: 0 }, contexto: inter, codigoItem: '1' });
   assert.equal(cfopErrado.ok, false);

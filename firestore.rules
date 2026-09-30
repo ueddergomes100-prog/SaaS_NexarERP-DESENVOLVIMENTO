@@ -224,8 +224,19 @@ service cloud.firestore {
       return isSuperAdmin();
     }
 
+    // Funcionario INATIVADO (Usuarios / Vendedores) perde o acesso aos DADOS,
+    // nao so' a tela (2026-09-29). "Inativar" e' o que substitui excluir no
+    // sistema, mas so' o AuthContext barrava: o login dele no Firebase Auth
+    // continua valido, e pelo console do navegador ele lia e gravava tudo o
+    // que as permissoes davam. Dono/Admin nao sao inativados pela tela e
+    // ficam de fora de proposito (mesma regra do AuthContext).
+    function perfilAtivo() {
+      return currentProfile().get('status', 'Ativo') != 'Inativo' ||
+        currentProfile().get('role', '') in ['Master', 'Admin', 'NexarAdmin', 'SuperAdmin'];
+    }
+
     function canAccessTenant(tenantId) {
-      return isSuperAdmin() || (hasProfile() && currentTenantId() == tenantId);
+      return isSuperAdmin() || (hasProfile() && perfilAtivo() && currentTenantId() == tenantId);
     }
 
     function canReadTenantDocument() {
@@ -235,18 +246,19 @@ service cloud.firestore {
       // devolve "Missing or insufficient permissions" em vez de so dizer
       // que o documento nao existe. Permitir aqui e seguro: nao ha dado
       // nenhum pra vazar num documento inexistente.
-      return isSuperAdmin() || (hasProfile() && (resource == null || resource.data.tenantId == currentTenantId()));
+      return isSuperAdmin() || (hasProfile() && perfilAtivo() && (resource == null || resource.data.tenantId == currentTenantId()));
     }
 
     function canCreateTenantDocument() {
       return isSuperAdmin() ||
-        (hasProfile() && request.resource.data.tenantId == currentTenantId());
+        (hasProfile() && perfilAtivo() && request.resource.data.tenantId == currentTenantId());
     }
 
     function canUpdateTenantDocument() {
       return isSuperAdmin() ||
         (
           hasProfile() &&
+          perfilAtivo() &&
           resource.data.tenantId == currentTenantId() &&
           request.resource.data.tenantId == resource.data.tenantId
         );
@@ -386,15 +398,17 @@ service cloud.firestore {
 
     function canDeleteTenantDocument() {
       return isSuperAdmin() ||
-        (hasProfile() && resource.data.tenantId == currentTenantId());
+        (hasProfile() && perfilAtivo() && resource.data.tenantId == currentTenantId());
     }
 
     match /usuarios/{userId} {
+      // O proprio perfil continua legivel mesmo inativo: e' por ele que o
+      // AuthContext descobre o 'Inativo' e desloga.
       allow get: if isSuperAdmin() ||
         (signedIn() && request.auth.uid == userId) ||
-        (hasProfile() && resource.data.tenantId == currentTenantId());
+        (hasProfile() && perfilAtivo() && resource.data.tenantId == currentTenantId());
       allow list: if isSuperAdmin() ||
-        (hasProfile() && resource.data.tenantId == currentTenantId());
+        (hasProfile() && perfilAtivo() && resource.data.tenantId == currentTenantId());
 
       allow create: if isSuperAdmin() ||
         (
@@ -663,6 +677,7 @@ service cloud.firestore {
       allow create: if isSuperAdmin() ||
         (
           hasProfile() &&
+          perfilAtivo() &&
           request.resource.data.tenantId == currentTenantId() &&
           (canManageTenantData() || hasPermission('estoque.ajusteManual'))
         );

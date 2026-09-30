@@ -53,6 +53,12 @@ async function authenticate(req, res, next) {
       role = normalizeRole(userData.role, role || ownerFallback);
       tenantId = userData.tenantId || uid;
       permissoes = Array.isArray(userData.permissoes) ? userData.permissoes : [];
+
+      // Funcionario inativado perde o acesso ao servidor tambem, nao so' a
+      // tela (mesma regra de perfilAtivo() nas firestore.rules, 2026-09-29).
+      if (userData.status === 'Inativo' && !isPlatformAdminRole(role) && !isTenantManagerRole(role)) {
+        return res.status(403).json({ error: 'Seu usuário foi inativado pelo administrador da empresa. Fale com ele para reativar o acesso.' });
+      }
     }
 
     if (isPlatformAdminRole(claimRole)) {

@@ -338,7 +338,8 @@ export const spedyService = {
     URL.revokeObjectURL(url);
   },
 
-  async openFiscalFile(id: string, type: SpedyType, fileType: 'pdf' | 'xml') {
+  /** PDF (DANFE) ou XML da nota como arquivo, pra mostrar dentro do sistema / salvar com nome. */
+  async baixarArquivoFiscal(id: string, type: SpedyType, fileType: 'pdf' | 'xml'): Promise<Blob> {
     const baseUrl = ensureApiUrl();
     const response = await fetch(`${baseUrl}/api/spedy/${type}/${id}/${fileType}`, {
       method: 'GET',
@@ -348,8 +349,12 @@ export const spedyService = {
     if (!response.ok) {
       throw await getApiError(response, 'Erro ao baixar arquivo fiscal.');
     }
+    return response.blob();
+  },
 
-    const blob = await response.blob();
+  /** `nomeArquivo`: nome do XML baixado (ex.: "NFE 000040 - CLIENTE.xml"); sem ele, o id da Spedy. */
+  async openFiscalFile(id: string, type: SpedyType, fileType: 'pdf' | 'xml', nomeArquivo?: string) {
+    const blob = await spedyService.baixarArquivoFiscal(id, type, fileType);
     const url = URL.createObjectURL(blob);
 
     if (fileType === 'pdf') {
@@ -360,7 +365,7 @@ export const spedyService = {
 
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${id}.xml`;
+    link.download = nomeArquivo || `${id}.xml`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

@@ -1,7 +1,16 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { X, Loader2, CheckCircle, XCircle, AlertCircle, MinusCircle, Search } from 'lucide-react';
+import { X, Loader2, CheckCircle, XCircle, AlertCircle, MinusCircle, Search, FileText, FileDown } from 'lucide-react';
 import SeletorTodas from '../../components/common/SeletorTodas';
-import { NexusSwal } from '../../utils/alerts';
+import PdfVisualizador from '../../components/common/PdfVisualizador';
+import { NexusSwal, showError, showWarning } from '../../utils/alerts';
+import { nomeArquivoDocumento } from '../../utils/nomeArquivoDomain';
+
+/**
+ * Ate' 10 notas por lote (2026-09-30, combinado com o dono): cada nota leva alguns
+ * segundos na SEFAZ e, no fim, os PDFs das autorizadas aparecem aqui pra conferir e
+ * salvar um por um -- com 10 a lista ainda cabe na tela e a espera e' curta.
+ */
+export const LIMITE_NOTAS_POR_LOTE = 10;
 
 /**
  * EMITIR VARIAS NF-e DE UMA VEZ (2026-09-30, pedido do dono: "checkbox pra emitir
@@ -31,6 +40,8 @@ export interface ResultadoItemLote {
   estado: EstadoItemLote;
   mensagem?: string;
   numeroNota?: number | null;
+  /** Id da nota na Spedy -- pra abrir o PDF (DANFE) das autorizadas no fim do lote. */
+  spedyId?: string;
 }
 
 interface Props {
@@ -38,6 +49,8 @@ interface Props {
   onFechar: () => void;
   /** Emite os pedidos na ordem, chamando `avisar` a cada mudanca; para entre um pedido e outro se `deveParar()`. */
   executar: (ids: string[], avisar: (id: string, resultado: ResultadoItemLote) => void, deveParar: () => boolean) => Promise<void>;
+  /** PDF (DANFE) de uma nota autorizada, pelo id da Spedy. */
+  baixarPdf: (spedyId: string) => Promise<Blob>;
 }
 
 const moeda = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
@@ -52,12 +65,55 @@ const ROTULO: Record<EstadoItemLote, { texto: string; cor: string; Icone: React.
   erro: { texto: 'Não emitida', cor: '#ef4444', Icone: XCircle },
 };
 
-const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar }) => {
+const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixarPdf }) => {
   const [busca, setBusca] = useState('');
   const [selecionados, setSelecionados] = useState<string[]>([]);
   const [resultados, setResultados] = useState<Record<string, ResultadoItemLote> | null>(null);
   const [rodando, setRodando] = useState(false);
   const pararRef = useRef(false);
+  const [pdfAberto, setPdfAberto] = useState<{ titulo: string; nome: string; blob: Blob } | null>(null);
+  const [carregandoPdf, setCarregandoPdf] = useState<string | null>(null);
+  const [salvandoTodos, setSalvandoTodos] = useState(false);
+
+  const nomeDoPdf = (p: PedidoParaLote, r: ResultadoItemLote) => nomeArquivoDocumento({ tipo: 'NFE', numero: r.numeroNota, destinatario: p.clienteNome });
+  const verPdf = async (p: PedidoParaLote, r: ResultadoItemLote) => {
+    if (!r.spedyId) return;
+    setCarregandoPdf(p.id);
+    try {
+      const blob = await baixarPdf(r.spedyId);
+      setPdfAberto({ titulo: `NF-e nº ${r.numeroNota ?? ''} — ${p.clienteNome}`, nome: nomeDoPdf(p, r), blob });
+    } catch (erro) {
+      showError('Não foi possível abrir o PDF', (erro as Error).message || 'Tente de novo em instantes.');
+    } finally {
+      setCarregandoPdf(null);
+    }
+  };
+  /** Baixa o PDF de cada autorizada, um arquivo por nota, ja' com o nome certo. */
+  const salvarTodos = async () => {
+    const autorizadas = pedidos.filter((p) => resultados?.[p.id]?.estado === 'autorizada' && resultados[p.id].spedyId);
+    setSalvandoTodos(true);
+    let falhas = 0;
+    for (const p of autorizadas) {
+      const r = resultados![p.id];
+      try {
+        const blob = await baixarPdf(r.spedyId!);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = nomeDoPdf(p, r);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        // Um respiro entre os arquivos: alguns navegadores barram varios downloads seguidos.
+        await new Promise((resolver) => setTimeout(resolver, 400));
+      } catch {
+        falhas += 1;
+      }
+    }
+    setSalvandoTodos(false);
+    if (falhas > 0) showError('Alguns PDFs não foram salvos', `${falhas} PDF(s) não puderam ser baixados. Use "Ver PDF" na linha da nota.`);
+  };
 
   const visiveis = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -76,10 +132,23 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar }) => {
   const marcadosVisiveis = idsVisiveis.filter((id) => selecionados.includes(id)).length;
   const estadoSeletor = marcadosVisiveis === 0 ? 'nenhuma' : marcadosVisiveis === idsVisiveis.length ? 'todas' : 'parcial';
 
-  const alternar = (id: string) => setSelecionados((atual) => (atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]));
-  const alternarVisiveis = (marcar: boolean) => setSelecionados((atual) => (
-    marcar ? [...new Set([...atual, ...idsVisiveis])] : atual.filter((id) => !idsVisiveis.includes(id))
-  ));
+  const avisarLimite = () => showWarning(`Até ${LIMITE_NOTAS_POR_LOTE} notas por lote`, `Emita estas ${LIMITE_NOTAS_POR_LOTE} e depois abra o lote de novo para as próximas.`);
+  const alternar = (id: string) => {
+    if (!selecionados.includes(id) && selecionados.length >= LIMITE_NOTAS_POR_LOTE) {
+      avisarLimite();
+      return;
+    }
+    setSelecionados((atual) => (atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]));
+  };
+  const alternarVisiveis = (marcar: boolean) => {
+    if (!marcar) {
+      setSelecionados((atual) => atual.filter((id) => !idsVisiveis.includes(id)));
+      return;
+    }
+    const novos = [...new Set([...selecionados, ...idsVisiveis])];
+    if (novos.length > LIMITE_NOTAS_POR_LOTE) avisarLimite();
+    setSelecionados(novos.slice(0, LIMITE_NOTAS_POR_LOTE));
+  };
 
   const iniciar = async () => {
     const ordem = pedidos.filter((p) => selecionados.includes(p.id)).map((p) => p.id);
@@ -123,7 +192,7 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar }) => {
             <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
               {resultados
                 ? `${contagem.autorizada || 0} autorizada(s) · ${(contagem.rejeitada || 0) + (contagem.erro || 0) + (contagem.pulada || 0)} com problema · ${(contagem.aguardando || 0) + (contagem.emitindo || 0) + (contagem.processando || 0)} em andamento`
-                : 'Pedidos finalizados que ainda não têm NF-e. Marque os que quer emitir.'}
+                : `Pedidos finalizados que ainda não têm NF-e. Marque até ${LIMITE_NOTAS_POR_LOTE} por vez — no fim, os PDFs aparecem aqui para conferir e salvar.`}
             </p>
           </div>
           <button type="button" onClick={onFechar} disabled={rodando} title={rodando ? 'Aguarde terminar (ou clique em Parar)' : 'Fechar'} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: rodando ? 'not-allowed' : 'pointer' }}>
@@ -193,6 +262,12 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar }) => {
                             {rotulo.texto}{r?.numeroNota ? ` nº ${r.numeroNota}` : ''}
                           </span>
                           {r?.mensagem && <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{r.mensagem}</div>}
+                          {r?.estado === 'autorizada' && r.spedyId && (
+                            <button type="button" className="btn-secondary" onClick={() => void verPdf(p, r)} disabled={carregandoPdf === p.id}
+                              style={{ marginTop: '6px', padding: '4px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                              {carregandoPdf === p.id ? <Loader2 size={14} className="spin-icon" /> : <FileText size={14} />} Ver PDF
+                            </button>
+                          )}
                         </td>
                       )}
                     </tr>
@@ -217,11 +292,22 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar }) => {
               Parar depois desta nota
             </button>
           )}
+          {resultados && !rodando && (contagem.autorizada || 0) > 0 && (
+            <button type="button" className="btn-secondary" onClick={() => void salvarTodos()} disabled={salvandoTodos}
+              title="Baixa um PDF por nota, já com o nome: NFE número - cliente"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {salvandoTodos ? <Loader2 size={16} className="spin-icon" /> : <FileDown size={16} />}
+              Salvar os {contagem.autorizada} PDF{contagem.autorizada === 1 ? '' : 's'}
+            </button>
+          )}
           {resultados && !rodando && (
             <button type="button" className="btn-primary" onClick={onFechar}>Fechar</button>
           )}
         </div>
       </div>
+      {pdfAberto && (
+        <PdfVisualizador titulo={pdfAberto.titulo} nomeArquivo={pdfAberto.nome} pdf={pdfAberto.blob} onFechar={() => setPdfAberto(null)} />
+      )}
     </div>
   );
 };

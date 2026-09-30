@@ -267,8 +267,7 @@ const desenharCabecalhoEmpresa = (doc: jsPDF, empresa: NonNullable<DadosPdfBolet
 
 /** PDF do boleto Sicoob: Recibo do Pagador, Recibo do Caixa e Ficha de Compensação (com código de
  *  barras) -- as tres vias que o Sicoob imprime pra cobranca registrada. */
-export const gerarPdfBoleto = (dados: DadosPdfBoleto): Blob => {
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+const desenharBoleto = (doc: jsPDF, dados: DadosPdfBoleto) => {
   let y = 14;
   if (dados.empresaHeader?.nome) y = desenharCabecalhoEmpresa(doc, dados.empresaHeader, y);
 
@@ -287,6 +286,16 @@ export const gerarPdfBoleto = (dados: DadosPdfBoleto): Blob => {
   doc.setFontSize(9);
   doc.setTextColor(0);
   doc.text('Ficha de Compensação', MARGEM_X + LARGURA, y + 11, { align: 'right' });
+};
 
+export const gerarPdfBoleto = (dados: DadosPdfBoleto): Blob => gerarPdfBoletos([dados]);
+
+/** Varios boletos num PDF so', um por pagina -- 2a via em lote (2026-09-30). */
+export const gerarPdfBoletos = (lista: DadosPdfBoleto[]): Blob => {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+  lista.forEach((dados, indice) => {
+    if (indice > 0) doc.addPage();
+    desenharBoleto(doc, dados);
+  });
   return doc.output('blob');
 };

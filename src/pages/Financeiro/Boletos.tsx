@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { collection, deleteField, doc, getDoc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
-import { Barcode, Download, FileUp, Loader2, Receipt, Search } from 'lucide-react';
+import { Barcode, Download, FileUp, Loader2, Printer, Receipt, Search } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess, NexusSwal } from '../../utils/alerts';
@@ -11,7 +11,8 @@ import { fromCents, toCents, settledFinancialNatureForPayment, type BoletoDetail
 import { reserveTenantSequence } from '../../utils/firestoreAtomic';
 import { codigoBarrasSicoob, formatarNossoNumeroSicoobExibicao, nossoNumeroSicoobComDv } from '../../utils/boletoCnabDomain';
 import { formatarLinhaDigitavel, linhaDigitavelDoCodigoBarras } from '../../utils/boletoDomain';
-import { gerarPdfBoleto } from '../../utils/boletoPdf';
+import { gerarPdfBoletos, type DadosPdfBoleto } from '../../utils/boletoPdf';
+import { nomeArquivoDocumento } from '../../utils/nomeArquivoDomain';
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
 import {
@@ -464,7 +465,7 @@ const Boletos: React.FC = () => {
    * boleto pronto sem precisar de um segundo clique. Lanca erro (mensagem em portugues)
    * em vez de mostrar popup direto, pra cada chamador decidir como reagir.
    */
-  const gerarPdfDoBoleto = async (titulo: TituloBoleto): Promise<{ blob: Blob; nome: string }> => {
+  const dadosPdfDoBoleto = async (titulo: TituloBoleto): Promise<DadosPdfBoleto> => {
     if (!tenantId) throw new Error('Sessão sem empresa identificada. Atualize a página.');
     const calc = recalcularBoleto(titulo);
     if (!calc) throw new Error('Configure o convênio de boleto em Financeiro → Bancos.');
@@ -520,7 +521,7 @@ const Boletos: React.FC = () => {
     );
     const nome = String(cliente?.nome || titulo.clienteNome || 'Cliente').trim();
     const cepEmpresa = String(config.cep || '').replace(/\D/g, '');
-    const blob = gerarPdfBoleto({
+    return {
       bancoNome: 'SICOOB',
       codigoBanco: '756-0',
       localPagamento: 'Pagável Preferenc. nas Cooperativas da Rede Sicoob',
@@ -549,8 +550,47 @@ const Boletos: React.FC = () => {
         endereco: formatCompanyAddress(config) || undefined,
         telefone: config.telefone || undefined,
       },
-    });
-    return { blob, nome: `boleto_${titulo.boleto?.nossoNumero || 'sicoob'}.pdf` };
+    };
+  };
+
+  const nomePdfBoleto = (titulo: TituloBoleto) => nomeArquivoDocumento({
+    tipo: 'BOLETO',
+    numero: titulo.boleto?.nossoNumero ? formatarNossoNumeroSicoobExibicao(titulo.boleto.nossoNumero) : '',
+    destinatario: titulo.clienteNome,
+  });
+
+  const gerarPdfDoBoleto = async (titulo: TituloBoleto): Promise<{ blob: Blob; nome: string }> => (
+    { blob: gerarPdfBoletos([await dadosPdfDoBoleto(titulo)]), nome: nomePdfBoleto(titulo) }
+  );
+
+  /** 2a via de varios boletos marcados: um PDF so', um boleto por pagina. */
+  const imprimirSelecionados = async () => {
+    const lista = listaAtual.filter((t) => selecionados.has(t.id) && t.boleto);
+    if (lista.length === 0) {
+      showError('Nada marcado', 'Marque os boletos que quer imprimir.');
+      return;
+    }
+    setProcessando(true);
+    try {
+      const dados: DadosPdfBoleto[] = [];
+      const falhas: string[] = [];
+      for (const titulo of lista) {
+        try {
+          dados.push(await dadosPdfDoBoleto(titulo));
+        } catch (erro) {
+          falhas.push(`${titulo.clienteNome || 'Boleto'}: ${(erro as Error).message}`);
+        }
+      }
+      if (dados.length > 0) {
+        setPdfBoleto({
+          blob: gerarPdfBoletos(dados),
+          nome: lista.length === 1 ? nomePdfBoleto(lista[0]) : `BOLETOS ${getDateInputInTimeZone().split('-').reverse().join('-')} - ${dados.length} boletos.pdf`,
+        });
+      }
+      if (falhas.length > 0) showError(`${falhas.length} boleto(s) ficaram de fora`, falhas.join(' '));
+    } finally {
+      setProcessando(false);
+    }
   };
 
   const imprimirBoleto = async (titulo: TituloBoleto) => {
@@ -835,6 +875,11 @@ const Boletos: React.FC = () => {
               <Receipt size={18} /> Emitir selecionados ({selecionados.size})
             </button>
           )}
+          {aba !== 'aguardando' && selecionados.size > 0 && (
+            <button className="btn-primary" onClick={() => void imprimirSelecionados()} disabled={processando} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Printer size={18} /> Imprimir 2ª via ({selecionados.size})
+            </button>
+          )}
           <button className="btn-secondary" onClick={gerarRemessa} disabled={processando} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Download size={18} /> {(() => {
               // Diz o que vai no arquivo: so' os marcados na aba Emitidos, ou todos.
@@ -908,7 +953,15 @@ const Boletos: React.FC = () => {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-tertiary)', textAlign: 'left' }}>
-                  {(aba === 'emitidos' || aba === 'aguardando') && <th style={{ padding: '14px 16px', width: '40px' }}></th>}
+                  <th style={{ padding: '14px 16px', width: '40px' }}>
+                    <input
+                      type="checkbox"
+                      title="Marcar todos desta aba"
+                      aria-label="Marcar todos os boletos desta aba"
+                      checked={listaAtual.length > 0 && listaAtual.every((t) => selecionados.has(t.id))}
+                      onChange={(e) => setSelecionados(e.target.checked ? new Set(listaAtual.map((t) => t.id)) : new Set())}
+                    />
+                  </th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Cliente</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Descrição</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Vencimento</th>
@@ -929,21 +982,19 @@ const Boletos: React.FC = () => {
                   const vencimento = t.boleto?.vencimento || t.dataVencimento || '';
                   return (
                     <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      {(aba === 'emitidos' || aba === 'aguardando') && (
-                        <td style={{ padding: '14px 16px' }}>
-                          <input
-                            type="checkbox"
-                            title={aba === 'aguardando' ? 'Marcar para emitir vários boletos de uma vez' : 'Marcar para ir no arquivo de remessa (sem nenhum marcado, vão todos os emitidos)'}
-                            aria-label={aba === 'aguardando' ? `Marcar ${t.clienteNome || 'título'} para emitir` : `Marcar ${t.clienteNome || 'boleto'} para a remessa`}
-                            checked={selecionados.has(t.id)}
-                            onChange={(e) => {
-                              const novo = new Set(selecionados);
-                              if (e.target.checked) novo.add(t.id); else novo.delete(t.id);
-                              setSelecionados(novo);
-                            }}
-                          />
-                        </td>
-                      )}
+                      <td style={{ padding: '14px 16px' }}>
+                        <input
+                          type="checkbox"
+                          title={aba === 'aguardando' ? 'Marcar para emitir vários boletos de uma vez' : 'Marcar para imprimir a 2ª via (ou, em Emitidos, mandar só estes na remessa)'}
+                          aria-label={aba === 'aguardando' ? `Marcar ${t.clienteNome || 'título'} para emitir` : `Marcar boleto de ${t.clienteNome || 'cliente'}`}
+                          checked={selecionados.has(t.id)}
+                          onChange={(e) => {
+                            const novo = new Set(selecionados);
+                            if (e.target.checked) novo.add(t.id); else novo.delete(t.id);
+                            setSelecionados(novo);
+                          }}
+                        />
+                      </td>
                       <td style={{ padding: '14px 16px' }}>{t.clienteNome || '—'}</td>
                       <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>{t.descricao}</td>
                       <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>

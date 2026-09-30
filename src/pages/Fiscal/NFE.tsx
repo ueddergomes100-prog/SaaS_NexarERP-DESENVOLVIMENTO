@@ -31,6 +31,8 @@ import { motivoPedidoNaoEmiteNota, notaDeveAparecer } from '../../utils/notaFisc
 import { escolherIntegrationIdDoReenvio, rejeicaoPrendeConfiguracaoNaNota } from '../../utils/reenvioNotaDomain';
 import { resolverInscricaoEstadualDestinatario } from '../../utils/destinatarioFiscalDomain';
 import EmissaoProgressoModal from '../../components/common/EmissaoProgressoModal';
+import PdfVisualizador from '../../components/common/PdfVisualizador';
+import { nomeArquivoDocumento } from '../../utils/nomeArquivoDomain';
 import CartaCorrecaoModal from '../../components/common/CartaCorrecaoModal';
 import DevolucaoNfeModal from '../../components/common/DevolucaoNfeModal';
 import { motivoQueImpedeCartaNaTela, notaAceitaCartaCorrecao, type CartaEnviada } from '../../utils/cartaCorrecaoDomain';
@@ -155,6 +157,9 @@ const normalizarCampoFiscal = (campo: CampoFiscalEditavel, valor: unknown) => {
   return campo === 'ncm' || campo === 'cest' || campo === 'cfop' ? texto.replace(/\D/g, '') : texto;
 };
 
+/** "NFE", "NFCE", "NFSE" -- comeco do nome do arquivo baixado. */
+const siglaArquivoNota = (tipo: string) => (tipo === 'NFC-e' ? 'NFCE' : tipo === 'NFS-e' ? 'NFSE' : 'NFE');
+
 /** "[nItem: 1]" da mensagem da SEFAZ -> indice 0 da tabela. */
 const itemDaMensagemSefaz = (mensagem: unknown): number | null => {
   const achado = String(mensagem ?? '').match(/nItem\s*:?\s*(\d+)/i);
@@ -224,6 +229,8 @@ const NFE: React.FC = () => {
   // sem isso parecia o sistema ter travado (nenhum feedback ate a aba
   // nova abrir).
   const [carregandoPdfId, setCarregandoPdfId] = useState<string | null>(null);
+  /** PDF (DANFE) aberto dentro do sistema, ja' com o nome de arquivo "NFE 000040 - CLIENTE.pdf". */
+  const [pdfAberto, setPdfAberto] = useState<{ titulo: string; nome: string; blob: Blob } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTab, setSelectedTab] = useState<'Todas' | 'NFC-e' | 'NF-e' | 'NFS-e'>('Todas');
   const [page, setPage] = useState(1);
@@ -1118,7 +1125,12 @@ const NFE: React.FC = () => {
               // isso o alerta so fechava e nada parecia acontecer ate a
               // aba nova abrir, dava impressao de sistema travado.
               showLoaderOnConfirm: true,
-              preConfirm: () => spedyService.openFiscalFile(note.spedyId, tipoArquivo, 'pdf')
+              preConfirm: () => spedyService.baixarArquivoFiscal(note.spedyId, tipoArquivo, 'pdf')
+                .then((blob) => setPdfAberto({
+                  titulo: `${note.tipo} nº ${spedyNote.number ?? ''} — ${note.clienteNome}`,
+                  nome: nomeArquivoDocumento({ tipo: siglaArquivoNota(note.tipo), numero: spedyNote.number, destinatario: note.clienteNome }),
+                  blob,
+                }))
                 .catch(err => {
                   showError('Erro ao abrir PDF', (err as Error).message);
                 }),
@@ -1377,7 +1389,12 @@ const NFE: React.FC = () => {
     setCarregandoPdfId(note.id);
     try {
       const tipoArquivo = note.tipo === 'NFS-e' ? 'service' : note.tipo === 'NFC-e' ? 'consumer' : 'product';
-      await spedyService.openFiscalFile(note.spedyId, tipoArquivo, 'pdf');
+      const blob = await spedyService.baixarArquivoFiscal(note.spedyId, tipoArquivo, 'pdf');
+      setPdfAberto({
+        titulo: `${note.tipo} nº ${note.number ?? ''} — ${note.clienteNome}`,
+        nome: nomeArquivoDocumento({ tipo: siglaArquivoNota(note.tipo), numero: note.number, destinatario: note.clienteNome }),
+        blob,
+      });
     } catch (err) {
       showError('Erro ao abrir PDF', (err as Error).message);
     } finally {
@@ -2230,7 +2247,7 @@ const NFE: React.FC = () => {
 
   /** Status da Spedy -> linha do lote; null = ainda sem resposta da SEFAZ. */
   const resultadoDoStatusLote = (nota: SpedyInvoice): ResultadoItemLote | null => {
-    if (nota.status === 'authorized') return { estado: 'autorizada', numeroNota: nota.number };
+    if (nota.status === 'authorized') return { estado: 'autorizada', numeroNota: nota.number, spedyId: nota.id };
     if (nota.status === 'rejected' || nota.status === 'denied') {
       return {
         estado: 'rejeitada',
@@ -2884,7 +2901,8 @@ const NFE: React.FC = () => {
                             onClick={() => spedyService.openFiscalFile(
                               note.spedyId,
                               note.tipo === 'NFS-e' ? 'service' : note.tipo === 'NFC-e' ? 'consumer' : 'product',
-                              'xml'
+                              'xml',
+                              nomeArquivoDocumento({ tipo: siglaArquivoNota(note.tipo), numero: note.number, destinatario: note.clienteNome, extensao: 'xml' }),
                             ).catch(err => showError('Erro ao baixar XML', (err as Error).message))}
                             className="icon-btn"
                             title="Baixar XML"
@@ -2988,6 +3006,10 @@ const NFE: React.FC = () => {
         );
       })()}
 
+      {pdfAberto && (
+        <PdfVisualizador titulo={pdfAberto.titulo} nomeArquivo={pdfAberto.nome} pdf={pdfAberto.blob} onFechar={() => setPdfAberto(null)} />
+      )}
+
       <EmissaoProgressoModal
         aberto={progresso !== null}
         tipo={progresso?.tipo ?? 'NF-e'}
@@ -3013,6 +3035,7 @@ const NFE: React.FC = () => {
           pedidos={pedidosParaLote}
           onFechar={() => { setLoteAberto(false); loadLocalInvoices(false); }}
           executar={executarLote}
+          baixarPdf={(spedyId) => spedyService.baixarArquivoFiscal(spedyId, 'product', 'pdf')}
         />
       )}
 

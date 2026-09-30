@@ -1793,6 +1793,20 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
           dueDate: `${p.dataVencimento}T00:00:00`,
           amount: Number(p.valor ?? p.valorCentavos / 100),
         }));
+        // Fatura [cobr/fat] junto das duplicatas (2026-09-30): a SEFAZ exige que a soma das
+        // parcelas bata com o valor LIQUIDO da fatura. Mandando so' `duplicates`, a Spedy montava a
+        // fatura sem esse valor e a nota voltava "Rejeicao 851: Soma do valor das parcelas difere
+        // do Valor Liquido da Fatura" (NF-e 000034 da Sol Life). Campo `billing` confirmado no
+        // swagger da Spedy (SefazInvoiceBillingDto: number/originalAmount/discountAmount/netAmount).
+        const valorFaturaCentavos = duplicatesPayload.reduce((soma, d) => soma + Math.round(d.amount * 100), 0);
+        const billingPayload = duplicatesPayload.length > 0
+          ? {
+            number: pedidosVenda.find((p) => p.id === importedPedidoId)?.numeroPedido || '1',
+            originalAmount: valorFaturaCentavos / 100,
+            discountAmount: 0,
+            netAmount: valorFaturaCentavos / 100,
+          }
+          : null;
 
         const payload = {
           integrationId,
@@ -1829,6 +1843,7 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
             }
           ],
           ...(duplicatesPayload.length > 0 ? { duplicates: duplicatesPayload } : {}),
+          ...(billingPayload ? { billing: billingPayload } : {}),
           total: {
             invoiceAmount: valorNumerico,
             productAmount: productAmountBruto,

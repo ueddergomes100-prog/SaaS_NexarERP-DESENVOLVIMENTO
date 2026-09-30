@@ -156,6 +156,7 @@ const ImportarDadosFiscais: React.FC = () => {
         percentualTributosMunicipal: String(dados.percentualTributosMunicipal ?? ''),
         percentualTributos: String(dados.percentualTributos ?? ''),
         embalagensBarras: embalagens.map((e) => String(e?.codigoBarras ?? '').trim()).filter(Boolean),
+        inativo: dados.ativo === false || dados.statusAtivo === false,
       };
     });
   };
@@ -270,7 +271,13 @@ const ImportarDadosFiscais: React.FC = () => {
       showSuccess(`${alvos.length} produto(s) atualizado(s)!`);
     } catch (erro) {
       console.error('Erro ao gravar dados fiscais:', erro);
-      showError('Não foi possível gravar', 'A importação foi interrompida. Nada foi perdido: confira o cadastro e tente de novo (os produtos já gravados não mudam de novo).');
+      const semPermissao = (erro as { code?: string })?.code === 'permission-denied';
+      showError(
+        'Não foi possível gravar',
+        semPermissao
+          ? 'O sistema recusou a alteração de algum produto da lista (produto inativo ou seu usuário sem a permissão "Alterar cadastro de produtos"). Nada daquele bloco foi gravado. Confira com o administrador e tente de novo.'
+          : 'A importação foi interrompida. Nada foi perdido: confira o cadastro e tente de novo (os produtos já gravados não mudam de novo).',
+      );
     } finally {
       setSalvando(false);
     }

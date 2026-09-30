@@ -251,3 +251,16 @@ test('IBPT: reconhece o arquivo oficial, ignora serviços e exceções, aplica p
   assert.equal(resultados[2].status, 'erro');
   assert.equal(resumo.atualizar, 2);
 });
+
+test('produto inativo não entra na gravação (o Firestore recusaria o lote inteiro)', () => {
+  const produtos = [produto({ id: 'a', codigo: '1', nome: 'ATIVO' }), produto({ id: 'b', codigo: '2', nome: 'BASE GRANOLA', inativo: true })];
+  const { resultados, resumo } = planejarImportacaoFiscal({ linhas: [linha({ codigo: '1', ncm: '11041200' }), linha({ codigo: '2', ncm: '11041200', linha: 3 })], produtos, sobrescrever: true });
+  assert.equal(resultados[0].status, 'atualizar');
+  assert.equal(resultados[1].status, 'erro');
+  assert.deepEqual(resultados[1].grava, {});
+  assert.match(resultados[1].problemas[0], /inativo/);
+  assert.equal(resumo.atualizar, 1);
+  const tabela = { porNcm: new Map([['11041200', { nacionalFederal: 4, importadosFederal: 6, estadual: 9, municipal: 0 }]]), versao: '', vigenciaFim: '' };
+  const ibpt = planejarImportacaoIbpt({ tabela, produtos: [produto({ id: 'b', codigo: '2', nome: 'X', ncm: '11041200', inativo: true })] });
+  assert.equal(ibpt.resultados[0].status, 'erro');
+});

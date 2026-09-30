@@ -253,6 +253,12 @@ export type ProdutoFiscalAtual = {
   nome: string;
   /** Codigos de barras das embalagens: tambem contam como "ja usado". */
   embalagensBarras: string[];
+  /**
+   * Produto inativo NAO se edita (firestore.rules, cadastroInativo): se entrar
+   * no lote, o Firestore recusa o lote INTEIRO. A Sol Life tinha 21 inativos e
+   * a importacao de 2026-09-30 falhou toda por isso.
+   */
+  inativo?: boolean;
 } & { codigoBarras: string; ncm: string; cest: string } & Partial<Record<CampoTributacao, string>>;
 
 export type StatusLinhaFiscal = 'atualizar' | 'sem_mudanca' | 'conflito' | 'erro' | 'nao_encontrado' | 'ambiguo';
@@ -313,6 +319,8 @@ const resumir = (resultados: ResultadoLinhaFiscal[]): ResumoFiscal => {
     comAviso: resultados.filter((r) => r.status === 'atualizar' && r.problemas.length > 0).length,
   };
 };
+
+const PROBLEMA_INATIVO = 'Produto inativo: não é alterado. Se ele ainda é vendido, reative em Estoque e importe de novo.';
 
 export const planejarImportacaoFiscal = (args: {
   linhas: LinhaFiscal[];
@@ -391,6 +399,9 @@ export const planejarImportacaoFiscal = (args: {
 
     if (!produto) {
       return { linha, status: p.achado === 'ambiguo' ? 'ambiguo' : 'nao_encontrado', produto: null, grava, mudancas, problemas };
+    }
+    if (produto.inativo) {
+      return { linha, status: 'erro', produto, grava, mudancas, problemas: [...problemas, PROBLEMA_INATIVO] };
     }
 
     camposGravaveis.forEach((c) => { if (p.campos[c].erro) { problemas.push(p.campos[c].erro); bloqueios += 1; } });
@@ -511,6 +522,7 @@ export const planejarImportacaoIbpt = (args: {
     const linha = { linha: i + 1, codigo: produto.codigo, produto: produto.nome } as LinhaFiscal;
     const ncm = soDigitos(produto.ncm);
     const vazio = { linha, produto, grava: {}, mudancas: [] as MudancaFiscal[] };
+    if (produto.inativo) return { ...vazio, status: 'erro' as const, problemas: [PROBLEMA_INATIVO] };
     if (ncm.length !== 8) {
       return { ...vazio, status: 'erro' as const, problemas: ['Produto sem NCM: cadastre o NCM para receber os percentuais do IBPT.'] };
     }

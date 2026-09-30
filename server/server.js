@@ -72,7 +72,10 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
   maxAge: 86400
 }));
-app.use(express.json());
+// Limite padrao do express.json() e' 100 KB: uma NF-e com ~130 itens (cada
+// item leva o bloco de impostos) ja passava disso e voltava "request entity
+// too large", em ingles, na tela.
+app.use(express.json({ limit: '2mb' }));
 
 // Rota de Health Check
 app.get('/health', (req, res) => {
@@ -117,11 +120,21 @@ app.use('/api/entrada-nfe', notaRecebidaRoutes);
 app.use('/api/nota-email', notaEmailRoutes);
 
 // Middleware para tratamento global de erros HTTP
+// Erro que chega aqui e' da infraestrutura (corpo invalido, grande demais,
+// origem bloqueada) -- as rotas tratam os proprios. Mensagem em portugues,
+// sem repassar o texto cru da biblioteca pra tela (regra 2 do CLAUDE.md).
 app.use((err, req, res, next) => {
   console.error('[Global Error Handler]:', err);
-  res.status(err.status || 500).json({
-    error: err.message || 'Ocorreu um erro interno inesperado no servidor de backups.'
-  });
+  const status = err.status || err.statusCode || 500;
+  let mensagem = 'Ocorreu um erro inesperado no servidor. Tente novamente em instantes; se continuar, fale com o suporte.';
+  if (err.type === 'entity.too.large') {
+    mensagem = 'Os dados enviados são grandes demais para uma operação só. Divida em partes menores (por exemplo, menos itens por nota) e tente de novo.';
+  } else if (err.type === 'entity.parse.failed') {
+    mensagem = 'O servidor recebeu dados inválidos. Atualize a página (F5) e tente de novo.';
+  } else if (String(err.message || '').startsWith('Origem não permitida pelo CORS')) {
+    mensagem = 'Este endereço não tem permissão para acessar o servidor. Use o endereço oficial do sistema.';
+  }
+  res.status(status).json({ error: mensagem });
 });
 
 // Inicialização dos Serviços em Background

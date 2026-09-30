@@ -1486,14 +1486,20 @@ const NFE: React.FC = () => {
       } catch (err) {
         Swal.close();
         const mensagemErro = (err as Error).message || 'Erro ao cancelar a nota.';
-        // Fora do prazo (geral: 24h apos a autorizacao, varia por UF) a saida e' a devolucao, nao o cancelamento.
+        // Fora do prazo normal (24h apos a autorizacao). CANCELAMENTO EXTEMPORANEO
+        // (2026-09-30): em MG a SEFAZ aceita entre 24h e 168h, mas a empresa pede
+        // antes no SIARE e SO' DEPOIS transmite o cancelamento pelo emissor --
+        // ou seja, e' este mesmo botao, clicado de novo depois do protocolo.
+        // Mercadoria que saiu e voltou continua sendo devolucao.
         const foraDoPrazo = /prazo|501/i.test(mensagemErro);
         showError(
-          'Erro ao cancelar',
-          foraDoPrazo && note.pedidoId && note.tipo !== 'NFS-e'
+          foraDoPrazo ? 'Passou do prazo normal de cancelamento (24 horas)' : 'Erro ao cancelar',
+          foraDoPrazo && note.tipo !== 'NFS-e'
             ? `${mensagemErro}
 
-Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfazer a venda, registre a devolução dos itens e emita a NF-e de devolução (botão de devolução, na linha da nota).`
+• Venda que NÃO aconteceu, com a nota autorizada há até 168 horas (7 dias): peça o cancelamento extemporâneo no SIARE (site da SEFAZ-MG). Com o pedido registrado, volte aqui e clique em Cancelar de novo — o prazo é de 30 dias depois do protocolo. Em outros estados o caminho é parecido: confirme com o contador.
+• Mercadoria que saiu e voltou: registre a devolução dos itens e emita a NF-e de devolução (botão de devolução, na linha da nota).
+• Depois de 168 horas: fale com o contador (em MG, a SEFAZ cobra multa de 20% do valor da nota).`
             : mensagemErro,
         );
       }

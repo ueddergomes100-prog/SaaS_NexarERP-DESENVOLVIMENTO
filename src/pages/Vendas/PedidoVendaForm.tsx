@@ -1351,6 +1351,59 @@ const PedidoVendaForm: React.FC = () => {
     produtoBuscaInputRef.current?.focus();
   };
 
+  /**
+   * Varios produtos de uma vez, marcados na janela "Buscar produto" (2026-09-30).
+   * Cada um entra na unidade base, pelo preco de venda, sem desconto -- com as
+   * MESMAS travas do lancamento de um item (estoque, venda fracionada). O que
+   * nao passa fica de fora e e' listado; o resto entra.
+   */
+  const adicionarVariosItens = (lista: Array<{ product: ProdutoEstoque; quantidade: number }>) => {
+    const novos: ItemVenda[] = [];
+    const recusados: string[] = [];
+    lista.forEach(({ product, quantidade }) => {
+      if (!(quantidade > 0)) {
+        recusados.push(`${product.nome}: quantidade inválida.`);
+        return;
+      }
+      const opcao = buildOpcoesUnidadeVenda(product)[0];
+      const fator = opcao?.fatorConversao ?? 1;
+      const quantidadeBase = toBaseQuantity(quantidade, fator);
+      if (!permitirVendaSemEstoque && quantidadeBase > (product.quantidade || 0)) {
+        recusados.push(`${product.nome}: só há ${product.quantidade || 0} em estoque.`);
+        return;
+      }
+      if (!isValidSaleQuantity(quantidade, opcao.permiteFracionado, opcao.casasDecimais)) {
+        recusados.push(`${product.nome}: a unidade ${opcao.sigla} ${opcao.permiteFracionado ? `aceita no máximo ${opcao.casasDecimais ?? 0} casa(s) decimal(is)` : 'não permite quantidade fracionada'}.`);
+        return;
+      }
+      const preco = opcao?.precoVenda || product.precoVenda || 0;
+      novos.push({
+        id: product.id,
+        nome: product.nome,
+        ...(product.codigo ? { codigo: product.codigo } : {}),
+        precoUnitario: preco,
+        quantidade,
+        desconto: 0,
+        subtotal: Math.max(0, preco * quantidade),
+        unidadeMedidaSigla: opcao?.sigla || product.unidadeMedidaSigla || 'UN',
+        unidadeMedidaCasasDecimais: opcao?.casasDecimais ?? product.unidadeMedidaCasasDecimais ?? 0,
+        ...(opcao?.embalagemId ? { embalagemId: opcao.embalagemId, fatorConversao: fator, quantidadeBase } : {}),
+      });
+    });
+    if (novos.length > 0) {
+      setItens((atuais) => [...atuais, ...novos]);
+      handleClearProdutoSelecionado();
+    }
+    if (recusados.length > 0) {
+      showError(
+        novos.length > 0 ? `${novos.length} item(ns) adicionado(s); ${recusados.length} ficaram de fora` : 'Nenhum item adicionado',
+        recusados.join(' '),
+      );
+    } else if (novos.length > 0) {
+      showSuccess(`${novos.length} item${novos.length === 1 ? '' : 's'} adicionado${novos.length === 1 ? '' : 's'}.`);
+    }
+  };
+
   const handleClearProdutoSelecionado = () => {
     setProdutoBusca('');
     setProdutoPreco(0);
@@ -4430,6 +4483,7 @@ const PedidoVendaForm: React.FC = () => {
                       setProdutoSelecionado(p);
                       setEmbalagemSelecionadaId('');
                     }}
+                    onSelectMany={adicionarVariosItens}
                     mode={produtoSearchMode}
                     renderItem={renderProdutoRow}
                     initialQuery={produtoBusca}

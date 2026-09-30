@@ -472,6 +472,12 @@ export const montarItemNotaFiscal = (a: {
   }
 
   const cest = soDigitos(p.cest);
+  // Rejeicao 806 da SEFAZ ("Operacao com ICMS-ST sem informacao do CEST"): barra
+  // antes de enviar. Vale a operacao DESTA nota (venda para fora com 6102/102
+  // nao e' ST, mesmo o produto sendo ST dentro do estado).
+  if (cest.length !== 7 && temSubstituicaoTributaria({ ...produtoFiscal, cfop }, contexto.regime)) {
+    return { ok: false, erro: `O produto "${p.nome}" tem substituição tributária (CFOP ${cfop}, ${usesCsosn(contexto.regime) ? 'CSOSN' : 'CST'} ${produtoFiscal.csosn}) e está sem CEST — a SEFAZ rejeita (Rejeição 806). Informe o CEST do item na aba Produtos da nota ou no cadastro do produto em Estoque.` };
+  }
   const beneficio = String(p.beneficioFiscal ?? '').trim();
   const gtin = resolverGtin(p.codigoBarras);
 

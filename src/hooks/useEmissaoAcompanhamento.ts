@@ -46,6 +46,8 @@ export interface ProgressoEmissao {
   spedyId?: string;
   /** Id do documento em `notas_fiscais` -- o e-mail ao cliente sai por ele quando a nota e' autorizada. */
   docId?: string;
+  /** Id da nota em `notas_fiscais` pra "Corrigir na nota" (sempre preenchido; `docId` so' com e-mail pelo sistema). */
+  notaIdLocal?: string;
   /** Quando comecou a esperar a SEFAZ (ms) -- base do contador de segundos. */
   transmitindoDesdeMs?: number;
 }

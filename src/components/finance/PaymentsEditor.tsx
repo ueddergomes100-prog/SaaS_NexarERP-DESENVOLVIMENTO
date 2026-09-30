@@ -791,57 +791,50 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                   {linhasBoleto.length > 1 ? (
                     <div className="payments-editor__term-notice">
                       <strong>{usaPersonalizadas ? 'Vencimentos escolhidos por boleto' : resumoDasParcelas(parcelasBoleto, intervaloBoleto)}</strong>
-                      <table style={{ marginTop: '8px', width: '100%', maxWidth: '460px', borderCollapse: 'collapse', fontSize: '13px' }}>
-                        <thead>
-                          <tr style={{ textAlign: 'left' }}>
-                            <th style={{ padding: '4px 6px' }}>Parc.</th>
-                            <th style={{ padding: '4px 6px' }}>Dias</th>
-                            <th style={{ padding: '4px 6px' }}>Vencimento</th>
-                            <th style={{ padding: '4px 6px', textAlign: 'right' }}>Valor</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {linhasBoleto.map((linha, posicao) => (
-                            <tr key={linha.numero}>
-                              <td style={{ padding: '3px 6px' }}>{linha.numero}ª</td>
-                              <td style={{ padding: '3px 6px' }}>
-                                <input
-                                  aria-label={`Dias do boleto ${linha.numero}`}
-                                  disabled={disabled}
-                                  min="0"
-                                  onChange={(event) => {
-                                    const dias = Number.parseInt(event.target.value, 10);
-                                    editarLinha(posicao, {
-                                      dias: event.target.value,
-                                      vencimento: Number.isInteger(dias) && dias >= 0 ? addDaysToDateInput(transactionDate, dias) : linha.vencimento,
-                                    });
-                                  }}
-                                  step="1"
-                                  style={{ width: '70px' }}
-                                  type="number"
-                                  value={linha.dias}
-                                />
-                              </td>
-                              <td style={{ padding: '3px 6px' }}>
-                                <input
-                                  aria-label={`Vencimento do boleto ${linha.numero}`}
-                                  disabled={disabled}
-                                  min={transactionDate}
-                                  onChange={(event) => {
-                                    const dias = event.target.value ? differenceInCalendarDays(transactionDate, event.target.value) : null;
-                                    editarLinha(posicao, { dias: dias === null ? '' : String(dias), vencimento: event.target.value });
-                                  }}
-                                  type="date"
-                                  value={linha.vencimento}
-                                />
-                              </td>
-                              <td style={{ padding: '3px 6px', textAlign: 'right' }}>
-                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(linha.valorCentavos))}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                      {/* Grade em vez de tabela (2026-09-30): o quadro do pagamento e' estreito
+                          e a tabela, com o campo de data de largura fixa, saia para fora dele. */}
+                      <div style={{ marginTop: '8px', display: 'grid', gridTemplateColumns: 'auto 56px minmax(0, 1fr) auto', gap: '6px 8px', alignItems: 'center', fontSize: '13px', maxWidth: '460px' }}>
+                        <span style={{ fontWeight: 700 }}>Parc.</span>
+                        <span style={{ fontWeight: 700 }}>Dias</span>
+                        <span style={{ fontWeight: 700 }}>Vencimento</span>
+                        <span style={{ fontWeight: 700, textAlign: 'right' }}>Valor</span>
+                        {linhasBoleto.map((linha, posicao) => (
+                          <React.Fragment key={linha.numero}>
+                            <span>{linha.numero}ª</span>
+                            <input
+                              aria-label={`Dias do boleto ${linha.numero}`}
+                              disabled={disabled}
+                              min="0"
+                              onChange={(event) => {
+                                const dias = Number.parseInt(event.target.value, 10);
+                                editarLinha(posicao, {
+                                  dias: event.target.value,
+                                  vencimento: Number.isInteger(dias) && dias >= 0 ? addDaysToDateInput(transactionDate, dias) : linha.vencimento,
+                                });
+                              }}
+                              step="1"
+                              style={{ width: '100%', minWidth: 0, boxSizing: 'border-box' }}
+                              type="number"
+                              value={linha.dias}
+                            />
+                            <input
+                              aria-label={`Vencimento do boleto ${linha.numero}`}
+                              disabled={disabled}
+                              min={transactionDate}
+                              onChange={(event) => {
+                                const dias = event.target.value ? differenceInCalendarDays(transactionDate, event.target.value) : null;
+                                editarLinha(posicao, { dias: dias === null ? '' : String(dias), vencimento: event.target.value });
+                              }}
+                              style={{ width: '100%', minWidth: 0, boxSizing: 'border-box' }}
+                              type="date"
+                              value={linha.vencimento}
+                            />
+                            <span style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(linha.valorCentavos))}
+                            </span>
+                          </React.Fragment>
+                        ))}
+                      </div>
                       <div style={{ marginTop: '6px' }}>
                         Mude os dias ou a data de cada boleto (ex.: 10, 15 e 30). Cada parcela vira um título em Contas a Receber.
                       </div>

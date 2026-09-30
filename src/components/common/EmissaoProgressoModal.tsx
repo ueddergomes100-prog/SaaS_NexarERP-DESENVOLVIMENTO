@@ -37,6 +37,8 @@ interface EmissaoProgressoModalProps {
   /** E-mail da nota ao cliente (PDF + XML): aparece depois da autorizacao. */
   email?: EstadoEmailNota | null;
   onReenviarEmail?: () => void;
+  /** Nota rejeitada: reabre a nota no item apontado pela SEFAZ pra corrigir e transmitir. */
+  onCorrigir?: () => void;
   onFechar: () => void;
 }
 
@@ -55,7 +57,7 @@ const IconeEtapa: React.FC<{ situacao: SituacaoEtapa }> = ({ situacao }) => {
 
 const EmissaoProgressoModal: React.FC<EmissaoProgressoModalProps> = ({
   aberto, tipo, clienteNome, etapa, desfecho, numero, codigo, mensagem, erroEnvio,
-  segundosEsperando = 0, abrindoDanfe = false, onAbrirDanfe, email = null, onReenviarEmail, onFechar,
+  segundosEsperando = 0, abrindoDanfe = false, onAbrirDanfe, email = null, onReenviarEmail, onCorrigir, onFechar,
 }) => {
   const terminou = desfecho !== null;
   // Enviar pra Spedy nao da' pra cancelar no meio; esperar a SEFAZ da' (a nota
@@ -190,9 +192,16 @@ const EmissaoProgressoModal: React.FC<EmissaoProgressoModalProps> = ({
                 Ver / Imprimir DANFE
               </button>
             )}
-            <button type="button" className="btn-primary" onClick={onFechar} autoFocus>
-              {terminou ? 'Fechar' : 'Fechar e acompanhar na lista'}
-            </button>
+            {desfecho === 'rejeitada' && onCorrigir ? (
+              <>
+                <button type="button" className="btn-secondary" onClick={onFechar}>Fechar</button>
+                <button type="button" className="btn-primary" onClick={onCorrigir} autoFocus>Corrigir na nota</button>
+              </>
+            ) : (
+              <button type="button" className="btn-primary" onClick={onFechar} autoFocus>
+                {terminou ? 'Fechar' : 'Fechar e acompanhar na lista'}
+              </button>
+            )}
           </div>
         )}
       </div>

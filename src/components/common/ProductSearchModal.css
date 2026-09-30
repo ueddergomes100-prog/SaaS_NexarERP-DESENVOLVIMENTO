@@ -114,3 +114,68 @@
   color: var(--text-muted);
   font-size: 13px;
 }
+
+/* Selecao multipla (Pedido de Venda, 2026-09-30) */
+.product-search-modal__option--selectable {
+  position: relative;
+  padding-left: 40px;
+}
+
+.product-search-modal__check {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 2px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.product-search-modal__option--selected {
+  background-color: var(--bg-tertiary);
+  box-shadow: inset 0 0 0 1px var(--accent-purple, #8b5cf6);
+}
+
+.product-search-modal__option--selected .product-search-modal__check {
+  background-color: var(--accent-purple, #8b5cf6);
+  border-color: var(--accent-purple, #8b5cf6);
+}
+
+.product-search-modal__qty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 12px 6px 40px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.product-search-modal__qty input {
+  width: 90px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.product-search-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-color);
+  flex-wrap: wrap;
+}
+
+.product-search-modal__footer span {
+  font-size: 13px;
+  color: var(--text-muted);
+}

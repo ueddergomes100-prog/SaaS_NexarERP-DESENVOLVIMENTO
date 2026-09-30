@@ -214,11 +214,15 @@ test('# com espaco em volta continua valendo (usuario digitando)', () => {
   assert.equal(searchProducts(catalogo, '  #  ', { limit: 10 }).total, 3);
 });
 
-test('# so vale como termo INTEIRO -- nao vira curinga no meio da busca', () => {
+test('# no meio ou no fim nao vira curinga; "#termo" filtra a lista do # pelo termo (2026-09-30)', () => {
   // "cafe#" e' busca de texto comum: nao lista tudo, e nao acha nada.
   assert.equal(searchProducts(catalogo, 'cafe#', { limit: 10 }).total, 0);
-  assert.equal(searchProducts(catalogo, '#cafe', { limit: 10 }).total, 0);
-  assert.equal(searchProducts(catalogo, '##', { limit: 10 }).total, 0);
+  // "#cafe" = o mesmo que buscar "cafe" (pedido do dono: # e depois o nome).
+  const comCuringa = searchProducts(catalogo, '#cafe', { limit: 10 });
+  const semCuringa = searchProducts(catalogo, 'cafe', { limit: 10 });
+  assert.ok(semCuringa.total > 0);
+  assert.equal(comCuringa.total, semCuringa.total);
+  assert.deepEqual(comCuringa.items.map((p) => p.id), semCuringa.items.map((p) => p.id));
 });
 
 test('# em catalogo vazio nao quebra', () => {

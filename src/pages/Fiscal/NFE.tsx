@@ -10,7 +10,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { spedyService } from '../../services/spedyService';
 import type { SpedyInvoice } from '../../services/spedyService';
-import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { notaEmailService } from '../../services/notaEmailService';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
@@ -140,6 +140,32 @@ interface PedidoVendaItem {
   /** Unidade em que o item foi vendido (vem do pedido). */
   unidadeMedidaSigla?: string;
   embalagemId?: string;
+  /** Dados fiscais lidos do cadastro do produto (e nao item avulso/produto apagado). */
+  doCadastro?: boolean;
+}
+
+/** Campos fiscais do item que a pessoa pode corrigir na propria nota (aba Produtos). */
+type CampoFiscalEditavel = 'ncm' | 'cest' | 'cfop' | 'csosn' | 'origem';
+const CAMPOS_FISCAIS_EDITAVEIS: CampoFiscalEditavel[] = ['ncm', 'cest', 'cfop', 'csosn', 'origem'];
+const ROTULO_CAMPO_FISCAL: Record<CampoFiscalEditavel, string> = { ncm: 'NCM', cest: 'CEST', cfop: 'CFOP', csosn: 'CSOSN/CST', origem: 'Origem' };
+const normalizarCampoFiscal = (campo: CampoFiscalEditavel, valor: unknown) => {
+  const texto = String(valor ?? '').trim();
+  return campo === 'ncm' || campo === 'cest' || campo === 'cfop' ? texto.replace(/\D/g, '') : texto;
+};
+
+/** "[nItem: 1]" da mensagem da SEFAZ -> indice 0 da tabela. */
+const itemDaMensagemSefaz = (mensagem: unknown): number | null => {
+  const achado = String(mensagem ?? '').match(/nItem\s*:?\s*(\d+)/i);
+  return achado ? Number(achado[1]) - 1 : null;
+};
+
+/** Erro de montagem de UM item da nota -- a tela destaca a linha na aba Produtos. */
+class ErroItemNota extends Error {
+  indice: number;
+  constructor(mensagem: string, indice: number) {
+    super(mensagem);
+    this.indice = indice;
+  }
 }
 
 interface PedidoVenda {
@@ -199,6 +225,15 @@ const NFE: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTab, setSelectedTab] = useState<'Todas' | 'NFC-e' | 'NF-e' | 'NFS-e'>('Todas');
   const [page, setPage] = useState(1);
+  /** Ordem da lista pelo numero da nota (pedido do dono, 2026-09-30: crescente). Clique no titulo inverte. */
+  const [ordemNumero, setOrdemNumero] = useState<'asc' | 'desc'>(() => {
+    try { return localStorage.getItem('nfe.ordemNumero') === 'desc' ? 'desc' : 'asc'; } catch { return 'asc'; }
+  });
+  const inverterOrdemNumero = () => {
+    const nova = ordemNumero === 'asc' ? 'desc' : 'asc';
+    setOrdemNumero(nova);
+    try { localStorage.setItem('nfe.ordemNumero', nova); } catch { /* so' preferencia da tela */ }
+  };
   const [pageSize, setPageSize] = useState(20);
 
   // Modal de Emissão
@@ -255,6 +290,16 @@ const NFE: React.FC = () => {
   const [activeModalTab, setActiveModalTab] = useState<'cliente' | 'produtos'>('cliente');
   const [referencedAccessKey, setReferencedAccessKey] = useState<string>('');
   const [retransmittingInvoiceId, setRetransmittingInvoiceId] = useState<string | null>(null);
+  /**
+   * Correcao de nota rejeitada (2026-09-30, pedido do dono): a rejeicao aparece no
+   * topo da aba Produtos, o item apontado pela SEFAZ fica em destaque e da' pra
+   * corrigir ali mesmo (NCM, CEST, CFOP, CSOSN) e transmitir -- sem sair pro
+   * cadastro do produto. Na transmissao, o sistema oferece levar a correcao pro cadastro.
+   */
+  const [correcaoRejeicao, setCorrecaoRejeicao] = useState<{ mensagem: string; itemIndice: number | null } | null>(null);
+  const [itemComProblema, setItemComProblema] = useState<number | null>(null);
+  /** Dados fiscais de cada item como vieram do cadastro -- base pra saber o que foi corrigido na nota. */
+  const [fiscalDoCadastro, setFiscalDoCadastro] = useState<Array<Record<CampoFiscalEditavel, string> | null>>([]);
 
   // Volta pra primeira página sempre que o filtro/busca/aba mudar
   useEffect(() => { setPage(1); }, [searchTerm, selectedTab]);
@@ -263,8 +308,14 @@ const NFE: React.FC = () => {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setRetransmittingInvoiceId(null);
+    setCorrecaoRejeicao(null);
+    setItemComProblema(null);
     pendingIntegrationIdRef.current = null;
   };
+
+  const fotografiaFiscal = (itens: PedidoVendaItem[]) => itens.map((it) => (it.doCadastro
+    ? Object.fromEntries(CAMPOS_FISCAIS_EDITAVEIS.map((c) => [c, normalizarCampoFiscal(c, it[c])])) as Record<CampoFiscalEditavel, string>
+    : null));
 
   const [formData, setFormData] = useState({
     tipo: 'NF-e',
@@ -573,6 +624,7 @@ const NFE: React.FC = () => {
               percentualTributos: f.percentualTributos,
               pesoLiquidoUnitarioKg: f.pesoLiquidoUnitarioKg,
               unidadeMedidaSigla: item.unidadeMedidaSigla || String(docSnap.data().unidadeMedidaSigla || ''),
+              doCadastro: true,
             });
             continue;
           }
@@ -598,7 +650,9 @@ const NFE: React.FC = () => {
     setAtualizandoCadastro(true);
     try {
       if (importedPedidoItens.length > 0) {
-        setImportedPedidoItens(await fetchPedidoItensTaxes(importedPedidoItens));
+        const relidos = await fetchPedidoItensTaxes(importedPedidoItens);
+        setImportedPedidoItens(relidos);
+        setFiscalDoCadastro(fotografiaFiscal(relidos));
       }
       if (formData.clienteId) {
         const clienteSnap = await getDoc(doc(db, 'clientes', formData.clienteId));
@@ -873,6 +927,7 @@ const NFE: React.FC = () => {
       const montada = await montarNotaDoPedido(pedido);
       setReferencedAccessKey(montada.referencedAccessKey);
       setImportedPedidoItens(montada.itens);
+      setFiscalDoCadastro(fotografiaFiscal(montada.itens));
       setImportedPedidoPagamentos(montada.pagamentos);
       setFormData(prev => ({ ...prev, ...montada.form }));
 
@@ -1622,7 +1677,7 @@ const NFE: React.FC = () => {
         contexto: { regime: regimeTributario, interestadual },
         codigoItem: item.codigoProduto || item.id || `PROD-${index}`,
       });
-      if (!montado.ok) throw new Error(montado.erro);
+      if (!montado.ok) throw new ErroItemNota(montado.erro, index);
       avisosItens.push(...montado.avisos);
       tributosItens.push(montado.tributos);
       return montado.item;
@@ -1774,6 +1829,51 @@ const NFE: React.FC = () => {
           `A empresa está no regime "${REGIME_TRIBUTARIO_OPTIONS.find(r => r.value === regimeTributario)?.label || regimeTributario}", que exige CST real de ICMS/PIS/COFINS por produto -- o lançamento avulso só monta o formato simplificado de Simples Nacional (CSOSN) e a Spedy vai rejeitar (SPD003). Importe um Pedido de Venda pronto em vez de lançar avulso: ele já usa os dados fiscais reais cadastrados em cada produto.`
         );
         return;
+      }
+    }
+
+    // Correcao feita NA NOTA (NCM, CEST, CFOP, CSOSN, origem) diferente do cadastro:
+    // pergunta se leva pro produto tambem -- senao a proxima nota erra igual.
+    if (formData.tipo !== 'NFS-e' && importedPedidoId) {
+      const mudancas = importedPedidoItens.flatMap((item, indice) => {
+        const antes = fiscalDoCadastro[indice];
+        if (!antes || !item.id || item.id === 'avulso') return [];
+        return CAMPOS_FISCAIS_EDITAVEIS
+          // Nota cuponada troca o CFOP pra 5929/6929 de proposito: nao e' correcao do produto.
+          .filter((campo) => !(campo === 'cfop' && referencedAccessKey))
+          .map((campo) => ({ produtoId: item.id, nome: item.nome, campo, antes: antes[campo], depois: normalizarCampoFiscal(campo, item[campo]) }))
+          .filter((m) => m.depois && m.depois !== m.antes);
+      });
+      if (mudancas.length > 0) {
+        const escolha = await NexusSwal.fire({
+          title: 'Atualizar também o cadastro do produto?',
+          html: `<p style="margin:0 0 8px">Nesta nota você corrigiu:</p><ul style="text-align:left;margin:0;padding-left:18px">${mudancas.map((m) => `<li><strong>${escaparHtml(m.nome)}</strong> — ${ROTULO_CAMPO_FISCAL[m.campo]}: ${escaparHtml(m.antes || 'vazio')} → <strong>${escaparHtml(m.depois)}</strong></li>`).join('')}</ul><p style="margin:10px 0 0">Atualizando o cadastro, as próximas notas já saem certas.</p>`,
+          icon: 'question',
+          showDenyButton: true,
+          showCancelButton: true,
+          confirmButtonText: 'Atualizar cadastro e transmitir',
+          denyButtonText: 'Só nesta nota',
+          cancelButtonText: 'Voltar',
+        });
+        if (escolha.isDismissed) return;
+        if (escolha.isConfirmed && currentUser) {
+          const porProduto = new Map<string, Record<string, string>>();
+          mudancas.forEach((m) => porProduto.set(m.produtoId, { ...(porProduto.get(m.produtoId) || {}), [m.campo]: m.depois }));
+          try {
+            for (const [produtoId, campos] of porProduto) {
+              await updateDoc(doc(db, 'estoque', produtoId), {
+                ...campos,
+                updatedAt: serverTimestamp(),
+                ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Dados fiscais corrigidos na emissão da NF-e'),
+              });
+            }
+            setFiscalDoCadastro(fotografiaFiscal(importedPedidoItens));
+            showSuccess('Cadastro do produto atualizado.');
+          } catch (erroCadastro) {
+            console.error('Nao foi possivel atualizar o cadastro do produto:', erroCadastro);
+            showWarning('Cadastro não atualizado', 'A nota segue com a correção, mas o cadastro do produto não foi alterado (produto inativo ou sem permissão "Alterar cadastro de produtos"). Corrija depois em Estoque.');
+          }
+        }
       }
     }
 
@@ -2006,6 +2106,7 @@ const NFE: React.FC = () => {
         codigo: spedyNote.processingDetail?.code ?? null,
         mensagem: spedyNote.processingDetail?.message ?? null,
         spedyId: spedyNote.id,
+        notaIdLocal: notaDocId,
         // Sem docId o pop-up nao dispara o e-mail (SMTP nao configurado: a Spedy e' quem envia).
         ...(emailPeloSistema && tipoNota === 'NF-e' ? { docId: notaDocId } : {}),
         transmitindoDesdeMs: Date.now(),
@@ -2046,6 +2147,11 @@ const NFE: React.FC = () => {
         setProgresso((atual) => (atual ? { ...atual, desfecho: 'falha_envio', erroEnvio: (err as Error).message } : atual));
       } else {
         setProgresso(null);
+        if (err instanceof ErroItemNota) {
+          // O formulario continua aberto: leva pra aba Produtos com a linha destacada.
+          setItemComProblema(err.indice);
+          setActiveModalTab('produtos');
+        }
         showError('Erro ao emitir', (err as Error).message || 'Houve um problema ao enviar a nota.');
       }
     } finally {
@@ -2306,6 +2412,11 @@ const NFE: React.FC = () => {
       return;
     }
     setRetransmittingInvoiceId(note.id);
+    const itemRejeitado = itemDaMensagemSefaz(note.processingMessage);
+    setCorrecaoRejeicao(note.status === 'rejected' || note.status === 'denied'
+      ? { mensagem: `${note.processingCode ? `Rejeição ${note.processingCode}: ` : ''}${note.processingMessage || 'Motivo não informado.'}`, itemIndice: itemRejeitado }
+      : null);
+    setItemComProblema(itemRejeitado);
     // Configura o formulário
     setFormData(prev => ({
       ...prev,
@@ -2327,6 +2438,23 @@ const NFE: React.FC = () => {
       setIsModalOpen(true);
       setActiveModalTab('cliente');
     }
+  };
+
+  /** "Corrigir na nota" do pop-up de rejeicao: reabre a nota com o item apontado pela SEFAZ. */
+  const corrigirNotaDoProgresso = () => {
+    const id = progresso?.notaIdLocal;
+    const nota = id ? invoices.find((n) => n.id === id) : undefined;
+    fecharProgresso();
+    if (!nota) {
+      showError('Nota não encontrada na lista', 'Atualize a lista de notas e use "Corrigir e Transmitir Novamente" na linha da nota.');
+      return;
+    }
+    void handleRetransmitRejected({
+      ...nota,
+      status: nota.status === 'rejected' || nota.status === 'denied' ? nota.status : 'rejected',
+      processingCode: nota.processingCode || progresso?.codigo || null,
+      processingMessage: nota.processingMessage || progresso?.mensagem || null,
+    });
   };
 
   const getStatusBadge = (note: LocalInvoice) => {
@@ -2387,6 +2515,14 @@ const NFE: React.FC = () => {
     const matchesTab = selectedTab === 'Todas' || note.tipo === selectedTab;
 
     return matchesSearch && matchesTab;
+  }).sort((a, b) => {
+    // Pelo numero da nota; nota ainda sem numero (na fila) fica no fim. Mesmo numero
+    // (NF-e e NFC-e tem series proprias): NF-e primeiro.
+    const na = Number(a.number) || 0;
+    const nb = Number(b.number) || 0;
+    if (!na || !nb) return (na ? 0 : 1) - (nb ? 0 : 1);
+    if (na !== nb) return ordemNumero === 'asc' ? na - nb : nb - na;
+    return String(a.tipo).localeCompare(String(b.tipo));
   });
 
   const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / pageSize));
@@ -2552,7 +2688,12 @@ const NFE: React.FC = () => {
           <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)', fontSize: '13px' }}>
-                <th style={{ padding: '16px' }}>Nº Nota</th>
+                <th style={{ padding: '16px' }}>
+                  <button type="button" onClick={inverterOrdemNumero} title="Inverter a ordem pelo número da nota"
+                    style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', font: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Nº Nota {ordemNumero === 'asc' ? '▲' : '▼'}
+                  </button>
+                </th>
                 <th style={{ padding: '16px' }}>Tipo</th>
                 <th style={{ padding: '16px' }}>Cód.</th>
                 <th style={{ padding: '16px' }}>Cliente</th>
@@ -2818,6 +2959,7 @@ const NFE: React.FC = () => {
         onAbrirDanfe={abrirDanfeDoProgresso}
         email={emailNota}
         onReenviarEmail={reenviarEmail}
+        onCorrigir={progresso?.notaIdLocal && progresso.tipo !== 'NFS-e' ? corrigirNotaDoProgresso : undefined}
         onFechar={fecharProgresso}
       />
 
@@ -3142,6 +3284,18 @@ const NFE: React.FC = () => {
 
               {activeModalTab === 'produtos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+                  {correcaoRejeicao && (
+                    <div role="alert" style={{ padding: '12px 14px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(239,68,68,0.5)', backgroundColor: 'rgba(239,68,68,0.08)', fontSize: '13px', color: 'var(--text-primary)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <strong style={{ color: '#ef4444' }}>Nota rejeitada pela SEFAZ</strong>
+                      <span>{correcaoRejeicao.mensagem}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        {correcaoRejeicao.itemIndice !== null && importedPedidoItens[correcaoRejeicao.itemIndice]
+                          ? `O problema está no item ${correcaoRejeicao.itemIndice + 1} (${importedPedidoItens[correcaoRejeicao.itemIndice].nome}), destacado abaixo. `
+                          : ''}
+                        Corrija aqui na nota (NCM, CEST, CFOP, CSOSN) e transmita. Na transmissão o sistema pergunta se atualiza também o cadastro do produto.
+                      </span>
+                    </div>
+                  )}
                   {referencedAccessKey && (
                     <div style={{ padding: '12px', backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#a78bfa', borderRadius: 'var(--radius-md)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
                       <Receipt size={16} />
@@ -3169,6 +3323,7 @@ const NFE: React.FC = () => {
                           <th style={{ padding: '10px 8px', width: '90px', textAlign: 'right' }}>V. Unit</th>
                           <th style={{ padding: '10px 8px', width: '90px', textAlign: 'right' }}>Total</th>
                           <th style={{ padding: '10px 8px', width: '110px' }}>NCM</th>
+                          <th style={{ padding: '10px 8px', width: '95px' }}>CEST</th>
                           <th style={{ padding: '10px 8px', width: '80px' }}>CFOP</th>
                           <th style={{ padding: '10px 8px', width: '80px' }}>{usesCsosn(regimeTributario) ? 'CSOSN' : 'CST ICMS'}</th>
                           <th style={{ padding: '10px 8px', width: '140px' }}>Origem</th>
@@ -3177,13 +3332,13 @@ const NFE: React.FC = () => {
                       <tbody>
                         {importedPedidoItens.length === 0 ? (
                           <tr>
-                            <td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                            <td colSpan={9} style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                               Nenhum produto cadastrado nesta nota.
                             </td>
                           </tr>
                         ) : (
                           importedPedidoItens.map((item, idx) => (
-                            <tr key={idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                            <tr key={idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)', ...(idx === itemComProblema ? { outline: '2px solid #ef4444', outlineOffset: '-2px', backgroundColor: 'rgba(239,68,68,0.08)' } : {}) }}>
                               <td style={{ padding: '8px' }}>
                                 <input
                                   type="text"
@@ -3198,7 +3353,6 @@ const NFE: React.FC = () => {
                                     {[
                                       item.unidadeMedidaSigla || 'UN (sem unidade no cadastro)',
                                       resolverGtin(item.codigoBarras) === 'SEM GTIN' ? 'SEM GTIN' : `GTIN ${resolverGtin(item.codigoBarras)}`,
-                                      item.cest ? `CEST ${item.cest}` : '',
                                       percentuaisTributos({ ...item, nome: item.nome }).total > 0
                                         ? `Trib. aprox. ${percentuaisTributos({ ...item, nome: item.nome }).total.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
                                         : 'sem % de tributos (IBPT)',
@@ -3216,6 +3370,17 @@ const NFE: React.FC = () => {
                                   onChange={(e) => handleItemTaxChange(idx, 'ncm', e.target.value)}
                                   maxLength={8}
                                   placeholder="8 dígitos"
+                                  style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px' }}
+                                />
+                              </td>
+                              <td style={{ padding: '8px' }}>
+                                <input
+                                  type="text"
+                                  value={item.cest || ''}
+                                  onChange={(e) => handleItemTaxChange(idx, 'cest', e.target.value)}
+                                  maxLength={7}
+                                  placeholder="7 dígitos"
+                                  aria-label={`CEST do item ${idx + 1}`}
                                   style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px' }}
                                 />
                               </td>

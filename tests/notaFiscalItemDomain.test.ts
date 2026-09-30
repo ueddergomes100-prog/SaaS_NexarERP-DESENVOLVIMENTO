@@ -132,7 +132,7 @@ test('regime normal: ICMS destacado sobre (valor - desconto), com reducao no CST
   assert.equal(cst20.taxes.icms.baseTax, 500);
   assert.equal(cst20.taxes.icms.amount, 90);
 
-  const cst60 = montar({ ...farinha, csosn: '60', cstPis: '01', cstCofins: '01' }, undefined, lr).item as Record<string, any>;
+  const cst60 = montar({ ...farinha, csosn: '60', cest: '1703100', cstPis: '01', cstCofins: '01' }, undefined, lr).item as Record<string, any>;
   assert.deepEqual(cst60.taxes.icms, { origin: 0, cst: 60 });
 });
 
@@ -252,4 +252,14 @@ test('produtoFiscalDoCadastro le campos da raiz ou do bloco fiscal antigo, e o G
   assert.equal(p.codigoBarras, '17898945717233');
   assert.equal(p.percentualTributos, 23.06);
   assert.equal(p.percentualTributosFederal, undefined);
+});
+
+test('ST sem CEST barra antes de enviar (Rejeição 806); venda para fora como 6102/102 não exige CEST', () => {
+  const st: ProdutoFiscal = { ...farinha, cfop: '5405', csosn: '500', cest: '', cfopInterestadual: '6102', csosnInterestadual: '102' };
+  const interno = montarItemNotaFiscal({ produto: st, venda: { quantidade: 1, precoUnitario: 10, desconto: 0, unidadeSigla: 'UN' }, contexto: simplesInterno, codigoItem: '1' });
+  assert.equal(interno.ok, false);
+  assert.match((interno as { erro: string }).erro, /sem CEST.*806/);
+  const fora = montarItemNotaFiscal({ produto: st, venda: { quantidade: 1, precoUnitario: 10, desconto: 0, unidadeSigla: 'UN' }, contexto: { regime: 'simples_nacional', interestadual: true }, codigoItem: '1' });
+  assert.equal(fora.ok, true);
+  assert.equal(montar({ ...st, cest: '1703100' }).ok, true);
 });

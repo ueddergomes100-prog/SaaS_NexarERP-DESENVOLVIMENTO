@@ -168,6 +168,13 @@ export const searchProducts = <T extends SearchableProduct>(
   // Curinga antes de qualquer filtro: `#` nao e' termo de busca, e' "me
   // mostra tudo". `total` traz o catalogo inteiro, entao o "Ver mais" do
   // autocomplete continua aparecendo e leva pra lista completa no popup.
+  // "#pedra" = a lista do "#", filtrada (2026-09-30, pedido do dono): quem abriu o
+  // catalogo com # e continua digitando quer filtrar, nao apagar o # antes.
+  const termoSemCuringa = String(term ?? '').trim();
+  if (termoSemCuringa.startsWith(LISTAR_TUDO_TERM) && termoSemCuringa.length > 1) {
+    return searchProducts(products, termoSemCuringa.slice(1), options);
+  }
+
   if (isListarTudoTerm(term)) {
     return {
       items: produtosAtivos.slice(0, limit),

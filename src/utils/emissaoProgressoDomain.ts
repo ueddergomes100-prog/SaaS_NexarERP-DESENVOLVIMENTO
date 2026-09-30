@@ -101,6 +101,7 @@ export const deveContinuarConsultando = (params: { iniciouEmMs: number; agoraMs:
 const ORIENTACAO_POR_CODIGO: Record<string, string> = {
   '232': 'A inscrição estadual (IE) do cliente não foi informada. Cadastre a IE no cliente (ou ISENTO, se ele for isento) e retransmita.',
   '778': 'O NCM de um dos produtos é inválido. Corrija o NCM no cadastro do produto em Estoque e retransmita.',
+  '806': 'Um produto com substituição tributária está sem CEST. Clique em "Corrigir na nota", informe o CEST do item destacado e transmita — o sistema oferece atualizar também o cadastro do produto.',
 };
 
 /** Acha o numero da rejeicao ("Rejeição 232: ...") no codigo ou no texto. */
@@ -144,7 +145,9 @@ export const textoDoDesfecho = (params: {
       titulo: `${tipo} rejeitada`,
       detalhe: codigoRej && !detalhe.includes(codigoRej) ? `Rejeição ${codigoRej}: ${detalhe}` : detalhe,
       orientacao: (codigoRej && ORIENTACAO_POR_CODIGO[codigoRej])
-        || 'Corrija o que a mensagem pede e use "Retransmitir" na lista de notas. Para ver a situação exata na Spedy, use "Consultar na Spedy".',
+        || (tipo === 'NFS-e'
+          ? 'Corrija o que a mensagem pede e use "Retransmitir" na lista de notas. Para ver a situação exata na Spedy, use "Consultar na Spedy".'
+          : 'Clique em "Corrigir na nota" (ou em "Retransmitir" na lista de notas), corrija o que a mensagem pede e transmita. Para ver a situação exata na Spedy, use "Consultar na Spedy".'),
     };
   }
 

@@ -3637,6 +3637,36 @@ const PedidoVendaForm: React.FC = () => {
       return;
     }
 
+    // Venda com NF-e/NFC-e VALIDA nao se cancela (2026-09-30). Para o fisco a
+    // mercadoria saiu: devolver o estoque e estornar o financeiro com a nota
+    // ainda autorizada deixaria o sistema dizendo uma coisa e a SEFAZ outra.
+    // A ordem certa e': cancelar a NOTA primeiro (ai' a operacao deixa de
+    // existir) e so' depois a venda. Mercadoria que saiu e voltou = Devolucao.
+    // Conferido no banco na hora do clique (outra tela pode ter emitido).
+    try {
+      const snapNotas = await getDocs(query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId), where('pedidoId', '==', id)));
+      const notaValida = snapNotas.docs
+        .map((d) => d.data())
+        .find((n) => ['NF-e', 'NFC-e'].includes(n.tipo) && n.finalidade !== 'devolucao'
+          && ['authorized', 'enqueued', 'processing', 'created'].includes(String(n.status)));
+      if (notaValida) {
+        const numero = notaValida.number ? ` nº ${String(notaValida.number).padStart(6, '0')}` : '';
+        showError(
+          'Esta venda tem nota fiscal válida',
+          notaValida.status === 'authorized'
+            ? `A ${notaValida.tipo}${numero} desta venda está autorizada. Para o fisco a mercadoria saiu, então a venda não pode ser cancelada antes da nota.\n\n`
+              + '• A venda não aconteceu: cancele a nota em Notas Fiscais (até 24h; depois disso, em MG, peça o cancelamento extemporâneo no SIARE, até 168h) e depois cancele a venda aqui.\n'
+              + '• A mercadoria saiu e voltou: não cancele — use "Devolução de itens" (em Mais ações), que devolve o estoque e emite a NF-e de devolução.'
+            : `A ${notaValida.tipo}${numero} desta venda ainda está aguardando a SEFAZ. Espere a resposta (Notas Fiscais → Sincronizar Notas) antes de cancelar a venda.`,
+        );
+        return;
+      }
+    } catch (erroNotas) {
+      console.error('Erro ao conferir as notas da venda antes de cancelar:', erroNotas);
+      showError('Não foi possível conferir a nota fiscal da venda', 'Para não cancelar uma venda com nota válida, o cancelamento não foi feito. Confira sua conexão e tente de novo.');
+      return;
+    }
+
     const confirm = await NexusSwal.fire({
       title: 'Cancelar Venda?',
       text: 'O estoque será devolvido e a transação financeira será estornada.',
@@ -4133,28 +4163,6 @@ const PedidoVendaForm: React.FC = () => {
               estoque separa (minuta) e o cliente leva o documento com
               valores (pré-venda). Reimprimir os dois tem que caber aqui,
               porque o diálogo de gravação passa uma vez só. */}
-          {isPreVendaAberta && (
-            <>
-              <button
-                className="btn-secondary"
-                onClick={() => navigate(`/pedidos-venda/print/${id}`)}
-                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                title="Imprime a pré-venda com valores e condição de pagamento, para o cliente"
-              >
-                <Printer size={18} /> Imprimir Pré-venda
-              </button>
-              {conferenciaMercadoriaAtiva && (
-                <button
-                  className="btn-secondary"
-                  onClick={() => navigate(`/operacoes/expedicao/minuta/${id}`)}
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                  title="Imprime a minuta de separação, com os itens e sem valores"
-                >
-                  <Truck size={18} /> Imprimir Minuta
-                </button>
-              )}
-            </>
-          )}
           {isViewing && status === 'Finalizada' && (
             <>
               {/* Barra enxuta (2026-09-30): a vista so' o documento fiscal e o
@@ -4289,15 +4297,58 @@ const PedidoVendaForm: React.FC = () => {
               <XCircle size={18} /> Recusar Pedido
             </button>
           )}
-          {isPreVendaAberta && canCancelarPreVenda && (temPermissao(PERMISSAO_TROCA_SOLICITAR) || temPermissao(PERMISSAO_TROCA_GERENCIAR)) && (
-            <button className="btn-secondary" onClick={handleConverterEmTroca} disabled={isLoading} style={{ display: 'flex', alignItems: 'center', gap: '8px' }} title="Cancela a pré-venda e registra uma troca sem cobrança com os mesmos itens">
-              <RotateCcw size={18} /> Converter em troca
-            </button>
-          )}
-          {isPreVendaAberta && canCancelarPreVenda && (
-            <button className="btn-secondary" onClick={handleCancelarPreVenda} disabled={isLoading} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>
-              <XCircle size={18} /> Cancelar Pré-venda
-            </button>
+          {/* Pre-venda: mesma barra enxuta da venda finalizada (2026-09-30). A
+              vista so' Salvar e Finalizar; imprimir, converter em troca e
+              cancelar (vermelho, separado) ficam em "Mais acoes". */}
+          {isPreVendaAberta && (
+            <div ref={maisAcoesRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                aria-haspopup="menu"
+                aria-expanded={maisAcoesAberto}
+                onClick={() => setMaisAcoesAberto((aberto) => !aberto)}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                <MoreHorizontal size={18} /> Mais ações <ChevronDown size={16} />
+              </button>
+              {maisAcoesAberto && (
+                <div
+                  role="menu"
+                  style={{
+                    position: 'absolute', right: 0, top: 'calc(100% + 6px)', minWidth: '250px', zIndex: 50,
+                    backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
+                    boxShadow: '0 12px 28px rgba(0,0,0,0.35)', padding: '6px 0',
+                  }}
+                >
+                  {/* Pre-venda tambem imprime: e' nela que o estoque separa
+                      (minuta) e o cliente leva o documento com valores. */}
+                  <ItemMaisAcoes Icone={Printer} texto="Imprimir Pré-venda" titulo="Imprime a pré-venda com valores e condição de pagamento, para o cliente"
+                    onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/print/${id}`); }} />
+                  {conferenciaMercadoriaAtiva && (
+                    <ItemMaisAcoes Icone={Truck} texto="Imprimir Minuta" titulo="Imprime a minuta de separação, com os itens e sem valores"
+                      onClick={() => { setMaisAcoesAberto(false); navigate(`/operacoes/expedicao/minuta/${id}`); }} />
+                  )}
+                  {podeCriarCopia && (
+                    <ItemMaisAcoes Icone={Copy} texto="Criar cópia (nova venda)" titulo="Abre uma venda nova com o mesmo cliente e os mesmos itens, para conferir e gravar"
+                      onClick={() => { setMaisAcoesAberto(false); void openTab(`/pedidos-venda/novo?copiarDe=${id}`, 'Cópia do pedido'); }} />
+                  )}
+                  {canCancelarPreVenda && (temPermissao(PERMISSAO_TROCA_SOLICITAR) || temPermissao(PERMISSAO_TROCA_GERENCIAR)) && (
+                    <ItemMaisAcoes Icone={RotateCcw} texto="Converter em troca" desabilitado={isLoading}
+                      titulo="Cancela a pré-venda e registra uma troca sem cobrança com os mesmos itens"
+                      onClick={() => { setMaisAcoesAberto(false); void handleConverterEmTroca(); }} />
+                  )}
+                  {canCancelarPreVenda && (
+                    <>
+                      <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '6px 0' }} />
+                      <ItemMaisAcoes Icone={XCircle} texto="Cancelar Pré-venda" cor="#ef4444" desabilitado={isLoading}
+                        titulo="Cancela a pré-venda e libera a reserva de estoque"
+                        onClick={() => { setMaisAcoesAberto(false); void handleCancelarPreVenda(); }} />
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           )}
           {/* Gravar: cria a pre-venda (pedido novo) ou regrava uma ja
               aberta. Fica ao lado de Finalizar de proposito -- e' a escolha

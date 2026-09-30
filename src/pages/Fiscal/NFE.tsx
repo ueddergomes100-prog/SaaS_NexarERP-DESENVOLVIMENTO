@@ -4,7 +4,7 @@ import {
   XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings,
   ChevronLeft, ChevronRight, MessageCircle, Loader2, FilePenLine, RotateCcw, Mail
 } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -188,6 +188,7 @@ const NFE: React.FC = () => {
   // `?pedido=<id>`: o fim da venda manda pra ca' quando a empresa emite
   // NF-e em vez de cupom (ver documentoFiscalVendaDomain.ts).
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const pedidoImportadoPelaUrlRef = useRef('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
@@ -1481,8 +1482,24 @@ const NFE: React.FC = () => {
         }
 
         Swal.close();
-        showSuccess('Cancelamento solicitado com sucesso!');
         loadLocalInvoices(false);
+        // Nota de VENDA cancelada: a venda continua finalizada no sistema (estoque
+        // baixado, financeiro lançado). Cancelar a nota nao desfaz a venda sozinho --
+        // avisa e leva pra venda, onde "Estornar/Cancelar" devolve estoque e financeiro.
+        if (note.pedidoId && note.finalidade !== 'devolucao' && (note.tipo === 'NF-e' || note.tipo === 'NFC-e')) {
+          const numeroPedido = pedidosVenda.find((p) => p.id === note.pedidoId)?.numeroPedido;
+          const escolha = await NexusSwal.fire({
+            icon: 'success',
+            title: 'Nota cancelada',
+            text: `A venda${numeroPedido ? ` #${numeroPedido}` : ''} continua FINALIZADA no sistema: o estoque ainda está baixado e o financeiro lançado. Se a venda não aconteceu, cancele também a venda (Mais ações → Estornar/Cancelar) para o estoque voltar e o financeiro ser estornado.`,
+            showCancelButton: true,
+            confirmButtonText: 'Abrir a venda',
+            cancelButtonText: 'Depois',
+          });
+          if (escolha.isConfirmed) navigate(`/pedidos-venda/visualizar/${note.pedidoId}`);
+        } else {
+          showSuccess('Cancelamento solicitado com sucesso!');
+        }
       } catch (err) {
         Swal.close();
         const mensagemErro = (err as Error).message || 'Erro ao cancelar a nota.';

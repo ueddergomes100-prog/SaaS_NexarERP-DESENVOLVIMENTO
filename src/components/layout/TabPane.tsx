@@ -4,6 +4,7 @@ import { ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { resolveRouteAccess } from '../../utils/routeAccess';
+import { podeGerenciarPermissoesDeEquipe } from '../../utils/visibilidadeVendasDomain';
 import { appRoutesConfig } from '../../routes/appRoutesConfig';
 import { TabActiveContext, TabIdContext, singleSessionPrefixFor, useTabs, type Tab } from '../../contexts/TabsContext';
 import { ErrorBoundary } from '../ErrorBoundary';
@@ -57,7 +58,7 @@ const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActi
   const navigate = useNavigate();
   const element = useRoutes(appRoutesConfig, tab.path);
   const { updateTabLocation } = useTabs();
-  const { blockedModules, userRole, userPermissions, isOwner, isPlatformAdmin } = useAuth();
+  const { blockedModules, userRole, userPermissions, isOwner, isPlatformAdmin, nivelAcesso } = useAuth();
 
   // Inclui a query string: telas de impressao em lote passam ?ids=...
   const currentPath = `${location.pathname}${location.search}`;
@@ -89,7 +90,14 @@ const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActi
   const { routeModule, routePermission } = resolveRouteAccess(effectivePath);
   const isModuleBlocked = routeModule && !isPlatformAdmin && blockedModules?.includes(routeModule);
   const hasFullAccess = hasTenantFullAccess(userRole, isOwner);
-  const isRouteAllowed = !routePermission || hasFullAccess || userPermissions?.includes(routePermission);
+  // Funcionario nivel Gerente abre /usuarios mesmo sem a permissao
+  // 'administrativo.equipe' marcada -- mesmo bypass do menu lateral
+  // (Sidebar.tsx) e do botao de permissoes dentro da tela. Sem isto, o
+  // link do menu ate aparecia (depois da correcao la), mas navegar direto
+  // pra rota batia nesta guarda e mostrava "acesso negado" mesmo assim.
+  const isGerenteDeEquipe = podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso });
+  const isRouteAllowed = !routePermission || hasFullAccess || userPermissions?.includes(routePermission) ||
+    (routePermission === 'administrativo.equipe' && isGerenteDeEquipe);
 
   // O CSS reinicia a animacao de fade-in do .page-transition toda vez
   // que o display volta de "none" pra "contents" -- ou seja, toda vez

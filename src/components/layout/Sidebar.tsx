@@ -55,6 +55,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
+import { podeGerenciarPermissoesDeEquipe } from '../../utils/visibilidadeVendasDomain';
 import { menuVendedoresVisivel } from '../../utils/vendedorCadastroDomain';
 import hennderIcon from '../../assets/hennder-icon.svg';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
@@ -95,7 +96,8 @@ const Sidebar: React.FC = () => {
     controlaFiscal,
     devolucaoBotaoSeparado,
     habilitarTelaPrecificacao,
-    temVendedorCadastrado
+    temVendedorCadastrado,
+    nivelAcesso
   } = useAuth();
   const navigate = useNavigate();
   const { tabs, activeTabId, openTab } = useTabs();
@@ -148,8 +150,13 @@ const Sidebar: React.FC = () => {
     // Configuracoes -- nasce desligada, como toda chave nova.
     if (!habilitarTelaPrecificacao && item.module === 'estoque.precificacao') return false;
     if (item.managerOnly && !hasFullAccess) return false;
+    // Funcionario nivel Gerente enxerga o menu Usuarios mesmo sem a permissao
+    // 'administrativo.equipe' marcada -- e' o mesmo bypass que ja libera o
+    // botao de permissoes dentro da tela (podeGerenciarPermissoesDeEquipe);
+    // sem isto aqui o menu nunca aparecia pra ele abrir a tela em primeiro lugar.
+    if (item.permission === 'administrativo.equipe' && podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso })) return true;
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, hasFullAccess, isBlocked, userPermissions]);
+  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
 
   const groups = useMemo<NavGroup[]>(() => [
     {

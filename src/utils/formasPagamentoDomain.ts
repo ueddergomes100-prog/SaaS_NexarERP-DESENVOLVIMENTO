@@ -101,6 +101,49 @@ export const DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO = true;
 export const parsePermitirDividirPagamento = (raw: unknown): boolean => raw !== false;
 
 // ---------------------------------------------------------------------------
+// FORMA QUE O PAGAMENTO JA' TRAZ AO ABRIR A TELA
+// ---------------------------------------------------------------------------
+
+/** Lista padrao de formas da venda/OS, antes da ordem e das escondidas da empresa. */
+export const FORMAS_PAGAMENTO_PADRAO: PaymentMethod[] = [
+  'Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Boleto', 'Pagamento a Prazo', 'Outros',
+];
+
+/** Formas na ordem da empresa, sem as que ela escondeu (Configuracoes). */
+export const formasDaEmpresa = (
+  ordemConfigurada: string[] | null | undefined,
+  ocultas: string[] | null | undefined,
+): PaymentMethod[] => formasVisiveis(ordenarFormasPagamento(FORMAS_PAGAMENTO_PADRAO, ordemConfigurada), ocultas);
+
+/**
+ * Forma com que um pagamento NOVO ja' nasce na tela (2026-09-30).
+ *
+ * - "Exigir escolha" ligado: vazio -- o usuario escolhe, ninguem escolhe por ele.
+ * - Desligado: a PRIMEIRA forma da sequencia configurada, ja' sem as escondidas.
+ *
+ * Antes cada tela resolvia isso por conta propria e a pre-venda reaberta pra
+ * faturar caia em "Outros", uma forma que a empresa nem oferecia.
+ */
+export const formaInicialConfigurada = (
+  exigirEscolha: boolean,
+  formasOferecidas: PaymentMethod[],
+): PaymentMethod | '' => (exigirEscolha ? '' : (formasOferecidas[0] ?? 'Dinheiro'));
+
+/**
+ * Forma do pagamento de um documento gravado SEM o array `pagamentos` (a
+ * pre-venda e a OS em aberto gravam assim: a forma so' e' decidida ao faturar).
+ * Sem forma gravada, vale a forma inicial da empresa; com forma gravada
+ * (venda antiga), ela e' mantida -- reabrir nao pode reescrever a venda.
+ */
+export const formaDoDocumentoSemPagamentos = (
+  formaGravada: unknown,
+  formaInicial: PaymentMethod | '',
+): PaymentMethod | '' => {
+  const texto = typeof formaGravada === 'string' ? formaGravada.trim() : '';
+  return texto ? (texto as PaymentMethod) : formaInicial;
+};
+
+// ---------------------------------------------------------------------------
 // PARCELAS A PRAZO: O QUE E' SO' DA TELA
 // ---------------------------------------------------------------------------
 //

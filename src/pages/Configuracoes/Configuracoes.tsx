@@ -837,7 +837,11 @@ const Configuracoes: React.FC = () => {
         metaFaturamentoMensal: metaFaturamentoValor,
         endereco: enderecoCompleto,
         // Liga o envio da NF-e por e-mail pelo sistema (NFE.tsx le esta chave). A senha em si fica so' no doc privado.
-        emailNotasConfigurado: Boolean(smtp.host.trim() && smtp.usuario.trim() && (smtp.senha || smtpSenhaJaSalva)),
+        // Quem nao le o doc privado (gerente com a permissao de Configuracoes) ve o SMTP vazio: ai nao mexe na chave,
+        // senao salvar qualquer outra opcao desligaria o e-mail das notas da empresa.
+        ...(podeAtualizarSpedyApiKey
+          ? { emailNotasConfigurado: Boolean(smtp.host.trim() && smtp.usuario.trim() && (smtp.senha || smtpSenhaJaSalva)) }
+          : {}),
         nfseAliquotaIssPadrao,
         ...limitesDesconto,
         modoLimiteDesconto: formData.modoLimiteDesconto,
@@ -926,7 +930,7 @@ const Configuracoes: React.FC = () => {
     } catch (error) {
       console.error("Erro ao salvar:", error);
       if (erroDeAcessoNegado(error)) {
-        showError('Sem permissão para alterar as Configurações', 'Os dados da empresa e as preferências do sistema só podem ser alterados pelo dono ou por um Admin da empresa. Peça a um deles para fazer a alteração.');
+        showError('Sem permissão para alterar as Configurações', 'Os dados da empresa e as preferências do sistema só podem ser alterados pelo dono, por um Admin ou por quem tem a permissão "Admin: Configurações". Peça a um deles para fazer a alteração ou para liberar essa permissão para você.');
       } else {
         showError('Erro ao salvar', 'Não foi possível salvar as configurações. Confira sua conexão e tente de novo.');
       }

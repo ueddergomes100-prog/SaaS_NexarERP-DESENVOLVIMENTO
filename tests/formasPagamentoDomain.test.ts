@@ -3,6 +3,9 @@ import { test } from 'node:test';
 import {
   DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
   erroDasParcelasAPrazo,
+  formaDoDocumentoSemPagamentos,
+  formaInicialConfigurada,
+  formasDaEmpresa,
   formasVisiveis,
   ordenarFormasPagamento,
   parseFormasOcultas,
@@ -152,4 +155,22 @@ test('resumo das parcelas escreve o combinado do balcao', () => {
   assert.equal(resumoDasParcelas([], 30), '');
   // Muitas parcelas: abrevia pra caber na linha.
   assert.equal(resumoDasParcelas(gerarParcelasAPrazo(120000, 12, 30, '2026-09-21'), 30), '12x de 30 em 30 dias (30/60/90...360)');
+});
+
+// --- forma com que o pagamento abre (2026-09-30) ---------------------------
+
+test('exigir escolha: o pagamento abre vazio, qualquer que seja a ordem', () => {
+  assert.equal(formaInicialConfigurada(true, formasDaEmpresa(['Boleto'], [])), '');
+});
+
+test('sem exigir escolha: abre na primeira forma da sequencia, pulando as escondidas', () => {
+  assert.equal(formaInicialConfigurada(false, formasDaEmpresa(['Boleto', 'Pix'], [])), 'Boleto');
+  assert.equal(formaInicialConfigurada(false, formasDaEmpresa(['Boleto', 'Pix'], ['Boleto'])), 'Pix');
+  assert.equal(formaInicialConfigurada(false, formasDaEmpresa([], [])), 'Dinheiro');
+});
+
+test('pre-venda gravada sem forma abre como pagamento novo -- nunca em "Outros"', () => {
+  assert.equal(formaDoDocumentoSemPagamentos(undefined, ''), '');
+  assert.equal(formaDoDocumentoSemPagamentos('', 'Boleto'), 'Boleto');
+  assert.equal(formaDoDocumentoSemPagamentos('Pix', 'Boleto'), 'Pix');
 });

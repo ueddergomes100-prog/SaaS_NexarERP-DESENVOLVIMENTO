@@ -510,18 +510,28 @@ service cloud.firestore {
         );
     }
 
+    // Quem grava Configuracoes: dono/Admin, ou quem recebeu a permissao
+    // 'administrativo.config' -- a MESMA que abre a tela (routeAccess.ts).
+    // Ate 2026-09-30 a tela abria pro gerente com a permissao, mas o save era
+    // recusado aqui. A chave da Spedy e a senha do e-mail continuam so' em
+    // configuracoes_privadas (dono/Admin), e os campos da plataforma seguem
+    // travados por platformManagedFields.
+    function canEditTenantConfig() {
+      return isTenantAdmin() || hasPermission('administrativo.config');
+    }
+
     match /configuracoes/{tenantId} {
       allow read: if canAccessTenant(tenantId);
       allow create: if isSuperAdmin() ||
         (
-          isTenantAdmin() &&
+          canEditTenantConfig() &&
           currentTenantId() == tenantId &&
           request.resource.data.tenantId == tenantId &&
           !request.resource.data.keys().hasAny(platformManagedFields())
         );
       allow update: if isSuperAdmin() ||
         (
-          isTenantAdmin() &&
+          canEditTenantConfig() &&
           currentTenantId() == tenantId &&
           request.resource.data.tenantId == tenantId &&
           doesNotChangePlatformManagedFields()

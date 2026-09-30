@@ -1186,6 +1186,7 @@ const KNOWN_PAYMENT_METHODS: PaymentMethod[] = [
   'Cartão de Crédito',
   'Cartão de Débito',
   'Transferência',
+  'Cheque',
   'Boleto',
   'Pagamento a Prazo',
   'Crédito de Devolução',

@@ -141,8 +141,9 @@ import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
 import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../components/common/CadastroRapidoClienteModal';
 import {
   DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
-  formasVisiveis,
-  ordenarFormasPagamento,
+  formaDoDocumentoSemPagamentos,
+  formaInicialConfigurada,
+  formasDaEmpresa,
   parseFormasOcultas,
   parseOrdemFormasPagamento,
   parsePermitirDividirPagamento,
@@ -417,13 +418,7 @@ const PedidoVendaForm: React.FC = () => {
   const [ordemFormasPagamento, setOrdemFormasPagamento] = useState<string[]>([]);
   const [formasPagamentoOcultas, setFormasPagamentoOcultas] = useState<string[]>([]);
   const [permitirDividirPagamento, setPermitirDividirPagamento] = useState(DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO);
-  const formasConfiguradas = formasVisiveis(
-    ordenarFormasPagamento(
-      ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Boleto', 'Pagamento a Prazo', 'Outros'] as PaymentMethod[],
-      ordemFormasPagamento,
-    ),
-    formasPagamentoOcultas,
-  );
+  const formasConfiguradas = formasDaEmpresa(ordemFormasPagamento, formasPagamentoOcultas);
   const [permitirDescontoPorItem, setPermitirDescontoPorItem] = useState(DEFAULT_PERMITIR_DESCONTO_POR_ITEM);
   const [modoValidacaoCliente, setModoValidacaoCliente] = useState<ModoValidacaoCliente>(DEFAULT_MODO_VALIDACAO_CLIENTE);
   const [trabalhaComLimiteCredito, setTrabalhaComLimiteCredito] = useState(false);
@@ -707,6 +702,8 @@ const PedidoVendaForm: React.FC = () => {
       setProdutosCatalogo(dataE);
 
       // Fetch Configurações
+      // Forma com que um pagamento sem forma gravada abre (ver formaInicialConfigurada).
+      let formaInicialDaEmpresa: PaymentMethod | '' = 'Dinheiro';
       try {
         const configRef = doc(db, 'configuracoes', tenantId);
         const configSnap = await getDoc(configRef);
@@ -741,19 +738,18 @@ const PedidoVendaForm: React.FC = () => {
           const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
           const debitSettlementDays = config.prazoRecebimentoCartaoDebitoDias ?? 1;
           setExigirEscolhaFormaPagamento(parseExigirEscolhaFormaPagamento(config.exigirEscolhaFormaPagamento));
+          formaInicialDaEmpresa = formaInicialConfigurada(
+            parseExigirEscolhaFormaPagamento(config.exigirEscolhaFormaPagamento),
+            formasDaEmpresa(parseOrdemFormasPagamento(config.ordemFormasPagamento), parseFormasOcultas(config.formasPagamentoOcultas)),
+          );
           // A config chega DEPOIS do primeiro render, entao o rascunho ja
-          // nasceu em Dinheiro. Limpa aqui -- e so em documento NOVO: numa
+          // nasceu em Dinheiro. Troca aqui -- e so em documento NOVO: numa
           // edicao os pagamentos vem do que foi gravado, e apagar um Dinheiro
           // de verdade seria reescrever a venda de alguem.
-          if (parseExigirEscolhaFormaPagamento(config.exigirEscolhaFormaPagamento) && !id) {
+          if (!id && formaInicialDaEmpresa !== 'Dinheiro') {
+            const forma = formaInicialDaEmpresa;
             setPaymentDrafts((atuais) => atuais.map((rascunho) => (
-              rascunho.forma === 'Dinheiro' ? { ...rascunho, forma: '' as const } : rascunho
-            )));
-          }
-          const primeiraFormaConfigurada = parseOrdemFormasPagamento(config.ordemFormasPagamento)[0];
-          if (primeiraFormaConfigurada && primeiraFormaConfigurada !== 'Dinheiro' && !id) {
-            setPaymentDrafts((atuais) => atuais.map((rascunho) => (
-              rascunho.forma === 'Dinheiro' ? { ...rascunho, forma: primeiraFormaConfigurada as PaymentMethod } : rascunho
+              rascunho.forma === 'Dinheiro' ? { ...rascunho, forma } : rascunho
             )));
           }
           setFinanceConfig({
@@ -849,9 +845,11 @@ const PedidoVendaForm: React.FC = () => {
               })));
               paymentDraftCounter.current = p.pagamentos.length;
             } else {
+              // Pre-venda e' gravada sem forma de pagamento (a forma e' decidida
+              // ao faturar): abre como um pagamento novo, conforme Configuracoes.
               setPaymentDrafts([{
                 ...createEmptyPaymentDraft('pagamento-1', toCents(p.valorTotal || 0)),
-                forma: (p.formaPagamento || 'Outros') as PaymentMethod,
+                forma: formaDoDocumentoSemPagamentos(p.formaPagamento, formaInicialDaEmpresa),
               }]);
             }
 
@@ -1628,6 +1626,7 @@ const PedidoVendaForm: React.FC = () => {
         `pagamento-${paymentDraftCounter.current}`,
         remainingCents,
         financeConfig.defaultTermDays,
+        formaInicialConfigurada(exigirEscolhaFormaPagamento, formasConfiguradas),
       ),
     ]);
   };

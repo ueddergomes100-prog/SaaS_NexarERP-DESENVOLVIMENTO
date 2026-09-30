@@ -394,8 +394,12 @@ router.put('/numbering', async (req, res) => {
  */
 router.post('/empresa/sincronizar', async (req, res) => {
   try {
-    if (!(req.user.isPlatformAdmin || req.user.isTenantManager)) {
-      return res.status(403).json({ error: 'Só o dono ou um Admin da empresa pode atualizar os dados da empresa na Spedy.' });
+    // Mesma permissao que grava Configuracoes (firestore.rules, canEditTenantConfig):
+    // quem pode trocar o nome da empresa ali tem de conseguir levar a troca pra nota.
+    const podeEditarConfiguracoes = req.user.isPlatformAdmin || req.user.isTenantManager
+      || (Array.isArray(req.user.permissoes) && req.user.permissoes.includes('administrativo.config'));
+    if (!podeEditarConfiguracoes) {
+      return res.status(403).json({ error: 'Só o dono, um Admin ou quem tem a permissão "Admin: Configurações" pode atualizar os dados da empresa na Spedy.' });
     }
     const tenantId = resolveTenantId(req);
     const configSnap = await db.collection('configuracoes').doc(tenantId).get();

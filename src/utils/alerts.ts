@@ -29,13 +29,27 @@ const SwalBase = Swal.mixin({
  */
 const fireOriginal = SwalBase.fire.bind(SwalBase) as (opcoes: SweetAlertOptions) => ReturnType<typeof Swal.fire>;
 SwalBase.fire = ((...args: unknown[]) => {
-  const [opcoes] = args;
+  const [opcoes, texto, icone] = args;
+  // Forma posicional fire(titulo, html, icone): o 2o argumento tambem e' HTML.
+  // Vai como texto puro, pelo mesmo motivo do titulo.
+  if (typeof opcoes === 'string') {
+    return fireOriginal({
+      titleText: opcoes,
+      ...(texto !== undefined ? { text: String(texto) } : {}),
+      ...(icone ? { icon: icone as SweetAlertOptions['icon'] } : {}),
+    });
+  }
   if (opcoes && typeof opcoes === 'object' && typeof (opcoes as SweetAlertOptions).title === 'string') {
     const { title, ...resto } = opcoes as SweetAlertOptions;
     return fireOriginal({ ...resto, titleText: resto.titleText ?? (title as string) });
   }
   return (fireOriginal as (...a: unknown[]) => ReturnType<typeof Swal.fire>)(...args);
 }) as typeof Swal.fire;
+
+// Mesmo problema na mensagem de validacao (tambem montada como HTML): varias
+// citam o nome do produto ("Informe o lote de \"{produto}\""). Nenhuma usa marcacao.
+const validacaoOriginal = SwalBase.showValidationMessage;
+SwalBase.showValidationMessage = (mensagem: string) => validacaoOriginal(escaparHtml(mensagem));
 
 export const NexusSwal = SwalBase;
 

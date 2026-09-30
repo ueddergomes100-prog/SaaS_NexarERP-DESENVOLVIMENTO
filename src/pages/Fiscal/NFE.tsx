@@ -1899,7 +1899,13 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
       case 'denied':
         return (
           <span
-            onClick={() => NexusSwal.fire('Detalhes da Rejeição', `Código: ${note.processingCode || 'N/A'}\n\nMensagem: ${note.processingMessage || 'Motivo desconhecido.'}`, 'error')}
+            onClick={() => NexusSwal.fire({
+              title: 'Detalhes da Rejeição',
+              // text (e nao o 2o argumento posicional, que e' HTML): a mensagem
+              // vem da SEFAZ/Spedy e pode repetir dado digitado na nota.
+              text: `Código: ${note.processingCode || 'N/A'} · Mensagem: ${note.processingMessage || 'Motivo desconhecido.'}`,
+              icon: 'error',
+            })}
             style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
             title="Clique para ver o motivo da rejeição"
           >

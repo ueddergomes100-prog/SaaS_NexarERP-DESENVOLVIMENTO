@@ -1,6 +1,6 @@
 const express = require('express');
 const { authenticate } = require('../middleware/auth');
-const { canUseFiscal, resolveTenantId, loadSpedyConfig } = require('../services/spedyAcesso');
+const { canUseFiscal, resolveTenantId, loadSpedyConfig, idSpedyValido } = require('../services/spedyAcesso');
 const {
   mensagemDeFalha,
   erroDeModeloDaChave,
@@ -105,6 +105,7 @@ router.post('/manifestar', async (req, res) => {
     }
     const id = String(req.body?.id || '').trim();
     if (!id) return res.status(400).json({ error: 'Nota não informada. Busque a nota pela chave antes de registrar a ciência.' });
+    if (!idSpedyValido(id)) return res.status(400).json({ error: 'Identificação da nota inválida. Busque a nota pela chave de novo antes de registrar a ciência.' });
 
     const tenantId = resolveTenantId(req);
     const config = await loadSpedyConfig(tenantId);

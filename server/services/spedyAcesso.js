@@ -57,4 +57,12 @@ const loadSpedyConfig = async (tenantId) => {
   };
 };
 
-module.exports = { BASE_URLS, canUseFiscal, resolveTenantId, loadSpedyConfig };
+/**
+ * Id de nota/evento da Spedy (uuid). Vai direto na URL da chamada: sem esta
+ * checagem, um id como "..%2F..%2Fcompanies" (o Express decodifica o %2F)
+ * fazia o servidor chamar OUTRO endereco da API da Spedy com a chave da
+ * empresa (auditoria de 2026-09-29).
+ */
+const idSpedyValido = (id) => /^[A-Za-z0-9_-]{1,100}$/.test(String(id ?? ''));
+
+module.exports = { BASE_URLS, canUseFiscal, resolveTenantId, loadSpedyConfig, idSpedyValido };

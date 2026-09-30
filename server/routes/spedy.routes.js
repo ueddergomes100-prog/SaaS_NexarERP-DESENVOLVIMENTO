@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { admin, db } = require('../config/firebase');
-const { BASE_URLS, canUseFiscal, resolveTenantId, loadSpedyConfig } = require('../services/spedyAcesso');
+const { BASE_URLS, canUseFiscal, resolveTenantId, loadSpedyConfig, idSpedyValido } = require('../services/spedyAcesso');
 const { avaliarRequisitos, validarAmbienteEnviado, mesclarConfiguracaoAtual } = require('../services/requisitosFiscais');
 const { validarCarta, motivoQueImpedeCarta } = require('../services/cartaCorrecao');
 
@@ -35,6 +35,9 @@ const handleSpedyRequest = async (req, res, method, action) => {
 
     if (!typePath) {
       return res.status(400).json({ error: 'Tipo de documento fiscal invalido.' });
+    }
+    if (req.params.id !== undefined && !idSpedyValido(req.params.id)) {
+      return res.status(400).json({ error: 'Identificação da nota inválida. Atualize a lista de notas e tente de novo.' });
     }
 
     const response = await action({ tenantId, apiKey, baseUrl, typePath });
@@ -418,7 +421,7 @@ router.get('/:type/:id/:fileType', async (req, res) => {
     }
 
     const typePath = TYPE_PATHS[req.params.type];
-    if (!typePath || !['pdf', 'xml'].includes(req.params.fileType)) {
+    if (!typePath || !['pdf', 'xml'].includes(req.params.fileType) || !idSpedyValido(req.params.id)) {
       return res.status(400).json({ error: 'Arquivo fiscal invalido.' });
     }
 
@@ -462,6 +465,9 @@ router.post('/:type/:id/corrections', async (req, res) => {
     }
     if (req.params.type !== 'product') {
       return res.status(400).json({ error: 'Carta de correção existe só para NF-e.' });
+    }
+    if (!idSpedyValido(req.params.id)) {
+      return res.status(400).json({ error: 'Identificação da nota inválida. Atualize a lista de notas e tente de novo.' });
     }
 
     const carta = validarCarta(req.body?.letter);
@@ -521,7 +527,8 @@ router.get('/:type/:id/corrections/:eventId/:fileType', async (req, res) => {
     if (!canUseFiscal(req.user)) {
       return res.status(403).json({ error: 'Acesso negado ao modulo fiscal.' });
     }
-    if (req.params.type !== 'product' || !['pdf', 'xml'].includes(req.params.fileType)) {
+    if (req.params.type !== 'product' || !['pdf', 'xml'].includes(req.params.fileType)
+      || !idSpedyValido(req.params.id) || !idSpedyValido(req.params.eventId)) {
       return res.status(400).json({ error: 'Arquivo da carta de correção inválido.' });
     }
 

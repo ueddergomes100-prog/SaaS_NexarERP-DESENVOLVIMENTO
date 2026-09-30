@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History } from 'lucide-react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useTabs } from '../../contexts/TabsContext';
+import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -256,12 +257,50 @@ const CONFERENCIA_CORES: Record<StatusConferencia, string> = {
   divergente: '#ef4444',
 };
 
+/** Item do menu "Mais acoes" da venda finalizada (ver PedidoVendaForm). */
+const ItemMaisAcoes: React.FC<{
+  Icone: React.FC<{ size?: number }>;
+  texto: string;
+  onClick: () => void;
+  desabilitado?: boolean;
+  titulo?: string;
+  cor?: string;
+}> = ({ Icone, texto, onClick, desabilitado, titulo, cor }) => (
+  <button
+    type="button"
+    role="menuitem"
+    disabled={desabilitado}
+    title={titulo}
+    onClick={onClick}
+    style={{
+      display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '10px 14px',
+      background: 'none', border: 'none', textAlign: 'left', fontSize: '14px',
+      color: desabilitado ? 'var(--text-muted)' : (cor || 'var(--text-primary)'),
+      cursor: desabilitado ? 'not-allowed' : 'pointer',
+    }}
+    onMouseOver={(e) => { if (!desabilitado) e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+    onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+  >
+    <Icone size={16} /> {texto}
+  </button>
+);
+
 const PedidoVendaForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams(); // Para modo Visualização
   const isViewing = !!id;
+  const [searchParams] = useSearchParams();
+  const { openTab } = useTabs();
+  /** "Criar copia" de um pedido: /pedidos-venda/novo?copiarDe=<id> abre a venda nova ja' preenchida. */
+  const copiarDe = !isViewing ? searchParams.get('copiarDe') : null;
+  const copiaAplicadaRef = useRef(false);
 
   const [nfeDoc, setNfeDoc] = useState<LinkedNfe | null>(null);
+  /** NF-e (modelo 55) desta venda -- a que vale: autorizada > na fila > rejeitada > cancelada. */
+  const [nfeVinculada, setNfeVinculada] = useState<LinkedNfe | null>(null);
+  /** Menu "Mais acoes" da venda finalizada (acoes que nao sao do dia a dia). */
+  const [maisAcoesAberto, setMaisAcoesAberto] = useState(false);
+  const maisAcoesRef = useRef<HTMLDivElement | null>(null);
   const [clienteNome, setClienteNome] = useState('');
   /**
    * Id do cliente escolhido no autocomplete (2026-09-28, bugfix). Antes, trocar o cliente so' gravava
@@ -847,6 +886,25 @@ const PedidoVendaForm: React.FC = () => {
               console.error("Erro ao buscar nota fiscal vinculada:", err);
             }
 
+            // NF-e desta venda (2026-09-30): o numero tem que ficar a' vista na
+            // venda. Pode haver mais de uma (rejeitada e depois autorizada, ou
+            // cancelada e emitida de novo) -- vale a de situacao mais "viva".
+            try {
+              const snapNfe = await getDocs(query(
+                collection(db, 'notas_fiscais'),
+                where('tenantId', '==', tenantId),
+                where('pedidoId', '==', id),
+                where('tipo', '==', 'NF-e'),
+              ));
+              const prioridade = (st: string) => (st === 'authorized' ? 0 : ['enqueued', 'processing', 'created'].includes(st) ? 1 : st === 'rejected' || st === 'denied' ? 2 : 3);
+              const melhor = snapNfe.docs
+                .map((d) => ({ id: d.id, spedyId: d.data().spedyId, status: String(d.data().status || ''), number: d.data().number ?? null, accessKey: d.data().accessKey }))
+                .sort((a, b) => prioridade(a.status) - prioridade(b.status))[0];
+              setNfeVinculada(melhor || null);
+            } catch (err) {
+              console.error('Erro ao buscar a NF-e vinculada:', err);
+            }
+
             await fetchDevolucoes(id);
           } else {
             showError('Erro', 'Pedido não encontrado.');
@@ -878,6 +936,88 @@ const PedidoVendaForm: React.FC = () => {
     };
     fetchInitialData();
   }, [id, isViewing, navigate, currentUser, tenantId, vendasVisiveisDeUsuarioId]);
+
+  // "CRIAR COPIA" (2026-09-30): a venda nova ja' abre com o cliente e os
+  // itens do pedido de origem, nos mesmos precos e quantidades. NAO grava
+  // nada sozinha: a pessoa confere e grava pelo fluxo normal (pre-venda,
+  // reserva de estoque, numeracao, senha do vendedor). Roda depois do
+  // carregamento de proposito -- assim a tela fica "com alteracoes" e fechar
+  // a aba avisa. Produto que saiu do estoque/inativou fica de fora, com aviso.
+  useEffect(() => {
+    if (isViewing || isFetchingData || !copiarDe || copiaAplicadaRef.current || !tenantId) return;
+    copiaAplicadaRef.current = true;
+    void (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'pedidos_venda', copiarDe));
+        if (!snap.exists() || snap.data().tenantId !== tenantId) {
+          showError('Pedido não encontrado', 'Não encontrei o pedido para copiar. Atualize a lista de pedidos e tente de novo.');
+          return;
+        }
+        const origem = snap.data();
+        if (vendasVisiveisDeUsuarioId && !isVendaDoUsuario(origem, vendasVisiveisDeUsuarioId)) {
+          showError(TITULO_VENDA_DE_OUTRO_USUARIO, MENSAGEM_VENDA_DE_OUTRO_USUARIO);
+          return;
+        }
+        const originais: ItemVenda[] = Array.isArray(origem.itens) ? origem.itens : [];
+        const copiados: ItemVenda[] = [];
+        const deFora: string[] = [];
+        for (const item of originais) {
+          const produtoSnap = item.id && item.id !== 'avulso' ? await getDoc(doc(db, 'estoque', item.id)).catch(() => null) : null;
+          const produto = produtoSnap && produtoSnap.exists() ? produtoSnap.data() : null;
+          if (!produto || produto.tenantId !== tenantId || produto.ativo === false || produto.statusAtivo === false) {
+            deFora.push(item.nome);
+            continue;
+          }
+          // Monta o item campo a campo: dado da venda antiga que nao e' do item
+          // (devolvido, lote baixado...) nao pode vir junto. Nunca grava undefined.
+          copiados.push({
+            id: item.id,
+            nome: item.nome,
+            ...(item.codigo ? { codigo: item.codigo } : {}),
+            precoUnitario: Number(item.precoUnitario || 0),
+            quantidade: Number(item.quantidade || 0),
+            desconto: Number(item.desconto || 0),
+            subtotal: Number(item.subtotal || 0),
+            ...(item.unidadeMedidaSigla ? { unidadeMedidaSigla: item.unidadeMedidaSigla } : {}),
+            ...(item.unidadeMedidaCasasDecimais !== undefined ? { unidadeMedidaCasasDecimais: item.unidadeMedidaCasasDecimais } : {}),
+            ...(item.embalagemId ? { embalagemId: item.embalagemId } : {}),
+            ...(item.fatorConversao !== undefined ? { fatorConversao: item.fatorConversao } : {}),
+            ...(item.quantidadeBase !== undefined ? { quantidadeBase: item.quantidadeBase } : {}),
+          });
+        }
+        setClienteNome(origem.clienteNome || '');
+        setClienteIdSelecionado(origem.clienteId || null);
+        setItens(copiados);
+        if (deFora.length > 0) {
+          showWarning(
+            `Cópia do pedido #${origem.numeroPedido || ''}: ${deFora.length} item(ns) ficaram de fora`,
+            `${deFora.join(', ')} — o produto foi inativado ou não existe mais no Estoque. Confira os itens e grave.`,
+          );
+        } else {
+          showSuccess(`Cópia do pedido #${origem.numeroPedido || ''} pronta: confira os itens e grave.`);
+        }
+      } catch (erro) {
+        console.error('Erro ao copiar o pedido:', erro);
+        showError('Não foi possível copiar o pedido', 'Confira sua conexão e tente de novo.');
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isViewing, isFetchingData, copiarDe, tenantId]);
+
+  // Menu "Mais acoes": fecha ao clicar fora ou apertar Esc.
+  useEffect(() => {
+    if (!maisAcoesAberto) return;
+    const fecharFora = (e: MouseEvent) => {
+      if (maisAcoesRef.current && !maisAcoesRef.current.contains(e.target as Node)) setMaisAcoesAberto(false);
+    };
+    const fecharEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMaisAcoesAberto(false); };
+    document.addEventListener('mousedown', fecharFora);
+    document.addEventListener('keydown', fecharEsc);
+    return () => {
+      document.removeEventListener('mousedown', fecharFora);
+      document.removeEventListener('keydown', fecharEsc);
+    };
+  }, [maisAcoesAberto]);
 
   // Snapshot dos campos de negocio, reaproveitado tanto pro snapshot
   // inicial quanto pro atual (evita falso-positivo de "sujo" por ordem
@@ -3875,6 +4015,30 @@ const PedidoVendaForm: React.FC = () => {
     }
   };
 
+  const abrirPdfNfeVinculada = async () => {
+    if (!nfeVinculada?.spedyId) return;
+    try {
+      await spedyService.openFiscalFile(nfeVinculada.spedyId, 'product', 'pdf');
+    } catch (erro) {
+      showError('Não foi possível abrir a NF-e', erro instanceof Error ? erro.message : 'Tente de novo em instantes.');
+    }
+  };
+
+  /** Rotulo da NF-e vinculada: numero sempre visivel, com a situacao. */
+  const situacaoNfeVinculada = (() => {
+    if (!nfeVinculada) return null;
+    const numero = nfeVinculada.number ? String(nfeVinculada.number).padStart(6, '0') : '';
+    const st = nfeVinculada.status;
+    if (st === 'authorized') return { texto: `NF-e nº ${numero}`, detalhe: 'Autorizada', cor: '#10b981' };
+    if (['enqueued', 'processing', 'created'].includes(st)) return { texto: numero ? `NF-e nº ${numero}` : 'NF-e', detalhe: 'Aguardando a SEFAZ', cor: '#f59e0b' };
+    if (st === 'rejected' || st === 'denied') return { texto: numero ? `NF-e nº ${numero}` : 'NF-e', detalhe: 'Rejeitada', cor: '#ef4444' };
+    if (st === 'canceled') return { texto: numero ? `NF-e nº ${numero}` : 'NF-e', detalhe: 'Cancelada', cor: 'var(--text-muted)' };
+    return null;
+  })();
+
+  const podeCriarCopia = temPermissao('vendas.pedidos') || canCriarPreVenda;
+  const temItemDevolvido = itens.some((item) => (item.quantidadeJaDevolvida || 0) > 0);
+
   if (isFetchingData) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando dados da Venda...</div>;
   }
@@ -3901,6 +4065,23 @@ const PedidoVendaForm: React.FC = () => {
                       : 'Detalhes do Pedido e Impressão')
                 : 'Ponto de venda rápido para itens e produtos'}
             </p>
+            {/* Numero da NF-e da venda sempre a' vista (2026-09-30). Autorizada: clica e abre o PDF. */}
+            {isViewing && situacaoNfeVinculada && (
+              <div style={{ marginTop: '8px' }}>
+                <button
+                  type="button"
+                  onClick={nfeVinculada?.status === 'authorized' ? abrirPdfNfeVinculada : () => navigate('/fiscal/nfe')}
+                  title={nfeVinculada?.status === 'authorized' ? 'Abrir o PDF (DANFE) da nota' : 'Ver na tela de Notas Fiscais'}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: 700,
+                    border: `1px solid ${situacaoNfeVinculada.cor}55`, backgroundColor: 'transparent', color: situacaoNfeVinculada.cor, cursor: 'pointer',
+                  }}
+                >
+                  <Receipt size={14} /> {situacaoNfeVinculada.texto}
+                  <span style={{ fontWeight: 500, opacity: 0.85 }}>· {situacaoNfeVinculada.detalhe}</span>
+                </button>
+              </div>
+            )}
             {/* O vendedor externo marca no app se o pedido leva nota fiscal; a loja
                 precisa ver isso na hora, na pre-venda, antes de separar/faturar. */}
             {isViewing && rotuloNotaFiscalPedido(comNotaFiscalPedido) && (
@@ -3976,18 +4157,9 @@ const PedidoVendaForm: React.FC = () => {
           )}
           {isViewing && status === 'Finalizada' && (
             <>
-              {/* Minuta tambem depois de finalizada (pedido do usuario,
-                  2026-09-21): a venda fecha no balcao e a mercadoria sai
-                  depois -- o papel de separacao/entrega tem que poder ser
-                  impresso a qualquer momento, com ou sem conferencia. */}
-              <button
-                className="btn-secondary"
-                onClick={() => navigate(`/operacoes/expedicao/minuta/${id}`)}
-                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                title="Imprime a minuta de entrega, com os itens e sem valores"
-              >
-                <Truck size={18} /> Imprimir Minuta
-              </button>
+              {/* Barra enxuta (2026-09-30): a vista so' o documento fiscal e o
+                  recibo; o resto (minuta, copia, pagamento, devolucao,
+                  estorno) fica em "Mais acoes". */}
               {/* Botão de NFC-e (Cupom Fiscal) -- some inteiro quando a
                   empresa nao controla fiscal (Configuracoes.tsx) e quando o
                   documento dela e' outro (ver documentoFiscalVendaDomain). */}
@@ -4019,65 +4191,97 @@ const PedidoVendaForm: React.FC = () => {
                 </button>
               ))}
 
-              {/* Empresa de NF-e: o botao leva pra tela Fiscal com o pedido
-                  ja' escolhido. Nao transmite daqui -- ver rotaEmissaoNFe. */}
+              {/* Empresa de NF-e: sem nota (ou so' cancelada) -> Emitir; com nota,
+                  o botao mostra o NUMERO e abre o PDF / leva pra corrigir. Nunca
+                  deixa emitir a segunda (a tela Fiscal tambem barra). */}
               {documentoFiscalVenda === 'nfe' && (
-                <button
-                  className="btn-primary"
-                  onClick={() => navigate(rotaEmissaoNFe(id!))}
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }}
-                  title="Abre a tela de Nota Fiscal com este pedido já importado"
-                >
-                  <Receipt size={18} /> Emitir NF-e
-                </button>
+                nfeVinculada?.status === 'authorized' ? (
+                  <button
+                    className="btn-primary"
+                    onClick={abrirPdfNfeVinculada}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981', borderColor: '#10b981' }}
+                    title="Nota autorizada — abrir o PDF (DANFE)"
+                  >
+                    <Eye size={18} /> {situacaoNfeVinculada?.texto}
+                  </button>
+                ) : nfeVinculada && ['enqueued', 'processing', 'created'].includes(nfeVinculada.status) ? (
+                  <button
+                    className="btn-secondary"
+                    onClick={() => navigate('/fiscal/nfe')}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }}
+                    title="A nota foi enviada e está aguardando a SEFAZ"
+                  >
+                    <RefreshCw size={18} /> NF-e aguardando SEFAZ
+                  </button>
+                ) : (
+                  <button
+                    className="btn-primary"
+                    onClick={() => navigate(rotaEmissaoNFe(id!))}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }}
+                    title={nfeVinculada && (nfeVinculada.status === 'rejected' || nfeVinculada.status === 'denied')
+                      ? 'A NF-e desta venda foi rejeitada — abre a tela de Nota Fiscal para corrigir e transmitir'
+                      : 'Abre a tela de Nota Fiscal com este pedido já importado'}
+                  >
+                    <Receipt size={18} /> {nfeVinculada && (nfeVinculada.status === 'rejected' || nfeVinculada.status === 'denied') ? 'Corrigir NF-e' : 'Emitir NF-e'}
+                  </button>
+                )
               )}
 
               <button className="btn-secondary" onClick={() => navigate(`/pedidos-venda/print/${id}`)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Printer size={18} /> Imprimir Recibo
               </button>
-              {canAlterarPagamentoFinalizada && !editandoPagamento && (
+
+              <div ref={maisAcoesRef} style={{ position: 'relative' }}>
                 <button
+                  type="button"
                   className="btn-secondary"
-                  onClick={() => setEditandoPagamento(true)}
-                  disabled={isLoading || Boolean(motivoBloqueioAlterarPagamento)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    color: motivoBloqueioAlterarPagamento ? 'var(--text-muted)' : '#f59e0b',
-                    borderColor: motivoBloqueioAlterarPagamento ? 'var(--border-color)' : 'rgba(245,158,11,0.4)',
-                    cursor: motivoBloqueioAlterarPagamento ? 'not-allowed' : 'pointer',
-                  }}
-                  title={motivoBloqueioAlterarPagamento || 'Corrigir a forma de pagamento sem alterar o valor da venda'}
-                >
-                  <RefreshCw size={18} /> Alterar Pagamento
-                </button>
-              )}
-              {canEditVenda && (
-                <button
-                  className="btn-secondary"
-                  onClick={handleCancelarVenda}
-                  disabled={isLoading || itens.some(item => (item.quantidadeJaDevolvida || 0) > 0)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    color: itens.some(item => (item.quantidadeJaDevolvida || 0) > 0) ? 'var(--text-muted)' : '#ef4444',
-                    borderColor: itens.some(item => (item.quantidadeJaDevolvida || 0) > 0) ? 'var(--border-color)' : 'rgba(239,68,68,0.3)',
-                    cursor: itens.some(item => (item.quantidadeJaDevolvida || 0) > 0) ? 'not-allowed' : 'pointer'
-                  }}
-                  title={itens.some(item => (item.quantidadeJaDevolvida || 0) > 0) ? 'Não é possível cancelar: há itens devolvidos' : 'Cancelar Venda'}
-                >
-                  <XCircle size={18} /> Estornar/Cancelar
-                </button>
-              )}
-              {canReturnVenda && !devolucaoBotaoSeparado && (
-                <button
-                  className="btn-secondary"
-                  onClick={() => setShowDevolucaoModal(true)}
-                  disabled={isLoading || itens.every(item => (item.quantidade - (item.quantidadeJaDevolvida || 0)) <= 0)}
+                  aria-haspopup="menu"
+                  aria-expanded={maisAcoesAberto}
+                  onClick={() => setMaisAcoesAberto((aberto) => !aberto)}
                   style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                  title="Devolução de itens deste pedido"
                 >
-                  <RotateCcw size={18} /> Devolução
+                  <MoreHorizontal size={18} /> Mais ações <ChevronDown size={16} />
                 </button>
-              )}
+                {maisAcoesAberto && (
+                  <div
+                    role="menu"
+                    style={{
+                      position: 'absolute', right: 0, top: 'calc(100% + 6px)', minWidth: '240px', zIndex: 50,
+                      backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
+                      boxShadow: '0 12px 28px rgba(0,0,0,0.35)', padding: '6px 0',
+                    }}
+                  >
+                    {/* Minuta tambem depois de finalizada (pedido do usuario,
+                        2026-09-21): a venda fecha no balcao e a mercadoria sai depois. */}
+                    <ItemMaisAcoes Icone={Truck} texto="Imprimir Minuta" titulo="Imprime a minuta de entrega, com os itens e sem valores"
+                      onClick={() => { setMaisAcoesAberto(false); navigate(`/operacoes/expedicao/minuta/${id}`); }} />
+                    {podeCriarCopia && (
+                      <ItemMaisAcoes Icone={Copy} texto="Criar cópia (nova venda)" titulo="Abre uma venda nova com o mesmo cliente e os mesmos itens, para conferir e gravar"
+                        onClick={() => { setMaisAcoesAberto(false); void openTab(`/pedidos-venda/novo?copiarDe=${id}`, 'Cópia do pedido'); }} />
+                    )}
+                    {canAlterarPagamentoFinalizada && !editandoPagamento && (
+                      <ItemMaisAcoes Icone={RefreshCw} texto="Alterar Pagamento"
+                        desabilitado={isLoading || Boolean(motivoBloqueioAlterarPagamento)}
+                        titulo={motivoBloqueioAlterarPagamento || 'Corrigir a forma de pagamento sem alterar o valor da venda'}
+                        onClick={() => { setMaisAcoesAberto(false); setEditandoPagamento(true); }} />
+                    )}
+                    {canReturnVenda && !devolucaoBotaoSeparado && (
+                      <ItemMaisAcoes Icone={RotateCcw} texto="Devolução de itens" titulo="Devolução de itens deste pedido"
+                        desabilitado={isLoading || itens.every(item => (item.quantidade - (item.quantidadeJaDevolvida || 0)) <= 0)}
+                        onClick={() => { setMaisAcoesAberto(false); setShowDevolucaoModal(true); }} />
+                    )}
+                    {canEditVenda && (
+                      <>
+                        <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '6px 0' }} />
+                        <ItemMaisAcoes Icone={XCircle} texto="Estornar/Cancelar venda" cor="#ef4444"
+                          desabilitado={isLoading || temItemDevolvido}
+                          titulo={temItemDevolvido ? 'Não é possível cancelar: há itens devolvidos' : 'Cancelar a venda (estorna estoque e financeiro)'}
+                          onClick={() => { setMaisAcoesAberto(false); void handleCancelarVenda(); }} />
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </>
           )}
           {isPendingFromAgent && canEditPendingOrder && (

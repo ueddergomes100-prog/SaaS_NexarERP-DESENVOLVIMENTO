@@ -34,6 +34,7 @@ import { desfechoDoStatus, type EtapaEmissao } from '../../utils/emissaoProgress
 import { useEmissaoAcompanhamento, type ProgressoEmissao } from '../../hooks/useEmissaoAcompanhamento';
 import type { PaymentRecord } from '../../utils/financeDomain';
 import { ratearValorPorPesos } from '../../utils/notaAvulsaDomain';
+import EmissaoLoteModal, { type PedidoParaLote, type ResultadoItemLote } from './EmissaoLoteModal';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -85,6 +86,8 @@ interface ClienteOption {
   estado?: string;
   codigoIbge?: string;
   telefone?: string;
+  /** Codigo do cliente (o numero que a empresa usa pra achar o cliente). */
+  codigo?: string;
 }
 
 interface PedidoVendaItem {
@@ -220,6 +223,8 @@ const NFE: React.FC = () => {
   /** Pagamentos do pedido importado -- usado so' pra montar as duplicatas (parcelas) da nota
    *  quando a forma e' Boleto/a prazo. Ver handleSelectPedido e o payload de emissao. */
   const [importedPedidoPagamentos, setImportedPedidoPagamentos] = useState<PaymentRecord[]>([]);
+  /** Tela "Emitir NF-e em lote" aberta (ver EmissaoLoteModal). */
+  const [loteAberto, setLoteAberto] = useState(false);
   const [atualizandoCadastro, setAtualizandoCadastro] = useState(false);
 
   // Importação de Ordens de Serviço (NFS-e) -- so servicos, nunca pecas
@@ -354,7 +359,8 @@ const NFE: React.FC = () => {
             cidade: dData.cidade || '',
             estado: dData.estado || '',
             codigoIbge: dData.codigoIbge || '',
-            telefone: dData.telefone || ''
+            telefone: dData.telefone || '',
+            codigo: dData.codigo != null ? String(dData.codigo) : ''
           });
         });
         setClients(clientList);
@@ -652,6 +658,131 @@ const NFE: React.FC = () => {
     if (escolha.isConfirmed) await abrirDanfe(nota);
   };
 
+  /**
+   * Monta tudo que a NF-e de um pedido precisa (itens com impostos, pagamentos,
+   * destinatario, cupom referenciado) SEM mexer no formulario da tela. Usada
+   * pela importacao do pedido (handleSelectPedido) e pela emissao em lote --
+   * as duas passam pelas mesmas regras (desconto rateado, cadastro relido,
+   * endereco so' do cliente).
+   */
+  const montarNotaDoPedido = async (pedido: PedidoVenda) => {
+    let itemsWithTaxes = await fetchPedidoItensTaxes(pedido.itens);
+
+    // Desconto GERAL do pedido (2026-09-29, bugfix): o pedido tem dois tipos de desconto --
+    // por item (ja' vem em cada item.desconto, sempre chegou certo na nota) e geral (aplicado
+    // uma vez sobre a venda toda, nunca tocava os itens). Sem ratear o geral entre os itens
+    // aqui, a nota saia sempre no preco cheio -- o desconto do pedido simplesmente sumia.
+    // `valorTotal` tambem passa a ser gravado explicito (bruto, quantidade x preco unitario):
+    // o campo nunca existia nos itens salvos pelo Pedido de Venda (que usa `subtotal`), entao
+    // o calculo do valor do item na nota sempre caia no fallback bruto sem desconto nenhum.
+    const descontoGeralReais = (pedido.descontoGeralCentavos || 0) / 100;
+    const pesosItens = itemsWithTaxes.map((it) => Number(it.quantidade || 0) * Number(it.precoUnitario || 0));
+    const descontoGeralRateado = descontoGeralReais > 0 ? ratearValorPorPesos(descontoGeralReais, pesosItens) : itemsWithTaxes.map(() => 0);
+    itemsWithTaxes = itemsWithTaxes.map((it, i) => ({
+      ...it,
+      valorTotal: pesosItens[i],
+      desconto: Number(it.desconto || 0) + descontoGeralRateado[i],
+    }));
+
+    // Casa pelo clienteId primeiro (mesmo padrao ja usado em
+    // handleSelectOS abaixo) -- so pelo nome e fragil: cliente renomeado
+    // depois do pedido, acento/espaco diferente, ou dois clientes com
+    // nome parecido, e o pedido silenciosamente pega o endereco errado
+    // (ou o endereco de exemplo deixado no formulario) na nota fiscal.
+    const clienteEmCache = clients.find(c => c.id === pedido.clienteId)
+      || clients.find(c => c.nome.toUpperCase() === pedido.clienteNome.toUpperCase());
+    // A lista de clientes foi lida quando a tela abriu; se o cadastro foi
+    // corrigido depois (IE, endereco...), a nota tem que sair com o dado de
+    // AGORA. Falha ao reler cai na copia da lista.
+    let foundClient = clienteEmCache;
+    if (clienteEmCache?.id) {
+      try {
+        const clienteSnap = await getDoc(doc(db, 'clientes', clienteEmCache.id));
+        if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) {
+          const d = clienteSnap.data();
+          foundClient = {
+            ...clienteEmCache,
+            nome: d.nome || clienteEmCache.nome,
+            documento: d.documento || '',
+            identidade: d.identidade || '',
+            email: d.email || '',
+            endereco: d.endereco || '',
+            numero: d.numero || '',
+            bairro: d.bairro || '',
+            cep: d.cep || '',
+            cidade: d.cidade || '',
+            estado: d.estado || '',
+            codigoIbge: d.codigoIbge || '',
+            telefone: d.telefone || '',
+          };
+        }
+      } catch (erroCliente) {
+        console.error('Erro ao reler o cliente do cadastro (usa a copia da lista):', erroCliente);
+      }
+    }
+    const descItens = pedido.itens.map((it: PedidoVendaItem) => `${it.quantidade}x ${it.nome}`).join(', ');
+
+    // Procura cupom fiscal (NFC-e) associado a este pedido que esteja autorizado
+    const cupom = invoices.find(inv => inv.pedidoId === pedido.id && inv.tipo === 'NFC-e' && inv.status === 'authorized');
+
+    // UF da empresa vem da cidade resolvida em Configuracoes ->
+    // Nota Fiscal (Spedy) (nfseCidadeEstado, mesmo campo usado pra
+    // cadastrar a empresa na Spedy) -- ja tentamos "adivinhar" isso
+    // com regex em cima do campo Rua (texto livre), que quase nunca
+    // acha um estado de verdade e sempre caia no default 'SP', fazendo
+    // uma venda dentro do mesmo estado ser marcada como interestadual
+    // por engano (rejeicao 772 da Sefaz).
+    let companyState = 'SP';
+    try {
+      const confRef = doc(db, 'configuracoes', tenantId || '');
+      const confSnap = await getDoc(confRef);
+      if (confSnap.exists()) {
+        const estadoConfig = String(confSnap.data().nfseCidadeEstado || '').trim();
+        if (estadoConfig) companyState = estadoConfig.toUpperCase();
+      }
+    } catch (err) {
+      console.warn("Erro ao buscar estado da oficina:", err);
+    }
+
+    const clientState = foundClient?.estado || 'SP';
+    const cfopForced = clientState.toUpperCase() === companyState.toUpperCase() ? '5929' : '6929';
+
+    if (cupom) {
+      itemsWithTaxes = itemsWithTaxes.map(item => ({
+        ...item,
+        cfop: cfopForced
+      }));
+    }
+
+    return {
+      itens: itemsWithTaxes,
+      pagamentos: pedido.pagamentos || [],
+      referencedAccessKey: cupom ? (cupom.accessKey || '') : '',
+      form: {
+        tipo: 'NF-e' as const,
+        clienteId: foundClient?.id || '',
+        clienteNome: pedido.clienteNome,
+        documento: foundClient?.documento || '',
+        inscricaoEstadual: foundClient?.identidade || '',
+        email: foundClient?.email || '',
+        valor: String(pedido.valorTotal),
+        descricao: cupom
+          ? `Lançamento de NF-e decorrente do Cupom Fiscal ref. Pedido #${pedido.numeroPedido}`
+          : `Venda Ref. Pedido #${pedido.numeroPedido} - Itens: ${descItens}`,
+        // So' o endereco DESTE cliente -- sem cair no que o formulario ja tinha
+        // (exemplo ou o cliente do pedido anterior). Faltou dado? A trava de
+        // endereco incompleto avisa na hora de transmitir.
+        cep: foundClient?.cep || '',
+        rua: foundClient?.endereco || '',
+        numero: foundClient?.numero || '',
+        bairro: foundClient?.bairro || '',
+        cidade: foundClient?.cidade || '',
+        estado: foundClient?.estado || '',
+        codigoIbge: foundClient?.codigoIbge || '',
+      },
+    };
+  };
+
   const handleSelectPedido = async (pedidoId: string) => {
     setImportedPedidoId(pedidoId);
     // Mutuamente exclusivo com a importação de OS -- importar um pedido
@@ -708,123 +839,11 @@ const NFE: React.FC = () => {
     });
 
     try {
-      let itemsWithTaxes = await fetchPedidoItensTaxes(pedido.itens);
-
-      // Desconto GERAL do pedido (2026-09-29, bugfix): o pedido tem dois tipos de desconto --
-      // por item (ja' vem em cada item.desconto, sempre chegou certo na nota) e geral (aplicado
-      // uma vez sobre a venda toda, nunca tocava os itens). Sem ratear o geral entre os itens
-      // aqui, a nota saia sempre no preco cheio -- o desconto do pedido simplesmente sumia.
-      // `valorTotal` tambem passa a ser gravado explicito (bruto, quantidade x preco unitario):
-      // o campo nunca existia nos itens salvos pelo Pedido de Venda (que usa `subtotal`), entao
-      // o calculo do valor do item na nota sempre caia no fallback bruto sem desconto nenhum.
-      const descontoGeralReais = (pedido.descontoGeralCentavos || 0) / 100;
-      const pesosItens = itemsWithTaxes.map((it) => Number(it.quantidade || 0) * Number(it.precoUnitario || 0));
-      const descontoGeralRateado = descontoGeralReais > 0 ? ratearValorPorPesos(descontoGeralReais, pesosItens) : itemsWithTaxes.map(() => 0);
-      itemsWithTaxes = itemsWithTaxes.map((it, i) => ({
-        ...it,
-        valorTotal: pesosItens[i],
-        desconto: Number(it.desconto || 0) + descontoGeralRateado[i],
-      }));
-
-      // Casa pelo clienteId primeiro (mesmo padrao ja usado em
-      // handleSelectOS abaixo) -- so pelo nome e fragil: cliente renomeado
-      // depois do pedido, acento/espaco diferente, ou dois clientes com
-      // nome parecido, e o pedido silenciosamente pega o endereco errado
-      // (ou o endereco de exemplo deixado no formulario) na nota fiscal.
-      const clienteEmCache = clients.find(c => c.id === pedido.clienteId)
-        || clients.find(c => c.nome.toUpperCase() === pedido.clienteNome.toUpperCase());
-      // A lista de clientes foi lida quando a tela abriu; se o cadastro foi
-      // corrigido depois (IE, endereco...), a nota tem que sair com o dado de
-      // AGORA. Falha ao reler cai na copia da lista.
-      let foundClient = clienteEmCache;
-      if (clienteEmCache?.id) {
-        try {
-          const clienteSnap = await getDoc(doc(db, 'clientes', clienteEmCache.id));
-          if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) {
-            const d = clienteSnap.data();
-            foundClient = {
-              ...clienteEmCache,
-              nome: d.nome || clienteEmCache.nome,
-              documento: d.documento || '',
-              identidade: d.identidade || '',
-              email: d.email || '',
-              endereco: d.endereco || '',
-              numero: d.numero || '',
-              bairro: d.bairro || '',
-              cep: d.cep || '',
-              cidade: d.cidade || '',
-              estado: d.estado || '',
-              codigoIbge: d.codigoIbge || '',
-              telefone: d.telefone || '',
-            };
-          }
-        } catch (erroCliente) {
-          console.error('Erro ao reler o cliente do cadastro (usa a copia da lista):', erroCliente);
-        }
-      }
-      const descItens = pedido.itens.map((it: PedidoVendaItem) => `${it.quantidade}x ${it.nome}`).join(', ');
-
-      // Procura cupom fiscal (NFC-e) associado a este pedido que esteja autorizado
-      const cupom = invoices.find(inv => inv.pedidoId === pedidoId && inv.tipo === 'NFC-e' && inv.status === 'authorized');
-
-      // UF da empresa vem da cidade resolvida em Configuracoes ->
-      // Nota Fiscal (Spedy) (nfseCidadeEstado, mesmo campo usado pra
-      // cadastrar a empresa na Spedy) -- ja tentamos "adivinhar" isso
-      // com regex em cima do campo Rua (texto livre), que quase nunca
-      // acha um estado de verdade e sempre caia no default 'SP', fazendo
-      // uma venda dentro do mesmo estado ser marcada como interestadual
-      // por engano (rejeicao 772 da Sefaz).
-      let companyState = 'SP';
-      try {
-        const confRef = doc(db, 'configuracoes', tenantId || '');
-        const confSnap = await getDoc(confRef);
-        if (confSnap.exists()) {
-          const estadoConfig = String(confSnap.data().nfseCidadeEstado || '').trim();
-          if (estadoConfig) companyState = estadoConfig.toUpperCase();
-        }
-      } catch (err) {
-        console.warn("Erro ao buscar estado da oficina:", err);
-      }
-
-      const clientState = foundClient?.estado || 'SP';
-      const cfopForced = clientState.toUpperCase() === companyState.toUpperCase() ? '5929' : '6929';
-
-      if (cupom) {
-        setReferencedAccessKey(cupom.accessKey || '');
-        itemsWithTaxes = itemsWithTaxes.map(item => ({
-          ...item,
-          cfop: cfopForced
-        }));
-      } else {
-        setReferencedAccessKey('');
-      }
-
-      setImportedPedidoItens(itemsWithTaxes);
-      setImportedPedidoPagamentos(pedido.pagamentos || []);
-
-      setFormData(prev => ({
-        ...prev,
-        tipo: 'NF-e',
-        clienteId: foundClient?.id || '',
-        clienteNome: pedido.clienteNome,
-        documento: foundClient?.documento || '',
-        inscricaoEstadual: foundClient?.identidade || '',
-        email: foundClient?.email || '',
-        valor: String(pedido.valorTotal),
-        descricao: cupom
-          ? `Lançamento de NF-e decorrente do Cupom Fiscal ref. Pedido #${pedido.numeroPedido}`
-          : `Venda Ref. Pedido #${pedido.numeroPedido} - Itens: ${descItens}`,
-        // So' o endereco DESTE cliente -- sem cair no que o formulario ja tinha
-        // (exemplo ou o cliente do pedido anterior). Faltou dado? A trava de
-        // endereco incompleto avisa na hora de transmitir.
-        cep: foundClient?.cep || '',
-        rua: foundClient?.endereco || '',
-        numero: foundClient?.numero || '',
-        bairro: foundClient?.bairro || '',
-        cidade: foundClient?.cidade || '',
-        estado: foundClient?.estado || '',
-        codigoIbge: foundClient?.codigoIbge || '',
-      }));
+      const montada = await montarNotaDoPedido(pedido);
+      setReferencedAccessKey(montada.referencedAccessKey);
+      setImportedPedidoItens(montada.itens);
+      setImportedPedidoPagamentos(montada.pagamentos);
+      setFormData(prev => ({ ...prev, ...montada.form }));
 
       Swal.close();
     } catch (err) {
@@ -1489,6 +1508,190 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
     return spedyService.getProductInvoice(config.spedyApiKey, config.spedyEnvironment, spedyId);
   };
 
+  /**
+   * Monta o corpo da NF-e (itens com impostos, destino, desconto, parcelas do boleto,
+   * fatura, totais) no formato da Spedy. Uma so' funcao pra emissao normal e pra emissao
+   * em lote -- as duas mandam exatamente o mesmo formato. `itens` vazio = lancamento avulso.
+   */
+  const montarPayloadNfe = async (a: {
+    integrationId: string;
+    form: typeof formData;
+    itens: PedidoVendaItem[];
+    pagamentos: PaymentRecord[];
+    numeroPedido?: string;
+    referencedAccessKey: string;
+    stateTaxNumber?: string;
+  }) => {
+    const valorNumerico = Number(a.form.valor);
+    const itemsPayload = a.itens.length > 0
+      ? a.itens.map((item, index) => {
+          const itemTotal = Number(item.valorTotal || (item.quantidade * item.precoUnitario) || 0);
+          const unitAmount = Number(item.precoUnitario || 0);
+          const cfop = Number(item.cfop || '5102');
+          const unitFields = resolveInvoiceUnitFields({
+            cfop,
+            unidadeComercial: 'UN',
+            quantidadeComercial: Number(item.quantidade || 1),
+            valorUnitarioComercial: unitAmount,
+            pesoLiquidoUnitarioKg: item.pesoLiquidoUnitarioKg,
+          });
+          if (!unitFields.ok) {
+            throw new Error(`${item.nome}: ${unitFields.error}`);
+          }
+          return {
+            code: item.codigoProduto || item.id || `PROD-${index}`,
+            description: item.nome,
+            ncm: item.ncm || '87082999',
+            cfop,
+            ...unitFields.fields!,
+            totalAmount: itemTotal,
+            // Desconto do item (por item + fatia rateada do desconto geral do pedido, ver
+            // handleSelectPedido) -- campo confirmado no schema da Spedy (SefazInvoiceItemDto.discountAmount).
+            ...(Number(item.desconto || 0) > 0 ? { discountAmount: Number(item.desconto) } : {}),
+            makeupTotal: true,
+            // Regime Simples Nacional mantem o payload minimo (so
+            // csosn/origem, sem base/aliquota -- ja funcionava assim);
+            // Presumido/Real usam CST real com base/aliquota efetivas
+            // do produto (ver fiscalDomain.ts, formato confirmado na
+            // documentacao da Spedy).
+            taxes: buildTaxesPayload(item, regimeTributario, itemTotal)
+          };
+        })
+      : [
+          {
+            code: 'PROD-FISCAL',
+            description: a.form.descricao,
+            ncm: a.form.ncm,
+            cfop: Number(a.form.cfop),
+            unit: 'UN',
+            quantity: 1,
+            unitAmount: valorNumerico,
+            totalAmount: valorNumerico,
+            unitTax: 'UN',
+            quantityTax: 1,
+            unitTaxAmount: valorNumerico,
+            makeupTotal: true,
+            // Lançamento avulso (sem pedido importado) -- o modal so
+            // coleta NCM/CFOP/CSOSN manualmente, sem CST/aliquota real
+            // de ICMS/PIS/COFINS por item. Mantido no formato minimo
+            // de Simples Nacional mesmo pra tenants Presumido/Real;
+            // pra emissao fiel ao regime, importar de um Pedido de
+            // Venda (produto ja traz os dados reais, ver acima).
+            taxes: {
+              icms: {
+                origin: 0,
+                csosn: Number(a.form.csosn)
+              },
+              pis: { cst: 7 },
+              cofins: { cst: 7 }
+            }
+          }
+        ];
+
+    // UF da empresa vem da cidade resolvida em Configuracoes -> Nota
+    // Fiscal (Spedy) (nfseCidadeEstado) -- ver mesmo comentario em
+    // handleSelectPedido acima. Regex em cima do campo Rua livre
+    // (versao antiga) quase sempre caia no default 'SP' e marcava
+    // venda dentro do mesmo estado como interestadual (rejeicao 772).
+    let companyState = 'SP';
+    try {
+      const confRef = doc(db, 'configuracoes', tenantId || '');
+      const confSnap = await getDoc(confRef);
+      if (confSnap.exists()) {
+        const estadoConfig = String(confSnap.data().nfseCidadeEstado || '').trim();
+        if (estadoConfig) companyState = estadoConfig.toUpperCase();
+      }
+    } catch (err) {
+      console.warn("Erro ao buscar estado da oficina:", err);
+    }
+
+    const clientState = a.form.estado || 'SP';
+    const destinationByState = clientState.toUpperCase() === companyState.toUpperCase() ? 'internal' : 'interstate';
+    const destination = resolveInvoiceDestination(itemsPayload.find((pi) => isExportCfop(pi.cfop))?.cfop, destinationByState);
+
+    // vProd (bruto) e vDesc somados dos itens -- productAmount tem que ser o BRUTO (soma dos
+    // itens antes do desconto), nunca igual ao invoiceAmount, senao o desconto nao aparece na
+    // nota nenhuma (era exatamente o bug: os dois saiam iguais a valorNumerico, que ja e' liquido).
+    const productAmountBruto = itemsPayload.length > 0
+      ? itemsPayload.reduce((soma, it) => soma + Number(it.totalAmount || 0), 0)
+      : valorNumerico;
+    const discountAmountTotal = itemsPayload.reduce((soma, it: any) => soma + Number(it.discountAmount || 0), 0);
+
+    // Duplicatas (parcelas): so' quando a venda importada foi paga em Boleto -- o numero de
+    // cada parcela e a data de vencimento vem dos pagamentos gravados no pedido. Sem isso a
+    // nota saia sem nenhuma duplicata, mesmo quando o boleto tinha varias parcelas.
+    const pagamentosBoleto = a.pagamentos.filter((p) => p.formaPagamento === 'Boleto' && p.dataVencimento);
+    const duplicatesPayload = pagamentosBoleto.map((p) => ({
+      number: String(p.numeroParcelaAPrazo || 1).padStart(3, '0'),
+      dueDate: `${p.dataVencimento}T00:00:00`,
+      amount: Number(p.valor ?? p.valorCentavos / 100),
+    }));
+    // Fatura [cobr/fat] junto das duplicatas (2026-09-30): a SEFAZ exige que a soma das
+    // parcelas bata com o valor LIQUIDO da fatura. Mandando so' `duplicates`, a Spedy montava a
+    // fatura sem esse valor e a nota voltava "Rejeicao 851: Soma do valor das parcelas difere
+    // do Valor Liquido da Fatura" (NF-e 000034 da Sol Life). Campo `billing` confirmado no
+    // swagger da Spedy (SefazInvoiceBillingDto: number/originalAmount/discountAmount/netAmount).
+    const valorFaturaCentavos = duplicatesPayload.reduce((soma, d) => soma + Math.round(d.amount * 100), 0);
+    const billingPayload = duplicatesPayload.length > 0
+      ? {
+        number: a.numeroPedido || '1',
+        originalAmount: valorFaturaCentavos / 100,
+        discountAmount: 0,
+        netAmount: valorFaturaCentavos / 100,
+      }
+      : null;
+
+    const payload = {
+      integrationId: a.integrationId,
+      isFinalCustomer: true,
+      operationType: 'outgoing',
+      destination: destination,
+      presenceType: 'presence',
+      operationNature: a.referencedAccessKey ? 'Lançamento decorrente de Cupom Fiscal' : 'Venda de Mercadoria',
+      // Com o SMTP da empresa configurado, o e-mail ao cliente (PDF + XML) sai pelo sistema, do e-mail da empresa,
+      // com pop-up de resultado (notaEmailService); ligar o envio da Spedy tambem mandaria a nota duas vezes.
+      sendEmailToCustomer: !!a.form.email && !emailPeloSistema,
+      receiver: {
+        name: a.form.clienteNome,
+        federalTaxNumber: a.form.documento.replace(/\D/g, ''),
+        ...(a.stateTaxNumber ? { stateTaxNumber: a.stateTaxNumber } : {}),
+        email: a.form.email || undefined,
+        address: {
+          street: a.form.rua,
+          number: a.form.numero,
+          district: a.form.bairro,
+          postalCode: a.form.cep.replace(/\D/g, ''),
+          city: {
+            code: a.form.codigoIbge,
+            name: a.form.cidade,
+            state: a.form.estado
+          }
+        }
+      },
+      items: itemsPayload,
+      payments: [
+        {
+          method: 'other',
+          amount: valorNumerico
+        }
+      ],
+      ...(duplicatesPayload.length > 0 ? { duplicates: duplicatesPayload } : {}),
+      ...(billingPayload ? { billing: billingPayload } : {}),
+      total: {
+        invoiceAmount: valorNumerico,
+        productAmount: productAmountBruto,
+        ...(discountAmountTotal > 0 ? { discountAmount: discountAmountTotal } : {}),
+      },
+      ...(a.referencedAccessKey ? {
+        refNFe: a.referencedAccessKey,
+        referencedAccessKey: a.referencedAccessKey,
+        referencedInvoices: [{ accessKey: a.referencedAccessKey }]
+      } : {})
+    };
+
+    return { payload, itemsPayload };
+  };
+
   const handleEmitir = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!config?.spedyApiKey || !tenantId || !currentUser) return;
@@ -1688,173 +1891,15 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
         spedyNote = await spedyService.emitServiceInvoice(config.spedyApiKey, config.spedyEnvironment, payload as unknown as Record<string, unknown>);
 
       } else {
-        const itemsPayload = importedPedidoId && importedPedidoItens.length > 0
-          ? importedPedidoItens.map((item, index) => {
-              const itemTotal = Number(item.valorTotal || (item.quantidade * item.precoUnitario) || 0);
-              const unitAmount = Number(item.precoUnitario || 0);
-              const cfop = Number(item.cfop || '5102');
-              const unitFields = resolveInvoiceUnitFields({
-                cfop,
-                unidadeComercial: 'UN',
-                quantidadeComercial: Number(item.quantidade || 1),
-                valorUnitarioComercial: unitAmount,
-                pesoLiquidoUnitarioKg: item.pesoLiquidoUnitarioKg,
-              });
-              if (!unitFields.ok) {
-                throw new Error(`${item.nome}: ${unitFields.error}`);
-              }
-              return {
-                code: item.codigoProduto || item.id || `PROD-${index}`,
-                description: item.nome,
-                ncm: item.ncm || '87082999',
-                cfop,
-                ...unitFields.fields!,
-                totalAmount: itemTotal,
-                // Desconto do item (por item + fatia rateada do desconto geral do pedido, ver
-                // handleSelectPedido) -- campo confirmado no schema da Spedy (SefazInvoiceItemDto.discountAmount).
-                ...(Number(item.desconto || 0) > 0 ? { discountAmount: Number(item.desconto) } : {}),
-                makeupTotal: true,
-                // Regime Simples Nacional mantem o payload minimo (so
-                // csosn/origem, sem base/aliquota -- ja funcionava assim);
-                // Presumido/Real usam CST real com base/aliquota efetivas
-                // do produto (ver fiscalDomain.ts, formato confirmado na
-                // documentacao da Spedy).
-                taxes: buildTaxesPayload(item, regimeTributario, itemTotal)
-              };
-            })
-          : [
-              {
-                code: 'PROD-FISCAL',
-                description: formData.descricao,
-                ncm: formData.ncm,
-                cfop: Number(formData.cfop),
-                unit: 'UN',
-                quantity: 1,
-                unitAmount: valorNumerico,
-                totalAmount: valorNumerico,
-                unitTax: 'UN',
-                quantityTax: 1,
-                unitTaxAmount: valorNumerico,
-                makeupTotal: true,
-                // Lançamento avulso (sem pedido importado) -- o modal so
-                // coleta NCM/CFOP/CSOSN manualmente, sem CST/aliquota real
-                // de ICMS/PIS/COFINS por item. Mantido no formato minimo
-                // de Simples Nacional mesmo pra tenants Presumido/Real;
-                // pra emissao fiel ao regime, importar de um Pedido de
-                // Venda (produto ja traz os dados reais, ver acima).
-                taxes: {
-                  icms: {
-                    origin: 0,
-                    csosn: Number(formData.csosn)
-                  },
-                  pis: { cst: 7 },
-                  cofins: { cst: 7 }
-                }
-              }
-            ];
-
-        // UF da empresa vem da cidade resolvida em Configuracoes -> Nota
-        // Fiscal (Spedy) (nfseCidadeEstado) -- ver mesmo comentario em
-        // handleSelectPedido acima. Regex em cima do campo Rua livre
-        // (versao antiga) quase sempre caia no default 'SP' e marcava
-        // venda dentro do mesmo estado como interestadual (rejeicao 772).
-        let companyState = 'SP';
-        try {
-          const confRef = doc(db, 'configuracoes', tenantId || '');
-          const confSnap = await getDoc(confRef);
-          if (confSnap.exists()) {
-            const estadoConfig = String(confSnap.data().nfseCidadeEstado || '').trim();
-            if (estadoConfig) companyState = estadoConfig.toUpperCase();
-          }
-        } catch (err) {
-          console.warn("Erro ao buscar estado da oficina:", err);
-        }
-
-        const clientState = formData.estado || 'SP';
-        const destinationByState = clientState.toUpperCase() === companyState.toUpperCase() ? 'internal' : 'interstate';
-        const destination = resolveInvoiceDestination(itemsPayload.find((pi) => isExportCfop(pi.cfop))?.cfop, destinationByState);
-
-        // vProd (bruto) e vDesc somados dos itens -- productAmount tem que ser o BRUTO (soma dos
-        // itens antes do desconto), nunca igual ao invoiceAmount, senao o desconto nao aparece na
-        // nota nenhuma (era exatamente o bug: os dois saiam iguais a valorNumerico, que ja e' liquido).
-        const productAmountBruto = itemsPayload.length > 0
-          ? itemsPayload.reduce((soma, it) => soma + Number(it.totalAmount || 0), 0)
-          : valorNumerico;
-        const discountAmountTotal = itemsPayload.reduce((soma, it: any) => soma + Number(it.discountAmount || 0), 0);
-
-        // Duplicatas (parcelas): so' quando a venda importada foi paga em Boleto -- o numero de
-        // cada parcela e a data de vencimento vem dos pagamentos gravados no pedido. Sem isso a
-        // nota saia sem nenhuma duplicata, mesmo quando o boleto tinha varias parcelas.
-        const pagamentosBoleto = importedPedidoId
-          ? importedPedidoPagamentos.filter((p) => p.formaPagamento === 'Boleto' && p.dataVencimento)
-          : [];
-        const duplicatesPayload = pagamentosBoleto.map((p) => ({
-          number: String(p.numeroParcelaAPrazo || 1).padStart(3, '0'),
-          dueDate: `${p.dataVencimento}T00:00:00`,
-          amount: Number(p.valor ?? p.valorCentavos / 100),
-        }));
-        // Fatura [cobr/fat] junto das duplicatas (2026-09-30): a SEFAZ exige que a soma das
-        // parcelas bata com o valor LIQUIDO da fatura. Mandando so' `duplicates`, a Spedy montava a
-        // fatura sem esse valor e a nota voltava "Rejeicao 851: Soma do valor das parcelas difere
-        // do Valor Liquido da Fatura" (NF-e 000034 da Sol Life). Campo `billing` confirmado no
-        // swagger da Spedy (SefazInvoiceBillingDto: number/originalAmount/discountAmount/netAmount).
-        const valorFaturaCentavos = duplicatesPayload.reduce((soma, d) => soma + Math.round(d.amount * 100), 0);
-        const billingPayload = duplicatesPayload.length > 0
-          ? {
-            number: pedidosVenda.find((p) => p.id === importedPedidoId)?.numeroPedido || '1',
-            originalAmount: valorFaturaCentavos / 100,
-            discountAmount: 0,
-            netAmount: valorFaturaCentavos / 100,
-          }
-          : null;
-
-        const payload = {
+        const { payload, itemsPayload } = await montarPayloadNfe({
           integrationId,
-          isFinalCustomer: true,
-          operationType: 'outgoing',
-          destination: destination,
-          presenceType: 'presence',
-          operationNature: referencedAccessKey ? 'Lançamento decorrente de Cupom Fiscal' : 'Venda de Mercadoria',
-          // Com o SMTP da empresa configurado, o e-mail ao cliente (PDF + XML) sai pelo sistema, do e-mail da empresa,
-          // com pop-up de resultado (notaEmailService); ligar o envio da Spedy tambem mandaria a nota duas vezes.
-          sendEmailToCustomer: !!formData.email && !emailPeloSistema,
-          receiver: {
-            name: formData.clienteNome,
-            federalTaxNumber: cleanDoc,
-            ...(stateTaxNumberDestinatario ? { stateTaxNumber: stateTaxNumberDestinatario } : {}),
-            email: formData.email || undefined,
-            address: {
-              street: formData.rua,
-              number: formData.numero,
-              district: formData.bairro,
-              postalCode: cleanCep,
-              city: {
-                code: formData.codigoIbge,
-                name: formData.cidade,
-                state: formData.estado
-              }
-            }
-          },
-          items: itemsPayload,
-          payments: [
-            {
-              method: 'other',
-              amount: valorNumerico
-            }
-          ],
-          ...(duplicatesPayload.length > 0 ? { duplicates: duplicatesPayload } : {}),
-          ...(billingPayload ? { billing: billingPayload } : {}),
-          total: {
-            invoiceAmount: valorNumerico,
-            productAmount: productAmountBruto,
-            ...(discountAmountTotal > 0 ? { discountAmount: discountAmountTotal } : {}),
-          },
-          ...(referencedAccessKey ? {
-            refNFe: referencedAccessKey,
-            referencedAccessKey: referencedAccessKey,
-            referencedInvoices: [{ accessKey: referencedAccessKey }]
-          } : {})
-        };
+          form: formData,
+          itens: importedPedidoId ? importedPedidoItens : [],
+          pagamentos: importedPedidoId ? importedPedidoPagamentos : [],
+          numeroPedido: pedidosVenda.find((p) => p.id === importedPedidoId)?.numeroPedido,
+          referencedAccessKey,
+          stateTaxNumber: stateTaxNumberDestinatario,
+        });
 
         irParaEnvio();
         spedyNote = await spedyService.emitProductInvoice(config.spedyApiKey, config.spedyEnvironment, payload);
@@ -1974,6 +2019,231 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
     }
   };
 
+  /** Codigo do cliente por id (cadastro lido quando a tela abriu). */
+  const codigoClientePorId = useMemo(
+    () => new Map(clients.map((c) => [c.id, c.codigo || ''])),
+    [clients],
+  );
+
+  /** Pedidos finalizados que ainda nao tem nota (NF-e ou cupom) autorizada ou na fila. */
+  const pedidosParaLote = useMemo<PedidoParaLote[]>(() => {
+    const ativos = new Set(allInvoices
+      .filter((n) => n.pedidoId && n.finalidade !== 'devolucao' && ['authorized', 'enqueued', 'processing', 'created'].includes(n.status))
+      .map((n) => n.pedidoId as string));
+    const rejeitadas = new Set(allInvoices
+      .filter((n) => n.pedidoId && n.tipo === 'NF-e' && (n.status === 'rejected' || n.status === 'denied'))
+      .map((n) => n.pedidoId as string));
+    const dataDe = (v: unknown): string => {
+      const t = v as { toDate?: () => Date; seconds?: number } | undefined;
+      const d = t?.toDate ? t.toDate() : t?.seconds ? new Date(t.seconds * 1000) : null;
+      return d ? d.toLocaleDateString('pt-BR') : '—';
+    };
+    return pedidosVenda
+      .filter((p) => !ativos.has(p.id))
+      .map((p) => ({
+        id: p.id,
+        numeroPedido: p.numeroPedido,
+        clienteNome: p.clienteNome,
+        clienteCodigo: codigoClientePorId.get(p.clienteId) || '',
+        valorTotal: Number(p.valorTotal || 0),
+        formaPagamento: p.formaPagamento,
+        data: dataDe(p.createdAt),
+        temRejeitada: rejeitadas.has(p.id),
+      }));
+  }, [allInvoices, pedidosVenda, codigoClientePorId]);
+
+  /** Status da Spedy -> linha do lote; null = ainda sem resposta da SEFAZ. */
+  const resultadoDoStatusLote = (nota: SpedyInvoice): ResultadoItemLote | null => {
+    if (nota.status === 'authorized') return { estado: 'autorizada', numeroNota: nota.number };
+    if (nota.status === 'rejected' || nota.status === 'denied') {
+      return {
+        estado: 'rejeitada',
+        numeroNota: nota.number,
+        mensagem: `${nota.processingDetail?.code || ''} ${nota.processingDetail?.message || 'Motivo não informado.'}`.trim()
+          + ' Corrija e use "Corrigir e Transmitir Novamente" na lista.',
+      };
+    }
+    return null;
+  };
+
+  /**
+   * Transmite a NF-e de UM pedido do lote, com as mesmas travas da emissao
+   * normal (handleEmitir): nota duplicada, CPF/CNPJ, endereco com codigo IBGE,
+   * IE do destinatario. Nao abre pop-up: devolve o que aconteceu, em portugues,
+   * pra aparecer na linha do pedido. `pendente` = a Spedy aceitou e a SEFAZ
+   * ainda vai responder (ou ja' autorizou e falta o e-mail).
+   */
+  const emitirPedidoDoLote = async (pedido: PedidoVenda): Promise<{ resultado?: ResultadoItemLote; pendente?: { docId: string; spedyId: string } }> => {
+    if (!config?.spedyApiKey || !tenantId || !currentUser) {
+      return { resultado: { estado: 'erro', mensagem: 'A integração fiscal não está configurada.' } };
+    }
+    const jaEmitida = await notaNfeJaEmitidaDoPedido(pedido.id);
+    if (jaEmitida) {
+      return {
+        resultado: {
+          estado: 'pulada',
+          mensagem: jaEmitida.status === 'authorized'
+            ? `Este pedido já tem a NF-e nº ${jaEmitida.number ?? ''} autorizada.`
+            : 'A NF-e deste pedido já está na fila da SEFAZ.',
+        },
+      };
+    }
+
+    const montada = await montarNotaDoPedido(pedido);
+    const form = { ...formData, ...montada.form };
+    if (montada.itens.length === 0) return { resultado: { estado: 'erro', mensagem: 'O pedido não tem itens.' } };
+    if (!form.documento.replace(/\D/g, '')) {
+      return { resultado: { estado: 'erro', mensagem: 'O cliente está sem CPF/CNPJ no cadastro. Corrija em Clientes.' } };
+    }
+    const faltando = [
+      !form.rua && 'endereço', !form.numero && 'número', !form.bairro && 'bairro', !form.cep && 'CEP',
+      !form.cidade && 'cidade', !form.estado && 'UF', !form.codigoIbge && 'código IBGE da cidade',
+    ].filter(Boolean);
+    if (faltando.length > 0) {
+      return { resultado: { estado: 'erro', mensagem: `Endereço do cliente incompleto (falta ${faltando.join(', ')}). No cadastro, digite o CEP e saia do campo, confira e salve.` } };
+    }
+    const ie = resolverInscricaoEstadualDestinatario({ documento: form.documento, identidade: form.inscricaoEstadual, clienteNome: form.clienteNome });
+    if (ie.erro) return { resultado: { estado: 'erro', mensagem: ie.erro } };
+
+    // Nota rejeitada deste pedido: reenvia a MESMA (mesma regra do reenvio manual).
+    const rejeitada = allInvoices.find((n) => n.pedidoId === pedido.id && n.tipo === 'NF-e' && n.finalidade !== 'devolucao' && (n.status === 'rejected' || n.status === 'denied'));
+    const escolha = rejeitada
+      ? escolherIntegrationIdDoReenvio({ docId: rejeitada.id, tentativaAtual: rejeitada.tentativaEmissao, mensagemRejeicao: rejeitada.processingMessage })
+      : null;
+    const integrationId = escolha ? escolha.integrationId : crypto.randomUUID();
+
+    const { payload, itemsPayload } = await montarPayloadNfe({
+      integrationId,
+      form,
+      itens: montada.itens,
+      pagamentos: montada.pagamentos,
+      numeroPedido: pedido.numeroPedido,
+      referencedAccessKey: montada.referencedAccessKey,
+      stateTaxNumber: ie.valor,
+    });
+    const nota = await spedyService.emitProductInvoice(config.spedyApiKey, config.spedyEnvironment, payload);
+
+    // Dai' pra frente a nota EXISTE na Spedy: falha ao gravar nao pode virar "nao emitida".
+    let docId: string;
+    try {
+      const comum = {
+        spedyId: nota.id,
+        number: nota.number,
+        accessKey: nota.accessKey || null,
+        pedidoId: pedido.id,
+        osId: null,
+        tipo: 'NF-e',
+        clienteNome: form.clienteNome,
+        clienteId: form.clienteId || null,
+        valor: Number(form.valor),
+        itensFiscais: itemsPayload,
+        status: nota.status,
+        processingMessage: nota.processingDetail?.message || null,
+        processingCode: nota.processingDetail?.code || null,
+        emailDestinatario: form.email.trim() || null,
+        data: new Date().toISOString(),
+      };
+      if (rejeitada) {
+        docId = rejeitada.id;
+        await updateDoc(doc(db, 'notas_fiscais', rejeitada.id), {
+          ...comum,
+          tentativaEmissao: escolha ? escolha.tentativa : 1,
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Retransmitida na Spedy (lote)'),
+        });
+      } else {
+        const nova = await addDoc(collection(db, 'notas_fiscais'), {
+          ...comum,
+          tenantId,
+          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          createdAt: serverTimestamp(),
+        });
+        docId = nova.id;
+      }
+    } catch (erroGravacao) {
+      console.error('Nota do lote enviada, mas nao gravada na lista:', erroGravacao);
+      return { resultado: { estado: 'erro', mensagem: 'A Spedy recebeu a nota, mas o sistema não conseguiu guardá-la na lista. Não emita de novo: avise o suporte.' } };
+    }
+
+    const final = resultadoDoStatusLote(nota);
+    if (final) return { resultado: final, pendente: final.estado === 'autorizada' ? { docId, spedyId: nota.id } : undefined };
+    return { pendente: { docId, spedyId: nota.id } };
+  };
+
+  const executarLote = async (
+    ids: string[],
+    avisar: (id: string, resultado: ResultadoItemLote) => void,
+    deveParar: () => boolean,
+  ) => {
+    // A empresa tem o que precisa pra emitir? Conferido UMA vez pro lote todo.
+    try {
+      const requisitos = await spedyService.getRequisitos();
+      const bloqueios = requisitos.nfe.checks.filter((c) => c.gravidade === 'bloqueio');
+      if (bloqueios.length > 0) {
+        const motivo = bloqueios.map((c) => `${c.mensagem} ${c.comoResolver}`.trim()).join(' ');
+        ids.forEach((id) => avisar(id, { estado: 'erro', mensagem: `A empresa ainda não pode emitir NF-e: ${motivo}` }));
+        return;
+      }
+    } catch (erroRequisitos) {
+      console.error('Nao foi possivel conferir os requisitos fiscais (o lote segue):', erroRequisitos);
+    }
+
+    const acompanhar: Array<{ pedidoId: string; docId: string; spedyId: string; autorizada: boolean }> = [];
+    for (const id of ids) {
+      if (deveParar()) {
+        avisar(id, { estado: 'pulada', mensagem: 'Lote interrompido antes desta nota.' });
+        continue;
+      }
+      const pedido = pedidosVenda.find((p) => p.id === id);
+      if (!pedido) {
+        avisar(id, { estado: 'erro', mensagem: 'Pedido não encontrado. Atualize a tela.' });
+        continue;
+      }
+      avisar(id, { estado: 'emitindo' });
+      try {
+        const r = await emitirPedidoDoLote(pedido);
+        avisar(id, r.resultado || { estado: 'processando' });
+        if (r.pendente) acompanhar.push({ pedidoId: id, ...r.pendente, autorizada: r.resultado?.estado === 'autorizada' });
+      } catch (erro) {
+        avisar(id, { estado: 'erro', mensagem: (erro as Error).message || 'Não foi possível transmitir a nota.' });
+      }
+    }
+
+    // Espera a SEFAZ responder as que ficaram na fila (ate ~2 min), atualizando a lista.
+    const aguardando = acompanhar.filter((a) => !a.autorizada);
+    for (let volta = 0; volta < 40 && aguardando.length > 0; volta += 1) {
+      await new Promise((r) => setTimeout(r, 3000));
+      for (const item of [...aguardando]) {
+        try {
+          const nota = await consultarNotaNaSpedy('NF-e', item.spedyId);
+          const final = resultadoDoStatusLote(nota);
+          if (!final) continue;
+          await updateDoc(doc(db, 'notas_fiscais', item.docId), {
+            status: nota.status,
+            number: nota.number,
+            accessKey: nota.accessKey || null,
+            processingMessage: nota.processingDetail?.message || null,
+            processingCode: nota.processingDetail?.code || null,
+          }).catch((e) => console.error('Nao atualizou a nota do lote:', e));
+          avisar(item.pedidoId, final);
+          aguardando.splice(aguardando.indexOf(item), 1);
+          item.autorizada = final.estado === 'autorizada';
+        } catch (erroConsulta) {
+          console.error('Erro ao consultar nota do lote:', erroConsulta);
+        }
+      }
+    }
+    aguardando.forEach((item) => avisar(item.pedidoId, { estado: 'processando', mensagem: 'A SEFAZ ainda não respondeu. Clique em "Sincronizar Notas" daqui a pouco.' }));
+
+    // E-mail ao cliente pelo sistema (quando a empresa configurou o SMTP) -- como na emissao normal.
+    if (emailPeloSistema) {
+      for (const item of acompanhar.filter((a) => a.autorizada)) {
+        await notaEmailService.enviar(item.docId).catch((e) => console.error('E-mail da nota do lote nao enviado:', e));
+      }
+    }
+    loadLocalInvoices(false);
+  };
+
   const handleTransformarCupomEmNfe = async (note: LocalInvoice) => {
     if (!note.pedidoId) {
       showError('Operação Inválida', 'Este cupom fiscal não possui um pedido de venda associado para recuperação dos produtos.');
@@ -2071,7 +2341,11 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
 
   // Filtragem local das notas
   const filteredInvoices = invoices.filter(note => {
+    // Codigo do cliente (2026-09-30): "7", "07" e "0007" acham o mesmo cliente.
+    const codigoBuscado = searchTerm.replace(/\D/g, '').replace(/^0+/, '');
+    const codigoDaNota = String(codigoClientePorId.get(note.clienteId || '') || '').replace(/^0+/, '');
     const matchesSearch =
+      (codigoBuscado !== '' && codigoDaNota === codigoBuscado) ||
       note.clienteNome.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (note.number ? String(note.number).includes(searchTerm) : false) ||
       note.status.toLowerCase().includes(searchTerm.toLowerCase());
@@ -2155,6 +2429,16 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
               <Plus size={18} /> Emitir Nota Fiscal
             </button>
           )}
+          {canEmitirNota && (
+            <button
+              className="btn-secondary"
+              onClick={() => setLoteAberto(true)}
+              title="Marcar vários pedidos finalizados e emitir as NF-e de uma vez"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <Receipt size={18} /> Emitir em lote
+            </button>
+          )}
         </div>
       </div>
 
@@ -2222,7 +2506,7 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input
               type="text"
-              placeholder="Buscar por cliente ou número..."
+              placeholder="Buscar por cliente, código do cliente ou número..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '10px 10px 10px 40px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
@@ -2236,6 +2520,7 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
               <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)', fontSize: '13px' }}>
                 <th style={{ padding: '16px' }}>Nº Nota</th>
                 <th style={{ padding: '16px' }}>Tipo</th>
+                <th style={{ padding: '16px' }}>Cód.</th>
                 <th style={{ padding: '16px' }}>Cliente</th>
                 <th style={{ padding: '16px' }}>Data</th>
                 <th style={{ padding: '16px' }}>Valor</th>
@@ -2246,13 +2531,13 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     Carregando notas fiscais...
                   </td>
                 </tr>
               ) : filteredInvoices.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <Receipt size={40} style={{ opacity: 0.2, margin: '0 auto 12px' }} />
                     <p>Nenhuma nota fiscal encontrada.</p>
                   </td>
@@ -2275,6 +2560,7 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
                         </span>
                       )}
                     </td>
+                    <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{codigoClientePorId.get(note.clienteId || '') || '—'}</td>
                     <td style={{ padding: '16px', fontWeight: 500 }}>{note.clienteNome}</td>
                     <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{note.data}</td>
                     <td style={{ padding: '16px', fontWeight: 600 }}>
@@ -2502,6 +2788,14 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
       />
 
       {/* Modal de Emissão Real de Nota */}
+      {loteAberto && (
+        <EmissaoLoteModal
+          pedidos={pedidosParaLote}
+          onFechar={() => { setLoteAberto(false); loadLocalInvoices(false); }}
+          executar={executarLote}
+        />
+      )}
+
       {isModalOpen && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,

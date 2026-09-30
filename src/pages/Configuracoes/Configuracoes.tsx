@@ -1,5 +1,5 @@
 import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy } from 'lucide-react';
 import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -122,6 +122,9 @@ const Configuracoes: React.FC = () => {
   const [isFetching, setIsFetching] = useState(true);
   const [isEditingMode, setIsEditingMode] = useState(true);
   const [showSuccessAnim, setShowSuccessAnim] = useState(false);
+  // O que a Spedy tinha da empresa quando a tela abriu (ver dadosEmpresaParaSpedy).
+  const dadosEmpresaSpedyRef = useRef('');
+  const temCadastroNaSpedyRef = useRef(false);
   const [showModulosSistema, setShowModulosSistema] = useState(true);
   const [showDadosOficina, setShowDadosOficina] = useState(false);
   const [showTextosPadroes, setShowTextosPadroes] = useState(true);
@@ -154,6 +157,8 @@ const Configuracoes: React.FC = () => {
   const [formData, setFormData] = useState({
     logo: '',
     nomeOficina: '',
+    /** Razao social (Receita). E' o nome do EMITENTE na nota fiscal (DANFE). */
+    razaoSocial: '',
     nomeUsuario: '',
     cnpj: '',
     inscricaoEstadual: '',
@@ -321,8 +326,13 @@ const Configuracoes: React.FC = () => {
           let despesas = data.planoContasDespesas || [];
           if (typeof despesas === 'string') despesas = despesas.split('\n').filter((c: string) => c.trim() !== '');
 
+          // O que foi ENVIADO pra Spedy da ultima vez (gravado abaixo, depois de
+          // sincronizar). Vazio = nunca sincronizou por aqui: o proximo salvar envia.
+          dadosEmpresaSpedyRef.current = typeof data.spedyEmpresaSincronizadaCom === 'string' ? data.spedyEmpresaSincronizadaCom : '';
+          temCadastroNaSpedyRef.current = Boolean(data.spedyCompanyId);
           setFormData({
             ...data,
+            razaoSocial: data.razaoSocial || '',
             venderSemEstoque: data.venderSemEstoque ?? false,
             validarCadastroProduto: data.validarCadastroProduto ?? false,
             venderPorEmbalagem: data.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM,
@@ -674,6 +684,13 @@ const Configuracoes: React.FC = () => {
     });
   };
 
+  /** Dados da empresa que a Spedy imprime na nota (emitente). Mudou algum ao
+   *  salvar, reenvia pra Spedy -- ver POST /api/spedy/empresa/sincronizar. */
+  const dadosEmpresaParaSpedy = (d: Record<string, unknown>): string => JSON.stringify(
+    ['razaoSocial', 'nomeOficina', 'cnpj', 'inscricaoEstadual', 'rua', 'numero', 'bairro', 'cep', 'email', 'regimeTributario', 'nfseCidadeCodigo']
+      .map((campo) => String(d[campo] ?? '').trim()),
+  );
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser || !tenantId) return;
@@ -887,9 +904,32 @@ const Configuracoes: React.FC = () => {
       setShowSuccessAnim(true);
       setTimeout(() => setShowSuccessAnim(false), 2000);
 
+      // Nome/razao social/CNPJ/IE/endereco mudaram: a Spedy precisa saber, senao
+      // a nota continua saindo com o emitente antigo (a Sol Life saia como
+      // "sol natus"). Falha aqui NAO desfaz o que ja foi salvo -- so' avisa.
+      const dadosAgora = dadosEmpresaParaSpedy(formData as unknown as Record<string, unknown>);
+      if (temCadastroNaSpedyRef.current && dadosAgora !== dadosEmpresaSpedyRef.current) {
+        try {
+          await spedyService.sincronizarEmpresa();
+          dadosEmpresaSpedyRef.current = dadosAgora;
+          await setDoc(docRef, { spedyEmpresaSincronizadaCom: dadosAgora }, { merge: true });
+          showSuccess('Dados da empresa atualizados também na nota fiscal (Spedy).');
+        } catch (erroSpedy) {
+          console.error('Erro ao atualizar os dados da empresa na Spedy:', erroSpedy);
+          showWarning(
+            'Configurações salvas, mas a nota fiscal ainda não foi atualizada',
+            `${erroSpedy instanceof Error ? erroSpedy.message : 'A Spedy não respondeu.'} Salve de novo em instantes; se continuar, fale com o suporte.`,
+          );
+        }
+      }
+
     } catch (error) {
       console.error("Erro ao salvar:", error);
-      showError('Erro ao salvar', 'Não foi possível salvar as configurações.');
+      if (erroDeAcessoNegado(error)) {
+        showError('Sem permissão para alterar as Configurações', 'Os dados da empresa e as preferências do sistema só podem ser alterados pelo dono ou por um Admin da empresa. Peça a um deles para fazer a alteração.');
+      } else {
+        showError('Erro ao salvar', 'Não foi possível salvar as configurações. Confira sua conexão e tente de novo.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -1303,6 +1343,20 @@ const Configuracoes: React.FC = () => {
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
             </div>
+          </div>
+
+          <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Razão Social</label>
+            <input
+              type="text"
+              name="razaoSocial"
+              placeholder="Ex: Mercado Central Hennder LTDA"
+              value={formData.razaoSocial}
+              onChange={handleChange}
+              disabled={!isEditingMode}
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
+            />
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>É o nome que sai como emitente na nota fiscal (DANFE). Use exatamente como está no cartão CNPJ.</span>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>

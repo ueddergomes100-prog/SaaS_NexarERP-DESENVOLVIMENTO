@@ -273,6 +273,12 @@ export const spedyService = {
    * cadastrada na Spedy (PUT /companies/{id}/settings da Spedy, blocos
    * productInvoice/consumerInvoice/serviceInvoice). So manda os blocos
    * informados -- os outros ficam como ja estavam la. */
+  /** Reenvia pra Spedy os dados cadastrais da empresa (razao social, CNPJ, IE,
+   *  endereco) -- e' o emitente impresso na nota. So' dono/Admin. */
+  async sincronizarEmpresa(): Promise<{ ok: boolean }> {
+    return requestJson<{ ok: boolean }>('/api/spedy/empresa/sincronizar', { method: 'POST' }, 'Não foi possível atualizar os dados da empresa na Spedy.');
+  },
+
   async updateNumbering(blocks: SpedyNumberingUpdate): Promise<{ success: boolean }> {
     return requestJson<{ success: boolean }>('/api/spedy/numbering', {
       method: 'PUT',

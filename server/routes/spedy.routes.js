@@ -5,6 +5,7 @@ const { admin, db } = require('../config/firebase');
 const { BASE_URLS, canUseFiscal, resolveTenantId, loadSpedyConfig, idSpedyValido } = require('../services/spedyAcesso');
 const { avaliarRequisitos, validarAmbienteEnviado, mesclarConfiguracaoAtual } = require('../services/requisitosFiscais');
 const { validarCarta, motivoQueImpedeCarta } = require('../services/cartaCorrecao');
+const { buildCompanyPayload } = require('../services/spedyEmpresa');
 
 const TYPE_PATHS = {
   service: 'service-invoices',
@@ -378,6 +379,53 @@ router.put('/numbering', async (req, res) => {
     return res.status(error.status || 500).json({
       error: error.message || 'Erro interno ao atualizar a numeração fiscal.'
     });
+  }
+});
+
+/**
+ * POST /empresa/sincronizar -- a PROPRIA empresa (dono/Admin) reenvia os dados
+ * cadastrais dela pra Spedy: razao social, fantasia, CNPJ, IE, endereco,
+ * regime. E' de la que sai o emitente impresso na DANFE; antes so' o painel
+ * da plataforma conseguia atualizar, e trocar o nome em Configuracoes nao
+ * mudava nada na nota (2026-09-30, Sol Life saindo como "sol natus").
+ * Mesma chamada de spedyCompanies.routes.js (PUT /companies/{id} com a chave
+ * mestra), escopada ao spedyCompanyId desta empresa -- campo que so' o
+ * servidor grava (platformManagedFields nas firestore.rules).
+ */
+router.post('/empresa/sincronizar', async (req, res) => {
+  try {
+    if (!(req.user.isPlatformAdmin || req.user.isTenantManager)) {
+      return res.status(403).json({ error: 'Só o dono ou um Admin da empresa pode atualizar os dados da empresa na Spedy.' });
+    }
+    const tenantId = resolveTenantId(req);
+    const configSnap = await db.collection('configuracoes').doc(tenantId).get();
+    const config = configSnap.exists ? configSnap.data() : {};
+    if (!config.spedyCompanyId) {
+      return res.status(400).json({ error: 'Esta empresa ainda não foi cadastrada na Spedy. Fale com o suporte para fazer o cadastro inicial.' });
+    }
+    const environment = config.spedyEnvironment === 'production' ? 'production' : 'sandbox';
+    const masterSnap = await db.collection('plataforma').doc('spedy').get();
+    const masterData = masterSnap.exists ? masterSnap.data() : {};
+    const masterApiKey = environment === 'production' ? masterData.masterApiKeyProducao : masterData.masterApiKeySandbox;
+    if (!masterApiKey) {
+      return res.status(400).json({ error: 'A chave mestra da Spedy ainda não foi configurada pela plataforma. Fale com o suporte.' });
+    }
+
+    const response = await fetch(`${BASE_URLS[environment]}/companies/${config.spedyCompanyId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': masterApiKey },
+      body: JSON.stringify(buildCompanyPayload(config)),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return res.status(response.status).json({
+        error: data.errors?.[0]?.message || data.error || data.title || 'A Spedy não aceitou os dados da empresa. Confira nome, CNPJ, inscrição estadual e endereço em Configurações.'
+      });
+    }
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('[Spedy Empresa Sincronizar]', error);
+    return res.status(500).json({ error: 'Não foi possível atualizar os dados da empresa na Spedy agora. Tente de novo em instantes.' });
   }
 });
 

@@ -29,7 +29,17 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  onSnapshot,
+  query,
+  Timestamp,
+  where,
+  type DocumentData,
+  type FirestoreError,
+  type QuerySnapshot,
+} from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { TabActiveContext, useTabs } from '../../contexts/TabsContext';
@@ -182,6 +192,49 @@ const clampPercentage = (value: number) => {
   return Math.max(0, Math.min(100, Math.round(value)));
 };
 
+/**
+ * Consulta limitada ao periodo (2026-09-30).
+ *
+ * OS, pedidos e orcamentos so' entram nas metricas quando a data cai no
+ * periodo selecionado (hoje / semana / mes). Ate entao a assinatura trazia a
+ * colecao INTEIRA da empresa e filtrava na tela: cada abertura do Dashboard
+ * baixava o historico todo, e o custo (leituras, memoria, tempo de carga)
+ * crescia com os anos de uso. Agora a consulta ja' vem limitada por
+ * `createdAt`. Para pedidos ha' uma folga (MARGEM_DIAS_PEDIDOS): a data da
+ * venda pode ser retroativa em relacao a criacao, nunca meses depois.
+ * `transacoes` continua inteira de proposito -- a data que conta e' a do
+ * pagamento, que pode ficar muito depois da criacao do titulo.
+ *
+ * Precisa do indice composto (tenantId, createdAt) de cada colecao
+ * (firestore.indexes.json). Onde ele ainda nao foi publicado, o Firestore
+ * responde `failed-precondition` e a tela cai na consulta antiga (colecao
+ * inteira) avisando no console -- os numeros continuam certos, so' custam mais.
+ */
+const MARGEM_DIAS_PEDIDOS = 365;
+
+type ColecaoDoPeriodo = 'ordens_de_servico' | 'pedidos_venda' | 'orcamentos';
+
+const assinarColecaoDoPeriodo = (
+  nome: ColecaoDoPeriodo,
+  tenantId: string,
+  inicio: Date,
+  aoReceber: (snapshot: QuerySnapshot<DocumentData>) => void,
+  aoFalhar: (erro: FirestoreError) => void,
+): (() => void) => {
+  const base = collection(db, nome);
+  const completa = query(base, where('tenantId', '==', tenantId));
+  const limitada = query(base, where('tenantId', '==', tenantId), where('createdAt', '>=', Timestamp.fromDate(inicio)));
+  let cancelar = onSnapshot(limitada, aoReceber, (erro) => {
+    if (erro.code === 'failed-precondition') {
+      console.warn(`Dashboard: índice (tenantId, createdAt) de ${nome} ainda não publicado neste projeto; lendo a coleção inteira.`);
+      cancelar = onSnapshot(completa, aoReceber, aoFalhar);
+      return;
+    }
+    aoFalhar(erro);
+  });
+  return () => cancelar();
+};
+
 const periodBucket = (date: Date, period: DashboardPeriod) => {
   const parts = getZonedParts(date, DEFAULT_TIME_ZONE);
   if (period === 'hoje') {
@@ -226,6 +279,14 @@ const Dashboard: React.FC = () => {
   const { currentUser, userPermissions, tenantId, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
   const isTabActive = useContext(TabActiveContext);
   const hasFinancialAccess = isOwner || userPermissions?.includes('dashboard.valores');
+
+  // Inicio do periodo como NUMERO: o relogio (currentDate) muda a cada
+  // segundo, mas este valor so' muda ao virar o dia ou trocar o periodo --
+  // e' o que evita reassinar as consultas do Firestore a cada tique.
+  const inicioDoPeriodoMs = useMemo(
+    () => getDashboardPeriodRange(dashboardPeriod, currentDate, DEFAULT_TIME_ZONE).start.getTime(),
+    [currentDate, dashboardPeriod],
+  );
 
   const newActionOptions = [
     { label: 'Venda', detail: 'Novo pedido de venda', icon: ShoppingCart, route: '/pedidos-venda/novo' },
@@ -275,8 +336,13 @@ const Dashboard: React.FC = () => {
       if (loadedSources >= (hasFinancialAccess ? 5 : 4)) setLoading(false);
     };
 
-    unsubscribes.push(onSnapshot(
-      query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId)),
+    const inicioDoPeriodo = new Date(inicioDoPeriodoMs);
+    const inicioPedidos = new Date(inicioDoPeriodoMs - MARGEM_DIAS_PEDIDOS * 24 * 60 * 60 * 1000);
+
+    unsubscribes.push(assinarColecaoDoPeriodo(
+      'ordens_de_servico',
+      tenantId,
+      inicioDoPeriodo,
       (snapshot) => {
         const data: OSData[] = [];
         snapshot.forEach((docSnap) => data.push({ id: docSnap.id, ...docSnap.data() } as OSData));
@@ -291,8 +357,10 @@ const Dashboard: React.FC = () => {
       }
     ));
 
-    unsubscribes.push(onSnapshot(
-      query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId)),
+    unsubscribes.push(assinarColecaoDoPeriodo(
+      'pedidos_venda',
+      tenantId,
+      inicioPedidos,
       (snapshot) => {
         const data: PedidoVendaData[] = [];
         snapshot.forEach((docSnap) => data.push({ id: docSnap.id, ...docSnap.data() } as PedidoVendaData));
@@ -310,8 +378,10 @@ const Dashboard: React.FC = () => {
       }
     ));
 
-    unsubscribes.push(onSnapshot(
-      query(collection(db, 'orcamentos'), where('tenantId', '==', tenantId)),
+    unsubscribes.push(assinarColecaoDoPeriodo(
+      'orcamentos',
+      tenantId,
+      inicioDoPeriodo,
       (snapshot) => {
         const data: OrcamentoData[] = [];
         snapshot.forEach((docSnap) => data.push({ id: docSnap.id, ...docSnap.data() } as OrcamentoData));
@@ -364,7 +434,7 @@ const Dashboard: React.FC = () => {
     }
 
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [currentUser, tenantId, hasFinancialAccess, vendasVisiveisDeUsuarioId]);
+  }, [currentUser, tenantId, hasFinancialAccess, vendasVisiveisDeUsuarioId, inicioDoPeriodoMs]);
 
   const toggleHideData = () => {
     const newVal = !hideData;

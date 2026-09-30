@@ -245,7 +245,13 @@ test('buildServiceInvoicePayload monta o total, ISS e descricao a partir dos ser
   assert.equal(payload.total.issAmount, 4.5);
   assert.equal(payload.total.issWithheld, false);
   assert.equal(payload.receiver.federalTaxNumber, '12345678900');
-  assert.equal(payload.receiver.address.city.code, '3138906');
+  assert.equal(payload.receiver.address?.city.code, '3138906');
+});
+
+test('buildServiceInvoicePayload sem codigo IBGE do tomador vai sem endereco (nunca com endereco de exemplo)', () => {
+  const payload = buildServiceInvoicePayload(servicosOS, { ...clienteFatura, codigoIbge: '' }, nfseConfig, 'id-3');
+  assert.equal(payload.receiver.address, undefined);
+  assert.equal(payload.receiver.federalTaxNumber, '12345678900');
 });
 
 test('buildServiceInvoicePayload nao inclui location quando o tenant nao configurou cidade', () => {

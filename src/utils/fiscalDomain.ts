@@ -414,7 +414,8 @@ export interface SpedyServiceInvoicePayload {
     name: string;
     federalTaxNumber: string;
     email?: string;
-    address: {
+    /** Sem codigo IBGE da cidade do tomador, vai sem endereco (ver buildServiceInvoicePayload). */
+    address?: {
       street: string;
       number: string;
       district: string;
@@ -478,17 +479,23 @@ export const buildServiceInvoicePayload = (
       name: cliente.nome,
       federalTaxNumber: (cliente.documento || '').replace(/\D/g, ''),
       email: cliente.email || undefined,
-      address: {
-        street: cliente.endereco || '',
-        number: cliente.numero || '',
-        district: cliente.bairro || '',
-        postalCode: (cliente.cep || '').replace(/\D/g, ''),
-        city: {
-          code: cliente.codigoIbge || '',
-          name: cliente.cidade || '',
-          state: cliente.estado || '',
+      // Endereco do tomador so' com o codigo IBGE da cidade. Sem ele, a nota
+      // vai sem endereco (opcional na NFS-e) em vez de campos vazios -- e nunca
+      // mais com o endereco de exemplo de Sao Paulo que o formulario da Nota
+      // Fiscal carregava ate 2026-09-30.
+      ...(cliente.codigoIbge ? {
+        address: {
+          street: cliente.endereco || '',
+          number: cliente.numero || '',
+          district: cliente.bairro || '',
+          postalCode: (cliente.cep || '').replace(/\D/g, ''),
+          city: {
+            code: cliente.codigoIbge,
+            name: cliente.cidade || '',
+            state: cliente.estado || '',
+          },
         },
-      },
+      } : {}),
     },
     total: {
       invoiceAmount,

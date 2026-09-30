@@ -252,14 +252,20 @@ const NFE: React.FC = () => {
     email: '',
     valor: '',
     descricao: '',
-    // Endereço
-    cep: '01001-000',
-    rua: 'Rua Principal',
-    numero: '123',
-    bairro: 'Centro',
-    cidade: 'São Paulo',
-    estado: 'SP',
-    codigoIbge: '3550308',
+    // Endereço: vazio de proposito -- vem SEMPRE do cadastro do cliente.
+    // Ate 2026-09-30 nascia com um endereco de exemplo (Rua Principal, Sao
+    // Paulo/SP, IBGE 3550308) que vazava pra nota de verdade quando o cliente
+    // nao tinha o dado: cliente migrado sem codigo IBGE saia com o municipio de
+    // SAO PAULO e a SEFAZ validava a IE de MG como se fosse de SP (Rejeicao 210
+    // "IE do destinatario invalida", NF-e 000036 da Sol Life). Vazio, a trava de
+    // endereco incompleto (handleEmitir) pega e diz o que corrigir.
+    cep: '',
+    rua: '',
+    numero: '',
+    bairro: '',
+    cidade: '',
+    estado: '',
+    codigoIbge: '',
     // Específico NFS-e
     federalServiceCode: '',
     cityServiceCode: '',
@@ -566,6 +572,15 @@ const NFE: React.FC = () => {
             inscricaoEstadual: c.identidade || '',
             documento: c.documento || prev.documento,
             email: c.email || prev.email,
+            // Endereco tambem: e' o caso tipico de "corrigi o cadastro" (ex.:
+            // cliente migrado sem codigo IBGE da cidade).
+            cep: c.cep || '',
+            rua: c.endereco || '',
+            numero: c.numero || '',
+            bairro: c.bairro || '',
+            cidade: c.cidade || '',
+            estado: c.estado || '',
+            codigoIbge: c.codigoIbge || '',
           }));
         }
       }
@@ -598,13 +613,13 @@ const NFE: React.FC = () => {
         email: '',
         valor: '',
         descricao: '',
-        cep: '01001-000',
-        rua: 'Rua Principal',
-        numero: '123',
-        bairro: 'Centro',
-        cidade: 'São Paulo',
-        estado: 'SP',
-        codigoIbge: '3550308',
+        cep: '',
+        rua: '',
+        numero: '',
+        bairro: '',
+        cidade: '',
+        estado: '',
+        codigoIbge: '',
       }));
       return;
     }
@@ -726,13 +741,16 @@ const NFE: React.FC = () => {
         descricao: cupom
           ? `Lançamento de NF-e decorrente do Cupom Fiscal ref. Pedido #${pedido.numeroPedido}`
           : `Venda Ref. Pedido #${pedido.numeroPedido} - Itens: ${descItens}`,
-        cep: foundClient?.cep || prev.cep,
-        rua: foundClient?.endereco || prev.rua,
-        numero: foundClient?.numero || prev.numero,
-        bairro: foundClient?.bairro || prev.bairro,
-        cidade: foundClient?.cidade || prev.cidade,
-        estado: foundClient?.estado || prev.estado,
-        codigoIbge: foundClient?.codigoIbge || prev.codigoIbge,
+        // So' o endereco DESTE cliente -- sem cair no que o formulario ja tinha
+        // (exemplo ou o cliente do pedido anterior). Faltou dado? A trava de
+        // endereco incompleto avisa na hora de transmitir.
+        cep: foundClient?.cep || '',
+        rua: foundClient?.endereco || '',
+        numero: foundClient?.numero || '',
+        bairro: foundClient?.bairro || '',
+        cidade: foundClient?.cidade || '',
+        estado: foundClient?.estado || '',
+        codigoIbge: foundClient?.codigoIbge || '',
       }));
 
       Swal.close();
@@ -822,13 +840,13 @@ const NFE: React.FC = () => {
         email: '',
         valor: '',
         descricao: '',
-        cep: '01001-000',
-        rua: 'Rua Principal',
-        numero: '123',
-        bairro: 'Centro',
-        cidade: 'São Paulo',
-        estado: 'SP',
-        codigoIbge: '3550308',
+        cep: '',
+        rua: '',
+        numero: '',
+        bairro: '',
+        cidade: '',
+        estado: '',
+        codigoIbge: '',
       }));
       return;
     }
@@ -854,13 +872,16 @@ const NFE: React.FC = () => {
       federalServiceCode: nfseConfig.codigoServicoFederal || prev.federalServiceCode,
       cityServiceCode: nfseConfig.codigoServicoMunicipal || prev.cityServiceCode,
       issRate: nfseConfig.aliquotaIssPadrao !== undefined ? String(nfseConfig.aliquotaIssPadrao) : prev.issRate,
-      cep: foundClient?.cep || prev.cep,
-      rua: foundClient?.endereco || prev.rua,
-      numero: foundClient?.numero || prev.numero,
-      bairro: foundClient?.bairro || prev.bairro,
-      cidade: foundClient?.cidade || prev.cidade,
-      estado: foundClient?.estado || prev.estado,
-      codigoIbge: foundClient?.codigoIbge || prev.codigoIbge,
+      // So' o endereco DESTE cliente -- sem cair no que o formulario ja tinha
+      // (exemplo ou o cliente do pedido anterior). Faltou dado? A trava de
+      // endereco incompleto avisa na hora de transmitir.
+      cep: foundClient?.cep || '',
+      rua: foundClient?.endereco || '',
+      numero: foundClient?.numero || '',
+      bairro: foundClient?.bairro || '',
+      cidade: foundClient?.cidade || '',
+      estado: foundClient?.estado || '',
+      codigoIbge: foundClient?.codigoIbge || '',
     }));
   };
 
@@ -1414,7 +1435,9 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
       if (camposEnderecoFaltando.length > 0) {
         showError(
           'Endereço do cliente incompleto',
-          `Falta ${camposEnderecoFaltando.join(', ')} no endereço de "${formData.clienteNome}" para emitir a NF-e. Edite o cadastro deste cliente em Clientes e preencha o endereço completo antes de emitir -- sem isso a Spedy rejeita a nota (SPD003).`
+          `Falta ${camposEnderecoFaltando.join(', ')} no endereço de "${formData.clienteNome}" para emitir a NF-e. `
+            + 'Abra o cadastro deste cliente em Clientes, digite o CEP e saia do campo (rua, bairro, cidade, UF e o código IBGE são preenchidos sozinhos), complete o número e salve. '
+            + (formData.clienteId ? 'Depois, aqui na nota, clique em "Atualizar dados do cadastro" (aba de produtos) e transmita de novo.' : 'Depois, escolha o cliente de novo aqui na nota.')
         );
         return;
       }
@@ -2561,13 +2584,13 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
                                   documento: c.documento,
                                   inscricaoEstadual: c.identidade || '',
                                   email: c.email,
-                                  rua: c.endereco || formData.rua,
-                                  numero: c.numero || formData.numero,
-                                  bairro: c.bairro || formData.bairro,
-                                  cep: c.cep || formData.cep,
-                                  cidade: c.cidade || formData.cidade,
-                                  estado: c.estado || formData.estado,
-                                  codigoIbge: c.codigoIbge || formData.codigoIbge
+                                  rua: c.endereco || '',
+                                  numero: c.numero || '',
+                                  bairro: c.bairro || '',
+                                  cep: c.cep || '',
+                                  cidade: c.cidade || '',
+                                  estado: c.estado || '',
+                                  codigoIbge: c.codigoIbge || ''
                                 });
                                 setIsClientDropdownOpen(false);
                               }}
@@ -2688,7 +2711,7 @@ Depois do prazo de cancelamento, a nota não pode mais ser cancelada. Para desfa
                         {atualizandoCadastro ? 'Atualizando...' : 'Atualizar dados do cadastro'}
                       </button>
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Corrigiu o NCM ou a IE no cadastro? Isto puxa de novo (e apaga o que foi digitado à mão aqui).
+                        Corrigiu o NCM, a IE ou o endereço no cadastro? Isto puxa de novo (e apaga o que foi digitado à mão aqui).
                       </span>
                     </div>
                   )}

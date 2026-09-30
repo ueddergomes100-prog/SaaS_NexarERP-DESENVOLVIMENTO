@@ -79,7 +79,13 @@ service cloud.firestore {
         'limites',
         'statusSaas',
         'billingStatus',
-        'trialEndsAt'
+        'trialEndsAt',
+        // Id da empresa na Spedy (auditoria de 2026-09-29). O servidor usa a
+        // chave MESTRA da plataforma nesse id (PUT /api/spedy/numbering, GET
+        // /requisitos) -- se o Admin da empresa pudesse trocar, apontaria pra
+        // empresa de OUTRO cliente e mexeria na numeracao/ambiente fiscal
+        // dela. So' o servidor grava (Admin SDK, ver spedyCompanies.routes.js).
+        'spedyCompanyId'
       ];
     }
 
@@ -176,7 +182,10 @@ service cloud.firestore {
         (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
         (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
         (collectionName == 'bandeiras_cartao' && hasPermission('cadastros.bandeiras_cartao')) ||
-        (collectionName == 'bancos' && hasAnyPermission(['cadastros.bancos', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'financeiro.banco', 'financeiro.cheques', 'financeiro.receber', 'financeiro.pagar', 'estoque.nota_avulsa'])) ||
+        // Banco: cadastro (agencia, conta, convenio do boleto) so' com a
+        // permissao do cadastro. Venda, OS, baixa etc. mexem SO' no saldo --
+        // ver canMoveBankBalance().
+        (collectionName == 'bancos' && hasPermission('cadastros.bancos')) ||
         (collectionName == 'lancamentos_bancarios' && hasPermission('cadastros.bancos')) ||
         (collectionName == 'ordens_de_servico' && hasAnyPermission(['mecanica.os', 'mecanica.os_alterar'])) ||
         // vendas.pedidos_pendentes_editar cobre tanto editar/finalizar quanto
@@ -254,9 +263,36 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'quantidadeReservada', 'updatedAt']) &&
         hasAnyPermission([
           'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar', 'estoque.ajusteManual',
-          'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar',
-          // Emissao de boleto consome a sequencia do nosso numero e a da remessa.
-          'financeiro.boletos'
+          'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar'
+          // 'financeiro.boletos' SAIU daqui (2026-09-29): tinha entrado por
+          // engano -- o comentario dizia "boleto consome a sequencia do nosso
+          // numero", que e' canConsumeTenantSequence(), e nao o estoque. Com
+          // ela aqui, quem so' emitia boleto conseguia mudar quantidade de
+          // produto, e continuava sem conseguir emitir boleto.
+        ]);
+    }
+
+    // Movimento de SALDO do banco (2026-09-29). Venda, OS, baixa de titulo,
+    // cheque, boleto, nota avulsa, entrada de NF-e e devolucao so' somam ou
+    // tiram do saldo. Antes, essas permissoes gravavam o banco INTEIRO --
+    // agencia, conta, o convenio do boleto (codigo do cliente, proximo nosso
+    // numero) -- entao um vendedor com o DevTools aberto trocava a conta de
+    // destino do boleto. O cadastro do banco ficou so' com cadastros.bancos.
+    // A lista abaixo e' a antiga (sem cadastros.bancos) MAIS as telas que ja
+    // mexiam no saldo sem constar dela (boleto, entrada de NF-e, devolucao,
+    // alterar/cancelar venda, finalizar pre-venda, estorno) -- quem so' tinha
+    // essas permissoes batia em "Missing or insufficient permissions".
+    function canMoveBankBalance() {
+      return hasProfile() &&
+        resource.data.tenantId == currentTenantId() &&
+        request.resource.data.tenantId == resource.data.tenantId &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['saldoCentavos', 'updatedAt'].concat(documentAuditFields())) &&
+        hasAnyPermission([
+          'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'vendas.devolucao', 'vendas.pre_venda_finalizar',
+          'mecanica.os', 'mecanica.os_alterar',
+          'financeiro.banco', 'financeiro.cheques', 'financeiro.receber', 'financeiro.pagar', 'financeiro.boletos', 'financeiro.estornar',
+          'estoque.nota_avulsa', 'fiscal.entrada'
         ]);
     }
 
@@ -412,9 +448,19 @@ service cloud.firestore {
     match /usernames/{username} {
       allow get: if true;
       allow list: if isSuperAdmin();
-      allow create, update: if isSuperAdmin() ||
+      allow create: if isSuperAdmin() ||
         (
           isTenantAdmin() &&
+          request.resource.data.tenantId == currentTenantId()
+        );
+      // Sobrescrever so' o indice da PROPRIA empresa (2026-09-29). Antes o
+      // update so' olhava o dado novo: o Admin de uma empresa regravava o
+      // login de um funcionario de OUTRA empresa apontando pra outro e-mail,
+      // e esse funcionario nao entrava mais no sistema.
+      allow update: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          resource.data.tenantId == currentTenantId() &&
           request.resource.data.tenantId == currentTenantId()
         );
       // Mesmo motivo do /usuarios acima -- so SuperAdmin (usado no wipe de
@@ -431,9 +477,16 @@ service cloud.firestore {
     // em VendedoresList.tsx.
     match /vendedores_mobile_login/{chave} {
       allow get, list: if isSuperAdmin();
-      allow create, update: if isSuperAdmin() ||
+      allow create: if isSuperAdmin() ||
         (
           isTenantAdmin() &&
+          request.resource.data.tenantId == currentTenantId()
+        );
+      // Mesmo motivo do /usernames: so' regrava o indice da propria empresa.
+      allow update: if isSuperAdmin() ||
+        (
+          isTenantAdmin() &&
+          resource.data.tenantId == currentTenantId() &&
           request.resource.data.tenantId == currentTenantId()
         );
       allow delete: if isSuperAdmin() ||
@@ -497,7 +550,11 @@ service cloud.firestore {
           'mecanica.os', 'vendas.pedidos', 'vendas.orcamentos', 'operacoes.producao', 'estoque.nota_avulsa',
           // Quem cria pre-venda consome a sequencia do pedido (o pedido em si ja'
           // aceitava essas permissoes -- faltava aqui).
-          'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar'
+          'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar',
+          // Emitir boleto e gerar remessa consomem as sequencias do nosso numero
+          // e da remessa (boleto_nosso_numero_*, boleto_remessa_*). Estava, por
+          // engano, em canAdjustStockQuantity (2026-09-29).
+          'financeiro.boletos'
         ]);
     }
 
@@ -514,18 +571,31 @@ service cloud.firestore {
       // F5 deles. Pode fechar (trocar por isSuperAdmin) depois que todo
       // mundo tiver recarregado.
       allow read: if canAccessTenant(tenantId);
-      allow create, update: if canAccessTenant(tenantId) &&
-        request.resource.data.tenantId == tenantId &&
-        canConsumeTenantSequence();
+      // FECHADO em 2026-09-29, como o comentario acima previa: o codigo novo
+      // nunca mais escreve aqui desde 2026-08-30 e a tela recarrega todo dia
+      // (VerificadorDataDoSistema). Aberto, deixava qualquer vendedor subir o
+      // campo legado -- que a transacao usa como piso -- e pular a numeracao.
+      allow create, update: if isSuperAdmin();
       allow delete: if isSuperAdmin();
 
       // Uma sequencia por documento, para emitir OS nao disputar o mesmo
       // documento de quem esta fechando venda. Ver firestoreAtomic.ts.
       match /sequencias/{sequenceKey} {
         allow read: if canAccessTenant(tenantId);
-        allow create, update: if canAccessTenant(tenantId) &&
+        allow create: if canAccessTenant(tenantId) &&
           request.resource.data.tenantId == tenantId &&
           canConsumeTenantSequence();
+        // Numeracao so' anda pra FRENTE (2026-09-29): a transacao sempre grava
+        // max(atual, legado, piso) + 1. Voltar o contador pelo DevTools repetiria
+        // numero de pedido, OS e -- pior -- NOSSO NUMERO de boleto (dois
+        // boletos com o mesmo numero no banco = pagamento baixado no titulo errado).
+        allow update: if canAccessTenant(tenantId) &&
+          request.resource.data.tenantId == tenantId &&
+          canConsumeTenantSequence() &&
+          (
+            !(resource.data.valor is number) ||
+            (request.resource.data.valor is number && request.resource.data.valor > resource.data.valor)
+          );
         allow delete: if isSuperAdmin();
       }
     }
@@ -558,11 +628,25 @@ service cloud.firestore {
     }
 
     match /empresas/{tenantId}/logs/{logId} {
-      allow create: if canAccessTenant(tenantId);
-      allow read, delete: if isSuperAdmin() ||
+      // Log sai sempre no nome de quem esta logado (2026-09-29): antes qualquer
+      // usuario gravava log com o usuarioId de um colega e a auditoria passava
+      // a acusar outra pessoa. O servidor grava pelos proprios meios (Admin SDK).
+      allow create: if canAccessTenant(tenantId) &&
+        (isSuperAdmin() || request.resource.data.usuarioId == request.auth.uid);
+      allow read: if isSuperAdmin() ||
         (
           canAccessTenant(tenantId) &&
           (isTenantAdmin() || hasPermission('administrativo.logs'))
+        );
+      // Apagar so' o que a limpeza automatica apaga (runLogsCleanup: log comum
+      // com mais de 6 meses). Antes, quem via os logs apagava QUALQUER um --
+      // inclusive o registro critico de uma exclusao, logo depois de fazer.
+      allow delete: if isSuperAdmin() ||
+        (
+          canAccessTenant(tenantId) &&
+          (isTenantAdmin() || hasPermission('administrativo.logs')) &&
+          resource.data.critical == false &&
+          resource.data.dataHora < request.time - duration.value(170, 'd')
         );
       allow update: if false;
     }
@@ -726,11 +810,18 @@ service cloud.firestore {
         'caixas_pdv',
         'notas_avulsas'
       ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && (
-        canWriteTenantCollection(collectionName) ||
+        // Os movimentos de SALDO vem PRIMEIRO de proposito (2026-09-29): sao
+        // as escritas mais comuns (toda venda mexe em estoque e banco) e as
+        // mais baratas de conferir. O Firestore para de avaliar a regra depois
+        // de 1000 expressoes e NEGA -- com canWriteTenantCollection na frente,
+        // o estorno de uma venda em banco inativo passava desse limite
+        // (medido no simulador de regras) e a venda nao cancelava.
         (collectionName == 'estoque' && canAdjustStockQuantity()) ||
+        (collectionName == 'bancos' && canMoveBankBalance()) ||
         (collectionName == 'estoque_lotes' && canAdjustLoteQuantity()) ||
         (collectionName == 'materias_primas' && canAdjustMateriaPrimaQuantity()) ||
-        (collectionName == 'pedidos_venda' && canCloseConferenciaOnPedido())
+        (collectionName == 'pedidos_venda' && canCloseConferenciaOnPedido()) ||
+        canWriteTenantCollection(collectionName)
       );
 
       allow delete: if collectionName in [

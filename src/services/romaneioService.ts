@@ -128,7 +128,7 @@ export const carregarPedidosParaRomaneio = async (
       const ocupado = trava && trava.situacao !== 'liberado' && trava.romaneioId !== romaneioId;
       return {
         ...montarEntregaDoPedido(p, clientes.get(String(p.clienteId || '')) || null, notas.get(p.id) || null),
-        emOutraRota: ocupado ? (trava!.situacao === 'entregue' ? `já entregue (${trava!.titulo})` : trava!.titulo) : '',
+        emOutraRota: ocupado ? (trava!.situacao === 'entregue' ? `Já entregue na ${trava!.titulo}` : `Já está na ${trava!.titulo}`) : '',
       };
     })
     .sort((a, b) => b.dataVenda.localeCompare(a.dataVenda) || b.numeroPedido.localeCompare(a.numeroPedido, 'pt-BR', { numeric: true }));

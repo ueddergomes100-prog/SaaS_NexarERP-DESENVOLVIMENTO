@@ -742,7 +742,7 @@ const AdicionarPedidosModal: React.FC<{
                   <td style={{ padding: '8px' }}>{p.notaNumero || 'S/N'}</td>
                   <td style={{ padding: '8px' }}>
                     {p.clienteNome}
-                    {p.emOutraRota && <div style={{ fontSize: '12px', color: '#f59e0b' }}>Já está na {p.emOutraRota}</div>}
+                    {p.emOutraRota && <div style={{ fontSize: '12px', color: '#f59e0b' }}>{p.emOutraRota}</div>}
                   </td>
                   <td style={{ padding: '8px' }}>{p.cidade || '—'}</td>
                   <td style={{ padding: '8px' }}>{p.vendedorNome || '—'}</td>

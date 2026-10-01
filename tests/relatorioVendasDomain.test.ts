@@ -71,3 +71,20 @@ test('resumo por vendedor: agrupa, soma, calcula ticket médio e ordena pela rec
   assert.equal(totais.netCents, 79200);
   assert.equal(totais.averageCents, 26400);
 });
+
+test('itens vendidos por vendedor: soma as quantidades (KG fracionado sem erro de arredondamento); venda cancelada não conta', () => {
+  const vendas = enriquecerVendas({
+    sales: [
+      { id: 'a', vendedorId: 'v1', vendedorNome: 'ANA', status: 'Finalizada', valorTotal: 30, itens: [{ quantidade: 2 }, { quantidade: 0.1 }, { quantidade: 0.2 }] },
+      { id: 'b', vendedorId: 'v1', vendedorNome: 'ANA', status: 'Finalizada', valorTotal: 10, itens: [{ quantidade: 3 }] },
+      { id: 'c', vendedorId: 'v1', vendedorNome: 'ANA', status: 'Cancelada', valorTotal: 10, itens: [{ quantidade: 9 }] },
+      { id: 'd', vendedorId: 'v2', vendedorNome: 'BIA', status: 'Finalizada', valorTotal: 5 },
+    ],
+    transactions: [], users: {}, products: {}, returns: [],
+  });
+  assert.equal(vendas[0].itemsQuantity, 2.3);
+  assert.equal(vendas[2].itemsQuantity, 0);
+  const resumo = resumoPorVendedor(vendas);
+  assert.equal(resumo.find((r) => r.id === 'v1')?.items, 5.3);
+  assert.equal(resumo.find((r) => r.id === 'v2')?.items, 0);
+});

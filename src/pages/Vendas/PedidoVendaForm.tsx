@@ -1386,12 +1386,30 @@ const PedidoVendaForm: React.FC = () => {
     let precoFinal = produtoPreco > 0 ? produtoPreco : 0;
     let camposPreco: ReturnType<typeof camposDePreco>['campos'] | null = null;
     let avisoPromocao: string | undefined;
+    // PRECO ABAIXO DA TABELA = DESCONTO (2026-10-01, pedido urgente do dono).
+    // Baixar o valor no campo "Preco" antes de adicionar driblava a hierarquia
+    // de desconto (limite do produto > limite da empresa > senha): o item
+    // entrava mais barato sem desconto nenhum registrado. Agora o item fica no
+    // preco de tabela e a diferenca vira DESCONTO do item -- passa pelas mesmas
+    // travas e aparece no relatorio de descontos. Subir o preco continua livre.
+    let descontoPorPrecoCents = 0;
     if (produtoEncontrado) {
       const conferida = conferirQuotaDaPromocao(produtoEncontrado, tabelaDoItemDoCatalogo(produtoEncontrado, opcaoUnidade), quantidadeBase);
       avisoPromocao = conferida.aviso;
       // Promocao que saiu pela quota: o campo mostrava o preco promocional, entao
       // o valor dele nao e' "digitado" -- vale o automatico sem a promocao.
-      const resultado = camposDePreco(conferida.tabela, conferida.aviso ? undefined : (produtoPreco > 0 ? produtoPreco : undefined));
+      const digitado = conferida.aviso ? undefined : (produtoPreco > 0 ? produtoPreco : undefined);
+      const precoTabela = precoAutomatico(conferida.tabela, condicaoPagamento).preco;
+      const abaixoDaTabela = digitado !== undefined && digitado < precoTabela - 0.0001;
+      if (abaixoDaTabela && !permitirDescontoPorItem) {
+        showError(
+          'Preço abaixo da tabela',
+          `O preço de ${produtoEncontrado.nome} é R$ ${precoTabela.toFixed(2).replace('.', ',')}. O desconto por item está desligado em Configurações, então o preço não pode ficar abaixo disso. Use o desconto geral da venda.`,
+        );
+        return;
+      }
+      if (abaixoDaTabela) descontoPorPrecoCents = toCents((precoTabela - (digitado as number)) * qtdNum);
+      const resultado = camposDePreco(conferida.tabela, abaixoDaTabela ? undefined : digitado);
       precoFinal = resultado.preco;
       camposPreco = resultado.campos;
     }
@@ -1400,9 +1418,11 @@ const PedidoVendaForm: React.FC = () => {
     // escondido: senao um valor que ficou no estado (digitado antes de o dono
     // desligar a opcao, que muda ao vivo) entraria na venda com o campo
     // invisivel na tela -- desconto que ninguem consegue ver nem conferir.
-    const descontoItemCents = permitirDescontoPorItem
-      ? calcularDescontoCents(produtoDescontoInput.tipo, produtoDescontoInput.valor, precoCheioCents)
-      : 0;
+    const descontoItemCents = Math.min(
+      precoCheioCents,
+      (permitirDescontoPorItem ? calcularDescontoCents(produtoDescontoInput.tipo, produtoDescontoInput.valor, precoCheioCents) : 0)
+        + descontoPorPrecoCents,
+    );
 
     // Nivel 1 (produto): se o PRODUTO define seu proprio limite de desconto,
     // ele e' o piso -- sempre bloqueia, independente do modo configurado no
@@ -1636,10 +1656,32 @@ const PedidoVendaForm: React.FC = () => {
           return false;
         }
 
+        // Preco ABAIXO da tabela vira desconto do item (mesma regra do
+        // lancamento, 2026-10-01): o item fica no preco de tabela e a diferenca
+        // soma no desconto, que passa pelos limites abaixo. So' quando o preco
+        // foi mexido aqui -- editar so' a quantidade nao reavalia o preco.
+        const precoMexido = Math.abs(novoPreco - item.precoUnitario) > 0.0001;
+        const precoTabela = item.tabelaPreco
+          ? precoAutomatico(item.tabelaPreco, condicaoPagamento).preco
+          : (produtoCatalogo ? precoSugerido(produtoCatalogo, opcaoItem) : item.precoUnitario);
+        const abaixoDaTabela = precoMexido && novoPreco < precoTabela - 0.0001;
+        if (abaixoDaTabela && !permitirDescontoPorItem) {
+          NexusSwal.showValidationMessage(`O preço de tabela é R$ ${precoTabela.toFixed(2).replace('.', ',')} e o desconto por item está desligado em Configurações: o preço não pode ficar abaixo disso.`);
+          return false;
+        }
+        const precoEfetivo = abaixoDaTabela ? precoTabela : novoPreco;
+        const descontoNovo = abaixoDaTabela
+          ? fromCents(toCents(item.desconto) + toCents((precoTabela - novoPreco) * novaQtd))
+          : item.desconto;
+
         // O desconto do item e' em R$ e fica como esta; o que muda e' o valor
         // cheio (preco x quantidade), entao o limite e' conferido de novo.
-        const precoCheioCents = toCents(novoPreco * novaQtd);
-        const descontoCents = toCents(item.desconto);
+        const precoCheioCents = toCents(precoEfetivo * novaQtd);
+        const descontoCents = toCents(descontoNovo);
+        if (descontoCents > precoCheioCents) {
+          NexusSwal.showValidationMessage('O desconto ficou maior que o valor do item. Confira o preço digitado.');
+          return false;
+        }
         if (descontoCents > 0) {
           if (produtoCatalogo && excedeLimiteItem(produtoCatalogo, descontoCents, precoCheioCents)) {
             NexusSwal.showValidationMessage(`${produtoCatalogo.nome} aceita no máximo ${produtoCatalogo.descontoMaximoPercentual}% de desconto, definido no próprio cadastro. Reduza o desconto do item ou aumente o valor.`);
@@ -1651,16 +1693,17 @@ const PedidoVendaForm: React.FC = () => {
             return false;
           }
         }
-        return { novaQtd, novoPreco, novaQtdBase };
+        return { novaQtd, novoPreco: precoEfetivo, novaQtdBase, descontoNovo };
       },
     });
     if (!result.isConfirmed || !result.value) return;
 
-    const { novaQtd, novoPreco, novaQtdBase } = result.value as { novaQtd: number; novoPreco: number; novaQtdBase: number };
+    const { novaQtd, novoPreco, novaQtdBase, descontoNovo } = result.value as { novaQtd: number; novoPreco: number; novaQtdBase: number; descontoNovo: number };
     let atualizado: ItemVenda = {
       ...item,
       quantidade: novaQtd,
       precoUnitario: novoPreco,
+      desconto: descontoNovo,
       ...(item.embalagemId ? { quantidadeBase: novaQtdBase } : {}),
     };
     let avisoQuota: string | undefined;
@@ -1680,7 +1723,7 @@ const PedidoVendaForm: React.FC = () => {
       void _promocaoAnterior; void _nomeAnterior;
       atualizado = { ...semPromocao, ...campos, precoUnitario: preco };
     }
-    atualizado = { ...atualizado, subtotal: Math.max(0, atualizado.precoUnitario * novaQtd - item.desconto) };
+    atualizado = { ...atualizado, subtotal: Math.max(0, atualizado.precoUnitario * novaQtd - descontoNovo) };
     setItens((current) => current.map((it, idx) => (idx === index ? atualizado : it)));
     if (avisoQuota) showWarning(avisoQuota);
   };

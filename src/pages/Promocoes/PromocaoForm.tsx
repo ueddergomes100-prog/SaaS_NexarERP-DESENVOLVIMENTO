@@ -84,6 +84,9 @@ const PromocaoForm: React.FC = () => {
   const [carregando, setCarregando] = useState(Boolean(id));
   const [salvando, setSalvando] = useState(false);
   const [busca, setBusca] = useState('');
+  // O autocomplete trava depois de escolher (padrao do pedido); aqui cada escolha
+  // ja' vira item, entao o campo e' recriado limpo para a proxima busca.
+  const [chaveBusca, setChaveBusca] = useState(0);
   const [vendido, setVendido] = useState<Record<string, number>>({});
   const [lote, setLote] = useState<{ campo: 'categoria' | 'marca' | 'fornecedor'; valor: string }>({ campo: 'categoria', valor: '' });
   const [paraTodos, setParaTodos] = useState<{ tipo: TipoPrecoPromocao; valor: string; quota: string }>({ tipo: 'percentual', valor: '', quota: '' });
@@ -278,10 +281,11 @@ const PromocaoForm: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <span style={estiloRotulo}>Adicionar um produto</span>
             <ProductAutocomplete
+              key={chaveBusca}
               value={busca}
               onChange={setBusca}
               products={produtos}
-              onSelect={(p) => { adicionar([p]); setBusca(''); }}
+              onSelect={(p) => { adicionar([p]); setBusca(''); setChaveBusca((k) => k + 1); }}
               placeholder="Nome, código ou código de barras (# lista tudo)"
               ariaLabel="Buscar produto para a promoção"
               renderItem={(p) => (

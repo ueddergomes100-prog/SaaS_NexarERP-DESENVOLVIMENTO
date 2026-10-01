@@ -47,6 +47,8 @@ export interface VendaRelatorio {
   commissionCents: number;
   commissionStatus: string;
   cancelled: boolean;
+  /** Soma das quantidades dos itens da venda (na unidade vendida); 0 se cancelada. */
+  itemsQuantity: number;
 }
 
 export interface TotaisVendas {
@@ -80,6 +82,8 @@ export interface ResumoVendedor {
   returnedCents: number;
   averageCents: number;
   payments: Record<string, number>;
+  /** Quantos itens o vendedor vendeu (soma das quantidades, vendas nao canceladas). */
+  items: number;
 }
 
 export const VENDEDOR_NAO_IDENTIFICADO = 'nao_identificado';
@@ -170,6 +174,10 @@ export const enriquecerVendas = (data: DadosRelatorioVendas): VendaRelatorio[] =
     const financialNetCents = cancelled ? 0 : Math.max(0, netCents - cardFeeCents);
     const commissionCents = cancelled ? 0 : Number(sale.comissao?.valorAtualCentavos ?? toCents(sale.comissao?.valorAtual));
     const commissionStatus = sale.comissao?.status || 'legado_sem_snapshot';
+    // Itens vendidos (2026-10-01, pedido do dono): soma das quantidades, na unidade em
+    // que cada item foi vendido. Arredonda em 3 casas pra soma de KG nao virar 0,30000000004.
+    const itemsQuantity = cancelled ? 0 : Math.round((Array.isArray(sale.itens) ? sale.itens : [])
+      .reduce((soma: number, item: any) => soma + (Number(item?.quantidade) || 0), 0) * 1000) / 1000;
 
     return {
       ...sale,
@@ -191,6 +199,7 @@ export const enriquecerVendas = (data: DadosRelatorioVendas): VendaRelatorio[] =
       commissionCents,
       commissionStatus,
       cancelled,
+      itemsQuantity,
     };
   });
 };
@@ -239,6 +248,7 @@ export const resumoPorVendedor = (vendas: VendaRelatorio[]): ResumoVendedor[] =>
       returnedCents: 0,
       averageCents: 0,
       payments: {},
+      items: 0,
     };
     if (sale.cancelled) {
       current.cancellations += 1;
@@ -253,6 +263,7 @@ export const resumoPorVendedor = (vendas: VendaRelatorio[]): ResumoVendedor[] =>
       current.financialNetCents += sale.financialNetCents;
       current.commissionCents += sale.commissionCents;
       current.returnedCents += sale.returnedCents;
+      current.items = Math.round((current.items + (Number(sale.itemsQuantity) || 0)) * 1000) / 1000;
       sale.payments.forEach((payment: any) => {
         const method = payment.formaPagamento || 'Não informado';
         current.payments[method] = (current.payments[method] || 0) + Number(payment.valorCentavos ?? toCents(payment.valor));

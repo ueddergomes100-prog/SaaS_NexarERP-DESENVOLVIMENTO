@@ -48,6 +48,8 @@ export const colunasVendas = (opcoes: { vendedorPadrao?: boolean } = {}): Coluna
 export const colunasResumoVendedor = (): ColunaRelatorio<ResumoVendedor>[] => [
   { id: 'vendedor', titulo: 'Vendedor', tipo: 'texto', largura: 28, valor: (s) => s.name },
   { id: 'vendas', titulo: 'Vendas', tipo: 'inteiro', valor: (s) => s.sales },
+  // Quantidade de itens vendidos (2026-10-01, pedido do dono), marcavel como as outras colunas.
+  { id: 'itens', titulo: 'Itens vendidos', tipo: 'inteiro', valor: (s) => s.items },
   { id: 'bruto', titulo: 'Bruto', tipo: 'moeda', valor: (s) => s.grossCents },
   { id: 'descontos', titulo: 'Descontos', tipo: 'moeda', valor: (s) => s.discountCents },
   { id: 'canceladas', titulo: 'Cancel.', tipo: 'inteiro', padrao: false, valor: (s) => s.cancellations },

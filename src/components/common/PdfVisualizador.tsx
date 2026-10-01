@@ -13,9 +13,12 @@ interface PdfVisualizadorProps {
   nomeArquivo: string;
   pdf: Blob;
   onFechar: () => void;
+  /** Abre a janela de impressao assim que o PDF carrega (ex: "Imprimir as emitidas" do lote). */
+  imprimirAoAbrir?: boolean;
 }
 
-const PdfVisualizador: React.FC<PdfVisualizadorProps> = ({ titulo, nomeArquivo, pdf, onFechar }) => {
+const PdfVisualizador: React.FC<PdfVisualizadorProps> = ({ titulo, nomeArquivo, pdf, onFechar, imprimirAoAbrir = false }) => {
+  const jaImprimiu = useRef(false);
   const quadro = useRef<HTMLIFrameElement>(null);
   const endereco = useMemo(() => URL.createObjectURL(pdf), [pdf]);
 
@@ -51,7 +54,17 @@ const PdfVisualizador: React.FC<PdfVisualizadorProps> = ({ titulo, nomeArquivo, 
           <button type="button" className="btn-secondary" onClick={onFechar} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><X size={16} /> Fechar</button>
         </div>
       </div>
-      <iframe ref={quadro} src={endereco} title={titulo} style={{ flex: 1, width: '100%', border: 'none', borderRadius: '8px', backgroundColor: '#fff' }} />
+      <iframe
+        ref={quadro}
+        src={endereco}
+        title={titulo}
+        onLoad={() => {
+          if (!imprimirAoAbrir || jaImprimiu.current) return;
+          jaImprimiu.current = true;
+          // Um respiro pro leitor de PDF do navegador terminar de desenhar a pagina.
+          setTimeout(imprimir, 300);
+        }}
+        style={{ flex: 1, width: '100%', border: 'none', borderRadius: '8px', backgroundColor: '#fff' }} />
     </div>
   );
 };

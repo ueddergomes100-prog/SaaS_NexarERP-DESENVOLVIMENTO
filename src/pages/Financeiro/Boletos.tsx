@@ -18,8 +18,11 @@ import PdfVisualizador from '../../components/common/PdfVisualizador';
 import {
   erroDoConvenioBoleto,
   lerArquivoRetornoSicoob,
+  faturadoNoPeriodo,
+  ROTULO_PERIODO_FATURAMENTO,
   ROTULO_STATUS_BOLETO,
   statusBoletoEfetivo,
+  type PeriodoFaturamento,
   type StatusBoletoEfetivo,
 } from '../../utils/boletoEmissaoDomain';
 import { mensagensDoBoleto, montarRemessaSicoob, nomeArquivoRemessaSicoob, type TituloRemessaSicoob } from '../../utils/boletoRemessaSicoobDomain';
@@ -74,6 +77,8 @@ interface TituloBoleto {
   osId?: string;
   paymentIndex?: number;
   boleto?: BoletoDetails;
+  /** Dia em que o titulo nasceu (faturamento da venda/OS), AAAA-MM-DD; vazio em lancamento antigo. */
+  faturadoEm: string;
 }
 
 type Aba = 'aguardando' | 'emitidos' | 'remessa' | 'pagos' | 'vencidos';
@@ -101,6 +106,9 @@ const Boletos: React.FC = () => {
   const [aba, setAba] = useState<Aba>('aguardando');
   const [ordemNumero, inverterOrdemNumero] = useOrdemNumero('boletos.ordemNumero');
   const [busca, setBusca] = useState('');
+  const [periodoFaturamento, setPeriodoFaturamento] = useState<PeriodoFaturamento>('todos');
+  const [faturadoDe, setFaturadoDe] = useState('');
+  const [faturadoAte, setFaturadoAte] = useState('');
   const [processando, setProcessando] = useState(false);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const inputRetornoRef = useRef<HTMLInputElement>(null);
@@ -136,6 +144,7 @@ const Boletos: React.FC = () => {
           osId: data.osId || '',
           paymentIndex: data.paymentIndex,
           boleto: data.boleto || undefined,
+          faturadoEm: data.createdAt?.toDate ? getDateInputInTimeZone(data.createdAt.toDate()) : '',
         } as TituloBoleto;
       });
       setTitulos(dados);
@@ -166,7 +175,10 @@ const Boletos: React.FC = () => {
       || (t.descricao || '').toLowerCase().includes(termo)
       || (t.boleto?.nossoNumero || '').includes(termo);
 
-    const visiveis = titulos.filter((t) => t.status !== 'Cancelada').filter(filtraBusca);
+    const visiveis = titulos
+      .filter((t) => t.status !== 'Cancelada')
+      .filter(filtraBusca)
+      .filter((t) => faturadoNoPeriodo(t.faturadoEm, periodoFaturamento, { de: faturadoDe, ate: faturadoAte }));
     const efetivo = (t: TituloBoleto): StatusBoletoEfetivo | 'aguardando' => (
       t.boleto ? statusBoletoEfetivo(t.boleto) : 'aguardando'
     );
@@ -178,7 +190,7 @@ const Boletos: React.FC = () => {
       pagos: visiveis.filter((t) => efetivo(t) === 'pago'),
       vencidos: visiveis.filter((t) => efetivo(t) === 'vencido'),
     } as Record<Aba, TituloBoleto[]>;
-  }, [titulos, busca]);
+  }, [titulos, busca, periodoFaturamento, faturadoDe, faturadoAte]);
 
   // Ordem pelo NOSSO NUMERO (a numeracao do boleto), crescente por padrao -- pedido do
   // dono (2026-09-30). Titulo ainda sem boleto (aba Aguardando): pelo numero da venda
@@ -923,6 +935,28 @@ const Boletos: React.FC = () => {
             placeholder="Cliente, descrição ou nosso número"
           />
         </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+          Faturados
+          <select
+            value={periodoFaturamento}
+            onChange={(e) => { setPeriodoFaturamento(e.target.value as PeriodoFaturamento); setSelecionados(new Set()); }}
+            aria-label="Filtrar pela data de faturamento"
+            style={{ padding: '9px 10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+          >
+            {(Object.keys(ROTULO_PERIODO_FATURAMENTO) as PeriodoFaturamento[]).map((chave) => (
+              <option key={chave} value={chave}>{ROTULO_PERIODO_FATURAMENTO[chave]}</option>
+            ))}
+          </select>
+        </label>
+        {periodoFaturamento === 'periodo' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+            <input type="date" value={faturadoDe} onChange={(e) => setFaturadoDe(e.target.value)} aria-label="Faturados a partir de"
+              style={{ padding: '8px 10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
+            até
+            <input type="date" value={faturadoAte} onChange={(e) => setFaturadoAte(e.target.value)} aria-label="Faturados até"
+              style={{ padding: '8px 10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
+          </div>
+        )}
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {(Object.keys(ROTULO_ABA) as Aba[]).map((chave) => (
             <button
@@ -946,7 +980,10 @@ const Boletos: React.FC = () => {
         ) : listaAtual.length === 0 ? (
           <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
             <Receipt size={32} style={{ marginBottom: '12px', opacity: 0.5 }} />
-            <p style={{ margin: 0 }}>Nenhum boleto em "{ROTULO_ABA[aba]}".</p>
+            <p style={{ margin: 0 }}>
+              Nenhum boleto em "{ROTULO_ABA[aba]}"
+              {periodoFaturamento !== 'todos' ? ` faturado em "${ROTULO_PERIODO_FATURAMENTO[periodoFaturamento]}". Troque o filtro "Faturados" para ver os outros.` : '.'}
+            </p>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -964,6 +1001,7 @@ const Boletos: React.FC = () => {
                   </th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Cliente</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Descrição</th>
+                  <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Faturado em</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Vencimento</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>
                     <button type="button" onClick={inverterOrdemNumero} title="Inverter a ordem"
@@ -997,6 +1035,9 @@ const Boletos: React.FC = () => {
                       </td>
                       <td style={{ padding: '14px 16px' }}>{t.clienteNome || '—'}</td>
                       <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>{t.descricao}</td>
+                      <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
+                        {t.faturadoEm ? t.faturadoEm.split('-').reverse().join('/') : '—'}
+                      </td>
                       <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
                         {vencimento ? vencimento.split('-').reverse().join('/') : '—'}
                       </td>

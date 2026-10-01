@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   erroDoConvenioBoleto,
+  faturadoNoPeriodo,
   lerArquivoRetornoSicoob,
   parseLinhaRetornoSicoob,
   ROTULO_STATUS_BOLETO,
@@ -177,4 +178,19 @@ test('lerArquivoRetornoSicoob separa liquidados, informativos e para conferir nu
   assert.equal(resumo.liquidados.length, 1);
   assert.equal(resumo.informativos.length, 2);
   assert.equal(resumo.paraConferir.length, 1);
+});
+
+// --- filtro "Faturados" ------------------------------------------------
+
+test('filtro Faturados: hoje, ultimos N dias (contando hoje), periodo e titulo antigo sem data', () => {
+  const hoje = '2026-10-01';
+  assert.equal(faturadoNoPeriodo('2026-10-01', 'hoje', {}, hoje), true);
+  assert.equal(faturadoNoPeriodo('2026-09-30', 'hoje', {}, hoje), false);
+  assert.equal(faturadoNoPeriodo('2026-09-29', '3dias', {}, hoje), true);
+  assert.equal(faturadoNoPeriodo('2026-09-28', '3dias', {}, hoje), false);
+  assert.equal(faturadoNoPeriodo('2026-09-25', '7dias', {}, hoje), true);
+  assert.equal(faturadoNoPeriodo('2026-09-15', 'periodo', { de: '2026-09-10', ate: '2026-09-20' }, hoje), true);
+  assert.equal(faturadoNoPeriodo('2026-09-21', 'periodo', { de: '2026-09-10', ate: '2026-09-20' }, hoje), false);
+  assert.equal(faturadoNoPeriodo('', '30dias', {}, hoje), false);
+  assert.equal(faturadoNoPeriodo('', 'todos', {}, hoje), true);
 });

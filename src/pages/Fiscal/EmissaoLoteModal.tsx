@@ -1,9 +1,10 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { X, Loader2, CheckCircle, XCircle, AlertCircle, MinusCircle, Search, FileText, FileDown } from 'lucide-react';
+import { X, Loader2, CheckCircle, XCircle, AlertCircle, MinusCircle, Search, FileText, FileDown, Printer } from 'lucide-react';
 import SeletorTodas from '../../components/common/SeletorTodas';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
 import { NexusSwal, showError, showWarning } from '../../utils/alerts';
 import { nomeArquivoDocumento } from '../../utils/nomeArquivoDomain';
+import { juntarPdfs } from '../../utils/juntarPdfs';
 
 /**
  * Ate' 10 notas por lote (2026-09-30, combinado com o dono): cada nota leva alguns
@@ -71,9 +72,10 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
   const [resultados, setResultados] = useState<Record<string, ResultadoItemLote> | null>(null);
   const [rodando, setRodando] = useState(false);
   const pararRef = useRef(false);
-  const [pdfAberto, setPdfAberto] = useState<{ titulo: string; nome: string; blob: Blob } | null>(null);
+  const [pdfAberto, setPdfAberto] = useState<{ titulo: string; nome: string; blob: Blob; imprimir?: boolean } | null>(null);
   const [carregandoPdf, setCarregandoPdf] = useState<string | null>(null);
   const [salvandoTodos, setSalvandoTodos] = useState(false);
+  const [imprimindoTodas, setImprimindoTodas] = useState(false);
 
   const nomeDoPdf = (p: PedidoParaLote, r: ResultadoItemLote) => nomeArquivoDocumento({ tipo: 'NFE', numero: r.numeroNota, destinatario: p.clienteNome });
   const verPdf = async (p: PedidoParaLote, r: ResultadoItemLote) => {
@@ -113,6 +115,42 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
     }
     setSalvandoTodos(false);
     if (falhas > 0) showError('Alguns PDFs não foram salvos', `${falhas} PDF(s) não puderam ser baixados. Use "Ver PDF" na linha da nota.`);
+  };
+
+  /**
+   * "Imprimir as emitidas" (2026-10-01, pedido do cliente): junta os DANFEs das
+   * autorizadas num PDF so', na ordem da lista, e ja' abre a impressao -- uma
+   * janela de impressao so' em vez de salvar arquivo por arquivo.
+   */
+  const imprimirTodas = async () => {
+    const autorizadas = pedidos.filter((p) => resultados?.[p.id]?.estado === 'autorizada' && resultados[p.id].spedyId);
+    setImprimindoTodas(true);
+    const arquivos: Blob[] = [];
+    const semPdf: string[] = [];
+    for (const p of autorizadas) {
+      const r = resultados![p.id];
+      try {
+        arquivos.push(await baixarPdf(r.spedyId!));
+      } catch {
+        semPdf.push(`nº ${r.numeroNota ?? '?'} (${p.clienteNome})`);
+      }
+    }
+    try {
+      if (arquivos.length === 0) {
+        showError('Não foi possível montar a impressão', 'Nenhum PDF das notas autorizadas pôde ser baixado agora. Tente de novo em instantes.');
+        return;
+      }
+      const unico = await juntarPdfs(arquivos);
+      setPdfAberto({ titulo: `${arquivos.length} NF-e autorizada${arquivos.length === 1 ? '' : 's'} do lote`, nome: 'NFE lote.pdf', blob: unico, imprimir: true });
+      if (semPdf.length > 0) {
+        showWarning('Algumas notas ficaram fora da impressão', `Não foi possível baixar o PDF da(s) nota(s) ${semPdf.join(', ')}. Use "Ver PDF" na linha da nota.`);
+      }
+    } catch (erro) {
+      console.error('Erro ao juntar os PDFs do lote:', erro);
+      showError('Não foi possível montar a impressão', 'Os PDFs foram baixados, mas não deu para juntá-los. Use "Salvar os PDFs" ou "Ver PDF" em cada nota.');
+    } finally {
+      setImprimindoTodas(false);
+    }
   };
 
   const visiveis = useMemo(() => {
@@ -293,6 +331,14 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
             </button>
           )}
           {resultados && !rodando && (contagem.autorizada || 0) > 0 && (
+            <button type="button" className="btn-primary" onClick={() => void imprimirTodas()} disabled={imprimindoTodas}
+              title="Junta as notas autorizadas num PDF só e abre a impressão"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {imprimindoTodas ? <Loader2 size={16} className="spin-icon" /> : <Printer size={16} />}
+              Imprimir {contagem.autorizada === 1 ? 'a emitida' : `as ${contagem.autorizada} emitidas`}
+            </button>
+          )}
+          {resultados && !rodando && (contagem.autorizada || 0) > 0 && (
             <button type="button" className="btn-secondary" onClick={() => void salvarTodos()} disabled={salvandoTodos}
               title="Baixa um PDF por nota, já com o nome: NFE número - cliente"
               style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -306,7 +352,7 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
         </div>
       </div>
       {pdfAberto && (
-        <PdfVisualizador titulo={pdfAberto.titulo} nomeArquivo={pdfAberto.nome} pdf={pdfAberto.blob} onFechar={() => setPdfAberto(null)} />
+        <PdfVisualizador titulo={pdfAberto.titulo} nomeArquivo={pdfAberto.nome} pdf={pdfAberto.blob} imprimirAoAbrir={pdfAberto.imprimir} onFechar={() => setPdfAberto(null)} />
       )}
     </div>
   );

@@ -226,3 +226,47 @@ export const lerArquivoRetornoSicoob = (conteudo: string): ResumoRetorno => {
     paraConferir: lidas.filter((l) => !l.liquidado && !l.informativo && l.nossoNumero),
   };
 };
+
+// ---------------------------------------------------------------------------
+// FILTRO "FATURADOS" (2026-10-01, pedido do cliente)
+// ---------------------------------------------------------------------------
+//
+// "Coloca um filtro pra eu ver os ultimos faturados": a lista ordena pelo nosso
+// numero/numero da venda, e a venda de hoje se perdia no meio das antigas.
+// Filtra pela data em que o titulo nasceu (o faturamento da venda/OS).
+
+export type PeriodoFaturamento = 'todos' | 'hoje' | '3dias' | '7dias' | '30dias' | 'periodo';
+
+export const ROTULO_PERIODO_FATURAMENTO: Record<PeriodoFaturamento, string> = {
+  todos: 'Todos',
+  hoje: 'Hoje',
+  '3dias': 'Últimos 3 dias',
+  '7dias': 'Últimos 7 dias',
+  '30dias': 'Últimos 30 dias',
+  periodo: 'Período...',
+};
+
+const DIAS_DO_PERIODO: Partial<Record<PeriodoFaturamento, number>> = { hoje: 0, '3dias': 2, '7dias': 6, '30dias': 29 };
+
+/**
+ * O titulo faturado em `faturadoEm` (AAAA-MM-DD) entra no filtro escolhido?
+ * Titulo sem data de faturamento (lancamento antigo) so' aparece em "Todos" --
+ * nao da' pra dizer que foi faturado nos ultimos dias.
+ */
+export const faturadoNoPeriodo = (
+  faturadoEm: string | undefined,
+  periodo: PeriodoFaturamento,
+  intervalo: { de?: string; ate?: string } = {},
+  hoje = getDateInputInTimeZone(),
+): boolean => {
+  if (periodo === 'todos') return true;
+  if (!faturadoEm) return false;
+  if (periodo === 'periodo') {
+    if (intervalo.de && faturadoEm < intervalo.de) return false;
+    if (intervalo.ate && faturadoEm > intervalo.ate) return false;
+    return true;
+  }
+  const dias = DIAS_DO_PERIODO[periodo] ?? 0;
+  const diferenca = differenceInCalendarDays(faturadoEm, hoje);
+  return diferenca !== null && diferenca >= 0 && diferenca <= dias;
+};

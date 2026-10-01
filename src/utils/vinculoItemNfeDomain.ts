@@ -1,5 +1,6 @@
 import { buildInitialItemEntradaConfig, type ItemEntradaConfig, type OrigemDoVinculoItem, type ProdutoFiscalAtual } from './entradaNfeDomain';
 import { normalizarTextoDeItem } from './fiscalDomain';
+import { LISTAR_TUDO_TERM } from './productSearch';
 
 export { normalizarTextoDeItem };
 
@@ -177,12 +178,34 @@ export const buscarCadastros = (
   limite = 20,
   insumos: CadastroParaVinculo[] = [],
 ): ResultadoDeBusca[] => {
-  const palavrasDaBusca = palavras(termo);
-  if (palavrasDaBusca.length === 0) return [];
-  const termoDigitos = digitos(termo);
-  const termoNormalizado = normalizarTextoDeItem(termo);
+  if (palavras(termo).length === 0) return [];
+  return buscarCadastrosParaVinculo(termo, produtos, materiasPrimas, limite, insumos).itens;
+};
+
+/**
+ * Busca do painel "Já tenho este item cadastrado -- vincular", no mesmo jeito
+ * da busca de produto do Pedido de Venda (2026-10-01, pedido do dono):
+ *
+ * - campo vazio: ja' mostra o cadastro (os primeiros, por nome) -- clicou na
+ *   barra, aparece a lista, sem precisar adivinhar o nome;
+ * - `#` sozinho lista tudo; `#termo` e' a lista do `#` filtrada;
+ * - `total` diz quantos casaram, pra tela oferecer o "Ver mais".
+ */
+export const buscarCadastrosParaVinculo = (
+  termo: string,
+  produtos: CadastroParaVinculo[],
+  materiasPrimas: CadastroParaVinculo[],
+  limite = 20,
+  insumos: CadastroParaVinculo[] = [],
+): { itens: ResultadoDeBusca[]; total: number } => {
+  const digitado = String(termo ?? '').trim();
+  const termoReal = digitado.startsWith(LISTAR_TUDO_TERM) ? digitado.slice(1).trim() : digitado;
+  const palavrasDaBusca = palavras(termoReal);
+  const termoDigitos = digitos(termoReal);
+  const termoNormalizado = normalizarTextoDeItem(termoReal);
 
   const casa = (c: CadastroParaVinculo): boolean => {
+    if (palavrasDaBusca.length === 0) return true;
     const nome = normalizarTextoDeItem(c.nome);
     if (palavrasDaBusca.every((p) => nome.includes(p))) return true;
     const codigo = normalizarTextoDeItem(c.codigo);
@@ -199,9 +222,8 @@ export const buscarCadastros = (
   juntar('estoque', produtos);
   juntar('materia_prima', materiasPrimas);
   juntar('insumo', insumos);
-  return resultado
-    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-    .slice(0, Math.max(0, limite));
+  const ordenado = resultado.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  return { itens: ordenado.slice(0, Math.max(0, limite)), total: ordenado.length };
 };
 
 export const ROTULO_ORIGEM_VINCULO: Record<OrigemDoVinculoItem, string> = {

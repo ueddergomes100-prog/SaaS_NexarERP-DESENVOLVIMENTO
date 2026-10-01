@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   buscarCadastros,
+  buscarCadastrosParaVinculo,
   configDoItemSemVinculo,
   configDoItemVinculado,
   dadosFiscaisParaCompletar,
@@ -71,6 +72,15 @@ test('busca livre: todas as palavras, sem acento; por código de barras; vazia n
   assert.deepEqual(buscarCadastros('mp1', produtos, materias).map((r) => [r.id, r.tipo]), [['m1', 'materia_prima']]);
   assert.deepEqual(buscarCadastros('   ', produtos, materias), []);
   assert.equal(buscarCadastros('a', produtos, materias, 2).length <= 2, true);
+});
+
+test('busca do vínculo: campo vazio já mostra o cadastro, # lista tudo, #termo filtra e o total alimenta o "Ver mais"', () => {
+  const todos = produtos.length + materias.length;
+  const vazio = buscarCadastrosParaVinculo('', produtos, materias, 2);
+  assert.equal(vazio.itens.length, Math.min(2, todos));
+  assert.equal(vazio.total, todos);
+  assert.equal(buscarCadastrosParaVinculo('#', produtos, materias, 100).total, todos);
+  assert.deepEqual(buscarCadastrosParaVinculo('#oleo motor', produtos, materias).itens.map((r) => r.id), ['p3']);
 });
 
 test('vincular puxa o preço e a tributação do cadastro; desvincular volta a ser item novo', () => {

@@ -19,7 +19,7 @@ import {
   type DadosDoFrete,
 } from '../../utils/freteEntradaDomain';
 import {
-  buscarCadastros,
+  buscarCadastrosParaVinculo,
   configDoItemSemVinculo,
   configDoItemVinculado,
   dadosFiscaisParaCompletar,
@@ -141,6 +141,10 @@ interface MateriaPrimaItem extends MateriaPrimaItemForMatch {
 type FornecedorStatus = 'idle' | 'checking' | 'found' | 'missing';
 
 const currencyFormat = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+/** Quantos cadastros a busca do vinculo mostra ao abrir, e quantos cada "Ver mais" acrescenta. */
+const LIMITE_INICIAL_VINCULO = 8;
+const LIMITE_VER_MAIS_VINCULO = 30;
 
 const EntradaNFE: React.FC = () => {
   const navigate = useNavigate();
@@ -507,6 +511,9 @@ const EntradaNFE: React.FC = () => {
    */
   const [vinculoAberto, setVinculoAberto] = useState<number | null>(null);
   const [buscaVinculo, setBuscaVinculo] = useState('');
+  // Lista do vinculo: aparece ao clicar no campo (antes so' depois de digitar).
+  const [listaVinculoVisivel, setListaVinculoVisivel] = useState(false);
+  const [limiteVinculo, setLimiteVinculo] = useState(LIMITE_INICIAL_VINCULO);
 
   const handleVincularItem = (idx: number, tipo: TipoCadastro, id: string) => {
     if (!parsedData) return;
@@ -529,7 +536,13 @@ const EntradaNFE: React.FC = () => {
   const renderPainelDeVinculo = (idx: number, item: ParsedItem) => {
     if (!fornecedorMatch) return null;
     const sugestoes = sugerirVinculos(item, estoqueAtual, materiasPrimasAtuais, fornecedorMatch.id, 5, insumosAtuais);
-    const resultados = buscaVinculo.trim() ? buscarCadastros(buscaVinculo, estoqueAtual, materiasPrimasAtuais, 20, insumosAtuais) : [];
+    // Mesmo jeito da busca de produto do Pedido de Venda: clicou na barra, ja'
+    // aparecem alguns itens; "Ver mais" traz o resto; "#" lista tudo.
+    const busca = listaVinculoVisivel
+      ? buscarCadastrosParaVinculo(buscaVinculo, estoqueAtual, materiasPrimasAtuais, limiteVinculo, insumosAtuais)
+      : { itens: [], total: 0 };
+    const resultados = busca.itens;
+    const restantes = busca.total - resultados.length;
     const rotuloTipo = (tipo: TipoCadastro) => (tipo === 'estoque' ? 'Produto' : (tipo === 'insumo' ? 'Insumo' : 'Matéria-prima'));
     const linhaStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', width: '100%', textAlign: 'left', padding: '8px 12px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px' };
 
@@ -564,17 +577,18 @@ const EntradaNFE: React.FC = () => {
         <input
           type="text"
           value={buscaVinculo}
-          onChange={(e) => setBuscaVinculo(e.target.value)}
-          placeholder="Nome, código ou código de barras..."
+          onChange={(e) => { setBuscaVinculo(e.target.value); setLimiteVinculo(LIMITE_INICIAL_VINCULO); setListaVinculoVisivel(true); }}
+          onFocus={() => setListaVinculoVisivel(true)}
+          placeholder="Nome, código ou código de barras... (# lista tudo)"
           aria-label="Buscar produto ou matéria-prima para vincular"
           style={{ ...campoInputStyle, marginBottom: '8px' }}
         />
-        {buscaVinculo.trim() && resultados.length === 0 && (
+        {listaVinculoVisivel && buscaVinculo.trim() && resultados.length === 0 && (
           <div style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
-            Nada encontrado para "{buscaVinculo.trim()}". Confira a escrita ou deixe o item como novo.
+            Nada encontrado para "{buscaVinculo.trim()}". Confira a escrita, digite # para ver o cadastro inteiro, ou deixe o item como novo.
           </div>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '240px', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '320px', overflowY: 'auto' }}>
           {resultados.map((resultado) => (
             <button key={`${resultado.tipo}-${resultado.id}`} type="button" style={linhaStyle} onClick={() => handleVincularItem(idx, resultado.tipo, resultado.id)}>
               <span>
@@ -585,6 +599,15 @@ const EntradaNFE: React.FC = () => {
               </span>
             </button>
           ))}
+          {restantes > 0 && (
+            <button
+              type="button"
+              onClick={() => setLimiteVinculo((atual) => atual + LIMITE_VER_MAIS_VINCULO)}
+              style={{ ...linhaStyle, justifyContent: 'center', color: 'var(--primary)', fontWeight: 600 }}
+            >
+              Ver mais ({restantes} {restantes === 1 ? 'resultado' : 'resultados'} a mais)
+            </button>
+          )}
         </div>
       </div>
     );
@@ -592,6 +615,8 @@ const EntradaNFE: React.FC = () => {
 
   const handleAbrirVinculo = (idx: number) => {
     setBuscaVinculo('');
+    setLimiteVinculo(LIMITE_INICIAL_VINCULO);
+    setListaVinculoVisivel(false);
     setVinculoAberto((atual) => (atual === idx ? null : idx));
   };
 

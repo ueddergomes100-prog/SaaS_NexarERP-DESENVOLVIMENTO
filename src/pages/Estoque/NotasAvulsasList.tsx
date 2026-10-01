@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Barcode, PackagePlus, Plus, RotateCcw, Search } from 'lucide-react';
+import { Barcode, Eye, PackagePlus, Plus, RotateCcw, Search } from 'lucide-react';
 import { collection, doc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -10,8 +10,10 @@ import { prepararEstornoDeEntradaEmLotes } from '../../services/loteBaixaService
 import { STATUS_NOTA_AVULSA_ATIVA, STATUS_NOTA_AVULSA_CANCELADA, quantidadeEstoqueNotaAvulsaItem, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
+import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import NotaAvulsaDetalheModal, { type NotaAvulsaParaVer } from './NotaAvulsaDetalheModal';
 
-interface NotaAvulsaData {
+interface NotaAvulsaData extends NotaAvulsaParaVer {
   id: string;
   numero: string;
   fornecedorNome: string;
@@ -38,6 +40,9 @@ const NotasAvulsasList: React.FC = () => {
   const [periodoDe, setPeriodoDe] = useState('');
   const [periodoAte, setPeriodoAte] = useState('');
   const [cancelandoId, setCancelandoId] = useState<string | null>(null);
+  // Duplo clique na linha (ou o olho) abre a nota lancada, so' para ver (2026-10-01).
+  const { linha } = useLinhaSelecionavel();
+  const [notaAberta, setNotaAberta] = useState<NotaAvulsaData | null>(null);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -289,7 +294,7 @@ const NotasAvulsasList: React.FC = () => {
                 </tr>
               ) : (
                 notasFiltradas.map((n) => (
-                  <tr key={n.id} style={{ borderBottom: '1px solid var(--border-color)', opacity: n.status === STATUS_NOTA_AVULSA_CANCELADA ? 0.6 : 1 }}>
+                  <tr key={n.id} {...linha(n.id, () => setNotaAberta(n))} style={{ borderBottom: '1px solid var(--border-color)', opacity: n.status === STATUS_NOTA_AVULSA_CANCELADA ? 0.6 : 1 }}>
                     <td style={{ padding: '16px', fontWeight: 600 }}>#{n.numero}</td>
                     <td style={{ padding: '16px' }}>{n.createdAt?.seconds ? new Date(n.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : '-'}</td>
                     <td style={{ padding: '16px' }}>{n.fornecedorNome}</td>
@@ -307,8 +312,11 @@ const NotasAvulsasList: React.FC = () => {
                     <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700 }}>
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n.valorTotal)}
                     </td>
-                    <td style={{ padding: '16px', textAlign: 'center' }}>
+                    <td {...semAbrirLinha} style={{ padding: '16px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                        <button onClick={() => setNotaAberta(n)} className="icon-btn" title="Ver o que foi lançado nesta nota" style={{ color: '#3b82f6' }}>
+                          <Eye size={18} />
+                        </button>
                         <button
                           onClick={() => openTab(`/estoque/etiquetas?notaAvulsaId=${n.id}`, 'Etiquetas')}
                           className="icon-btn"
@@ -336,6 +344,9 @@ const NotasAvulsasList: React.FC = () => {
           </table>
         </div>
       </div>
+      {notaAberta && tenantId && (
+        <NotaAvulsaDetalheModal tenantId={tenantId} nota={notaAberta} onFechar={() => setNotaAberta(null)} />
+      )}
     </div>
   );
 };

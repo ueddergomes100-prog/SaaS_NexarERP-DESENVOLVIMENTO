@@ -476,8 +476,6 @@ const Precificacao: React.FC = () => {
                   <th style={{ padding: '10px', textAlign: 'right', width: '100px' }}>Margem %</th>
                   <th style={{ padding: '10px', textAlign: 'right', width: '120px' }}>Preço venda</th>
                   <th style={{ padding: '10px', textAlign: 'right', width: '110px' }}>À vista</th>
-                  <th style={{ padding: '10px', textAlign: 'right', width: '110px' }}>A prazo</th>
-                  <th style={{ padding: '10px', textAlign: 'right', width: '110px' }}>Promocional</th>
                   <th style={{ padding: '10px' }}>Situação</th>
                   <th style={{ padding: '10px', width: '44px' }} />
                 </tr>
@@ -527,22 +525,6 @@ const Precificacao: React.FC = () => {
                           type="text"
                           value={linha.precoAVista}
                           onChange={(e) => atualizarLinha(linha.produtoId, { precoAVista: e.target.value })}
-                          style={inputStyle}
-                        />
-                      </td>
-                      <td style={{ padding: '10px' }}>
-                        <input
-                          type="text"
-                          value={linha.precoAPrazo}
-                          onChange={(e) => atualizarLinha(linha.produtoId, { precoAPrazo: e.target.value })}
-                          style={inputStyle}
-                        />
-                      </td>
-                      <td style={{ padding: '10px' }}>
-                        <input
-                          type="text"
-                          value={linha.precoPromocional}
-                          onChange={(e) => atualizarLinha(linha.produtoId, { precoPromocional: e.target.value })}
                           style={inputStyle}
                         />
                       </td>

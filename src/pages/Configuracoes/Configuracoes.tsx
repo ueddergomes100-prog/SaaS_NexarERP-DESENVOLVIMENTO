@@ -33,6 +33,7 @@ import { DEFAULT_MOSTRAR_VALOR_LISTA_OS, parseMostrarValorListaOS } from '../../
 import { DEFAULT_MOSTRAR_RESUMO_ESTOQUE, parseMostrarResumoEstoque } from '../../utils/estoqueResumoDomain';
 import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../../utils/fiscalDomain';
 import { DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO, parseExigirEscolhaFormaPagamento } from '../../utils/financeDomain';
+import { FORMAS_A_VISTA_PADRAO, FORMAS_CONFIGURAVEIS_A_VISTA, parseFormasAVista } from '../../utils/precoVendaDomain';
 import {
   DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
   DEFAULT_TIPO_DESCONTO_PADRAO,
@@ -223,6 +224,7 @@ const Configuracoes: React.FC = () => {
     maxParcelasCartao: '12',
     pagamentoCartaoSimplificadoAtivo: DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO,
     exigirEscolhaFormaPagamento: DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO,
+    formasPrecoAVista: [...FORMAS_A_VISTA_PADRAO] as string[],
     taxasCartaoCreditoPorParcela: toCreditCardRateInputs(null),
     taxaCartaoDebitoPercentual: '0',
     prazoRecebimentoCartaoCreditoDias: '30',
@@ -389,6 +391,7 @@ const Configuracoes: React.FC = () => {
             maxParcelasCartao: String(Math.min(12, Math.max(1, Number(data.maxParcelasCartao ?? 12) || 12))),
             pagamentoCartaoSimplificadoAtivo: parsePagamentoCartaoSimplificadoAtivo(data.pagamentoCartaoSimplificadoAtivo),
             exigirEscolhaFormaPagamento: parseExigirEscolhaFormaPagamento(data.exigirEscolhaFormaPagamento),
+            formasPrecoAVista: parseFormasAVista(data.formasPrecoAVista),
             taxasCartaoCreditoPorParcela: toCreditCardRateInputs(
               data.taxasCartaoCreditoPorParcela,
               data.taxaCartaoCreditoPercentual ?? 0,
@@ -2788,6 +2791,34 @@ const Configuracoes: React.FC = () => {
                   mostra um aviso. Sem isso, quem vende no cartão ou no Pix também não mexe no campo — clica em finalizar e a
                   venda sai como Dinheiro, sujando o caixa e o relatório sem ninguém perceber. Custa um clique a mais por
                   venda; evita descobrir o erro no fechamento do caixa. Desligada (padrão), continua abrindo em Dinheiro.
+                </p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Formas que usam o "Preço à vista"</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px' }}>
+                  {FORMAS_CONFIGURAVEIS_A_VISTA.map((forma) => (
+                    <label key={forma} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                      <input
+                        type="checkbox"
+                        checked={formData.formasPrecoAVista.includes(forma)}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          formasPrecoAVista: e.target.checked
+                            ? [...formData.formasPrecoAVista, forma]
+                            : formData.formasPrecoAVista.filter((f) => f !== forma),
+                        })}
+                        disabled={!isEditingMode}
+                        style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                      />
+                      {forma === 'Cartão de Crédito' ? 'Cartão de Crédito (só em 1x)' : forma}
+                    </label>
+                  ))}
+                </div>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Nas formas marcadas, o item entra pelo <strong>Preço à vista</strong> do cadastro do produto. Nas outras, e em
+                  qualquer pagamento com 2 ou mais parcelas, entra pelo <strong>Preço de venda</strong> (o preço a prazo). O sistema
+                  troca sozinho quando a forma de pagamento muda. Produto sem preço à vista cadastrado usa sempre o preço de venda.
                 </p>
               </div>
             </div>

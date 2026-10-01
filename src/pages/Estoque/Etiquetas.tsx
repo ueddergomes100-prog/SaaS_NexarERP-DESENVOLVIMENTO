@@ -553,7 +553,6 @@ const Etiquetas: React.FC = () => {
                   {([
                     ['nome', 'Mostrar nome do produto'],
                     ['precoAVista', 'Mostrar preço à vista'],
-                    ['precoAPrazo', 'Mostrar preço a prazo (se cadastrado)'],
                     ['unidade', 'Mostrar unidade de medida'],
                     ['codigoBarras', 'Mostrar código de barras'],
                   ] as Array<[CampoEtiquetaId, string]>).map(([campo, texto]) => (

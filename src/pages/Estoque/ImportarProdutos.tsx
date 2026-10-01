@@ -273,7 +273,8 @@ const ImportarProdutos: React.FC = () => {
         categoria: categoriaCompartilhada,
         unidadeId: acharUnidadePorSigla(unidadeBaseSugerida)?.id || '',
         quantidade: String(quantidadeBase),
-        precoVenda: paraTexto(itemBase.valorVenda ?? itemBase.precoAVista),
+        // "A prazo" da planilha = preco de venda (2026-10-01: o preco de venda E' o a prazo).
+        precoVenda: paraTexto(itemBase.valorVenda ?? itemBase.precoAPrazo ?? itemBase.precoAVista),
         custo: paraTexto(itemBase.custo),
         precoAVista: paraTexto(itemBase.precoAVista),
         precoAPrazo: paraTexto(itemBase.precoAPrazo),
@@ -294,7 +295,7 @@ const ImportarProdutos: React.FC = () => {
         categoria: categoriaCompartilhada,
         unidadeId: acharUnidadePorSigla(item.unidadeSugerida || 'UN')?.id || '',
         quantidade: String(quantidadeFinalDoItem(item)),
-        precoVenda: paraTexto(item.valorVenda ?? item.precoAVista),
+        precoVenda: paraTexto(item.valorVenda ?? item.precoAPrazo ?? item.precoAVista),
         custo: paraTexto(item.custo),
         precoAVista: paraTexto(item.precoAVista),
         precoAPrazo: paraTexto(item.precoAPrazo),
@@ -377,7 +378,6 @@ const ImportarProdutos: React.FC = () => {
               precoVenda: Number(produto.precoVenda.replace(',', '.')) || 0,
               precoCusto: paraNumeroOpcional(produto.custo),
               precoAVista: paraNumeroOpcional(produto.precoAVista),
-              precoAPrazo: paraNumeroOpcional(produto.precoAPrazo),
               codigoBarras: produto.codigoBarras,
               marca: produto.marca,
               referencia: produto.referencia,
@@ -491,7 +491,7 @@ const ImportarProdutos: React.FC = () => {
                 unidade: 'Unidade (opcional)', marca: 'Marca (opcional)', referencia: 'Referência (opcional)',
                 observacao: 'Observação (opcional)',
                 codigoBarras: 'Código de barras (opcional)', custo: 'Custo (opcional)',
-                precoAVista: 'Preço à vista (opcional)', precoAPrazo: 'Preço a prazo (opcional)',
+                precoAVista: 'Preço à vista (opcional)', precoAPrazo: 'Preço a prazo / de venda (opcional)',
                 valorVenda: 'Preço de venda pronto (opcional)',
               };
               return (
@@ -510,7 +510,7 @@ const ImportarProdutos: React.FC = () => {
             })}
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
-            Unidade, marca, referência, código de barras, custo, preço à vista, preço a prazo e preço de venda são opcionais — se o export do sistema antigo trouxer essas colunas, elas já vêm pré-preenchidas na tela de confirmação (ainda editáveis). O código interno da planilha é só referência: o código do produto no sistema é sempre gerado automaticamente (1, 2, 3...).
+            Unidade, marca, referência, código de barras, custo, preço à vista e preço de venda (ou a prazo, que agora é o mesmo) são opcionais — se o export do sistema antigo trouxer essas colunas, elas já vêm pré-preenchidas na tela de confirmação (ainda editáveis). O código interno da planilha é só referência: o código do produto no sistema é sempre gerado automaticamente (1, 2, 3...).
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
             <button className="btn-secondary" onClick={() => setPasso('upload')}>Voltar</button>
@@ -677,7 +677,6 @@ const ImportarProdutos: React.FC = () => {
                   <th style={{ padding: '8px' }}>Quantidade</th>
                   <th style={{ padding: '8px' }}>Custo</th>
                   <th style={{ padding: '8px' }}>Preço à vista</th>
-                  <th style={{ padding: '8px' }}>Preço a prazo</th>
                   <th style={{ padding: '8px' }}>Preço de venda *</th>
                   <th style={{ padding: '8px', textAlign: 'center' }}>Uso interno<br />(não vender)</th>
                 </tr>
@@ -713,9 +712,6 @@ const ImportarProdutos: React.FC = () => {
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="text" placeholder="-" value={produto.precoAVista} onChange={(e) => atualizarProduto(produto.chave, { precoAVista: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
-                    </td>
-                    <td style={{ padding: '8px' }}>
-                      <input type="text" placeholder="-" value={produto.precoAPrazo} onChange={(e) => atualizarProduto(produto.chave, { precoAPrazo: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="text" placeholder="0,00" value={produto.precoVenda} onChange={(e) => atualizarProduto(produto.chave, { precoVenda: e.target.value })} disabled={produto.produtoRevenda === false} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: (!produto.precoVenda && produto.produtoRevenda !== false) ? '1px solid #ef4444' : '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)', opacity: produto.produtoRevenda === false ? 0.5 : 1 }} />

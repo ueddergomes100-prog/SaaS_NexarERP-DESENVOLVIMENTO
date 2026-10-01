@@ -42,7 +42,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routeModule = 'operacoes.expedicao';
   else if (path.startsWith('/operacoes/rotas') || path.startsWith('/operacoes/motoristas') || path.startsWith('/operacoes/frota') || path.startsWith('/operacoes/romaneios')) routeModule = 'operacoes.rotas';
   else if (path.startsWith('/pedidos-venda')) routeModule = 'comercial.pedidos';
-  else if (path.startsWith('/minhas-vendas')) routeModule = 'comercial.pedidos';
+  else if (path.startsWith('/minhas-vendas') || path.startsWith('/vendas/promocoes')) routeModule = 'comercial.pedidos';
   else if (path.startsWith('/orcamentos')) routeModule = 'comercial.orcamentos';
   else if (path.startsWith('/vendas/devolucoes')) routeModule = 'comercial.devolucoes';
   else if (path.startsWith('/vendas/trocas')) routeModule = 'comercial.trocas';
@@ -118,6 +118,8 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/minhas-vendas')) routePermission = 'vendas.minhas_vendas';
   else if (path.startsWith('/orcamentos')) routePermission = 'vendas.orcamentos';
   else if (path.startsWith('/vendas/devolucoes')) routePermission = 'vendas.devolucao';
+  // Promocoes (2026-10-01): tela propria, permissao propria.
+  else if (path.startsWith('/vendas/promocoes')) routePermission = 'vendas.promocoes';
   else if (path.startsWith('/vendas/trocas')) routePermission = 'vendas.troca_gerenciar';
   else if (path.startsWith('/pre-vendas')) routePermission = 'vendas.pre_venda_relatorio';
   else if (path.startsWith('/relatorios-vendas')) routePermission = 'vendas.relatorios';

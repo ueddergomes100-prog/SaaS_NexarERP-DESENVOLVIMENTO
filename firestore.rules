@@ -170,6 +170,8 @@ service cloud.firestore {
         // Romaneio de entrega (2026-10-01): a rota em si e a trava de cada pedido (romaneio_pedidos/{pedidoId}),
         // que impede o mesmo pedido de sair em duas rotas. Exclusao nunca: a trava e' liberada, nao apagada.
         (collectionName in ['romaneios', 'romaneio_pedidos'] && hasPermission('operacoes.romaneios')) ||
+        // Promocoes (2026-10-01): a tela Promocoes e a promocao individual do cadastro do produto.
+        (collectionName == 'promocoes' && hasAnyPermission(['vendas.promocoes', 'cadastros.estoque_alterar'])) ||
         (collectionName == 'materias_primas' && hasPermission('cadastros.materia_prima')) ||
         // Insumos (material de consumo, 2026-09-25): mesma permissao da materia-prima; a Entrada de NF-e
         // tambem os cria/atualiza, entao aceita fiscal.entrada.
@@ -730,6 +732,7 @@ service cloud.firestore {
         'rotas',
         'romaneios',
         'romaneio_pedidos',
+        'promocoes',
         'cotacoes_compra',
         'pedidos_compra',
         'recebimentos_compra',
@@ -782,6 +785,7 @@ service cloud.firestore {
         'rotas',
         'romaneios',
         'romaneio_pedidos',
+        'promocoes',
         'cotacoes_compra',
         'pedidos_compra',
         'recebimentos_compra',
@@ -829,6 +833,7 @@ service cloud.firestore {
         'rotas',
         'romaneios',
         'romaneio_pedidos',
+        'promocoes',
         'cotacoes_compra',
         'pedidos_compra',
         'recebimentos_compra',
@@ -889,6 +894,7 @@ service cloud.firestore {
         'rotas',
         'romaneios',
         'romaneio_pedidos',
+        'promocoes',
         'cotacoes_compra',
         'pedidos_compra',
         'recebimentos_compra',

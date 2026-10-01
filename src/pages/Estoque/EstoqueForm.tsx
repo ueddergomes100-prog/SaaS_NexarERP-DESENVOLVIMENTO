@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import PromocaoIndividualPanel from '../../components/estoque/PromocaoIndividualPanel';
 import { ArrowLeft, Save, Package, DollarSign, Loader2, Factory, Plus, Trash2 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, getDoc, getDocs, serverTimestamp, query, where, setDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -1637,10 +1638,6 @@ const EstoqueForm: React.FC = () => {
                   <input type="number" name="precoVenda" step="0.01" min="0" value={formData.precoVenda} onChange={handleChange} required />
                 </div>
                 <div className="input-group">
-                  <label>Preço promocional</label>
-                  <input type="number" name="precoPromocional" step="0.01" min="0" value={formData.precoPromocional} onChange={handleChange} />
-                </div>
-                <div className="input-group">
                   <label>Custo do produto</label>
                   <input
                     type="number"
@@ -1662,13 +1659,8 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>Preço à vista</label>
-                  <input type="number" name="precoAVista" step="0.01" min="0" placeholder="Ainda sem uso na venda" value={formData.precoAVista} onChange={handleChange} />
-                  <span className="field-hint">Só o dado, por enquanto — a venda continua usando o "Preço de venda" acima.</span>
-                </div>
-                <div className="input-group">
-                  <label>Preço a prazo</label>
-                  <input type="number" name="precoAPrazo" step="0.01" min="0" placeholder="Ainda sem uso na venda" value={formData.precoAPrazo} onChange={handleChange} />
-                  <span className="field-hint">Só o dado, por enquanto — a venda continua usando o "Preço de venda" acima.</span>
+                  <input type="number" name="precoAVista" step="0.01" min="0" placeholder="Igual ao preço de venda" value={formData.precoAVista} onChange={handleChange} />
+                  <span className="field-hint">Vale para dinheiro, Pix, débito e crédito 1x. Parcelado, boleto, crediário e cheque usam o "Preço de venda". Em branco = preço de venda sempre.</span>
                 </div>
               </div>
 
@@ -1714,11 +1706,26 @@ const EstoqueForm: React.FC = () => {
                   <span>Lucro líquido estimado</span>
                   <strong className={lucroEstimado >= 0 ? 'metric-positive' : 'metric-negative'}>{formatCurrency(lucroEstimado)}</strong>
                 </div>
-                <div>
-                  <span>Preço em promoção</span>
-                  <strong>{precoPromocional > 0 ? formatCurrency(precoPromocional) : 'Inativo'}</strong>
-                </div>
               </div>
+
+              {/* Promocao individual (2026-10-01): salva na hora, como uma promocao
+                  da tela Promocoes marcada "individual" -- as duas nunca se duplicam. */}
+              {isEditing && id && tenantId && currentUser ? (
+                <PromocaoIndividualPanel
+                  tenantId={tenantId}
+                  uid={currentUser.uid}
+                  produto={{
+                    id,
+                    nome: String(formData.nome || '').toUpperCase(),
+                    codigo: String(formData.codigo || ''),
+                    precoVenda: toNumber(formData.precoVenda),
+                    precoAVista: toNumber(formData.precoAVista),
+                    precoCusto,
+                  }}
+                />
+              ) : (
+                <p className="field-hint" style={{ marginTop: '16px' }}>Salve o produto para poder colocá-lo em promoção.</p>
+              )}
 
               {/* Aviso de margem defasada: o custo mudou depois que este preco
                   foi definido (compra nova, por exemplo). O sistema NAO corrige

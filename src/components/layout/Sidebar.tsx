@@ -45,6 +45,7 @@ import {
   Store,
   Tags,
   Truck,
+  Tag,
   UserCheck,
   UserCog,
   Users,
@@ -177,6 +178,7 @@ const Sidebar: React.FC = () => {
         { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.minhas_vendas' },
         { label: 'Orçamentos', to: '/orcamentos', icon: FileText, module: 'comercial.orcamentos', permission: 'vendas.orcamentos' },
         { label: 'Devolução de Venda', to: '/vendas/devolucoes', icon: RotateCcw, module: 'comercial.devolucoes', permission: 'vendas.devolucao' },
+        { label: 'Promoções', to: '/vendas/promocoes', icon: Tag, module: 'comercial.pedidos', permission: 'vendas.promocoes' },
         { label: 'Trocas', to: '/vendas/trocas', icon: Repeat, module: 'comercial.trocas', permission: 'vendas.troca_gerenciar' },
         { label: 'Relatório de Vendas', to: '/relatorios-vendas', icon: BarChart2, module: 'comercial.relatorios', permission: 'vendas.relatorios' },
         { label: 'Pré-vendas em Aberto', to: '/pre-vendas', icon: ClipboardList, module: 'comercial.relatorios', permission: 'vendas.pre_venda_relatorio' }

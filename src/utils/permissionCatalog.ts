@@ -59,6 +59,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'vendas.alterar', label: 'Vendas: Alterar Pedidos', color: '#f59e0b' },
       { id: 'vendas.excluir', label: 'Vendas: Excluir Pedidos', color: '#ef4444' },
       { id: 'vendas.devolucao', label: 'Vendas: Devolução de Venda', color: '#ef4444' },
+      { id: 'vendas.promocoes', label: 'Vendas: Promoções (criar e encerrar)', color: '#f59e0b' },
       // Trocas (reposicao sem cobranca de produto estragado). Duas permissoes de
       // proposito: quem PEDE a troca (vendedor no aplicativo) nao e' quem APROVA e
       // baixa o estoque (a loja). Ver docs/PLANO_TROCAS_VENDEDOR.md.

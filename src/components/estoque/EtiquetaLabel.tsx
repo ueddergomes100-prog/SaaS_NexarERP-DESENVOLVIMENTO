@@ -140,8 +140,7 @@ const EtiquetaLabel: React.FC<EtiquetaLabelProps> = ({ produto, modelo, editable
           : <span className="etiqueta-sem-codigo">Sem código de barras cadastrado</span>,
       )}
       {renderCampo('precoAVista', formatBRL(precoPrincipal), { fontSize: `${modelo.campos.precoAVista.fontePt}pt`, fontWeight: 700 })}
-      {produto.precoAPrazo != null
-        && renderCampo('precoAPrazo', `${formatBRL(produto.precoAPrazo)} a prazo`, { fontSize: `${modelo.campos.precoAPrazo.fontePt}pt`, color: '#444444' })}
+      {/* "Preco a prazo" saiu do cadastro em 2026-10-01: o preco de venda E' o a prazo. */}
       {produto.lote
         && renderCampo('lote', `Lote: ${produto.lote}`, { fontSize: `${modelo.campos.lote.fontePt}pt`, color: '#333333' })}
       {produto.validade

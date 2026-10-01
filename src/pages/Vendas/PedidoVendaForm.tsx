@@ -148,6 +148,19 @@ import {
   parseOrdemFormasPagamento,
   parsePermitirDividirPagamento,
 } from '../../utils/formasPagamentoDomain';
+import {
+  condicaoDoPagamento,
+  parseFormasAVista,
+  precoAutomatico,
+  reprecificarItens,
+  ROTULO_CONDICAO,
+  tabelaDoProduto,
+  FORMAS_A_VISTA_PADRAO,
+  type OrigemPreco,
+  type TabelaDePrecoDoItem,
+} from '../../utils/precoVendaDomain';
+import { lerPromocao, promocaoDoProduto, quantidadeLiberadaNaPromocao, type PromocaoComId } from '../../utils/promocaoDomain';
+import { vendidoNaPromocao } from '../../services/promocaoService';
 import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import Swal from 'sweetalert2';
@@ -172,6 +185,8 @@ interface ProdutoEstoque {
   id: string;
   nome: string;
   precoVenda: number;
+  /** Preco a vista (dinheiro, Pix, debito, credito 1x). 0 = usa o preco de venda. */
+  precoAVista?: number;
   quantidade: number;
   codigo: string;
   unidadeMedidaSigla?: string;
@@ -208,6 +223,15 @@ interface ItemVenda {
   /** quantidade x fatorConversao, gravado so para auditoria/conferencia --
    * a baixa de estoque recalcula pelo fator, nao confia neste campo. */
   quantidadeBase?: number;
+  /** Precos do item (venda, a vista, promocao) -- e' com eles que o preco
+   * troca sozinho quando a forma de pagamento muda (precoVendaDomain.ts).
+   * Ausente em item avulso e em venda antiga: o preco fica como esta. */
+  tabelaPreco?: TabelaDePrecoDoItem;
+  /** De onde veio o preco; 'manual' = digitado, nunca troca sozinho. */
+  origemPreco?: OrigemPreco;
+  /** Promocao que esta no preco do item (some quando a promocao sai). */
+  promocaoId?: string;
+  promocaoNome?: string;
 }
 
 interface LinkedNfe {
@@ -419,6 +443,7 @@ const PedidoVendaForm: React.FC = () => {
   const [formasPagamentoOcultas, setFormasPagamentoOcultas] = useState<string[]>([]);
   const [permitirDividirPagamento, setPermitirDividirPagamento] = useState(DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO);
   const formasConfiguradas = formasDaEmpresa(ordemFormasPagamento, formasPagamentoOcultas);
+
   const [permitirDescontoPorItem, setPermitirDescontoPorItem] = useState(DEFAULT_PERMITIR_DESCONTO_POR_ITEM);
   const [modoValidacaoCliente, setModoValidacaoCliente] = useState<ModoValidacaoCliente>(DEFAULT_MODO_VALIDACAO_CLIENTE);
   const [trabalhaComLimiteCredito, setTrabalhaComLimiteCredito] = useState(false);
@@ -461,6 +486,98 @@ const PedidoVendaForm: React.FC = () => {
   // verdade, que envelhece se outra aba mexer na mesma pre-venda.
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido } = useAuth();
+
+  // PRECO A VISTA x PRECO DE VENDA E PROMOCOES (2026-10-01). A condicao do
+  // pagamento (a vista / a prazo) decide o preco de cada item; promocao vigente
+  // vem por cima. Regra em precoVendaDomain.ts e promocaoDomain.ts.
+  const [formasPrecoAVista, setFormasPrecoAVista] = useState<string[]>(FORMAS_A_VISTA_PADRAO);
+  const { items: promocoesBrutas } = useTenantCollection<{ id: string } & Record<string, unknown>>('promocoes', tenantId);
+  const promocoes = useMemo<PromocaoComId[]>(
+    () => promocoesBrutas.map((p) => ({ ...lerPromocao(p), id: p.id })).filter((p) => !p.inativa),
+    [promocoesBrutas],
+  );
+  /** Quanto de cada quota ja saiu em OUTRAS vendas: promocaoId -> produtoId -> quantidade (unidade base). */
+  const [vendidoPorPromocao, setVendidoPorPromocao] = useState<Record<string, Record<string, number>>>({});
+  const hojeParaPromocao = getDateInputInTimeZone();
+  useEffect(() => {
+    if (!tenantId) return;
+    const comQuota = promocoes.filter((p) => p.itens.some((i) => i.quota !== null));
+    if (comQuota.length === 0) return;
+    let cancelado = false;
+    Promise.all(comQuota.map(async (p) => [p.id, await vendidoNaPromocao(tenantId, p.id, id).catch(() => ({}))] as const))
+      .then((pares) => { if (!cancelado) setVendidoPorPromocao(Object.fromEntries(pares)); })
+      .catch((erro) => console.error('Erro ao conferir as quotas das promoções:', erro));
+    return () => { cancelado = true; };
+  }, [tenantId, promocoes, id]);
+  const condicaoPagamento = useMemo(
+    () => condicaoDoPagamento(paymentDrafts, formasPrecoAVista),
+    [paymentDrafts, formasPrecoAVista],
+  );
+
+  /** Tabela de precos do item, na unidade escolhida, com a promocao que vale hoje. */
+  const tabelaDoItemDoCatalogo = (produto: ProdutoEstoque, opcao: { embalagemId?: string; fatorConversao?: number; precoVenda?: number } | undefined): TabelaDePrecoDoItem => {
+    const fator = opcao?.fatorConversao ?? 1;
+    const derivado = (Number(produto.precoVenda) || 0) * fator;
+    // Embalagem com preco PROPRIO nao tem preco a vista nem entra em promocao.
+    const precoProprio = opcao?.embalagemId && Math.abs((Number(opcao.precoVenda) || 0) - derivado) > 0.005 ? Number(opcao.precoVenda) || 0 : 0;
+    const tabela = tabelaDoProduto(produto, { fatorConversao: fator, precoProprio });
+    if (precoProprio > 0) return tabela;
+    const promo = promocaoDoProduto(promocoes, produto.id, { venda: Number(produto.precoVenda) || 0, vista: Number(produto.precoAVista) || 0 }, hojeParaPromocao);
+    return promo
+      ? { ...tabela, promocao: { id: promo.promocaoId, nome: promo.nome, preco: Math.round(promo.preco * fator * 100) / 100, soAVista: promo.soAVista } }
+      : tabela;
+  };
+
+  /**
+   * Quota e limite por venda: se a quantidade passar do que a promocao ainda
+   * libera, o item entra no preco normal e o aviso diz quanto ainda cabe.
+   * `ignorarIndice` = o proprio item, quando ele esta sendo editado.
+   */
+  const conferirQuotaDaPromocao = (
+    produto: ProdutoEstoque,
+    tabela: TabelaDePrecoDoItem,
+    quantidadeBase: number,
+    ignorarIndice?: number,
+  ): { tabela: TabelaDePrecoDoItem; aviso?: string } => {
+    if (!tabela.promocao) return { tabela };
+    const promo = promocaoDoProduto(promocoes, produto.id, { venda: Number(produto.precoVenda) || 0, vista: Number(produto.precoAVista) || 0 }, hojeParaPromocao);
+    if (!promo) return { tabela };
+    const jaNestaVenda = itens
+      .filter((it, i) => i !== ignorarIndice && it.id === produto.id && it.promocaoId === promo.promocaoId)
+      .reduce((t, it) => t + (it.quantidadeBase ?? it.quantidade), 0);
+    const liberada = quantidadeLiberadaNaPromocao(promo, vendidoPorPromocao[promo.promocaoId]?.[produto.id] || 0, jaNestaVenda);
+    if (liberada === null || quantidadeBase <= liberada) return { tabela };
+    return {
+      tabela: { ...tabela, promocao: null },
+      aviso: liberada > 0
+        ? `${produto.nome}: a promoção "${promo.nome}" só libera mais ${liberada} unidade(s) nesta venda. O item entrou no preço normal; para levar ${liberada} na promoção, lance essa quantidade separada.`
+        : `${produto.nome}: a quantidade da promoção "${promo.nome}" acabou. O item entrou no preço normal.`,
+    };
+  };
+
+  /** Preco e campos de preco do item: automatico, ou 'manual' quando o digitado e' outro. */
+  const camposDePreco = (tabela: TabelaDePrecoDoItem, precoDigitado?: number) => {
+    const auto = precoAutomatico(tabela, condicaoPagamento);
+    const manual = precoDigitado !== undefined && precoDigitado > 0 && Math.abs(precoDigitado - auto.preco) > 0.0001;
+    const origem: OrigemPreco = manual ? 'manual' : auto.origem;
+    return {
+      preco: manual ? (precoDigitado as number) : auto.preco,
+      campos: {
+        tabelaPreco: tabela,
+        origemPreco: origem,
+        ...(origem === 'promocao' && tabela.promocao ? { promocaoId: tabela.promocao.id, promocaoNome: tabela.promocao.nome } : {}),
+      },
+    };
+  };
+
+  /** Promocoes presentes nos itens, sem repetir (vai gravado no pedido). */
+  const promocaoIdsDosItens = (lista: ItemVenda[]): string[] => [...new Set(lista.map((i) => i.promocaoId).filter((p): p is string => Boolean(p)))];
+
+  /** Preco que o campo "Preco" mostra ao escolher o produto/embalagem. */
+  const precoSugerido = (produto: ProdutoEstoque, opcao: { embalagemId?: string; fatorConversao?: number; precoVenda?: number } | undefined): number => (
+    precoAutomatico(tabelaDoItemDoCatalogo(produto, opcao), condicaoPagamento).preco
+  );
+
   const { baixarLotesNaTransacao, camposDeLoteDoItem, devolucaoTotalDosLotes, devolverAosLotesNaTransacao, estornarLotesDaDevolucaoNaTransacao, linhasParaLote, prepararBaixaDeLotes } = loteBaixa;
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
   const canReturnVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao'));
@@ -688,6 +805,7 @@ const PedidoVendaForm: React.FC = () => {
           id: doc.id,
           nome: doc.data().nome,
           precoVenda: doc.data().precoVenda,
+          precoAVista: Number(doc.data().precoAVista) || 0,
           quantidade: doc.data().quantidade || 0,
           codigo: doc.data().codigo || '',
           unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
@@ -738,6 +856,7 @@ const PedidoVendaForm: React.FC = () => {
           const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
           const debitSettlementDays = config.prazoRecebimentoCartaoDebitoDias ?? 1;
           setExigirEscolhaFormaPagamento(parseExigirEscolhaFormaPagamento(config.exigirEscolhaFormaPagamento));
+          setFormasPrecoAVista(parseFormasAVista(config.formasPrecoAVista));
           formaInicialDaEmpresa = formaInicialConfigurada(
             parseExigirEscolhaFormaPagamento(config.exigirEscolhaFormaPagamento),
             formasDaEmpresa(parseOrdemFormasPagamento(config.ordemFormasPagamento), parseFormasOcultas(config.formasPagamentoOcultas)),
@@ -1047,7 +1166,8 @@ const PedidoVendaForm: React.FC = () => {
    * preco do quilo que o operador possa ter ajustado antes. */
   const handleSelecionarEmbalagem = (embalagemId: string) => {
     setEmbalagemSelecionadaId(embalagemId);
-    setProdutoPreco(findOpcaoUnidadeVenda(opcoesUnidadeVenda, embalagemId).precoVenda);
+    const opcaoEscolhida = findOpcaoUnidadeVenda(opcoesUnidadeVenda, embalagemId);
+    setProdutoPreco(produtoSelecionado ? precoSugerido(produtoSelecionado, opcaoEscolhida) : opcaoEscolhida.precoVenda);
   };
 
   // Mesma checagem de bloquear/perguntar que ja rodava so na pre-venda/
@@ -1261,7 +1381,20 @@ const PedidoVendaForm: React.FC = () => {
       }
     }
 
-    const precoFinal = produtoPreco > 0 ? produtoPreco : (opcaoUnidade?.precoVenda || produtoEncontrado?.precoVenda || 0);
+    // Preco: o automatico (a vista / de venda / promocao, conforme o pagamento)
+    // ou o digitado no campo, que vira 'manual' e nunca troca sozinho.
+    let precoFinal = produtoPreco > 0 ? produtoPreco : 0;
+    let camposPreco: ReturnType<typeof camposDePreco>['campos'] | null = null;
+    let avisoPromocao: string | undefined;
+    if (produtoEncontrado) {
+      const conferida = conferirQuotaDaPromocao(produtoEncontrado, tabelaDoItemDoCatalogo(produtoEncontrado, opcaoUnidade), quantidadeBase);
+      avisoPromocao = conferida.aviso;
+      // Promocao que saiu pela quota: o campo mostrava o preco promocional, entao
+      // o valor dele nao e' "digitado" -- vale o automatico sem a promocao.
+      const resultado = camposDePreco(conferida.tabela, conferida.aviso ? undefined : (produtoPreco > 0 ? produtoPreco : undefined));
+      precoFinal = resultado.preco;
+      camposPreco = resultado.campos;
+    }
     const precoCheioCents = toCents(precoFinal * qtdNum);
     // Com a opcao desligada o desconto por item e' ZERO de verdade, nao so
     // escondido: senao um valor que ficou no estado (digitado antes de o dono
@@ -1335,9 +1468,11 @@ const PedidoVendaForm: React.FC = () => {
       ...(opcaoUnidade?.embalagemId
         ? { embalagemId: opcaoUnidade.embalagemId, fatorConversao, quantidadeBase }
         : {}),
+      ...(camposPreco || {}),
     };
 
     setItens([...itens, novoItem]);
+    if (avisoPromocao) showWarning(avisoPromocao);
     setProdutoBusca('');
     setProdutoQtd(1);
     // Limpa no tipo que a empresa escolheu, nao no R$ fixo: quem trabalha em
@@ -1358,6 +1493,7 @@ const PedidoVendaForm: React.FC = () => {
   const adicionarVariosItens = (lista: Array<{ product: ProdutoEstoque; quantidade: number }>) => {
     const novos: ItemVenda[] = [];
     const recusados: string[] = [];
+    const avisosPromocao: string[] = [];
     lista.forEach(({ product, quantidade }) => {
       if (!(quantidade > 0)) {
         recusados.push(`${product.nome}: quantidade inválida.`);
@@ -1374,8 +1510,11 @@ const PedidoVendaForm: React.FC = () => {
         recusados.push(`${product.nome}: a unidade ${opcao.sigla} ${opcao.permiteFracionado ? `aceita no máximo ${opcao.casasDecimais ?? 0} casa(s) decimal(is)` : 'não permite quantidade fracionada'}.`);
         return;
       }
-      const preco = opcao?.precoVenda || product.precoVenda || 0;
+      const conferida = conferirQuotaDaPromocao(product, tabelaDoItemDoCatalogo(product, opcao), quantidadeBase);
+      if (conferida.aviso) avisosPromocao.push(conferida.aviso);
+      const { preco, campos: camposPreco } = camposDePreco(conferida.tabela);
       novos.push({
+        ...camposPreco,
         id: product.id,
         nome: product.nome,
         ...(product.codigo ? { codigo: product.codigo } : {}),
@@ -1400,6 +1539,7 @@ const PedidoVendaForm: React.FC = () => {
     } else if (novos.length > 0) {
       showSuccess(`${novos.length} item${novos.length === 1 ? '' : 's'} adicionado${novos.length === 1 ? '' : 's'}.`);
     }
+    if (avisosPromocao.length > 0) showWarning(avisosPromocao.join(' '));
   };
 
   const handleClearProdutoSelecionado = () => {
@@ -1517,17 +1657,32 @@ const PedidoVendaForm: React.FC = () => {
     if (!result.isConfirmed || !result.value) return;
 
     const { novaQtd, novoPreco, novaQtdBase } = result.value as { novaQtd: number; novoPreco: number; novaQtdBase: number };
-    setItens((current) => current.map((it, idx) => (
-      idx === index
-        ? {
-            ...it,
-            quantidade: novaQtd,
-            precoUnitario: novoPreco,
-            subtotal: Math.max(0, novoPreco * novaQtd - it.desconto),
-            ...(it.embalagemId ? { quantidadeBase: novaQtdBase } : {}),
-          }
-        : it
-    )));
+    let atualizado: ItemVenda = {
+      ...item,
+      quantidade: novaQtd,
+      precoUnitario: novoPreco,
+      ...(item.embalagemId ? { quantidadeBase: novaQtdBase } : {}),
+    };
+    let avisoQuota: string | undefined;
+    // Item com tabela de precos: preco mexido aqui vira 'manual' (nunca troca
+    // sozinho); quantidade nova passa de novo pela quota da promocao.
+    if (item.tabelaPreco && produtoCatalogo) {
+      let tabela = item.tabelaPreco;
+      if (item.promocaoId) {
+        const conferida = conferirQuotaDaPromocao(produtoCatalogo, tabela, novaQtdBase, index);
+        tabela = conferida.tabela;
+        avisoQuota = conferida.aviso;
+      }
+      const precoMexido = Math.abs(novoPreco - item.precoUnitario) > 0.0001;
+      const digitado = precoMexido ? novoPreco : (item.origemPreco === 'manual' ? item.precoUnitario : undefined);
+      const { preco, campos } = camposDePreco(tabela, digitado);
+      const { promocaoId: _promocaoAnterior, promocaoNome: _nomeAnterior, ...semPromocao } = atualizado;
+      void _promocaoAnterior; void _nomeAnterior;
+      atualizado = { ...semPromocao, ...campos, precoUnitario: preco };
+    }
+    atualizado = { ...atualizado, subtotal: Math.max(0, atualizado.precoUnitario * novaQtd - item.desconto) };
+    setItens((current) => current.map((it, idx) => (idx === index ? atualizado : it)));
+    if (avisoQuota) showWarning(avisoQuota);
   };
 
   const focusPagamentoSection = () => {
@@ -1560,8 +1715,12 @@ const PedidoVendaForm: React.FC = () => {
         if (!permitirVendaSemEstoque && produtoAtual.quantidade < item.quantidade) {
           warnings.push(`${item.nome}: estoque atual (${produtoAtual.quantidade}) é menor que a quantidade do pedido (${item.quantidade}).`);
         }
-        if (Math.abs(produtoAtual.precoVenda - item.precoUnitario) > 0.001) {
-          warnings.push(`${item.nome}: preço mudou de R$ ${item.precoUnitario.toFixed(2)} para R$ ${produtoAtual.precoVenda.toFixed(2)}.`);
+        // Item com tabela de precos (2026-10-01) compara o preco de VENDA de quando
+        // entrou com o de agora -- comparar o preco cobrado daria alarme falso em
+        // item a vista ou em promocao. Item antigo compara como sempre comparou.
+        const precoDeReferencia = item.tabelaPreco ? item.tabelaPreco.venda : item.precoUnitario;
+        if (!(item.tabelaPreco && item.embalagemId) && Math.abs(produtoAtual.precoVenda - precoDeReferencia) > 0.001) {
+          warnings.push(`${item.nome}: preço de venda mudou de R$ ${precoDeReferencia.toFixed(2)} para R$ ${produtoAtual.precoVenda.toFixed(2)}.`);
         }
         return warnings;
       }, [])
@@ -1597,6 +1756,35 @@ const PedidoVendaForm: React.FC = () => {
         : current
     ));
   }, [isViewing, canEditPendingOrder, paymentDrafts.length, valorTotalPedidoCentavos]);
+
+  // Pagamento mudou de a vista para a prazo (ou o contrario): os itens com
+  // preco automatico trocam de tabela SOZINHOS, com aviso do quanto o total
+  // mudou. Preco digitado e venda ja finalizada nao mexem. Ver precoVendaDomain.
+  const condicaoAnteriorRef = useRef(condicaoPagamento);
+  useEffect(() => {
+    if (condicaoAnteriorRef.current === condicaoPagamento) return;
+    condicaoAnteriorRef.current = condicaoPagamento;
+    if (isViewing && !canEditPendingOrder) return;
+    const resultado = reprecificarItens(itens, condicaoPagamento);
+    const sincronizados = resultado.itens.map((item) => {
+      const naPromocao = item.origemPreco === 'promocao' && item.tabelaPreco?.promocao;
+      if (naPromocao) return { ...item, promocaoId: item.tabelaPreco!.promocao!.id, promocaoNome: item.tabelaPreco!.promocao!.nome };
+      if (!item.promocaoId && !item.promocaoNome) return item;
+      const { promocaoId: _id, promocaoNome: _nome, ...semPromocao } = item;
+      void _id; void _nome;
+      return semPromocao;
+    });
+    const mudouAlgo = sincronizados.some((item, i) => item !== itens[i]);
+    if (!mudouAlgo) return;
+    setItens(sincronizados);
+    if (resultado.alterados > 0) {
+      const diferenca = Math.abs(resultado.diferencaCentavos) / 100;
+      showWarning(
+        `Pagamento ${ROTULO_CONDICAO[condicaoPagamento]}: ${resultado.alterados} item(ns) passaram para o ${condicaoPagamento === 'vista' ? 'preço à vista (ou promocional)' : 'preço de venda (a prazo)'}. `
+        + `O total ${resultado.diferencaCentavos >= 0 ? 'subiu' : 'baixou'} ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(diferenca)}.`,
+      );
+    }
+  }, [condicaoPagamento]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Uma aprovacao de senha vale so pro estado do carrinho no momento em que
   // foi dada -- mudar item ou desconto depois invalida, senao um desconto
@@ -1885,6 +2073,8 @@ const PedidoVendaForm: React.FC = () => {
           // no documento tambem.
           observacao: observacaoPedido.trim(),
           itens,
+          // Promocoes usadas -- a quota de cada uma e' contada por este campo (promocaoService.vendidoNaPromocao).
+          promocaoIds: promocaoIdsDosItens(itens),
           valorTotalItens,
           valorTotalItensCentavos: toCents(valorTotalItens),
           valorTotalDescontos,
@@ -2774,6 +2964,7 @@ const PedidoVendaForm: React.FC = () => {
           clienteNome: finalClienteNome,
           observacao: observacaoPedido.trim(),
           itens: itensComLote,
+          promocaoIds: promocaoIdsDosItens(itens),
           valorTotalItens,
           valorTotalItensCentavos: toCents(valorTotalItens),
           valorTotalDescontos,
@@ -4434,7 +4625,7 @@ const PedidoVendaForm: React.FC = () => {
                         setProdutoBusca(value);
                         const exists = produtosCatalogo.find(p => p.nome.toLowerCase() === value.toLowerCase() || p.codigo === value);
                         if (exists) {
-                          setProdutoPreco(exists.precoVenda);
+                          setProdutoPreco(precoSugerido(exists, buildOpcoesUnidadeVenda(exists)[0]));
                           setProdutoSelecionado(exists);
                         } else {
                           setProdutoSelecionado(null);
@@ -4443,7 +4634,7 @@ const PedidoVendaForm: React.FC = () => {
                       }}
                       onSelect={(p) => {
                         setProdutoBusca(p.nome);
-                        setProdutoPreco(p.precoVenda);
+                        setProdutoPreco(precoSugerido(p, buildOpcoesUnidadeVenda(p)[0]));
                         setProdutoSelecionado(p);
                         // Produto novo comeca sempre na unidade base.
                         setEmbalagemSelecionadaId('');
@@ -4478,7 +4669,7 @@ const PedidoVendaForm: React.FC = () => {
                     products={produtosCatalogo}
                     onSelect={(p) => {
                       setProdutoBusca(p.nome);
-                      setProdutoPreco(p.precoVenda);
+                      setProdutoPreco(precoSugerido(p, buildOpcoesUnidadeVenda(p)[0]));
                       setProdutoSelecionado(p);
                       setEmbalagemSelecionadaId('');
                     }}
@@ -4593,7 +4784,16 @@ const PedidoVendaForm: React.FC = () => {
                         <td style={{ padding: '12px 8px', textAlign: 'center' }}>
                           {item.quantidade.toFixed(item.unidadeMedidaCasasDecimais ?? 0)} {item.unidadeMedidaSigla || 'UN'}
                         </td>
-                        <td style={{ padding: '12px 8px', textAlign: 'right' }}>R$ {item.precoUnitario.toFixed(2)}</td>
+                        <td style={{ padding: '12px 8px', textAlign: 'right' }}>
+                          R$ {item.precoUnitario.toFixed(2)}
+                          {item.origemPreco === 'promocao' && (
+                            <div title={item.promocaoNome ? `Promoção: ${item.promocaoNome}` : 'Promoção'} style={{ fontSize: '11px', fontWeight: 700, color: '#10b981' }}>
+                              PROMOÇÃO{item.tabelaPreco ? <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> · de <s>R$ {item.tabelaPreco.venda.toFixed(2)}</s></span> : null}
+                            </div>
+                          )}
+                          {item.origemPreco === 'vista' && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>preço à vista</div>}
+                          {item.origemPreco === 'manual' && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }} title="Preço digitado: não muda com a forma de pagamento">preço digitado</div>}
+                        </td>
                         <td style={{ padding: '12px 8px', textAlign: 'right', color: '#ef4444' }}>{item.desconto > 0 ? `-R$ ${item.desconto.toFixed(2)}` : '-'}</td>
                         <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>R$ {item.subtotal.toFixed(2)}</td>
                         {(!isViewing || canDeletePendingItem) && (

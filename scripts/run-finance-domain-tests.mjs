@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 const temporaryDirectory = mkdtempSync(join(tmpdir(), 'nexus-finance-tests-'));
 const testFiles = [
   join(temporaryDirectory, 'tests', 'financeDomain.test.js'),
+  join(temporaryDirectory, 'tests', 'romaneioDomain.test.js'),
   join(temporaryDirectory, 'tests', 'productSearch.test.js'),
   join(temporaryDirectory, 'tests', 'keyboardFlow.test.js'),
   join(temporaryDirectory, 'tests', 'catalogDefaults.test.js'),
@@ -89,6 +90,7 @@ try {
   const compileResult = spawnSync(process.execPath, [
     resolve('node_modules/typescript/bin/tsc'),
     'tests/financeDomain.test.ts',
+    'tests/romaneioDomain.test.ts',
     'tests/productSearch.test.ts',
     'tests/keyboardFlow.test.ts',
     'tests/catalogDefaults.test.ts',
@@ -167,6 +169,7 @@ try {
     'tests/notaFiscalItemDomain.test.ts',
     'tests/nomeArquivoDomain.test.ts',
     'src/utils/financeDomain.ts',
+    'src/utils/romaneioDomain.ts',
     'src/utils/dateTime.ts',
     'src/utils/productSearch.ts',
     'src/utils/keyboardFlow.ts',

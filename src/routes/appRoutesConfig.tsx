@@ -100,6 +100,8 @@ const MinutaPrintLote = lazy(() => import('../pages/Expedicao/MinutaPrintLote'))
 const FilaExpedicao = lazy(() => import('../pages/Expedicao/FilaExpedicao'));
 const RotasList = lazy(() => import('../pages/Rotas/RotasList'));
 const RotaForm = lazy(() => import('../pages/Rotas/RotaForm'));
+const RomaneiosList = lazy(() => import('../pages/Romaneios/RomaneiosList'));
+const RomaneioForm = lazy(() => import('../pages/Romaneios/RomaneioForm'));
 const MotoristasList = lazy(() => import('../pages/Rotas/MotoristasList'));
 const FrotaList = lazy(() => import('../pages/Rotas/FrotaList'));
 const CustoPorVeiculo = lazy(() => import('../pages/Rotas/CustoPorVeiculo'));
@@ -225,6 +227,9 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'operacoes/rotas', element: <RotasList /> },
   { path: 'operacoes/rotas/nova', element: <RotaForm /> },
   { path: 'operacoes/rotas/:id', element: <RotaForm /> },
+  { path: 'operacoes/romaneios', element: <RomaneiosList /> },
+  { path: 'operacoes/romaneios/novo', element: <RomaneioForm /> },
+  { path: 'operacoes/romaneios/:id', element: <RomaneioForm /> },
   { path: 'operacoes/motoristas', element: <MotoristasList /> },
   { path: 'operacoes/frota', element: <FrotaList /> },
   { path: 'operacoes/frota/custos', element: <CustoPorVeiculo /> },

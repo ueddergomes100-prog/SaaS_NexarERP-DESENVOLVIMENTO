@@ -167,6 +167,9 @@ service cloud.firestore {
         // Frota propria (veiculos da EMPRESA, 2026-09-25): mesma permissao da rota/motorista.
         (collectionName == 'frota' && hasPermission('operacoes.rotas')) ||
         (collectionName == 'rotas' && hasPermission('operacoes.rotas')) ||
+        // Romaneio de entrega (2026-10-01): a rota em si e a trava de cada pedido (romaneio_pedidos/{pedidoId}),
+        // que impede o mesmo pedido de sair em duas rotas. Exclusao nunca: a trava e' liberada, nao apagada.
+        (collectionName in ['romaneios', 'romaneio_pedidos'] && hasPermission('operacoes.romaneios')) ||
         (collectionName == 'materias_primas' && hasPermission('cadastros.materia_prima')) ||
         // Insumos (material de consumo, 2026-09-25): mesma permissao da materia-prima; a Entrada de NF-e
         // tambem os cria/atualiza, entao aceita fiscal.entrada.
@@ -578,7 +581,9 @@ service cloud.firestore {
           // Emitir boleto e gerar remessa consomem as sequencias do nosso numero
           // e da remessa (boleto_nosso_numero_*, boleto_remessa_*). Estava, por
           // engano, em canAdjustStockQuantity (2026-09-29).
-          'financeiro.boletos'
+          'financeiro.boletos',
+          // Numero da rota do romaneio (Rota 01, 02...), 2026-10-01.
+          'operacoes.romaneios'
         ]);
     }
 
@@ -723,6 +728,8 @@ service cloud.firestore {
         'frota',
         'insumos',
         'rotas',
+        'romaneios',
+        'romaneio_pedidos',
         'cotacoes_compra',
         'pedidos_compra',
         'recebimentos_compra',
@@ -773,6 +780,8 @@ service cloud.firestore {
         'frota',
         'insumos',
         'rotas',
+        'romaneios',
+        'romaneio_pedidos',
         'cotacoes_compra',
         'pedidos_compra',
         'recebimentos_compra',
@@ -818,6 +827,8 @@ service cloud.firestore {
         'frota',
         'insumos',
         'rotas',
+        'romaneios',
+        'romaneio_pedidos',
         'cotacoes_compra',
         'pedidos_compra',
         'recebimentos_compra',
@@ -876,6 +887,8 @@ service cloud.firestore {
         'frota',
         'insumos',
         'rotas',
+        'romaneios',
+        'romaneio_pedidos',
         'cotacoes_compra',
         'pedidos_compra',
         'recebimentos_compra',

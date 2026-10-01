@@ -46,6 +46,8 @@ const COLECOES_DA_EMPRESA = [
   'trocas',
   'expedicoes',
   'entregas',
+  'romaneios',
+  'romaneio_pedidos',
   'notas_fiscais',
   'notas_fiscais_entrada',
   'notas_avulsas',

@@ -150,6 +150,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // so' para as duas telas -- quem lanca a despesa e' quem cadastra o
       // motorista (a loja), nao faz sentido separar.
       { id: 'operacoes.rotas', label: 'Rotas: Motoristas e Despesas de Viagem', color: '#14b8a6' },
+      { id: 'operacoes.romaneios', label: 'Romaneio de Entrega: montar rota, registrar entregas e acerto', color: '#14b8a6' },
     ],
   },
   {

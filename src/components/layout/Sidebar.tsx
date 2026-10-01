@@ -263,6 +263,7 @@ const Sidebar: React.FC = () => {
       icon: Truck,
       items: [
         { label: 'Conferência de Mercadoria', to: '/operacoes/expedicao', icon: Truck, module: 'operacoes.expedicao', permission: 'operacoes.expedicao' },
+        { label: 'Romaneio de Entrega', to: '/operacoes/romaneios', icon: ClipboardList, module: 'operacoes.rotas', permission: 'operacoes.romaneios' },
         { label: 'Rotas e Despesas', to: '/operacoes/rotas', icon: Route, module: 'operacoes.rotas', permission: 'operacoes.rotas' },
         { label: 'Motoristas', to: '/operacoes/motoristas', icon: IdCard, module: 'operacoes.rotas', permission: 'operacoes.rotas' },
         { label: 'Frota', to: '/operacoes/frota', icon: Truck, module: 'operacoes.rotas', permission: 'operacoes.rotas' },

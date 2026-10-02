@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Factory, Edit, Power, Trash2, AlertTriangle, Upload, RefreshCw } from 'lucide-react';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -150,12 +151,19 @@ const MateriasPrimasList: React.FC = () => {
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Estoque de matéria-prima, separado do estoque de produtos acabados e itens que não dependem de produção</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={handleAtualizarCustos} disabled={atualizandoCustos} title="Recalcula o custo de todos os produtos acabados a partir do custo atual das matérias-primas. O preço de venda não é alterado." style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <RefreshCw size={18} /> {atualizandoCustos ? 'Atualizando...' : 'Atualizar custo dos produtos acabados'}
-          </button>
-          <button className="btn-secondary" onClick={() => openTab('/materias-primas/importar', 'Importar Matérias-Primas')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Upload size={18} /> Importar matérias-primas
-          </button>
+          <MenuMaisOpcoes
+            rotulo={atualizandoCustos ? 'Atualizando custos...' : 'Mais opções'}
+            itens={[
+              { texto: 'Importar matérias-primas', Icone: Upload, onClick: () => openTab('/materias-primas/importar', 'Importar Matérias-Primas') },
+              {
+                texto: 'Atualizar custo dos produtos acabados', Icone: RefreshCw,
+                desabilitado: atualizandoCustos,
+                titulo: 'Recalcula o custo de todos os produtos acabados a partir do custo atual das matérias-primas. O preço de venda não é alterado.',
+                onClick: () => { void handleAtualizarCustos(); },
+                separadorAntes: true,
+              },
+            ]}
+          />
           <button className="btn-primary" onClick={() => openTab('/materias-primas/nova')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Nova Matéria-Prima
           </button>

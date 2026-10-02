@@ -5,6 +5,7 @@ import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { CampoFiltro, CampoPeriodo, PainelFiltros, BotaoFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 import { addDaysToDateInput, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -101,17 +102,16 @@ const RomaneiosList: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <button
-            className="btn-secondary"
-            onClick={() => setRelatorio({ de: periodoDe || addDaysToDateInput(hoje, -30), ate: periodoAte || hoje })}
-            title={periodoDe || periodoAte ? 'Relatório do período filtrado' : 'Relatório dos últimos 30 dias (use o filtro de período para mudar)'}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <FileText size={17} /> Relatório
-          </button>
-          <button className="btn-secondary" onClick={() => openTab('/operacoes/motoristas')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Truck size={17} /> Motoristas
-          </button>
+          <MenuMaisOpcoes
+            itens={[
+              {
+                texto: 'Relatório', Icone: FileText,
+                titulo: periodoDe || periodoAte ? 'Relatório do período filtrado' : 'Relatório dos últimos 30 dias (use o filtro de período para mudar)',
+                onClick: () => setRelatorio({ de: periodoDe || addDaysToDateInput(hoje, -30), ate: periodoAte || hoje }),
+              },
+              { texto: 'Motoristas', Icone: Truck, onClick: () => openTab('/operacoes/motoristas') },
+            ]}
+          />
           <button className="btn-primary" onClick={() => openTab('/operacoes/romaneios/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Novo romaneio
           </button>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Users, Edit, Power, Trash2, Upload } from 'lucide-react';
+import { Search, Plus, Users, Edit, Power, Trash2, Upload, CaseUpper } from 'lucide-react';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -140,17 +141,12 @@ const ClientesList: React.FC = () => {
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Gerenciamento da sua base de clientes</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-            Padronizar (A-Z)
-          </button>
-          <button
-            className="btn-secondary"
-            onClick={() => openTab('/clientes/importar', 'Importar Clientes')}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <Upload size={18} />
-            Importar clientes
-          </button>
+          <MenuMaisOpcoes
+            itens={[
+              { texto: 'Importar clientes', Icone: Upload, onClick: () => openTab('/clientes/importar', 'Importar Clientes') },
+              { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, onClick: handleFixNames, separadorAntes: true },
+            ]}
+          />
           <button className="btn-primary" onClick={() => openTab('/clientes/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Novo Cliente
           </button>

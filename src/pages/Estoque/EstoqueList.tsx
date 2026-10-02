@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory, ScanBarcode } from 'lucide-react';
-import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory, ScanBarcode, CaseUpper, Eye, EyeOff } from 'lucide-react';
+import { collection, query, onSnapshot, doc, where, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -49,6 +50,24 @@ const EstoqueList: React.FC = () => {
   // permissao base (cadastros.estoque). Sem isto, um funcionario so-leitura
   // dava duplo clique e via custo/margem/fornecedor do produto inteiro.
   const canEditProduto = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('cadastros.estoque_alterar'));
+  // Mesmo criterio das regras do Firestore para gravar configuracoes
+  // (canEditTenantConfig): dono/admin ou a permissao de Configuracoes.
+  const podeAlterarConfiguracoes = isOwner || isPlatformAdminRole(userRole) || userRole === 'Master' || userRole === 'Admin'
+    || Boolean(userPermissions?.includes('administrativo.config'));
+
+  /** Atalho para a mesma opcao de Configuracoes Gerais (mostrarResumoEstoque). */
+  const alternarResumo = async () => {
+    if (!tenantId) return;
+    try {
+      await setDoc(doc(db, 'configuracoes', tenantId), { tenantId, mostrarResumoEstoque: !mostrarResumo }, { merge: true });
+    } catch (error) {
+      console.error('Erro ao alterar os cartões de resumo do estoque:', error);
+      showError(
+        'Não foi possível alterar',
+        'Esta opção vale para a empresa toda e só pode ser mudada por quem altera as Configurações. Peça ao administrador ou use Configurações → Configurações Gerais.',
+      );
+    }
+  };
 
   // Ao vivo: o dono liga/desliga em Configuracoes e a tela acompanha sem
   // ninguem precisar relogar.
@@ -203,34 +222,27 @@ const EstoqueList: React.FC = () => {
           <p className="page-subtitle">Controle de inventário, produtos e insumos</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-            Padronizar (A-Z)
-          </button>
-          <button
-            className="btn-secondary"
-            onClick={() => openTab('/estoque/importar', 'Importar Produtos')}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <Upload size={18} />
-            Importar produtos
-          </button>
-          <button
-            className="btn-secondary"
-            onClick={() => openTab('/estoque/importar-composicao', 'Importar Composição')}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <Factory size={18} />
-            Importar composição
-          </button>
-          <button
-            className="btn-secondary"
-            onClick={() => openTab('/estoque/importar-fiscal', 'Importar Dados Fiscais')}
-            title="Atualiza código de barras, NCM e CEST dos produtos já cadastrados"
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <ScanBarcode size={18} />
-            Importar dados fiscais
-          </button>
+          {/* A vista so' o "Novo Produto"; o resto e' de uso eventual (dono, 02/10). */}
+          <MenuMaisOpcoes
+            itens={[
+              { texto: 'Importar produtos', Icone: Upload, onClick: () => openTab('/estoque/importar', 'Importar Produtos') },
+              { texto: 'Importar composição', Icone: Factory, onClick: () => openTab('/estoque/importar-composicao', 'Importar Composição') },
+              {
+                texto: 'Importar dados fiscais', Icone: ScanBarcode,
+                titulo: 'Atualiza código de barras, NCM e CEST dos produtos já cadastrados',
+                onClick: () => openTab('/estoque/importar-fiscal', 'Importar Dados Fiscais'),
+              },
+              { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, onClick: handleFixNames, separadorAntes: true },
+              {
+                texto: mostrarResumo ? 'Esconder cartões de resumo' : 'Mostrar cartões de resumo',
+                Icone: mostrarResumo ? EyeOff : Eye,
+                titulo: 'Vale para todos os usuários da empresa (Configurações Gerais → "Mostrar os cartões de resumo na tela de Estoque")',
+                oculto: !podeAlterarConfiguracoes,
+                separadorAntes: true,
+                onClick: () => { void alternarResumo(); },
+              },
+            ]}
+          />
           {canEditProduto && (
             <button
               className="btn-primary"

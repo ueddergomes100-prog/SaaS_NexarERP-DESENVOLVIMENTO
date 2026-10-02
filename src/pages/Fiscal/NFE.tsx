@@ -5,6 +5,7 @@ import {
   ChevronLeft, ChevronRight, MessageCircle, Loader2, FilePenLine, RotateCcw, Mail
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -2636,15 +2637,22 @@ const NFE: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button
-            className="btn-secondary"
-            onClick={handleManualSyncAll}
-            disabled={syncing}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: syncing ? 0.7 : 1 }}
-          >
-            <RefreshCw size={18} className={syncing ? 'spin-icon' : ''} />
-            {syncing ? 'Sincronizando...' : 'Sincronizar Notas'}
-          </button>
+          <MenuMaisOpcoes
+            rotulo={syncing ? 'Sincronizando...' : 'Mais opções'}
+            itens={[
+              {
+                texto: 'Emitir em lote', Icone: Receipt, oculto: !canEmitirNota,
+                titulo: 'Marcar vários pedidos finalizados e emitir as NF-e de uma vez',
+                onClick: () => setLoteAberto(true),
+              },
+              {
+                texto: 'Sincronizar notas', Icone: RefreshCw, desabilitado: syncing,
+                titulo: 'Busca na Spedy a situação atual das notas em processamento',
+                onClick: () => { void handleManualSyncAll(); },
+                separadorAntes: canEmitirNota,
+              },
+            ]}
+          />
           {canEmitirNota && (
             <button
               className="btn-primary"
@@ -2658,16 +2666,6 @@ const NFE: React.FC = () => {
               style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
             >
               <Plus size={18} /> Emitir Nota Fiscal
-            </button>
-          )}
-          {canEmitirNota && (
-            <button
-              className="btn-secondary"
-              onClick={() => setLoteAberto(true)}
-              title="Marcar vários pedidos finalizados e emitir as NF-e de uma vez"
-              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-            >
-              <Receipt size={18} /> Emitir em lote
             </button>
           )}
         </div>

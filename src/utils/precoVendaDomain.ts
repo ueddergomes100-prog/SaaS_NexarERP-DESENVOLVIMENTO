@@ -129,22 +129,27 @@ export interface ProdutoComPrecos {
 }
 
 /**
- * Tabela do item na unidade vendida. Embalagem com preco PROPRIO tem so' esse
- * preco (nao ha preco a vista cadastrado pra ela); embalagem sem preco
- * proprio herda os dois do produto multiplicados pelo fator (saco de 20 kg =
- * 20 x preco do kg), igual ao que o sistema ja fazia com o preco de venda.
+ * Tabela do item na unidade vendida. Os precos do produto sao da unidade base
+ * (o kg); a embalagem pode ter os DOIS precos proprios (pedido do dono,
+ * 2026-10-02: "preco a vista do kg e o da embalagem"):
+ *   - preco de venda proprio, ou preco de venda do kg x fator;
+ *   - preco a vista proprio, ou preco a vista do kg x fator -- mas so' quando
+ *     a embalagem tambem nao tem preco de venda proprio. Saco com preco de
+ *     venda proprio e sem a vista proprio fica sem preco a vista (vale o de
+ *     venda): o a vista do kg x fator poderia sair MAIS CARO que o preco
+ *     negociado do saco.
  */
 export const tabelaDoProduto = (
   produto: ProdutoComPrecos,
-  unidade: { fatorConversao?: number; precoProprio?: number } = {},
+  unidade: { fatorConversao?: number; precoProprio?: number; precoAVistaProprio?: number } = {},
 ): TabelaDePrecoDoItem => {
   const proprio = positivo(unidade.precoProprio);
-  if (proprio > 0) return { venda: proprio, vista: 0, promocao: null };
+  const vistaPropria = positivo(unidade.precoAVistaProprio);
   const fator = positivo(unidade.fatorConversao) || 1;
   const arredonda = (v: number) => Math.round(v * fator * 100) / 100;
   return {
-    venda: arredonda(positivo(produto.precoVenda)),
-    vista: arredonda(positivo(produto.precoAVista)),
+    venda: proprio > 0 ? proprio : arredonda(positivo(produto.precoVenda)),
+    vista: vistaPropria > 0 ? vistaPropria : (proprio > 0 ? 0 : arredonda(positivo(produto.precoAVista))),
     promocao: null,
   };
 };

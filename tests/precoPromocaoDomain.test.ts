@@ -69,6 +69,28 @@ test('embalagem sem preço próprio herda os dois preços × fator; com preço p
   assert.deepEqual(tabelaDoProduto(produto, { fatorConversao: 20, precoProprio: 85 }), { venda: 85, vista: 0, promocao: null });
 });
 
+test('embalagem com preço à vista próprio: kg tem o dele, o saco tem o dele', () => {
+  // Caso do dono (02/10): kg a R$ 4,00 / à vista R$ 3,60; saco de 50 kg a R$ 200 / à vista R$ 180.
+  const produto = { precoVenda: 4, precoAVista: 3.6 };
+  assert.deepEqual(tabelaDoProduto(produto), { venda: 4, vista: 3.6, promocao: null });
+  assert.deepEqual(
+    tabelaDoProduto(produto, { fatorConversao: 50, precoProprio: 200, precoAVistaProprio: 180 }),
+    { venda: 200, vista: 180, promocao: null },
+  );
+  // Só o à vista próprio: o preço de venda continua kg × fator.
+  assert.deepEqual(
+    tabelaDoProduto(produto, { fatorConversao: 50, precoAVistaProprio: 175 }),
+    { venda: 200, vista: 175, promocao: null },
+  );
+  // À vista próprio sem o kg ter à vista.
+  assert.deepEqual(
+    tabelaDoProduto({ precoVenda: 4 }, { fatorConversao: 50, precoProprio: 190, precoAVistaProprio: 180 }),
+    { venda: 190, vista: 180, promocao: null },
+  );
+  assert.deepEqual(precoAutomatico(tabelaDoProduto(produto, { fatorConversao: 50, precoProprio: 200, precoAVistaProprio: 180 }), 'vista'), { preco: 180, origem: 'vista' });
+  assert.deepEqual(precoAutomatico(tabelaDoProduto(produto, { fatorConversao: 50, precoProprio: 200, precoAVistaProprio: 180 }), 'prazo'), { preco: 200, origem: 'venda' });
+});
+
 test('reprecificar: troca os automáticos, mantém o digitado e o desconto em R$', () => {
   const itens = [
     { nome: 'A', precoUnitario: 95, quantidade: 2, desconto: 10, subtotal: 180, tabelaPreco: tabela(), origemPreco: 'vista' as const },

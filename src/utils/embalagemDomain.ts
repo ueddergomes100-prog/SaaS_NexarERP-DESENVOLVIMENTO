@@ -27,6 +27,8 @@ export interface Embalagem {
   fatorConversao: number;
   /** Preco proprio desta embalagem. 0/ausente = calcula por preco base x fator. */
   precoVenda: number;
+  /** Preco a vista proprio. 0/ausente = regra de tabelaDoProduto (precoVendaDomain.ts). */
+  precoAVista: number;
   codigoBarras: string;
   ativo: boolean;
 }
@@ -51,6 +53,10 @@ export interface OpcaoUnidadeVenda {
   casasDecimais: number;
   permiteFracionado: boolean;
   precoVenda: number;
+  /** Precos cadastrados NA embalagem (0 = nao tem). A base tem os dois em 0:
+   *  quem monta a tabela a vista/a prazo e' tabelaDoProduto. */
+  precoVendaProprio: number;
+  precoAVistaProprio: number;
 }
 
 const toFiniteNumber = (value: unknown, fallback = 0): number => {
@@ -91,6 +97,7 @@ export const normalizeEmbalagens = (value: unknown): Embalagem[] => {
       descricao: toTrimmedString(entry.descricao),
       fatorConversao,
       precoVenda: Math.max(0, toFiniteNumber(entry.precoVenda)),
+      precoAVista: Math.max(0, toFiniteNumber(entry.precoAVista)),
       codigoBarras: toTrimmedString(entry.codigoBarras),
       ativo: entry.ativo !== false,
     });
@@ -112,6 +119,8 @@ export const buildOpcoesUnidadeVenda = (produto: ProdutoComEmbalagens | null | u
     casasDecimais: Math.max(0, toFiniteNumber(produto?.unidadeMedidaCasasDecimais)),
     permiteFracionado: produto?.unidadeMedidaFracionado === true,
     precoVenda: precoBase,
+    precoVendaProprio: 0,
+    precoAVistaProprio: 0,
   };
 
   const embalagens = normalizeEmbalagens(produto?.embalagens)
@@ -128,6 +137,8 @@ export const buildOpcoesUnidadeVenda = (produto: ProdutoComEmbalagens | null | u
       precoVenda: embalagem.precoVenda > 0
         ? embalagem.precoVenda
         : precoBase * embalagem.fatorConversao,
+      precoVendaProprio: embalagem.precoVenda,
+      precoAVistaProprio: embalagem.precoAVista,
     }));
 
   return [base, ...embalagens];

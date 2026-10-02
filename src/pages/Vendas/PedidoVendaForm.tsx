@@ -515,13 +515,17 @@ const PedidoVendaForm: React.FC = () => {
   );
 
   /** Tabela de precos do item, na unidade escolhida, com a promocao que vale hoje. */
-  const tabelaDoItemDoCatalogo = (produto: ProdutoEstoque, opcao: { embalagemId?: string; fatorConversao?: number; precoVenda?: number } | undefined): TabelaDePrecoDoItem => {
+  const tabelaDoItemDoCatalogo = (
+    produto: ProdutoEstoque,
+    opcao: { embalagemId?: string; fatorConversao?: number; precoVendaProprio?: number; precoAVistaProprio?: number } | undefined,
+  ): TabelaDePrecoDoItem => {
     const fator = opcao?.fatorConversao ?? 1;
-    const derivado = (Number(produto.precoVenda) || 0) * fator;
-    // Embalagem com preco PROPRIO nao tem preco a vista nem entra em promocao.
-    const precoProprio = opcao?.embalagemId && Math.abs((Number(opcao.precoVenda) || 0) - derivado) > 0.005 ? Number(opcao.precoVenda) || 0 : 0;
-    const tabela = tabelaDoProduto(produto, { fatorConversao: fator, precoProprio });
-    if (precoProprio > 0) return tabela;
+    const precoProprio = opcao?.embalagemId ? Number(opcao.precoVendaProprio) || 0 : 0;
+    const precoAVistaProprio = opcao?.embalagemId ? Number(opcao.precoAVistaProprio) || 0 : 0;
+    const tabela = tabelaDoProduto(produto, { fatorConversao: fator, precoProprio, precoAVistaProprio });
+    // Embalagem com preco PROPRIO (venda ou a vista) nao entra em promocao:
+    // a promocao e' do kg, e o preco do saco foi negociado a parte.
+    if (precoProprio > 0 || precoAVistaProprio > 0) return tabela;
     const promo = promocaoDoProduto(promocoes, produto.id, { venda: Number(produto.precoVenda) || 0, vista: Number(produto.precoAVista) || 0 }, hojeParaPromocao);
     return promo
       ? { ...tabela, promocao: { id: promo.promocaoId, nome: promo.nome, preco: Math.round(promo.preco * fator * 100) / 100, soAVista: promo.soAVista } }
@@ -574,7 +578,7 @@ const PedidoVendaForm: React.FC = () => {
   const promocaoIdsDosItens = (lista: ItemVenda[]): string[] => [...new Set(lista.map((i) => i.promocaoId).filter((p): p is string => Boolean(p)))];
 
   /** Preco que o campo "Preco" mostra ao escolher o produto/embalagem. */
-  const precoSugerido = (produto: ProdutoEstoque, opcao: { embalagemId?: string; fatorConversao?: number; precoVenda?: number } | undefined): number => (
+  const precoSugerido = (produto: ProdutoEstoque, opcao: Parameters<typeof tabelaDoItemDoCatalogo>[1]): number => (
     precoAutomatico(tabelaDoItemDoCatalogo(produto, opcao), condicaoPagamento).preco
   );
 

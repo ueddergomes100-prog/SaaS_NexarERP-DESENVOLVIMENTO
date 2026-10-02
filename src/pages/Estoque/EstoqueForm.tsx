@@ -43,6 +43,7 @@ interface EmbalagemFormRow {
   descricao: string;
   fatorConversao: string;
   precoVenda: string;
+  precoAVista: string;
   codigoBarras: string;
   ativo: boolean;
 }
@@ -55,6 +56,7 @@ const emptyEmbalagemRow = (): EmbalagemFormRow => ({
   descricao: '',
   fatorConversao: '1',
   precoVenda: '',
+  precoAVista: '',
   codigoBarras: '',
   ativo: true,
 });
@@ -591,6 +593,7 @@ const EstoqueForm: React.FC = () => {
               descricao: embalagem.descricao,
               fatorConversao: String(embalagem.fatorConversao),
               precoVenda: embalagem.precoVenda > 0 ? String(embalagem.precoVenda) : '',
+              precoAVista: embalagem.precoAVista > 0 ? String(embalagem.precoAVista) : '',
               codigoBarras: embalagem.codigoBarras,
               ativo: embalagem.ativo,
             })));
@@ -1249,6 +1252,7 @@ const EstoqueForm: React.FC = () => {
               descricao: embalagem.descricao.trim(),
               fatorConversao: toNumber(embalagem.fatorConversao),
               precoVenda: toNumber(embalagem.precoVenda),
+              precoAVista: toNumber(embalagem.precoAVista),
               codigoBarras: embalagem.codigoBarras.trim(),
               ativo: embalagem.ativo,
             };
@@ -1658,9 +1662,17 @@ const EstoqueForm: React.FC = () => {
                   <input type="text" value={produtoOriginal?.ultimaAlteracaoPreco ? new Date(produtoOriginal.ultimaAlteracaoPreco).toLocaleDateString('pt-BR') : 'Sem histórico'} readOnly />
                 </div>
                 <div className="input-group">
-                  <label>Preço à vista</label>
+                  <label>Preço à vista{embalagens.length > 0 ? ` (por ${baseUnidadeSigla})` : ''}</label>
                   <input type="number" name="precoAVista" step="0.01" min="0" placeholder="Igual ao preço de venda" value={formData.precoAVista} onChange={handleChange} />
                   <span className="field-hint">Vale para dinheiro, Pix, débito e crédito 1x. Parcelado, boleto, crediário e cheque usam o "Preço de venda". Em branco = preço de venda sempre.</span>
+                  {embalagens.length > 0 && (
+                    <span className="field-hint">Este é o preço de 1 {baseUnidadeSigla}. O preço à vista de cada embalagem (saco, caixa...) fica na aba Embalagens.</span>
+                  )}
+                  {toNumber(formData.precoAVista) > 0 && precoVenda > 0 && toNumber(formData.precoAVista) > precoVenda && (
+                    <span className="field-hint" style={{ color: '#d97706', fontWeight: 600 }}>
+                      Atenção: o preço à vista ({formatCurrency(toNumber(formData.precoAVista))}) está maior que o preço de venda ({formatCurrency(precoVenda)}). Os dois são por {baseUnidadeSigla}; confira se não é o preço de uma embalagem.
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -2319,6 +2331,19 @@ const EstoqueForm: React.FC = () => {
                   />
                 </div>
                 <div className="input-group">
+                  <label>Preço à vista</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder={toNumber(novaEmbalagem.precoVenda) > 0
+                      ? 'Vazio = preço de venda'
+                      : (toNumber(formData.precoAVista) > 0 ? `Vazio = ${formatCurrency(toNumber(formData.precoAVista))} × fator` : 'Vazio = preço de venda')}
+                    value={novaEmbalagem.precoAVista}
+                    onChange={(e) => setNovaEmbalagem(prev => ({ ...prev, precoAVista: e.target.value }))}
+                  />
+                </div>
+                <div className="input-group">
                   <label>Código de barras</label>
                   <input
                     value={novaEmbalagem.codigoBarras}
@@ -2344,7 +2369,8 @@ const EstoqueForm: React.FC = () => {
                     <tr>
                       <th>Unidade</th>
                       <th>Fator</th>
-                      <th>Preço</th>
+                      <th>Preço de venda</th>
+                      <th>Preço à vista</th>
                       <th>Código de barras</th>
                       <th>Descrição</th>
                       <th>Ativa</th>
@@ -2354,7 +2380,7 @@ const EstoqueForm: React.FC = () => {
                   <tbody>
                     {embalagens.length === 0 ? (
                       <tr>
-                        <td colSpan={7} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
+                        <td colSpan={8} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
                           Nenhuma embalagem cadastrada. O produto é vendido apenas em {baseUnidadeSigla}.
                         </td>
                       </tr>
@@ -2365,6 +2391,13 @@ const EstoqueForm: React.FC = () => {
                         const precoEfetivo = toNumber(embalagem.precoVenda) > 0
                           ? toNumber(embalagem.precoVenda)
                           : precoVenda * fator;
+                        // Mesma regra de tabelaDoProduto (precoVendaDomain.ts):
+                        // sem a vista proprio, o saco com preco de venda proprio
+                        // fica no preco de venda; sem nenhum dos dois, kg x fator.
+                        const precoAVistaBase = toNumber(formData.precoAVista);
+                        const precoAVistaEfetivo = toNumber(embalagem.precoAVista) > 0
+                          ? toNumber(embalagem.precoAVista)
+                          : (toNumber(embalagem.precoVenda) > 0 || precoAVistaBase <= 0 ? precoEfetivo : precoAVistaBase * fator);
                         return (
                           <tr key={embalagem.id} style={{ opacity: embalagem.ativo ? 1 : 0.5 }}>
                             <td>
@@ -2391,6 +2424,21 @@ const EstoqueForm: React.FC = () => {
                                 value={embalagem.precoVenda}
                                 onChange={(e) => updateEmbalagem(embalagem.id, 'precoVenda', e.target.value)}
                               />
+                            </td>
+                            <td style={{ maxWidth: '140px' }}>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder={formatCurrency(precoAVistaEfetivo)}
+                                value={embalagem.precoAVista}
+                                onChange={(e) => updateEmbalagem(embalagem.id, 'precoAVista', e.target.value)}
+                              />
+                              {toNumber(embalagem.precoAVista) > 0 && toNumber(embalagem.precoAVista) > precoEfetivo && (
+                                <div style={{ fontSize: '11px', color: '#d97706', marginTop: '4px' }}>
+                                  Maior que o preço de venda ({formatCurrency(precoEfetivo)})
+                                </div>
+                              )}
                             </td>
                             <td style={{ maxWidth: '180px' }}>
                               <input

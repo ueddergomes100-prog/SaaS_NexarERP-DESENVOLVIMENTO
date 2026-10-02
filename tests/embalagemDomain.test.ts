@@ -65,6 +65,21 @@ test('embalagem sem preco proprio deriva do preco base x fator', () => {
   });
 
   assert.equal(opcoes[1].precoVenda, 200);
+  assert.equal(opcoes[1].precoVendaProprio, 0);
+});
+
+test('opcao leva os precos cadastrados na embalagem (venda e a vista); a base nao tem', () => {
+  const opcoes = buildOpcoesUnidadeVenda({
+    ...produtoKg,
+    embalagens: [{ ...produtoKg.embalagens[0], precoAVista: 180 }],
+  });
+
+  assert.equal(opcoes[0].precoVendaProprio, 0);
+  assert.equal(opcoes[0].precoAVistaProprio, 0);
+  assert.equal(opcoes[1].precoVendaProprio, 195.5);
+  assert.equal(opcoes[1].precoAVistaProprio, 180);
+  // Embalagem gravada antes do campo existir: sem preco a vista proprio.
+  assert.equal(normalizeEmbalagens(produtoKg.embalagens)[0].precoAVista, 0);
 });
 
 test('embalagem inativa fica fora do seletor', () => {

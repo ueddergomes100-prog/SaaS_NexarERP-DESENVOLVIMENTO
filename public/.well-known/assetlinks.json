@@ -3,7 +3,7 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "br.com.nexarcompany.vendas",
+      "package_name": "hennder_vendas.app",
       "sha256_cert_fingerprints": [
         "D3:23:86:56:4A:6F:A5:CD:C2:C1:FC:B6:70:9F:41:71:0E:59:6F:D0:E2:6D:29:2B:DB:A7:7B:59:4E:B8:EF:78"
       ]

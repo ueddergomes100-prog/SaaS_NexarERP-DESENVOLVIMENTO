@@ -16,7 +16,7 @@ Não existe código Android a manter: mudou o site, mudou o app.
 | Política de privacidade | `https://accounts.nexarcompany.com.br/privacidade.html` (`public/privacidade.html`) |
 | Prova de dono do site | `https://accounts.nexarcompany.com.br/.well-known/assetlinks.json` (`public/.well-known/assetlinks.json`) |
 
-- Nome do pacote: **`br.com.nexarcompany.vendas`**. É permanente: depois do primeiro envio não muda mais.
+- Nome do pacote: **`hennder_vendas.app`** (o app criado no Play Console ficou preso a esse nome; o `br.com.nexarcompany.vendas` planejado foi recusado em 02/10). É permanente.
 - Versão: 1.0.0 (código 1). **Android mínimo: 7.0 (`minSdkVersion` 24)**: a Proteção Automática do Google Play recusa pacote com SDK mínimo abaixo de 24 (aconteceu no 1º envio, em 02/10).
 - Java 17 e Android SDK ficam em `C:\Tools\android` (fora do repositório).
 

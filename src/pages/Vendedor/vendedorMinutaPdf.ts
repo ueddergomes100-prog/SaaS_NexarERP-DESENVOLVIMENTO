@@ -158,7 +158,14 @@ export const telefoneParaWhatsApp = (telefone: unknown): string => {
   return digitos;
 };
 
-export type ResultadoEnvioMinuta = 'compartilhado' | 'baixado' | 'cancelado';
+/**
+ * 'precisa_toque': o Android recusou o menu de compartilhar porque o toque que
+ * o pediu "venceu" (2026-10-02). O Chrome so' abre o compartilhamento logo
+ * depois de um toque; buscar o cadastro com sinal fraco antes disso passa da
+ * janela e ele devolve NotAllowedError ("Permission denied"). Quem chama pede
+ * um novo toque e tenta de novo -- ver VendedorRascunhos.
+ */
+export type ResultadoEnvioMinuta = 'compartilhado' | 'baixado' | 'cancelado' | 'precisa_toque';
 
 /**
  * Entrega o PDF ao WhatsApp. No celular abre o menu de compartilhar do
@@ -166,8 +173,17 @@ export type ResultadoEnvioMinuta = 'compartilhado' | 'baixado' | 'cancelado';
  * anexo, entao nao da' pra cair direto na conversa com o arquivo). Onde o
  * navegador nao compartilha arquivo (computador), baixa o PDF e abre a
  * conversa do cliente pra anexar.
+ *
+ * `baixarSeFalhar`: compartilhamento recusado de novo (ou outro erro do
+ * sistema) cai no download + conversa do WhatsApp, em vez de erro na tela.
  */
-export const enviarMinutaPorWhatsApp = async (pdf: Blob, nomeArquivo: string, telefone: unknown, mensagem: string): Promise<ResultadoEnvioMinuta> => {
+export const enviarMinutaPorWhatsApp = async (
+  pdf: Blob,
+  nomeArquivo: string,
+  telefone: unknown,
+  mensagem: string,
+  baixarSeFalhar = false,
+): Promise<ResultadoEnvioMinuta> => {
   const arquivo = new File([pdf], nomeArquivo, { type: 'application/pdf' });
   if (typeof navigator !== 'undefined' && typeof navigator.share === 'function' && navigator.canShare?.({ files: [arquivo] })) {
     try {
@@ -176,7 +192,9 @@ export const enviarMinutaPorWhatsApp = async (pdf: Blob, nomeArquivo: string, te
     } catch (error) {
       // O vendedor fechou o menu de compartilhar: nao e' erro.
       if (error instanceof DOMException && error.name === 'AbortError') return 'cancelado';
-      throw error;
+      if (!baixarSeFalhar && error instanceof DOMException && error.name === 'NotAllowedError') return 'precisa_toque';
+      if (!baixarSeFalhar) throw error;
+      // Segue para o download, logo abaixo.
     }
   }
 

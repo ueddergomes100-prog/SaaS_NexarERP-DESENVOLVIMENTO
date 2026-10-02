@@ -25,6 +25,12 @@ interface ResultadoEnvio {
   mensagem: string;
 }
 
+/** Resposta em ate' `ms`; passou disso (ou deu erro), devolve null -- a minuta segue sem esse dado. */
+const comTempoLimite = <T,>(promessa: Promise<T>, ms = 3000): Promise<T | null> => Promise.race([
+  promessa.catch(() => null),
+  new Promise<null>((resolver) => { setTimeout(() => resolver(null), ms); }),
+]);
+
 const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 const totalDoRascunho = (rascunho: RascunhoVenda) => rascunho.itens.reduce((soma, item) => soma + item.subtotal, 0);
@@ -91,20 +97,18 @@ const VendedorRascunhos: React.FC = () => {
     if (!tenantId || gerandoMinuta) return;
     setGerandoMinuta(rascunho.localId);
     try {
-      let cliente: MinutaCliente | null = null;
-      try {
-        const clienteSnap = await getDoc(doc(db, 'clientes', rascunho.cliente.id));
-        if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) cliente = clienteSnap.data() as MinutaCliente;
-      } catch {
-        // Sai so' com o nome e o telefone que o rascunho guardou.
-      }
-      let nomeEmpresa = '';
-      try {
-        const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
-        nomeEmpresa = String(configSnap.data()?.nomeOficina || '').trim();
-      } catch {
-        // Cabecalho sem o nome da filial.
-      }
+      // As duas buscas correm juntas e com tempo limite (2026-10-02): com sinal
+      // fraco elas demoravam e o Android recusava o menu de compartilhar, que
+      // so' abre logo depois do toque ("Permission denied"). Sem resposta em 3 s,
+      // a minuta sai com o que o rascunho ja' tem.
+      const [clienteSnap, configSnap] = await Promise.all([
+        comTempoLimite(getDoc(doc(db, 'clientes', rascunho.cliente.id))),
+        comTempoLimite(getDoc(doc(db, 'configuracoes', tenantId))),
+      ]);
+      const cliente: MinutaCliente | null = clienteSnap?.exists() && clienteSnap.data().tenantId === tenantId
+        ? clienteSnap.data() as MinutaCliente
+        : null;
+      const nomeEmpresa = String(configSnap?.data()?.nomeOficina || '').trim();
 
       const telefone = cliente?.celular || cliente?.telefone || rascunho.cliente.telefone || '';
       const pdf = gerarMinutaRascunhoPdf({
@@ -114,12 +118,23 @@ const VendedorRascunhos: React.FC = () => {
         vendedorNome: userNome || currentUser?.displayName || 'Vendedor',
         geradoEm: new Date(),
       });
-      const resultado = await enviarMinutaPorWhatsApp(
-        pdf,
-        nomeArquivoMinutaRascunho(rascunho.cliente.nome),
-        telefone,
-        `Olá, ${rascunho.cliente.nome}! Segue a minuta do seu pedido para conferência.`,
-      );
+      const nomeArquivo = nomeArquivoMinutaRascunho(rascunho.cliente.nome);
+      const mensagem = `Olá, ${rascunho.cliente.nome}! Segue a minuta do seu pedido para conferência.`;
+      let resultado = await enviarMinutaPorWhatsApp(pdf, nomeArquivo, telefone, mensagem);
+      if (resultado === 'precisa_toque') {
+        // O toque de agora libera o compartilhamento de novo. Se ainda assim o
+        // aparelho recusar, baixa o PDF e abre a conversa do cliente.
+        const confirmacao = await NexusSwal.fire({
+          icon: 'info',
+          title: 'Minuta pronta',
+          text: 'Toque em "Enviar" para escolher o WhatsApp e mandar a minuta ao cliente.',
+          showCancelButton: true,
+          confirmButtonText: 'Enviar',
+          cancelButtonText: 'Agora não',
+        });
+        if (!confirmacao.isConfirmed) return;
+        resultado = await enviarMinutaPorWhatsApp(pdf, nomeArquivo, telefone, mensagem, true);
+      }
       if (resultado === 'baixado') {
         showWarning(
           'Minuta baixada',
@@ -131,7 +146,9 @@ const VendedorRascunhos: React.FC = () => {
         showSuccess('Minuta enviada para o compartilhamento.');
       }
     } catch (error) {
-      showError('Não foi possível gerar a minuta', error instanceof Error && error.message ? error.message : 'Tente novamente.');
+      // Nunca o texto cru do navegador ("Permission denied" nao diz nada ao vendedor).
+      console.error('Erro ao gerar/enviar a minuta do rascunho:', error);
+      showError('Não foi possível enviar a minuta', 'O celular não deixou abrir o compartilhamento. Toque de novo no botão verde; se continuar, feche e abra o app e tente outra vez.');
     } finally {
       setGerandoMinuta(null);
     }

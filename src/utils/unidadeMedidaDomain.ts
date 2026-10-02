@@ -191,6 +191,33 @@ export const temUnidadeMedidaCadastrada = (
   fonte: FonteUnidadeMedida | null | undefined,
 ): boolean => normalizeSigla(fonte?.unidadeMedidaSigla).length > 0;
 
+/**
+ * Qual opcao do seletor "Unidade de medida" o cadastro do produto deve mostrar
+ * marcada. Devolve o id de uma unidade QUE EXISTE na lista, ou '' (nenhuma
+ * escolhida -- a tela mostra "Selecione...").
+ *
+ * Por que existe (2026-10-02): o produto novo comecava com o id fixo 'un',
+ * que so' existe na lista de reserva. Com as unidades da empresa carregadas,
+ * nenhuma opcao batia, o navegador mostrava a PRIMEIRA da lista (ex.: KG) e
+ * o save gravava UN. Quem nao mexia no campo cadastrava em UN achando que
+ * era KG.
+ *
+ * Ordem: o id gravado; senao a sigla gravada (cadastro antigo, unidade
+ * recriada com outro id); senao ''. Produto novo passa sigla 'UN', o padrao
+ * documentado (UNIDADE_MEDIDA_FALLBACK).
+ */
+export const resolverUnidadeDoCadastro = (
+  unidades: ReadonlyArray<{ id: string; sigla: string }>,
+  idSalvo: unknown,
+  siglaSalva: unknown,
+): string => {
+  const id = typeof idSalvo === 'string' ? idSalvo.trim() : '';
+  if (id && unidades.some((u) => u.id === id)) return id;
+  const sigla = normalizeSigla(siglaSalva);
+  if (!sigla) return '';
+  return unidades.find((u) => normalizeSigla(u.sigla) === sigla)?.id || '';
+};
+
 /** Texto unico do aviso de unidade ausente, pra mensagem nao divergir entre
  * OS, Orcamento e demais telas que vendem produto. */
 export const avisoUnidadeMedidaAusente = (nomeProduto: string): { title: string; text: string } => ({

@@ -5,7 +5,8 @@ import { ArrowLeft, Save, Package, DollarSign, Loader2, Factory, Plus, Trash2 } 
 import { collection, addDoc, updateDoc, doc, getDoc, getDocs, serverTimestamp, query, where, setDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
+import { UNIDADE_MEDIDA_FALLBACK, resolverUnidadeDoCadastro } from '../../utils/unidadeMedidaDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
@@ -579,6 +580,9 @@ const EstoqueForm: React.FC = () => {
           });
         });
         setUnidadesDB(unis);
+        // O seletor so' pode mostrar marcada uma unidade que existe na lista
+        // (ver resolverUnidadeDoCadastro) -- senao ele exibe uma e o save grava outra.
+        const unidadesDaTela = unis.length > 0 ? unis : fallbackUnidades;
 
         if (isEditing && id) {
           const docSnap = await getDoc(doc(db, 'estoque', id));
@@ -615,7 +619,7 @@ const EstoqueForm: React.FC = () => {
               comissaoPercentual: String(data.comissaoPercentual ?? data.precos?.comissaoPercentual ?? ''),
               descontoMaximoPercentual: String(data.descontoMaximoPercentual ?? data.precos?.descontoMaximoPercentual ?? ''),
               fornecedor: data.fornecedor || data.compras?.ultimoFornecedor || '',
-              unidadeMedidaId: data.unidadeMedidaId || 'un',
+              unidadeMedidaId: resolverUnidadeDoCadastro(unidadesDaTela, data.unidadeMedidaId, data.unidadeMedidaSigla),
               codigoBarras: data.codigoBarras || '',
               marca: data.marca || '',
               referencia: data.referencia || '',
@@ -696,7 +700,8 @@ const EstoqueForm: React.FC = () => {
           setFormData({
             ...emptyFormData,
             codigo: nextId,
-            skuSistema: makeSku(tenantId, nextId)
+            skuSistema: makeSku(tenantId, nextId),
+            unidadeMedidaId: resolverUnidadeDoCadastro(unidadesDaTela, emptyFormData.unidadeMedidaId, UNIDADE_MEDIDA_FALLBACK.unidadeMedidaSigla),
           });
         }
       } catch (error) {
@@ -1018,9 +1023,11 @@ const EstoqueForm: React.FC = () => {
       return false;
     }
 
-    if (!formData.unidadeMedidaId) {
+    // Id que nao esta na lista (unidade apagada/desativada) conta como vazio:
+    // o save cairia em outra unidade sem ninguem ver.
+    if (!activeUnidades.some((u) => u.id === formData.unidadeMedidaId)) {
       setActiveTab('geral');
-      showError('Unidade obrigatória', 'Selecione a unidade de medida do produto.');
+      showError('Unidade obrigatória', 'Escolha a unidade de medida do produto no campo "Unidade de medida", na aba Geral.');
       return false;
     }
 
@@ -1080,6 +1087,12 @@ const EstoqueForm: React.FC = () => {
       }
 
       const selectedUnit = activeUnidades.find(u => u.id === formData.unidadeMedidaId) || activeUnidades.find(u => u.sigla === 'UN') || activeUnidades[0];
+      // So' acontece com "validar cadastro" simplificado ligado (sem ele, o
+      // validateForm ja' barrou): o produto entra na unidade padrao e o
+      // usuario fica sabendo, em vez de descobrir na nota fiscal.
+      const avisoUnidadePadrao = activeUnidades.some(u => u.id === formData.unidadeMedidaId)
+        ? null
+        : `Nenhuma unidade de medida foi escolhida, então "${formData.nome.trim()}" ficou como ${selectedUnit?.sigla || 'UN'}. Se ele é vendido em outra unidade (KG, LT...), edite o produto e escolha a unidade certa.`;
 
       // Mesma regra unica de quantidade fracionada usada em Pedido de Venda,
       // OS, Orcamento, PDV e Ajuste Manual de Estoque (saleQuantity.ts) --
@@ -1412,7 +1425,8 @@ const EstoqueForm: React.FC = () => {
             mudancas: [{ origem: 'estoque', id, nome: nomeProduto, custoAnterior: custoOriginalBanco, custoNovo: custoParaSalvar }],
           });
         }
-        showSuccess('Produto atualizado!');
+        if (avisoUnidadePadrao) showWarning('Produto atualizado sem unidade escolhida', avisoUnidadePadrao);
+        else showSuccess('Produto atualizado!');
       } else {
         const newDocRef = await addDoc(collection(db, 'estoque'), {
           ...produtoData,
@@ -1435,7 +1449,8 @@ const EstoqueForm: React.FC = () => {
         } catch {
           // Ignorar erro de log de auditoria.
         }
-        showSuccess('Produto cadastrado!');
+        if (avisoUnidadePadrao) showWarning('Produto cadastrado sem unidade escolhida', avisoUnidadePadrao);
+        else showSuccess('Produto cadastrado!');
       }
 
       navigate('/estoque');
@@ -1569,6 +1584,8 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>Categoria *</label>
                   <select name="categoria" value={formData.categoria} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
+                    {/* Sem esta opcao, produto sem categoria aparecia com a 1a da lista marcada, sem ela estar gravada. */}
+                    <option value="">Selecione...</option>
                     {opcoesDeCategoria({ ativas: categoriasDB, inativas: categoriasInativasDB }, formData.categoria).map((opcao) => (
                       <option key={opcao.valor} value={opcao.valor}>{opcao.rotulo}</option>
                     ))}
@@ -1577,6 +1594,7 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>Unidade de medida *</label>
                   <select name="unidadeMedidaId" value={formData.unidadeMedidaId} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
+                    <option value="">Selecione...</option>
                     {activeUnidades.map((uni) => <option key={uni.id} value={uni.id}>{uni.sigla} - {uni.nome}</option>)}
                   </select>
                 </div>

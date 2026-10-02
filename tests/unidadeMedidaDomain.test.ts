@@ -4,6 +4,7 @@ import {
   UNIDADES_MEDIDA_PADRAO,
   findUnidadeEmUso,
   isSiglaPadrao,
+  resolverUnidadeDoCadastro,
 } from '../src/utils/unidadeMedidaDomain';
 import { pickMissingDefaults } from '../src/utils/catalogDefaults';
 
@@ -92,4 +93,23 @@ test('unidade sem nenhum produto vinculado devolve null', () => {
 
 test('id vazio nunca acusa uso', () => {
   assert.equal(findUnidadeEmUso('', [{ id: 'p1', nome: 'X', unidadeMedidaId: '' }]), null);
+});
+
+test('cadastro do produto: o seletor so marca unidade que existe na lista', () => {
+  const unidades = [
+    { id: 'id-kg', sigla: 'KG' },
+    { id: 'id-un', sigla: 'UN' },
+  ];
+  // Produto novo comecava com o id fixo 'un' (da lista de reserva): a tela
+  // mostrava KG e o save gravava UN. Agora resolve pela sigla padrao.
+  assert.equal(resolverUnidadeDoCadastro(unidades, 'un', 'UN'), 'id-un');
+  // Id gravado e existente vence.
+  assert.equal(resolverUnidadeDoCadastro(unidades, 'id-kg', 'UN'), 'id-kg');
+  // Unidade recriada com outro id: acha pela sigla gravada.
+  assert.equal(resolverUnidadeDoCadastro(unidades, 'id-apagado', 'kg'), 'id-kg');
+  // Sem id e sem sigla que bata: nenhuma marcada ("Selecione...").
+  assert.equal(resolverUnidadeDoCadastro(unidades, '', ''), '');
+  assert.equal(resolverUnidadeDoCadastro(unidades, undefined, 'CX'), '');
+  // Empresa sem UN cadastrada: produto novo fica sem unidade marcada.
+  assert.equal(resolverUnidadeDoCadastro([{ id: 'id-kg', sigla: 'KG' }], 'un', 'UN'), '');
 });

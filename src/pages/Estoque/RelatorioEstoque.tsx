@@ -1,41 +1,37 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Boxes, Download, DollarSign, AlertCircle, XCircle } from 'lucide-react';
+import { ArrowLeft, Boxes, FileText, DollarSign, AlertCircle, XCircle } from 'lucide-react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import StatCard from '../../components/Reports/StatCard';
 import ReportFilter from '../../components/Reports/ReportFilter';
+import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
 import { ROTULO_POR_ORIGEM, normalizarComponente, type ComponenteComposicao } from '../../utils/producaoDomain';
+import { fromCents } from '../../utils/financeDomain';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import {
-  format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, isWithinInterval, parseISO,
+  formatarQuantidadeEstoque,
+  montarDocumentoRelatorioEstoque,
+  produtosDoRelatorioEstoque,
+  resumirRelatorioEstoque,
+  valorEmEstoqueCentavos,
+  type ProdutoDoRelatorioEstoque,
+} from '../../utils/relatorioEstoqueDomain';
+import {
+  format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, parseISO,
 } from 'date-fns';
 import './Estoque.css';
 
-interface ProdutoRelatorio {
-  id: string;
-  nome: string;
-  codigo: string;
-  categoria: string;
-  marca: string;
-  ncm: string;
-  codigoBarras: string;
-  referencia: string;
-  localizacao: string;
-  quantidade: number;
-  estoqueMinimo: number;
-  precoVenda: number;
-  precoCusto: number;
-  unidadeMedidaSigla?: string;
-  ativo: boolean;
-  produtoRevenda: boolean;
-  createdAt?: { toDate: () => Date } | null;
-}
+type ProdutoRelatorio = ProdutoDoRelatorioEstoque;
 
 /**
- * Colunas que o usuario liga/desliga. `composicao` nao e' uma coluna de
- * verdade: ela abre uma linha extra por produto com a receita dele, porque
- * uma receita tem N itens e nao cabe numa celula.
+ * Colunas que o usuario liga/desliga NA TABELA DA TELA. `composicao` nao e'
+ * uma coluna de verdade: ela abre uma linha extra por produto com a receita
+ * dele, porque uma receita tem N itens e nao cabe numa celula.
+ *
+ * No relatorio (PDF/Excel) quem escolhe as colunas sao as caixas de marcar do
+ * RelatorioPreview -- la a composicao e' uma secao que se liga e desliga.
  */
 interface ColunasVisiveis {
   quantidade: boolean;
@@ -47,6 +43,7 @@ interface ColunasVisiveis {
   estoqueMinimo: boolean;
   custo: boolean;
   preco: boolean;
+  precoAVista: boolean;
   valorTotal: boolean;
   ncm: boolean;
   codigoBarras: boolean;
@@ -63,6 +60,7 @@ const ROTULO_COLUNA: Record<keyof ColunasVisiveis, string> = {
   estoqueMinimo: 'Estoque mínimo',
   custo: 'Custo',
   preco: 'Preço de venda',
+  precoAVista: 'Preço à vista',
   valorTotal: 'Valor total',
   ncm: 'NCM',
   codigoBarras: 'Código de barras',
@@ -70,10 +68,7 @@ const ROTULO_COLUNA: Record<keyof ColunasVisiveis, string> = {
 };
 
 const ORDEM_COLUNAS = Object.keys(ROTULO_COLUNA) as Array<keyof ColunasVisiveis>;
-const COLUNAS_NUMERICAS: Array<keyof ColunasVisiveis> = ['quantidade', 'estoqueMinimo', 'custo', 'preco', 'valorTotal'];
-const COLUNAS_MONETARIAS: Array<keyof ColunasVisiveis> = ['custo', 'preco', 'valorTotal'];
-
-const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+const COLUNAS_NUMERICAS: Array<keyof ColunasVisiveis> = ['quantidade', 'estoqueMinimo', 'custo', 'preco', 'precoAVista', 'valorTotal'];
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
 const RelatorioEstoque: React.FC = () => {
@@ -84,6 +79,7 @@ const RelatorioEstoque: React.FC = () => {
   const [categorias, setCategorias] = useState<string[]>([]);
   const [composicoes, setComposicoes] = useState<Record<string, ComponenteComposicao[]>>({});
   const [loading, setLoading] = useState(true);
+  const [previewAberto, setPreviewAberto] = useState(false);
 
   const [period, setPeriod] = useState('mes');
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
@@ -112,6 +108,7 @@ const RelatorioEstoque: React.FC = () => {
     estoqueMinimo: false,
     custo: false,
     preco: true,
+    precoAVista: false,
     valorTotal: false,
     ncm: false,
     codigoBarras: false,
@@ -154,10 +151,11 @@ const RelatorioEstoque: React.FC = () => {
           estoqueMinimo: Number(data.estoqueMinimo ?? data.estoqueConfig?.estoqueMinimo ?? 0),
           precoVenda: Number(data.precoVenda ?? data.precos?.venda ?? 0),
           precoCusto: Number(data.precoCusto ?? data.precos?.custo ?? 0),
-          unidadeMedidaSigla: data.unidadeMedidaSigla,
+          precoAVista: (data.precoAVista ?? data.precos?.aVista) != null ? Number(data.precoAVista ?? data.precos?.aVista) : null,
+          ...(data.unidadeMedidaSigla ? { unidadeMedidaSigla: String(data.unidadeMedidaSigla) } : {}),
           ativo: data.ativo !== false && data.statusAtivo !== false,
           produtoRevenda: data.produtoRevenda !== false,
-          createdAt: data.createdAt,
+          cadastradoEm: data.createdAt?.toDate ? data.createdAt.toDate() : null,
         };
       }));
 
@@ -180,7 +178,7 @@ const RelatorioEstoque: React.FC = () => {
     carregarDados();
   }, [carregarDados]);
 
-  const filtrados = useMemo(() => {
+  const intervalo = useMemo(() => {
     let start = startOfDay(new Date());
     let end = endOfDay(new Date());
     switch (period) {
@@ -191,20 +189,20 @@ const RelatorioEstoque: React.FC = () => {
       case 'ano': start = startOfYear(new Date()); end = endOfMonth(new Date()); break;
       case 'personalizado': start = startOfDay(parseISO(startDate)); end = endOfDay(parseISO(endDate)); break;
     }
-    const termo = filtroTexto.trim().toLowerCase();
+    return { start, end };
+  }, [period, startDate, endDate]);
 
-    return produtos.filter((produto) => {
-      if (apenasAtivos && !produto.ativo) return false;
-      if (!ignorarPeriodo) {
-        const data = produto.createdAt?.toDate ? produto.createdAt.toDate() : null;
-        if (data && !isWithinInterval(data, { start, end })) return false;
-      }
-      if (filtroCategoria && produto.categoria !== filtroCategoria) return false;
-      if (filtroNcm.trim() && !produto.ncm.includes(filtroNcm.trim())) return false;
-      if (termo && !`${produto.nome} ${produto.codigo} ${produto.marca}`.toLowerCase().includes(termo)) return false;
-      return true;
-    });
-  }, [produtos, period, startDate, endDate, ignorarPeriodo, filtroCategoria, filtroNcm, filtroTexto, apenasAtivos]);
+  const filtro = useMemo(() => ({
+    ignorarPeriodo,
+    inicio: intervalo.start,
+    fim: intervalo.end,
+    categoria: filtroCategoria,
+    ncm: filtroNcm,
+    texto: filtroTexto,
+    apenasAtivos,
+  }), [ignorarPeriodo, intervalo, filtroCategoria, filtroNcm, filtroTexto, apenasAtivos]);
+
+  const filtrados = useMemo(() => produtosDoRelatorioEstoque(produtos, filtro), [produtos, filtro]);
 
   /** O que realmente sai no relatorio: o filtro menos o que foi desmarcado. */
   const selecionados = useMemo(
@@ -212,58 +210,36 @@ const RelatorioEstoque: React.FC = () => {
     [filtrados, desmarcados],
   );
 
-  const stats = useMemo(() => ({
-    total: selecionados.length,
-    valorEstoque: selecionados.reduce((soma, p) => soma + p.quantidade * (p.precoCusto || p.precoVenda || 0), 0),
-    estoqueBaixo: selecionados.filter((p) => p.quantidade > 0 && p.estoqueMinimo > 0 && p.quantidade <= p.estoqueMinimo).length,
-    esgotados: selecionados.filter((p) => p.quantidade <= 0).length,
-  }), [selecionados]);
+  const stats = useMemo(() => resumirRelatorioEstoque(selecionados), [selecionados]);
+
+  /** O PDF sai com exatamente o que esta filtrado e marcado na tela. */
+  const documento = useMemo<DocumentoRelatorioSemEmpresa>(() => montarDocumentoRelatorioEstoque({
+    filtrados,
+    desmarcados,
+    composicoes,
+    filtro,
+    agora: new Date(),
+  }), [filtrados, desmarcados, composicoes, filtro]);
 
   const colunasAtivas = ORDEM_COLUNAS.filter((c) => c !== 'composicao' && colunas[c]);
 
   const valorDaColuna = (p: ProdutoRelatorio, coluna: keyof ColunasVisiveis): string => {
     switch (coluna) {
-      case 'quantidade': return String(p.quantidade);
+      case 'quantidade': return formatarQuantidadeEstoque(p.quantidade);
       case 'unidade': return p.unidadeMedidaSigla || '';
       case 'categoria': return p.categoria;
       case 'marca': return p.marca;
       case 'referencia': return p.referencia;
       case 'localizacao': return p.localizacao;
-      case 'estoqueMinimo': return String(p.estoqueMinimo);
-      case 'custo': return p.precoCusto.toFixed(2);
-      case 'preco': return p.precoVenda.toFixed(2);
-      case 'valorTotal': return (p.quantidade * (p.precoCusto || p.precoVenda || 0)).toFixed(2);
+      case 'estoqueMinimo': return formatarQuantidadeEstoque(p.estoqueMinimo);
+      case 'custo': return currency.format(p.precoCusto);
+      case 'preco': return currency.format(p.precoVenda);
+      case 'precoAVista': return p.precoAVista === null ? '-' : currency.format(p.precoAVista);
+      case 'valorTotal': return currency.format(fromCents(valorEmEstoqueCentavos(p)));
       case 'ncm': return p.ncm;
       case 'codigoBarras': return p.codigoBarras;
       default: return '';
     }
-  };
-
-  const exportCsv = () => {
-    const headers = ['Produto', 'Código', ...colunasAtivas.map((c) => ROTULO_COLUNA[c])];
-    const linhas: string[][] = [];
-    selecionados.forEach((p) => {
-      linhas.push([p.nome, p.codigo, ...colunasAtivas.map((c) => valorDaColuna(p, c))]);
-      if (colunas.composicao) {
-        // Receita vira uma linha por componente logo abaixo do produto, com as
-        // demais colunas vazias -- formato de ficha tecnica, que e' o que se
-        // espera ao abrir isso numa planilha.
-        (composicoes[p.id] || []).forEach((item) => {
-          linhas.push([
-            `   - ${item.componenteNome}`,
-            ROTULO_POR_ORIGEM[item.origem],
-            ...colunasAtivas.map((c) => (c === 'quantidade' ? `${item.quantidade} ${item.unidade}` : '')),
-          ]);
-        });
-      }
-    });
-    const csv = '﻿' + [headers, ...linhas].map((row) => row.map(csvCell).join(';')).join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `relatorio-estoque-${format(new Date(), 'yyyy-MM-dd')}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
   };
 
   const toggleColuna = (chave: keyof ColunasVisiveis) => setColunas((prev) => ({ ...prev, [chave]: !prev[chave] }));
@@ -284,6 +260,21 @@ const RelatorioEstoque: React.FC = () => {
 
   const totalColunas = colunasAtivas.length + 3;
 
+  if (previewAberto) {
+    const hoje = format(new Date(), 'yyyy-MM-dd');
+    return (
+      <RelatorioPreview
+        relatorioId="estoque-posicao"
+        documento={documento}
+        nomeArquivo={ignorarPeriodo
+          ? nomeArquivoRelatorio('Relatório de Estoque', hoje, hoje)
+          : nomeArquivoRelatorio('Relatório de Estoque', format(intervalo.start, 'yyyy-MM-dd'), format(intervalo.end, 'yyyy-MM-dd'))}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar aos filtros"
+      />
+    );
+  }
+
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-muted)' }}>
       Carregando relatório de estoque...
@@ -299,11 +290,11 @@ const RelatorioEstoque: React.FC = () => {
           </button>
           <div>
             <h1 className="page-title">Relatório de Estoque</h1>
-            <p className="page-subtitle">Escolha as colunas e os produtos que entram no relatório.</p>
+            <p className="page-subtitle">Filtre e marque os produtos que entram no relatório. As colunas do PDF são escolhidas ao gerar.</p>
           </div>
         </div>
-        <button className="btn-secondary" onClick={exportCsv} disabled={selecionados.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Download size={18} /> Exportar CSV ({selecionados.length})
+        <button className="btn-primary" onClick={() => setPreviewAberto(true)} disabled={selecionados.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <FileText size={18} /> Gerar relatório ({selecionados.length})
         </button>
       </div>
 
@@ -354,7 +345,7 @@ const RelatorioEstoque: React.FC = () => {
 
       <div className="card" style={{ padding: '16px 20px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '18px', alignItems: 'center' }}>
-          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Exibir colunas:</span>
+          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Colunas da tela:</span>
           {ORDEM_COLUNAS.map((chave) => (
             <label key={chave} className="switch-row" style={{ minHeight: 'auto' }}>
               <input type="checkbox" checked={colunas[chave]} onChange={() => toggleColuna(chave)} />
@@ -379,7 +370,7 @@ const RelatorioEstoque: React.FC = () => {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
         <StatCard title="Itens no relatório" value={String(stats.total)} icon={Boxes} color="#3b82f6" subtitle={`De ${filtrados.length} no filtro`} />
-        <StatCard title="Valor em Estoque" value={currency.format(stats.valorEstoque)} icon={DollarSign} color="#10b981" subtitle="Quantidade × custo" />
+        <StatCard title="Valor em Estoque" value={currency.format(fromCents(stats.valorEstoqueCentavos))} icon={DollarSign} color="#10b981" subtitle="Quantidade × custo" />
         <StatCard title="Estoque Baixo" value={String(stats.estoqueBaixo)} icon={AlertCircle} color="#f59e0b" subtitle="No ou abaixo do mínimo" />
         <StatCard title="Itens Esgotados" value={String(stats.esgotados)} icon={XCircle} color="#ef4444" subtitle="Quantidade zerada" />
       </div>
@@ -421,7 +412,7 @@ const RelatorioEstoque: React.FC = () => {
                         const sufixoUnidade = c === 'quantidade' && p.unidadeMedidaSigla && !colunas.unidade ? ` ${p.unidadeMedidaSigla}` : '';
                         return (
                           <td key={c} style={{ padding: '12px 8px', textAlign: COLUNAS_NUMERICAS.includes(c) ? 'right' : 'left' }}>
-                            {COLUNAS_MONETARIAS.includes(c) ? currency.format(Number(bruto)) : `${bruto}${sufixoUnidade}`}
+                            {`${bruto}${sufixoUnidade}`}
                           </td>
                         );
                       })}

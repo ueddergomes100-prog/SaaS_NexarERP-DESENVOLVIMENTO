@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { 
+import {
   Wrench, DollarSign, Clock, CheckCircle,
   TrendingUp, Users,
   ClipboardList, Package, Activity, FileText
@@ -7,26 +7,44 @@ import {
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import StatCard from '../../components/Reports/StatCard';
 import ChartWrapper from '../../components/Reports/ChartWrapper';
 import ReportFilter from '../../components/Reports/ReportFilter';
-import { format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, isWithinInterval, parseISO } from 'date-fns';
-import { getServiceTotal } from '../../utils/osServicePricing';
+import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
+import { format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, parseISO } from 'date-fns';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import {
+  formatarPercentual,
+  montarDocumentoServicosOficina,
+  osNoPeriodo,
+  resumirServicosOficina,
+  type OsDoRelatorio,
+} from '../../utils/relatorioServicosOficinaDomain';
+
+/*
+ * Painel de servicos da oficina. As contas moram em
+ * relatorioServicosOficinaDomain.ts: os cartoes, os graficos e o PDF do
+ * "Gerar relatorio" (RelatorioPreview, padrao de 2026-09-23) usam o mesmo resumo.
+ */
 
 const COLORS = ['#8b5cf6', '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4'];
 
+const moedaBr = (valorCentavos: number): string => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorCentavos / 100);
+
+const isoDoDia = (data: Date): string => (Number.isNaN(data.getTime()) ? '' : format(data, 'yyyy-MM-dd'));
+
 const RelatoriosMecanica: React.FC = () => {
-  console.log('RelatoriosMecanica mounting...');
   const { tenantId } = useAuth();
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('mes');
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
-  
+  const [previewAberto, setPreviewAberto] = useState(false);
+
   const [data, setData] = useState<{
-    os: any[];
-    usuarios: Record<string, any>;
+    os: OsDoRelatorio[];
+    usuarios: Record<string, { nome?: string }>;
   }>({
     os: [],
     usuarios: {}
@@ -41,12 +59,25 @@ const RelatoriosMecanica: React.FC = () => {
     try {
       const qOS = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId));
       const snapOS = await getDocs(qOS);
-      const os = snapOS.docs.map(d => ({ id: d.id, ...d.data() }));
+      const os: OsDoRelatorio[] = snapOS.docs.map(d => {
+        const x = d.data();
+        return {
+          id: d.id,
+          status: x.status,
+          criadoEm: x.createdAt?.toDate ? x.createdAt.toDate() : null,
+          servicos: Array.isArray(x.servicos) ? x.servicos : [],
+          pecas: Array.isArray(x.pecas) ? x.pecas : [],
+          totalTaxasPagamentoCentavos: x.totalTaxasPagamentoCentavos,
+          totalTaxasPagamento: x.totalTaxasPagamento,
+          mecanicoId: x.mecanicoId,
+          mecanicoNome: x.mecanicoNome,
+        };
+      });
 
       const qUser = query(collection(db, 'usuarios'), where('tenantId', '==', tenantId));
       const snapUser = await getDocs(qUser);
-      const usuarios: Record<string, any> = {};
-      snapUser.forEach(d => { usuarios[d.id] = d.data(); });
+      const usuarios: Record<string, { nome?: string }> = {};
+      snapUser.forEach(d => { usuarios[d.id] = { nome: d.data().nome }; });
 
       setData({ os, usuarios });
     } catch (err) {
@@ -60,7 +91,7 @@ const RelatoriosMecanica: React.FC = () => {
     carregarDados();
   }, [carregarDados]);
 
-  const filteredData = useMemo(() => {
+  const periodo = useMemo(() => {
     let start = startOfDay(new Date());
     let end = endOfDay(new Date());
 
@@ -73,100 +104,35 @@ const RelatoriosMecanica: React.FC = () => {
       case 'personalizado': start = startOfDay(parseISO(startDate)); end = endOfDay(parseISO(endDate)); break;
     }
 
-    const osFiltradas = data.os.filter(o => {
-      const date = o.createdAt?.toDate ? o.createdAt.toDate() : null;
-      return date && isWithinInterval(date, { start, end });
-    });
+    return { inicio: start, fim: end };
+  }, [period, startDate, endDate]);
 
-    return osFiltradas;
-  }, [data, period, startDate, endDate]);
+  const stats = useMemo(
+    () => resumirServicosOficina(osNoPeriodo(data.os, periodo), data.usuarios),
+    [data, periodo],
+  );
 
-  const stats = useMemo(() => {
-    let receitaTotal = 0;
-    let taxasCartao = 0;
-    let receitaLiquida = 0;
-    let receitaServicos = 0;
-    let receitaPecas = 0;
-    let qtdConcluidas = 0;
-    let qtdAbertas = 0;
-    let qtdCanceladas = 0;
-    
-    const porMecanico: Record<string, { nome: string, total: number, qtd: number, servicos: number, pecas: number }> = {};
-    const porStatus: Record<string, { name: string, value: number }> = {};
-    const timelineData: Record<string, { name: string, qtd: number, valor: number }> = {};
+  const documento = useMemo<DocumentoRelatorioSemEmpresa>(
+    () => montarDocumentoServicosOficina(data.os, data.usuarios, periodo),
+    [data, periodo],
+  );
 
-    filteredData.forEach(o => {
-      const servicosValor = o.servicos?.reduce(
-        (acc: number, s: any) => acc + getServiceTotal(s),
-        0
-      ) || 0;
-      const pecasValor = o.pecas?.reduce(
-        (acc: number, p: any) => acc + (Number(p.preco || 0) * Number(p.quantidade || 1)),
-        0
-      ) || 0;
-      const valor = servicosValor + pecasValor;
-      const taxaPagamento = Number(
-        o.totalTaxasPagamentoCentavos !== undefined
-          ? o.totalTaxasPagamentoCentavos / 100
-          : o.totalTaxasPagamento || 0,
-      );
-      const valorLiquido = Math.max(0, valor - taxaPagamento);
-      const status = o.status || 'Pendente';
-      
-      // Timeline
-      const dateKey = o.createdAt?.toDate ? format(o.createdAt.toDate(), 'dd/MM') : '---';
-      if (!timelineData[dateKey]) timelineData[dateKey] = { name: dateKey, qtd: 0, valor: 0 };
-      timelineData[dateKey].qtd += 1;
-      timelineData[dateKey].valor += valor;
+  const servicosVsPecas = [
+    { name: 'Serviços', value: stats.servicosCentavos / 100 },
+    { name: 'Peças', value: stats.pecasCentavos / 100 },
+  ];
 
-      // Status
-      if (!porStatus[status]) porStatus[status] = { name: status, value: 0 };
-      porStatus[status].value += 1;
-
-      if (status === 'Finalizada') {
-        qtdConcluidas++;
-        receitaTotal += valor;
-        taxasCartao += taxaPagamento;
-        receitaLiquida += valorLiquido;
-        
-        // Calcular serviços vs peças
-        receitaServicos += servicosValor;
-        receitaPecas += pecasValor;
-
-        // Mecânico
-        const mecId = o.mecanicoId || 'admin';
-        const mecNome = o.mecanicoNome || data.usuarios[mecId]?.nome || 'ADMINISTRADOR';
-        if (!porMecanico[mecId]) porMecanico[mecId] = { nome: mecNome, total: 0, qtd: 0, servicos: 0, pecas: 0 };
-        porMecanico[mecId].total += valorLiquido;
-        porMecanico[mecId].qtd += 1;
-        porMecanico[mecId].servicos += servicosValor;
-        porMecanico[mecId].pecas += pecasValor;
-      } else if (status === 'Cancelada') {
-        qtdCanceladas++;
-      } else {
-        qtdAbertas++;
-      }
-    });
-
-    return {
-      receitaTotal,
-      taxasCartao,
-      receitaLiquida,
-      receitaServicos,
-      receitaPecas,
-      qtdTotal: filteredData.length,
-      qtdConcluidas,
-      qtdAbertas,
-      qtdCanceladas,
-      porMecanico: Object.values(porMecanico).sort((a, b) => b.total - a.total),
-      porStatus: Object.values(porStatus),
-      timeline: Object.values(timelineData),
-      servicosVsPecas: [
-        { name: 'Serviços', value: receitaServicos },
-        { name: 'Peças', value: receitaPecas }
-      ]
-    };
-  }, [filteredData, data]);
+  if (previewAberto) {
+    return (
+      <RelatorioPreview
+        relatorioId="servicos-oficina"
+        documento={documento}
+        nomeArquivo={nomeArquivoRelatorio('Relatório de Serviços', isoDoDia(periodo.inicio), isoDoDia(periodo.fim))}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar"
+      />
+    );
+  }
 
   if (loading) return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px' }}>
@@ -187,8 +153,8 @@ const RelatoriosMecanica: React.FC = () => {
           <p style={{ color: 'var(--text-muted)', fontSize: '15px' }}>Desempenho técnico, volume de ordens e faturamento de serviços</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FileText size={18} /> Exportar PDF
+          <button className="btn-primary" onClick={() => setPreviewAberto(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <FileText size={18} /> Gerar relatório
           </button>
         </div>
       </div>
@@ -208,28 +174,28 @@ const RelatoriosMecanica: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
         <StatCard 
           title="Faturamento Bruto"
-          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.receitaTotal)} 
+          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.brutoCentavos / 100)} 
           icon={DollarSign} 
           color="#10b981" 
           subtitle={`${stats.qtdConcluidas} OS finalizadas`}
         />
         <StatCard
           title="Taxas de Cartão"
-          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.taxasCartao)}
+          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.taxasCentavos / 100)}
           icon={DollarSign}
           color="#f59e0b"
           subtitle="Dedução financeira"
         />
         <StatCard
           title="Receita Líquida"
-          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.receitaLiquida)}
+          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.liquidoCentavos / 100)}
           icon={TrendingUp}
           color="#10b981"
           subtitle="Após taxas de cartão"
         />
         <StatCard 
           title="Faturamento só Serviços" 
-          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.receitaServicos)} 
+          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.servicosCentavos / 100)} 
           icon={TrendingUp} 
           color="#8b5cf6" 
           subtitle="Mão de obra técnica"
@@ -254,7 +220,7 @@ const RelatoriosMecanica: React.FC = () => {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px' }}>
         <ChartWrapper title="Volume de OS por Dia" icon={Activity} flex={2}>
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={stats.timeline}>
+            <AreaChart data={stats.porDia.map((d) => ({ name: d.rotulo, qtd: d.qtd }))}>
               <defs>
                 <linearGradient id="colorOS" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
@@ -277,7 +243,7 @@ const RelatoriosMecanica: React.FC = () => {
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
-                data={stats.servicosVsPecas}
+                data={servicosVsPecas}
                 cx="50%"
                 cy="50%"
                 innerRadius={60}
@@ -314,8 +280,8 @@ const RelatoriosMecanica: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {stats.porMecanico.map((mec, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s' }}>
+              {stats.porTecnico.map((mec, i) => (
+                <tr key={mec.id} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s' }}>
                   <td style={{ padding: '16px 8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: COLORS[i % COLORS.length], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
@@ -327,12 +293,12 @@ const RelatoriosMecanica: React.FC = () => {
                   <td style={{ padding: '16px 8px', textAlign: 'center' }}>
                     <span style={{ backgroundColor: 'var(--bg-tertiary)', padding: '4px 10px', borderRadius: '6px', fontWeight: 700 }}>{mec.qtd}</span>
                   </td>
-                  <td style={{ padding: '16px 8px', textAlign: 'right', color: '#8b5cf6', fontWeight: 600 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mec.servicos)}</td>
-                  <td style={{ padding: '16px 8px', textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mec.pecas)}</td>
-                  <td style={{ padding: '16px 8px', textAlign: 'right', fontWeight: 800 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mec.total)}</td>
+                  <td style={{ padding: '16px 8px', textAlign: 'right', color: '#8b5cf6', fontWeight: 600 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mec.servicosCentavos / 100)}</td>
+                  <td style={{ padding: '16px 8px', textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mec.pecasCentavos / 100)}</td>
+                  <td style={{ padding: '16px 8px', textAlign: 'right', fontWeight: 800 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mec.totalCentavos / 100)}</td>
                 </tr>
               ))}
-              {stats.porMecanico.length === 0 && (
+              {stats.porTecnico.length === 0 && (
                 <tr>
                   <td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Nenhuma OS finalizada no período para gerar ranking.</td>
                 </tr>
@@ -345,18 +311,15 @@ const RelatoriosMecanica: React.FC = () => {
       {/* Operational Efficiency */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
         <ChartWrapper title="Status das Ordens (Volume)" icon={Activity} height={300}>
-          <div style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)', borderRadius: '12px' }}>
-            <span style={{ color: 'var(--text-muted)' }}>Gráfico de Mecânicos Temporário</span>
-          </div>
-          {/* <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stats.porStatus}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={stats.porStatus.map((s) => ({ name: s.status, value: s.qtd }))}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
               <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} />
-              <YAxis stroke="var(--text-muted)" fontSize={12} />
+              <YAxis stroke="var(--text-muted)" fontSize={12} allowDecimals={false} />
               <Tooltip cursor={{fill: 'rgba(255,255,255,0.05)'}} contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px' }} />
-              <Bar dataKey="value" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={40} />
+              <Bar dataKey="value" name="OS" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={40} />
             </BarChart>
-          </ResponsiveContainer> */}
+          </ResponsiveContainer>
         </ChartWrapper>
 
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
@@ -367,19 +330,19 @@ const RelatoriosMecanica: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ color: 'var(--text-muted)' }}>Média de Valor por OS</span>
               <span style={{ fontWeight: 700, fontSize: '18px' }}>
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.qtdConcluidas > 0 ? stats.receitaTotal / stats.qtdConcluidas : 0)}
+                {moedaBr(stats.mediaPorOsCentavos)}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ color: 'var(--text-muted)' }}>Participação de Serviços</span>
               <span style={{ fontWeight: 700, color: '#8b5cf6' }}>
-                {stats.receitaTotal > 0 ? ((stats.receitaServicos / stats.receitaTotal) * 100).toFixed(1) : 0}%
+                {formatarPercentual(stats.participacaoServicos)}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ color: 'var(--text-muted)' }}>Participação de Peças</span>
               <span style={{ fontWeight: 700, color: '#10b981' }}>
-                {stats.receitaTotal > 0 ? ((stats.receitaPecas / stats.receitaTotal) * 100).toFixed(1) : 0}%
+                {formatarPercentual(stats.participacaoPecas)}
               </span>
             </div>
             <div style={{ marginTop: '10px', padding: '16px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
@@ -387,13 +350,13 @@ const RelatoriosMecanica: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                 <div style={{ flex: 1, height: '8px', backgroundColor: 'var(--bg-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
                   <div style={{ 
-                    width: `${stats.qtdTotal > 0 ? (stats.qtdConcluidas / stats.qtdTotal) * 100 : 0}%`, 
+                    width: `${stats.eficienciaConclusao}%`, 
                     height: '100%', 
                     backgroundColor: '#10b981' 
                   }}></div>
                 </div>
                 <span style={{ fontWeight: 800, fontSize: '16px' }}>
-                  {stats.qtdTotal > 0 ? ((stats.qtdConcluidas / stats.qtdTotal) * 100).toFixed(0) : 0}%
+                  {formatarPercentual(stats.eficienciaConclusao, 0)}
                 </span>
               </div>
             </div>

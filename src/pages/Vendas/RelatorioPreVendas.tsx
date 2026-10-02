@@ -1,16 +1,25 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
-import { ClipboardList, Download, FilterX, Loader2, Search } from 'lucide-react';
+import { ClipboardList, FileText, FilterX, Loader2, Search } from 'lucide-react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { dateInputToUtcStart, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
-import { toCents, fromCents } from '../../utils/financeDomain';
-import { isPedidoAberto, resolveOrigemPedido, STATUS_PRE_VENDA, type OrigemPedido } from '../../utils/preVendaDomain';
+import { formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
+import { fromCents } from '../../utils/financeDomain';
+import { isPedidoAberto, type OrigemPedido } from '../../utils/preVendaDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import {
+  filtrarPreVendas,
+  linhaDePreVenda,
+  montarDocumentoPreVendas,
+  totaisPreVendas,
+  type PreVendaDoRelatorio,
+} from '../../utils/relatorioPreVendasDomain';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 
 /**
  * Relatorio de PRE-VENDAS EM ABERTO.
@@ -23,25 +32,14 @@ import { hasTenantFullAccess } from '../../utils/roles';
  * O que se le aqui NAO e' receita: e' compromisso em aberto + estoque
  * reservado. A tela repete isso na cara do usuario de proposito, pra ninguem
  * somar esse total com o faturamento do mes.
+ *
+ * Relatorio (padrao do sistema, 2026-10-02): o antigo "Exportar CSV" virou
+ * "Gerar relatório", que abre no RelatorioPreview (PDF, colunas por caixa de
+ * marcar, Excel dentro da visualizacao) com exatamente o que esta filtrado
+ * aqui. A conversao dados -> documento mora em relatorioPreVendasDomain.ts.
  */
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-
-const toDate = (value: any): Date | null => {
-  if (!value) return null;
-  if (typeof value.toDate === 'function') return value.toDate();
-  if (value.seconds) return new Date(value.seconds * 1000);
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return dateInputToUtcStart(value);
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
-
-const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-
-/** BOM UTF-8 na frente do CSV -- sem ele o Excel abre "Pré-venda" como
- * "PrÃ©-venda" no duplo clique. Escrito como escape, nao como o caractere
- * literal, que e' invisivel no editor e o lint recusa. */
-const BOM_EXCEL = '\uFEFF';
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -52,21 +50,8 @@ const inputStyle: React.CSSProperties = {
   color: 'var(--text-primary)',
 };
 
-interface PreVendaLinha {
-  id: string;
-  numeroPedido: string;
-  clienteNome: string;
-  vendedorNome: string;
-  origem: OrigemPedido;
-  status: string;
-  data: Date | null;
-  diasEmAberto: number;
-  totalCents: number;
-  itensCount: number;
-  reservaEstoque: boolean;
-  /** Marca do vendedor externo (COM/SEM nota fiscal); null = nao informado. */
-  comNotaFiscal: boolean | null;
-}
+/** Uma linha da tela = uma linha do relatorio. */
+type PreVendaLinha = PreVendaDoRelatorio;
 
 const RelatorioPreVendas: React.FC = () => {
   const navigate = useNavigate();
@@ -111,24 +96,7 @@ const RelatorioPreVendas: React.FC = () => {
           // So o que esta EM ABERTO. Pedido finalizado ja e' faturamento e
           // vive no Relatório de Vendas; cancelado nao interessa aqui.
           .filter((pedido) => isPedidoAberto(pedido.status))
-          .map((pedido) => {
-            const data = toDate(pedido.dataVenda) || toDate(pedido.createdAt);
-            const vendedor = usuarios[pedido.vendedorId || pedido.usuarioResponsavelId || ''];
-            return {
-              id: pedido.id,
-              numeroPedido: pedido.numeroPedido || '',
-              clienteNome: pedido.clienteNome || 'Não informado',
-              vendedorNome: pedido.vendedorNome || vendedor?.nome || vendedor?.nomeResponsavel || 'Não identificado',
-              origem: resolveOrigemPedido(pedido),
-              status: pedido.status || STATUS_PRE_VENDA,
-              data,
-              diasEmAberto: data ? Math.max(0, Math.floor((hoje.getTime() - data.getTime()) / 86400000)) : 0,
-              totalCents: Number(pedido.valorTotalCentavos ?? toCents(pedido.valorTotal)),
-              itensCount: Array.isArray(pedido.itens) ? pedido.itens.length : 0,
-              reservaEstoque: pedido.estoqueReservado === true,
-              comNotaFiscal: typeof pedido.comNotaFiscal === 'boolean' ? pedido.comNotaFiscal : null,
-            };
-          })
+          .map((pedido) => linhaDePreVenda(pedido, usuarios, hoje))
           .sort((a, b) => (b.data?.getTime() || 0) - (a.data?.getTime() || 0));
 
         setLinhas(dados);
@@ -144,55 +112,24 @@ const RelatorioPreVendas: React.FC = () => {
     return () => { cancelado = true; };
   }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
-  const linhasFiltradas = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    const inicio = dataInicio ? dateInputToUtcStart(dataInicio) : null;
-    const fim = dataFim ? dateInputToUtcStart(dataFim) : null;
+  const filtro = useMemo(
+    () => ({ busca, origem: origemFiltro, de: dataInicio, ate: dataFim }),
+    [busca, origemFiltro, dataInicio, dataFim],
+  );
 
-    return linhas.filter((linha) => {
-      if (origemFiltro && linha.origem !== origemFiltro) return false;
-      if (inicio && (!linha.data || linha.data < inicio)) return false;
-      // Comparacao inclusiva no dia final: soma 1 dia em vez de exigir hora
-      // zero, senao uma pre-venda gravada as 14h do dia final ficaria fora.
-      if (fim && (!linha.data || linha.data.getTime() >= fim.getTime() + 86400000)) return false;
-      if (!termo) return true;
-      return linha.clienteNome.toLowerCase().includes(termo)
-        || linha.numeroPedido.toLowerCase().includes(termo)
-        || linha.vendedorNome.toLowerCase().includes(termo);
-    }).sort((a, b) => compararPorNumero(a.numeroPedido, b.numeroPedido, ordemNumero));
-  }, [linhas, busca, origemFiltro, dataInicio, dataFim, ordemNumero]);
+  const linhasFiltradas = useMemo(() => (
+    filtrarPreVendas(linhas, filtro)
+      .sort((a, b) => compararPorNumero(a.numeroPedido, b.numeroPedido, ordemNumero))
+  ), [linhas, filtro, ordemNumero]);
 
-  const totais = useMemo(() => ({
-    quantidade: linhasFiltradas.length,
-    valorCents: linhasFiltradas.reduce((soma, linha) => soma + linha.totalCents, 0),
-    comReserva: linhasFiltradas.filter((linha) => linha.reservaEstoque).length,
-    maisAntiga: linhasFiltradas.reduce((maximo, linha) => Math.max(maximo, linha.diasEmAberto), 0),
-  }), [linhasFiltradas]);
+  const totais = useMemo(() => totaisPreVendas(linhasFiltradas), [linhasFiltradas]);
 
-  const exportarCsv = () => {
-    const cabecalho = ['Número', 'Data', 'Dias em aberto', 'Cliente', 'Vendedor', 'Origem', 'Status', 'Itens', 'Estoque reservado', 'Valor'];
-    const linhasCsv = linhasFiltradas.map((linha) => [
-      linha.numeroPedido,
-      linha.data ? formatDateInputPtBr(getDateInputInTimeZone(linha.data)) : '',
-      linha.diasEmAberto,
-      linha.clienteNome,
-      linha.vendedorNome,
-      linha.origem === 'agente' ? 'Agente (WhatsApp)' : 'Balcão',
-      linha.status,
-      linha.itensCount,
-      linha.reservaEstoque ? 'Sim' : 'Não',
-      fromCents(linha.totalCents).toFixed(2),
-    ]);
-    const csv = [cabecalho, ...linhasCsv].map((linha) => linha.map(csvCell).join(';')).join('\n');
-    // BOM na frente pro Excel abrir acentuacao certa direto do duplo clique.
-    const blob = new Blob([BOM_EXCEL + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `pre-vendas-em-aberto-${getDateInputInTimeZone()}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  // O relatorio sai com exatamente o que esta na tela (filtro + ordem).
+  const [previewAberto, setPreviewAberto] = useState(false);
+  const documento = useMemo(
+    () => (previewAberto ? montarDocumentoPreVendas(linhasFiltradas, filtro, podeVerResumo) : null),
+    [previewAberto, linhasFiltradas, filtro, podeVerResumo],
+  );
 
   const limparFiltros = () => {
     setBusca('');
@@ -200,6 +137,18 @@ const RelatorioPreVendas: React.FC = () => {
     setDataInicio('');
     setDataFim('');
   };
+
+  if (previewAberto) {
+    return (
+      <RelatorioPreview
+        relatorioId="pre-vendas-abertas"
+        documento={documento}
+        nomeArquivo={nomeArquivoRelatorio('Pré-vendas em Aberto', dataInicio || getDateInputInTimeZone(), dataFim || getDateInputInTimeZone())}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar às pré-vendas"
+      />
+    );
+  }
 
   return (
     <div className="os-page">
@@ -210,8 +159,14 @@ const RelatorioPreVendas: React.FC = () => {
             <p className="page-subtitle">Pedidos gravados que ainda não viraram venda</p>
           </div>
         </div>
-        <button className="btn-secondary" onClick={exportarCsv} disabled={linhasFiltradas.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Download size={18} /> Exportar CSV
+        <button
+          className="btn-secondary"
+          onClick={() => setPreviewAberto(true)}
+          disabled={linhasFiltradas.length === 0}
+          title="Abre em PDF o que está filtrado na tela (dali dá para imprimir, salvar o PDF ou salvar em Excel)"
+          style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+        >
+          <FileText size={18} /> Gerar relatório
         </button>
       </div>
 

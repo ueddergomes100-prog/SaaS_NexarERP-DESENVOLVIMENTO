@@ -1,28 +1,30 @@
-import React, { useEffect, useState } from 'react';
-import { TrendingUp, Download, PieChart, Calendar, Loader2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { TrendingUp, FileText, PieChart, Calendar, Loader2 } from 'lucide-react';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { isRevenueReversal, transactionFeeAmount, transactionGrossAmount, transactionNetAmount } from '../../utils/financeDomain';
+import { fromCents } from '../../utils/financeDomain';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import {
+  calcularFaturamentoAnual,
+  montarDocumentoFaturamentoAnual,
+  type TransacaoFaturamento,
+} from '../../utils/relatorioFaturamentoAnualDomain';
+import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
 
-interface TransacaoData {
-  id: string;
-  data: string; // YYYY-MM-DD
-  descricao: string;
-  categoria: string;
-  valor: number;
-  tipo: 'entrada' | 'saida';
-  status: 'Paga' | 'Pendente';
-  formaPagamento?: string;
-  createdAt?: {
-    seconds?: number;
-  };
-}
+/*
+ * FATURAMENTO & DRE. Toda a conta (DRE, formas de pagamento, medias e
+ * balancete) mora em relatorioFaturamentoAnualDomain.ts e e' a mesma do
+ * relatorio: "Gerar relatorio" abre no RelatorioPreview (PDF, colunas por
+ * caixa de marcar, Excel dentro da previa) -- padronizacao dos relatorios,
+ * dono 2026-10-02.
+ */
 
 const Faturamento: React.FC = () => {
-  const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
+  const [transacoes, setTransacoes] = useState<TransacaoFaturamento[]>([]);
   const [loading, setLoading] = useState(true);
   const [anoFiltro, setAnoFiltro] = useState<number>(new Date().getFullYear());
+  const [previewAberto, setPreviewAberto] = useState(false);
   const { currentUser, tenantId } = useAuth();
 
   useEffect(() => {
@@ -30,9 +32,9 @@ const Faturamento: React.FC = () => {
     const q = query(collection(db, 'transacoes'), where('tenantId', '==', tenantId));
     
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const data: TransacaoData[] = [];
+      const data: TransacaoFaturamento[] = [];
       querySnapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as TransacaoData);
+        data.push({ id: doc.id, ...doc.data() } as TransacaoFaturamento);
       });
       setTransacoes(data);
       setLoading(false);
@@ -44,87 +46,39 @@ const Faturamento: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser, tenantId]);
 
-  // Filtra transações apenas do ano selecionado e Pagas
-  const transacoesAno = transacoes.filter(t => {
-    if (t.status !== 'Paga') return false;
-    
-    let year = '';
-    if (t.data) {
-      year = t.data.substring(0, 4);
-    } else if (t.createdAt?.seconds) {
-      year = String(new Date(t.createdAt.seconds * 1000).getFullYear());
-    }
-    
-    return year === String(anoFiltro);
-  });
+  // Somente lancamentos pagos do ano selecionado; mesma conta do relatorio.
+  const resumo = useMemo(() => calcularFaturamentoAnual(transacoes, anoFiltro), [transacoes, anoFiltro]);
+  const documento = useMemo<DocumentoRelatorioSemEmpresa>(
+    () => montarDocumentoFaturamentoAnual(transacoes, anoFiltro),
+    [transacoes, anoFiltro],
+  );
 
-  // --- CÁLCULOS DO DRE SIMPLIFICADO ---
-  const receitasFiltradas = transacoesAno.filter(t => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução');
-  
-  const receitaServicos = receitasFiltradas.filter(t => t.categoria === 'Serviços' || t.categoria === 'Serviços Automotivos').reduce((acc, curr) => acc + transactionGrossAmount(curr), 0);
-  const receitaPecas = receitasFiltradas.filter(t => t.categoria === 'Venda de Peças').reduce((acc, curr) => acc + transactionGrossAmount(curr), 0);
-  const receitaOutros = receitasFiltradas.filter(t => t.categoria !== 'Serviços' && t.categoria !== 'Serviços Automotivos' && t.categoria !== 'Venda de Peças').reduce((acc, curr) => acc + transactionGrossAmount(curr), 0);
-
-  // Estorno (OS/venda cancelada, devolucao) ANULA receita -- nao e' despesa.
-  // Antes ele inflava receita E despesa ao mesmo tempo, distorcendo a margem
-  // nas duas pontas. Vira uma LINHA PROPRIA do DRE, e nao um desconto mudo no
-  // total: assim a quebra por categoria (Pecas/Servicos/Outros) continua
-  // somando exatamente a receita bruta, como o usuario ve na tela.
-  const estornosAno = transacoesAno.filter(isRevenueReversal);
-  const totalEstornos = estornosAno.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
-
-  const receitaBruta = receitaServicos + receitaPecas + receitaOutros;
-  const taxasCartao = receitasFiltradas.reduce((acc, curr) => acc + transactionFeeAmount(curr), 0);
-  const receitaLiquida = receitaBruta - taxasCartao - totalEstornos;
-  const totalDespesas = transacoesAno
-    .filter(t => t.tipo === 'saida' && !isRevenueReversal(t))
-    .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
-  const lucroLiquido = receitaLiquida - totalDespesas;
-  const margemLucro = receitaBruta > 0 ? (lucroLiquido / receitaBruta) * 100 : 0;
-
-  // --- FORMAS DE PAGAMENTO ---
-  const formasPagamento: Record<string, number> = {};
-  receitasFiltradas.forEach(t => {
-    const f = t.formaPagamento || 'Não informada';
-    formasPagamento[f] = (formasPagamento[f] || 0) + transactionNetAmount(t);
-  });
-
-  // --- CÁLCULOS DO BALANCETE MENSAL ---
-  const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-  
-  const balanceteMeses = meses.map((nomeMes, index) => {
-    const mesStr = String(index + 1).padStart(2, '0');
-    const transacoesMes = transacoesAno.filter(t => {
-      let month = '';
-      if (t.data) {
-        month = t.data.substring(5, 7);
-      } else if (t.createdAt?.seconds) {
-        month = String(new Date(t.createdAt.seconds * 1000).getMonth() + 1).padStart(2, '0');
-      }
-      return month === mesStr;
-    });
-    
-    const monthRevenueTransactions = transacoesMes.filter(t => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução');
-    // Mesmo criterio do DRE acima: estorno abate receita, nao vira despesa.
-    const estornosMes = transacoesMes.filter(isRevenueReversal);
-    const totalEstornosMes = estornosMes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
-
-    const receitasBrutas = monthRevenueTransactions.reduce((acc, curr) => acc + transactionGrossAmount(curr), 0)
-      - estornosMes.reduce((acc, curr) => acc + transactionGrossAmount(curr), 0);
-    const taxas = monthRevenueTransactions.reduce((acc, curr) => acc + transactionFeeAmount(curr), 0)
-      - estornosMes.reduce((acc, curr) => acc + transactionFeeAmount(curr), 0);
-    const receitas = monthRevenueTransactions.reduce((acc, curr) => acc + transactionNetAmount(curr), 0) - totalEstornosMes;
-    const despesas = transacoesMes
-      .filter(t => t.tipo === 'saida' && !isRevenueReversal(t))
-      .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
-    const saldo = receitas - despesas;
-    
-    return { nomeMes, receitasBrutas, taxas, receitas, despesas, saldo };
-  });
+  const receitaBruta = fromCents(resumo.receitaBrutaCentavos);
+  const receitaPecas = fromCents(resumo.receitaPecasCentavos);
+  const receitaServicos = fromCents(resumo.receitaServicosCentavos);
+  const receitaOutros = fromCents(resumo.receitaOutrosCentavos);
+  const taxasCartao = fromCents(resumo.taxasCartaoCentavos);
+  const totalEstornos = fromCents(resumo.estornosCentavos);
+  const receitaLiquida = fromCents(resumo.receitaLiquidaCentavos);
+  const totalDespesas = fromCents(resumo.despesasCentavos);
+  const lucroLiquido = fromCents(resumo.lucroLiquidoCentavos);
+  const margemLucro = resumo.margemLucro;
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
   };
+
+  if (previewAberto) {
+    return (
+      <RelatorioPreview
+        relatorioId="faturamento-anual"
+        documento={documento}
+        nomeArquivo={nomeArquivoRelatorio(`Faturamento e DRE ${anoFiltro}`)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar"
+      />
+    );
+  }
 
   if (loading) {
     return <div style={{ display: 'flex', justifyContent: 'center', padding: '100px' }}><Loader2 className="spin-animation" size={32} color="var(--accent-purple)" /></div>;
@@ -151,8 +105,8 @@ const Faturamento: React.FC = () => {
               return <option key={ano} value={ano}>{ano}</option>;
             })}
           </select>
-          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Download size={18} /> Exportar PDF
+          <button className="btn-primary" onClick={() => setPreviewAberto(true)} title="Abre o DRE e o balancete do ano em PDF (dá para salvar em Excel)" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <FileText size={18} /> Gerar relatório
           </button>
         </div>
       </div>
@@ -217,10 +171,10 @@ const Faturamento: React.FC = () => {
               <span style={{ color: 'var(--text-secondary)' }}>Receitas líquidas por Forma de Pagamento</span>
             </div>
             <div style={{ paddingLeft: '24px', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
-              {Object.entries(formasPagamento).sort((a,b) => b[1] - a[1]).map(([forma, valor]) => (
+              {resumo.formasPagamento.map(({ forma, valorCentavos }) => (
                 <div key={forma} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
                   <span>↳ {forma}</span>
-                  <span>{formatCurrency(valor)}</span>
+                  <span>{formatCurrency(fromCents(valorCentavos))}</span>
                 </div>
               ))}
             </div>
@@ -248,7 +202,7 @@ const Faturamento: React.FC = () => {
           <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', flex: 1 }}>
             <h2 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '24px', color: 'var(--text-secondary)' }}>Média Mensal de Receita</h2>
             <div style={{ fontSize: '32px', fontWeight: 700 }}>
-              {formatCurrency(receitaLiquida / (new Date().getFullYear() === anoFiltro ? new Date().getMonth() + 1 : 12))}
+              {formatCurrency(fromCents(resumo.mediaMensalReceitaCentavos))}
             </div>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '8px' }}>Com base nos meses transcorridos em {anoFiltro}.</p>
           </div>
@@ -256,7 +210,7 @@ const Faturamento: React.FC = () => {
           <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', flex: 1 }}>
             <h2 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '24px', color: 'var(--text-secondary)' }}>Média Mensal de Despesas</h2>
             <div style={{ fontSize: '32px', fontWeight: 700 }}>
-              {formatCurrency(totalDespesas / (new Date().getFullYear() === anoFiltro ? new Date().getMonth() + 1 : 12))}
+              {formatCurrency(fromCents(resumo.mediaMensalDespesasCentavos))}
             </div>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '8px' }}>Foco em redução de custos operacionais.</p>
           </div>
@@ -283,25 +237,19 @@ const Faturamento: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {balanceteMeses.map((mes, index) => {
-                // Só exibe meses que já passaram ou o atual, a menos que seja um ano anterior completo
-                const mesAtual = new Date().getMonth();
-                const isAnoAtual = anoFiltro === new Date().getFullYear();
-                if (isAnoAtual && index > mesAtual) return null;
-
-                return (
-                  <tr key={mes.nomeMes} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    <td style={{ padding: '16px', fontWeight: 500 }}>{mes.nomeMes}</td>
-                    <td style={{ padding: '16px' }}>{formatCurrency(mes.receitasBrutas)}</td>
-                    <td style={{ padding: '16px', color: '#f59e0b' }}>{formatCurrency(mes.taxas)}</td>
-                    <td style={{ padding: '16px', color: '#10b981' }}>{formatCurrency(mes.receitas)}</td>
-                    <td style={{ padding: '16px', color: '#ef4444' }}>{formatCurrency(mes.despesas)}</td>
-                    <td style={{ padding: '16px', fontWeight: 600, color: mes.saldo >= 0 ? '#10b981' : '#ef4444' }}>
-                      {formatCurrency(mes.saldo)}
-                    </td>
-                  </tr>
-                );
-              })}
+              {/* So' meses que ja' passaram ou o atual, a menos que seja um ano anterior completo. */}
+              {resumo.mesesExibidos.map((mes) => (
+                <tr key={mes.nomeMes} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <td style={{ padding: '16px', fontWeight: 500 }}>{mes.nomeMes}</td>
+                  <td style={{ padding: '16px' }}>{formatCurrency(fromCents(mes.receitaBrutaCentavos))}</td>
+                  <td style={{ padding: '16px', color: '#f59e0b' }}>{formatCurrency(fromCents(mes.taxasCentavos))}</td>
+                  <td style={{ padding: '16px', color: '#10b981' }}>{formatCurrency(fromCents(mes.receitaLiquidaCentavos))}</td>
+                  <td style={{ padding: '16px', color: '#ef4444' }}>{formatCurrency(fromCents(mes.despesasCentavos))}</td>
+                  <td style={{ padding: '16px', fontWeight: 600, color: mes.resultadoCentavos >= 0 ? '#10b981' : '#ef4444' }}>
+                    {formatCurrency(fromCents(mes.resultadoCentavos))}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

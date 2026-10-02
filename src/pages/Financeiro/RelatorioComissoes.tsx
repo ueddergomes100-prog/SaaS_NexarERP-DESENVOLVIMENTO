@@ -1,45 +1,38 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, DollarSign, Eye, Loader2, Search, User } from 'lucide-react';
+import { DollarSign, Eye, FileText, Loader2, Search, User } from 'lucide-react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
-import { fromCents, toCents } from '../../utils/financeDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { fromCents } from '../../utils/financeDomain';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import {
+  filtrarComissoes,
+  montarDocumentoComissoes,
+  montarEntradasComissao,
+  totalizarComissoes,
+  type EntradaComissao,
+  type FiltroComissoes,
+} from '../../utils/relatorioComissoesDomain';
+import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
-const toDate = (value: any): Date | null => {
-  if (!value) return null;
-  if (typeof value.toDate === 'function') return value.toDate();
-  if (value.seconds) return new Date(value.seconds * 1000);
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return dateInputToUtcStart(value);
-  }
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
+/*
+ * COMISSOES A PAGAR. A conta (linha por venda/OS, estimativa legada,
+ * visibilidade, filtros e totais) mora em relatorioComissoesDomain.ts e e' a
+ * mesma do relatorio: "Gerar relatorio" abre no RelatorioPreview (PDF, colunas
+ * por caixa de marcar, Excel dentro da previa) com exatamente o que esta
+ * filtrado aqui (padronizacao dos relatorios, dono 2026-10-02).
+ */
 
-interface CommissionEntry {
-  id: string;
-  originType: 'venda' | 'os';
-  originId: string;
-  originNumber: string;
-  sellerId: string;
-  sellerName: string;
-  baseCents: number;
-  percentage: number;
-  valueCents: number;
-  status: string;
-  generatedAt: Date | null;
-  paidAt: Date | null;
-  historical: boolean;
-}
+const nomeDoUsuario = (user: any): string => user?.nome || user?.nomeResponsavel || user?.email || '';
 
 const RelatorioComissoes: React.FC = () => {
   const navigate = useNavigate();
   const { tenantId, currentUser, vendasVisiveisDeUsuarioId } = useAuth();
-  const [entries, setEntries] = useState<CommissionEntry[]>([]);
+  const [entries, setEntries] = useState<EntradaComissao[]>([]);
   const [users, setUsers] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -49,6 +42,7 @@ const RelatorioComissoes: React.FC = () => {
   const today = getDateInputInTimeZone();
   const [startDate, setStartDate] = useState(`${today.slice(0, 7)}-01`);
   const [endDate, setEndDate] = useState(today);
+  const [previewAberto, setPreviewAberto] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,89 +64,23 @@ const RelatorioComissoes: React.FC = () => {
 
         const userMap: Record<string, any> = {};
         usersSnap.forEach((document) => { userMap[document.id] = { id: document.id, ...document.data() }; });
-        const result: CommissionEntry[] = [];
-
-        salesSnap.forEach((document) => {
-          const sale = document.data();
-          const sellerIdValue = sale.vendedorId || sale.usuarioResponsavelId || '';
-          const seller = userMap[sellerIdValue];
-          const snapshot = sale.comissao;
-          const baseCents = Number(snapshot?.baseAtualCentavos ?? toCents((sale.itens || []).reduce((sum: number, item: any) => sum + Number(item.subtotal || 0), 0)));
-          const legacyPercentage = seller?.recebeComissaoPecas === true ? Number(seller.comissaoPercentualPecas || 0) : 0;
-          const historical = Boolean(snapshot?.regraVersion);
-          const cancelledSale = sale.status === 'Cancelada';
-          result.push({
-            id: `venda-${document.id}`,
-            originType: 'venda',
-            originId: document.id,
-            originNumber: sale.numeroPedido || document.id.slice(0, 6),
-            sellerId: sellerIdValue,
-            sellerName: snapshot?.vendedorNome || sale.vendedorNome || seller?.nome || seller?.nomeResponsavel || 'Não identificado',
-            baseCents,
-            percentage: historical ? Number(snapshot.percentual || 0) : legacyPercentage,
-            valueCents: cancelledSale
-              ? 0
-              : historical
-                ? Number(snapshot.valorAtualCentavos ?? toCents(snapshot.valorAtual))
-                : Math.round(baseCents * (legacyPercentage / 100)),
-            status: cancelledSale ? 'cancelada' : historical ? snapshot.status : 'estimativa_legada',
-            generatedAt: toDate(snapshot?.geradaEm || sale.createdAt),
-            paidAt: toDate(snapshot?.pagaEm),
-            historical,
-          });
-        });
-
-        serviceOrdersSnap.forEach((document) => {
-          const serviceOrder = document.data();
-          if (!['Finalizada', 'Cancelada'].includes(serviceOrder.status)) return;
-          const mechanicId = serviceOrder.mecanicoId || '';
-          const mechanic = userMap[mechanicId];
-          const snapshot = serviceOrder.comissao;
-          const servicesBase = (serviceOrder.servicos || []).reduce((sum: number, item: any) => sum + Number(item.preco || 0) * Number(item.quantidade || item.tempoHoras || 1), 0);
-          const partsBase = (serviceOrder.pecas || []).reduce((sum: number, item: any) => sum + Number(item.preco || item.precoVenda || 0) * Number(item.quantidade || 1), 0);
-          const baseCents = Number(snapshot?.baseAtualCentavos ?? toCents(servicesBase + partsBase));
-          const servicePercentage = mechanic?.recebeComissaoServicos === true ? Number(mechanic.comissaoPercentualServicos || 0) : 0;
-          const partsPercentage = mechanic?.recebeComissaoPecas === true ? Number(mechanic.comissaoPercentualPecas || 0) : 0;
-          const legacyValueCents = Math.round(toCents(servicesBase) * (servicePercentage / 100)) + Math.round(toCents(partsBase) * (partsPercentage / 100));
-          const historical = Boolean(snapshot?.regraVersion);
-          const cancelledServiceOrder = serviceOrder.status === 'Cancelada';
-          result.push({
-            id: `os-${document.id}`,
-            originType: 'os',
-            originId: document.id,
-            originNumber: serviceOrder.numeroOS || document.id.slice(0, 6),
-            sellerId: mechanicId,
-            sellerName: snapshot?.vendedorNome || serviceOrder.mecanicoNome || mechanic?.nome || 'Não identificado',
-            baseCents,
-            percentage: historical ? Number(snapshot.percentual || 0) : 0,
-            valueCents: cancelledServiceOrder
-              ? 0
-              : historical
-                ? Number(snapshot.valorAtualCentavos ?? toCents(snapshot.valorAtual))
-                : legacyValueCents,
-            status: cancelledServiceOrder ? 'cancelada' : historical ? snapshot.status : 'estimativa_legada',
-            generatedAt: toDate(snapshot?.geradaEm || serviceOrder.updatedAt || serviceOrder.createdAt),
-            paidAt: toDate(snapshot?.pagaEm),
-            historical,
-          });
-        });
 
         // O seletor "Vendedor" nao pode listar a equipe inteira pra quem
         // so ve as proprias comissoes -- a lista de nomes ja e' informacao.
         setUsers(vendasVisiveisDeUsuarioId
           ? (userMap[vendasVisiveisDeUsuarioId] ? { [vendasVisiveisDeUsuarioId]: userMap[vendasVisiveisDeUsuarioId] } : {})
           : userMap);
-        // Visibilidade de vendas: quando o funcionario so pode ver as
-        // proprias vendas, ele tambem so ve a propria comissao -- a linha
-        // de comissao do colega expoe o faturamento que a tela de Vendas
-        // acabou de esconder. Vale pras duas origens (venda e OS).
-        const visiveis = vendasVisiveisDeUsuarioId
-          ? result.filter((entry) => entry.sellerId === vendasVisiveisDeUsuarioId)
-          : result;
-        setEntries(visiveis.sort((a, b) => (b.generatedAt?.getTime() || 0) - (a.generatedAt?.getTime() || 0)));
+        // A regra de visibilidade (so' a propria comissao) e' aplicada dentro
+        // de montarEntradasComissao, para venda e OS.
+        setEntries(montarEntradasComissao({
+          usuarios: userMap,
+          vendas: salesSnap.docs.map((document) => ({ id: document.id, dados: document.data() })),
+          ordensDeServico: serviceOrdersSnap.docs.map((document) => ({ id: document.id, dados: document.data() })),
+          vendasVisiveisDeUsuarioId,
+        }));
       } catch (loadError) {
         console.error('Erro ao carregar comissões:', loadError);
-        if (!cancelled) setError('Não foi possível carregar as comissões.');
+        if (!cancelled) setError('Não foi possível carregar as comissões. Confira sua conexão com a internet e abra a tela novamente.');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -161,39 +89,35 @@ const RelatorioComissoes: React.FC = () => {
     return () => { cancelled = true; };
   }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
-  const filtered = useMemo(() => {
-    const start = dateInputToUtcStart(startDate);
-    const end = dateInputToUtcEnd(endDate);
-    const term = search.trim().toLowerCase();
-    return entries.filter((entry) => {
-      if (!entry.generatedAt || !start || !end || entry.generatedAt < start || entry.generatedAt > end) return false;
-      if (sellerId && entry.sellerId !== sellerId) return false;
-      if (status && entry.status !== status) return false;
-      if (term && !`${entry.sellerName} ${entry.originNumber}`.toLowerCase().includes(term)) return false;
-      return true;
-    });
-  }, [endDate, entries, search, sellerId, startDate, status]);
+  const filtro = useMemo<FiltroComissoes>(() => ({
+    de: startDate,
+    ate: endDate,
+    vendedorId: sellerId,
+    status,
+    busca: search,
+  }), [endDate, search, sellerId, startDate, status]);
 
-  const confirmedTotalCents = filtered
-    .filter((entry) => entry.historical && entry.status === 'gerada')
-    .reduce((sum, entry) => sum + entry.valueCents, 0);
-  const legacyEstimateCents = filtered
-    .filter((entry) => !entry.historical)
-    .reduce((sum, entry) => sum + entry.valueCents, 0);
+  const filtered = useMemo(() => filtrarComissoes(entries, filtro), [entries, filtro]);
+  const totais = totalizarComissoes(filtered);
+  const confirmedTotalCents = totais.validaCentavos;
+  const legacyEstimateCents = totais.estimativaLegadaCentavos;
 
-  const exportCsv = () => {
-    const rows = [
-      ['Origem', 'Número', 'Vendedor', 'Base', 'Percentual', 'Comissão', 'Status', 'Gerada em', 'Paga em'],
-      ...filtered.map((entry) => [entry.originType, entry.originNumber, entry.sellerName, fromCents(entry.baseCents).toFixed(2), entry.percentage.toFixed(2), fromCents(entry.valueCents).toFixed(2), entry.status, entry.generatedAt?.toLocaleString('pt-BR') || '', entry.paidAt?.toLocaleString('pt-BR') || '']),
-    ];
-    const csv = `\uFEFF${rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(';')).join('\n')}`;
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `comissoes-${startDate}-${endDate}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const documento = useMemo<DocumentoRelatorioSemEmpresa>(
+    () => montarDocumentoComissoes(entries, filtro, sellerId ? nomeDoUsuario(users[sellerId]) || undefined : undefined),
+    [entries, filtro, sellerId, users],
+  );
+
+  if (previewAberto) {
+    return (
+      <RelatorioPreview
+        relatorioId="comissoes"
+        documento={documento}
+        nomeArquivo={nomeArquivoRelatorio('Comissões a Pagar', startDate, endDate)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar"
+      />
+    );
+  }
 
   if (loading) return <div style={{ minHeight: '60vh', display: 'grid', placeItems: 'center' }}><Loader2 className="spin-icon" size={38} /></div>;
 
@@ -201,7 +125,7 @@ const RelatorioComissoes: React.FC = () => {
     <div className="relatorio-caixa-alta" style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
         <div><h1 style={{ fontSize: '25px', display: 'flex', alignItems: 'center', gap: '9px' }}><DollarSign color="#10b981" /> Relatório de Comissões</h1><p style={{ color: 'var(--text-muted)', marginTop: '5px' }}>Snapshots históricos por venda e OS; registros legados aparecem separados como estimativa.</p></div>
-        <button className="btn-secondary" onClick={exportCsv} disabled={filtered.length === 0} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}><Download size={18} /> Exportar CSV</button>
+        <button className="btn-primary" onClick={() => setPreviewAberto(true)} disabled={filtered.length === 0} title={filtered.length === 0 ? 'Nenhuma comissão no filtro. Ajuste o período, o vendedor ou o status para gerar o relatório.' : 'Abre o relatório em PDF com o que está filtrado na tela (dá para salvar em Excel)'} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}><FileText size={18} /> Gerar relatório</button>
       </div>
 
       {error && <div role="alert" style={{ padding: '14px', color: '#fecaca', backgroundColor: 'rgba(239,68,68,.12)', borderRadius: '8px' }}>{error}</div>}

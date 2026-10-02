@@ -9,40 +9,27 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import StatCard from '../../components/Reports/StatCard';
 import ChartWrapper from '../../components/Reports/ChartWrapper';
 import ReportFilter from '../../components/Reports/ReportFilter';
-import { format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, isWithinInterval, parseISO } from 'date-fns';
+import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
+import { format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, parseISO } from 'date-fns';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import {
+  formatarPercentualProducao,
+  formatarQuantidade,
+  montarDocumentoProducao,
+  ordensNoPeriodo,
+  resumirProducao,
+  type OrdemDoRelatorio,
+} from '../../utils/relatorioProducaoDomain';
+
+/*
+ * Painel de producao. As contas moram em relatorioProducaoDomain.ts: os
+ * cartoes, os graficos, as tabelas e o PDF do "Gerar relatorio"
+ * (RelatorioPreview, padrao de 2026-09-23) usam o mesmo resumo.
+ */
 
 const COLORS = ['#8b5cf6', '#10b981', '#3b82f6', '#f59e0b', '#ef4444'];
 
-const STATUS_LABELS: Record<string, string> = {
-  criada: 'Criada',
-  em_producao: 'Em Produção',
-  pausada: 'Pausada',
-  finalizada: 'Finalizada',
-  cancelada: 'Cancelada',
-  estornada: 'Estornada',
-};
-
-interface ItemConsumidoData {
-  materiaPrimaId: string;
-  materiaPrimaNome: string;
-  unidade: string;
-  quantidadeNecessaria?: number;
-  perdaExtra?: number;
-  sobra?: number;
-  quantidadeConsumida: number;
-}
-
-interface OrdemProducaoData {
-  id: string;
-  numero: string;
-  produtoNome: string;
-  quantidadePlanejada: number;
-  quantidadeProduzida: number | null;
-  status: string;
-  responsavelNome: string;
-  itensConsumidos?: ItemConsumidoData[];
-  createdAt: any;
-}
+const isoDoDia = (data: Date): string => (Number.isNaN(data.getTime()) ? '' : format(data, 'yyyy-MM-dd'));
 
 const RelatorioProducao: React.FC = () => {
   const { tenantId } = useAuth();
@@ -50,8 +37,9 @@ const RelatorioProducao: React.FC = () => {
   const [period, setPeriod] = useState('mes');
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [previewAberto, setPreviewAberto] = useState(false);
 
-  const [ordens, setOrdens] = useState<OrdemProducaoData[]>([]);
+  const [ordens, setOrdens] = useState<OrdemDoRelatorio[]>([]);
 
   const carregarDados = useCallback(async () => {
     if (!tenantId) {
@@ -62,7 +50,19 @@ const RelatorioProducao: React.FC = () => {
     try {
       const q = query(collection(db, 'ordens_producao'), where('tenantId', '==', tenantId));
       const snap = await getDocs(q);
-      setOrdens(snap.docs.map(d => ({ id: d.id, ...d.data() } as OrdemProducaoData)));
+      setOrdens(snap.docs.map(d => {
+        const x = d.data();
+        return {
+          id: d.id,
+          produtoNome: x.produtoNome,
+          quantidadePlanejada: x.quantidadePlanejada,
+          quantidadeProduzida: x.quantidadeProduzida,
+          status: String(x.status || ''),
+          responsavelNome: x.responsavelNome,
+          itensConsumidos: Array.isArray(x.itensConsumidos) ? x.itensConsumidos : [],
+          criadoEm: x.createdAt?.toDate ? x.createdAt.toDate() : null,
+        };
+      }));
     } catch (err) {
       console.error('Erro ao carregar ordens de produção:', err);
     } finally {
@@ -74,7 +74,7 @@ const RelatorioProducao: React.FC = () => {
     carregarDados();
   }, [carregarDados]);
 
-  const filteredData = useMemo(() => {
+  const periodo = useMemo(() => {
     let start = startOfDay(new Date());
     let end = endOfDay(new Date());
 
@@ -87,97 +87,24 @@ const RelatorioProducao: React.FC = () => {
       case 'personalizado': start = startOfDay(parseISO(startDate)); end = endOfDay(parseISO(endDate)); break;
     }
 
-    return ordens.filter(o => {
-      const date = o.createdAt?.toDate ? o.createdAt.toDate() : null;
-      return date && isWithinInterval(date, { start, end });
-    });
-  }, [ordens, period, startDate, endDate]);
+    return { inicio: start, fim: end };
+  }, [period, startDate, endDate]);
 
-  const stats = useMemo(() => {
-    let qtdFinalizadas = 0;
-    let qtdCanceladas = 0;
-    let qtdEstornadas = 0;
-    let qtdEmAndamento = 0;
-    let planejadoTotal = 0;
-    let produzidoTotal = 0;
+  const stats = useMemo(() => resumirProducao(ordensNoPeriodo(ordens, periodo)), [ordens, periodo]);
 
-    const porStatus: Record<string, { name: string; value: number }> = {};
-    const porProduto: Record<string, { nome: string; produzido: number; ordens: number }> = {};
-    const porResponsavel: Record<string, { nome: string; ordens: number; produzido: number }> = {};
-    const perdaPorMateriaPrima: Record<string, { nome: string; unidade: string; perda: number }> = {};
-    const sobraPorMateriaPrima: Record<string, { nome: string; unidade: string; sobra: number }> = {};
-    const timelineData: Record<string, { name: string; qtd: number }> = {};
+  const documento = useMemo<DocumentoRelatorioSemEmpresa>(() => montarDocumentoProducao(ordens, periodo), [ordens, periodo]);
 
-    filteredData.forEach(o => {
-      const statusLabel = STATUS_LABELS[o.status] || o.status;
-      if (!porStatus[statusLabel]) porStatus[statusLabel] = { name: statusLabel, value: 0 };
-      porStatus[statusLabel].value += 1;
-
-      const dateKey = o.createdAt?.toDate ? format(o.createdAt.toDate(), 'dd/MM') : '---';
-      if (!timelineData[dateKey]) timelineData[dateKey] = { name: dateKey, qtd: 0 };
-      timelineData[dateKey].qtd += 1;
-
-      planejadoTotal += Number(o.quantidadePlanejada || 0);
-
-      if (o.status === 'finalizada') {
-        qtdFinalizadas++;
-        produzidoTotal += Number(o.quantidadeProduzida || 0);
-
-        const produtoKey = o.produtoNome || 'Produto';
-        if (!porProduto[produtoKey]) porProduto[produtoKey] = { nome: produtoKey, produzido: 0, ordens: 0 };
-        porProduto[produtoKey].produzido += Number(o.quantidadeProduzida || 0);
-        porProduto[produtoKey].ordens += 1;
-
-        const respKey = o.responsavelNome || 'Sem responsável';
-        if (!porResponsavel[respKey]) porResponsavel[respKey] = { nome: respKey, ordens: 0, produzido: 0 };
-        porResponsavel[respKey].ordens += 1;
-        porResponsavel[respKey].produzido += Number(o.quantidadeProduzida || 0);
-
-        (o.itensConsumidos || []).forEach(item => {
-          const perda = Number(item.perdaExtra || 0);
-          if (perda > 0) {
-            if (!perdaPorMateriaPrima[item.materiaPrimaId]) {
-              perdaPorMateriaPrima[item.materiaPrimaId] = { nome: item.materiaPrimaNome, unidade: item.unidade, perda: 0 };
-            }
-            perdaPorMateriaPrima[item.materiaPrimaId].perda += perda;
-          }
-
-          const sobra = Number(item.sobra || 0);
-          if (sobra > 0) {
-            if (!sobraPorMateriaPrima[item.materiaPrimaId]) {
-              sobraPorMateriaPrima[item.materiaPrimaId] = { nome: item.materiaPrimaNome, unidade: item.unidade, sobra: 0 };
-            }
-            sobraPorMateriaPrima[item.materiaPrimaId].sobra += sobra;
-          }
-        });
-      } else if (o.status === 'cancelada') {
-        qtdCanceladas++;
-      } else if (o.status === 'estornada') {
-        qtdEstornadas++;
-      } else {
-        qtdEmAndamento++;
-      }
-    });
-
-    const eficiencia = planejadoTotal > 0 ? (produzidoTotal / planejadoTotal) * 100 : 0;
-
-    return {
-      qtdTotal: filteredData.length,
-      qtdFinalizadas,
-      qtdCanceladas,
-      qtdEstornadas,
-      qtdEmAndamento,
-      planejadoTotal,
-      produzidoTotal,
-      eficiencia,
-      porStatus: Object.values(porStatus),
-      porProduto: Object.values(porProduto).sort((a, b) => b.produzido - a.produzido),
-      porResponsavel: Object.values(porResponsavel).sort((a, b) => b.produzido - a.produzido),
-      perdaPorMateriaPrima: Object.values(perdaPorMateriaPrima).sort((a, b) => b.perda - a.perda),
-      sobraPorMateriaPrima: Object.values(sobraPorMateriaPrima).sort((a, b) => b.sobra - a.sobra),
-      timeline: Object.values(timelineData),
-    };
-  }, [filteredData]);
+  if (previewAberto) {
+    return (
+      <RelatorioPreview
+        relatorioId="producao"
+        documento={documento}
+        nomeArquivo={nomeArquivoRelatorio('Relatório de Produção', isoDoDia(periodo.inicio), isoDoDia(periodo.fim))}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar"
+      />
+    );
+  }
 
   if (loading) return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px' }}>
@@ -197,8 +124,8 @@ const RelatorioProducao: React.FC = () => {
           <p style={{ color: 'var(--text-muted)', fontSize: '15px' }}>Volume de ordens, eficiência e perdas de matéria-prima</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FileText size={18} /> Exportar PDF
+          <button className="btn-primary" onClick={() => setPreviewAberto(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <FileText size={18} /> Gerar relatório
           </button>
         </div>
       </div>
@@ -251,17 +178,17 @@ const RelatorioProducao: React.FC = () => {
         />
         <StatCard
           title="Eficiência de Produção"
-          value={`${stats.eficiencia.toFixed(1)}%`}
+          value={formatarPercentualProducao(stats.eficiencia)}
           icon={TrendingDown}
           color="#8b5cf6"
-          subtitle={`${stats.produzidoTotal} produzidas de ${stats.planejadoTotal} planejadas`}
+          subtitle={`${formatarQuantidade(stats.produzidoTotal)} produzidas de ${formatarQuantidade(stats.planejadoTotal)} planejadas`}
         />
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px' }}>
         <ChartWrapper title="Ordens de Produção por Dia" icon={Activity} flex={2}>
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={stats.timeline}>
+            <AreaChart data={stats.porDia.map((d) => ({ name: d.rotulo, qtd: d.qtd }))}>
               <defs>
                 <linearGradient id="colorOrdens" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
@@ -284,7 +211,7 @@ const RelatorioProducao: React.FC = () => {
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
-                data={stats.porStatus}
+                data={stats.porStatus.map((s) => ({ name: s.status, value: s.qtd }))}
                 cx="50%"
                 cy="50%"
                 innerRadius={60}
@@ -326,7 +253,7 @@ const RelatorioProducao: React.FC = () => {
                     <tr key={item.nome}>
                       <td>{item.nome}</td>
                       <td>{item.ordens}</td>
-                      <td><strong>{item.produzido}</strong></td>
+                      <td><strong>{formatarQuantidade(item.produzido)}</strong></td>
                     </tr>
                   ))}
                 </tbody>
@@ -354,7 +281,7 @@ const RelatorioProducao: React.FC = () => {
                     <tr key={item.nome}>
                       <td>{item.nome}</td>
                       <td>{item.ordens}</td>
-                      <td><strong>{item.produzido}</strong></td>
+                      <td><strong>{formatarQuantidade(item.produzido)}</strong></td>
                     </tr>
                   ))}
                 </tbody>
@@ -372,7 +299,7 @@ const RelatorioProducao: React.FC = () => {
         <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted)', fontSize: '13px' }}>
           Soma da perda extra registrada na conferência de finalização, além do previsto na composição de cada produto.
         </p>
-        {stats.perdaPorMateriaPrima.length === 0 ? (
+        {stats.perdas.length === 0 ? (
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Nenhuma perda extra registrada no período.</p>
         ) : (
           <div className="table-wrapper">
@@ -384,10 +311,10 @@ const RelatorioProducao: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {stats.perdaPorMateriaPrima.map(item => (
-                  <tr key={item.nome}>
+                {stats.perdas.map(item => (
+                  <tr key={item.materiaPrimaId}>
                     <td>{item.nome}</td>
-                    <td style={{ color: '#ef4444', fontWeight: 700 }}>{item.perda} {item.unidade}</td>
+                    <td style={{ color: '#ef4444', fontWeight: 700 }}>{formatarQuantidade(item.quantidade)} {item.unidade}</td>
                   </tr>
                 ))}
               </tbody>
@@ -404,7 +331,7 @@ const RelatorioProducao: React.FC = () => {
         <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted)', fontSize: '13px' }}>
           Soma da sobra registrada na conferência de finalização — matéria-prima que voltou pro estoque em vez de ser descartada.
         </p>
-        {stats.sobraPorMateriaPrima.length === 0 ? (
+        {stats.sobras.length === 0 ? (
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Nenhuma sobra registrada no período.</p>
         ) : (
           <div className="table-wrapper">
@@ -416,10 +343,10 @@ const RelatorioProducao: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {stats.sobraPorMateriaPrima.map(item => (
-                  <tr key={item.nome}>
+                {stats.sobras.map(item => (
+                  <tr key={item.materiaPrimaId}>
                     <td>{item.nome}</td>
-                    <td style={{ color: '#10b981', fontWeight: 700 }}>{item.sobra} {item.unidade}</td>
+                    <td style={{ color: '#10b981', fontWeight: 700 }}>{formatarQuantidade(item.quantidade)} {item.unidade}</td>
                   </tr>
                 ))}
               </tbody>

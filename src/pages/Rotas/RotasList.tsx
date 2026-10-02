@@ -1,12 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { Eye, IdCard, Plus, Search, Truck } from 'lucide-react';
+import { Eye, FileText, IdCard, Plus, Search, Truck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { CampoFiltro, CampoPeriodo, PainelFiltros, BotaoFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
-import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
-import { rotuloDoTipoDespesa, totaisPorTipo, type DespesaRota } from '../../utils/rotaDomain';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { rotuloDoTipoDespesa, totaisPorTipo } from '../../utils/rotaDomain';
+import { filtrarRotas, montarDocumentoRotas, resumirRotas, type RotaDoRelatorio } from '../../utils/relatorioRotasDomain';
 
 /**
  * ROTAS LANCADAS: lista + o relatorio por motorista no mesmo lugar.
@@ -15,19 +18,13 @@ import { rotuloDoTipoDespesa, totaisPorTipo, type DespesaRota } from '../../util
  * precisa ver e' quanto cada motorista gastou, em que, e em qual periodo.
  * Uma tela so' resolve -- filtra por motorista e por periodo, e o resumo do
  * topo responde a pergunta sem precisar de um relatorio separado.
+ *
+ * Relatorio em PDF (padrao do sistema, 2026-10-02): "Relatório" no menu Mais
+ * opcoes abre no RelatorioPreview exatamente o que esta filtrado aqui. Filtro,
+ * resumo e documento moram em relatorioRotasDomain.ts.
  */
 
-interface RotaDoc {
-  id: string;
-  motoristaId?: string;
-  motoristaNome?: string;
-  veiculo?: string;
-  data?: string;
-  observacao?: string;
-  despesas?: DespesaRota[];
-  total?: number;
-  totalCentavos?: number;
-}
+type RotaDoc = RotaDoRelatorio;
 
 const moeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
 
@@ -44,27 +41,32 @@ const RotasList: React.FC = () => {
   const [periodoDe, setPeriodoDe] = useState('');
   const [periodoAte, setPeriodoAte] = useState('');
 
-  const termo = busca.trim().toLowerCase();
-  const filtradas = useMemo(() => (
-    rotas
-      .filter((r) => !motoristaId || r.motoristaId === motoristaId)
-      .filter((r) => dentroDoPeriodo(r.data || '', periodoDe, periodoAte))
-      .filter((r) => !termo
-        || String(r.motoristaNome || '').toLowerCase().includes(termo)
-        || String(r.veiculo || '').toLowerCase().includes(termo)
-        || String(r.observacao || '').toLowerCase().includes(termo))
-      .sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')))
-  ), [rotas, motoristaId, periodoDe, periodoAte, termo]);
+  const [previewAberto, setPreviewAberto] = useState(false);
+
+  const filtro = useMemo(
+    () => ({ busca, motoristaId, de: periodoDe, ate: periodoAte }),
+    [busca, motoristaId, periodoDe, periodoAte],
+  );
+  const filtradas = useMemo(() => filtrarRotas(rotas, filtro), [rotas, filtro]);
 
   // Resumo do que esta na tela: e' o "relatorio" que o dono precisa.
-  const resumo = useMemo(() => {
-    const todasAsDespesas = filtradas.flatMap((r) => r.despesas || []);
-    const totalCentavos = filtradas.reduce((soma, r) => soma + Number(r.totalCentavos || Math.round(Number(r.total || 0) * 100)), 0);
-    return { totalCentavos, porTipo: totaisPorTipo(todasAsDespesas) };
-  }, [filtradas]);
+  const resumo = useMemo(() => resumirRotas(filtradas), [filtradas]);
 
   const filtrosAtivos = (motoristaId ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
   const limparFiltros = () => { setMotoristaId(''); setPeriodoDe(''); setPeriodoAte(''); };
+
+  if (previewAberto) {
+    const motorista = motoristas.find((m) => m.id === motoristaId);
+    return (
+      <RelatorioPreview
+        relatorioId="rotas-despesas"
+        documento={montarDocumentoRotas(filtradas, filtro, motorista?.nome)}
+        nomeArquivo={nomeArquivoRelatorio('Rotas e Despesas', periodoDe, periodoAte)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar às rotas"
+      />
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -79,9 +81,17 @@ const RotasList: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <button className="btn-secondary" onClick={() => openTab('/operacoes/motoristas')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <IdCard size={17} /> Motoristas
-          </button>
+          <MenuMaisOpcoes
+            itens={[
+              {
+                texto: 'Relatório', Icone: FileText,
+                titulo: 'Abre em PDF o que está filtrado na tela (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+                desabilitado: loading,
+                onClick: () => setPreviewAberto(true),
+              },
+              { texto: 'Motoristas', Icone: IdCard, onClick: () => openTab('/operacoes/motoristas') },
+            ]}
+          />
           <button className="btn-primary" onClick={() => openTab('/operacoes/rotas/nova')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Nova Rota
           </button>

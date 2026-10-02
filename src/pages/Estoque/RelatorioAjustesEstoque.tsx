@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Download, ClipboardList, PackagePlus, PackageMinus } from 'lucide-react';
+import { ArrowLeft, FileText, ClipboardList, PackagePlus, PackageMinus } from 'lucide-react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import StatCard from '../../components/Reports/StatCard';
 import ReportFilter from '../../components/Reports/ReportFilter';
+import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
 import {
-  format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, isWithinInterval, parseISO,
+  format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, parseISO,
 } from 'date-fns';
 import {
   MOTIVOS_AJUSTE_ENTRADA,
@@ -15,28 +16,19 @@ import {
   labelMotivoAjusteEstoque,
   type TipoAjusteEstoque,
 } from '../../utils/ajusteEstoqueDomain';
-import { matchesAllSearchTerms } from '../../utils/textSearch';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import {
+  ajustesDoRelatorio,
+  formatarQuantidadeAjuste,
+  loteValidadeAjuste,
+  montarDocumentoRelatorioAjustes,
+  resumirAjustes,
+  type AjusteDoRelatorio,
+  type FiltroRelatorioAjustes,
+} from '../../utils/relatorioAjustesEstoqueDomain';
 import './Estoque.css';
 
-interface AjusteRegistro {
-  id: string;
-  produtoNome: string;
-  produtoCodigo?: string;
-  /** 'materia_prima' quando o ajuste foi de materia-prima; ausente = produto. */
-  origem?: string;
-  tipo: TipoAjusteEstoque;
-  quantidade: number;
-  motivo: string;
-  observacao?: string;
-  lote?: string;
-  validade?: string;
-  quantidadeAntes: number;
-  quantidadeDepois: number;
-  usuarioNome: string;
-  createdAt?: { toDate: () => Date } | null;
-}
-
-const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+type AjusteRegistro = AjusteDoRelatorio;
 
 const RelatorioAjustesEstoque: React.FC = () => {
   const navigate = useNavigate();
@@ -44,6 +36,7 @@ const RelatorioAjustesEstoque: React.FC = () => {
 
   const [ajustes, setAjustes] = useState<AjusteRegistro[]>([]);
   const [loading, setLoading] = useState(true);
+  const [previewAberto, setPreviewAberto] = useState(false);
 
   const [period, setPeriod] = useState('mes');
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
@@ -67,18 +60,16 @@ const RelatorioAjustesEstoque: React.FC = () => {
         return {
           id: d.id,
           produtoNome: data.produtoNome || '',
-          produtoCodigo: data.produtoCodigo,
-          origem: data.origem,
+          ...(data.produtoCodigo ? { produtoCodigo: String(data.produtoCodigo) } : {}),
+          ...(data.origem ? { origem: String(data.origem) } : {}),
           tipo: data.tipo,
           quantidade: Number(data.quantidade || 0),
           motivo: data.motivo || '',
-          observacao: data.observacao,
-          lote: data.lote,
-          validade: data.validade,
-          quantidadeAntes: Number(data.quantidadeAntes || 0),
-          quantidadeDepois: Number(data.quantidadeDepois || 0),
+          ...(data.observacao ? { observacao: String(data.observacao) } : {}),
+          ...(data.lote ? { lote: String(data.lote) } : {}),
+          ...(data.validade ? { validade: String(data.validade) } : {}),
           usuarioNome: data.usuarioNome || '',
-          createdAt: data.createdAt,
+          data: data.createdAt?.toDate ? data.createdAt.toDate() : null,
         };
       });
       setAjustes(lista);
@@ -110,7 +101,7 @@ const RelatorioAjustesEstoque: React.FC = () => {
     });
   }, [tipoFiltro]);
 
-  const filtrados = useMemo(() => {
+  const filtro = useMemo<FiltroRelatorioAjustes>(() => {
     let start = startOfDay(new Date());
     let end = endOfDay(new Date());
     switch (period) {
@@ -121,48 +112,31 @@ const RelatorioAjustesEstoque: React.FC = () => {
       case 'ano': start = startOfYear(new Date()); end = endOfMonth(new Date()); break;
       case 'personalizado': start = startOfDay(parseISO(startDate)); end = endOfDay(parseISO(endDate)); break;
     }
+    return { inicio: start, fim: end, tipo: tipoFiltro, motivo: motivoFiltro, produto: produtoFiltro, usuario: usuarioFiltro };
+  }, [period, startDate, endDate, tipoFiltro, motivoFiltro, produtoFiltro, usuarioFiltro]);
 
-    return ajustes
-      .filter((a) => {
-        const data = a.createdAt?.toDate ? a.createdAt.toDate() : null;
-        const dentroPeriodo = data ? isWithinInterval(data, { start, end }) : true;
-        const bateTipo = tipoFiltro === 'todos' || a.tipo === tipoFiltro;
-        const bateMotivo = !motivoFiltro || a.motivo === motivoFiltro;
-        const bateProduto = matchesAllSearchTerms([a.produtoNome], produtoFiltro);
-        const bateUsuario = !usuarioFiltro || a.usuarioNome === usuarioFiltro;
-        return dentroPeriodo && bateTipo && bateMotivo && bateProduto && bateUsuario;
-      })
-      .sort((a, b) => (b.createdAt?.toDate?.().getTime() || 0) - (a.createdAt?.toDate?.().getTime() || 0));
-  }, [ajustes, period, startDate, endDate, tipoFiltro, motivoFiltro, produtoFiltro, usuarioFiltro]);
+  const filtrados = useMemo(() => ajustesDoRelatorio(ajustes, filtro), [ajustes, filtro]);
 
-  const stats = useMemo(() => ({
-    total: filtrados.length,
-    totalEntradas: filtrados.filter((a) => a.tipo === 'entrada').reduce((soma, a) => soma + a.quantidade, 0),
-    totalSaidas: filtrados.filter((a) => a.tipo === 'saida').reduce((soma, a) => soma + a.quantidade, 0),
-  }), [filtrados]);
+  const stats = useMemo(() => resumirAjustes(filtrados), [filtrados]);
 
-  const exportCsv = () => {
-    const headers = ['Data', 'Produto', 'Código', 'Tipo', 'Quantidade', 'Motivo', 'Lote', 'Validade', 'Usuário', 'Observação'];
-    const rows = filtrados.map((a) => [
-      a.createdAt?.toDate ? a.createdAt.toDate().toLocaleString('pt-BR') : '',
-      a.produtoNome,
-      a.produtoCodigo || '',
-      a.tipo === 'entrada' ? 'Entrada' : 'Saída',
-      a.quantidade,
-      labelMotivoAjusteEstoque(a.tipo, a.motivo),
-      a.lote || '',
-      a.validade || '',
-      a.usuarioNome,
-      a.observacao || '',
-    ]);
-    const csv = '﻿' + [headers, ...rows].map((row) => row.map(csvCell).join(';')).join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `relatorio-ajustes-estoque-${format(new Date(), 'yyyy-MM-dd')}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  /** O PDF sai com exatamente o que esta filtrado na tela. */
+  const documento = useMemo<DocumentoRelatorioSemEmpresa>(() => montarDocumentoRelatorioAjustes({
+    filtrados,
+    filtro,
+    rotuloMotivo: motivoOptions.find((m) => m.value === motivoFiltro)?.label,
+  }), [filtrados, filtro, motivoOptions, motivoFiltro]);
+
+  if (previewAberto) {
+    return (
+      <RelatorioPreview
+        relatorioId="estoque-ajustes"
+        documento={documento}
+        nomeArquivo={nomeArquivoRelatorio('Ajustes de Estoque', format(filtro.inicio, 'yyyy-MM-dd'), format(filtro.fim, 'yyyy-MM-dd'))}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar aos filtros"
+      />
+    );
+  }
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-muted)' }}>
@@ -185,8 +159,8 @@ const RelatorioAjustesEstoque: React.FC = () => {
             <p className="page-subtitle">Trilha dos ajustes manuais registrados, com motivo e responsável.</p>
           </div>
         </div>
-        <button className="btn-secondary" onClick={exportCsv} disabled={filtrados.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Download size={18} /> Exportar CSV
+        <button className="btn-primary" onClick={() => setPreviewAberto(true)} disabled={filtrados.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <FileText size={18} /> Gerar relatório
         </button>
       </div>
 
@@ -232,8 +206,8 @@ const RelatorioAjustesEstoque: React.FC = () => {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
         <StatCard title="Total de Ajustes" value={String(stats.total)} icon={ClipboardList} color="#3b82f6" subtitle="No período selecionado" />
-        <StatCard title="Total em Entradas" value={String(stats.totalEntradas)} icon={PackagePlus} color="#10b981" subtitle="Soma das quantidades" />
-        <StatCard title="Total em Saídas" value={String(stats.totalSaidas)} icon={PackageMinus} color="#ef4444" subtitle="Soma das quantidades" />
+        <StatCard title="Total em Entradas" value={formatarQuantidadeAjuste(stats.totalEntradas)} icon={PackagePlus} color="#10b981" subtitle="Soma das quantidades" />
+        <StatCard title="Total em Saídas" value={formatarQuantidadeAjuste(stats.totalSaidas)} icon={PackageMinus} color="#ef4444" subtitle="Soma das quantidades" />
       </div>
 
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
@@ -254,16 +228,16 @@ const RelatorioAjustesEstoque: React.FC = () => {
             <tbody>
               {filtrados.map((a) => (
                 <tr key={a.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                  <td style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>{a.createdAt?.toDate ? a.createdAt.toDate().toLocaleString('pt-BR') : '-'}</td>
+                  <td style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>{a.data ? a.data.toLocaleString('pt-BR') : '-'}</td>
                   <td style={{ padding: '12px 8px', fontWeight: 600 }}>{a.produtoNome}{a.produtoCodigo ? ` (${a.produtoCodigo})` : ''}{a.origem === 'materia_prima' && <span style={{ marginLeft: '6px', fontSize: '11px', fontWeight: 600, color: '#8b5cf6' }}>MATÉRIA-PRIMA</span>}{a.origem === 'insumo' && <span style={{ marginLeft: '6px', fontSize: '11px', fontWeight: 600, color: '#0ea5e9' }}>INSUMO</span>}</td>
                   <td style={{ padding: '12px 8px' }}>
                     <span style={{ padding: '3px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: 700, backgroundColor: a.tipo === 'entrada' ? '#10b98122' : '#ef444422', color: a.tipo === 'entrada' ? '#10b981' : '#ef4444' }}>
                       {a.tipo === 'entrada' ? 'Entrada' : 'Saída'}
                     </span>
                   </td>
-                  <td style={{ padding: '12px 8px', textAlign: 'right' }}>{a.quantidade}</td>
+                  <td style={{ padding: '12px 8px', textAlign: 'right' }}>{formatarQuantidadeAjuste(a.quantidade)}</td>
                   <td style={{ padding: '12px 8px' }}>{labelMotivoAjusteEstoque(a.tipo, a.motivo)}</td>
-                  <td style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>{a.lote ? `${a.lote}${a.validade ? ` — ${a.validade}` : ''}` : '-'}</td>
+                  <td style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>{loteValidadeAjuste(a) || '-'}</td>
                   <td style={{ padding: '12px 8px' }}>{a.usuarioNome}</td>
                   <td style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>{a.observacao || '-'}</td>
                 </tr>

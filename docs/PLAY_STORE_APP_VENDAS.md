@@ -33,7 +33,7 @@ Não existe código Android a manter: mudou o site, mudou o app.
    enviar o `.aab` → adicionar **pelo menos 12 testadores** (e-mails de contas Google com Android) →
    publicar a faixa. Cada testador precisa **aceitar o convite pelo link** e manter o app instalado.
    O Google só libera "Produção" depois de **14 dias seguidos** com 12+ testadores.
-4. **Depois do primeiro envio:** Configuração → Integridade do app → Assinatura do app → copie o
+4. **Feito em 02/10** (SHA-256 da chave do Google `35:8C:C8:FE:...:39:3E` já no `assetlinks.json`, junto com a de upload). **Depois do primeiro envio:** Configuração → Integridade do app → Assinatura do app → copie o
    **SHA-256 da chave de assinatura do app** (a do Google) e mande para incluir no
    `assetlinks.json`, junto da chave de upload que já está lá. Sem isso, o app instalado pela loja
    abre com a barra de endereço do navegador no topo (funciona, mas fica feio).

@@ -60,15 +60,19 @@ const numeroDeParcelas = (valor: unknown): number => {
 };
 
 /**
- * A venda e' a vista ou a prazo? Pagamento sem forma escolhida ainda nao
- * decide nada (conta como a vista, o preco padrao de quem chega no balcao).
+ * A venda e' a vista ou a prazo? O PADRAO e' a prazo (decisao do dono,
+ * 2026-10-02: "sempre puxar o preco a prazo primeiro, o a vista somente
+ * depois de por a forma de pagamento"). So' vira a vista quando ha' ao menos
+ * uma forma escolhida e nenhuma delas e' a prazo; linha de pagamento ainda
+ * sem forma nao conta pra nenhum lado.
  */
 export const condicaoDoPagamento = (
   pagamentos: PagamentoParaCondicao[],
   formasAVista: string[] = FORMAS_A_VISTA_PADRAO,
 ): CondicaoPagamento => {
-  const aPrazo = pagamentos.some((p) => {
-    if (!p.forma) return false;
+  const escolhidos = pagamentos.filter((p) => Boolean(p.forma));
+  if (escolhidos.length === 0) return 'prazo';
+  const aPrazo = escolhidos.some((p) => {
     if (p.forma === 'Cartão de Crédito' && numeroDeParcelas(p.parcelas) >= 2) return true;
     if ((p.forma === 'Boleto' || p.forma === 'Pagamento a Prazo') && numeroDeParcelas(p.parcelasAPrazo) >= 2) return true;
     return !formasAVista.includes(p.forma);

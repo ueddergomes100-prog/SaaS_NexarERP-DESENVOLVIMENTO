@@ -30,7 +30,10 @@ test('à vista: dinheiro, Pix, débito, crédito 1x e transferência; parcelou 2
   assert.equal(condicaoDoPagamento([{ forma: 'Pix' }, { forma: 'Cartão de Débito' }]), 'vista');
   assert.equal(condicaoDoPagamento([{ forma: 'Cartão de Crédito', parcelas: '1' }]), 'vista');
   assert.equal(condicaoDoPagamento([{ forma: 'Cartão de Crédito', parcelas: '2' }]), 'prazo');
-  assert.equal(condicaoDoPagamento([{ forma: '' }]), 'vista');
+  // Sem forma escolhida = a prazo: o à vista só entra depois da forma (dono, 02/10).
+  assert.equal(condicaoDoPagamento([{ forma: '' }]), 'prazo');
+  assert.equal(condicaoDoPagamento([]), 'prazo');
+  assert.equal(condicaoDoPagamento([{ forma: 'Pix' }, { forma: '' }]), 'vista');
 });
 
 test('boleto, crediário e cheque são a prazo mesmo em 1 parcela; uma parte a prazo vale para a venda toda', () => {

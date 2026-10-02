@@ -1824,7 +1824,27 @@ const PedidoVendaForm: React.FC = () => {
     const mudouAlgo = sincronizados.some((item, i) => item !== itens[i]);
     if (!mudouAlgo) return;
     setItens(sincronizados);
-    if (resultado.alterados > 0) {
+    if (resultado.alterados > 0 && condicaoPagamento === 'vista') {
+      // Pedido do dono (02/10): ao escolher forma a vista, pop-up com OK
+      // listando o que mudou. Item sem preco a vista (ou igual ao de venda)
+      // nao muda de preco, entao nao entra na lista -- e sem item mudado nao
+      // ha' pop-up nenhum.
+      const brl = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+      const linhas = resultado.itens
+        .map((item, i) => ({ item, antes: itens[i] }))
+        .filter(({ item, antes }) => Math.abs(item.precoUnitario - antes.precoUnitario) >= 0.0001)
+        .map(({ item, antes }) => `<li><strong>${escaparHtml(item.nome)}</strong>${item.unidadeMedidaSigla ? ` (${escaparHtml(item.unidadeMedidaSigla)})` : ''}: `
+          + `${brl(antes.precoUnitario)} → <strong>${brl(item.precoUnitario)}</strong>${item.origemPreco === 'promocao' ? ' (promoção)' : ''}</li>`)
+        .join('');
+      void NexusSwal.fire({
+        icon: 'info',
+        title: 'Preço à vista aplicado',
+        html: `<div style="text-align:left">${resultado.alterados === 1 ? 'Este item tem' : 'Estes itens têm'} preço à vista configurado e ${resultado.alterados === 1 ? 'passou' : 'passaram'} a usá-lo:`
+          + `<ul style="margin:12px 0;padding-left:18px">${linhas}</ul>`
+          + `O total baixou <strong>${brl(Math.abs(resultado.diferencaCentavos) / 100)}</strong>. Se a forma de pagamento voltar para a prazo, o preço de venda volta sozinho.</div>`,
+        confirmButtonText: 'OK',
+      });
+    } else if (resultado.alterados > 0) {
       const diferenca = Math.abs(resultado.diferencaCentavos) / 100;
       showWarning(
         `Pagamento ${ROTULO_CONDICAO[condicaoPagamento]}: ${resultado.alterados} item(ns) passaram para o ${condicaoPagamento === 'vista' ? 'preço à vista (ou promocional)' : 'preço de venda (a prazo)'}. `

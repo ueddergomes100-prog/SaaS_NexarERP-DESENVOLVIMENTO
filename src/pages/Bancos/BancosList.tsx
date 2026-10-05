@@ -6,13 +6,13 @@ import {
   doc,
   onSnapshot,
   query,
-  runTransaction,
   serverTimestamp,
   updateDoc,
   where,
 } from 'firebase/firestore';
 import { Search, Plus, Building2, Edit, Power, X, Loader2, AlertTriangle, History, ArrowLeftRight } from 'lucide-react';
 import { db } from '../../services/firebase';
+import { lancarNoBanco, transferirEntreBancos } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { hasModuleAccess } from '../../utils/roles';
@@ -355,33 +355,16 @@ const BancosList: React.FC = () => {
     }
 
     setIsSavingLancamento(true);
-    const bancoRef = doc(db, 'bancos', ledgerBanco.id);
     try {
-      await runTransaction(db, async (transaction) => {
-        const bancoSnap = await transaction.get(bancoRef);
-        if (!bancoSnap.exists()) throw new Error('Banco não encontrado.');
-
-        const currentCents = Number(bancoSnap.data().saldoCentavos || 0);
-        const delta = lancamentoForm.direcao === 'credito' ? valorCentavos : -valorCentavos;
-
-        const ledgerRef = doc(collection(db, 'lancamentos_bancarios'));
-        transaction.set(ledgerRef, {
-          tenantId,
-          bancoId: ledgerBanco.id,
-          bancoNome: ledgerBanco.nome,
-          tipo: lancamentoForm.tipo,
-          direcao: lancamentoForm.direcao,
-          valorCentavos,
-          descricao: lancamentoForm.descricao.trim(),
-          data: lancamentoForm.data,
-          createdBy: currentUser?.uid || null,
-          createdAt: serverTimestamp(),
-        });
-        transaction.update(bancoRef, {
-          saldoCentavos: currentCents + delta,
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Lançamento manual registrado'),
-        });
+      // Lancamento + saldo do banco gravados pelo servidor (services/baixaFinanceiraService).
+      await lancarNoBanco({
+        bancoId: ledgerBanco.id,
+        tipo: lancamentoForm.tipo,
+        direcao: lancamentoForm.direcao,
+        valorCentavos,
+        descricao: lancamentoForm.descricao.trim(),
+        data: lancamentoForm.data,
+        tenantId: tenantId || '',
       });
       showSuccess('Lançamento registrado!');
       setLancamentoForm(emptyLancamentoForm());
@@ -422,59 +405,15 @@ const BancosList: React.FC = () => {
     if (!confirmacao.isConfirmed) return;
 
     setIsSavingTransfer(true);
-    const originRef = doc(db, 'bancos', ledgerBanco.id);
-    const destinationRef = doc(db, 'bancos', destino.id);
     try {
-      await runTransaction(db, async (transaction) => {
-        const originSnap = await transaction.get(originRef);
-        const destinationSnap = await transaction.get(destinationRef);
-        if (!originSnap.exists() || !destinationSnap.exists()) {
-          throw new Error('Banco de origem ou destino não encontrado.');
-        }
-
-        const originCents = Number(originSnap.data().saldoCentavos || 0);
-        const destinationCents = Number(destinationSnap.data().saldoCentavos || 0);
-
-        const outRef = doc(collection(db, 'lancamentos_bancarios'));
-        const inRef = doc(collection(db, 'lancamentos_bancarios'));
-        const descricao = transferForm.descricao.trim() || `Transferência para ${destino.nome}`;
-
-        transaction.set(outRef, {
-          tenantId,
-          bancoId: ledgerBanco.id,
-          bancoNome: ledgerBanco.nome,
-          tipo: 'transferencia_saida',
-          direcao: 'debito',
-          valorCentavos,
-          descricao,
-          data: transferForm.data,
-          transferenciaParId: inRef.id,
-          createdBy: currentUser?.uid || null,
-          createdAt: serverTimestamp(),
-        });
-        transaction.set(inRef, {
-          tenantId,
-          bancoId: destino.id,
-          bancoNome: destino.nome,
-          tipo: 'transferencia_entrada',
-          direcao: 'credito',
-          valorCentavos,
-          descricao: transferForm.descricao.trim() || `Transferência de ${ledgerBanco.nome}`,
-          data: transferForm.data,
-          transferenciaParId: outRef.id,
-          createdBy: currentUser?.uid || null,
-          createdAt: serverTimestamp(),
-        });
-        transaction.update(originRef, {
-          saldoCentavos: originCents - valorCentavos,
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Transferência para ${destino.nome}`),
-        });
-        transaction.update(destinationRef, {
-          saldoCentavos: destinationCents + valorCentavos,
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Transferência de ${ledgerBanco.nome}`),
-        });
+      // Par de lancamentos + os dois saldos gravados pelo servidor.
+      await transferirEntreBancos({
+        origemId: ledgerBanco.id,
+        destinoId: destino.id,
+        valorCentavos,
+        descricao: transferForm.descricao.trim(),
+        data: transferForm.data,
+        tenantId: tenantId || '',
       });
       showSuccess('Transferência realizada!');
       setTransferForm(emptyTransferForm());

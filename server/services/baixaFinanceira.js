@@ -310,4 +310,10 @@ module.exports = {
   registrarBaixa,
   registrarEstorno,
   hojeNoBrasil,
+  // Usados tambem por services/movimentoBanco.js (cartao, cheque, boleto, banco).
+  agora,
+  lerTitulo,
+  lerOrigem,
+  lerBanco,
+  centavosDoTitulo,
 };

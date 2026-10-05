@@ -1,23 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, where, doc, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { conciliarCartaoNoBanco } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { Landmark, CreditCard, CheckCircle, Calendar, Search, Clock } from 'lucide-react';
 import {
-  applyPaymentReceipt,
   fromCents,
-  settledFinancialNatureForPayment,
-  summarizePayments,
-  toCents,
   transactionMovesPhysicalCash,
   transactionNetAmount,
-  transactionNetCents,
-  type PaymentMethod,
-  type PaymentRecord,
 } from '../../utils/financeDomain';
-import { dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
-import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { dateInputToUtcStart } from '../../utils/dateTime';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import './Financeiro.css';
 
@@ -59,26 +52,6 @@ interface Banco extends TenantCollectionItem {
   ordem: number;
   saldoCentavos: number;
 }
-
-const legacyPaymentForTransaction = (
-  transactionId: string,
-  transactionData: Record<string, any>,
-): PaymentRecord => {
-  const method = (transactionData.formaPagamento || 'Outros') as PaymentMethod;
-  const valueCents = Number(transactionData.valorCentavos ?? toCents(transactionData.valor));
-  return {
-    id: transactionId,
-    indice: Number(transactionData.paymentIndex || 1),
-    formaPagamento: method,
-    condicaoPagamento: 'avista',
-    valorCentavos: valueCents,
-    valor: fromCents(valueCents),
-    status: 'pendente',
-    naturezaFinanceira: 'contas_receber',
-    movimentaCaixaFisico: false,
-    transactionId,
-  };
-};
 
 const transactionDate = (transaction: TransacaoData) => {
   if (transaction.dataPagamento) {
@@ -163,94 +136,9 @@ const Banco: React.FC = () => {
     if (!confirmacao.isConfirmed) return;
 
     setProcessingId(t.id);
-    const transactionRef = doc(db, 'transacoes', t.id);
-    const bancoRef = doc(db, 'bancos', bancoId);
-    const paymentDate = getDateInputInTimeZone();
-
     try {
-      await runTransaction(db, async (transaction) => {
-        const transactionSnap = await transaction.get(transactionRef);
-        if (!transactionSnap.exists()) throw new Error('Título não encontrado.');
-        const transactionData = transactionSnap.data();
-        if (transactionData.status === 'Paga') return;
-        if (transactionData.status === 'Cancelada') {
-          throw new Error('Um título cancelado não pode ser conciliado.');
-        }
-
-        let sourceRef = null;
-        let sourceSnap = null;
-        const saleId = transactionData.pedidoId || t.pedidoId;
-        const serviceOrderId = transactionData.osId || t.osId;
-        if (saleId) {
-          sourceRef = doc(db, 'pedidos_venda', saleId);
-          sourceSnap = await transaction.get(sourceRef);
-        } else if (serviceOrderId) {
-          sourceRef = doc(db, 'ordens_de_servico', serviceOrderId);
-          sourceSnap = await transaction.get(sourceRef);
-        }
-        if (sourceSnap?.exists() && sourceSnap.data().status === 'Cancelada') {
-          throw new Error(saleId ? 'A venda vinculada está cancelada.' : 'A OS vinculada está cancelada.');
-        }
-
-        const bancoSnap = await transaction.get(bancoRef);
-        if (!bancoSnap.exists()) throw new Error('O banco selecionado não foi encontrado.');
-        const bancoSaldoAtualCentavos = Number(bancoSnap.data().saldoCentavos || 0);
-
-        const formaPgto = (transactionData.formaPagamento || t.formaPagamento) as PaymentMethod;
-        const amountCents = Number(transactionData.valorCentavos ?? toCents(transactionData.valor));
-        const settlementNature = settledFinancialNatureForPayment(formaPgto);
-        const netCents = transactionNetCents(transactionData);
-
-        transaction.update(transactionRef, {
-          status: 'Paga',
-          dataPagamento: paymentDate,
-          naturezaFinanceira: settlementNature,
-          movimentaCaixaFisico: false,
-          bancoId,
-          bancoNome: bancoNome || null,
-          recebidoEm: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Cartão conciliado no banco'),
-        });
-
-        transaction.update(bancoRef, {
-          saldoCentavos: bancoSaldoAtualCentavos + netCents,
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Recebimento de cartão conciliado'),
-        });
-
-        if (sourceRef && sourceSnap?.exists()) {
-          const sourceData = sourceSnap.data();
-          const payments: PaymentRecord[] = Array.isArray(sourceData.pagamentos) && sourceData.pagamentos.length > 0
-            ? sourceData.pagamentos
-            : [legacyPaymentForTransaction(t.id, transactionData)];
-          const updatedPayments = applyPaymentReceipt(payments, {
-            transactionId: t.id,
-            paymentIndex: transactionData.paymentIndex,
-            amountCents,
-            method: formaPgto,
-            receiptId: t.id,
-            receivedAt: paymentDate,
-          });
-          const summary = summarizePayments(updatedPayments);
-          transaction.update(sourceRef, {
-            pagamentos: updatedPayments,
-            totalRecebidoCentavos: summary.receivedCents,
-            totalRecebido: summary.received,
-            totalPendenteCentavos: summary.pendingCents,
-            totalPendente: summary.pending,
-            totalTaxasPagamentoCentavos: summary.cardFeeCents,
-            totalTaxasPagamento: summary.cardFee,
-            totalLiquidoFinanceiroCentavos: summary.financialNetCents,
-            totalLiquidoFinanceiro: summary.financialNet,
-            statusPagamento: summary.pendingCents === 0
-              ? 'Paga'
-              : summary.receivedCents > 0 ? 'Parcial' : 'Pendente',
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Recebimento de cartão conciliado no banco'),
-          });
-        }
-      });
+      // Titulo, saldo do banco e venda/OS gravados pelo servidor (services/baixaFinanceiraService).
+      await conciliarCartaoNoBanco({ transacaoId: t.id, bancoId, tenantId });
       showSuccess('Recebimento conciliado com o banco!');
     } catch (error) {
       console.error('Erro ao conciliar recebimento de cartão:', error);

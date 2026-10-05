@@ -2,12 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { collection, deleteField, doc, getDoc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { Barcode, Download, FileUp, Loader2, Printer, Receipt, Search } from 'lucide-react';
 import { db } from '../../services/firebase';
+import { baixarBoletoPeloRetorno } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess, NexusSwal } from '../../utils/alerts';
 import { hasModuleAccess } from '../../utils/roles';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
-import { fromCents, toCents, settledFinancialNatureForPayment, type BoletoDetails } from '../../utils/financeDomain';
+import { fromCents, toCents, type BoletoDetails } from '../../utils/financeDomain';
 import { reserveTenantSequence } from '../../utils/firestoreAtomic';
 import { codigoBarrasSicoob, formatarNossoNumeroSicoobExibicao, nossoNumeroSicoobComDv } from '../../utils/boletoCnabDomain';
 import { formatarLinhaDigitavel, linhaDigitavelDoCodigoBarras } from '../../utils/boletoDomain';
@@ -805,8 +806,7 @@ const Boletos: React.FC = () => {
           const titulo = titulos.find((t) => t.boleto?.nossoNumero === linha.nossoNumero);
           if (!titulo) { naoEncontrados += 1; continue; }
           if (titulo.status === 'Paga') continue;
-          await darBaixaBoleto(titulo, linha.valorPagoCentavos || titulo.valorCentavos, linha.dataOcorrencia);
-          baixados += 1;
+          if (await darBaixaBoleto(titulo, linha.valorPagoCentavos || titulo.valorCentavos, linha.dataOcorrencia)) baixados += 1;
         }
         showSuccess(
           naoEncontrados > 0
@@ -823,41 +823,16 @@ const Boletos: React.FC = () => {
     leitor.readAsText(arquivo, 'ISO-8859-1');
   };
 
-  const darBaixaBoleto = async (titulo: TituloBoleto, valorPagoCentavos: number, dataPagamento?: string) => {
-    if (!tenantId || !currentUser) return;
-    await runTransaction(db, async (transaction) => {
-      const ref = doc(db, 'transacoes', titulo.id);
-      const snap = await transaction.get(ref);
-      if (!snap.exists()) throw new Error('Título não encontrado.');
-      const dados = snap.data();
-      if (dados.status === 'Paga') return;
-
-      const bancoRef = titulo.bancoId ? doc(db, 'bancos', titulo.bancoId) : null;
-      let saldoAtual = 0;
-      if (bancoRef) {
-        const bancoSnap = await transaction.get(bancoRef);
-        if (!bancoSnap.exists()) throw new Error('Banco do boleto não encontrado.');
-        saldoAtual = Number(bancoSnap.data().saldoCentavos || 0);
-      }
-
-      transaction.update(ref, {
-        status: 'Paga',
-        dataPagamento: dataPagamento || getDateInputInTimeZone(),
-        naturezaFinanceira: settledFinancialNatureForPayment('Boleto'),
-        movimentaCaixaFisico: false,
-        boleto: { ...(dados.boleto || {}), status: 'pago' },
-        recebidoEm: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Baixa pelo retorno do banco'),
-      });
-
-      if (bancoRef) {
-        transaction.update(bancoRef, {
-          saldoCentavos: saldoAtual + valorPagoCentavos,
-          updatedAt: serverTimestamp(),
-        });
-      }
+  /** Baixa de um boleto pago no retorno: titulo + saldo do banco gravados pelo servidor. Devolve false se ja' estava pago. */
+  const darBaixaBoleto = async (titulo: TituloBoleto, valorPagoCentavos: number, dataPagamento?: string): Promise<boolean> => {
+    if (!tenantId || !currentUser) return false;
+    const resultado = await baixarBoletoPeloRetorno({
+      transacaoId: titulo.id,
+      valorPagoCentavos,
+      ...(dataPagamento ? { dataPagamento } : {}),
+      tenantId,
     });
+    return !resultado.jaEstavaPago;
   };
 
   // --- Render -------------------------------------------------------------

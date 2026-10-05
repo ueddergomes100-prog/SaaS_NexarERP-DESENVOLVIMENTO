@@ -1,6 +1,5 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const path = require('node:path');
 
 const {
   validarPedidoDeBaixa,
@@ -69,47 +68,9 @@ test('permissao: gestor e plataforma sempre; funcionario so\' com a permissao', 
 // Baixa e estorno de ponta a ponta, num Firestore falso em memoria
 // ---------------------------------------------------------------------------
 
-const TS = { __timestamp: true };
-const DEL = { __apagar: true };
+const { criarBancoFalso, carregarComBancoFalso } = require('./helpers/firestoreFalso');
 
-const criarBancoFalso = (inicial) => {
-  const dados = new Map(Object.entries(inicial).map(([k, v]) => [k, structuredClone(v)]));
-  const ref = (colecao, id) => ({ chave: `${colecao}/${id}`, id });
-  const db = {
-    collection: (colecao) => ({ doc: (id) => ref(colecao, id) }),
-    runTransaction: async (fn) => {
-      const escritas = [];
-      const tx = {
-        get: async (r) => ({ exists: dados.has(r.chave), id: r.id, data: () => structuredClone(dados.get(r.chave)) }),
-        update: (r, campos) => escritas.push([r, campos]),
-        set: (r, campos) => escritas.push([r, campos]),
-      };
-      const resultado = await fn(tx);
-      for (const [r, campos] of escritas) {
-        const atual = { ...(dados.get(r.chave) || {}) };
-        for (const [campo, valor] of Object.entries(campos)) {
-          if (valor === DEL) delete atual[campo];
-          else atual[campo] = valor;
-        }
-        dados.set(r.chave, atual);
-      }
-      return resultado;
-    },
-  };
-  return { db, ler: (chave) => dados.get(chave) };
-};
-
-const carregarServico = (db) => {
-  const base = path.join(__dirname, '..');
-  const firebase = require.resolve(path.join(base, 'config/firebase'));
-  const servico = require.resolve(path.join(base, 'services/baixaFinanceira'));
-  delete require.cache[servico];
-  require.cache[firebase] = {
-    id: firebase, filename: firebase, loaded: true,
-    exports: { db, admin: { firestore: { FieldValue: { serverTimestamp: () => TS, delete: () => DEL } } } },
-  };
-  return require(servico);
-};
+const carregarServico = (db) => carregarComBancoFalso(db)[0];
 
 const USER = { uid: 'u1', email: 'u1@teste', tenantId: 'emp1', permissoes: [] };
 

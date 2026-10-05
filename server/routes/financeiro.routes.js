@@ -12,6 +12,14 @@ const {
   registrarEstorno,
   hojeNoBrasil,
 } = require('../services/baixaFinanceira');
+const {
+  conciliarCartao,
+  compensarChequeRecebido,
+  compensarChequeEmitido,
+  baixarBoletoPeloRetorno,
+  lancarNoBanco,
+  transferirEntreBancos,
+} = require('../services/movimentoBanco');
 
 /**
  * FINANCEIRO -- baixa e estorno de titulos (item 8 da auditoria, fatia 1).
@@ -93,5 +101,64 @@ router.post('/estorno', async (req, res) => {
     return responderErro(res, erro, 'estornar');
   }
 });
+
+// ---------------------------------------------------------------------------
+// Fatia 2: o resto das telas do Financeiro que mexiam no saldo do banco
+// (services/movimentoBanco.js). Cada rota exige a permissao da sua tela.
+// ---------------------------------------------------------------------------
+
+const MENSAGEM_SEM_PERMISSAO = {
+  'financeiro.banco': 'Você não tem permissão para conciliar recebimentos no banco. Peça a um responsável liberar "Financeiro: Banco" no seu usuário.',
+  'financeiro.cheques': 'Você não tem permissão para compensar cheques. Peça a um responsável liberar "Financeiro: Cheques" no seu usuário.',
+  'financeiro.boletos': 'Você não tem permissão para dar baixa em boletos. Peça a um responsável liberar "Financeiro: Boletos" no seu usuário.',
+  'cadastros.bancos': 'Você não tem permissão para lançar no banco. Peça a um responsável liberar "Cadastros: Bancos" no seu usuário.',
+};
+
+/** Monta uma rota de movimento: permissao, empresa, operacao e log. */
+const rotaDeMovimento = (permissao, acao, operacao, descreverLog) => async (req, res) => {
+  try {
+    if (!temPermissao(req.user, permissao)) {
+      return res.status(403).json({ error: MENSAGEM_SEM_PERMISSAO[permissao] });
+    }
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const resumo = await operacao({ user: req.user, tenantId, corpo: req.body || {}, hoje: hojeNoBrasil() });
+    const descricao = descreverLog(resumo, req.body || {});
+    if (descricao) {
+      registrarLog({ ...req.user, tenantId }, {
+        modulo: 'financeiro',
+        acao: 'edicao',
+        descricao,
+        registroId: String(req.body?.transacaoId || req.body?.bancoId || req.body?.origemId || ''),
+      });
+    }
+    return res.json({ ok: true, ...resumo });
+  } catch (erro) {
+    return responderErro(res, erro, acao);
+  }
+};
+
+/** POST /api/financeiro/cartao/conciliar  { transacaoId, bancoId? } */
+router.post('/cartao/conciliar', rotaDeMovimento('financeiro.banco', 'conciliar o cartão', conciliarCartao,
+  (r) => `Recebimento de cartão "${r.descricao}" conciliado: ${reais(r.liquidoCentavos)} entraram no banco ${r.bancoNome || ''}.`));
+
+/** POST /api/financeiro/cheque/compensar  { transacaoId, bancoId? } -- cheque RECEBIDO */
+router.post('/cheque/compensar', rotaDeMovimento('financeiro.cheques', 'compensar o cheque', compensarChequeRecebido,
+  (r) => `Cheque recebido "${r.descricao}" compensado: ${reais(r.liquidoCentavos)} entraram no banco ${r.bancoNome || ''}.`));
+
+/** POST /api/financeiro/cheque-emitido/compensar  { transacaoId, dataPagamento } */
+router.post('/cheque-emitido/compensar', rotaDeMovimento('financeiro.cheques', 'compensar o cheque', compensarChequeEmitido,
+  (r, corpo) => `Cheque emitido "${r.descricao}" compensado em ${String(corpo.dataPagamento).split('-').reverse().join('/')}: ${reais(r.valorCentavos)} saíram do banco.`));
+
+/** POST /api/financeiro/boleto/retorno  { transacaoId, valorPagoCentavos, dataPagamento? } -- um boleto por chamada */
+router.post('/boleto/retorno', rotaDeMovimento('financeiro.boletos', 'dar baixa no boleto', baixarBoletoPeloRetorno,
+  (r, corpo) => (r.jaEstavaPago ? '' : `Boleto "${r.descricao}" baixado pelo arquivo de retorno: ${reais(Number(corpo.valorPagoCentavos))}.`)));
+
+/** POST /api/financeiro/banco/lancamento  { bancoId, tipo, direcao, valorCentavos, descricao, data } */
+router.post('/banco/lancamento', rotaDeMovimento('cadastros.bancos', 'registrar o lançamento', lancarNoBanco,
+  (r) => `Lançamento manual (${r.tipo}, ${r.direcao === 'credito' ? 'entrada' : 'saída'}) de ${reais(r.valorCentavos)} no banco ${r.bancoNome}: ${r.descricao}`));
+
+/** POST /api/financeiro/banco/transferencia  { origemId, destinoId, valorCentavos, descricao?, data } */
+router.post('/banco/transferencia', rotaDeMovimento('cadastros.bancos', 'fazer a transferência', transferirEntreBancos,
+  (r) => `Transferência de ${reais(r.valorCentavos)} do banco ${r.nomeOrigem} para ${r.nomeDestino}.`));
 
 module.exports = router;

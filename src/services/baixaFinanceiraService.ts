@@ -42,7 +42,17 @@ export class BaixaFinanceiraError extends Error {
   }
 }
 
-const chamarFinanceiro = async <T>(caminho: '/baixa' | '/estorno', corpo: Record<string, unknown>): Promise<T> => {
+type RotaFinanceiro =
+  | '/baixa'
+  | '/estorno'
+  | '/cartao/conciliar'
+  | '/cheque/compensar'
+  | '/cheque-emitido/compensar'
+  | '/boleto/retorno'
+  | '/banco/lancamento'
+  | '/banco/transferencia';
+
+const chamarFinanceiro = async <T>(caminho: RotaFinanceiro, corpo: Record<string, unknown>): Promise<T> => {
   if (!API_URL) {
     throw new BaixaFinanceiraError('Esta operação precisa do servidor da empresa, que não está configurado neste ambiente. Avise o suporte.', 0);
   }
@@ -142,6 +152,53 @@ export const executarEstorno = async (args: {
     tenantId: args.tenantId,
   });
 };
+
+// ---------------------------------------------------------------------------
+// Fatia 2 (2026-10-05): as outras telas do Financeiro que mexiam no saldo do
+// banco tambem pedem ao servidor (server/services/movimentoBanco.js). A tela
+// manda so' o que a pessoa escolheu; titulo, valor e saldo sao lidos la'.
+// ---------------------------------------------------------------------------
+
+/** Banco > conciliar recebimento de cartao. `bancoId` so' vale para titulo antigo sem banco. */
+export const conciliarCartaoNoBanco = (args: { transacaoId: string; bancoId?: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean }>('/cartao/conciliar', { ...args })
+);
+
+/** Cheques > compensar cheque RECEBIDO (credita o banco). */
+export const compensarChequeRecebido = (args: { transacaoId: string; bancoId?: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean }>('/cheque/compensar', { ...args })
+);
+
+/** Cheques > compensar cheque EMITIDO pela empresa (debita o banco), no dia informado. */
+export const compensarChequeEmitido = (args: { transacaoId: string; dataPagamento: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean }>('/cheque-emitido/compensar', { ...args })
+);
+
+/** Boletos > baixa de UM boleto pelo arquivo de retorno. Boleto ja' pago volta com jaEstavaPago. */
+export const baixarBoletoPeloRetorno = (args: { transacaoId: string; valorPagoCentavos: number; dataPagamento?: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean; jaEstavaPago: boolean }>('/boleto/retorno', { ...args })
+);
+
+/** Cadastro de Bancos > ajuste ou tarifa lancado a mao. */
+export const lancarNoBanco = (args: {
+  bancoId: string;
+  tipo: 'ajuste' | 'tarifa';
+  direcao: 'credito' | 'debito';
+  valorCentavos: number;
+  descricao: string;
+  data: string;
+  tenantId: string;
+}) => chamarFinanceiro<{ ok: boolean }>('/banco/lancamento', { ...args });
+
+/** Cadastro de Bancos > transferencia entre dois bancos da empresa. */
+export const transferirEntreBancos = (args: {
+  origemId: string;
+  destinoId: string;
+  valorCentavos: number;
+  descricao?: string;
+  data: string;
+  tenantId: string;
+}) => chamarFinanceiro<{ ok: boolean }>('/banco/transferencia', { ...args });
 
 /**
  * O fluxo completo que as telas usam no clique de "Estornar": permissao,

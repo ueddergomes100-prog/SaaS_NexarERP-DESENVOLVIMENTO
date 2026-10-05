@@ -139,6 +139,16 @@ service cloud.firestore {
       return isSuperAdmin() || isTenantAdmin();
     }
 
+    function cadastroDeBancoSemMexerNoSaldo() {
+      return (
+        resource == null &&
+        request.resource.data.get('saldoCentavos', 0) == request.resource.data.get('saldoInicialCentavos', 0)
+      ) || (
+        resource != null &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['saldoCentavos', 'saldoInicialCentavos'])
+      );
+    }
+
     function canWriteTenantCollection(collectionName) {
       return canManageTenantData() ||
         (collectionName in ['clientes', 'veiculos'] && hasAnyPermission(['cadastros.clientes', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'crm.agenda', 'crm.alertas'])) ||
@@ -190,7 +200,10 @@ service cloud.firestore {
         // Banco: cadastro (agencia, conta, convenio do boleto) so' com a
         // permissao do cadastro. Venda, OS, baixa etc. mexem SO' no saldo --
         // ver canMoveBankBalance().
-        (collectionName == 'bancos' && hasPermission('cadastros.bancos')) ||
+        // Desde 2026-10-05 (fatia 2) o cadastro NAO mexe no saldo: lancamento
+        // manual e transferencia sao gravados pelo servidor. O banco nasce com
+        // saldo = saldo inicial e, depois, saldo e saldo inicial nao mudam por aqui.
+        (collectionName == 'bancos' && hasPermission('cadastros.bancos') && cadastroDeBancoSemMexerNoSaldo()) ||
         (collectionName == 'lancamentos_bancarios' && hasPermission('cadastros.bancos')) ||
         (collectionName == 'ordens_de_servico' && hasAnyPermission(['mecanica.os', 'mecanica.os_alterar'])) ||
         // vendas.pedidos_pendentes_editar cobre tanto editar/finalizar quanto
@@ -305,6 +318,11 @@ service cloud.firestore {
     // pelo servidor (POST /api/financeiro/baixa e /estorno, Admin SDK), entao
     // quem so' da' baixa nao precisa -- e nao pode mais -- escrever saldo de
     // banco pelo navegador. As proximas fatias tiram as demais.
+    //
+    // 2026-10-05 (fatia 2): financeiro.banco, .cheques e .boletos tambem
+    // SAIRAM. Conciliar cartao, compensar cheque (recebido e emitido) e baixa
+    // de boleto pelo retorno passaram para o servidor (/api/financeiro/...).
+    // Ficam so' venda, OS, devolucao, nota avulsa e entrada de NF-e (fatias 3/4).
     function canMoveBankBalance() {
       return hasProfile() &&
         resource.data.tenantId == currentTenantId() &&
@@ -314,7 +332,6 @@ service cloud.firestore {
         hasAnyPermission([
           'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'vendas.devolucao', 'vendas.pre_venda_finalizar',
           'mecanica.os', 'mecanica.os_alterar',
-          'financeiro.banco', 'financeiro.cheques', 'financeiro.boletos',
           'estoque.nota_avulsa', 'fiscal.entrada'
         ]);
     }

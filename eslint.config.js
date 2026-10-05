@@ -29,4 +29,18 @@ export default defineConfig([
       'react-hooks/set-state-in-effect': 'off',
     },
   },
+  // Backend (CommonJS). So' no-undef: nome usado sem existir derruba a rota
+  // em produção sem resposta nenhuma -- foi o que aconteceu com
+  // requirePlatformAdmin (2026-09-30 a 2026-10-05) sem nenhum gate acusar.
+  {
+    files: ['server/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'commonjs',
+      globals: globals.node,
+    },
+    rules: {
+      'no-undef': 'error',
+    },
+  },
 ])

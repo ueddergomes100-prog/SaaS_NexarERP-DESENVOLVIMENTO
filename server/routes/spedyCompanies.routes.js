@@ -18,6 +18,35 @@ const BASE_URLS = {
 const { buildCompanyPayload } = require('../services/spedyEmpresa');
 const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 
+// Estes tres ficam AQUI, so' esta rota usa. Em 2026-09-30 sairam para
+// services/spedyEmpresa.js sem export e a tela inteira de cadastro na Spedy
+// do painel da plataforma ficou carregando para sempre (ReferenceError fora
+// do try -- Express 4 nao devolve resposta). Achado no log de 2026-10-05.
+const requirePlatformAdmin = (req, res) => {
+  if (!req.user?.isPlatformAdmin) {
+    res.status(403).json({ error: 'Acesso negado. Apenas administradores da plataforma podem gerenciar o cadastro de empresas na Spedy.' });
+    return false;
+  }
+  return true;
+};
+
+const loadMasterApiKey = async (environment) => {
+  const snap = await db.collection('plataforma').doc('spedy').get();
+  const data = snap.exists ? snap.data() : {};
+  const key = environment === 'production' ? data.masterApiKeyProducao : data.masterApiKeySandbox;
+  if (!key) {
+    const error = new Error(`Chave mestra da Spedy (${environment === 'production' ? 'produção' : 'sandbox'}) ainda não foi configurada.`);
+    error.status = 400;
+    throw error;
+  }
+  return key;
+};
+
+const spedyErrorMessage = async (response, fallback) => {
+  const data = await response.json().catch(() => ({}));
+  return data.errors?.[0]?.message || data.error || data.title || fallback;
+};
+
 router.use(authenticate);
 
 /** GET /master-key -- nunca devolve a chave em si, so se esta configurada,

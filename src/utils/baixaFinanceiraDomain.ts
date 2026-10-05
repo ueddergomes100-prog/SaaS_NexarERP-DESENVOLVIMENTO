@@ -8,7 +8,10 @@
  *     medo de baixar qualquer titulo ("depois nao tem como voltar").
  *
  * Este arquivo e' so' a parte pura (regras e validacoes), testavel sem
- * navegador nem Firestore. A gravacao mora nas telas.
+ * navegador nem Firestore. A gravacao mora no servidor (desde 2026-10-05:
+ * server/services/baixaFinanceira.js usa ESTE arquivo, compilado para
+ * server/domain/ por scripts/build-server-domain.mjs -- mexeu aqui, rode o
+ * script e faca commit de server/domain/, ou o gate de push recusa).
  *
  * O ESTORNO DESFAZ TUDO QUE A BAIXA FEZ -- nao so' o status:
  *  - o titulo volta a Pendente;

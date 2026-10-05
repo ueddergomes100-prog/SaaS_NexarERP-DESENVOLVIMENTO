@@ -55,6 +55,9 @@ echo "[gate] 3/4 testes do front..."
 npm test --silent || falhou "testes do front"
 
 echo "[gate] 4/4 testes do servidor..."
+# Regras de dinheiro que o servidor usa sao o src/utils compilado (ver
+# scripts/build-server-domain.mjs). Copia velha = servidor com regra diferente da tela.
+node scripts/build-server-domain.mjs --check || falhou "server/domain desatualizado (rode: node scripts/build-server-domain.mjs)"
 npm --prefix server test --silent || falhou "testes do servidor"
 
 echo "[gate] tudo verde. Publicando em '$alvo'."

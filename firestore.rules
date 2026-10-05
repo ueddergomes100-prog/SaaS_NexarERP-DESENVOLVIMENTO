@@ -299,6 +299,12 @@ service cloud.firestore {
     // mexiam no saldo sem constar dela (boleto, entrada de NF-e, devolucao,
     // alterar/cancelar venda, finalizar pre-venda, estorno) -- quem so' tinha
     // essas permissoes batia em "Missing or insufficient permissions".
+    //
+    // 2026-10-05 (item 8 da auditoria, fatia 1): financeiro.receber, .pagar e
+    // .estornar SAIRAM da lista. Baixa e estorno de titulo agora sao gravados
+    // pelo servidor (POST /api/financeiro/baixa e /estorno, Admin SDK), entao
+    // quem so' da' baixa nao precisa -- e nao pode mais -- escrever saldo de
+    // banco pelo navegador. As proximas fatias tiram as demais.
     function canMoveBankBalance() {
       return hasProfile() &&
         resource.data.tenantId == currentTenantId() &&
@@ -308,7 +314,7 @@ service cloud.firestore {
         hasAnyPermission([
           'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'vendas.devolucao', 'vendas.pre_venda_finalizar',
           'mecanica.os', 'mecanica.os_alterar',
-          'financeiro.banco', 'financeiro.cheques', 'financeiro.receber', 'financeiro.pagar', 'financeiro.boletos', 'financeiro.estornar',
+          'financeiro.banco', 'financeiro.cheques', 'financeiro.boletos',
           'estoque.nota_avulsa', 'fiscal.entrada'
         ]);
     }

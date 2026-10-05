@@ -29,6 +29,7 @@ const devolucaoNfeRoutes = require('./routes/devolucaoNfe.routes');
 const trocasRoutes = require('./routes/trocas.routes');
 const notaRecebidaRoutes = require('./routes/notaRecebida.routes');
 const notaEmailRoutes = require('./routes/notaEmail.routes');
+const financeiroRoutes = require('./routes/financeiro.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -174,6 +175,9 @@ app.use('/api/trocas', trocasRoutes);
 app.use('/api/entrada-nfe', notaRecebidaRoutes);
 // E-mail da nota fiscal ao cliente (PDF + XML) pelo SMTP da propria empresa -- ver notaEmail.routes.js.
 app.use('/api/nota-email', notaEmailRoutes);
+// Baixa e estorno de titulos (Contas a Pagar/Receber): saldo do banco e venda/OS
+// sao gravados aqui, nao pelo navegador -- ver services/baixaFinanceira.js.
+app.use('/api/financeiro', financeiroRoutes);
 
 // Rota que nao existe: JSON em portugues, em vez do "Cannot GET /..." em HTML
 // do Express (que ainda entregava o nome do framework de brinde).

@@ -1,29 +1,24 @@
 /*
- * ESTORNO DE BAIXA -- UM SO' CAMINHO PARA O SISTEMA INTEIRO.
+ * BAIXA E ESTORNO DE TITULOS -- UM SO' CAMINHO PARA O SISTEMA INTEIRO.
  *
- * Contas a Pagar, Contas a Receber e Fluxo de Caixa estornam por aqui. Antes
- * o Fluxo de Caixa tinha um estorno proprio que so' trocava o status para
- * Pendente: nao devolvia o saldo do banco, nao mexia na venda/OS de origem e
- * aparecia ate' em recebimento do balcao. Tres caminhos diferentes para a
- * mesma pergunta e' exatamente como o saldo do banco fica errado sem ninguem
- * ver.
+ * Contas a Pagar, Contas a Receber e Fluxo de Caixa baixam e estornam por
+ * aqui. Desde 2026-10-05 (item 8 da auditoria de infra, fatia 1) quem GRAVA
+ * e' o servidor (server/routes/financeiro.routes.js): titulo, saldo do banco e
+ * venda/OS de origem, numa transacao so', com o dado lido la'. O navegador
+ * so' diz o que a pessoa escolheu -- e as firestore.rules deixam de aceitar
+ * saldo de banco escrito por quem so' tem permissao de Pagar/Receber.
  *
- * Regras de QUEM pode ser estornado: baixaFinanceiraDomain (puras, testadas).
- * Aqui mora a gravacao: numa transacao so', desfaz tudo que a baixa fez.
+ * Antes o Fluxo de Caixa tinha um estorno proprio que so' trocava o status
+ * para Pendente: nao devolvia o saldo do banco, nao mexia na venda/OS de
+ * origem e aparecia ate' em recebimento do balcao.
+ *
+ * Regras de QUEM pode ser estornado: baixaFinanceiraDomain (puras, testadas,
+ * as mesmas que o servidor usa -- compiladas para server/domain/).
  */
-import { deleteField, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
+import { auth } from './firebase';
 import { showError, showSuccess } from '../utils/alerts';
-import { buildDocumentUpdateMetadata } from '../utils/documentMetadata';
-import {
-  fromCents,
-  legacyPaymentForTransaction,
-  reversePaymentReceipt,
-  summarizePayments,
-  toCents,
-  transactionNetAmount,
-  type PaymentRecord,
-} from '../utils/financeDomain';
+import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
+import { fromCents, transactionNetAmount } from '../utils/financeDomain';
 import {
   dataBrasileira,
   planejarEstornoPagar,
@@ -32,6 +27,47 @@ import {
   type TituloParaEstorno,
 } from '../utils/baixaFinanceiraDomain';
 import { pedirMotivoEstorno } from '../utils/baixaFinanceiraUi';
+
+const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
+const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
+
+/** Erro ja' em portugues, pronto para a tela (vem do servidor ou da rede). */
+export class BaixaFinanceiraError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'BaixaFinanceiraError';
+    this.status = status;
+  }
+}
+
+const chamarFinanceiro = async <T>(caminho: '/baixa' | '/estorno', corpo: Record<string, unknown>): Promise<T> => {
+  if (!API_URL) {
+    throw new BaixaFinanceiraError('Esta operação precisa do servidor da empresa, que não está configurado neste ambiente. Avise o suporte.', 0);
+  }
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new BaixaFinanceiraError('Sua sessão expirou. Entre novamente para continuar.', 401);
+
+  let resposta: Response;
+  try {
+    resposta = await fetchComTimeout(`${API_URL}/api/financeiro${caminho}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo),
+    });
+  } catch (erro) {
+    // Sem resposta nao da' para saber se gravou: a mensagem manda conferir a lista
+    // antes de repetir (o servidor recusa baixar de novo um titulo ja' pago).
+    throw new BaixaFinanceiraError(`${mensagemDeFalhaDeRede(erro)} Confira na lista se a operação foi registrada antes de repetir.`, 0);
+  }
+
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) {
+    throw new BaixaFinanceiraError(dados.error || 'Não foi possível concluir a operação. Tente novamente.', resposta.status);
+  }
+  return dados as T;
+};
 
 export type TipoLancamento = 'entrada' | 'saida';
 
@@ -56,157 +92,55 @@ export const planejarEstornoPorTipo = (titulo: TituloParaEstorno, tipo: TipoLanc
   tipo === 'saida' ? planejarEstornoPagar(titulo) : planejarEstornoReceber(titulo)
 );
 
+/** O que a pessoa escolheu na tela de baixa. Valor, saldo e venda/OS o servidor le' sozinho. */
+export interface PedidoDeBaixa {
+  tipo: TipoLancamento;
+  transacaoId: string;
+  formaPagamento: string;
+  /** yyyy-mm-dd: dia em que foi pago/recebido de verdade (pode ser antes de hoje). */
+  dataPagamento: string;
+  bancoId?: string;
+  /** Empresa aberta na tela (o admin da plataforma pode estar noutra). */
+  tenantId: string;
+}
+
 /**
- * Desfaz a baixa, tudo ou nada:
+ * Da' baixa num titulo pelo servidor: Pagar debita o banco; Receber credita o
+ * banco e atualiza a venda/OS. Tudo ou nada. Erro sobe como
+ * BaixaFinanceiraError, com a frase pronta para o usuario.
+ */
+export const registrarBaixa = async (pedido: PedidoDeBaixa): Promise<void> => {
+  await chamarFinanceiro<{ ok: boolean }>('/baixa', {
+    tipo: pedido.tipo,
+    transacaoId: pedido.transacaoId,
+    formaPagamento: pedido.formaPagamento,
+    dataPagamento: pedido.dataPagamento,
+    ...(pedido.bancoId ? { bancoId: pedido.bancoId } : {}),
+    tenantId: pedido.tenantId,
+  });
+};
+
+/**
+ * Desfaz a baixa pelo servidor, tudo ou nada:
  *  - o titulo volta a Pendente (e, no recebimento, com a forma de antes);
  *  - o saldo do banco que a baixa mexeu e' corrigido;
  *  - a venda/OS de origem volta a mostrar o pagamento como pendente.
- * Confere as regras de novo com o dado de AGORA, dentro da transacao: alguem
- * pode ter estornado ou alterado o titulo depois que a tela carregou.
+ * O servidor confere as regras de novo com o dado de AGORA: alguem pode ter
+ * estornado ou alterado o titulo depois que a tela carregou. O log de
+ * auditoria tambem sai de la'.
  */
 export const executarEstorno = async (args: {
   titulo: TituloEstornavel;
   tipo: TipoLancamento;
   motivo: string;
   tenantId: string;
-  usuario: UsuarioEstorno;
 }): Promise<void> => {
-  const { titulo, tipo, motivo, tenantId, usuario } = args;
-  const transactionRef = doc(db, 'transacoes', titulo.id);
-
-  await runTransaction(db, async (transaction) => {
-    const transactionSnap = await transaction.get(transactionRef);
-    if (!transactionSnap.exists()) throw new Error('Lançamento não encontrado.');
-    const dados = transactionSnap.data();
-    const plano = planejarEstornoPorTipo(dados as TituloParaEstorno, tipo);
-    if (!plano.permitido) {
-      throw new Error(dados.status !== 'Paga' ? 'Este lançamento já não está mais pago. Atualize a tela.' : plano.bloqueio);
-    }
-
-    // --- leituras (todas antes de qualquer escrita) ---
-    const saleId = tipo === 'entrada' ? (dados.pedidoId || titulo.pedidoId) : undefined;
-    const serviceOrderId = tipo === 'entrada' ? (dados.osId || titulo.osId) : undefined;
-    const sourceRef = saleId
-      ? doc(db, 'pedidos_venda', saleId)
-      : serviceOrderId
-        ? doc(db, 'ordens_de_servico', serviceOrderId)
-        : null;
-    const sourceSnap = sourceRef ? await transaction.get(sourceRef) : null;
-    if (sourceSnap?.exists() && sourceSnap.data().status === 'Cancelada') {
-      throw new Error(saleId
-        ? 'A venda vinculada está cancelada, então o recebimento não pode ser estornado.'
-        : 'A OS vinculada está cancelada, então o recebimento não pode ser estornado.');
-    }
-
-    const bancoRef = plano.bancoId && plano.ajusteBancoCentavos !== 0 ? doc(db, 'bancos', plano.bancoId) : null;
-    let saldoAtualCentavos = 0;
-    if (bancoRef) {
-      const bancoSnap = await transaction.get(bancoRef);
-      if (!bancoSnap.exists()) {
-        throw new Error('O banco desta baixa não foi encontrado, então o saldo não pode ser corrigido.');
-      }
-      saldoAtualCentavos = Number(bancoSnap.data().saldoCentavos || 0);
-    }
-
-    const valorCentavos = Number(dados.valorCentavos ?? toCents(dados.valor));
-    const registroDoEstorno = {
-      estornadaEm: serverTimestamp(),
-      ultimoEstorno: {
-        motivo,
-        por: usuario.uid,
-        dataPagamentoEstornada: dados.dataPagamento || null,
-        formaPagamentoEstornada: dados.formaPagamento || null,
-        valorCentavos,
-      },
-      updatedAt: serverTimestamp(),
-    };
-
-    // --- escritas ---
-    if (tipo === 'saida') {
-      transaction.update(transactionRef, {
-        status: 'Pendente',
-        dataPagamento: deleteField(),
-        bancoId: deleteField(),
-        bancoNome: deleteField(),
-        baixaManual: deleteField(),
-        ...registroDoEstorno,
-        ...buildDocumentUpdateMetadata(usuario.uid, serverTimestamp(), `Pagamento estornado: ${motivo}`),
-      });
-    } else {
-      transaction.update(transactionRef, {
-        status: 'Pendente',
-        // Sem forma antes da baixa (titulo importado): apaga a que a baixa
-        // gravou, em vez de deixar "Pix" num titulo que ainda nao foi pago.
-        formaPagamento: plano.formaAnterior ? plano.formaAnterior : deleteField(),
-        naturezaFinanceira: plano.naturezaAnterior,
-        movimentaCaixaFisico: false,
-        dataPagamento: deleteField(),
-        recebidoEm: deleteField(),
-        baixaManual: deleteField(),
-        ...registroDoEstorno,
-        ...buildDocumentUpdateMetadata(usuario.uid, serverTimestamp(), `Recebimento estornado: ${motivo}`),
-      });
-    }
-
-    if (bancoRef) {
-      transaction.update(bancoRef, {
-        saldoCentavos: saldoAtualCentavos + plano.ajusteBancoCentavos,
-        updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(
-          usuario.uid,
-          serverTimestamp(),
-          `Estorno ${tipo === 'saida' ? 'do pagamento' : 'do recebimento'} "${titulo.descricao}"`,
-        ),
-      });
-    }
-
-    if (sourceRef && sourceSnap?.exists()) {
-      const sourceData = sourceSnap.data();
-      const payments: PaymentRecord[] = Array.isArray(sourceData.pagamentos) && sourceData.pagamentos.length > 0
-        ? sourceData.pagamentos
-        : [legacyPaymentForTransaction(titulo.id, dados)];
-      const updatedPayments = reversePaymentReceipt(payments, {
-        transactionId: titulo.id,
-        paymentIndex: dados.paymentIndex,
-      });
-      const summary = summarizePayments(updatedPayments);
-      transaction.update(sourceRef, {
-        pagamentos: updatedPayments,
-        totalRecebidoCentavos: summary.receivedCents,
-        totalRecebido: summary.received,
-        totalPendenteCentavos: summary.pendingCents,
-        totalPendente: summary.pending,
-        totalTaxasPagamentoCentavos: summary.cardFeeCents,
-        totalTaxasPagamento: summary.cardFee,
-        totalLiquidoFinanceiroCentavos: summary.financialNetCents,
-        totalLiquidoFinanceiro: summary.financialNet,
-        statusPagamento: summary.pendingCents === 0
-          ? 'Paga'
-          : summary.receivedCents > 0
-            ? 'Parcial'
-            : 'Pendente',
-        updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(usuario.uid, serverTimestamp(), 'Recebimento estornado em Contas a Receber'),
-      });
-    }
+  await chamarFinanceiro<{ ok: boolean }>('/estorno', {
+    tipo: args.tipo,
+    transacaoId: args.titulo.id,
+    motivo: args.motivo,
+    tenantId: args.tenantId,
   });
-
-  try {
-    const { createAuditLog } = await import('./logService');
-    createAuditLog({
-      tenantId,
-      usuarioId: usuario.uid,
-      usuarioEmail: usuario.email || usuario.uid,
-      modulo: 'financeiro',
-      acao: 'edicao',
-      descricao: `${tipo === 'saida' ? 'Pagamento' : 'Recebimento'} "${titulo.descricao}" de R$ ${Number(titulo.valor).toFixed(2)} estornado para Pendente. Motivo: ${motivo}`,
-      registroRelacionadoId: titulo.id,
-      status: 'sucesso',
-      critical: true,
-    });
-  } catch (logError) {
-    console.error('Erro ao registrar auditoria do estorno:', logError);
-  }
 };
 
 /**
@@ -254,7 +188,7 @@ export const estornarBaixaComConfirmacao = async (args: {
   if (!motivo) return false;
 
   try {
-    await executarEstorno({ titulo, tipo, motivo, tenantId, usuario });
+    await executarEstorno({ titulo, tipo, motivo, tenantId });
     showSuccess(tipo === 'saida' ? 'Pagamento estornado! A conta voltou para Pendente.' : 'Recebimento estornado! A conta voltou para Pendente.');
     return true;
   } catch (erro) {

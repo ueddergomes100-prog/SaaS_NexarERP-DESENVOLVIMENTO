@@ -10,7 +10,6 @@ import {
   fromCents,
   legacyPaymentForTransaction,
   paymentRequiresBankAccount,
-  settledFinancialNatureForPayment,
   summarizePayments,
   tagPaymentAsChequeAwaitingClearance,
   toCents,
@@ -24,13 +23,12 @@ import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/da
 import { isPlatformAdminRole } from '../../utils/roles';
 import {
   dataBrasileira,
-  montarBaixaManual,
   planejarEstornoReceber,
   validarDataBaixa,
   type TituloParaEstorno,
 } from '../../utils/baixaFinanceiraDomain';
 import { pedirDadosBaixa } from '../../utils/baixaFinanceiraUi';
-import { estornarBaixaComConfirmacao } from '../../services/baixaFinanceiraService';
+import { estornarBaixaComConfirmacao, registrarBaixa } from '../../services/baixaFinanceiraService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
 import ChequeCaptureModal from '../../components/finance/ChequeCaptureModal';
@@ -105,119 +103,25 @@ const ContasReceber: React.FC = () => {
   const [periodoDe, setPeriodoDe] = useState('');
   const [periodoAte, setPeriodoAte] = useState('');
 
+  /**
+   * Baixa de Receber pelo servidor (services/baixaFinanceiraService): titulo,
+   * saldo do banco e venda/OS de origem numa transacao so', gravados la'.
+   */
   const confirmarRecebimento = async (
     t: TransacaoData,
     formaPgto: PaymentMethod,
     bancoId?: string,
-    bancoNome?: string,
     dataRecebimento: string = getDateInputInTimeZone(),
   ) => {
     if (!tenantId || !currentUser) return;
-    const transactionRef = doc(db, 'transacoes', t.id);
-    // Dia em que o dinheiro entrou de verdade (pode ser anterior a hoje).
-    const paymentDate = dataRecebimento;
-
-    await runTransaction(db, async (transaction) => {
-      const transactionSnap = await transaction.get(transactionRef);
-      if (!transactionSnap.exists()) throw new Error('Conta a receber não encontrada.');
-      const transactionData = transactionSnap.data();
-      if (transactionData.status === 'Paga') return;
-      if (transactionData.status === 'Cancelada') {
-        throw new Error('Uma conta cancelada não pode ser recebida.');
-      }
-
-      let sourceRef = null;
-      let sourceSnap = null;
-      const saleId = transactionData.pedidoId || t.pedidoId;
-      const serviceOrderId = transactionData.osId || t.osId;
-      if (saleId) {
-        sourceRef = doc(db, 'pedidos_venda', saleId);
-        sourceSnap = await transaction.get(sourceRef);
-      } else if (serviceOrderId) {
-        sourceRef = doc(db, 'ordens_de_servico', serviceOrderId);
-        sourceSnap = await transaction.get(sourceRef);
-      }
-      if (sourceSnap?.exists() && sourceSnap.data().status === 'Cancelada') {
-        throw new Error(saleId ? 'A venda vinculada está cancelada.' : 'A OS vinculada está cancelada.');
-      }
-
-      const amountCents = Number(transactionData.valorCentavos ?? toCents(transactionData.valor));
-      const settlementNature = settledFinancialNatureForPayment(formaPgto);
-
-      const bancoRef = bancoId ? doc(db, 'bancos', bancoId) : null;
-      let bancoSaldoAtualCentavos = 0;
-      if (bancoRef) {
-        const bancoSnap = await transaction.get(bancoRef);
-        if (!bancoSnap.exists()) throw new Error('O banco selecionado não foi encontrado.');
-        bancoSaldoAtualCentavos = Number(bancoSnap.data().saldoCentavos || 0);
-      }
-
-      transaction.update(transactionRef, {
-        status: 'Paga',
-        formaPagamentoOriginal: transactionData.formaPagamentoOriginal || transactionData.formaPagamento || null,
-        formaPagamento: formaPgto,
-        valorCentavos: amountCents,
-        valor: fromCents(amountCents),
-        dataPagamento: paymentDate,
-        naturezaFinanceira: settlementNature,
-        movimentaCaixaFisico: formaPgto === 'Dinheiro',
-        ...(bancoRef ? { bancoId, bancoNome: bancoNome || null } : {}),
-        // Marca que esta baixa foi feita por "Dar Baixa" e o que ela mexeu no
-        // banco: e' o que permite estornar depois (baixaFinanceiraDomain).
-        baixaManual: montarBaixaManual({
-          origem: 'contas_receber',
-          formaPagamento: formaPgto,
-          dataPagamento: paymentDate,
-          valorCentavos: amountCents,
-          ...(bancoRef ? { bancoId, movimentoBancoCentavos: amountCents } : {}),
-        }),
-        recebidoEm: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Recebimento confirmado'),
-      });
-
-      if (bancoRef) {
-        transaction.update(bancoRef, {
-          saldoCentavos: bancoSaldoAtualCentavos + amountCents,
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Recebimento de "${t.descricao}"`),
-        });
-      }
-
-      if (sourceRef && sourceSnap?.exists()) {
-        const sourceData = sourceSnap.data();
-        const payments: PaymentRecord[] = Array.isArray(sourceData.pagamentos) && sourceData.pagamentos.length > 0
-          ? sourceData.pagamentos
-          : [legacyPaymentForTransaction(t.id, transactionData)];
-        const updatedPayments = applyPaymentReceipt(payments, {
-          transactionId: t.id,
-          paymentIndex: transactionData.paymentIndex,
-          amountCents,
-          method: formaPgto,
-          receiptId: t.id,
-          receivedAt: paymentDate,
-        });
-        const summary = summarizePayments(updatedPayments);
-
-        transaction.update(sourceRef, {
-          pagamentos: updatedPayments,
-          totalRecebidoCentavos: summary.receivedCents,
-          totalRecebido: summary.received,
-          totalPendenteCentavos: summary.pendingCents,
-          totalPendente: summary.pending,
-          totalTaxasPagamentoCentavos: summary.cardFeeCents,
-          totalTaxasPagamento: summary.cardFee,
-          totalLiquidoFinanceiroCentavos: summary.financialNetCents,
-          totalLiquidoFinanceiro: summary.financialNet,
-          statusPagamento: summary.pendingCents === 0
-            ? 'Paga'
-            : summary.receivedCents > 0
-              ? 'Parcial'
-              : 'Pendente',
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Recebimento confirmado em Contas a Receber'),
-        });
-      }
+    await registrarBaixa({
+      tipo: 'entrada',
+      transacaoId: t.id,
+      formaPagamento: formaPgto,
+      // Dia em que o dinheiro entrou de verdade (pode ser anterior a hoje).
+      dataPagamento: dataRecebimento,
+      ...(bancoId ? { bancoId } : {}),
+      tenantId,
     });
   };
 
@@ -381,7 +285,7 @@ const ContasReceber: React.FC = () => {
     }
 
     try {
-      await confirmarRecebimento(t, formaPgto, bancoId, bancoNome, dataRecebimento);
+      await confirmarRecebimento(t, formaPgto, bancoId, dataRecebimento);
       const noDia = dataRecebimento === getDateInputInTimeZone() ? '' : ` com a data de ${dataBrasileira(dataRecebimento)}`;
       showSuccess(formaPgto === 'Dinheiro'
         ? `Recebimento confirmado e lançado no caixa físico${noDia}!`

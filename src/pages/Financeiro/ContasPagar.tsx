@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, runTransaction, writeBatch } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -7,16 +7,14 @@ import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
-import { toCents } from '../../utils/financeDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import {
   dataBrasileira,
-  montarBaixaManual,
   planejarEstornoPagar,
   type TituloParaEstorno,
 } from '../../utils/baixaFinanceiraDomain';
 import { pedirDadosBaixa } from '../../utils/baixaFinanceiraUi';
-import { estornarBaixaComConfirmacao } from '../../services/baixaFinanceiraService';
+import { estornarBaixaComConfirmacao, registrarBaixa } from '../../services/baixaFinanceiraService';
 import ParcelasEditor from '../../components/financeiro/ParcelasEditor';
 import { FORMAS_DE_PAGAMENTO, dividirEmParcelas } from '../../utils/pagamentoEntradaDomain';
 import type { ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
@@ -224,12 +222,11 @@ const ContasPagar: React.FC = () => {
       textoConfirmar: 'Sim, confirmar pagamento',
     });
     if (!dados) return;
-    if (!currentUser) return;
+    if (!currentUser || !tenantId) return;
     const formaPgto = dados.forma;
     const dataPagamento = dados.data;
 
     let bancoId: string | undefined;
-    let bancoNome: string | undefined;
     if (formaPgto !== 'Dinheiro') {
       const qBancos = query(
         collection(db, 'bancos'),
@@ -254,59 +251,18 @@ const ContasPagar: React.FC = () => {
       });
       if (!bancoResult.isConfirmed) return;
       bancoId = bancoResult.value as string;
-      bancoNome = bancosDisponiveis.find((b) => b.id === bancoId)?.nome;
     }
 
     try {
-      const docRef = doc(db, 'transacoes', t.id);
-      const valorCentavos = toCents(t.valor);
-
-      if (bancoId) {
-        const bancoRef = doc(db, 'bancos', bancoId);
-        await runTransaction(db, async (transaction) => {
-          const bancoSnap = await transaction.get(bancoRef);
-          if (!bancoSnap.exists()) throw new Error('O banco selecionado não foi encontrado.');
-          const saldoAtualCentavos = Number(bancoSnap.data().saldoCentavos || 0);
-
-          transaction.update(docRef, {
-            status: 'Paga',
-            formaPagamento: formaPgto,
-            dataPagamento,
-            valorCentavos,
-            bancoId,
-            bancoNome: bancoNome || null,
-            baixaManual: montarBaixaManual({
-              origem: 'contas_pagar',
-              formaPagamento: formaPgto,
-              dataPagamento,
-              valorCentavos,
-              bancoId,
-              movimentoBancoCentavos: -valorCentavos,
-            }),
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Pagamento confirmado'),
-          });
-          transaction.update(bancoRef, {
-            saldoCentavos: saldoAtualCentavos - valorCentavos,
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Débito da despesa "${t.descricao}"`),
-          });
-        });
-      } else {
-        await updateDoc(docRef, {
-          status: 'Paga',
-          formaPagamento: formaPgto,
-          dataPagamento,
-          valorCentavos,
-          baixaManual: montarBaixaManual({
-            origem: 'contas_pagar',
-            formaPagamento: formaPgto,
-            dataPagamento,
-            valorCentavos,
-          }),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Pagamento confirmado'),
-        });
-      }
+      // Titulo + saldo do banco gravados pelo servidor (services/baixaFinanceiraService).
+      await registrarBaixa({
+        tipo: 'saida',
+        transacaoId: t.id,
+        formaPagamento: formaPgto,
+        dataPagamento,
+        ...(bancoId ? { bancoId } : {}),
+        tenantId,
+      });
       showSuccess(dataPagamento === getDateInputInTimeZone()
         ? 'Pagamento registrado no Fluxo de Caixa!'
         : `Pagamento registrado com a data de ${dataBrasileira(dataPagamento)}!`);

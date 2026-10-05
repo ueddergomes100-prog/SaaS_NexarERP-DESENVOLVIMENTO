@@ -6,7 +6,7 @@ const { admin, db } = require('../config/firebase');
  * Auditoria nunca derruba a operacao que ja' aconteceu: falha aqui so' vai pro
  * console.
  */
-const registrarLog = (user, { modulo, acao, descricao, registroId, alteracoes }) => {
+const registrarLog = (user, { modulo, acao, descricao, registroId, alteracoes, critico }) => {
   db.collection('empresas').doc(user.tenantId).collection('logs').add({
     usuarioId: user.uid,
     usuario: user.email || user.uid,
@@ -21,7 +21,8 @@ const registrarLog = (user, { modulo, acao, descricao, registroId, alteracoes })
     alteracoes: alteracoes || null,
     snapshotExcluido: null,
     status: 'sucesso',
-    critical: acao === 'exclusao',
+    // Log critico nao e' apagado pela limpeza de 6 meses (runLogsCleanup).
+    critical: critico ?? acao === 'exclusao',
     dataHora: admin.firestore.FieldValue.serverTimestamp(),
   }).catch((erro) => console.error(`[Auditoria] falha ao gravar log de ${modulo}:`, erro.message));
 };

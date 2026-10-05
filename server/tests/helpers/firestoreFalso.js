@@ -13,17 +13,25 @@ let contador = 0;
 
 const criarBancoFalso = (inicial) => {
   const dados = new Map(Object.entries(inicial).map(([k, v]) => [k, structuredClone(v)]));
-  const ref = (colecao, id) => ({ chave: `${colecao}/${id}`, id });
+  const colecaoEm = (caminho) => ({
+    doc: (id) => ref(caminho, id || `auto${(contador += 1)}`),
+    // Consulta nao e' simulada: quem chama precisa tratar o erro (ex.: piso da numeracao).
+    where: () => { throw new Error('consulta nao simulada no Firestore falso'); },
+  });
+  const ref = (caminho, id) => ({
+    chave: `${caminho}/${id}`,
+    id,
+    collection: (sub) => colecaoEm(`${caminho}/${id}/${sub}`),
+  });
   const db = {
-    collection: (colecao) => ({
-      doc: (id) => ref(colecao, id || `auto${(contador += 1)}`),
-    }),
+    collection: (colecao) => colecaoEm(colecao),
     runTransaction: async (fn) => {
       const escritas = [];
       const tx = {
         get: async (r) => ({ exists: dados.has(r.chave), id: r.id, data: () => structuredClone(dados.get(r.chave)) }),
+        getAll: async (...refs) => Promise.all(refs.map((r) => tx.get(r))),
         update: (r, campos) => escritas.push([r, campos, false]),
-        set: (r, campos) => escritas.push([r, campos, true]),
+        set: (r, campos, opcoes) => escritas.push([r, campos, !opcoes?.merge]),
       };
       const resultado = await fn(tx);
       for (const [r, campos, substitui] of escritas) {
@@ -52,7 +60,7 @@ const carregarComBancoFalso = (db, ...servicos) => {
     id: firebase, filename: firebase, loaded: true,
     exports: { db, admin: { firestore: { FieldValue: { serverTimestamp: () => TS, delete: () => DEL } } } },
   };
-  const caminhos = ['services/baixaFinanceira', 'services/movimentoBanco', ...servicos]
+  const caminhos = ['services/baixaFinanceira', 'services/movimentoBanco', 'services/condicionais', ...servicos]
     .map((s) => require.resolve(path.join(base, s)));
   caminhos.forEach((c) => { delete require.cache[c]; });
   return caminhos.map((c) => require(c));

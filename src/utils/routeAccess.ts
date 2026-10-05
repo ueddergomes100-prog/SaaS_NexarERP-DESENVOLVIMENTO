@@ -46,6 +46,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/orcamentos')) routeModule = 'comercial.orcamentos';
   else if (path.startsWith('/vendas/devolucoes')) routeModule = 'comercial.devolucoes';
   else if (path.startsWith('/vendas/trocas')) routeModule = 'comercial.trocas';
+  else if (path.startsWith('/vendas/condicional')) routeModule = 'comercial.condicional';
   else if (path.startsWith('/pre-vendas')) routeModule = 'comercial.relatorios';
   else if (path.startsWith('/relatorios-vendas')) routeModule = 'comercial.relatorios';
   else if (path.startsWith('/os')) routeModule = 'mecanica.os';
@@ -121,6 +122,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   // Promocoes (2026-10-01): tela propria, permissao propria.
   else if (path.startsWith('/vendas/promocoes')) routePermission = 'vendas.promocoes';
   else if (path.startsWith('/vendas/trocas')) routePermission = 'vendas.troca_gerenciar';
+  else if (path.startsWith('/vendas/condicional')) routePermission = 'vendas.condicional';
   else if (path.startsWith('/pre-vendas')) routePermission = 'vendas.pre_venda_relatorio';
   else if (path.startsWith('/relatorios-vendas')) routePermission = 'vendas.relatorios';
   else if (path.startsWith('/os')) routePermission = 'mecanica.os';

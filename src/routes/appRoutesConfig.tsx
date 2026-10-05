@@ -20,6 +20,9 @@ const TrocaDetalhe = lazy(() => import('../pages/Trocas/TrocaDetalhe'));
 const TrocaMinutaPrint = lazy(() => import('../pages/Trocas/TrocaMinutaPrint'));
 const TrocaMinutaPrintLote = lazy(() => import('../pages/Trocas/TrocaMinutaPrintLote'));
 const TrocaForm = lazy(() => import('../pages/Trocas/TrocaForm'));
+const CondicionaisList = lazy(() => import('../pages/Condicional/CondicionaisList'));
+const CondicionalForm = lazy(() => import('../pages/Condicional/CondicionalForm'));
+const CondicionalDetalhe = lazy(() => import('../pages/Condicional/CondicionalDetalhe'));
 const RelatorioPreVendas = lazy(() => import('../pages/Vendas/RelatorioPreVendas'));
 const OSList = lazy(() => import('../pages/OS/OSList'));
 const RelatoriosMecanica = lazy(() => import('../pages/OS/RelatoriosMecanica'));
@@ -127,6 +130,9 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'vendas/promocoes', element: <PromocoesList /> },
   { path: 'vendas/promocoes/nova', element: <PromocaoForm /> },
   { path: 'vendas/promocoes/:id', element: <PromocaoForm /> },
+  { path: 'vendas/condicional', element: <CondicionaisList /> },
+  { path: 'vendas/condicional/novo', element: <CondicionalForm /> },
+  { path: 'vendas/condicional/:id', element: <CondicionalDetalhe /> },
   { path: 'vendas/trocas', element: <TrocasList /> },
   { path: 'vendas/trocas/nova', element: <TrocaForm /> },
   { path: 'vendas/trocas/minuta-lote', element: <TrocaMinutaPrintLote /> },

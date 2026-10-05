@@ -206,6 +206,8 @@ interface ProdutoFormData {
   lote: string;
   validade: string;
   controlarLote: boolean;
+  /** Pode sair em condicional (Vendas > Condicional). Ver condicionalDomain.ts. */
+  permiteCondicional: boolean;
   permitirCashback: boolean;
   produtoDestaque: boolean;
   impedirVendaAbaixoCusto: boolean;
@@ -362,6 +364,7 @@ const emptyFormData: ProdutoFormData = {
   lote: '',
   validade: '',
   controlarLote: false,
+  permiteCondicional: false,
   permitirCashback: false,
   produtoDestaque: false,
   impedirVendaAbaixoCusto: false,
@@ -689,6 +692,7 @@ const EstoqueForm: React.FC = () => {
               lote: data.lote || data.avancado?.lote || '',
               validade: data.validade || data.avancado?.validade || '',
               controlarLote: Boolean(data.controlarLote ?? data.avancado?.controlarLote ?? false),
+              permiteCondicional: data.permiteCondicional === true,
               permitirCashback: Boolean(data.permitirCashback ?? data.avancado?.permitirCashback ?? false),
               produtoDestaque: Boolean(data.produtoDestaque ?? data.avancado?.produtoDestaque ?? false),
               impedirVendaAbaixoCusto: Boolean(data.impedirVendaAbaixoCusto ?? data.precos?.impedirVendaAbaixoCusto ?? false),
@@ -2756,6 +2760,7 @@ const EstoqueForm: React.FC = () => {
                   ['bloquearVendaSemEstoque', 'Bloquear venda sem estoque'],
                   ['exigirSerialLote', 'Exigir serial/lote'],
                   ['controlarLote', 'Controlar lote'],
+                  ['permiteCondicional', 'Permite condicional'],
                   ['permitirCashback', 'Permitir cashback'],
                   ['produtoDestaque', 'Produto destaque'],
                   ['autosaveOpcional', 'Auto save opcional']

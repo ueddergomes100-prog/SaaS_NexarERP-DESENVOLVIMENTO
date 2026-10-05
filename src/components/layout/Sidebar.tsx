@@ -33,6 +33,7 @@ import {
   Plus,
   Receipt,
   Repeat,
+  ShoppingBag,
   Route,
   IdCard,
   RotateCcw,
@@ -97,6 +98,7 @@ const Sidebar: React.FC = () => {
     controlaFiscal,
     devolucaoBotaoSeparado,
     habilitarTelaPrecificacao,
+    trabalhaComCondicional,
     temVendedorCadastrado,
     nivelAcesso
   } = useAuth();
@@ -150,6 +152,8 @@ const Sidebar: React.FC = () => {
     // Tela de Precificacao so aparece pra empresa que ligou a chave em
     // Configuracoes -- nasce desligada, como toda chave nova.
     if (!habilitarTelaPrecificacao && item.module === 'estoque.precificacao') return false;
+    // Condicional so' aparece com "Trabalha com condicional" ligado em Configuracoes.
+    if (!trabalhaComCondicional && item.module === 'comercial.condicional') return false;
     if (item.managerOnly && !hasFullAccess) return false;
     // Funcionario nivel Gerente enxerga o menu Usuarios mesmo sem a permissao
     // 'administrativo.equipe' marcada -- e' o mesmo bypass que ja libera o
@@ -157,7 +161,7 @@ const Sidebar: React.FC = () => {
     // sem isto aqui o menu nunca aparecia pra ele abrir a tela em primeiro lugar.
     if (item.permission === 'administrativo.equipe' && podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso })) return true;
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
+  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
 
   const groups = useMemo<NavGroup[]>(() => [
     {
@@ -180,6 +184,7 @@ const Sidebar: React.FC = () => {
         { label: 'Devolução de Venda', to: '/vendas/devolucoes', icon: RotateCcw, module: 'comercial.devolucoes', permission: 'vendas.devolucao' },
         { label: 'Promoções', to: '/vendas/promocoes', icon: Tag, module: 'comercial.pedidos', permission: 'vendas.promocoes' },
         { label: 'Trocas', to: '/vendas/trocas', icon: Repeat, module: 'comercial.trocas', permission: 'vendas.troca_gerenciar' },
+        { label: 'Condicional', to: '/vendas/condicional', icon: ShoppingBag, module: 'comercial.condicional', permission: 'vendas.condicional' },
         { label: 'Relatório de Vendas', to: '/relatorios-vendas', icon: BarChart2, module: 'comercial.relatorios', permission: 'vendas.relatorios' },
         { label: 'Pré-vendas em Aberto', to: '/pre-vendas', icon: ClipboardList, module: 'comercial.relatorios', permission: 'vendas.pre_venda_relatorio' }
       ]

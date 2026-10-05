@@ -30,6 +30,7 @@ const trocasRoutes = require('./routes/trocas.routes');
 const notaRecebidaRoutes = require('./routes/notaRecebida.routes');
 const notaEmailRoutes = require('./routes/notaEmail.routes');
 const financeiroRoutes = require('./routes/financeiro.routes');
+const condicionaisRoutes = require('./routes/condicionais.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -178,6 +179,9 @@ app.use('/api/nota-email', notaEmailRoutes);
 // Baixa e estorno de titulos (Contas a Pagar/Receber): saldo do banco e venda/OS
 // sao gravados aqui, nao pelo navegador -- ver services/baixaFinanceira.js.
 app.use('/api/financeiro', financeiroRoutes);
+// Condicional (cliente leva para provar, devolve o que nao quer, o resto vira pre-venda):
+// toda escrita e reserva de estoque aqui; as firestore.rules deixam a colecao so' para leitura.
+app.use('/api/condicionais', condicionaisRoutes);
 
 // Rota que nao existe: JSON em portugues, em vez do "Cannot GET /..." em HTML
 // do Express (que ainda entregava o nome do framework de brinde).

@@ -52,6 +52,7 @@ import {
   parseAlterarPagamentoVendaFinalizada,
   parseTrabalhaComPreVenda,
 } from '../../utils/preVendaDomain';
+import { DEFAULT_TRABALHA_COM_CONDICIONAL, parseTrabalhaComCondicional } from '../../utils/condicionalDomain';
 import {
   DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
   parseExigirIdentificacaoVendedor,
@@ -194,6 +195,7 @@ const Configuracoes: React.FC = () => {
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     trabalhaComPreVenda: DEFAULT_TRABALHA_COM_PRE_VENDA,
+    trabalhaComCondicional: DEFAULT_TRABALHA_COM_CONDICIONAL,
     agenteDigitalAtivo: DEFAULT_AGENTE_DIGITAL_ATIVO,
     alterarPagamentoVendaFinalizada: DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
     exigirIdentificacaoVendedor: DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
@@ -353,6 +355,7 @@ const Configuracoes: React.FC = () => {
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             trabalhaComPreVenda: parseTrabalhaComPreVenda(data.trabalhaComPreVenda),
+            trabalhaComCondicional: parseTrabalhaComCondicional(data.trabalhaComCondicional),
             agenteDigitalAtivo: parseAgenteDigitalAtivo(data.agenteDigitalAtivo),
             alterarPagamentoVendaFinalizada: parseAlterarPagamentoVendaFinalizada(data.alterarPagamentoVendaFinalizada),
             exigirIdentificacaoVendedor: parseExigirIdentificacaoVendedor(data.exigirIdentificacaoVendedor),
@@ -2039,6 +2042,23 @@ const Configuracoes: React.FC = () => {
                 </p>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                   Ligar aqui libera o recurso para a empresa. <strong>Quem pode gravar, editar, finalizar ou cancelar pré-venda é definido usuário a usuário</strong>, nas permissões de cada funcionário.
+                </p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Condicional</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.trabalhaComCondicional === true}
+                    onChange={(e) => setFormData({ ...formData, trabalhaComCondicional: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Trabalha com condicional
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Libera o menu <strong>Vendas → Condicional</strong>: o cliente leva peças para provar em casa, devolve o que não quiser e o que ficar vira uma <strong>pré-venda</strong> para finalizar com o pagamento. Na saída o estoque fica <strong>reservado</strong> (não é baixado); o que volta é liberado; o que fica só é baixado quando a pré-venda for finalizada. Só saem em condicional os produtos com <strong>"Permite condicional"</strong> marcado no cadastro (Estoque → aba Avançado). Quem pode usar é definido usuário a usuário, na permissão <strong>Vendas: Condicional</strong>. Desligado (padrão), nada muda.
                 </p>
               </div>
 

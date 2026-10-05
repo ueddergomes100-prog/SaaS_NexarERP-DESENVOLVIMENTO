@@ -35,6 +35,7 @@ import {
   parseTrabalhaComPreVenda,
 } from '../utils/preVendaDomain';
 import { DEFAULT_CONFERENCIA_MERCADORIA } from '../utils/conferenciaDomain';
+import { DEFAULT_TRABALHA_COM_CONDICIONAL, parseTrabalhaComCondicional } from '../utils/condicionalDomain';
 import { DEFAULT_LOTE_AVISAR_VENCIDO, DEFAULT_LOTE_MODO_SAIDA, parseLoteAvisarVencido, parseLoteModoSaida, type ModoSaidaLote } from '../utils/loteDomain';
 
 interface AuthContextType {
@@ -80,6 +81,9 @@ interface AuthContextType {
    *  em preVendaDomain.ts. Governa se a aba "Pré-vendas" aparece na
    *  listagem de Pedidos de Venda. */
   trabalhaComPreVenda: boolean;
+  /** Config da empresa: "Trabalha com condicional" -- ver condicionalDomain.ts. Sem ela o
+   *  menu Condicional some e o servidor recusa criar condicional. */
+  trabalhaComCondicional: boolean;
   /** Config da empresa: "Permitir venda sem estoque" (`venderSemEstoque`).
    *  O app do vendedor externo segue a mesma regra das demais telas de venda. */
   permiteVendaSemEstoque: boolean;
@@ -176,6 +180,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [devolucaoBotaoSeparado, setDevolucaoBotaoSeparado] = useState(false);
   const [habilitarTelaPrecificacao, setHabilitarTelaPrecificacao] = useState(DEFAULT_HABILITAR_TELA_PRECIFICACAO);
   const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
+  const [trabalhaComCondicional, setTrabalhaComCondicional] = useState(DEFAULT_TRABALHA_COM_CONDICIONAL);
   const [permiteVendaSemEstoque, setPermiteVendaSemEstoque] = useState(false);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(DEFAULT_CONFERENCIA_MERCADORIA);
   const [loteModoSaida, setLoteModoSaida] = useState<ModoSaidaLote>(DEFAULT_LOTE_MODO_SAIDA);
@@ -430,6 +435,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setControlaFiscal(DEFAULT_CONTROLA_FISCAL);
       setDevolucaoBotaoSeparado(false);
       setTrabalhaComPreVenda(DEFAULT_TRABALHA_COM_PRE_VENDA);
+      setTrabalhaComCondicional(DEFAULT_TRABALHA_COM_CONDICIONAL);
       setPermiteVendaSemEstoque(false);
       setAgenteDigitalAtivo(DEFAULT_AGENTE_DIGITAL_ATIVO);
       setConferenciaMercadoriaAtiva(DEFAULT_CONFERENCIA_MERCADORIA);
@@ -458,6 +464,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Mesma leitura: governam as abas "Pré-vendas" e "Pendentes" na
       // listagem de Pedidos de Venda (PedidoVendas.tsx).
       setTrabalhaComPreVenda(parseTrabalhaComPreVenda(snap.exists() ? snap.data().trabalhaComPreVenda : undefined));
+      setTrabalhaComCondicional(parseTrabalhaComCondicional(snap.exists() ? snap.data().trabalhaComCondicional : undefined));
       setAgenteDigitalAtivo(parseAgenteDigitalAtivo(snap.exists() ? snap.data().agenteDigitalAtivo : undefined));
       setPermiteVendaSemEstoque(snap.exists() && snap.data().venderSemEstoque === true);
       // Mesma leitura: governa se a pre-venda (computador OU app do
@@ -629,7 +636,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules, isOwner, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComCondicional, permiteVendaSemEstoque, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
       {children}
     </AuthContext.Provider>
   );

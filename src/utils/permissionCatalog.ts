@@ -65,6 +65,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // baixa o estoque (a loja). Ver docs/PLANO_TROCAS_VENDEDOR.md.
       { id: 'vendas.troca_solicitar', label: 'Vendas: Trocas — Pedir troca (aplicativo)', color: '#f59e0b' },
       { id: 'vendas.troca_gerenciar', label: 'Vendas: Trocas — Aprovar, entregar e ver relatório', color: '#ef4444' },
+      // Condicional (cliente leva para provar). So' aparece no menu com "Trabalha com
+      // condicional" ligado em Configuracoes. Ver src/utils/condicionalDomain.ts.
+      { id: 'vendas.condicional', label: 'Vendas: Condicional (saída, devolução e fechamento)', color: '#f59e0b' },
       { id: 'vendas.pedidos_pendentes_editar', label: 'Vendas: Editar/Finalizar Pedido Pendente (agente)', color: '#f59e0b' },
       { id: 'vendas.pedidos_pendentes_editar_cliente', label: 'Vendas: Pendente — Editar Cliente', color: '#f59e0b' },
       { id: 'vendas.pedidos_pendentes_alterar_qtd', label: 'Vendas: Pendente — Alterar Quantidade', color: '#f59e0b' },

@@ -30,6 +30,10 @@ const MODULOS = [
   'src/utils/documentMetadata.ts',
   'src/utils/financeDomain.ts',
   'src/utils/baixaFinanceiraDomain.ts',
+  'src/utils/embalagemDomain.ts',
+  'src/utils/unidadeMedidaDomain.ts',
+  'src/utils/preVendaDomain.ts',
+  'src/utils/condicionalDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

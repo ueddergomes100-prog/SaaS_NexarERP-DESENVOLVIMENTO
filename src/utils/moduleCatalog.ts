@@ -54,6 +54,7 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'comercial.orcamentos', label: 'Orçamentos' },
     { id: 'comercial.devolucoes', label: 'Devolução de Venda' },
     { id: 'comercial.trocas', label: 'Trocas de Mercadoria' },
+    { id: 'comercial.condicional', label: 'Condicional' },
     { id: 'comercial.relatorios', label: 'Relatório de Vendas' }
   ]},
   { group: 'Serviços & Operações', items: [

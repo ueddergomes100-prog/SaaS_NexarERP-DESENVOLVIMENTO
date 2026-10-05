@@ -775,7 +775,11 @@ service cloud.firestore {
         // Trocas de mercadoria: SO' LEITURA aqui. Criar, aprovar, entregar e baixar o estoque
         // acontece no servidor (Admin SDK, server/routes/trocas.routes.js) -- de proposito ela NAO
         // esta nas listas de create/update/delete abaixo, entao o app nunca escreve nela.
-        'trocas'
+        'trocas',
+        // Condicional (2026-10-05): SO' LEITURA, como trocas. Saida, devolucao, fechamento
+        // (que gera a pre-venda) e cancelamento -- e a reserva de estoque -- sao gravados
+        // pelo servidor (server/routes/condicionais.routes.js).
+        'condicionais'
       ] && canReadTenantDocument();
 
       allow create: if collectionName in [

@@ -11,17 +11,37 @@ const DEL = { __apagar: true };
 
 let contador = 0;
 
-const criarBancoFalso = (inicial) => {
+const criarBancoFalso = (inicial, opcoes = {}) => {
   const dados = new Map(Object.entries(inicial).map(([k, v]) => [k, structuredClone(v)]));
+  // Consulta simples (==, in, array-contains) so' quando o teste pede
+  // (opcoes.consultas). Sem isso, where() falha como antes -- alguns
+  // servicos tratam esse erro (ex.: piso da numeracao).
+  const consulta = (caminho, filtros) => ({
+    where: (campo, op, valor) => consulta(caminho, [...filtros, [campo, op, valor]]),
+    get: async () => {
+      const docs = [...dados.entries()]
+        .filter(([k]) => k.startsWith(`${caminho}/`) && !k.slice(caminho.length + 1).includes('/'))
+        .filter(([, v]) => filtros.every(([campo, op, valor]) => (
+          op === '==' ? v[campo] === valor
+            : op === 'in' ? valor.includes(v[campo])
+              : op === 'array-contains' ? Array.isArray(v[campo]) && v[campo].includes(valor)
+                : false
+        )))
+        .map(([k, v]) => ({ id: k.slice(caminho.length + 1), exists: true, data: () => structuredClone(v), ref: ref(caminho, k.slice(caminho.length + 1)) }));
+      return { empty: docs.length === 0, size: docs.length, docs };
+    },
+  });
   const colecaoEm = (caminho) => ({
     doc: (id) => ref(caminho, id || `auto${(contador += 1)}`),
-    // Consulta nao e' simulada: quem chama precisa tratar o erro (ex.: piso da numeracao).
-    where: () => { throw new Error('consulta nao simulada no Firestore falso'); },
+    where: opcoes.consultas
+      ? (campo, op, valor) => consulta(caminho, [[campo, op, valor]])
+      : () => { throw new Error('consulta nao simulada no Firestore falso'); },
   });
   const ref = (caminho, id) => ({
     chave: `${caminho}/${id}`,
     id,
     collection: (sub) => colecaoEm(`${caminho}/${id}/${sub}`),
+    get: async () => ({ exists: dados.has(`${caminho}/${id}`), id, data: () => structuredClone(dados.get(`${caminho}/${id}`)) }),
   });
   const db = {
     collection: (colecao) => colecaoEm(colecao),

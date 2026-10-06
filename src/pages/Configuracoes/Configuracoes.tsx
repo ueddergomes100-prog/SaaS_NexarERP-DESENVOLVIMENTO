@@ -119,7 +119,7 @@ const toCreditCardRateInputs = (value: unknown, fallbackFeePercent = 0) => (
 );
 
 const Configuracoes: React.FC = () => {
-  const { currentUser, tenantId, userRole } = useAuth();
+  const { currentUser, tenantId, userRole, grupo } = useAuth();
   const isPlatformAdmin = isPlatformAdminRole(userRole);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
@@ -198,6 +198,8 @@ const Configuracoes: React.FC = () => {
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     trabalhaComPreVenda: DEFAULT_TRABALHA_COM_PRE_VENDA,
     trabalhaComCondicional: DEFAULT_TRABALHA_COM_CONDICIONAL,
+    /** Filiais (2026-10-06): libera a transferencia sem nota (so' dono e gerente usam). */
+    transferenciaSemNota: false,
     agenteDigitalAtivo: DEFAULT_AGENTE_DIGITAL_ATIVO,
     alterarPagamentoVendaFinalizada: DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
     exigirIdentificacaoVendedor: DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
@@ -358,6 +360,7 @@ const Configuracoes: React.FC = () => {
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             trabalhaComPreVenda: parseTrabalhaComPreVenda(data.trabalhaComPreVenda),
             trabalhaComCondicional: parseTrabalhaComCondicional(data.trabalhaComCondicional),
+            transferenciaSemNota: data.transferenciaSemNota === true,
             agenteDigitalAtivo: parseAgenteDigitalAtivo(data.agenteDigitalAtivo),
             alterarPagamentoVendaFinalizada: parseAlterarPagamentoVendaFinalizada(data.alterarPagamentoVendaFinalizada),
             exigirIdentificacaoVendedor: parseExigirIdentificacaoVendedor(data.exigirIdentificacaoVendedor),
@@ -2070,6 +2073,25 @@ const Configuracoes: React.FC = () => {
                   Libera o menu <strong>Vendas → Condicional</strong>: o cliente leva peças para provar em casa, devolve o que não quiser e o que ficar vira uma <strong>pré-venda</strong> para finalizar com o pagamento. Na saída o estoque fica <strong>reservado</strong> (não é baixado); o que volta é liberado; o que fica só é baixado quando a pré-venda for finalizada. Só saem em condicional os produtos com <strong>"Permite condicional"</strong> marcado no cadastro (Estoque → aba Avançado). Quem pode usar é definido usuário a usuário, na permissão <strong>Vendas: Condicional</strong>. Desligado (padrão), nada muda.
                 </p>
               </div>
+
+              {grupo && (
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Transferência entre filiais</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.transferenciaSemNota === true}
+                      onChange={(e) => setFormData({ ...formData, transferenciaSemNota: e.target.checked })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Permitir transferência sem nota
+                  </label>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                    Esta filial pode enviar mercadoria para outra filial do grupo <strong>sem nota fiscal</strong> (Estoque → Transferências). Só o dono ou um gerente usa. Mercadoria entre CNPJs diferentes circula com nota — use sem nota para loja ou depósito do mesmo CNPJ, ou acerto interno.
+                  </p>
+                </div>
+              )}
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Agente Digital</label>

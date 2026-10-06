@@ -536,6 +536,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Transferencias entre filiais (2026-10-06, fase 3): as duas filiais
+    // (origem e destino) leem; so' o servidor grava (services/transferencias.js).
+    match /transferencias/{transferenciaId} {
+      allow read: if isSuperAdmin() || (
+        hasProfile() && perfilAtivo() &&
+        resource.data.tenantIds.hasAny([currentTenantId()])
+      );
+      allow write: if false;
+    }
+
     match /usernames/{username} {
       allow get: if true;
       allow list: if isSuperAdmin();

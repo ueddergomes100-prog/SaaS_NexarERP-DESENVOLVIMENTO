@@ -36,6 +36,7 @@ const MODULOS = [
   'src/utils/condicionalDomain.ts',
   'src/utils/filialDomain.ts',
   'src/utils/cadastroGrupoDomain.ts',
+  'src/utils/transferenciaDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

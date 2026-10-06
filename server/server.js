@@ -32,6 +32,7 @@ const notaEmailRoutes = require('./routes/notaEmail.routes');
 const financeiroRoutes = require('./routes/financeiro.routes');
 const condicionaisRoutes = require('./routes/condicionais.routes');
 const filiaisRoutes = require('./routes/filiais.routes');
+const transferenciasRoutes = require('./routes/transferencias.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
 
 const app = express();
@@ -185,6 +186,7 @@ app.use('/api/financeiro', financeiroRoutes);
 // toda escrita e reserva de estoque aqui; as firestore.rules deixam a colecao so' para leitura.
 app.use('/api/condicionais', condicionaisRoutes);
 app.use('/api/filiais', filiaisRoutes);
+app.use('/api/transferencias', transferenciasRoutes);
 
 // Rota que nao existe: JSON em portugues, em vez do "Cannot GET /..." em HTML
 // do Express (que ainda entregava o nome do framework de brinde).

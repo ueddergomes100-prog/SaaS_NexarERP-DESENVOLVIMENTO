@@ -53,7 +53,8 @@ import {
   Wallet,
   Clock,
   Wrench,
-  X
+  X,
+  ArrowLeftRight
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
@@ -100,7 +101,8 @@ const Sidebar: React.FC = () => {
     habilitarTelaPrecificacao,
     trabalhaComCondicional,
     temVendedorCadastrado,
-    nivelAcesso
+    nivelAcesso,
+    grupo
   } = useAuth();
   const navigate = useNavigate();
   const { tabs, activeTabId, openTab } = useTabs();
@@ -154,6 +156,8 @@ const Sidebar: React.FC = () => {
     if (!habilitarTelaPrecificacao && item.module === 'estoque.precificacao') return false;
     // Condicional so' aparece com "Trabalha com condicional" ligado em Configuracoes.
     if (!trabalhaComCondicional && item.module === 'comercial.condicional') return false;
+    // Transferencias so' existem em empresa com filiais (2026-10-06).
+    if (!grupo && item.to === '/estoque/transferencias') return false;
     if (item.managerOnly && !hasFullAccess) return false;
     // Funcionario nivel Gerente enxerga o menu Usuarios mesmo sem a permissao
     // 'administrativo.equipe' marcada -- e' o mesmo bypass que ja libera o
@@ -161,7 +165,7 @@ const Sidebar: React.FC = () => {
     // sem isto aqui o menu nunca aparecia pra ele abrir a tela em primeiro lugar.
     if (item.permission === 'administrativo.equipe' && podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso })) return true;
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
+  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, grupo, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
 
   const groups = useMemo<NavGroup[]>(() => [
     {
@@ -220,6 +224,7 @@ const Sidebar: React.FC = () => {
         // funcionarios em producao). So mudou de grupo visual no menu.
         { label: 'Produtos', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
         { label: 'Ajuste Manual', to: '/estoque/ajuste', icon: SlidersHorizontal, module: 'estoque.ajusteManual', permission: 'estoque.ajusteManual' },
+        { label: 'Transferências', to: '/estoque/transferencias', icon: ArrowLeftRight, module: 'cadastros.estoque', permission: 'filiais.utilizar' },
         { label: 'Relatório de Estoque', to: '/estoque/relatorio', icon: PieChart, module: 'estoque.relatorio', permission: 'estoque.relatorio' },
         // Lotes e Validades (2026-09-25): leitura, entao usa a permissao do Relatorio de Estoque.
         { label: 'Lotes e Validades', to: '/estoque/lotes', icon: CalendarClock, module: 'estoque.relatorio', permission: 'estoque.relatorio' },

@@ -64,6 +64,9 @@ const ImportarClientes = lazy(() => import('../pages/Clientes/ImportarClientes')
 const UsuariosList = lazy(() => import('../pages/Usuarios/UsuariosList'));
 const Configuracoes = lazy(() => import('../pages/Configuracoes/Configuracoes'));
 const FiliaisList = lazy(() => import('../pages/Filiais/FiliaisList'));
+const TransferenciasList = lazy(() => import('../pages/Transferencias/TransferenciasList'));
+const TransferenciaForm = lazy(() => import('../pages/Transferencias/TransferenciaForm'));
+const TransferenciaDetalhe = lazy(() => import('../pages/Transferencias/TransferenciaDetalhe'));
 const ServicosList = lazy(() => import('../pages/Servicos/ServicosList'));
 const ServicoForm = lazy(() => import('../pages/Servicos/ServicoForm'));
 const CategoriasList = lazy(() => import('../pages/Categorias/CategoriasList'));
@@ -234,6 +237,9 @@ export const appRoutesConfig: RouteObject[] = [
 
   { path: 'configuracoes', element: <Configuracoes /> },
   { path: 'configuracoes/filiais', element: <FiliaisList /> },
+  { path: 'estoque/transferencias', element: <TransferenciasList /> },
+  { path: 'estoque/transferencias/nova', element: <TransferenciaForm /> },
+  { path: 'estoque/transferencias/:id', element: <TransferenciaDetalhe /> },
   { path: 'logs-sistema', element: <LogsSistema /> },
 
   { path: 'operacoes/expedicao', element: <FilaExpedicao /> },

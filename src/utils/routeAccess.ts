@@ -91,6 +91,8 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/estoque/notas-avulsas')) routePermission = 'estoque.nota_avulsa';
   else if (path.startsWith('/estoque/precificacao')) routePermission = 'estoque.precificacao';
   else if (path.startsWith('/estoque/etiquetas')) routePermission = 'estoque.etiquetas';
+  // Filiais (2026-10-06): transferencia entre filiais = a permissao-chave.
+  else if (path.startsWith('/estoque/transferencias')) routePermission = 'filiais.utilizar';
   else if (path.startsWith('/estoque')) routePermission = 'cadastros.estoque';
   else if (path.startsWith('/servicos')) routePermission = 'cadastros.servicos';
   else if (path.startsWith('/categorias')) routePermission = 'cadastros.categorias';

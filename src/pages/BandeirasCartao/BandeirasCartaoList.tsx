@@ -16,6 +16,7 @@ import '../OS/OS.css';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 interface BandeiraCartao extends TenantCollectionItem {
   nome: string;
@@ -391,9 +392,8 @@ const BandeirasCartaoList: React.FC = () => {
                 <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : filteredBandeiras.length === 0 ? (
                 <tr>
-                  <td colSpan={4} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                    <CreditCard size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-                    <p>Nenhuma bandeira encontrada.</p>
+                  <td colSpan={4} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo="Nenhuma bandeira encontrada." compacto />
                   </td>
                 </tr>
               ) : (

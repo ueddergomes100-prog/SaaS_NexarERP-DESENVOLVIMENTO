@@ -15,6 +15,7 @@ import {
   type StatusCondicional,
 } from '../../utils/condicionalDomain';
 import { ESTILO_STATUS, dataBr, moeda, type CondicionalDoc } from './condicionalTipos';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 /**
  * Lista dos CONDICIONAIS (2026-10-05). Mercadoria com o cliente para provar:
@@ -159,7 +160,7 @@ const CondicionaisList: React.FC = () => {
               {loading ? (
                 <tr><td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando...</td></tr>
               ) : filtrados.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum condicional nesta lista.</td></tr>
+                <tr><td colSpan={8} style={{ padding: '8px' }}><EstadoVazio titulo="Nenhum condicional nesta lista." compacto /></td></tr>
               ) : filtrados.map((c) => {
                 const resumo = resumirCondicional(c.itens || []);
                 const vencido = estaVencido(c, hoje);

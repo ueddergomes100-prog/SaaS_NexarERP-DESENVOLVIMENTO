@@ -13,6 +13,7 @@ import {
 } from '../../utils/osListaValorDomain';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
+import EstadoVazio from '../../components/common/EstadoVazio';
 import './OS.css';
 
 interface OSData {
@@ -252,8 +253,8 @@ const OSList: React.FC = () => {
                 </tr>
               ) : filteredOsList.length === 0 ? (
                 <tr>
-                  <td colSpan={mostrarValor ? 7 : 6} style={{ textAlign: 'center', padding: '20px' }}>
-                    {searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : filtrosAtivos > 0 ? 'Nenhuma Ordem de Serviço com esses filtros.' : "Nenhuma Ordem de Serviço encontrada nesta aba."}
+                  <td colSpan={mostrarValor ? 7 : 6} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : filtrosAtivos > 0 ? 'Nenhuma Ordem de Serviço com esses filtros.' : "Nenhuma Ordem de Serviço encontrada nesta aba."} compacto />
                   </td>
                 </tr>
               ) : (

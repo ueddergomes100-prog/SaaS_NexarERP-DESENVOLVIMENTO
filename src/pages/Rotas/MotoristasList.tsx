@@ -8,6 +8,7 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 /**
  * CADASTRO DE MOTORISTAS (2026-09-21).
@@ -185,9 +186,8 @@ const MotoristasList: React.FC = () => {
                 <tr><td colSpan={5} style={{ textAlign: 'center', padding: '30px' }}>Carregando motoristas...</td></tr>
               ) : filtrados.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '50px', color: 'var(--text-muted)' }}>
-                    <IdCard size={44} style={{ margin: '0 auto 14px', opacity: 0.25 }} />
-                    <div>{motoristas.length === 0 ? 'Nenhum motorista cadastrado ainda.' : 'Nenhum motorista com esses filtros.'}</div>
+                  <td colSpan={5} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo={motoristas.length === 0 ? 'Nenhum motorista cadastrado ainda.' : 'Nenhum motorista com esses filtros.'} compacto />
                   </td>
                 </tr>
               ) : filtrados.map((m) => (

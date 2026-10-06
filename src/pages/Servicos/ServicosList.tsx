@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Wrench, Edit, Power } from 'lucide-react';
+import { Search, Plus, Edit, Power } from 'lucide-react';
 import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -9,6 +9,7 @@ import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 interface ServicoData {
   id: string;
@@ -160,7 +161,7 @@ const ServicosList: React.FC = () => {
               {loading ? (
                 <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : filteredServicos.length === 0 ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><Wrench size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} /><p>Nenhum serviço cadastrado.</p></td></tr>
+                <tr><td colSpan={6} style={{ padding: '8px' }}><EstadoVazio titulo="Nenhum serviço cadastrado." compacto /></td></tr>
               ) : (
                 filteredServicos.map((servico) => (
                   <tr key={servico.id} {...linha(servico.id, () => openTab(`/servicos/editar/${servico.id}`))}>

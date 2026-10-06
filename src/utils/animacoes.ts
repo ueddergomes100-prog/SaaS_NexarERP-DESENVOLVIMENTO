@@ -76,9 +76,15 @@ export const tocarAnimacao = async (
   try {
     const [lottie, animationData] = await Promise.all([carregarPlayer(), carregarDados(nome)]);
     if (!container.isConnected) return null;
-    container.replaceChildren();
+    // Cada animacao desenha num filho proprio. O destroy() do player apaga o
+    // innerHTML do elemento onde desenhou; se duas chamadas dividissem o
+    // mesmo container (StrictMode monta o componente duas vezes), destruir a
+    // primeira apagaria a segunda e a tela ficaria com um quadrado vazio.
+    const palco = document.createElement('span');
+    palco.style.cssText = 'display:block;width:100%;height:100%';
+    container.replaceChildren(palco);
     const item = lottie.loadAnimation({
-      container,
+      container: palco,
       renderer: 'svg',
       loop: opcoes.loop ?? false,
       autoplay: true,

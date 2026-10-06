@@ -14,6 +14,7 @@ import { avisoInativacaoComSaldo, avisoInativacaoSemSaldo, precisaZerarParaInati
 import './Estoque.css';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 interface PecaData {
   id: string;
@@ -344,8 +345,8 @@ const EstoqueList: React.FC = () => {
                 </tr>
               ) : filteredPecas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '20px' }}>
-                    {searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhum produto cadastrado no estoque.'}
+                  <td colSpan={8} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhum produto cadastrado no estoque.'} compacto />
                   </td>
                 </tr>
               ) : (

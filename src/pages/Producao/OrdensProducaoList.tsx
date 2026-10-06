@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Factory } from 'lucide-react';
+import { Search, Plus } from 'lucide-react';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms } from '../../utils/textSearch';
 import { useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
@@ -159,15 +160,8 @@ const OrdensProducaoList: React.FC = () => {
                 </tr>
               ) : filteredOrdens.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
-                    <Factory size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-                    <p>
-                      {searchTerm
-                        ? `Nenhum resultado encontrado para "${searchTerm}".`
-                        : statusFilter !== 'todas'
-                          ? `Nenhuma ordem com status "${STATUS_LABELS[statusFilter]}".`
-                          : "Nenhuma ordem de produção cadastrada."}
-                    </p>
+                  <td colSpan={6} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : statusFilter !== 'todas' ? `Nenhuma ordem com status "${STATUS_LABELS[statusFilter]}".` : "Nenhuma ordem de produção cadastrada."} compacto />
                   </td>
                 </tr>
               ) : (

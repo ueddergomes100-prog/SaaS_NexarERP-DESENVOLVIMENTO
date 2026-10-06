@@ -18,6 +18,7 @@ import '../OS/OS.css';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 interface UnidadeData {
   id: string;
@@ -340,9 +341,8 @@ const UnidadesMedidaList: React.FC = () => {
                 <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : filteredUnidades.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                    <Scale size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-                    <p>Nenhuma unidade de medida encontrada.</p>
+                  <td colSpan={6} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo="Nenhuma unidade de medida encontrada." compacto />
                   </td>
                 </tr>
               ) : (

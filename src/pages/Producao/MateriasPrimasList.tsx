@@ -19,6 +19,7 @@ import {
   avisoInativacaoMateriaPrimaSemSaldo,
   precisaZerarParaInativar,
 } from '../../utils/estoqueInativacaoDomain';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 interface MateriaPrimaData {
   id: string;
@@ -207,9 +208,8 @@ const MateriasPrimasList: React.FC = () => {
                 </tr>
               ) : filteredMateriasPrimas.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
-                    <Factory size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-                    <p>{searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhuma matéria-prima cadastrada."}</p>
+                  <td colSpan={9} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhuma matéria-prima cadastrada."} compacto />
                   </td>
                 </tr>
               ) : (

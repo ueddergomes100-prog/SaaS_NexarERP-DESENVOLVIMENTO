@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Search, Plus, Award, Edit, Power } from 'lucide-react';
+import { Search, Plus, Edit, Power } from 'lucide-react';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -9,6 +9,7 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 interface MarcaData {
   id: string;
@@ -118,7 +119,7 @@ const MarcasList: React.FC = () => {
               {loading ? (
                 <tr><td colSpan={3} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : filteredMarcas.length === 0 ? (
-                <tr><td colSpan={3} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><Award size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} /><p>Nenhuma marca encontrada.</p></td></tr>
+                <tr><td colSpan={3} style={{ padding: '8px' }}><EstadoVazio titulo="Nenhuma marca encontrada." compacto /></td></tr>
               ) : (
                 filteredMarcas.map((marca) => (
                   <tr key={marca.id} {...linha(marca.id, () => openTab(`/marcas/editar/${marca.id}`))}>

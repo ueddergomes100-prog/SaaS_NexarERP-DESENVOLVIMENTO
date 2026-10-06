@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Users, Edit, Power, Trash2, Upload, CaseUpper } from 'lucide-react';
+import { Search, Plus, Edit, Power, Trash2, Upload, CaseUpper } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -11,6 +11,7 @@ import ValidarDocumentoButton from '../../components/common/ValidarDocumentoButt
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 interface ClienteData {
   id: string;
@@ -188,9 +189,8 @@ const ClientesList: React.FC = () => {
                 </tr>
               ) : filteredClientes.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
-                    <Users size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-                    <p>{searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhum cliente cadastrado."}</p>
+                  <td colSpan={7} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhum cliente cadastrado."} compacto />
                   </td>
                 </tr>
               ) : (

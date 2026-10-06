@@ -20,6 +20,7 @@ import {
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 /**
  * INSUMOS (2026-09-25): material de CONSUMO da empresa (caixa, fita, etiqueta,
@@ -234,9 +235,8 @@ const InsumosList: React.FC = () => {
                 <tr><td colSpan={8} style={{ textAlign: 'center', padding: '30px' }}>Carregando os insumos...</td></tr>
               ) : filtrados.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '50px', color: 'var(--text-muted)' }}>
-                    <Package size={44} style={{ margin: '0 auto 14px', opacity: 0.25 }} />
-                    <div>{insumos.length === 0 ? 'Nenhum insumo cadastrado ainda. Cadastre aqui ou classifique o item como Insumo ao dar entrada numa nota.' : 'Nenhum insumo com esses filtros.'}</div>
+                  <td colSpan={8} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo={insumos.length === 0 ? 'Nenhum insumo cadastrado ainda.' : 'Nenhum insumo com esses filtros.'} texto={insumos.length === 0 ? 'Cadastre aqui ou classifique o item como Insumo ao dar entrada numa nota.' : undefined} compacto />
                   </td>
                 </tr>
               ) : filtrados.map((i) => (

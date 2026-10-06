@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Barcode, FileDown, FileText, History, Inbox, Loader2, Package, Printer, Search, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Barcode, FileDown, FileText, History, Loader2, Package, Printer, Search, Trash2, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, doc, documentId, onSnapshot, query, where, getDocs, runTransaction, serverTimestamp, type Timestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -21,6 +21,7 @@ import { parseNfeXml } from '../../utils/nfeXmlDomain';
 import { formatarChave } from '../../utils/danfePdf';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 interface NotaFiscalEntradaDoc {
   id: string;
@@ -434,9 +435,8 @@ const NotasFiscaisEntradaList: React.FC = () => {
                 </tr>
               ) : notasFiltradas.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
-                    <Inbox size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-                    <p>{searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhuma nota de entrada importada ainda.'}</p>
+                  <td colSpan={7} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhuma nota de entrada importada ainda.'} compacto />
                   </td>
                 </tr>
               ) : (

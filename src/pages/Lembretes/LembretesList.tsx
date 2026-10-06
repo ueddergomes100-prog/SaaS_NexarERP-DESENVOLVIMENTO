@@ -9,6 +9,7 @@ import { dataISODoRegistro, dentroDoPeriodo } from '../../utils/filtroListaDomai
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import './Lembretes.css';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 interface LembreteData {
   id: string;
@@ -205,8 +206,8 @@ const LembretesList: React.FC = () => {
                 </tr>
               ) : lembretesFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>
-                    {lembretes.length === 0 ? 'Nenhum lembrete cadastrado.' : 'Nenhum lembrete encontrado com essa busca e esses filtros.'}
+                  <td colSpan={6} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo={lembretes.length === 0 ? 'Nenhum lembrete cadastrado.' : 'Nenhum lembrete encontrado com essa busca e esses filtros.'} compacto />
                   </td>
                 </tr>
               ) : (

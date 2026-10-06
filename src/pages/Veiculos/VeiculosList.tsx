@@ -9,6 +9,7 @@ import { isPlatformAdminRole } from '../../utils/roles';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import EstadoVazio from '../../components/common/EstadoVazio';
 import '../OS/OS.css'; // Reusing OS styles
 
 interface Veiculo {
@@ -152,9 +153,7 @@ const VeiculosList: React.FC = () => {
           </div>
         ) : filteredVeiculos.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)', border: '2px dashed var(--border-color)', borderRadius: 'var(--radius-lg)' }}>
-            <Car size={48} style={{ opacity: 0.2, margin: '0 auto 16px' }} />
-            <h3 style={{ fontSize: '18px', color: 'var(--text-primary)', marginBottom: '8px' }}>Nenhum veículo encontrado</h3>
-            <p>Não há veículos cadastrados ou a busca não retornou resultados.</p>
+            <EstadoVazio titulo="Nenhum veículo encontrado" texto="Não há veículos cadastrados ou a busca não retornou resultados." />
           </div>
         ) : (
           <div className="table-responsive">

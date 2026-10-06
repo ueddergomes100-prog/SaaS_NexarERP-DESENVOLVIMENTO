@@ -26,6 +26,7 @@ import '../OS/OS.css';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 /** Convenio de emissao de boleto deste banco (2026-09-22). So' Sicoob por
  *  enquanto -- ver src/utils/boletoRemessaSicoobDomain.ts. `ativo` decide
@@ -504,9 +505,8 @@ const BancosList: React.FC = () => {
                 <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : filteredBancos.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                    <Building2 size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-                    <p>Nenhum banco cadastrado.</p>
+                  <td colSpan={5} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo="Nenhum banco cadastrado." compacto />
                   </td>
                 </tr>
               ) : (
@@ -988,7 +988,7 @@ const BancosList: React.FC = () => {
                   {ledgerLoading ? (
                     <tr><td colSpan={4} style={{ textAlign: 'center', padding: '16px' }}>Carregando...</td></tr>
                   ) : lancamentos.length === 0 ? (
-                    <tr><td colSpan={4} style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)' }}>Nenhum lançamento manual registrado.</td></tr>
+                    <tr><td colSpan={4} style={{ padding: '8px' }}><EstadoVazio titulo="Nenhum lançamento manual registrado." compacto /></td></tr>
                   ) : (
                     lancamentos.map((l) => (
                       <tr key={l.id}>

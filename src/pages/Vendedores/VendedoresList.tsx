@@ -42,6 +42,7 @@ import {
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 
 /**
@@ -539,10 +540,8 @@ const VendedoresList: React.FC = () => {
                 </tr>
               ) : listaFiltrada.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                    {vendedores.length === 0
-                      ? 'Nenhum vendedor cadastrado ainda. Cadastre quem vende no balcão — cada um com um código de 2 dígitos e uma senha numérica.'
-                      : 'Nenhum vendedor encontrado com esse termo.'}
+                  <td colSpan={6} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo={vendedores.length === 0 ? 'Nenhum vendedor cadastrado ainda.' : 'Nenhum vendedor encontrado com esse termo.'} texto={vendedores.length === 0 ? 'Cadastre quem vende no balcão — cada um com um código de 2 dígitos e uma senha numérica.' : undefined} compacto />
                   </td>
                 </tr>
               ) : (

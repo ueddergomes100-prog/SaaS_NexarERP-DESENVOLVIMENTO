@@ -9,6 +9,7 @@ import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { TIPOS_DE_VEICULO, erroDoVeiculo, formatarPlaca, normalizarPlaca, type VeiculoDaFrota } from '../../utils/frotaDomain';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 /**
  * FROTA PROPRIA (2026-09-25): os veiculos da EMPRESA -- caminhao de entrega,
@@ -184,9 +185,8 @@ const FrotaList: React.FC = () => {
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px' }}>Carregando a frota...</td></tr>
               ) : filtrados.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '50px', color: 'var(--text-muted)' }}>
-                    <Truck size={44} style={{ margin: '0 auto 14px', opacity: 0.25 }} />
-                    <div>{veiculos.length === 0 ? 'Nenhum veículo cadastrado na frota ainda.' : 'Nenhum veículo com esses filtros.'}</div>
+                  <td colSpan={7} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo={veiculos.length === 0 ? 'Nenhum veículo cadastrado na frota ainda.' : 'Nenhum veículo com esses filtros.'} compacto />
                   </td>
                 </tr>
               ) : filtrados.map((v) => (

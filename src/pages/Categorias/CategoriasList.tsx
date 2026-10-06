@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Search, Plus, Tags, Edit, Power, Upload, CaseUpper } from 'lucide-react';
+import { Search, Plus, Edit, Power, Upload, CaseUpper } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -12,6 +12,7 @@ import '../OS/OS.css';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 interface CategoriaData {
   id: string;
@@ -169,7 +170,7 @@ const CategoriasList: React.FC = () => {
               {loading ? (
                 <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : filteredCategorias.length === 0 ? (
-                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}><Tags size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} /><p>Nenhuma categoria encontrada.</p></td></tr>
+                <tr><td colSpan={4} style={{ padding: '8px' }}><EstadoVazio titulo="Nenhuma categoria encontrada." compacto /></td></tr>
               ) : (
                 filteredCategorias.map((cat) => (
                   <tr key={cat.id} {...linha(cat.id, () => openTab(`/categorias/editar/${cat.id}`))}>

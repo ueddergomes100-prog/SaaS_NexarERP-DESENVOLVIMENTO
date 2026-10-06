@@ -22,6 +22,7 @@ import {
 } from '../../utils/vendedorCadastroDomain';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
+import EstadoVazio from '../../components/common/EstadoVazio';
 
 interface UsuarioData {
   id: string;
@@ -225,7 +226,9 @@ const UsuariosList: React.FC = () => {
                 </tr>
               ) : filteredUsuarios.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum funcionário cadastrado.</td>
+                  <td colSpan={6} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo="Nenhum funcionário cadastrado." compacto />
+                  </td>
                 </tr>
               ) : (
                 filteredUsuarios.map(user => (

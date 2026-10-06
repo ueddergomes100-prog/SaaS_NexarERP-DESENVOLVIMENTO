@@ -37,6 +37,19 @@ export interface PdvClient {
   documento?: string;
   email?: string;
   isPadrao?: boolean;
+  /** Para a busca e o filtro de cidade da janela de cliente (2026-10-06). */
+  fantasia?: string;
+  celular?: string;
+  cidade?: string;
+  estado?: string;
+  bairro?: string;
+  endereco?: string;
+  numero?: string;
+  /** `false` = inativo; a consulta esconde inativos por padrao. */
+  ativo?: boolean;
+  /** Alerta do cadastro do cliente (clienteAlertaDomain), mostrado ao escolher. */
+  alertaAtivo?: boolean;
+  alertaTexto?: string;
 }
 
 export interface PdvCartItem {

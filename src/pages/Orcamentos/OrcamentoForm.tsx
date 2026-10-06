@@ -993,12 +993,7 @@ const OrcamentoForm: React.FC = () => {
                     <>Cliente não cadastrado. Você será perguntado se quer cadastrar ao salvar.</>
                   ) : undefined
                 }
-                renderItem={(cliente) => (
-                  <>
-                    <span>{cliente.codigo ? `#${cliente.codigo} — ${cliente.nome}` : cliente.nome}</span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{cliente.telefone}</span>
-                  </>
-                )}
+                buscaDeCliente
               />
               <button
                 type="button"

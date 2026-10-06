@@ -1,0 +1,434 @@
+/*
+ * Consulta de clientes (2026-10-06). Tres faixas de filtro em ordem de uso
+ * (o que procurar -> onde procurar -> recortes), lista em colunas e a ficha
+ * do cliente destacado. Cor so' onde informa: roxo no que esta escolhido,
+ * ambar no alerta do cliente.
+ */
+
+.consulta-clientes__fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 20px 20px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.consulta-clientes {
+  width: min(1000px, 100%);
+  height: min(740px, calc(100vh - 60px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.consulta-clientes__topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 0;
+}
+
+.consulta-clientes__topo h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.consulta-clientes__fechar {
+  display: flex;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+/* --- filtros ------------------------------------------------------------- */
+
+.consulta-clientes__filtros {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.consulta-clientes__linha-busca {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.consulta-clientes__busca {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.consulta-clientes__busca:focus-within {
+  border-color: var(--accent-purple);
+}
+
+.consulta-clientes__busca input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.consulta-clientes__legenda {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.consulta-clientes__campo-busca {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.consulta-clientes__grade {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(110px, 0.6fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.consulta-clientes__item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.consulta-clientes__select {
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+/* Segmentado (Contem/Comeca com, Buscar em, Situacao) */
+.consulta-clientes__segmentado {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+  max-width: 100%;
+}
+
+.consulta-clientes__segmentado button {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 3px);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.consulta-clientes__segmentado button:hover {
+  color: var(--text-primary);
+}
+
+.consulta-clientes__segmentado button.is-ativo {
+  background: var(--accent-purple);
+  color: #fff;
+}
+
+.consulta-clientes__segmentado--rolavel {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.consulta-clientes__segmentado--rolavel::-webkit-scrollbar {
+  display: none;
+}
+
+.consulta-clientes button:focus-visible,
+.consulta-clientes select:focus-visible {
+  outline: 2px solid var(--accent-purple);
+  outline-offset: 1px;
+}
+
+/* --- meta e lista -------------------------------------------------------- */
+
+.consulta-clientes__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.consulta-clientes__limpar {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent-purple);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.consulta-clientes__tabela {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 12px 8px;
+}
+
+.consulta-clientes__cabecalho,
+.consulta-clientes__linha {
+  display: grid;
+  grid-template-columns: minmax(0, 2.4fr) minmax(0, 1.6fr) minmax(0, 1.3fr) 150px 64px;
+  gap: 12px;
+  align-items: center;
+  padding: 0 10px;
+}
+
+.consulta-clientes__cabecalho {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 32px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.consulta-clientes__linha {
+  width: 100%;
+  min-height: 38px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.consulta-clientes__linha:hover {
+  background: var(--bg-tertiary);
+}
+
+.consulta-clientes__linha.is-destaque {
+  background: color-mix(in srgb, var(--accent-purple) 16%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent-purple);
+}
+
+.consulta-clientes__linha.is-inativo .consulta-clientes__nome > span:not(.consulta-clientes__selo) {
+  color: var(--text-muted);
+}
+
+.consulta-clientes__linha > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.consulta-clientes__nome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.consulta-clientes__nome > span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.consulta-clientes__icone-alerta {
+  flex-shrink: 0;
+  color: #f59e0b;
+}
+
+.consulta-clientes__selo {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.consulta-clientes__fantasia,
+.consulta-clientes__doc {
+  color: var(--text-secondary);
+}
+
+.consulta-clientes__cidade {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.consulta-clientes__doc,
+.consulta-clientes__num {
+  font-variant-numeric: tabular-nums;
+}
+
+.consulta-clientes__num {
+  text-align: right;
+  color: var(--text-muted);
+}
+
+/* --- ficha do cliente destacado ----------------------------------------- */
+
+.consulta-clientes__ficha {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.consulta-clientes__ficha-contatos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+
+.consulta-clientes__ficha-contatos span,
+.consulta-clientes__ficha-endereco,
+.consulta-clientes__ficha-alerta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.consulta-clientes__ficha svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.consulta-clientes__ficha-vazio {
+  color: var(--text-muted);
+}
+
+.consulta-clientes__ficha-alerta {
+  align-items: flex-start;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+.consulta-clientes__ficha-alerta svg {
+  margin-top: 1px;
+  color: #f59e0b;
+}
+
+/* --- rodape -------------------------------------------------------------- */
+
+.consulta-clientes__rodape {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-color);
+  flex-wrap: wrap;
+}
+
+.consulta-clientes__extras,
+.consulta-clientes__acoes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* --- celular / tela estreita -------------------------------------------- */
+
+@media (max-width: 760px) {
+  .consulta-clientes__fundo { padding: 0; }
+
+  .consulta-clientes {
+    width: 100%;
+    height: 100%;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: 0;
+  }
+
+  .consulta-clientes__linha-busca { flex-direction: column; align-items: stretch; }
+  /* Em coluna, o flex: 1 zeraria a altura da caixa de busca. */
+  .consulta-clientes__busca { flex: none; }
+  .consulta-clientes__linha-busca .consulta-clientes__segmentado { align-self: flex-start; }
+  .consulta-clientes__campo-busca { flex-direction: column; align-items: stretch; gap: 6px; }
+  .consulta-clientes__grade { grid-template-columns: minmax(0, 1fr) 96px; }
+  .consulta-clientes__grade > .consulta-clientes__item:last-child { grid-column: 1 / -1; }
+
+  .consulta-clientes__cabecalho { display: none; }
+
+  .consulta-clientes__linha {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'nome num'
+      'fantasia fantasia'
+      'cidade doc';
+    row-gap: 2px;
+    padding: 8px 10px;
+  }
+
+  .consulta-clientes__nome { grid-area: nome; }
+  .consulta-clientes__fantasia { grid-area: fantasia; font-size: 12px; }
+  .consulta-clientes__cidade { grid-area: cidade; }
+  .consulta-clientes__doc { grid-area: doc; font-size: 12px; text-align: right; }
+  .consulta-clientes__linha > .consulta-clientes__num { grid-area: num; }
+
+  .consulta-clientes__rodape { flex-direction: column-reverse; align-items: stretch; }
+  .consulta-clientes__acoes { justify-content: flex-end; }
+}

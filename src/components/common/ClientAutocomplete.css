@@ -55,7 +55,7 @@
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  max-height: 220px;
+  max-height: 320px;
   overflow-y: auto;
   box-shadow: var(--shadow-card);
 }
@@ -98,4 +98,203 @@
   color: var(--text-muted);
   font-size: 13px;
   text-align: center;
+}
+
+/* --- Filtro de cidade e linha padrao de cliente (2026-10-06) ---------------- */
+
+/* Botao "Filtros" encostado na direita do campo; com filtro ligado vira
+   etiqueta roxa com o resumo ("SERRA · ES +1") -- o unico ponto de cor do
+   campo, para ninguem esquecer que a lista esta filtrada. */
+.client-autocomplete__filtro {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  max-width: 55%;
+}
+
+.client-autocomplete__botao-filtros {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.client-autocomplete__botao-filtros:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-purple);
+  background: color-mix(in srgb, var(--accent-purple) 8%, transparent);
+}
+
+.client-autocomplete__etiqueta {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent-purple) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-purple) 18%, transparent);
+  color: var(--text-primary);
+}
+
+.client-autocomplete__etiqueta-texto {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.client-autocomplete__etiqueta-texto svg {
+  flex-shrink: 0;
+  color: var(--accent-purple);
+}
+
+.client-autocomplete__etiqueta-texto span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.client-autocomplete__etiqueta-limpar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.client-autocomplete__etiqueta-limpar:hover {
+  color: #ef4444;
+}
+
+.client-autocomplete__filtro button:focus-visible {
+  outline: 2px solid var(--accent-purple);
+  outline-offset: 1px;
+}
+
+@media (max-width: 480px) {
+  .client-autocomplete__botao-filtros-texto { display: none; }
+  .client-autocomplete__botao-filtros { padding: 0 9px; }
+}
+
+.linha-cliente__alerta {
+  flex-shrink: 0;
+  margin-right: 6px;
+  vertical-align: -2px;
+  color: #f59e0b;
+}
+
+.client-autocomplete__resumo {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.client-autocomplete__todas-cidades {
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.client-autocomplete__todas-cidades:hover {
+  border-color: var(--accent-purple);
+}
+
+.client-autocomplete__dica {
+  margin-top: 10px;
+}
+
+.linha-cliente {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.linha-cliente__principal {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.linha-cliente__nome {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.linha-cliente__codigo {
+  margin-right: 8px;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.linha-cliente__detalhe {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.linha-cliente__local {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+@media (max-width: 480px) {
+  .linha-cliente { flex-wrap: wrap; row-gap: 2px; }
+  .linha-cliente__local { max-width: 100%; order: 2; flex-basis: 100%; }
 }

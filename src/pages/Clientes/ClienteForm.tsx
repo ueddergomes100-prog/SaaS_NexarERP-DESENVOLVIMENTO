@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, User, Loader2, MapPin, CreditCard, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Save, User, Loader2, MapPin, CreditCard, CheckCircle, TriangleAlert } from 'lucide-react';
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -16,6 +16,7 @@ import { erroDoDescontoPadraoCliente, parseDescontoPadraoCliente } from '../../u
 import { spedyService, type SpedyCity } from '../../services/spedyService';
 import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 import { fetchComTimeout } from '../../utils/fetchComTimeout';
+import { ALERTA_TAMANHO_MAXIMO, camposDoAlertaParaGravar, erroDoAlertaDoCliente } from '../../utils/clienteAlertaDomain';
 
 /** ViaCEP responde em menos de 1 s; mais de 10 s e' instabilidade dele. */
 const TEMPO_LIMITE_CEP_MS = 10_000;
@@ -65,6 +66,9 @@ const ClienteForm: React.FC = () => {
     limiteDeCredito: '',
     /** Desconto que este cliente ja tem direito, em %. Ver descontoDomain. */
     descontoPadraoPercentual: '',
+    /** Alerta mostrado ao escolher o cliente na venda/OS/orcamento (clienteAlertaDomain, 2026-10-06). */
+    alertaAtivo: false,
+    alertaTexto: '',
   });
 
   // Dado historico da importacao (data da ultima compra no sistema
@@ -250,6 +254,9 @@ const ClienteForm: React.FC = () => {
               limiteDeCredito: data.limiteDeCredito === null || data.limiteDeCredito === undefined
                 ? ''
                 : String(data.limiteDeCredito),
+              // Cliente cadastrado antes do alerta nao tem os campos.
+              alertaAtivo: data.alertaAtivo === true,
+              alertaTexto: String(data.alertaTexto ?? ''),
             }));
             setDtUltimaCompraSistemaAntigo(data.dtUltimaCompraSistemaAntigo || '');
             setInativo(data.ativo === false);
@@ -334,6 +341,13 @@ const ClienteForm: React.FC = () => {
         }
       }
 
+      const erroAlerta = erroDoAlertaDoCliente(formData.alertaAtivo, formData.alertaTexto);
+      if (erroAlerta) {
+        showError('Alerta do cliente', erroAlerta);
+        setIsLoading(false);
+        return;
+      }
+
       const erroDesconto = erroDoDescontoPadraoCliente(formData.descontoPadraoPercentual);
       if (erroDesconto) {
         showError('Desconto padrão inválido', erroDesconto);
@@ -352,6 +366,7 @@ const ClienteForm: React.FC = () => {
         // Numero, nao texto: e' assim que a venda le. Campo em branco vira 0
         // (== sem desconto proprio), nunca undefined (regra 3 do CLAUDE.md).
         descontoPadraoPercentual: parseDescontoPadraoCliente(formData.descontoPadraoPercentual),
+        ...camposDoAlertaParaGravar(formData.alertaAtivo, formData.alertaTexto),
         tenantId
       };
 
@@ -667,6 +682,44 @@ const ClienteForm: React.FC = () => {
             <label>Limite de Crédito (R$)</label>
             <input type="number" min="0" step="0.01" name="limiteDeCredito" value={formData.limiteDeCredito} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             <small style={{ color: 'var(--text-muted)' }}>Só é exigido se o sistema estiver configurado pra trabalhar com limite de crédito (Configurações). Deixe em branco pra não permitir venda a prazo a este cliente.</small>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)', marginTop: '12px' }}>
+            <TriangleAlert size={20} style={{ color: '#f59e0b' }} />
+            <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Alerta</h3>
+          </div>
+
+          <div className="input-group" style={{ gap: '10px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)' }}>
+              <input
+                type="checkbox"
+                checked={formData.alertaAtivo}
+                onChange={(e) => setFormData((prev) => ({ ...prev, alertaAtivo: e.target.checked }))}
+                style={{ width: '18px', height: '18px', accentColor: 'var(--accent-purple)' }}
+              />
+              Mostrar alerta ao escolher este cliente
+            </label>
+            <small style={{ color: 'var(--text-muted)' }}>
+              O texto aparece numa janela quando este cliente for escolhido no PDV, no Pedido de Venda, no Orçamento, na OS e no app Vendas.
+            </small>
+            {formData.alertaAtivo && (
+              <>
+                <textarea
+                  name="alertaTexto"
+                  aria-label="Texto do alerta"
+                  value={formData.alertaTexto}
+                  maxLength={ALERTA_TAMANHO_MAXIMO}
+                  rows={3}
+                  autoFocus
+                  placeholder="O que a equipe precisa saber antes de vender para este cliente"
+                  onChange={(e) => setFormData((prev) => ({ ...prev, alertaTexto: e.target.value }))}
+                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid #f59e0b', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', resize: 'vertical', fontFamily: 'inherit', fontSize: '14px' }}
+                />
+                <small style={{ color: 'var(--text-muted)', alignSelf: 'flex-end' }}>
+                  {formData.alertaTexto.length}/{ALERTA_TAMANHO_MAXIMO}
+                </small>
+              </>
+            )}
           </div>
 
         </div>

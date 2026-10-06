@@ -1,7 +1,10 @@
-import React, { useMemo, useState } from 'react';
-import { Search, UserPlus, UserRound, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { UserPlus, UserRound } from 'lucide-react';
 import type { PdvClient } from '../types';
 import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../../components/common/CadastroRapidoClienteModal';
+import ConsultaClientesModal from '../../../components/common/ConsultaClientesModal';
+import { mostrarAlertaDoCliente } from '../../../components/common/AlertaDoCliente';
+import { FILTROS_CONSULTA_PADRAO, type FiltrosConsultaCliente } from '../../../utils/clientSearch';
 
 interface ClientModalProps {
   open: boolean;
@@ -11,6 +14,14 @@ interface ClientModalProps {
   onSelect: (client: PdvClient | null) => void;
 }
 
+/**
+ * Cliente do PDV (F2). Desde 2026-10-06 e' a mesma Consulta de clientes do
+ * Pedido/OS/Orcamento (todos os filtros do Integra: cidade, estado,
+ * situacao, buscar em, comeca/contem), com "Consumidor final" e "Cadastrar
+ * cliente" no rodape. Os filtros ficam valendo enquanto o PDV estiver aberto
+ * -- o caixa costuma atender a mesma cidade a manha inteira. Escolher cliente
+ * com alerta no cadastro abre o alerta.
+ */
 const ClientModal: React.FC<ClientModalProps> = ({
   open,
   clients,
@@ -18,22 +29,13 @@ const ClientModal: React.FC<ClientModalProps> = ({
   onClose,
   onSelect,
 }) => {
-  const [search, setSearch] = useState('');
   const [cadastroAberto, setCadastroAberto] = useState(false);
-  const filteredClients = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return clients.slice(0, 40);
+  const [filtros, setFiltros] = useState<FiltrosConsultaCliente>(FILTROS_CONSULTA_PADRAO);
 
-    return clients.filter((client) => [
-      client.nome,
-      client.codigo,
-      client.documento,
-      client.telefone,
-      client.email,
-    ].filter(Boolean).join(' ').toLowerCase().includes(term)).slice(0, 40);
-  }, [clients, search]);
-
-  if (!open) return null;
+  const escolher = (client: PdvClient) => {
+    onSelect(client);
+    mostrarAlertaDoCliente(client);
+  };
 
   const handleClienteCriado = (cliente: ClienteCadastradoRapido) => {
     onSelect({ id: cliente.id, codigo: cliente.codigo, nome: cliente.nome, telefone: cliente.telefone, documento: cliente.documento });
@@ -41,80 +43,45 @@ const ClientModal: React.FC<ClientModalProps> = ({
   };
 
   return (
-    <div className="pdv-modal-backdrop" role="presentation">
-      <div className="pdv-modal" role="dialog" aria-modal="true" aria-label="Selecionar cliente">
-        <div className="pdv-modal-header">
-          <div>
-            <span>F2</span>
-            <h2>Cliente</h2>
-          </div>
-          <button type="button" onClick={onClose} title="Fechar">
-            <X size={20} />
-          </button>
-        </div>
-
-        <button
-          type="button"
-          className={!selectedClient ? 'pdv-customer-option active' : 'pdv-customer-option'}
-          onClick={() => { onSelect(null); onClose(); }}
-        >
-          <UserRound size={20} />
-          <span>
-            <strong>CONSUMIDOR FINAL</strong>
-            <small>Venda sem cliente identificado</small>
-          </span>
-        </button>
-
-        <div className="pdv-modal-search">
-          <Search size={17} />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar cliente, código, CPF/CNPJ, telefone ou e-mail"
-            autoFocus
-          />
-        </div>
-
-        <button
-          type="button"
-          className="pdv-customer-option"
-          onClick={() => setCadastroAberto(true)}
-        >
-          <UserPlus size={20} />
-          <span>
-            <strong>Cadastrar Cliente</strong>
-            <small>Novo cadastro rápido, sem sair da venda</small>
-          </span>
-        </button>
-
-        <div className="pdv-customer-list">
-          {filteredClients.map((client) => (
+    <>
+      <ConsultaClientesModal
+        open={open && !cadastroAberto}
+        onClose={onClose}
+        clients={clients}
+        onSelect={escolher}
+        filtros={filtros}
+        onFiltrosChange={setFiltros}
+        selecionadoId={selectedClient?.id ?? null}
+        acoesExtras={(
+          <>
             <button
               type="button"
-              key={client.id}
-              className={selectedClient?.id === client.id ? 'pdv-customer-option active' : 'pdv-customer-option'}
-              onClick={() => { onSelect(client); onClose(); }}
+              className={`btn-secondary${!selectedClient ? ' is-ativo' : ''}`}
+              onClick={() => { onSelect(null); onClose(); }}
+              title="Venda sem cliente identificado"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
             >
-              <UserRound size={20} />
-              <span>
-                <strong>{client.codigo ? `#${client.codigo} — ${client.nome}` : client.nome}</strong>
-                <small>{client.documento || client.telefone || client.email || 'Cliente cadastrado'}</small>
-              </span>
+              <UserRound size={16} aria-hidden="true" /> Consumidor final
             </button>
-          ))}
-
-          {filteredClients.length === 0 && (
-            <div className="pdv-modal-empty">Nenhum cliente encontrado.</div>
-          )}
-        </div>
-      </div>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setCadastroAberto(true)}
+              title="Novo cadastro rápido, sem sair da venda"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <UserPlus size={16} aria-hidden="true" /> Cadastrar cliente
+            </button>
+          </>
+        )}
+      />
 
       <CadastroRapidoClienteModal
-        open={cadastroAberto}
+        open={open && cadastroAberto}
         onClose={() => setCadastroAberto(false)}
-        onCriado={handleClienteCriado}
+        onCriado={(cliente) => { setCadastroAberto(false); handleClienteCriado(cliente); }}
       />
-    </div>
+    </>
   );
 };
 

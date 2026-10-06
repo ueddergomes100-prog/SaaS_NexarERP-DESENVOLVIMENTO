@@ -1819,12 +1819,7 @@ const OSForm: React.FC = () => {
                     </>
                   )
                 }
-                renderItem={(c) => (
-                  <>
-                    <span>{c.codigo ? `#${c.codigo} — ${c.nome}` : c.nome}</span>
-                    <span>{c.telefone}</span>
-                  </>
-                )}
+                buscaDeCliente
               />
               <button
                 type="button"

@@ -163,13 +163,8 @@ const CondicionalForm: React.FC = () => {
               onChange={(valor) => { setClienteBusca(valor); if (cliente && valor !== cliente.nome) setCliente(null); }}
               clients={clientesAtivos}
               onSelect={(c) => { setCliente(c); setClienteBusca(c.nome); }}
-              renderItem={(c) => (
-                <>
-                  <span>{c.codigo ? `#${c.codigo} — ${c.nome}` : c.nome}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{c.telefone}</span>
-                </>
-              )}
-              placeholder="Buscar cliente por nome ou código"
+              buscaDeCliente
+              placeholder="Nome, CPF/CNPJ, telefone ou código"
               ariaLabel="Cliente do condicional"
             />
           </div>

@@ -4607,12 +4607,7 @@ const PedidoVendaForm: React.FC = () => {
                 inputRef={clienteInputRef}
                 placeholder="Busque ou digite o nome do cliente..."
                 ariaLabel="Buscar cliente"
-                renderItem={(c) => (
-                  <>
-                    <span>{c.codigo ? `#${c.codigo} — ${c.nome}` : c.nome}</span>
-                    <span style={{ color: 'var(--text-muted)' }}>{c.telefone}</span>
-                  </>
-                )}
+                buscaDeCliente
               />
               {!(isViewing && !canEditPendingCliente) && (
                 <button

@@ -153,8 +153,8 @@ const VendedorConsultarCliente: React.FC = () => {
           onChange={setBusca}
           clients={clientes}
           onSelect={(cliente) => setSelecionado(cliente)}
-          renderItem={(cliente) => <span>{clienteComCodigo(cliente)}</span>}
-          placeholder="Buscar cliente por nome ou código"
+          buscaDeCliente
+          placeholder="Nome, CPF/CNPJ, telefone ou código"
           ariaLabel="Buscar cliente"
         />
       </div>

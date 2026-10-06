@@ -168,7 +168,6 @@ const VendedorNovoPedido: React.FC = () => {
               onChange={(evento) => setObservacao(evento.target.value)}
               maxLength={OBSERVACAO_PEDIDO_MAX}
               rows={3}
-              placeholder="Ex.: entregar de manhã, ligar antes de chegar"
               style={{
                 width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border-color)', fontSize: '16px',
                 backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'none',

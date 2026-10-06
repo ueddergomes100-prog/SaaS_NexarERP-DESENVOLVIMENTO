@@ -281,27 +281,27 @@ const InsumosList: React.FC = () => {
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>Nome *</label>
-                  <input type="text" value={form.nome} onChange={(e) => setForm({ ...form, nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder="Ex: CAIXA DE PAPELÃO 30X20" style={{ ...campoStyle, textTransform: 'uppercase' }} />
+                  <input type="text" value={form.nome} onChange={(e) => setForm({ ...form, nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ ...campoStyle, textTransform: 'uppercase' }} />
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>Unidade *</label>
-                  <input type="text" value={form.unidade} onChange={(e) => setForm({ ...form, unidade: e.target.value.toUpperCase() })} placeholder="UN, CX, KG, ROLO" maxLength={6} style={{ ...campoStyle, textTransform: 'uppercase' }} />
+                  <input type="text" value={form.unidade} onChange={(e) => setForm({ ...form, unidade: e.target.value.toUpperCase() })} maxLength={6} style={{ ...campoStyle, textTransform: 'uppercase' }} />
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>Estoque mínimo</label>
-                  <input type="text" inputMode="decimal" value={form.estoqueMinimo} onChange={(e) => setForm({ ...form, estoqueMinimo: e.target.value })} placeholder="0" style={campoStyle} />
+                  <input type="text" inputMode="decimal" value={form.estoqueMinimo} onChange={(e) => setForm({ ...form, estoqueMinimo: e.target.value })} style={campoStyle} />
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>Custo (R$ por unidade)</label>
-                  <input type="text" inputMode="decimal" value={form.precoCusto} onChange={(e) => setForm({ ...form, precoCusto: e.target.value })} placeholder="0,00" style={campoStyle} />
+                  <input type="text" inputMode="decimal" value={form.precoCusto} onChange={(e) => setForm({ ...form, precoCusto: e.target.value })} style={campoStyle} />
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>{editandoId ? 'Em estoque (só leitura)' : 'Saldo inicial'}</label>
-                  <input type="text" inputMode="decimal" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} disabled={Boolean(editandoId)} placeholder="0" style={{ ...campoStyle, opacity: editandoId ? 0.6 : 1 }} />
+                  <input type="text" inputMode="decimal" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} disabled={Boolean(editandoId)} style={{ ...campoStyle, opacity: editandoId ? 0.6 : 1 }} />
                   {editandoId && <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Para mudar o saldo use Entrada de NF-e ou Ajuste de Estoque (fica no histórico).</span>}
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

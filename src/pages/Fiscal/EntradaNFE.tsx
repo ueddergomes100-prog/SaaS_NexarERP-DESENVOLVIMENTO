@@ -1760,7 +1760,6 @@ const EntradaNFE: React.FC = () => {
                       min="0"
                       value={frete.valor || ''}
                       onChange={(e) => setFrete({ ...frete, valor: Math.max(0, Number(e.target.value) || 0) })}
-                      placeholder="0,00"
                       style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontWeight: 600 }}
                     />
                     {parsedData.valorFreteXml > 0 && (
@@ -2007,7 +2006,6 @@ const EntradaNFE: React.FC = () => {
                   <label>Telefone</label>
                   <input
                     type="text"
-                    placeholder="(00) 00000-0000"
                     value={fornecedorForm.telefone}
                     onChange={(e) => setFornecedorForm({ ...fornecedorForm, telefone: e.target.value })}
                     style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}

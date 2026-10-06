@@ -404,20 +404,20 @@ const ImportarFornecedores: React.FC = () => {
                         <input type="text" value={fornecedor.nome} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ ...inputStyle, width: '220px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" placeholder="-" value={fornecedor.documento} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { documento: e.target.value.replace(/\D/g, '') })} style={{ ...inputStyle, width: '130px' }} />
+                        <input type="text" value={fornecedor.documento} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { documento: e.target.value.replace(/\D/g, '') })} style={{ ...inputStyle, width: '130px' }} />
                       </td>
                       <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{fornecedor.tipo}</td>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" placeholder="-" value={fornecedor.telefone} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { telefone: e.target.value })} style={{ ...inputStyle, width: '120px' }} />
+                        <input type="text" value={fornecedor.telefone} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { telefone: e.target.value })} style={{ ...inputStyle, width: '120px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" placeholder="-" value={fornecedor.endereco} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { endereco: e.target.value })} style={{ ...inputStyle, width: '180px' }} />
+                        <input type="text" value={fornecedor.endereco} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { endereco: e.target.value })} style={{ ...inputStyle, width: '180px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" placeholder="-" value={fornecedor.numero} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { numero: e.target.value })} style={{ ...inputStyle, width: '60px' }} />
+                        <input type="text" value={fornecedor.numero} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { numero: e.target.value })} style={{ ...inputStyle, width: '60px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" placeholder="-" value={fornecedor.cidade} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { cidade: e.target.value })} style={{ ...inputStyle, width: '120px' }} />
+                        <input type="text" value={fornecedor.cidade} onChange={(e) => atualizarFornecedor(fornecedor.linhaId, { cidade: e.target.value })} style={{ ...inputStyle, width: '120px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
                         {problema ? (

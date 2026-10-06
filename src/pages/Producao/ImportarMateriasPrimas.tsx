@@ -324,10 +324,10 @@ const ImportarMateriasPrimas: React.FC = () => {
                         {itemOrigem?.motivo && <div style={{ fontSize: '11px', color: '#f59e0b' }}>{itemOrigem.motivo}</div>}
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" placeholder="-" value={materiaPrima.marca} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { marca: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                        <input type="text" value={materiaPrima.marca} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { marca: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" placeholder="-" value={materiaPrima.referencia} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { referencia: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                        <input type="text" value={materiaPrima.referencia} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { referencia: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
                         <input type="text" value={materiaPrima.unidade} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { unidade: e.target.value.toUpperCase() })} style={{ width: '70px', backgroundColor: 'var(--bg-tertiary)', border: !materiaPrima.unidade.trim() ? '1px solid #ef4444' : '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
@@ -336,7 +336,7 @@ const ImportarMateriasPrimas: React.FC = () => {
                         <input type="text" value={materiaPrima.quantidade} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { quantidade: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: quantidadeInvalida ? '1px solid #ef4444' : '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: Number(materiaPrima.quantidade.replace(',', '.')) < 0 ? '#ef4444' : 'var(--text-primary)' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="text" placeholder="-" value={materiaPrima.custo} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { custo: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                        <input type="text" value={materiaPrima.custo} onChange={(e) => atualizarMateriaPrima(materiaPrima.chave, { custo: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                       </td>
                       <td style={{ padding: '8px', textAlign: 'center' }}>
                         <input

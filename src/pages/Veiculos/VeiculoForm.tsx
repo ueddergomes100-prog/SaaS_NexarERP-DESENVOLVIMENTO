@@ -243,7 +243,6 @@ const VeiculoForm: React.FC = () => {
                 name="kmAtual" 
                 value={formData.kmAtual} 
                 onChange={handleChange} 
-                placeholder="Ex: 45000" 
                 style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', fontSize: '18px', fontWeight: 600, color: '#f59e0b' }}
               />
             </div>
@@ -265,7 +264,6 @@ const VeiculoForm: React.FC = () => {
                   name="placa" 
                   value={formData.placa} 
                   onChange={handleChange} 
-                  placeholder="AAA-0000" 
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: '#10b981', fontWeight: 700, fontSize: '16px', textTransform: 'uppercase' }} 
                   required
                 />
@@ -278,7 +276,6 @@ const VeiculoForm: React.FC = () => {
                   name="marca" 
                   value={formData.marca} 
                   onChange={handleChange} 
-                  placeholder="Ex: Honda" 
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
                 />
               </div>
@@ -290,7 +287,6 @@ const VeiculoForm: React.FC = () => {
                   name="modelo" 
                   value={formData.modelo} 
                   onChange={handleChange} 
-                  placeholder="Ex: Civic Touring 1.5 Turbo" 
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
                   required
                 />
@@ -303,7 +299,6 @@ const VeiculoForm: React.FC = () => {
                   name="ano" 
                   value={formData.ano} 
                   onChange={handleChange} 
-                  placeholder="Ex: 2020" 
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
                 />
               </div>
@@ -315,7 +310,6 @@ const VeiculoForm: React.FC = () => {
                   name="cor" 
                   value={formData.cor} 
                   onChange={handleChange} 
-                  placeholder="Ex: Prata" 
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} 
                 />
               </div>

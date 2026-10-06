@@ -250,7 +250,6 @@ const VendedorNovoCliente: React.FC = () => {
             style={estiloCampo}
             inputMode="numeric"
             autoComplete="off"
-            placeholder="00000-000"
             value={form.cep}
             onChange={(e) => alterar('cep', mascaraCep(e.target.value))}
           />
@@ -291,7 +290,6 @@ const VendedorNovoCliente: React.FC = () => {
             style={estiloCampo}
             inputMode="tel"
             autoComplete="off"
-            placeholder="(00) 00000-0000"
             value={form.telefone}
             onChange={(e) => alterar('telefone', mascaraTelefone(e.target.value))}
           />

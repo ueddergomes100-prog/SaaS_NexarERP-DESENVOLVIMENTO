@@ -450,7 +450,6 @@ const UnidadesMedidaList: React.FC = () => {
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Sigla *</label>
                 <input 
                   type="text" 
-                  placeholder="Ex: KG, UN, LTS" 
                   value={modalForm.sigla}
                   onChange={(e) => setModalForm({ ...modalForm, sigla: e.target.value.toUpperCase() })}
                   required
@@ -463,7 +462,6 @@ const UnidadesMedidaList: React.FC = () => {
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome da Unidade *</label>
                 <input 
                   type="text" 
-                  placeholder="Ex: Quilograma, Unidade, Litro" 
                   value={modalForm.nome}
                   onChange={(e) => setModalForm({ ...modalForm, nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                   required

@@ -1581,7 +1581,7 @@ const EstoqueForm: React.FC = () => {
 
               <div className="input-group">
                 <label>Nome do produto *</label>
-                <input type="text" name="nome" placeholder="Ex: ARROZ TIPO 1 5KG" value={formData.nome} onChange={handleChange} required style={{ textTransform: 'uppercase' }} />
+                <input type="text" name="nome" value={formData.nome} onChange={handleChange} required style={{ textTransform: 'uppercase' }} />
               </div>
 
               <div className="form-grid-3">
@@ -1604,7 +1604,7 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>Código de barras</label>
-                  <input type="text" name="codigoBarras" placeholder="EAN/GTIN" value={formData.codigoBarras} onChange={handleChange} />
+                  <input type="text" name="codigoBarras" value={formData.codigoBarras} onChange={handleChange} />
                 </div>
               </div>
 
@@ -1619,7 +1619,7 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>Tags</label>
-                  <input type="text" name="tags" placeholder="varejo, destaque, sazonal" value={formData.tags} onChange={handleChange} />
+                  <input type="text" name="tags" value={formData.tags} onChange={handleChange} />
                 </div>
               </div>
 
@@ -1641,7 +1641,7 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>Imagem do produto</label>
-                  <input type="url" name="imagemProduto" placeholder="URL da imagem ou caminho do upload" value={formData.imagemProduto} onChange={handleChange} />
+                  <input type="url" name="imagemProduto" value={formData.imagemProduto} onChange={handleChange} />
                   <span className="field-hint">Estrutura pronta para upload e compressão automática em etapa futura.</span>
                 </div>
               </div>
@@ -2096,7 +2096,7 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>Peso líquido por unidade (kg)</label>
-                  <input type="number" name="pesoLiquidoUnitarioKg" step="0.001" min="0" placeholder="Ex: 0.500" value={formData.pesoLiquidoUnitarioKg} onChange={handleChange} />
+                  <input type="number" name="pesoLiquidoUnitarioKg" step="0.001" min="0" value={formData.pesoLiquidoUnitarioKg} onChange={handleChange} />
                   <span className="field-hint">Obrigatório só para CFOP de exportação (7101/7102) — usado pra converter a quantidade vendida em unidade pra quilo na nota fiscal, exigência da SEFAZ para operações de exportação.</span>
                 </div>
                 <div className="input-group">
@@ -2191,7 +2191,7 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>Enquadramento IPI</label>
-                  <input type="text" name="enquadramentoIpi" maxLength={3} placeholder={ENQUADRAMENTO_IPI_PADRAO} value={formData.enquadramentoIpi} onChange={handleChange} />
+                  <input type="text" name="enquadramentoIpi" maxLength={3} value={formData.enquadramentoIpi} onChange={handleChange} />
                   <span className="field-hint">Código de enquadramento legal (cEnq). Em branco vai {ENQUADRAMENTO_IPI_PADRAO} (outros).</span>
                 </div>
               </div>
@@ -2231,7 +2231,7 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <div className="input-group">
                   <label>CST IBS</label>
-                  <input type="text" name="cstIbs" maxLength={3} placeholder="Ex.: 000" value={formData.cstIbs} onChange={handleChange} />
+                  <input type="text" name="cstIbs" maxLength={3} value={formData.cstIbs} onChange={handleChange} />
                 </div>
                 <div className="input-group">
                   <label>Alíquota IBS (%)</label>
@@ -2239,7 +2239,7 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>CST CBS</label>
-                  <input type="text" name="cstCbs" maxLength={3} placeholder="Ex.: 000" value={formData.cstCbs} onChange={handleChange} />
+                  <input type="text" name="cstCbs" maxLength={3} value={formData.cstCbs} onChange={handleChange} />
                 </div>
                 <div className="input-group">
                   <label>Alíquota CBS (%)</label>
@@ -2375,7 +2375,6 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>Descrição</label>
                   <input
-                    placeholder="Ex.: Saco de 20kg"
                     value={novaEmbalagem.descricao}
                     onChange={(e) => setNovaEmbalagem(prev => ({ ...prev, descricao: aplicarCaixaAltaCadastro(e.target, e.target.value) }))}
                   />
@@ -2413,13 +2412,6 @@ const EstoqueForm: React.FC = () => {
                         const precoEfetivo = toNumber(embalagem.precoVenda) > 0
                           ? toNumber(embalagem.precoVenda)
                           : precoVenda * fator;
-                        // Mesma regra de tabelaDoProduto (precoVendaDomain.ts):
-                        // sem a vista proprio, o saco com preco de venda proprio
-                        // fica no preco de venda; sem nenhum dos dois, kg x fator.
-                        const precoAVistaBase = toNumber(formData.precoAVista);
-                        const precoAVistaEfetivo = toNumber(embalagem.precoAVista) > 0
-                          ? toNumber(embalagem.precoAVista)
-                          : (toNumber(embalagem.precoVenda) > 0 || precoAVistaBase <= 0 ? precoEfetivo : precoAVistaBase * fator);
                         return (
                           <tr key={embalagem.id} style={{ opacity: embalagem.ativo ? 1 : 0.5 }}>
                             <td>
@@ -2442,7 +2434,7 @@ const EstoqueForm: React.FC = () => {
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                placeholder={formatCurrency(precoEfetivo)}
+                               
                                 value={embalagem.precoVenda}
                                 onChange={(e) => updateEmbalagem(embalagem.id, 'precoVenda', e.target.value)}
                               />
@@ -2452,7 +2444,7 @@ const EstoqueForm: React.FC = () => {
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                placeholder={formatCurrency(precoAVistaEfetivo)}
+                               
                                 value={embalagem.precoAVista}
                                 onChange={(e) => updateEmbalagem(embalagem.id, 'precoAVista', e.target.value)}
                               />
@@ -2696,7 +2688,7 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>Slug URL</label>
-                  <input type="text" name="slugUrl" value={formData.slugUrl} onChange={handleChange} placeholder={sugestaoSlug} />
+                  <input type="text" name="slugUrl" value={formData.slugUrl} onChange={handleChange} />
                 </div>
                 <div className="input-group">
                   <label>Peso envio</label>
@@ -2775,7 +2767,7 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-3">
                 <div className="input-group">
                   <label>Lote</label>
-                  <input type="text" name="lote" placeholder="Ex: L2026-08" value={formData.lote} onChange={handleChange} />
+                  <input type="text" name="lote" value={formData.lote} onChange={handleChange} />
                 </div>
                 <div className="input-group">
                   <label>Validade</label>

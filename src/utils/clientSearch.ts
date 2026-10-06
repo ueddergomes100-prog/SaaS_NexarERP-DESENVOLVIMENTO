@@ -11,8 +11,13 @@ export interface SearchableClient {
  * Termo vazio retorna a lista inteira (o dropdown ja e limitado em
  * altura/scroll, nao em quantidade de itens).
  */
+/** Curinga "listar tudo", o mesmo da busca de produto (productSearch.ts): "#" mostra a lista inteira e "#ana" filtra por "ana". */
+export const LISTAR_TUDO_CLIENTES = '#';
+
 export const searchClients = <T extends SearchableClient>(clients: T[], term: string): T[] => {
-  const normalizedTerm = normalizeSearchText(term);
+  const bruto = String(term ?? '').trim();
+  const semCuringa = bruto.startsWith(LISTAR_TUDO_CLIENTES) ? bruto.slice(1) : bruto;
+  const normalizedTerm = normalizeSearchText(semCuringa);
   if (!normalizedTerm) return clients;
   return clients.filter((client) => (
     normalizeSearchText(client.nome).includes(normalizedTerm)

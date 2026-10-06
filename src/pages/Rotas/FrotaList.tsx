@@ -230,7 +230,7 @@ const FrotaList: React.FC = () => {
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>Modelo *</label>
-                  <input type="text" value={form.modelo} onChange={(e) => setForm({ ...form, modelo: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder="Ex: VW DELIVERY 9.170" style={{ ...campoStyle, textTransform: 'uppercase' }} />
+                  <input type="text" value={form.modelo} onChange={(e) => setForm({ ...form, modelo: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ ...campoStyle, textTransform: 'uppercase' }} />
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
@@ -240,7 +240,7 @@ const FrotaList: React.FC = () => {
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>Ano</label>
-                  <input type="text" inputMode="numeric" value={form.ano} onChange={(e) => setForm({ ...form, ano: e.target.value.replace(/\D/g, '').slice(0, 4) })} placeholder="2021" style={campoStyle} />
+                  <input type="text" inputMode="numeric" value={form.ano} onChange={(e) => setForm({ ...form, ano: e.target.value.replace(/\D/g, '').slice(0, 4) })} style={campoStyle} />
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>Tipo</label>
@@ -259,7 +259,7 @@ const FrotaList: React.FC = () => {
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>KM atual</label>
-                  <input type="text" inputMode="decimal" value={form.kmAtual} onChange={(e) => setForm({ ...form, kmAtual: e.target.value })} placeholder="0" style={campoStyle} />
+                  <input type="text" inputMode="decimal" value={form.kmAtual} onChange={(e) => setForm({ ...form, kmAtual: e.target.value })} style={campoStyle} />
                 </div>
               </div>
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

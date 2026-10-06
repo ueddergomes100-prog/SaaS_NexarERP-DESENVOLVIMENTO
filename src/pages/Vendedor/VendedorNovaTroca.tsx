@@ -175,7 +175,6 @@ const VendedorNovaTroca: React.FC = () => {
             onChange={(evento) => setObservacao(evento.target.value)}
             maxLength={OBSERVACAO_PEDIDO_MAX}
             rows={3}
-            placeholder="Ex.: 2 sacos chegaram rasgados, cliente quer a reposição na próxima entrega"
             style={{
               width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border-color)', fontSize: '16px',
               backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'none',

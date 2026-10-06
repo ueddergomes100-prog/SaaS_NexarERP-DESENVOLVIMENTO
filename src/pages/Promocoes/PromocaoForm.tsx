@@ -223,7 +223,7 @@ const PromocaoForm: React.FC = () => {
       <div className="card" style={{ ...estiloCartao, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', gridColumn: 'span 2' }}>
           <span style={estiloRotulo}>Nome da promoção *</span>
-          <input value={promocao.nome} maxLength={60} onChange={(e) => mudar({ nome: e.target.value.toUpperCase() })} placeholder="Ex.: SEMANA DO PET" style={{ ...estiloCampo, textTransform: 'uppercase' }} />
+          <input value={promocao.nome} maxLength={60} onChange={(e) => mudar({ nome: e.target.value.toUpperCase() })} style={{ ...estiloCampo, textTransform: 'uppercase' }} />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <span style={estiloRotulo}>Data inicial *</span>
@@ -321,7 +321,7 @@ const PromocaoForm: React.FC = () => {
             <option value="percentual">% de desconto</option>
             <option value="valor">Preço fixo (R$)</option>
           </select>
-          <input inputMode="decimal" value={paraTodos.valor} onChange={(e) => setParaTodos({ ...paraTodos, valor: e.target.value })} placeholder={paraTodos.tipo === 'percentual' ? 'Ex.: 10' : 'Ex.: 49,90'} style={{ ...estiloCampo, width: '120px' }} />
+          <input inputMode="decimal" value={paraTodos.valor} onChange={(e) => setParaTodos({ ...paraTodos, valor: e.target.value })} style={{ ...estiloCampo, width: '120px' }} />
           <input inputMode="numeric" value={paraTodos.quota} onChange={(e) => setParaTodos({ ...paraTodos, quota: e.target.value })} placeholder="Quota (opcional)" style={{ ...estiloCampo, width: '150px' }} />
           <button type="button" className="btn-secondary" onClick={aplicarATodos} disabled={promocao.itens.length === 0}>Aplicar</button>
           <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Também vale para os próximos produtos adicionados.</span>

@@ -471,7 +471,7 @@ const Caixa: React.FC = () => {
                   type="text" 
                   value={formData.descricao}
                   onChange={(e) => setFormData({...formData, descricao: aplicarCaixaAltaCadastro(e.target, e.target.value)})}
-                  placeholder={modalTipo === 'entrada' ? "Ex: Troca de óleo Corsa" : "Ex: Conta de Luz"}
+                 
                   style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)' }}
                   required
                 />
@@ -485,7 +485,6 @@ const Caixa: React.FC = () => {
                     step="0.01"
                     value={formData.valor} 
                     onChange={(e) => setFormData({...formData, valor: e.target.value})} 
-                    placeholder="0,00" 
                     style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)', fontWeight: 600, fontSize: '16px' }}
                     required
                   />

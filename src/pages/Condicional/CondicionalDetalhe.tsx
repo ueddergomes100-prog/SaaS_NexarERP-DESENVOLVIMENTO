@@ -288,7 +288,6 @@ const CondicionalDetalhe: React.FC = () => {
                         type="text"
                         inputMode="decimal"
                         aria-label={`Quanto de ${item.nome} voltou agora`}
-                        placeholder="0"
                         disabled={pendente === 0 || processando}
                         value={voltouAgora[item.id] || ''}
                         onChange={(e) => setVoltouAgora((atual) => ({ ...atual, [item.id]: e.target.value.replace(/[^0-9,.]/g, '') }))}

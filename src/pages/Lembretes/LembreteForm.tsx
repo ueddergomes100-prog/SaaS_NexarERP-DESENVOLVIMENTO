@@ -343,8 +343,7 @@ const LembreteForm: React.FC = () => {
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Telefone WhatsApp</label>
               <input 
                 type="text" 
-                name="telefone"
-                placeholder="(00) 00000-0000" 
+                name="telefone" 
                 value={formData.telefone}
                 onChange={handleChange}
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
@@ -386,8 +385,7 @@ const LembreteForm: React.FC = () => {
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Veículo (Modelo)</label>
               <input 
                 type="text" 
-                name="modelo"
-                placeholder="Ex: Fiat Uno" 
+                name="modelo" 
                 value={formData.modelo}
                 onChange={handleChange}
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
@@ -397,8 +395,7 @@ const LembreteForm: React.FC = () => {
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Placa</label>
               <input 
                 type="text" 
-                name="placa"
-                placeholder="ABC-1234" 
+                name="placa" 
                 value={formData.placa}
                 onChange={handleChange}
                 style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
@@ -473,7 +470,6 @@ const LembreteForm: React.FC = () => {
             <input 
               type="text" 
               name="ultimaRevisao"
-              placeholder="Ex: 10/05/2026"
               value={formData.ultimaRevisao}
               onChange={handleChange}
               style={{ width: '50%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}

@@ -574,7 +574,6 @@ const BancosList: React.FC = () => {
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome / Apelido *</label>
                 <input
                   type="text"
-                  placeholder="Ex: Conta principal, Nubank PJ"
                   value={modalForm.nome}
                   onChange={(e) => setModalForm({ ...modalForm, nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                   required
@@ -586,7 +585,6 @@ const BancosList: React.FC = () => {
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Instituição</label>
                 <input
                   type="text"
-                  placeholder="Ex: Itaú, Nubank, Bradesco"
                   value={modalForm.banco}
                   onChange={(e) => setModalForm({ ...modalForm, banco: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
@@ -634,7 +632,6 @@ const BancosList: React.FC = () => {
                         <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Dígito da conta</label>
                         <input
                           type="text"
-                          placeholder="Ex: 0"
                           value={modalForm.boletoContaDv}
                           onChange={(e) => setModalForm({ ...modalForm, boletoContaDv: e.target.value })}
                           style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
@@ -644,7 +641,7 @@ const BancosList: React.FC = () => {
                         <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Código do cliente / beneficiário (opcional)</label>
                         <input
                           type="text"
-                          placeholder="Vazio = conta + dígito (ex: 0512150)"
+                          placeholder="Vazio = conta + dígito"
                           value={modalForm.boletoCodigoCliente}
                           onChange={(e) => setModalForm({ ...modalForm, boletoCodigoCliente: e.target.value.replace(/\D/g, '').slice(0, 7) })}
                           style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
@@ -676,7 +673,6 @@ const BancosList: React.FC = () => {
                       <input
                         type="text"
                         maxLength={40}
-                        placeholder="PROTESTO NO 7 DIA APOS O VENCIMENTO"
                         value={modalForm.boletoInstrucoes}
                         onChange={(e) => setModalForm({ ...modalForm, boletoInstrucoes: e.target.value })}
                         style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
@@ -723,7 +719,6 @@ const BancosList: React.FC = () => {
                         <input
                           type="number"
                           min="1"
-                          placeholder="Ex: 1331"
                           value={modalForm.boletoProximoNossoNumero}
                           onChange={(e) => setModalForm({ ...modalForm, boletoProximoNossoNumero: e.target.value })}
                           style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
@@ -735,7 +730,6 @@ const BancosList: React.FC = () => {
                         <input
                           type="number"
                           min="1"
-                          placeholder="Ex: 1943"
                           value={modalForm.boletoProximaRemessa}
                           onChange={(e) => setModalForm({ ...modalForm, boletoProximaRemessa: e.target.value })}
                           style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
@@ -918,7 +912,6 @@ const BancosList: React.FC = () => {
                   <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Descrição *</label>
                   <input
                     type="text"
-                    placeholder="Ex: Tarifa de manutenção de conta"
                     value={lancamentoForm.descricao}
                     onChange={(e) => setLancamentoForm({ ...lancamentoForm, descricao: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                     style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}

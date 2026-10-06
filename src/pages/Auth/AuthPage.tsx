@@ -617,7 +617,6 @@ const AuthPage: React.FC = () => {
           <div className="auth-code-row">
             <input
               className="auth-input auth-code-input"
-              placeholder="000000"
               value={emailCode}
               onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
               disabled={emailVerified || verifying}
@@ -747,7 +746,6 @@ const AuthPage: React.FC = () => {
             <input
               type="text"
               className="auth-input"
-              placeholder="00.000.000/0000-00"
               value={empresa}
               disabled={loginLoading}
               onChange={(e) => {
@@ -774,7 +772,6 @@ const AuthPage: React.FC = () => {
               type="text"
               className="auth-input"
               style={{ textTransform: 'none' }}
-              placeholder="Dono: seu@email.com / Funcionário: joao"
               value={loginStr}
               disabled={loginLoading}
               onChange={(e) => setLoginStr(e.target.value)}
@@ -789,7 +786,6 @@ const AuthPage: React.FC = () => {
             <input
               type="password"
               className="auth-input"
-              placeholder="••••••••"
               value={password}
               disabled={loginLoading}
               onChange={(e) => setPassword(e.target.value)}
@@ -827,7 +823,6 @@ const AuthPage: React.FC = () => {
             <input
               type="text"
               className="auth-input"
-              placeholder="Ex: Mercado Central, Loja Aurora"
               value={nomeOficina}
               onChange={(event) => setNomeOficina(event.target.value)}
               disabled={signupLoading}
@@ -842,7 +837,6 @@ const AuthPage: React.FC = () => {
             <input
               type="text"
               className="auth-input"
-              placeholder="00.000.000/0000-00"
               value={cnpj}
               onChange={(event) => setCnpj(formatCnpj(event.target.value))}
               disabled={signupLoading}
@@ -859,7 +853,6 @@ const AuthPage: React.FC = () => {
             <input
               type="text"
               className="auth-input"
-              placeholder="Joao da Silva"
               value={nomeResponsavel}
               onChange={(event) => setNomeResponsavel(event.target.value)}
               disabled={signupLoading}
@@ -874,7 +867,6 @@ const AuthPage: React.FC = () => {
             <input
               type="email"
               className="auth-input"
-              placeholder="seu@email.com"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               disabled={signupLoading}
@@ -889,7 +881,6 @@ const AuthPage: React.FC = () => {
             <input
               type="tel"
               className="auth-input"
-              placeholder="(27) 99999-9999"
               value={telefone}
               onChange={(event) => setTelefone(formatPhone(event.target.value))}
               disabled={signupLoading}

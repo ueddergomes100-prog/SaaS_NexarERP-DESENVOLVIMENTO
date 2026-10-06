@@ -647,7 +647,7 @@ const ImportarContasBase: React.FC<ImportarContasBaseProps> = ({
                         <td style={thStyle}>{conta.categoria || '-'}</td>
                         <td style={{ ...thStyle, whiteSpace: 'nowrap' }}>
                           {editavel
-                            ? <input type="text" placeholder="0,00" value={conta.valorBruto} onChange={(e) => atualizarConta(conta.linhaId, { valorBruto: e.target.value, valor: Number(e.target.value.replace(',', '.')) || null })} style={{ ...inputStyle, width: '100px', border: (conta.valor === null || conta.valor <= 0) ? '1px solid #ef4444' : inputStyle.border }} />
+                            ? <input type="text" value={conta.valorBruto} onChange={(e) => atualizarConta(conta.linhaId, { valorBruto: e.target.value, valor: Number(e.target.value.replace(',', '.')) || null })} style={{ ...inputStyle, width: '100px', border: (conta.valor === null || conta.valor <= 0) ? '1px solid #ef4444' : inputStyle.border }} />
                             : (conta.valor !== null ? formatarMoeda(conta.valor) : conta.valorBruto)}
                         </td>
                         <td style={{ ...thStyle, whiteSpace: 'nowrap' }}>

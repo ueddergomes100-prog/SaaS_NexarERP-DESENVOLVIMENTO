@@ -209,7 +209,6 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Celular</label>
               <input
                 type="text"
-                placeholder="(00) 00000-0000"
                 value={telefone}
                 onChange={(e) => setTelefone(e.target.value)}
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
@@ -219,7 +218,6 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>CPF</label>
               <input
                 type="text"
-                placeholder="00000000000"
                 value={documento}
                 onChange={(e) => handleDocumentoChange(e.target.value)}
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}

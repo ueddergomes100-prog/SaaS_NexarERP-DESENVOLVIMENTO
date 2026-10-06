@@ -106,7 +106,7 @@ const MarcaForm: React.FC = () => {
 
           <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome da Marca *</label>
-            <input type="text" name="nome" placeholder="Ex: SOLNATUS" value={formData.nome} onChange={handleChange} style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            <input type="text" name="nome" value={formData.nome} onChange={handleChange} style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
           </div>
         </div>
       </div>

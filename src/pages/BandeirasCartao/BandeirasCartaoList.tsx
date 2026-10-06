@@ -460,7 +460,6 @@ const BandeirasCartaoList: React.FC = () => {
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome *</label>
                 <input
                   type="text"
-                  placeholder="Ex: Visa, Mastercard"
                   value={modalForm.nome}
                   onChange={(e) => setModalForm({ ...modalForm, nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                   required

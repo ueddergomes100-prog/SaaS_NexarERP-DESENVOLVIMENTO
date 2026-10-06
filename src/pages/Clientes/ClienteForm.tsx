@@ -428,14 +428,14 @@ const ClienteForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label>Nome Completo *</label>
-              <input type="text" name="nome" placeholder="Ex: JOÃO DA SILVA" value={formData.nome} onChange={handleChange} style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="nome" value={formData.nome} onChange={handleChange} style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Nome Fantasia</label>
-              <input type="text" name="fantasia" placeholder="Ex: MERCEARIA DO JOÃO" value={formData.fantasia} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="fantasia" value={formData.fantasia} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
             <div className="input-group">
               <label>Inscrição Estadual / RG</label>
@@ -446,11 +446,11 @@ const ClienteForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '20px', alignItems: 'start' }}>
             <div className="input-group">
               <label>Telefone Fixo</label>
-              <input type="text" name="telefone" placeholder="(00) 0000-0000" value={formData.telefone} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="telefone" value={formData.telefone} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
             <div className="input-group">
               <label>Celular / WhatsApp</label>
-              <input type="text" name="celular" placeholder="(00) 00000-0000" value={formData.celular} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="celular" value={formData.celular} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
             <div />
           </div>
@@ -458,7 +458,7 @@ const ClienteForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '20px', alignItems: 'start' }}>
             <div className="input-group">
               <label>CPF / CNPJ (Apenas números)</label>
-              <input type="text" name="documento" placeholder="00000000000" value={formData.documento} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="documento" value={formData.documento} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
               {formData.documento.length >= 11 && (
                 mensagemDocumentoInvalido(formData.documento)
                   ? <small style={{ color: '#ef4444' }}>{mensagemDocumentoInvalido(formData.documento)}</small>
@@ -471,7 +471,7 @@ const ClienteForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>E-mail</label>
-              <input type="email" name="email" placeholder="joao@email.com" value={formData.email} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="email" name="email" value={formData.email} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
             <div className="input-group">
               <label>E-mail para Nota Fiscal</label>
@@ -496,7 +496,6 @@ const ClienteForm: React.FC = () => {
               <input
                 type="text"
                 name="cep"
-                placeholder="36900-000"
                 value={formData.cep}
                 onChange={handleChange}
                 onBlur={buscarEnderecoPorCep}
@@ -508,18 +507,18 @@ const ClienteForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label>Rua / Logradouro</label>
-              <input type="text" name="endereco" placeholder="Av. Central" value={formData.endereco} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="endereco" value={formData.endereco} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Número</label>
-              <input type="text" name="numero" placeholder="123" value={formData.numero} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="numero" value={formData.numero} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
             <div className="input-group">
               <label>Bairro</label>
-              <input type="text" name="bairro" placeholder="Centro" value={formData.bairro} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="bairro" value={formData.bairro} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
 
@@ -533,7 +532,7 @@ const ClienteForm: React.FC = () => {
             )}
             <input
               type="text"
-              placeholder="Digite o nome da cidade pra buscar (ex: Manhuaçu)"
+              placeholder="Digite o nome da cidade pra buscar"
               value={cidadeSearchTerm || formData.cidade}
               onChange={(e) => { setCidadeSearchTerm(e.target.value); setFormData(prev => ({ ...prev, codigoIbge: '' })); setShowCidadeDropdown(true); }}
               onFocus={(e) => { e.target.select(); setShowCidadeDropdown(true); }}
@@ -560,7 +559,7 @@ const ClienteForm: React.FC = () => {
 
           <div className="input-group">
             <label>Ponto de Referência</label>
-            <input type="text" name="referencia" placeholder="Ex: Próximo à praça" value={formData.referencia} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            <input type="text" name="referencia" value={formData.referencia} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)', marginTop: '12px' }}>
@@ -572,29 +571,29 @@ const ClienteForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', alignItems: 'start' }}>
             <div className="input-group">
               <label>CEP</label>
-              <input type="text" name="cepCobranca" placeholder="36900-000" value={formData.cepCobranca} onChange={handleChange} onBlur={buscarEnderecoCobrancaPorCep} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="cepCobranca" value={formData.cepCobranca} onChange={handleChange} onBlur={buscarEnderecoCobrancaPorCep} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
               {isCepCobrancaSearching && <small style={{ color: 'var(--text-muted)' }}>Buscando endereço...</small>}
               {!isCepCobrancaSearching && cepCobrancaSearchError && <small style={{ color: '#ef4444' }}>{cepCobrancaSearchError}</small>}
             </div>
             <div className="input-group">
               <label>Rua / Logradouro</label>
-              <input type="text" name="enderecoCobranca" placeholder="Av. Central" value={formData.enderecoCobranca} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="enderecoCobranca" value={formData.enderecoCobranca} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Número</label>
-              <input type="text" name="numeroCobranca" placeholder="123" value={formData.numeroCobranca} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="numeroCobranca" value={formData.numeroCobranca} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
             <div className="input-group">
               <label>Bairro</label>
-              <input type="text" name="bairroCobranca" placeholder="Centro" value={formData.bairroCobranca} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="bairroCobranca" value={formData.bairroCobranca} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
             <div className="input-group">
               <label>Cidade / UF</label>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <input type="text" name="cidadeCobranca" placeholder="Cidade" value={formData.cidadeCobranca} onChange={handleChange} style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
-                <input type="text" name="estadoCobranca" placeholder="UF" maxLength={2} value={formData.estadoCobranca} onChange={handleChange} style={{ width: '64px', textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                <input type="text" name="cidadeCobranca" value={formData.cidadeCobranca} onChange={handleChange} style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                <input type="text" name="estadoCobranca" maxLength={2} value={formData.estadoCobranca} onChange={handleChange} style={{ width: '64px', textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
               </div>
             </div>
           </div>
@@ -608,35 +607,35 @@ const ClienteForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', alignItems: 'start' }}>
             <div className="input-group">
               <label>CEP</label>
-              <input type="text" name="cepEntrega" placeholder="36900-000" value={formData.cepEntrega} onChange={handleChange} onBlur={buscarEnderecoEntregaPorCep} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="cepEntrega" value={formData.cepEntrega} onChange={handleChange} onBlur={buscarEnderecoEntregaPorCep} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
               {isCepEntregaSearching && <small style={{ color: 'var(--text-muted)' }}>Buscando endereço...</small>}
               {!isCepEntregaSearching && cepEntregaSearchError && <small style={{ color: '#ef4444' }}>{cepEntregaSearchError}</small>}
             </div>
             <div className="input-group">
               <label>Rua / Logradouro</label>
-              <input type="text" name="enderecoEntrega" placeholder="Av. Central" value={formData.enderecoEntrega} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="enderecoEntrega" value={formData.enderecoEntrega} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Número</label>
-              <input type="text" name="numeroEntrega" placeholder="123" value={formData.numeroEntrega} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="numeroEntrega" value={formData.numeroEntrega} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
             <div className="input-group">
               <label>Bairro</label>
-              <input type="text" name="bairroEntrega" placeholder="Centro" value={formData.bairroEntrega} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="bairroEntrega" value={formData.bairroEntrega} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
             <div className="input-group">
               <label>Cidade / UF</label>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <input type="text" name="cidadeEntrega" placeholder="Cidade" value={formData.cidadeEntrega} onChange={handleChange} style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
-                <input type="text" name="estadoEntrega" placeholder="UF" maxLength={2} value={formData.estadoEntrega} onChange={handleChange} style={{ width: '64px', textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                <input type="text" name="cidadeEntrega" value={formData.cidadeEntrega} onChange={handleChange} style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                <input type="text" name="estadoEntrega" maxLength={2} value={formData.estadoEntrega} onChange={handleChange} style={{ width: '64px', textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
               </div>
             </div>
           </div>
           <div className="input-group">
             <label>Ponto de Referência (Entrega)</label>
-            <input type="text" name="referenciaEntrega" placeholder="Ex: Portão azul, fundos do mercado" value={formData.referenciaEntrega} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            <input type="text" name="referenciaEntrega" value={formData.referenciaEntrega} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)', marginTop: '12px' }}>
@@ -652,7 +651,6 @@ const ClienteForm: React.FC = () => {
               max="100"
               step="0.01"
               name="descontoPadraoPercentual"
-              placeholder="0"
               value={formData.descontoPadraoPercentual}
               onChange={handleChange}
               style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)', width: '100%' }}
@@ -667,7 +665,7 @@ const ClienteForm: React.FC = () => {
 
           <div className="input-group">
             <label>Limite de Crédito (R$)</label>
-            <input type="number" min="0" step="0.01" name="limiteDeCredito" placeholder="0,00" value={formData.limiteDeCredito} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            <input type="number" min="0" step="0.01" name="limiteDeCredito" value={formData.limiteDeCredito} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             <small style={{ color: 'var(--text-muted)' }}>Só é exigido se o sistema estiver configurado pra trabalhar com limite de crédito (Configurações). Deixe em branco pra não permitir venda a prazo a este cliente.</small>
           </div>
 

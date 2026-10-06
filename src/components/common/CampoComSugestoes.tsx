@@ -51,7 +51,8 @@ const CampoComSugestoes: React.FC<CampoComSugestoesProps> = ({
   const [destaque, setDestaque] = useState(0);
 
   const sugestoes = useMemo(() => {
-    const termo = normalizar(value || '');
+    // "#" mostra a lista inteira e "#pra" filtra -- o mesmo curinga das buscas de produto e cliente.
+    const termo = normalizar((value || '').replace(/^s*#/, ''));
     const unicas = Array.from(new Set(opcoes.map((o) => String(o || '').trim()).filter(Boolean)));
     const filtradas = termo
       ? unicas.filter((o) => normalizar(o).includes(termo))

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Search, Check, Trash2 } from 'lucide-react';
 import ProdutoOpcaoBusca from '../../components/common/ProdutoOpcaoBusca';
-import { searchProducts } from '../../utils/productSearch';
+import { LISTAR_TUDO_TERM, searchProducts } from '../../utils/productSearch';
 import { resolveUnidadeMedidaProduto, temUnidadeMedidaCadastrada, avisoUnidadeMedidaAusente } from '../../utils/unidadeMedidaDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { showError, showWarning } from '../../utils/alerts';
@@ -48,13 +48,18 @@ const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 
  */
 const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, permitirVendaSemEstoque }) => {
   const [produtoBusca, setProdutoBusca] = useState('');
+  // Tocar na busca ja' mostra a lista (mesmo comportamento do Pedido de Venda);
+  // "Mostrar mais" aumenta o corte. "#" lista tudo, "#gel" filtra.
+  const [focado, setFocado] = useState(false);
+  const [limite, setLimite] = useState(RESULTADOS_LIMITE);
   // produtoId -> quantidade digitada (string, mesma logica do campo antigo).
   const [selecionados, setSelecionados] = useState<Record<string, string>>({});
 
+  const termo = produtoBusca.trim() || (focado ? LISTAR_TUDO_TERM : '');
   const resultado = useMemo(() => {
-    if (!produtoBusca.trim()) return { items: [], total: 0, truncated: false };
-    return searchProducts(produtos, produtoBusca, { limit: RESULTADOS_LIMITE });
-  }, [produtos, produtoBusca]);
+    if (!termo) return { items: [], total: 0, truncated: false };
+    return searchProducts(produtos, termo, { limit: limite });
+  }, [produtos, termo, limite]);
 
   const totalSelecionados = Object.keys(selecionados).length;
 
@@ -154,8 +159,9 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
         <input
           type="text"
           value={produtoBusca}
-          onChange={(e) => setProdutoBusca(e.target.value)}
-          placeholder="Buscar produto por nome ou código"
+          onChange={(e) => { setProdutoBusca(e.target.value); setLimite(RESULTADOS_LIMITE); }}
+          onFocus={() => setFocado(true)}
+          placeholder="Buscar produto por nome ou código (# lista tudo)"
           aria-label="Buscar produto"
           style={{
             width: '100%', height: '48px', padding: '0 14px 0 42px', borderRadius: '14px', border: '1px solid var(--border-color)',
@@ -164,7 +170,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
         />
       </div>
 
-      {produtoBusca.trim() && (
+      {termo && (
         resultado.items.length === 0 ? (
           <div style={{ padding: '18px 4px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13.5px' }}>
             Nenhum produto encontrado para &quot;{produtoBusca}&quot;.
@@ -215,9 +221,14 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
               );
             })}
             {resultado.truncated && (
-              <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', textAlign: 'center', padding: '2px 0' }}>
-                Mostrando {resultado.items.length} de {resultado.total} — refine a busca pra ver outros.
-              </div>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setLimite((atual) => atual + 30)}
+                style={{ width: '100%', padding: '12px', fontSize: '14px' }}
+              >
+                Mostrar mais ({resultado.total - resultado.items.length} restantes)
+              </button>
             )}
           </div>
         )

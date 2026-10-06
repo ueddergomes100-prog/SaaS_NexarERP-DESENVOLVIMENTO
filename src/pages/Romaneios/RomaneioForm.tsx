@@ -367,7 +367,7 @@ const RomaneioForm: React.FC = () => {
         <div className="card" style={{ ...estiloCartao, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <span style={estiloRotulo}>Nome da rota</span>
-            <input value={romaneio.nome} maxLength={40} onChange={(e) => mudar({ nome: e.target.value.toUpperCase() })} placeholder="Ex.: DANIELA, NORTE, MANHUAÇU" style={{ ...estiloCampo, textTransform: 'uppercase' }} />
+            <input value={romaneio.nome} maxLength={40} onChange={(e) => mudar({ nome: e.target.value.toUpperCase() })} style={{ ...estiloCampo, textTransform: 'uppercase' }} />
             <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>O número ({romaneio.numero ? String(romaneio.numero).padStart(2, '0') : 'automático'}) vem antes: "{tituloDoRomaneio(romaneio.numero || 1, romaneio.nome)}".</span>
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -532,7 +532,6 @@ const RomaneioForm: React.FC = () => {
                           defaultValue={textoDosCentavos(l.valorCentavos)}
                           key={`${l.tipo}-${l.valorCentavos}`}
                           onBlur={(e) => mudarAcerto(l.tipo, 'valorCentavos', centavosDoTexto(e.target.value))}
-                          placeholder="0,00"
                           style={{ ...estiloCampo, padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}
                         />
                       </td>
@@ -858,7 +857,7 @@ const RegistrarEntregaModal: React.FC<{
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <span style={estiloRotulo}>Motorista recebeu (R$)</span>
-              <input inputMode="decimal" value={recebido} onChange={(e) => setRecebido(e.target.value)} placeholder="0,00" style={estiloCampo} />
+              <input inputMode="decimal" value={recebido} onChange={(e) => setRecebido(e.target.value)} style={estiloCampo} />
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <span style={estiloRotulo}>Como</span>
@@ -949,7 +948,7 @@ const ConfiguracaoRomaneioModal: React.FC<{
 
         <h4 style={{ margin: '0 0 8px', fontSize: '14px' }}>Motivos de não entrega</h4>
         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-          <input value={novoMotivo} maxLength={40} onChange={(e) => setNovoMotivo(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adicionarMotivo(); } }} placeholder="Novo motivo, ex.: PORTÃO FECHADO" style={{ ...estiloCampo, flex: 1 }} />
+          <input value={novoMotivo} maxLength={40} onChange={(e) => setNovoMotivo(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adicionarMotivo(); } }} placeholder="Novo motivo" style={{ ...estiloCampo, flex: 1 }} />
           <button type="button" className="btn-secondary" onClick={adicionarMotivo}><Plus size={16} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '24px' }}>
@@ -966,7 +965,7 @@ const ConfiguracaoRomaneioModal: React.FC<{
           O tipo decide a conta do saldo: adiantamento soma (a loja deu), despesa subtrai (o motorista pagou), informação não entra na conta.
         </p>
         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-          <input value={novoTipo} maxLength={40} onChange={(e) => setNovoTipo(e.target.value.toUpperCase())} placeholder="Novo item, ex.: LAVAGEM" style={{ ...estiloCampo, flex: 1, minWidth: '160px' }} />
+          <input value={novoTipo} maxLength={40} onChange={(e) => setNovoTipo(e.target.value.toUpperCase())} placeholder="Novo item" style={{ ...estiloCampo, flex: 1, minWidth: '160px' }} />
           <select value={novaNatureza} onChange={(e) => setNovaNatureza(e.target.value as NaturezaAcerto)} style={{ ...estiloCampo, width: 'auto' }}>
             {(Object.keys(ROTULO_NATUREZA_ACERTO) as NaturezaAcerto[]).map((n) => <option key={n} value={n}>{ROTULO_NATUREZA_ACERTO[n]}</option>)}
           </select>

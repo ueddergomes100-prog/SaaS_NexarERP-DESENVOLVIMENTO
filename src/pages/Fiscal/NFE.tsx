@@ -3156,7 +3156,6 @@ const NFE: React.FC = () => {
                     <input
                       type="number"
                       step="0.01"
-                      placeholder="0,00"
                       value={formData.valor}
                       onChange={(e) => setFormData({...formData, valor: e.target.value})}
                       required
@@ -3262,7 +3261,6 @@ const NFE: React.FC = () => {
                     <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>CPF / CNPJ (Apenas números) *</label>
                     <input
                       type="text"
-                      placeholder="Ex: 12345678909"
                       value={formData.documento}
                       onChange={(e) => setFormData({...formData, documento: e.target.value.replace(/\D/g, '')})}
                       required
@@ -3291,7 +3289,6 @@ const NFE: React.FC = () => {
                     <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>E-mail do Cliente (Envio Automático)</label>
                     <input
                       type="email"
-                      placeholder="cliente@email.com"
                       value={formData.email}
                       onChange={(e) => setFormData({...formData, email: e.target.value})}
                       style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
@@ -3455,7 +3452,6 @@ const NFE: React.FC = () => {
                                   value={item.cfop || ''}
                                   onChange={(e) => handleItemTaxChange(idx, 'cfop', e.target.value)}
                                   maxLength={4}
-                                  placeholder="5102"
                                   style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px' }}
                                 />
                                 {isExportCfop(item.cfop) && (
@@ -3483,7 +3479,7 @@ const NFE: React.FC = () => {
                                   value={item.csosn || ''}
                                   onChange={(e) => handleItemTaxChange(idx, 'csosn', e.target.value)}
                                   maxLength={3}
-                                  placeholder={usesCsosn(regimeTributario) ? '102' : '00'}
+                                 
                                   style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px' }}
                                 />
                               </td>

@@ -307,7 +307,7 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
                 </select>
                 <input
                   type="text"
-                  placeholder="Fator (ex: 20)"
+                  placeholder="Fator"
                   value={novaEmbalagem.fatorConversao}
                   onChange={(e) => setNovaEmbalagem((atual) => ({ ...atual, fatorConversao: e.target.value }))}
                   style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}

@@ -171,7 +171,6 @@ const VendedorLoginPage: React.FC = () => {
                 className="auth-input"
                 type="text"
                 inputMode="numeric"
-                placeholder="00.000.000/0000-00"
                 value={cnpj}
                 onChange={(e) => handleCnpjChange(e.target.value)}
                 disabled={carregando}
@@ -190,7 +189,6 @@ const VendedorLoginPage: React.FC = () => {
                     className="auth-input"
                     type="text"
                     inputMode="numeric"
-                    placeholder="Ex: 07"
                     value={codigo}
                     onChange={(e) => {
                       const valor = e.target.value.replace(/\D/g, '').slice(0, 2);

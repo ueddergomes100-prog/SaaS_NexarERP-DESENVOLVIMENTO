@@ -688,10 +688,10 @@ const ImportarProdutos: React.FC = () => {
                       <input type="text" value={produto.nome} onChange={(e) => atualizarProduto(produto.chave, { nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '220px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" placeholder="-" value={produto.marca} onChange={(e) => atualizarProduto(produto.chave, { marca: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '110px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                      <input type="text" value={produto.marca} onChange={(e) => atualizarProduto(produto.chave, { marca: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '110px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" placeholder="-" value={produto.referencia} onChange={(e) => atualizarProduto(produto.chave, { referencia: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '110px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                      <input type="text" value={produto.referencia} onChange={(e) => atualizarProduto(produto.chave, { referencia: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={{ width: '110px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
                       <select value={produto.unidadeId} onChange={(e) => atualizarProduto(produto.chave, { unidadeId: e.target.value })} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }}>
@@ -708,13 +708,13 @@ const ImportarProdutos: React.FC = () => {
                       )}
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" placeholder="-" value={produto.custo} onChange={(e) => atualizarProduto(produto.chave, { custo: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                      <input type="text" value={produto.custo} onChange={(e) => atualizarProduto(produto.chave, { custo: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" placeholder="-" value={produto.precoAVista} onChange={(e) => atualizarProduto(produto.chave, { precoAVista: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                      <input type="text" value={produto.precoAVista} onChange={(e) => atualizarProduto(produto.chave, { precoAVista: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" placeholder="0,00" value={produto.precoVenda} onChange={(e) => atualizarProduto(produto.chave, { precoVenda: e.target.value })} disabled={produto.produtoRevenda === false} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: (!produto.precoVenda && produto.produtoRevenda !== false) ? '1px solid #ef4444' : '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)', opacity: produto.produtoRevenda === false ? 0.5 : 1 }} />
+                      <input type="text" value={produto.precoVenda} onChange={(e) => atualizarProduto(produto.chave, { precoVenda: e.target.value })} disabled={produto.produtoRevenda === false} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: (!produto.precoVenda && produto.produtoRevenda !== false) ? '1px solid #ef4444' : '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)', opacity: produto.produtoRevenda === false ? 0.5 : 1 }} />
                     </td>
                     <td style={{ padding: '8px', textAlign: 'center' }}>
                       <input

@@ -421,8 +421,7 @@ const UsuarioForm: React.FC = () => {
         <div className="input-group" style={{ gridColumn: 'span 6' }}>
           <label>Nome Completo do Funcionário *</label>
           <input 
-            type="text" 
-            placeholder="Ex: João da Silva"
+            type="text"
             value={formData.nome}
             onChange={(e) => setFormData({...formData, nome: aplicarCaixaAltaCadastro(e.target, e.target.value)})}
             required
@@ -436,8 +435,7 @@ const UsuarioForm: React.FC = () => {
             <div className="input-group" style={{ gridColumn: 'span 6' }}>
               <label>Nome de Usuário para Login *</label>
               <input 
-                type="text" 
-                placeholder="ex: joao"
+                type="text"
                 value={formData.username}
                 onChange={(e) => setFormData({...formData, username: e.target.value})}
                 required
@@ -499,7 +497,6 @@ const UsuarioForm: React.FC = () => {
           <input
             type="text"
             inputMode="numeric"
-            placeholder="Ex: 07"
             value={formData.codigoVendedor}
             onChange={(e) => setFormData({ ...formData, codigoVendedor: e.target.value.replace(/\D/g, '').slice(0, CODIGO_VENDEDOR_DIGITOS) })}
             onBlur={(e) => {
@@ -566,7 +563,6 @@ const UsuarioForm: React.FC = () => {
               <input
                 type="text"
                 inputMode="tel"
-                placeholder="(00) 00000-0000"
                 value={dadosMotorista.telefone}
                 onChange={(e) => setDadosMotorista({ ...dadosMotorista, telefone: e.target.value })}
                 style={{ width: '100%' }}

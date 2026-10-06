@@ -389,7 +389,7 @@ const RotaForm: React.FC = () => {
                       <input type="text" value={despesa.comprovante} onChange={(e) => mudarDespesa(indice, { comprovante: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder="Nº da notinha" style={{ ...estiloCampo, padding: '8px 10px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="number" min="0" step="0.01" value={despesa.valor || ''} onChange={(e) => mudarDespesa(indice, { valor: Number(e.target.value) || 0 })} placeholder="0,00" style={{ ...estiloCampo, padding: '8px 10px', textAlign: 'right', fontWeight: 600 }} />
+                      <input type="number" min="0" step="0.01" value={despesa.valor || ''} onChange={(e) => mudarDespesa(indice, { valor: Number(e.target.value) || 0 })} style={{ ...estiloCampo, padding: '8px 10px', textAlign: 'right', fontWeight: 600 }} />
                     </td>
                     {!somenteLeitura && (
                       <td style={{ padding: '8px', textAlign: 'center' }}>
@@ -456,7 +456,7 @@ const RotaForm: React.FC = () => {
                 maxLength={30}
                 onChange={(e) => setNovoTipo(aplicarCaixaAltaCadastro(e.target, e.target.value))}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void adicionarTipo(); } }}
-                placeholder="Novo tipo, ex.: LAVAGEM"
+                placeholder="Novo tipo"
                 style={{ ...estiloCampo, flex: 1 }}
               />
               <button type="button" className="btn-primary" disabled={salvandoTipos} onClick={() => void adicionarTipo()} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>

@@ -193,7 +193,6 @@ const IdentificarVendedorModal: React.FC<IdentificarVendedorModalProps> = ({
                   if (e.key === 'Enter') { e.preventDefault(); pinRef.current?.focus(); }
                 }}
                 style={inputStyle}
-                placeholder="00"
               />
             </div>
 

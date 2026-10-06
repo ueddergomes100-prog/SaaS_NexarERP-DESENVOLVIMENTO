@@ -552,7 +552,6 @@ const AjusteEstoque: React.FC = () => {
                 step={unidade.unidadeMedidaFracionado ? 1 / (10 ** Math.max(1, unidade.unidadeMedidaCasasDecimais)) : 1}
                 value={quantidade}
                 onChange={(e) => setQuantidade(e.target.value)}
-                placeholder="0"
               />
             </div>
           </div>
@@ -590,7 +589,7 @@ const AjusteEstoque: React.FC = () => {
                     <div className="form-grid-3">
                       <div className="input-group">
                         <label>Código do lote *</label>
-                        <input type="text" value={loteNovoCodigo} onChange={(e) => setLoteNovoCodigo(e.target.value)} placeholder="Ex: L2026-08" />
+                        <input type="text" value={loteNovoCodigo} onChange={(e) => setLoteNovoCodigo(e.target.value)} />
                       </div>
                       <div className="input-group">
                         <label>Validade</label>

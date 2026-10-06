@@ -437,12 +437,12 @@ const Agenda: React.FC = () => {
 
               <div className="input-group">
                 <label>Veículo (Placa / Modelo)</label>
-                <input type="text" placeholder="Ex: ABC-1234 Tracker" value={formData.veiculo} onChange={e => setFormData({...formData, veiculo: e.target.value})} />
+                <input type="text" value={formData.veiculo} onChange={e => setFormData({...formData, veiculo: e.target.value})} />
               </div>
 
               <div className="input-group">
                 <label>Serviço Pretendido</label>
-                <input type="text" placeholder="Ex: Revisão, Troca de Óleo..." value={formData.servico} onChange={e => setFormData({...formData, servico: e.target.value})} />
+                <input type="text" value={formData.servico} onChange={e => setFormData({...formData, servico: e.target.value})} />
               </div>
 
               <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>

@@ -108,7 +108,7 @@ const ChequeCaptureModal: React.FC<ChequeCaptureModalProps> = ({
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
             <div className="input-group">
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Banco emissor *</label>
-              <input type="text" value={valores.bancoEmissor} onChange={(e) => atualizar({ bancoEmissor: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder="Ex: Banco do Brasil" style={inputStyle} />
+              <input type="text" value={valores.bancoEmissor} onChange={(e) => atualizar({ bancoEmissor: aplicarCaixaAltaCadastro(e.target, e.target.value) })} style={inputStyle} />
             </div>
             <div className="input-group">
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Agência</label>

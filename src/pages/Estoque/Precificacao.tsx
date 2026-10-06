@@ -442,7 +442,6 @@ const Precificacao: React.FC = () => {
               type="text"
               value={margemLote}
               onChange={(e) => setMargemLote(e.target.value)}
-              placeholder="30"
               style={{ ...inputStyle, width: '80px' }}
             />
             <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>% em</span>

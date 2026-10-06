@@ -6,6 +6,7 @@ import {
   type ProductSearchResult,
   type SearchableProduct,
 } from '../../utils/productSearch';
+import ProductSearchModal from './ProductSearchModal';
 import './ProductAutocomplete.css';
 
 export interface ProductAutocompleteProps<T extends SearchableProduct & { id: string }> {
@@ -23,6 +24,12 @@ export interface ProductAutocompleteProps<T extends SearchableProduct & { id: st
   autoFocus?: boolean;
   inputRef?: React.RefObject<HTMLInputElement | null>;
   emptyHint?: React.ReactNode;
+  /**
+   * O que fazer no "Ver mais". Sem isso (padrao desde 2026-10-06) o proprio
+   * componente abre o pop-up de busca completa (ProductSearchModal), o mesmo
+   * da venda -- toda tela com busca de produto passa a ter a lista inteira
+   * ("#" tambem lista tudo), nao so' Pedido/PDV/OS.
+   */
   onViewMore?: (result: ProductSearchResult<T>) => void;
   /**
    * Enter com um produto JA selecionado. Serve pra tela lancar o item direto
@@ -72,6 +79,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   // apaga o produto sem querer digitando/dando backspace em cima do nome.
   // Comeca travado se ja' vier com valor.
   const [locked, setLocked] = useState(() => value.trim().length > 0);
+  const [modalAberto, setModalAberto] = useState(false);
 
   const result = useMemo(() => {
     if (!value.trim()) {
@@ -139,6 +147,11 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
     }
   };
 
+  const abrirVerMais = (resultado: ProductSearchResult<T>) => {
+    if (onViewMore) onViewMore(resultado);
+    else { setIsOpen(false); setModalAberto(true); }
+  };
+
   const trimmedValue = value.trim();
   const showResults = isOpen && result.items.length > 0;
   const showEmpty = isOpen && trimmedValue.length > 0 && result.items.length === 0 && emptyHint !== undefined;
@@ -203,12 +216,12 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
             </button>
           ))}
 
-          {result.truncated && onViewMore && (
+          {result.truncated && (
             <button
               type="button"
               className="product-autocomplete__view-more"
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => onViewMore(result)}
+              onClick={() => abrirVerMais(result)}
             >
               Ver mais ({extraCount} {extraCount === 1 ? 'resultado' : 'resultados'} a mais)
             </button>
@@ -218,6 +231,18 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
 
       {showEmpty && (
         <div className="product-autocomplete__empty">{emptyHint}</div>
+      )}
+
+      {!onViewMore && modalAberto && (
+        <ProductSearchModal
+          open={modalAberto}
+          onClose={() => { setModalAberto(false); resolvedInputRef.current?.focus(); }}
+          products={products}
+          onSelect={(product) => { setModalAberto(false); confirmSelect(product); }}
+          renderItem={renderItem}
+          initialQuery={trimmedValue}
+          mode={mode}
+        />
       )}
     </div>
   );

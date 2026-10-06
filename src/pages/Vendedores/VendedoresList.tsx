@@ -617,7 +617,6 @@ const VendedoresList: React.FC = () => {
                 <label>Nome do Vendedor *</label>
                 <input
                   type="text"
-                  placeholder="Ex: Juliano"
                   value={form.nome}
                   onChange={(e) => setForm({ ...form, nome: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
                   autoFocus
@@ -633,7 +632,6 @@ const VendedoresList: React.FC = () => {
                 <input
                   type="text"
                   inputMode="numeric"
-                  placeholder="Ex: 07"
                   value={form.codigoVendedor}
                   onChange={(e) => setForm({ ...form, codigoVendedor: e.target.value.replace(/\D/g, '').slice(0, CODIGO_VENDEDOR_DIGITOS) })}
                   onBlur={(e) => {

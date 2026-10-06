@@ -152,7 +152,6 @@ const CartaCorrecaoModal: React.FC<CartaCorrecaoModalProps> = ({
                 onChange={(evento) => { setTexto(evento.target.value); if (erro) setErro(null); }}
                 rows={5}
                 disabled={enviando}
-                placeholder="Ex.: Onde se lê 'Transportadora Alfa', leia 'Transportadora Beta Ltda'. Demais dados permanecem inalterados."
                 style={{ padding: '12px 14px', backgroundColor: 'var(--bg-tertiary)', border: `1px solid ${fora ? '#ef4444' : 'var(--border-color)'}`, borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontFamily: 'inherit', fontSize: '14px', resize: 'vertical' }}
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: fora ? '#ef4444' : 'var(--text-muted)' }}>

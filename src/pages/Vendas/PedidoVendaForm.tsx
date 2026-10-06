@@ -4657,7 +4657,6 @@ const PedidoVendaForm: React.FC = () => {
                 onChange={(event) => setObservacaoPedido(aplicarCaixaAltaCadastro(event.target, event.target.value))}
                 disabled={isViewing && !canEditPendingOrder}
                 maxLength={200}
-                placeholder="Ex.: nº do pedido de papel, recado pro entregador (sai na minuta)"
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
               />
             </div>
@@ -4934,7 +4933,6 @@ const PedidoVendaForm: React.FC = () => {
                     type="number"
                     step="1"
                     min="0"
-                    placeholder="0"
                     inputMode="numeric"
                     value={frete || ''}
                     onChange={(e) => setFrete(Math.max(0, Math.trunc(Number(e.target.value) || 0)))}
@@ -4952,7 +4950,6 @@ const PedidoVendaForm: React.FC = () => {
                     type="number"
                     step="1"
                     min="0"
-                    placeholder="0"
                     inputMode="numeric"
                     value={encargos || ''}
                     onChange={(e) => setEncargos(Math.max(0, Math.trunc(Number(e.target.value) || 0)))}

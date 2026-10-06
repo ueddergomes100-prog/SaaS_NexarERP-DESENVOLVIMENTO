@@ -747,11 +747,11 @@ const NotaAvulsaForm: React.FC = () => {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <label style={{ color: 'var(--text-secondary)' }}>Frete (R$):</label>
-            <input type="text" value={frete} onChange={(e) => setFrete(e.target.value)} placeholder="0,00" style={{ ...inputStyle, width: '110px', textAlign: 'right' }} />
+            <input type="text" value={frete} onChange={(e) => setFrete(e.target.value)} style={{ ...inputStyle, width: '110px', textAlign: 'right' }} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <label style={{ color: 'var(--text-secondary)' }}>Desconto (R$):</label>
-            <input type="text" value={desconto} onChange={(e) => setDesconto(e.target.value)} placeholder="0,00" style={{ ...inputStyle, width: '110px', textAlign: 'right' }} />
+            <input type="text" value={desconto} onChange={(e) => setDesconto(e.target.value)} style={{ ...inputStyle, width: '110px', textAlign: 'right' }} />
           </div>
           <div style={{ fontSize: '18px', fontWeight: 700 }}>
             Total: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotal)}

@@ -310,25 +310,25 @@ const MateriaPrimaForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label>Nome *</label>
-              <input type="text" name="nome" placeholder="Ex: CHAPA DE AÇO 2MM" value={formData.nome} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+              <input type="text" name="nome" value={formData.nome} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Categoria</label>
-              <CampoComSugestoes type="text" name="categoria" opcoes={categoriasDB} placeholder="Ex: METAIS" value={formData.categoria} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+              <CampoComSugestoes type="text" name="categoria" opcoes={categoriasDB} value={formData.categoria} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
             </div>
             <div className="input-group">
               <label>Unidade de Medida</label>
-              <CampoComSugestoes type="text" name="unidade" opcoes={unidadesDB} placeholder="KG, L, UN, M..." value={formData.unidade} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+              <CampoComSugestoes type="text" name="unidade" opcoes={unidadesDB} value={formData.unidade} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Marca</label>
-              <CampoComSugestoes type="text" name="marca" opcoes={marcasDB} placeholder="Ex: SOLNATUS" value={formData.marca} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+              <CampoComSugestoes type="text" name="marca" opcoes={marcasDB} value={formData.marca} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
             </div>
             <div className="input-group">
               <label>Referência</label>
@@ -361,13 +361,13 @@ const MateriaPrimaForm: React.FC = () => {
 
           <div className="input-group">
             <label>Fornecedor</label>
-            <CampoComSugestoes type="text" name="fornecedor" opcoes={fornecedoresDB} placeholder="Ex: METALÚRGICA SUL LTDA" value={formData.fornecedor} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+            <CampoComSugestoes type="text" name="fornecedor" opcoes={fornecedoresDB} value={formData.fornecedor} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Lote</label>
-              <input type="text" name="lote" placeholder="Ex: L2026-08" value={formData.lote} onChange={handleChange} style={inputStyle} />
+              <input type="text" name="lote" value={formData.lote} onChange={handleChange} style={inputStyle} />
             </div>
             <div className="input-group">
               <label>Validade</label>

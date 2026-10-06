@@ -1,117 +1,119 @@
-# Plano — Filiais (2026-10-06)
+# Plano — Filiais (2026-10-06, revisado com as decisões do dono)
 
-Proposta para o dono aprovar. **Nada implementado ainda.**
+Proposta aprovada nas decisões abaixo. **Nada implementado ainda.** Única pendência para começar: confirmar com o cliente se Sol Life e Solnatus viram um grupo (só afeta a migração deles, não o desenvolvimento).
 
 ## 1. O pedido
 
-Controlar filiais no mesmo sistema, como no Integra (print de 06/10: seletor **"Filial: 10 - A & M / 20 - SOL LIFE / 30 - SOLNATUS / 40 - SOL LIFE"** na barra do topo). Ao trocar a filial, tudo passa a ser daquela filial: produtos, clientes, notas, vendas. "Basicamente uma base nova, porém dentro da empresa." As filiais precisam conversar: ver o estoque da outra, **transferir estoque**, emitir **nota de transferência**, com nota ou sem nota.
+Controlar filiais no mesmo sistema, como no Integra (print de 06/10: seletor **"Filial: 10 - A & M / 20 - SOL LIFE / 30 - SOLNATUS / 40 - SOL LIFE"** na barra do topo). Ao trocar a filial, o sistema trabalha naquela filial. As filiais conversam: ver o estoque da outra, **transferir estoque**, emitir **nota de transferência**, com nota ou sem nota.
 
-Exemplo do dono: o Shopping Rural pode ter a loja do Centro e a loja da Baixada (filiais, conversam entre si). A Sol Natus é outra empresa (outro grupo, não enxerga nada do Shopping Rural).
+Exemplo do dono: o Shopping Rural pode ter a loja do Centro e a loja da Baixada (filiais do mesmo grupo). A Sol Natus é outra empresa (outro grupo, não enxerga nada do Shopping Rural).
 
-## 2. Como o sistema separa empresas hoje
+## 2. Decisões do dono (06/10)
+
+| Assunto | Decisão |
+|---|---|
+| Clientes | **Compartilhados no grupo**: o mesmo cadastro em todas as filiais. Vendas, notas e financeiro continuam de cada filial. |
+| Produtos | **Cadastro único do grupo**, todas as filiais veem. **Preço e estoque são de cada filial.** |
+| Filtro de produtos | Já vem marcado na filial em que o usuário está trabalhando. O item guarda **a filial em que foi cadastrado** (quem cadastrou com a filial 3 selecionada → item da filial 3). |
+| Preço inicial | Quando uma filial começa a vender um item, o preço **copia o da matriz**; depois cada filial ajusta o seu. |
+| Permissões | **As mesmas em todas** as filiais que o usuário acessa. |
+| Permissão-chave | **"Utiliza outras filiais"**: libera trocar de filial, ver os itens das outras filiais, alterar o cadastro de item de outra filial e transferir. |
+| Ver estoque das outras | **Todos os usuários, só a quantidade** (custo e valores das outras ficam escondidos). |
+| Limite de crédito | **Do grupo**: a venda confere o que o cliente deve em todas as filiais somadas. |
+| Transferência sem nota | Existe, ligada em Configurações, e **só dono e gerente** usam. |
+| CNPJ / IE / estado | **Varia de cliente para cliente**: o sistema aceita filial com CNPJ e IE próprios no mesmo estado, em outro estado, ou do mesmo CNPJ (loja/depósito). |
+| Cobrança | **Valor menor por filial adicional**, definido no painel da plataforma. |
+| Sol Life e Solnatus | **O dono vai confirmar com o cliente** se viram um grupo. |
+
+## 3. Como o sistema separa empresas hoje
 
 - Cada empresa é um **tenant**: todo documento (cliente, produto, venda, nota, título, lote...) tem `tenantId`.
-- As `firestore.rules` e o servidor descobrem a empresa de quem está logado por **um campo só**: `usuarios/{uid}.tenantId` (`currentTenantId()` nas rules, `server/middleware/auth.js` no servidor). O token de login não é usado para isso.
-- Por empresa também: `configuracoes/{tenantId}` (dados da empresa, CNPJ, regras de venda), `configuracoes_privadas/{tenantId}` (chave da Spedy), `contadores/{tenantId}` (numeração de pedido, OS, NF...), backup, logs.
-- O "registro da empresa" hoje é o cadastro do dono: `usuarios/{tenantId}` (plano, módulos bloqueados, limite de usuários) — o `tenantId` da empresa é o `uid` do dono.
+- As `firestore.rules` e o servidor descobrem a empresa de quem está logado por **um campo só**: `usuarios/{uid}.tenantId` (`currentTenantId()` nas rules, `server/middleware/auth.js`). O token de login não é usado para isso.
+- Por empresa também: `configuracoes/{tenantId}` (CNPJ, regras de venda), `configuracoes_privadas/{tenantId}` (Spedy), `contadores/{tenantId}` (numeração), backup, logs.
 
-## 3. A proposta: cada filial é uma empresa (tenant) dentro de um GRUPO
+## 4. O desenho: filial = tenant próprio, com CADASTRO ESPELHADO pelo servidor
 
 ```
 Grupo "Shopping Rural"  (grupos/{grupoId})
- ├── 10 · Loja Centro    -> tenant A  (clientes, produtos, vendas, notas, financeiro, numeração próprios)
- └── 20 · Loja Baixada   -> tenant B  (idem)
+ ├── 10 · Loja Centro   -> tenant A
+ └── 20 · Loja Baixada  -> tenant B
 
-Grupo "Sol Natus"        -> outro grupo, não vê nada do Shopping Rural
+ Em A e em B existe uma cópia de CADA cliente e de CADA produto do grupo, ligadas pela mesma
+ `grupoChave`. Os dados do cadastro (nome, CPF/CNPJ, endereço; descrição, código, EAN, NCM,
+ unidade, categoria...) são iguais nas cópias: alterou numa filial, o servidor repete nas outras.
+ Preço, custo, estoque, lotes e promoções ficam só na cópia da filial.
+ Vendas, OS, notas, financeiro, caixa e numeração são só da filial.
 ```
 
-**Por que assim:**
-- A separação "tudo individual" **já existe e já está testada** em todas as telas, regras, índices, numeração, Spedy (um CNPJ por tenant) e backup. Filial nova nasce separada de graça.
-- **As regras do Firestore não mudam.** Trocar de filial = o servidor troca o `tenantId` ativo no cadastro do usuário (depois de conferir que ele tem acesso àquela filial). Rules e servidor passam a enxergar a outra filial sozinhos.
-- Empresas que já existem podem ser **juntadas num grupo sem migrar dado nenhum** (cada uma vira uma filial do grupo).
-- O que é "comunicação entre filiais" (estoque da outra, transferência, relatório do grupo) passa pelo **servidor**, que confere o grupo e o acesso antes de ler/gravar em duas filiais.
+**Por que espelhar em vez de um cadastro único num lugar só:**
+- Todo o sistema (PDV, Pedido, OS, Orçamento, Condicional, Trocas, app Vendas, NF-e, entrada de nota, lotes, produção, relatórios, as `firestore.rules` e o servidor) lê o produto e o estoque **da empresa ativa**, e mexe em `quantidade`/`precoVenda` daquele documento. Com o espelho, **nada disso muda**: cada filial tem seu documento de produto com o seu preço e o seu estoque.
+- Cadastro único num lugar só exigiria trocar `quantidade` e `precoVenda` por "quantidade/preço da filial X" em todos os pontos de venda e de estoque (dezenas de pontos, no navegador e no servidor) e um campo de filial em toda venda, nota e título. Semanas a mais e risco alto de um erro misturar estoque de filiais.
+- O custo do espelho é o **sincronizador** (seção 6) — um serviço só, testável, no servidor.
 
-**Alternativa descartada:** um campo `filialId` em todo documento dentro do mesmo tenant. Exigiria mexer em todas as consultas, regras e índices do sistema (centenas de pontos), com risco real de dado de uma filial aparecer na outra. Meses de trabalho e teste.
+**Trocar de filial** = o servidor troca o `tenantId` ativo do usuário (depois de conferir o acesso). Rules e servidor passam a enxergar a outra filial sozinhos; **as regras de segurança não mudam**.
 
-## 4. Dados novos
+## 5. Dados novos
 
 | Onde | O quê |
 |---|---|
-| `grupos/{grupoId}` | nome do grupo, `donoUid`, lista de filiais `[{ tenantId, codigo: '10', nome, cnpj, uf, ativa }]` na ordem do seletor |
-| `usuarios/{uid}` | `tenantId` = **filial ativa** (o que rules/servidor já usam); `grupoId`; `filiaisPermitidas: [tenantId...]`; fase 2: `permissoesPorFilial` |
-| filial nova | `configuracoes/{tenantId}` (CNPJ, IE, endereço da filial), `contadores/{tenantId}`, `configuracoes_privadas/{tenantId}` (Spedy), e o registro da empresa (hoje `usuarios/{tenantId}`, sem login, com plano/módulos herdados do grupo) |
-| `transferencias` | uma por transferência, com `tenantOrigem`, `tenantDestino`, itens, situação, nota (escrita só pelo servidor) |
+| `grupos/{grupoId}` | nome, `donoUid`, filiais `[{ tenantId, codigo: '10', nome, cnpj, uf, tipo: 'cnpj_proprio' \| 'mesmo_cnpj', matriz: true/false }]`, valor por filial adicional |
+| `usuarios/{uid}` | `tenantId` = **filial ativa**; `grupoId`; `filiaisPermitidas: [tenantId...]`; permissão `filiais.utilizar` ("Utiliza outras filiais") |
+| cliente/produto (cada cópia) | `grupoChave` (a mesma em todas as cópias), `filialOrigem` (tenant onde foi cadastrado), `vendeNestaFilial` (produto) |
+| `contadores/grupo_{grupoId}` | código do cliente e do produto **único no grupo** (o cliente 488 é o 488 em todas as filiais) |
+| `transferencias` | origem, destino, itens, situação, nota — escrita só pelo servidor |
 
-## 5. Seletor de filial (igual ao print)
+## 6. Cadastro compartilhado (o sincronizador)
 
-- Na barra do topo, ao lado do usuário: **"Filial: 10 · Loja Centro ▾"**. Só aparece para quem tem acesso a 2 filiais ou mais (empresa de uma filial só não vê nada novo).
-- Trocar: `POST /api/filiais/ativar` → servidor confere `filiaisPermitidas`, grava a filial ativa → o sistema fecha as abas abertas (são dados da filial anterior) e recarrega na filial nova. Se houver aba com alteração não salva, pergunta antes.
-- **Limite consciente:** a filial ativa é do usuário, não da janela. Duas janelas do mesmo usuário trocam juntas (no Integra também é uma filial por vez). Para trabalhar em duas filiais ao mesmo tempo, dois usuários.
-- Cabeçalho de impressão, DANFE, recibo, PDV etc. já saem com os dados da filial ativa (vêm de `configuracoes/{tenantId}`).
+- **Clientes**: criar ou alterar em qualquer filial → o servidor cria/atualiza a cópia nas outras. Tudo do cliente é compartilhado (inclusive alerta, desconto padrão e limite de crédito); o que ele deve fica no financeiro de cada filial.
+- **Produtos**: campos do cadastro são compartilhados; **preço, custo, estoque, estoque mínimo, lotes e promoções são da filial**. Quando uma filial começa a vender o item (entrada de estoque, transferência ou definir preço), o preço inicial vem **da matriz**.
+- **Onde o item "é"**: `filialOrigem` = a filial selecionada quando foi cadastrado. O filtro das listas e buscas de produto (Estoque, PDV, Pedido, OS, Orçamento, etiquetas...) já vem em **"Itens desta filial"**; quem tem "Utiliza outras filiais" troca para **"Todos do grupo"**. Proposta a confirmar: item que **recebeu estoque** nesta filial (por transferência ou nota) também aparece em "Itens desta filial", senão a filial não acharia o que acabou de receber.
+- **Quem altera**: sem "Utiliza outras filiais", o usuário altera só itens da própria filial; com a permissão, qualquer item. A alteração vale em todas as cópias e vai para o log com quem e de qual filial.
+- Como o servidor garante: depois de cada gravação de cadastro a tela chama o servidor (`/api/grupo/cadastro/sincronizar`); uma conferência periódica acerta qualquer cópia que tenha ficado para trás (queda de internet, etc.). Cada cópia guarda a versão para não voltar dado antigo por cima de novo.
+- Importações (planilha de produtos/clientes), entrada de NF-e que cria produto, cadastro rápido, app Vendas: todos passam pelo mesmo sincronizador.
 
-## 6. Cadastro de filial
+## 7. Seletor e cadastro de filial
 
-Tela **Configurações → Filiais** (só o dono/administrador do grupo):
-- Código (10, 20...), nome, CNPJ (consulta automática como no cadastro de empresa), IE, endereço.
-- Ao criar, opção de **copiar da matriz**: configurações, produtos (sem estoque), categorias, marcas, unidades, formas de pagamento, usuários que terão acesso.
-- Spedy: a filial é cadastrada como empresa própria (CNPJ dela), pelo fluxo que já existe no painel da plataforma. Em geral o certificado e-CNPJ da matriz assina as notas das filiais de mesma raiz — confirmar com a Spedy.
+- **Seletor** na barra do topo: "Filial: 10 · Loja Centro ▾", só para quem tem "Utiliza outras filiais" e acesso a 2 filiais ou mais. Trocar fecha as abas abertas (perguntando se houver algo sem salvar) e recarrega na filial nova. A filial ativa é do usuário, não da janela.
+- **Configurações → Filiais** (dono): código, nome, CNPJ (consulta automática), IE, endereço, tipo (CNPJ próprio ou mesmo CNPJ), qual é a matriz. Criar a filial já espelha clientes e produtos do grupo (preço da matriz, estoque zero) e copia as configurações.
+- Spedy: filial com CNPJ próprio é cadastrada como empresa própria na Spedy (fluxo que já existe). Em geral o certificado e-CNPJ da matriz assina as notas das filiais de mesma raiz — confirmar com a Spedy. Filial "mesmo CNPJ" não emite nota própria (ou usa série separada — decidir na fase da NF-e).
 
-## 7. Comunicação entre filiais
+## 8. Comunicação entre filiais
 
-**a) Estoque nas outras filiais** — no cadastro do produto, no Pedido e no PDV: "Centro: 12 · Baixada: 0". O produto é casado entre filiais pelo **código**, depois pelo **código de barras (EAN)**.
+**a) Estoque nas outras filiais** — no produto, no PDV, no Pedido e na OS: "Centro: 12 · Baixada: 0", para **todos os usuários, só quantidade**.
 
-**b) Transferência de estoque** (tela nova em Estoque):
-- Origem = filial ativa; escolhe o destino e os itens (quantidade; lote/validade quando o produto controla lote).
-- Valor = custo médio da origem; o destino recalcula o custo médio na entrada.
-- Situações: **Rascunho → Enviada** (baixa na origem, fica "em trânsito") **→ Recebida** (entrada no destino, com conferência das quantidades) ou **Recusada** (volta para a origem).
-- Produto que não existe no destino: o sistema oferece criar a cópia do cadastro lá.
-- Tudo gravado pelo servidor numa transação só (as duas filiais), com log nas duas.
+**b) Limite de crédito do grupo** — ao vender a prazo, a conferência de limite soma o que o cliente deve em todas as filiais (servidor).
 
-**c) Com nota** — NF-e de transferência emitida na origem pela Spedy:
-- CFOP **5152** (mesmo estado) / **6152** (outro estado) para mercadoria de revenda; **5151/6151** para produção própria. Destinatário = a filial destino. Valores a custo.
-- No destino, a entrada é lançada sozinha quando a nota é autorizada (CFOP **1152/2152**), sem importar XML.
-- Tributação (ICMS na transferência entre estabelecimentos do mesmo dono — STF ADC 49 e LC 204/2023; CSOSN no Simples) fica **configurável** em Configurações fiscais, não fixa no código. O contador confirma por estado.
+**c) Transferência de estoque** (tela nova em Estoque, quem tem "Utiliza outras filiais"):
+- Origem = filial ativa; destino; itens (mesma `grupoChave`, então o produto sempre existe no destino); quantidade; lote/validade quando o produto controla lote; valor = custo médio da origem.
+- **Rascunho → Enviada** (baixa na origem, "em trânsito") **→ Recebida** (entrada no destino com conferência) ou **Recusada** (volta).
+- Tudo pelo servidor, numa transação nas duas filiais, com log nas duas.
 
-**d) Sem nota** — movimentação interna, só controle de estoque. Ligada por uma configuração ("Permitir transferência sem nota"), com aviso: mercadoria entre CNPJs diferentes circula com nota. Serve para acerto entre depósitos/lojas do mesmo CNPJ ou correção.
+**d) Com nota** — NF-e na origem pela Spedy. CFOP escolhido **sozinho pela UF das duas filiais**: **5152** (mesmo estado) / **6152** (outro estado) para revenda; **5151/6151** para produção própria. Destinatário = a filial destino; valores a custo. No destino, a entrada é lançada sozinha quando a nota é autorizada (**1152/2152**). Tributação (ICMS na transferência entre estabelecimentos do mesmo dono — STF ADC 49 e LC 204/2023; CSOSN no Simples) **configurável** em Configurações fiscais; o contador confirma por estado.
 
-**e) Relatórios do grupo** — vendas, estoque e financeiro por filial e somados (no servidor, só para quem tem acesso às filiais).
+**e) Sem nota** — só controle de estoque, **só dono e gerente**, com aviso de que mercadoria entre CNPJs diferentes circula com nota. Entre filiais "mesmo CNPJ" é o caminho normal.
 
-## 8. O que é de cada filial e o que é do grupo
+**f) Relatórios do grupo** — vendas, estoque e financeiro por filial e somados.
 
-| Cada filial | Do grupo |
-|---|---|
-| Clientes, produtos e estoque, preços | Lista de filiais e quem acessa cada uma |
-| Vendas, OS, orçamentos, pré-vendas, condicional | Transferências entre filiais |
-| NF-e/NFC-e, série e numeração, Spedy | Relatórios consolidados |
-| Financeiro (contas, bancos, caixa) | Dono do grupo (troca para qualquer filial) |
-| Configurações, vendedores, app Vendas | |
-
-## 9. Fases e prazo (dias úteis, cada fase em branch própria, testada no dev)
+## 9. Fases e prazo (dias úteis; cada fase em branch própria, testada no dev)
 
 | Fase | O quê | Prazo |
 |---|---|---|
-| F0 | Grupo, cadastro de filial (com cópia da matriz), seletor e troca de filial pelo servidor; revisar os ~14 pontos que hoje supõem "dono = empresa" (`uid === tenantId`, `usuarios/{tenantId}` como registro da empresa, `storage.rules`) | 5–7 |
-| F1 | Estoque nas outras filiais (produto, Pedido, PDV) | 2 |
-| F2 | Transferência sem nota: envio, em trânsito, recebimento, recusa, lote, custo | 4–5 |
-| F3 | Transferência com NF-e + entrada automática no destino | 4–6 (depende do contador e da Spedy) |
-| F4 | Relatórios e painel do grupo | 2–3 |
-| | **Total** | **17–23 (≈ 3,5 a 4,5 semanas)** |
+| F0 | Grupo, cadastro de filial, seletor, troca de filial pelo servidor, permissão "Utiliza outras filiais"; revisar os ~14 pontos que supõem "dono = empresa" | 5–7 |
+| F1 | Cadastro compartilhado: sincronizador de clientes e produtos, código único do grupo, filial de origem, preço da matriz, filtro "Itens desta filial / Todos do grupo", conferência periódica | 6–8 |
+| F2 | Estoque das outras filiais + limite de crédito do grupo | 2–3 |
+| F3 | Transferência sem nota (envio, em trânsito, recebimento, recusa, lote, custo) | 4–5 |
+| F4 | Transferência com NF-e + entrada automática no destino | 4–6 (depende do contador e da Spedy) |
+| F5 | Relatórios do grupo + valor por filial no painel da plataforma | 2–3 |
+| | **Total** | **23–32 (≈ 5 a 6,5 semanas)** |
 
-## 10. Cuidados
+## 10. Juntar empresas que já existem (ex.: Sol Life + Solnatus)
 
-- Cobrança: cada filial é uma empresa a mais no plano?
-- Backup: um por filial (já é por tenant) + backup do grupo.
-- Vendedor externo, PDV e agente de WhatsApp pertencem a uma filial.
-- Super Admin passa a listar grupos e filiais.
-- Limite de usuários do plano: por filial ou do grupo.
+Com cadastro compartilhado, juntar duas empresas num grupo **não é mais só ligar**: é preciso **unificar os cadastros** — produto casado por código de barras e código, cliente casado por CPF/CNPJ, sobras viram itens da filial de origem — e dar ao cliente um relatório do que foi juntado antes de gravar. Ferramenta própria (≈ 3–4 dias), feita só se o cliente confirmar.
 
-## 11. Decisões que preciso do dono
+## 11. Cuidados
 
-1. **Clientes** totalmente separados por filial (como foi dito), com um botão "copiar cliente de outra filial"? Ou cliente do grupo visível em todas?
-2. **Produtos**: ao criar a filial, copiar o catálogo da matriz? Cada filial com o seu preço de venda?
-3. **Usuários**: a mesma permissão em todas as filiais que acessam, ou permissão diferente por filial?
-4. **Transferência sem nota**: liberar? Para quem?
-5. Cada filial tem **CNPJ e IE próprios** (mesma raiz)? Alguma em outro estado (CFOP 6152)?
-6. **Cobrança**: filial conta como uma empresa a mais na mensalidade?
-7. **Sol Life e Solnatus**: no Integra aparecem como filiais (20 e 30) da mesma instalação. No Hennder viram um grupo (filiais) ou continuam empresas separadas? Juntar não exige migrar dados.
-8. Quem pode **ver o estoque das outras filiais**: todos os usuários ou só gerente e dono?
+- Cobrança: valor da filial adicional no painel da plataforma; Super Admin passa a listar grupos e filiais.
+- Backup: por filial (já é por tenant) + do grupo.
+- Vendedor externo (app Vendas), PDV e agente de WhatsApp pertencem a uma filial.
+- Limite de usuários do plano: por grupo.
+- Filial "mesmo CNPJ": numeração/série da NF-e para não colidir com a matriz.

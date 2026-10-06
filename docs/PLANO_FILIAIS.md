@@ -117,3 +117,30 @@ Com cadastro compartilhado, juntar duas empresas num grupo **não é mais só li
 - Vendedor externo (app Vendas), PDV e agente de WhatsApp pertencem a uma filial.
 - Limite de usuários do plano: por grupo.
 - Filial "mesmo CNPJ": numeração/série da NF-e para não colidir com a matriz.
+
+## 12. Situação da implementação (06/10/2026, branch `filiais`)
+
+Todas as fases foram feitas na branch `filiais` (worktree `C:\Projetos\hennder-filiais`) e testadas no banco de desenvolvimento. **Nada disso está no `main` nem em produção ainda.**
+
+| Fase | Commit | O que ficou pronto |
+|---|---|---|
+| F0 | `c4a7fb0`, `c00baeb` | Grupo, cadastro de filial (Configurações → Filiais), seletor "Filial" no topo, troca pelo servidor (`usuarios.filialAtiva`), permissão "Utiliza outras filiais" |
+| F1 | `b85605d` | Espelho de cadastros pelo servidor (unidades, categorias, marcas, clientes, produtos), filtro "Itens desta filial", trava de edição |
+| F2 | `f3fa3f1` | Estoque nas outras filiais (só quantidade) e limite de crédito do grupo |
+| F3 | `65ff157` | Transferência sem nota (Estoque → Transferências): envio, em trânsito, conferência, recusa, lote e custo médio |
+| F5 | `3e6a333` | "Resumo do grupo" em Configurações → Filiais (vendas, a receber, estoque por filial) e valor por filial no SuperAdmin |
+| F4 | `bb035a6` | Transferência com NF-e (CFOP 5152/6152 ou 5151/6151, pelo custo), tributação configurável, recebimento só com nota autorizada e nota de entrada 1152/2152 lançada sozinha |
+
+Como a F4 ficou:
+
+- A nota é montada **no servidor** (`server/services/notaTransferencia.js`) com o mesmo item fiscal das outras notas (`notaFiscalItemDomain`).
+- Padrão de tributação: **sem ICMS** (CST 41 / CSOSN 400, PIS/COFINS 49). A outra opção é "igual à venda". O contador confirma antes da primeira nota real.
+- A Spedy recusou a nota: a transferência é cancelada sozinha e o estoque volta. A Spedy não respondeu: a transferência fica em trânsito e "Emitir a nota de novo" repete a mesma identificação, sem duplicar.
+- Falta na conferência de transferência com nota: a diferença volta para a origem só no controle de estoque. O acerto fiscal (nota de retorno) fica com o contador.
+
+Para ir para produção (fora do horário de pico):
+
+1. Juntar `filiais` no `main` e testar na pasta principal.
+2. O dono publica as `firestore.rules` e `storage.rules` em produção.
+3. Push para `production` (reinicia o servidor, que passa a rodar o espelho de cadastros).
+4. Antes da primeira nota de transferência real: cidade/estado e inscrição estadual das filiais completos em Configurações, Spedy ligada na filial que envia e tributação conferida pelo contador.

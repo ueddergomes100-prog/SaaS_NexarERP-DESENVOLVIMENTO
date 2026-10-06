@@ -1,5 +1,20 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import hennderIcon from '../../assets/hennder-icon.svg';
+import Animacao from '../common/Animacao';
+import { preaquecerAnimacoes } from '../../utils/animacoes';
+
+/** Anel em CSS: o que aparece ate' a animacao da marca carregar (e para quem prefere menos movimento). */
+const AnelCss: React.FC = () => (
+  <>
+    <div style={{
+      position: 'absolute', inset: '9px', borderRadius: '50%',
+      background: 'conic-gradient(from 0deg, var(--brand-300), var(--accent-purple), var(--brand-300))',
+      boxShadow: '0 0 30px 2px rgba(139, 92, 246, 0.35)',
+      animation: 'bootSplashRingSpin 1.1s linear infinite',
+    }} />
+    <div style={{ position: 'absolute', inset: '17px', borderRadius: '50%', backgroundColor: 'var(--bg-primary)' }} />
+  </>
+);
 
 interface BootSplashProps {
   /** Texto principal. Default cobre o caso mais comum (entrada no sistema). */
@@ -27,7 +42,12 @@ interface BootSplashProps {
 const BootSplash: React.FC<BootSplashProps> = ({
   titulo = 'Iniciando Ambiente',
   legenda = 'CARREGANDO MÓDULOS...',
-}) => (
+}) => {
+  // O splash e' o momento certo de aquecer as animacoes de feedback: o
+  // primeiro "Salvo!" do dia ja' aparece animado.
+  useEffect(() => { preaquecerAnimacoes(); }, []);
+
+  return (
   <div
     role="status"
     aria-live="polite"
@@ -41,14 +61,9 @@ const BootSplash: React.FC<BootSplashProps> = ({
       animation: 'bootSplashFadeIn 0.3s ease-out',
     }}
   >
-    <div style={{ position: 'relative', width: '110px', height: '110px', marginBottom: '40px' }}>
-      <div style={{
-        position: 'absolute', inset: 0, borderRadius: '50%',
-        background: 'conic-gradient(from 0deg, var(--brand-300), var(--accent-purple), var(--brand-300))',
-        boxShadow: '0 0 30px 2px rgba(139, 92, 246, 0.35)',
-        animation: 'bootSplashRingSpin 1.1s linear infinite',
-      }} />
-      <div style={{ position: 'absolute', inset: '8px', borderRadius: '50%', backgroundColor: 'var(--bg-primary)' }} />
+    <div style={{ position: 'relative', width: '130px', height: '130px', marginBottom: '36px' }}>
+      {/* Animacao da marca (tres arcos girando, src/assets/lotties/carregando.json); o anel em CSS cobre a carga. */}
+      <Animacao animacao="carregando" loop tamanho={130} style={{ position: 'absolute', inset: 0 }} fallback={<AnelCss />} />
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -113,6 +128,7 @@ const BootSplash: React.FC<BootSplashProps> = ({
       `}
     </style>
   </div>
-);
+  );
+};
 
 export default BootSplash;

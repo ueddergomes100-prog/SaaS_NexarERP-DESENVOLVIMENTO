@@ -487,6 +487,38 @@ body.light-theme textarea:disabled {
   z-index: 100000 !important;
 }
 
+/* Icones animados (Lottie) nos avisos de sucesso/erro/aviso/excluir -- ver
+ * src/utils/alerts.ts. O SweetAlert2 desenha borda e anima o proprio icone;
+ * aqui a caixa do icone vira so' o palco da animacao. */
+.swal2-icon.hennder-icone-animado {
+  border: 0 !important;
+  background: transparent !important;
+  width: 5.5em;
+  height: 5.5em;
+  margin: 1.25em auto 0.5em;
+}
+.swal2-icon.hennder-icone-animado.swal2-icon-show {
+  animation: none !important;
+}
+.swal2-toast .swal2-icon.hennder-icone-animado {
+  width: 2.75em;
+  height: 2.75em;
+  min-width: 2.75em;
+  margin: 0 0.5em 0 0;
+}
+.swal2-icon.hennder-icone-animado .swal2-icon-content {
+  display: block;
+  width: 100%;
+  height: 100%;
+  font-size: inherit;
+}
+.hennder-lottie,
+.hennder-lottie svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 /* Global Table & Status Badge Styles */
 .card {
   background-color: var(--bg-secondary);

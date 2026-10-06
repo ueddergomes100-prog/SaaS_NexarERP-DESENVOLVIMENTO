@@ -1,4 +1,51 @@
 import Swal, { type SweetAlertOptions } from 'sweetalert2';
+import { prefereMenosMovimento, type AnimacaoNome } from './animacoes';
+
+/*
+ * ICONES ANIMADOS (2026-10-06). Todo pop-up/toast de sucesso, erro ou aviso
+ * do sistema passa por aqui, entao a animacao (Lottie, ver animacoes.ts) entra
+ * UMA vez neste arquivo e aparece igual nas 80+ telas -- sem mexer tela por
+ * tela e sem virar uma etapa a mais: ela mora dentro do aviso que ja existia.
+ * Quem prefere menos movimento (ajuste do sistema operacional) continua com o
+ * icone estatico do SweetAlert2. O player so' e' carregado quando o primeiro
+ * aviso aparece (import dinamico), nao no boot.
+ */
+const ICONE_ANIMADO: Partial<Record<NonNullable<SweetAlertOptions['icon']>, AnimacaoNome>> = {
+  success: 'sucesso',
+  error: 'erro',
+  warning: 'aviso',
+};
+
+const classesDoIcone = (atual: SweetAlertOptions['customClass']) => {
+  const base = atual && typeof atual === 'object' ? atual : {};
+  const icone = base.icon ? (Array.isArray(base.icon) ? base.icon : [base.icon]) : [];
+  return { ...base, icon: [...icone, 'hennder-icone-animado'] };
+};
+
+/** Opcoes que trocam o icone do pop-up por uma animacao especifica (ex.: a lixeira do excluir). */
+const iconeAnimado = (opcoes: SweetAlertOptions, nome: AnimacaoNome, loop = false): SweetAlertOptions => {
+  if (prefereMenosMovimento()) return opcoes;
+  const didOpenOriginal = opcoes.didOpen;
+  return {
+    ...opcoes,
+    iconHtml: `<span class="hennder-lottie" data-animacao="${nome}" data-loop="${loop ? '1' : '0'}"></span>`,
+    customClass: classesDoIcone(opcoes.customClass),
+    didOpen: (popup) => {
+      const alvo = popup.querySelector<HTMLElement>('.hennder-lottie');
+      if (alvo) {
+        void import('./animacoes').then(({ tocarAnimacao }) => tocarAnimacao(alvo, nome, { loop }));
+      }
+      didOpenOriginal?.(popup);
+    },
+  };
+};
+
+/** Icone padrao do tipo (success/error/warning) vira a animacao correspondente. */
+const comIconeAnimado = (opcoes: SweetAlertOptions): SweetAlertOptions => {
+  const nome = opcoes.icon ? ICONE_ANIMADO[opcoes.icon] : undefined;
+  if (!nome || opcoes.iconHtml) return opcoes;
+  return iconeAnimado(opcoes, nome);
+};
 
 /**
  * Escapa texto pra ir dentro do `html:` de um pop-up. OBRIGATORIO em todo
@@ -33,15 +80,18 @@ SwalBase.fire = ((...args: unknown[]) => {
   // Forma posicional fire(titulo, html, icone): o 2o argumento tambem e' HTML.
   // Vai como texto puro, pelo mesmo motivo do titulo.
   if (typeof opcoes === 'string') {
-    return fireOriginal({
+    return fireOriginal(comIconeAnimado({
       titleText: opcoes,
       ...(texto !== undefined ? { text: String(texto) } : {}),
       ...(icone ? { icon: icone as SweetAlertOptions['icon'] } : {}),
-    });
+    }));
   }
   if (opcoes && typeof opcoes === 'object' && typeof (opcoes as SweetAlertOptions).title === 'string') {
     const { title, ...resto } = opcoes as SweetAlertOptions;
-    return fireOriginal({ ...resto, titleText: resto.titleText ?? (title as string) });
+    return fireOriginal(comIconeAnimado({ ...resto, titleText: resto.titleText ?? (title as string) }));
+  }
+  if (opcoes && typeof opcoes === 'object') {
+    return fireOriginal(comIconeAnimado(opcoes as SweetAlertOptions));
   }
   return (fireOriginal as (...a: unknown[]) => ReturnType<typeof Swal.fire>)(...args);
 }) as typeof Swal.fire;
@@ -94,9 +144,9 @@ export const showWarning = (title: string, text?: string) => {
   });
 };
 
-// Pop-up de Confirmação para exclusão
+// Pop-up de Confirmação para exclusão (lixeira animada no lugar do aviso generico)
 export const confirmDelete = async (itemName: string) => {
-  const result = await NexusSwal.fire({
+  const result = await NexusSwal.fire(iconeAnimado({
     title: 'Excluir registro?',
     text: `Você está prestes a excluir ${itemName}. Essa ação não pode ser desfeita.`,
     icon: 'warning',
@@ -106,7 +156,7 @@ export const confirmDelete = async (itemName: string) => {
     confirmButtonText: 'Sim, excluir!',
     cancelButtonText: 'Cancelar',
     reverseButtons: true
-  });
+  }, 'excluir', true));
 
   return result.isConfirmed;
 };

@@ -39,7 +39,7 @@ const UsuarioForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditing = !!id;
-  const { tenantId, currentUser } = useAuth();
+  const { tenantId, currentUser, grupo } = useAuth();
   
   const [formData, setFormData] = useState({
     nome: '',
@@ -276,8 +276,9 @@ const UsuarioForm: React.FC = () => {
       // consome acesso. Ver src/utils/vendedorCadastroDomain.ts.
       const currentCount = qSnap.docs.filter((documento) => isRegistroComLogin(documento.data())).length;
 
-      // Obtém o limite configurado no documento do dono da oficina (tenantId)
-      const ownerDoc = await getDoc(doc(db, 'usuarios', tenantId));
+      // Obtém o limite configurado no documento do dono da oficina (tenantId).
+      // Numa filial (2026-10-06), o plano e' do grupo: vale o da matriz.
+      const ownerDoc = await getDoc(doc(db, 'usuarios', grupo?.matrizTenantId || tenantId));
       const limit = ownerDoc.exists() ? (ownerDoc.data().limiteUsuarios !== undefined ? ownerDoc.data().limiteUsuarios : 3) : 3;
 
       if (currentCount >= limit) {

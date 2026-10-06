@@ -2,14 +2,15 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const { rotuloFilial } = require('../domain/filialDomain');
-const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial } = require('../services/filiais');
+const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial } = require('../services/filiais');
 
 /**
  * FILIAIS -- ver services/filiais.js e docs/PLANO_FILIAIS.md.
  *   GET  /api/filiais            filiais em que o usuario pode entrar
  *   POST /api/filiais/ativar     entrar em outra filial
  *   POST /api/filiais            cadastrar filial (dono/administrador)
- *   PUT  /api/filiais/:tenantId  mudar nome, codigo ou situacao
+ *   GET  /api/filiais/:tenantId  cadastro completo da filial (para editar)
+ *   PUT  /api/filiais/:tenantId  mudar o cadastro (menos CNPJ) ou a situacao
  */
 const router = express.Router();
 router.use(authenticate);
@@ -56,6 +57,14 @@ router.post('/', async (req, res) => {
   }
 });
 
+router.get('/:tenantId', async (req, res) => {
+  try {
+    return res.json(await lerCadastroDaFilial({ user: req.user, tenantId: req.params.tenantId }));
+  } catch (erro) {
+    return responderErro(res, erro, 'carregar o cadastro da filial');
+  }
+});
+
 router.put('/:tenantId', async (req, res) => {
   try {
     const { filial, antes } = await editarFilial({ user: req.user, tenantId: req.params.tenantId, corpo: req.body || {} });
@@ -63,6 +72,7 @@ router.put('/:tenantId', async (req, res) => {
     if (antes.nome !== filial.nome) mudancas.push(`nome ${antes.nome} → ${filial.nome}`);
     if (antes.codigo !== filial.codigo) mudancas.push(`código ${antes.codigo} → ${filial.codigo}`);
     if (antes.ativa !== filial.ativa) mudancas.push(filial.ativa ? 'reativada' : 'inativada');
+    if (antes.cidade !== filial.cidade || antes.uf !== filial.uf) mudancas.push(`cidade ${filial.cidade}/${filial.uf}`);
     registrarLog(req.user, {
       modulo: 'filiais',
       acao: 'edicao',

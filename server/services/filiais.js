@@ -49,7 +49,8 @@ const resumoParaTela = (grupo, usuario) => ({
   // Lista completa (com as inativas) so' para quem administra as filiais.
   todasAsFiliais: dominio.ehGestorDoGrupo(grupo, usuario) ? grupo.filiais : [],
   modulosBloqueados: grupo ? grupo.modulosBloqueados : [],
-  proximoCodigo: dominio.proximoCodigoDeFilial(grupo),
+  // Sem grupo, a empresa atual vira a matriz (10) e a primeira filial e' a 20.
+  proximoCodigo: grupo ? dominio.proximoCodigoDeFilial(grupo) : '20',
 });
 
 /** Filiais em que o usuario pode entrar, a ativa e se ele pode trocar. */
@@ -151,32 +152,54 @@ const criarFilial = async ({ user, corpo }) => db.runTransaction(async (tx) => {
   return { tenantId, grupoId: grupoRef.id, filial };
 });
 
-/** Muda nome, codigo ou situacao de uma filial (a identidade fiscal se ajusta em Configuracoes, dentro da filial). */
-const editarFilial = async ({ user, tenantId, corpo }) => db.runTransaction(async (tx) => {
+const filialDoGrupoDoGestor = async (tx, user, tenantId, acao) => {
   const usuario = await lerUsuario(tx, user.uid);
   const { grupo } = await lerGrupoDaCasa(tx, usuario.tenantId);
   if (!grupo) throw new ErroFilial(404, 'Sua empresa não tem filiais cadastradas.');
-  exigirGestor(grupo, usuario, 'alterar filiais');
+  exigirGestor(grupo, usuario, acao);
   const atual = grupo.filiais.find((f) => f.tenantId === tenantId);
   if (!atual) throw new ErroFilial(404, 'Essa filial não faz parte da sua empresa.');
+  return { usuario, grupo, atual };
+};
 
-  const corpoSeguro = corpo || {};
-  const nome = typeof corpoSeguro.nome === 'string' ? corpoSeguro.nome : atual.nome;
-  const codigo = typeof corpoSeguro.codigo === 'string' ? corpoSeguro.codigo : atual.codigo;
-  const ativa = typeof corpoSeguro.ativa === 'boolean' ? corpoSeguro.ativa : atual.ativa;
-
-  if (!ativa && atual.matriz) throw new ErroFilial(400, 'A matriz não pode ser inativada.');
-  if (!ativa && dominio.filialAtivaDoUsuario(usuario) === tenantId) {
-    throw new ErroFilial(400, 'Você está trabalhando nesta filial. Entre em outra antes de inativá-la.');
-  }
-  const dados = dominio.lerDadosDaFilial({ ...atual, nome, codigo });
-  const erro = dominio.validarNomeECodigoDaFilial(dados, grupo, tenantId);
-  if (erro) throw new ErroFilial(400, erro);
-
-  const filiais = grupo.filiais.map((f) => (f.tenantId === tenantId ? { ...f, nome: dados.nome, codigo: dados.codigo, ativa } : f));
-  tx.update(db.collection('grupos').doc(grupo.id), { filiais, atualizadoEm: agora() });
-  tx.update(db.collection('configuracoes').doc(tenantId), { filialCodigo: dados.codigo });
-  return { filial: filiais.find((f) => f.tenantId === tenantId), antes: atual };
+/** Cadastro completo de uma filial, para abrir a edicao (o dono pode estar em outra filial). */
+const lerCadastroDaFilial = async ({ user, tenantId }) => db.runTransaction(async (tx) => {
+  const { atual } = await filialDoGrupoDoGestor(tx, user, tenantId, 'ver o cadastro das filiais');
+  const configSnap = await tx.get(db.collection('configuracoes').doc(tenantId));
+  return { filial: atual, dados: dominio.dadosDaFilialNaConfiguracao(atual, configSnap.exists ? configSnap.data() : {}) };
 });
 
-module.exports = { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial };
+/**
+ * Muda o cadastro de uma filial: nome resumido, codigo, razao social,
+ * IE/IM, endereco, contato e situacao. CNPJ e tipo (proprio ou mesmo CNPJ)
+ * nao mudam aqui -- trocar CNPJ mexe na Spedy e no registro de CNPJs.
+ */
+const editarFilial = async ({ user, tenantId, corpo }) => db.runTransaction(async (tx) => {
+  const { usuario, grupo, atual } = await filialDoGrupoDoGestor(tx, user, tenantId, 'alterar filiais');
+  const configRef = db.collection('configuracoes').doc(tenantId);
+  const configSnap = await tx.get(configRef);
+  const config = configSnap.exists ? configSnap.data() : {};
+
+  const corpoSeguro = corpo || {};
+  const ativa = typeof corpoSeguro.ativa === 'boolean' ? corpoSeguro.ativa : atual.ativa;
+  if (!ativa && atual.matriz) throw new ErroFilial(400, 'A matriz não pode ser inativada.');
+  if (!ativa && atual.ativa && dominio.filialAtivaDoUsuario(usuario) === tenantId) {
+    throw new ErroFilial(400, 'Você está trabalhando nesta filial. Entre em outra antes de inativá-la.');
+  }
+
+  const anteriores = dominio.dadosDaFilialNaConfiguracao(atual, config);
+  const dados = dominio.lerDadosDaFilial({ ...anteriores, ...corpoSeguro, cnpj: anteriores.cnpj, tipo: anteriores.tipo });
+  const erro = dominio.validarEdicaoDaFilial(dados, grupo, tenantId);
+  if (erro) throw new ErroFilial(400, erro);
+
+  const filial = { ...atual, nome: dados.nome, codigo: dados.codigo, uf: dados.uf, cidade: dados.cidade, ativa };
+  const filiais = grupo.filiais.map((f) => (f.tenantId === tenantId ? filial : f));
+  tx.update(db.collection('grupos').doc(grupo.id), { filiais, atualizadoEm: agora() });
+  tx.update(configRef, {
+    ...dominio.identidadeParaConfiguracao(dados),
+    ...(dados.tipo === 'cnpj_proprio' && dados.razaoSocial ? { razaoSocial: dados.razaoSocial } : {}),
+  });
+  return { filial, antes: atual };
+});
+
+module.exports = { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial };

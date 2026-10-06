@@ -1,0 +1,210 @@
+/*
+ * Seletor de filial (2026-10-06). O codigo da filial em destaque (10, 20...)
+ * e' o que o operador do Integra ja' reconhece; o nome vem ao lado.
+ */
+
+.filial-seletor {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.filial-seletor__botao,
+.filial-seletor--fixo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  max-width: 280px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.filial-seletor__botao {
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.filial-seletor__botao:hover,
+.filial-seletor__botao[aria-expanded='true'] {
+  border-color: var(--accent-purple);
+  background: color-mix(in srgb, var(--accent-purple) 10%, var(--bg-tertiary));
+}
+
+.filial-seletor__botao:focus-visible,
+.filial-seletor__opcao:focus-visible,
+.filial-seletor__gerenciar:focus-visible {
+  outline: 2px solid var(--accent-purple);
+  outline-offset: 1px;
+}
+
+.filial-seletor__botao svg,
+.filial-seletor--fixo svg {
+  flex-shrink: 0;
+  color: var(--accent-purple);
+}
+
+.filial-seletor__rotulo {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.filial-seletor__codigo {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--accent-purple);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.filial-seletor__nome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.filial-seletor__seta {
+  flex-shrink: 0;
+  color: var(--text-muted) !important;
+}
+
+.filial-seletor__girando {
+  animation: filial-seletor-gira 0.9s linear infinite;
+}
+
+@keyframes filial-seletor-gira {
+  to { transform: rotate(360deg); }
+}
+
+.filial-seletor__painel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 200;
+  width: min(320px, calc(100vw - 32px));
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-card);
+}
+
+.filial-seletor__titulo {
+  padding: 6px 8px 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.filial-seletor__opcao {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.filial-seletor__opcao:hover {
+  background: var(--bg-tertiary);
+}
+
+.filial-seletor__opcao.is-atual {
+  background: color-mix(in srgb, var(--accent-purple) 14%, transparent);
+}
+
+.filial-seletor__opcao-codigo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.filial-seletor__opcao.is-atual .filial-seletor__opcao-codigo {
+  border-color: var(--accent-purple);
+  background: var(--accent-purple);
+  color: #fff;
+}
+
+.filial-seletor__opcao-texto {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.filial-seletor__opcao-nome {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.filial-seletor__opcao-nome em {
+  color: var(--text-muted);
+  font-style: normal;
+  font-weight: 500;
+}
+
+.filial-seletor__opcao-local {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.filial-seletor__opcao-marca {
+  display: flex;
+  color: var(--accent-purple);
+}
+
+.filial-seletor__gerenciar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 8px 6px;
+  border: 0;
+  border-top: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--accent-purple);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .filial-seletor__rotulo,
+  .filial-seletor__nome { display: none; }
+  .filial-seletor__botao,
+  .filial-seletor--fixo { padding: 0 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filial-seletor__girando { animation: none; }
+}

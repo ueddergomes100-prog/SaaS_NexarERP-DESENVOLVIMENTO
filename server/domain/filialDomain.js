@@ -16,7 +16,7 @@
  *    Decisao do dono (06/10): as permissoes valem iguais em todas as filiais.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.matrizAPartirDaConfiguracao = exports.filialParaGravar = exports.configuracaoInicialDaFilial = exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = exports.validarDadosDaFilial = exports.validarNomeECodigoDaFilial = exports.proximoCodigoDeFilial = exports.cnpjValido = exports.lerDadosDaFilial = exports.filialAtivaParaGravar = exports.validarTrocaDeFilial = exports.filiaisDoUsuario = exports.podeUsarOutrasFiliais = exports.pertenceAoGrupo = exports.ehGestorDoGrupo = exports.filialAtivaDoUsuario = exports.rotuloFilial = exports.lerGrupo = exports.lerFilial = exports.UFS = exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = void 0;
+exports.matrizAPartirDaConfiguracao = exports.filialParaGravar = exports.configuracaoInicialDaFilial = exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = exports.validarDadosDaFilial = exports.validarNomeECodigoDaFilial = exports.proximoCodigoDeFilial = exports.cnpjValido = exports.validarEdicaoDaFilial = exports.identidadeParaConfiguracao = exports.dadosDaFilialNaConfiguracao = exports.lerDadosDaFilial = exports.filialAtivaParaGravar = exports.validarTrocaDeFilial = exports.filiaisDoUsuario = exports.podeUsarOutrasFiliais = exports.pertenceAoGrupo = exports.ehGestorDoGrupo = exports.filialAtivaDoUsuario = exports.rotuloFilial = exports.lerGrupo = exports.lerFilial = exports.UFS = exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = void 0;
 exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = 'filiais.utilizar';
 const texto = (valor) => (typeof valor === 'string' ? valor.trim() : '');
 const soDigitos = (valor) => String(valor ?? '').replace(/\D/g, '');
@@ -121,17 +121,75 @@ const lerDadosDaFilial = (dados) => {
         cnpj: soDigitos(d.cnpj),
         razaoSocial: texto(d.razaoSocial).toUpperCase(),
         inscricaoEstadual: texto(d.inscricaoEstadual).toUpperCase(),
+        inscricaoMunicipal: texto(d.inscricaoMunicipal).toUpperCase(),
         uf: texto(d.uf).toUpperCase(),
         cidade: texto(d.cidade).toUpperCase(),
         rua: texto(d.rua).toUpperCase(),
         numero: texto(d.numero).toUpperCase(),
+        complemento: texto(d.complemento).toUpperCase(),
         bairro: texto(d.bairro).toUpperCase(),
         cep: soDigitos(d.cep),
         telefone: texto(d.telefone),
         email: texto(d.email).toLowerCase(),
+        contato: texto(d.contato).toUpperCase(),
     };
 };
 exports.lerDadosDaFilial = lerDadosDaFilial;
+/** Dados do cadastro a partir da configuracao da filial (para abrir a edicao). */
+const dadosDaFilialNaConfiguracao = (filial, config) => (0, exports.lerDadosDaFilial)({
+    codigo: filial.codigo,
+    nome: filial.nome,
+    tipo: filial.tipo,
+    cnpj: filial.cnpj || config.cnpj,
+    razaoSocial: config.razaoSocial,
+    inscricaoEstadual: config.inscricaoEstadual,
+    inscricaoMunicipal: config.nfseInscricaoMunicipal,
+    uf: config.uf || filial.uf,
+    cidade: config.cidade || filial.cidade,
+    rua: config.rua,
+    numero: config.numero,
+    complemento: config.complemento,
+    bairro: config.bairro,
+    cep: config.cep,
+    telefone: config.telefone,
+    email: config.email,
+    contato: config.nomeUsuario,
+});
+exports.dadosDaFilialNaConfiguracao = dadosDaFilialNaConfiguracao;
+/**
+ * Campos de identidade que a configuracao da filial recebe do cadastro
+ * (criar e editar). CNPJ e tipo ficam de fora: so' mudam na criacao.
+ */
+const identidadeParaConfiguracao = (dados) => ({
+    filialCodigo: dados.codigo,
+    nomeOficina: dados.nome,
+    nomeFantasia: dados.nome,
+    inscricaoEstadual: dados.inscricaoEstadual,
+    nfseInscricaoMunicipal: dados.inscricaoMunicipal,
+    uf: dados.uf,
+    cidade: dados.cidade,
+    rua: dados.rua,
+    numero: dados.numero,
+    complemento: dados.complemento,
+    bairro: dados.bairro,
+    cep: dados.cep,
+    telefone: dados.telefone,
+    email: dados.email,
+    nomeUsuario: dados.contato,
+});
+exports.identidadeParaConfiguracao = identidadeParaConfiguracao;
+/** Edicao: o que muda (nome, codigo, endereco, contato) precisa continuar valido. */
+const validarEdicaoDaFilial = (dados, grupo, tenantId) => {
+    const erro = (0, exports.validarNomeECodigoDaFilial)(dados, grupo, tenantId);
+    if (erro)
+        return erro;
+    if (!exports.UFS.includes(dados.uf))
+        return 'Escolha o estado (UF) da filial.';
+    if (!dados.cidade)
+        return 'Informe a cidade da filial.';
+    return null;
+};
+exports.validarEdicaoDaFilial = validarEdicaoDaFilial;
 const cnpjValido = (valor) => {
     const c = soDigitos(valor);
     if (c.length !== 14 || /^(\d)\1{13}$/.test(c))
@@ -223,22 +281,11 @@ const configuracaoInicialDaFilial = (configMatriz, dados, contexto) => {
     const mesmoCnpj = dados.tipo === 'mesmo_cnpj';
     return {
         ...copia,
+        ...(0, exports.identidadeParaConfiguracao)(dados),
         tenantId: contexto.tenantId,
         grupoId: contexto.grupoId,
-        filialCodigo: dados.codigo,
-        nomeOficina: dados.nome,
-        nomeFantasia: dados.nome,
         razaoSocial: mesmoCnpj ? contexto.razaoSocialMatriz : (dados.razaoSocial || dados.nome),
         cnpj: mesmoCnpj ? soDigitos(contexto.cnpjMatriz) : dados.cnpj,
-        inscricaoEstadual: dados.inscricaoEstadual,
-        uf: dados.uf,
-        cidade: dados.cidade,
-        rua: dados.rua,
-        numero: dados.numero,
-        bairro: dados.bairro,
-        cep: dados.cep,
-        telefone: dados.telefone,
-        email: dados.email,
         // A filial precisa ser cadastrada na Spedy (CNPJ dela) antes de emitir nota.
         spedyEnabled: false,
     };

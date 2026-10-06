@@ -136,7 +136,7 @@ const inputStyle: React.CSSProperties = {
 
 const VendedoresList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
-  const { tenantId, currentUser, userRole, exigirIdentificacaoVendedor } = useAuth();
+  const { tenantId, currentUser, userRole, exigirIdentificacaoVendedor, grupo } = useAuth();
   const [vendedores, setVendedores] = useState<VendedorData[]>([]);
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState('');
@@ -287,7 +287,7 @@ const VendedoresList: React.FC = () => {
         showError('Cadastro da empresa incompleto', checagemCnpj.motivo);
         return;
       }
-      const checagemLimite = await checarLimiteAcessoMobile(tenantId);
+      const checagemLimite = await checarLimiteAcessoMobile(tenantId, grupo?.matrizTenantId || tenantId);
       if (!checagemLimite.ok) {
         showError('Limite de acesso mobile atingido', checagemLimite.motivo);
         return;

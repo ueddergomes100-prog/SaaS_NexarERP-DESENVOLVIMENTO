@@ -113,6 +113,18 @@ test('editar: nome e codigo, sem inativar a matriz nem a filial em que o proprio
   assert.equal(filial.nome, 'BAIXADA SUL');
   assert.equal(filial.codigo, '25');
   assert.equal(fake.ler(`configuracoes/${tenantId}`).filialCodigo, '25');
+  assert.equal(fake.ler(`configuracoes/${tenantId}`).nomeOficina, 'BAIXADA SUL');
+
+  await s.editarFilial({ user: DONO, tenantId, corpo: { rua: 'Av. Central', numero: '500', inscricaoMunicipal: '9988', contato: 'Vinicios', cnpj: '00000000000000' } });
+  const config = fake.ler(`configuracoes/${tenantId}`);
+  assert.equal(config.rua, 'AV. CENTRAL');
+  assert.equal(config.nfseInscricaoMunicipal, '9988');
+  assert.equal(config.nomeUsuario, 'VINICIOS');
+  assert.equal(config.cnpj, CNPJ_FILIAL, 'CNPJ nao muda na edicao');
+  const cadastro = await s.lerCadastroDaFilial({ user: DONO, tenantId });
+  assert.equal(cadastro.dados.rua, 'AV. CENTRAL');
+  assert.equal(cadastro.dados.cidade, 'SERRA');
+  await assert.rejects(() => s.lerCadastroDaFilial({ user: { uid: 'f1' }, tenantId }), /Só o dono ou um administrador/);
 
   await assert.rejects(() => s.editarFilial({ user: DONO, tenantId: 'dono', corpo: { ativa: false } }), /matriz não pode ser inativada/);
   await s.ativarFilial({ user: DONO, destino: tenantId });

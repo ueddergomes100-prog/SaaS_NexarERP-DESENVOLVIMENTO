@@ -150,21 +150,32 @@ export const filialAtivaParaGravar = (usuario: UsuarioDaFilial, destino: string)
 // Cadastro de filial
 // ---------------------------------------------------------------------------
 
+/**
+ * Dados do cadastro da filial -- o cabecalho e a aba Endereco do "Cadastro de
+ * Filial" do Integra (prints do dono, 06/10). As outras abas de la'
+ * (Complemento, Parametros, Outros) sao as Configuracoes de cada filial, que
+ * no Hennder ja' existem por empresa e a filial nova recebe da matriz.
+ */
 export interface DadosDaFilial {
   codigo: string;
+  /** Nome resumido (o que aparece no seletor do topo). */
   nome: string;
   tipo: TipoFilial;
   cnpj: string;
   razaoSocial: string;
   inscricaoEstadual: string;
+  inscricaoMunicipal: string;
   uf: string;
   cidade: string;
   rua: string;
   numero: string;
+  complemento: string;
   bairro: string;
   cep: string;
   telefone: string;
   email: string;
+  /** Pessoa de contato da filial. */
+  contato: string;
 }
 
 export const lerDadosDaFilial = (dados: unknown): DadosDaFilial => {
@@ -176,15 +187,70 @@ export const lerDadosDaFilial = (dados: unknown): DadosDaFilial => {
     cnpj: soDigitos(d.cnpj),
     razaoSocial: texto(d.razaoSocial).toUpperCase(),
     inscricaoEstadual: texto(d.inscricaoEstadual).toUpperCase(),
+    inscricaoMunicipal: texto(d.inscricaoMunicipal).toUpperCase(),
     uf: texto(d.uf).toUpperCase(),
     cidade: texto(d.cidade).toUpperCase(),
     rua: texto(d.rua).toUpperCase(),
     numero: texto(d.numero).toUpperCase(),
+    complemento: texto(d.complemento).toUpperCase(),
     bairro: texto(d.bairro).toUpperCase(),
     cep: soDigitos(d.cep),
     telefone: texto(d.telefone),
     email: texto(d.email).toLowerCase(),
+    contato: texto(d.contato).toUpperCase(),
   };
+};
+
+/** Dados do cadastro a partir da configuracao da filial (para abrir a edicao). */
+export const dadosDaFilialNaConfiguracao = (filial: FilialDoGrupo, config: Record<string, unknown>): DadosDaFilial => lerDadosDaFilial({
+  codigo: filial.codigo,
+  nome: filial.nome,
+  tipo: filial.tipo,
+  cnpj: filial.cnpj || config.cnpj,
+  razaoSocial: config.razaoSocial,
+  inscricaoEstadual: config.inscricaoEstadual,
+  inscricaoMunicipal: config.nfseInscricaoMunicipal,
+  uf: config.uf || filial.uf,
+  cidade: config.cidade || filial.cidade,
+  rua: config.rua,
+  numero: config.numero,
+  complemento: config.complemento,
+  bairro: config.bairro,
+  cep: config.cep,
+  telefone: config.telefone,
+  email: config.email,
+  contato: config.nomeUsuario,
+});
+
+/**
+ * Campos de identidade que a configuracao da filial recebe do cadastro
+ * (criar e editar). CNPJ e tipo ficam de fora: so' mudam na criacao.
+ */
+export const identidadeParaConfiguracao = (dados: DadosDaFilial): Record<string, string> => ({
+  filialCodigo: dados.codigo,
+  nomeOficina: dados.nome,
+  nomeFantasia: dados.nome,
+  inscricaoEstadual: dados.inscricaoEstadual,
+  nfseInscricaoMunicipal: dados.inscricaoMunicipal,
+  uf: dados.uf,
+  cidade: dados.cidade,
+  rua: dados.rua,
+  numero: dados.numero,
+  complemento: dados.complemento,
+  bairro: dados.bairro,
+  cep: dados.cep,
+  telefone: dados.telefone,
+  email: dados.email,
+  nomeUsuario: dados.contato,
+});
+
+/** Edicao: o que muda (nome, codigo, endereco, contato) precisa continuar valido. */
+export const validarEdicaoDaFilial = (dados: DadosDaFilial, grupo: GrupoEmpresarial | null, tenantId: string): string | null => {
+  const erro = validarNomeECodigoDaFilial(dados, grupo, tenantId);
+  if (erro) return erro;
+  if (!UFS.includes(dados.uf)) return 'Escolha o estado (UF) da filial.';
+  if (!dados.cidade) return 'Informe a cidade da filial.';
+  return null;
 };
 
 export const cnpjValido = (valor: unknown): boolean => {
@@ -283,22 +349,11 @@ export const configuracaoInicialDaFilial = (
   const mesmoCnpj = dados.tipo === 'mesmo_cnpj';
   return {
     ...copia,
+    ...identidadeParaConfiguracao(dados),
     tenantId: contexto.tenantId,
     grupoId: contexto.grupoId,
-    filialCodigo: dados.codigo,
-    nomeOficina: dados.nome,
-    nomeFantasia: dados.nome,
     razaoSocial: mesmoCnpj ? contexto.razaoSocialMatriz : (dados.razaoSocial || dados.nome),
     cnpj: mesmoCnpj ? soDigitos(contexto.cnpjMatriz) : dados.cnpj,
-    inscricaoEstadual: dados.inscricaoEstadual,
-    uf: dados.uf,
-    cidade: dados.cidade,
-    rua: dados.rua,
-    numero: dados.numero,
-    bairro: dados.bairro,
-    cep: dados.cep,
-    telefone: dados.telefone,
-    email: dados.email,
     // A filial precisa ser cadastrada na Spedy (CNPJ dela) antes de emitir nota.
     spedyEnabled: false,
   };

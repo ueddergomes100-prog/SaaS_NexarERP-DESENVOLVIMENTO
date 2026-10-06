@@ -63,6 +63,7 @@ const ClienteForm = lazy(() => import('../pages/Clientes/ClienteForm'));
 const ImportarClientes = lazy(() => import('../pages/Clientes/ImportarClientes'));
 const UsuariosList = lazy(() => import('../pages/Usuarios/UsuariosList'));
 const Configuracoes = lazy(() => import('../pages/Configuracoes/Configuracoes'));
+const FiliaisList = lazy(() => import('../pages/Filiais/FiliaisList'));
 const ServicosList = lazy(() => import('../pages/Servicos/ServicosList'));
 const ServicoForm = lazy(() => import('../pages/Servicos/ServicoForm'));
 const CategoriasList = lazy(() => import('../pages/Categorias/CategoriasList'));
@@ -232,6 +233,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'producao/relatorios', element: <RelatorioProducao /> },
 
   { path: 'configuracoes', element: <Configuracoes /> },
+  { path: 'configuracoes/filiais', element: <FiliaisList /> },
   { path: 'logs-sistema', element: <LogsSistema /> },
 
   { path: 'operacoes/expedicao', element: <FilaExpedicao /> },

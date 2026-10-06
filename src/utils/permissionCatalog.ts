@@ -201,6 +201,15 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
     ],
   },
   {
+    // Filiais (2026-10-06): a permissao-chave para trabalhar em outras filiais
+    // do grupo -- trocar de filial no topo, ver e alterar os itens das outras,
+    // transferir estoque. Dono e administrador ja' tem. Ver filialDomain.ts.
+    grupo: 'Filiais',
+    itens: [
+      { id: 'filiais.utilizar', label: 'Filiais: Utiliza outras filiais (trocar de filial, ver itens e transferir)', color: '#8b5cf6' },
+    ],
+  },
+  {
     // Modulos ainda em roadmap: as telas sao o mockup "Em breve"
     // (RoadmapModule). Antes de 2026-08-18 nao tinham permissao NEM branch em
     // routeAccess.ts -- ou seja, todo funcionario via esses itens no menu e

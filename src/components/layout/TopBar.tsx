@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, Receipt, LifeBuoy, ShieldCheck } from 'lucide-react';
+import FilialSeletor from './FilialSeletor';
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
 import { collection, query, where, onSnapshot, doc, getDocs, limit } from 'firebase/firestore';
@@ -431,6 +432,8 @@ const TopBar: React.FC = () => {
             </select>
           </div>
         )}
+
+        <FilialSeletor />
 
         <button
           className="action-btn theme-toggle-btn" 

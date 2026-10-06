@@ -335,7 +335,9 @@ const Sidebar: React.FC = () => {
       label: 'Configurações',
       icon: Settings,
       items: [
-        { label: 'Configurações Gerais', to: '/configuracoes', icon: Settings, module: 'admin.config', permission: 'administrativo.config' }
+        { label: 'Configurações Gerais', to: '/configuracoes', icon: Settings, module: 'admin.config', permission: 'administrativo.config' },
+        // Filiais (2026-10-06): a tela confere de novo que e' dono/administrador.
+        { label: 'Filiais', to: '/configuracoes/filiais', icon: Building2, module: 'admin.config', permission: 'administrativo.config' }
       ]
     },
     {

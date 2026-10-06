@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// Regras do Firebase Storage (2026-10-06). Ate' aqui o front nao usava o
+// Storage: o logo da empresa ia em base64 dentro de configuracoes/{tenantId},
+// documento que quase toda tela baixa -- cada abertura de tela puxava a
+// imagem de novo. Agora o logo e' um arquivo aqui e o documento guarda so' o
+// link. Os backups do servidor (Admin SDK) nao passam por estas regras.
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Logo da empresa: leitura publica (sai nas impressoes e no PDF, sem
+    // login), gravacao so' por usuario da PROPRIA empresa, imagem ate' 2 MB.
+    match /empresas/{tenantId}/logo/{arquivo} {
+      allow read: if true;
+      allow create, update: if request.auth != null
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*')
+        && (
+          request.auth.uid == tenantId
+          || firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.tenantId == tenantId
+        );
+      allow delete: if false;
+    }
+
+    match /{resto=**} {
+      allow read, write: if false;
+    }
+  }
+}

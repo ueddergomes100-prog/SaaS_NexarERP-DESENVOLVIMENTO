@@ -2,7 +2,8 @@ import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
 import React, { useState, useEffect, useRef } from 'react';
 import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy } from 'lucide-react';
 import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import { db, storage } from '../../services/firebase';
+import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
@@ -156,6 +157,7 @@ const Configuracoes: React.FC = () => {
   const [moduleBlockedDraft, setModuleBlockedDraft] = useState<string[]>([]);
   const [isSavingTenantModules, setIsSavingTenantModules] = useState(false);
 
+  const [enviandoLogo, setEnviandoLogo] = useState(false);
   const [formData, setFormData] = useState({
     logo: '',
     nomeOficina: '',
@@ -696,6 +698,36 @@ const Configuracoes: React.FC = () => {
     ['razaoSocial', 'nomeOficina', 'cnpj', 'inscricaoEstadual', 'rua', 'numero', 'bairro', 'cep', 'email', 'regimeTributario', 'nfseCidadeCodigo']
       .map((campo) => String(d[campo] ?? '').trim()),
   );
+
+  /**
+   * Logo da empresa vai para o Storage (empresas/{tenantId}/logo/...), e o
+   * documento de configuracoes guarda so' o link (2026-10-06). Antes a imagem
+   * ia em base64 dentro do documento que quase toda tela baixa -- era trafego
+   * repetido a cada abertura de tela. Logo antigo em base64 continua valendo
+   * ate' a empresa trocar a imagem. Nome com a hora: trocar o logo gera um
+   * link novo e o navegador nao mostra a imagem velha do cache.
+   */
+  const enviarLogoParaStorage = async (file: File) => {
+    if (!tenantId) return;
+    if (file.size > 1024 * 1024 * 2) {
+      showError('Imagem grande demais', 'O logo deve ter no máximo 2 MB. Reduza a imagem e tente de novo.');
+      return;
+    }
+    setEnviandoLogo(true);
+    try {
+      const extensao = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+      const destino = storageRef(storage, `empresas/${tenantId}/logo/logo-${Date.now()}.${extensao}`);
+      await uploadBytes(destino, file, { contentType: file.type || 'image/png', cacheControl: 'public, max-age=86400' });
+      const url = await getDownloadURL(destino);
+      setFormData((atual) => ({ ...atual, logo: url }));
+      showSuccess('Logo carregado. Clique em Salvar para gravar.');
+    } catch (erro) {
+      console.error('Erro ao enviar o logo:', erro);
+      showError('Não foi possível enviar o logo', 'Confira sua conexão e tente de novo. Se continuar, avise o suporte.');
+    } finally {
+      setEnviandoLogo(false);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1300,7 +1332,7 @@ const Configuracoes: React.FC = () => {
                   {isEditingMode && (
                     <div>
                       <label htmlFor="logo-upload" className="btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '8px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
-                        <Plus size={16} /> Carregar Logo
+                        <Plus size={16} /> {enviandoLogo ? 'Enviando...' : 'Carregar Logo'}
                       </label>
                       <input
                         id="logo-upload"
@@ -1309,17 +1341,8 @@ const Configuracoes: React.FC = () => {
                         style={{ display: 'none' }}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (file) {
-                            if (file.size > 1024 * 1024 * 2) {
-                              showError('Erro', 'A imagem deve ter no máximo 2MB.');
-                              return;
-                            }
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setFormData({...formData, logo: reader.result as string});
-                            };
-                            reader.readAsDataURL(file);
-                          }
+                          if (file) void enviarLogoParaStorage(file);
+                          e.target.value = '';
                         }}
                       />
                       <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>Formatos: PNG, JPG (Máx 2MB)</p>
@@ -1334,7 +1357,6 @@ const Configuracoes: React.FC = () => {
               <input
                 type="text"
                 name="nomeOficina"
-                placeholder="Ex: Mercado Central Hennder"
                 value={formData.nomeOficina}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -1346,7 +1368,6 @@ const Configuracoes: React.FC = () => {
               <input
                 type="text"
                 name="nomeUsuario"
-                placeholder="Ex: Carlos (Admin)"
                 value={formData.nomeUsuario}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -1360,7 +1381,6 @@ const Configuracoes: React.FC = () => {
             <input
               type="text"
               name="razaoSocial"
-              placeholder="Ex: Mercado Central Hennder LTDA"
               value={formData.razaoSocial}
               onChange={handleChange}
               disabled={!isEditingMode}
@@ -1375,7 +1395,6 @@ const Configuracoes: React.FC = () => {
               <input
                 type="text"
                 name="cnpj"
-                placeholder="00.000.000/0000-00"
                 value={formData.cnpj}
                 onChange={(e) => {
                   const val = e.target.value.replace(/\D/g, '');
@@ -1448,7 +1467,6 @@ const Configuracoes: React.FC = () => {
               <input
                 type="text"
                 name="cep"
-                placeholder="00000-000"
                 value={formData.cep}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -1463,7 +1481,6 @@ const Configuracoes: React.FC = () => {
               <input
                 type="text"
                 name="telefone"
-                placeholder="(00) 00000-0000"
                 value={formData.telefone}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -1475,7 +1492,6 @@ const Configuracoes: React.FC = () => {
               <input
                 type="email"
                 name="email"
-                placeholder="contato@empresa.com"
                 value={formData.email}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -1492,7 +1508,6 @@ const Configuracoes: React.FC = () => {
               <input
                 type="text"
                 name="whatsapp"
-                placeholder="(00) 00000-0000"
                 value={formData.whatsapp}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -1506,7 +1521,6 @@ const Configuracoes: React.FC = () => {
               <input
                 type="text"
                 name="instagram"
-                placeholder="@suaempresa"
                 value={formData.instagram}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -1521,7 +1535,6 @@ const Configuracoes: React.FC = () => {
               <input
                 type="text"
                 name="rua"
-                placeholder="Rua Joaquim Santana"
                 value={formData.rua}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -1533,7 +1546,6 @@ const Configuracoes: React.FC = () => {
               <input
                 type="text"
                 name="numero"
-                placeholder="111"
                 value={formData.numero}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -1545,7 +1557,6 @@ const Configuracoes: React.FC = () => {
               <input
                 type="text"
                 name="bairro"
-                placeholder="Sagrada Família"
                 value={formData.bairro}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -1564,7 +1575,7 @@ const Configuracoes: React.FC = () => {
             )}
             <input
               type="text"
-              placeholder="Digite o nome da cidade pra buscar (ex: Manhuaçu)"
+              placeholder="Digite o nome da cidade pra buscar"
               value={cidadeSearchTerm}
               onChange={(e) => { setCidadeSearchTerm(e.target.value); setShowCidadeDropdown(true); }}
               onFocus={() => setShowCidadeDropdown(true)}
@@ -1621,7 +1632,6 @@ const Configuracoes: React.FC = () => {
                 <textarea
                   name="garantiaPadrao"
                   rows={4}
-                  placeholder="Ex: Garantia de 90 dias sobre a mão de obra. As peças possuem garantia do fabricante..."
                   value={formData.garantiaPadrao}
                   onChange={handleChange}
                   disabled={!isEditingMode}
@@ -1759,7 +1769,6 @@ const Configuracoes: React.FC = () => {
                   <textarea
                     name="observacoesPadraoPedido"
                     rows={2}
-                    placeholder="Ex: Devoluções e troca em até 15 dias somente com a apresentação da nota."
                     value={formData.observacoesPadraoPedido}
                     onChange={handleChange}
                     disabled={!isEditingMode}
@@ -2712,7 +2721,6 @@ const Configuracoes: React.FC = () => {
                       <input
                         type="text"
                         name="nfseCodigoServicoFederal"
-                        placeholder="Ex: 14.01"
                         value={formData.nfseCodigoServicoFederal}
                         onChange={handleChange}
                         disabled={!isEditingMode}
@@ -2738,7 +2746,6 @@ const Configuracoes: React.FC = () => {
                   type="text"
                   name="diasCrediario"
                   inputMode="numeric"
-                  placeholder="Ex.: 15, 30, 45"
                   value={formData.diasCrediario}
                   onChange={handleChange}
                   disabled={!isEditingMode}
@@ -2931,11 +2938,11 @@ const Configuracoes: React.FC = () => {
                     <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
                       <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Servidor SMTP</label>
-                        <input type="text" placeholder="Ex: smtp.gmail.com" value={smtp.host} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="text" value={smtp.host} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                       </div>
                       <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Porta</label>
-                        <input type="text" inputMode="numeric" placeholder="465" value={smtp.porta} onChange={(e) => { const porta = e.target.value.replace(/\D/g, '').slice(0, 5); setSmtp({ ...smtp, porta, seguro: porta === '465' ? true : porta === '587' ? false : smtp.seguro }); }} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="text" inputMode="numeric" value={smtp.porta} onChange={(e) => { const porta = e.target.value.replace(/\D/g, '').slice(0, 5); setSmtp({ ...smtp, porta, seguro: porta === '465' ? true : porta === '587' ? false : smtp.seguro }); }} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                       </div>
                     </div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: 'var(--text-primary)', cursor: 'pointer' }}>
@@ -2945,7 +2952,7 @@ const Configuracoes: React.FC = () => {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                       <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Usuário (normalmente o próprio e-mail)</label>
-                        <input type="text" placeholder={formData.email || 'contato@suaempresa.com.br'} value={smtp.usuario} onChange={(e) => setSmtp({ ...smtp, usuario: e.target.value })} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="text" placeholder={formData.email ? `Vazio = ${formData.email}` : undefined} value={smtp.usuario} onChange={(e) => setSmtp({ ...smtp, usuario: e.target.value })} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                       </div>
                       <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Senha do e-mail</label>
@@ -2997,7 +3004,7 @@ const Configuracoes: React.FC = () => {
                         <option value="production">Produção (nota fiscal real)</option>
                       </select>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
-                        <input type="text" placeholder="Série (ex: 1)" value={numeracaoNfe.serie} onChange={(e) => setNumeracaoNfe(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="text" placeholder="Série" value={numeracaoNfe.serie} onChange={(e) => setNumeracaoNfe(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                         <input type="number" min="1" placeholder="Próximo número" value={numeracaoNfe.proximoNumero} onChange={(e) => setNumeracaoNfe(prev => ({ ...prev, proximoNumero: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                       </div>
                     </div>
@@ -3010,7 +3017,7 @@ const Configuracoes: React.FC = () => {
                         <option value="production">Produção (nota fiscal real)</option>
                       </select>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
-                        <input type="text" placeholder="Série (ex: 1)" value={numeracaoNfce.serie} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="text" placeholder="Série" value={numeracaoNfce.serie} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                         <input type="number" min="1" placeholder="Número atual" value={numeracaoNfce.numeroAtual} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, numeroAtual: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>

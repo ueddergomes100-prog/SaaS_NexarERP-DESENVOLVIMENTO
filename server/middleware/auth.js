@@ -45,13 +45,19 @@ async function authenticate(req, res, next) {
 
     let role = claimRole;
     let tenantId = uid;
+    let homeTenantId = uid;
     let permissoes = [];
 
     if (userDoc.exists) {
       const userData = userDoc.data();
       const ownerFallback = userData.tenantId === uid ? 'Master' : 'Funcionario';
       role = normalizeRole(userData.role, role || ownerFallback);
-      tenantId = userData.tenantId || uid;
+      // Empresa da vez = a FILIAL ATIVA, quando o usuario entrou em outra
+      // filial do grupo (so' o servidor grava, ver services/filiais.js); sem
+      // ela, a filial "casa" do usuario. Mesma regra de currentTenantId() nas
+      // firestore.rules.
+      tenantId = userData.filialAtiva || userData.tenantId || uid;
+      homeTenantId = userData.tenantId || uid;
       permissoes = Array.isArray(userData.permissoes) ? userData.permissoes : [];
 
       // Funcionario inativado perde o acesso ao servidor tambem, nao so' a
@@ -74,6 +80,7 @@ async function authenticate(req, res, next) {
       email,
       role,
       tenantId,
+      homeTenantId,
       permissoes,
       isPlatformAdmin: isPlatformAdminRole(role),
       isTenantManager: isTenantManagerRole(role)

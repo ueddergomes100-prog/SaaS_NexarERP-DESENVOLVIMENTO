@@ -16,7 +16,7 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*')
         && (
           request.auth.uid == tenantId
-          || firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.tenantId == tenantId
+          || firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.get('filialAtiva', firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.tenantId) == tenantId
         );
       allow delete: if false;
     }

@@ -17,8 +17,12 @@ service cloud.firestore {
       return get(userPath(request.auth.uid)).data;
     }
 
+    // Empresa da vez. Com filiais (2026-10-06), e' a FILIAL ATIVA quando o
+    // usuario entrou em outra filial do grupo -- campo gravado so' pelo
+    // servidor (services/filiais.js confere o grupo e a permissao "Utiliza
+    // outras filiais"); sem ele, a filial "casa" do usuario (tenantId).
     function currentTenantId() {
-      return hasProfile() ? currentProfile().tenantId : null;
+      return hasProfile() ? currentProfile().get('filialAtiva', currentProfile().tenantId) : null;
     }
 
     function currentRole() {
@@ -85,7 +89,14 @@ service cloud.firestore {
         // /requisitos) -- se o Admin da empresa pudesse trocar, apontaria pra
         // empresa de OUTRO cliente e mexeria na numeracao/ambiente fiscal
         // dela. So' o servidor grava (Admin SDK, ver spedyCompanies.routes.js).
-        'spedyCompanyId'
+        'spedyCompanyId',
+        // Filiais (2026-10-06): o grupo de uma empresa, o codigo da filial e a
+        // filial em que o usuario esta trabalhando so' o servidor grava --
+        // senao um administrador se colocaria no grupo (ou na filial) de
+        // outra empresa e leria os dados dela.
+        'grupoId',
+        'filialCodigo',
+        'filialAtiva'
       ];
     }
 
@@ -485,6 +496,16 @@ service cloud.firestore {
       // UsuariosList.tsx). Antes o Tenant Admin tambem podia; fechado pra
       // nao sobrar um caminho de exclusao fisica sem UI nenhuma usando.
       allow delete: if isSuperAdmin();
+    }
+
+    // Grupo de filiais (2026-10-06). Le quem trabalha numa filial do grupo;
+    // so' o servidor grava (services/filiais.js).
+    match /grupos/{grupoId} {
+      allow read: if isSuperAdmin() || (
+        hasProfile() && perfilAtivo() &&
+        get(/databases/$(database)/documents/configuracoes/$(currentTenantId())).data.get('grupoId', '') == grupoId
+      );
+      allow write: if false;
     }
 
     match /usernames/{username} {

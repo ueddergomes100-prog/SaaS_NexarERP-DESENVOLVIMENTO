@@ -34,6 +34,7 @@ const MODULOS = [
   'src/utils/unidadeMedidaDomain.ts',
   'src/utils/preVendaDomain.ts',
   'src/utils/condicionalDomain.ts',
+  'src/utils/filialDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

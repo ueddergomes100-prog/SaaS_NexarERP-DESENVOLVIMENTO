@@ -2,7 +2,7 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const { rotuloFilial } = require('../domain/filialDomain');
-const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial, estoqueNasFiliais, saldoDoClienteNoGrupo } = require('../services/filiais');
+const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial, estoqueNasFiliais, saldoDoClienteNoGrupo, resumoDoGrupo } = require('../services/filiais');
 
 /**
  * FILIAIS -- ver services/filiais.js e docs/PLANO_FILIAIS.md.
@@ -13,6 +13,7 @@ const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerC
  *   PUT  /api/filiais/:tenantId  mudar o cadastro (menos CNPJ) ou a situacao
  *   POST /api/filiais/estoque     estoque dos produtos em cada filial (fase 2)
  *   GET  /api/filiais/clientes/:id/saldo  saldo em aberto do cliente no grupo
+ *   GET  /api/filiais/resumo?inicio&fim    vendas, a receber e estoque por filial (fase 5)
  */
 const router = express.Router();
 router.use(authenticate);
@@ -65,6 +66,14 @@ router.post('/estoque', async (req, res) => {
     return res.json(await estoqueNasFiliais({ user: req.user, chaves: req.body?.chaves }));
   } catch (erro) {
     return responderErro(res, erro, 'consultar o estoque das filiais');
+  }
+});
+
+router.get('/resumo', async (req, res) => {
+  try {
+    return res.json(await resumoDoGrupo({ user: req.user, inicio: req.query.inicio, fim: req.query.fim }));
+  } catch (erro) {
+    return responderErro(res, erro, 'montar o resumo das filiais');
   }
 });
 

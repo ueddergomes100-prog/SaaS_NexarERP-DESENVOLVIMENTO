@@ -16,7 +16,7 @@
  *    Decisao do dono (06/10): as permissoes valem iguais em todas as filiais.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.matrizAPartirDaConfiguracao = exports.filialParaGravar = exports.configuracaoInicialDaFilial = exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = exports.validarDadosDaFilial = exports.validarNomeECodigoDaFilial = exports.proximoCodigoDeFilial = exports.cnpjValido = exports.validarEdicaoDaFilial = exports.identidadeParaConfiguracao = exports.dadosDaFilialNaConfiguracao = exports.lerDadosDaFilial = exports.filialAtivaParaGravar = exports.validarTrocaDeFilial = exports.filiaisDoUsuario = exports.podeUsarOutrasFiliais = exports.pertenceAoGrupo = exports.ehGestorDoGrupo = exports.filialAtivaDoUsuario = exports.rotuloFilial = exports.lerGrupo = exports.lerFilial = exports.UFS = exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = void 0;
+exports.matrizAPartirDaConfiguracao = exports.filialParaGravar = exports.configuracaoInicialDaFilial = exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = exports.validarDadosDaFilial = exports.validarNomeECodigoDaFilial = exports.proximoCodigoDeFilial = exports.cnpjValido = exports.validarEdicaoDaFilial = exports.identidadeParaConfiguracao = exports.dadosDaFilialNaConfiguracao = exports.lerDadosDaFilial = exports.filialAtivaParaGravar = exports.validarTrocaDeFilial = exports.filiaisDoUsuario = exports.podeUsarOutrasFiliais = exports.pertenceAoGrupo = exports.ehGestorDoGrupo = exports.filialAtivaDoUsuario = exports.rotuloFilial = exports.mensalidadeComFiliais = exports.filiaisCobradas = exports.lerGrupo = exports.lerFilial = exports.UFS = exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = void 0;
 exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = 'filiais.utilizar';
 const texto = (valor) => (typeof valor === 'string' ? valor.trim() : '');
 const soDigitos = (valor) => String(valor ?? '').replace(/\D/g, '');
@@ -57,9 +57,25 @@ const lerGrupo = (id, dados) => {
         matrizTenantId: texto(g.matrizTenantId),
         filiais,
         modulosBloqueados: lista(g.modulosBloqueados),
+        valorFilialAdicional: Math.max(0, Number(g.valorFilialAdicional) || 0),
     };
 };
 exports.lerGrupo = lerGrupo;
+/**
+ * COBRANCA DAS FILIAIS (fase 5 -- 2026-10-06). Decisao do dono: cada filial
+ * paga um valor menor que a mensalidade da matriz. Conta so' filial ATIVA e
+ * que nao e' a matriz (a matriz ja' paga a mensalidade normal).
+ */
+const filiaisCobradas = (grupo) => (grupo ? grupo.filiais.filter((f) => f.ativa && !f.matriz).length : 0);
+exports.filiaisCobradas = filiaisCobradas;
+const mensalidadeComFiliais = (valorDaMatriz, grupo) => {
+    const base = Math.max(0, Number(valorDaMatriz) || 0);
+    const filiais = (0, exports.filiaisCobradas)(grupo);
+    const valorPorFilial = grupo ? Math.max(0, Number(grupo.valorFilialAdicional) || 0) : 0;
+    const adicional = Math.round(filiais * valorPorFilial * 100) / 100;
+    return { filiais, valorPorFilial, adicional, total: Math.round((base + adicional) * 100) / 100 };
+};
+exports.mensalidadeComFiliais = mensalidadeComFiliais;
 const ordenarCodigo = (a, b) => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b);
 const rotuloFilial = (filial) => (filial ? `${filial.codigo} · ${filial.nome}` : '');
 exports.rotuloFilial = rotuloFilial;

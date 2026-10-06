@@ -10,6 +10,7 @@ import { isPlatformAdminRole } from '../../utils/roles';
 import { moduleLabelMap } from '../../utils/moduleCatalog';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { showError, showSuccess } from '../../utils/alerts';
+import { lerGrupo, mensalidadeComFiliais, type GrupoEmpresarial } from '../../utils/filialDomain';
 import { spedyAdminService, type SpedyMasterKeyStatus } from '../../services/spedyAdminService';
 import CadastrarEmpresaSpedyModal from '../../components/admin/CadastrarEmpresaSpedyModal';
 
@@ -27,6 +28,10 @@ interface TenantInfo {
    *  parte. Padrao quando ausente e' 0 -- ver acessoMobileDomain.ts. */
   limiteAcessoMobile?: number;
   createdAt?: any;
+  /** Filiais (fase 5, 2026-10-06): grupo em que a empresa e' a matriz. */
+  grupo?: GrupoEmpresarial | null;
+  /** Mensalidade da matriz + filiais ativas x valor por filial. */
+  valorTotal: number;
 }
 
 const toDate = (value?: any): Date | null => {
@@ -150,11 +155,27 @@ const SuperAdmin: React.FC = () => {
               modulosBloqueados: data.modulosBloqueados || [],
               limiteUsuarios: data.limiteUsuarios !== undefined ? data.limiteUsuarios : 3,
               limiteAcessoMobile: data.limiteAcessoMobile !== undefined ? data.limiteAcessoMobile : 0,
-              createdAt: data.createdAt
+              createdAt: data.createdAt,
+              grupo: null,
+              valorTotal: data.valorMensalidade || 149.90,
             });
           }
         });
         
+        // Filiais (fase 5): cada filial ativa alem da matriz soma o valor
+        // por filial do grupo na mensalidade.
+        try {
+          const grupos = await getDocs(collection(db, 'grupos'));
+          const porMatriz = new Map<string, GrupoEmpresarial>();
+          grupos.forEach((g) => { const grupo = lerGrupo(g.id, g.data()); porMatriz.set(grupo.matrizTenantId, grupo); });
+          listOfTenants.forEach((t) => {
+            t.grupo = porMatriz.get(t.id) ?? null;
+            t.valorTotal = mensalidadeComFiliais(t.valor, t.grupo).total;
+          });
+        } catch (erroGrupos) {
+          console.warn('SuperAdmin: não foi possível ler os grupos de filiais.', erroGrupos);
+        }
+
         setTenants(listOfTenants);
       } catch (err) {
         console.error("Erro ao buscar tenants", err);
@@ -189,12 +210,51 @@ const SuperAdmin: React.FC = () => {
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Mensalidade alterada pelo admin da plataforma'),
         });
         
-        setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, valor: Number(novoValor) } : t));
+        setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, valor: Number(novoValor), valorTotal: mensalidadeComFiliais(Number(novoValor), t.grupo).total } : t));
         Swal.fire('Atualizado!', 'Mensalidade atualizada com sucesso.', 'success');
       } catch (err) {
         console.error(err);
         Swal.fire('Erro', 'Não foi possível atualizar o valor.', 'error');
       }
+    }
+  };
+
+  /** Filiais (fase 5): valor mensal de cada filial alem da matriz. */
+  const handleEditValorFilial = async (tenant: TenantInfo) => {
+    const grupo = tenant.grupo;
+    if (!grupo || !currentUser) return;
+    const { value: novoValor } = await Swal.fire({
+      title: 'Valor por filial',
+      input: 'number',
+      inputLabel: `Quanto cada filial ativa de ${tenant.nomeOficina} paga por mês, além da mensalidade da matriz (R$)`,
+      inputValue: grupo.valorFilialAdicional || '',
+      inputAttributes: { min: '0', step: '0.01' },
+      showCancelButton: true,
+      confirmButtonText: 'Salvar valor',
+      cancelButtonText: 'Cancelar',
+      inputValidator: (value) => {
+        if (value === '' || !Number.isFinite(Number(value)) || Number(value) < 0) {
+          return 'Informe o valor por filial (use 0 para não cobrar).';
+        }
+        return undefined;
+      }
+    });
+    if (novoValor === undefined) return;
+    const valor = Math.round(Number(novoValor) * 100) / 100;
+    try {
+      await updateDoc(doc(db, 'grupos', grupo.id), {
+        valorFilialAdicional: valor,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Valor por filial alterado pelo admin da plataforma'),
+      });
+      setTenants(prev => prev.map(t => {
+        if (t.id !== tenant.id || !t.grupo) return t;
+        const novoGrupo = { ...t.grupo, valorFilialAdicional: valor };
+        return { ...t, grupo: novoGrupo, valorTotal: mensalidadeComFiliais(t.valor, novoGrupo).total };
+      }));
+      showSuccess('Valor por filial atualizado.');
+    } catch (err) {
+      console.error('Erro ao salvar o valor por filial', err);
+      showError('Não foi possível salvar o valor por filial', 'Confira se as regras do banco de dados desta versão já foram publicadas e tente de novo.');
     }
   };
 
@@ -456,7 +516,7 @@ const SuperAdmin: React.FC = () => {
 
   if (!isPlatformAdminRole(userRole)) return null;
 
-  const mrr = tenants.filter(t => t.status === 'Ativo').reduce((acc, curr) => acc + curr.valor, 0);
+  const mrr = tenants.filter(t => t.status === 'Ativo').reduce((acc, curr) => acc + curr.valorTotal, 0);
   const ativos = tenants.filter(t => t.status === 'Ativo').length;
   const inadimplentes = tenants.filter(t => t.status === 'Inadimplente').length;
   const ticketMedio = ativos > 0 ? mrr / ativos : 0;
@@ -483,7 +543,7 @@ const SuperAdmin: React.FC = () => {
         if (!date) return isCurrentMonth;
         return date <= monthEnd;
       })
-      .reduce((acc, tenant) => acc + Number(tenant.valor || 0), 0);
+      .reduce((acc, tenant) => acc + Number(tenant.valorTotal || 0), 0);
 
     return { name: monthNames[mIndex], mrr: mrrMes };
   });
@@ -494,8 +554,8 @@ const SuperAdmin: React.FC = () => {
   ];
 
   const planRevenueData = [
-    { name: 'Pro', receita: tenants.filter(t => t.status === 'Ativo' && t.plano === 'Pro').reduce((acc, t) => acc + Number(t.valor || 0), 0) },
-    { name: 'Premium', receita: tenants.filter(t => t.status === 'Ativo' && t.plano === 'Premium').reduce((acc, t) => acc + Number(t.valor || 0), 0) }
+    { name: 'Pro', receita: tenants.filter(t => t.status === 'Ativo' && t.plano === 'Pro').reduce((acc, t) => acc + Number(t.valorTotal || 0), 0) },
+    { name: 'Premium', receita: tenants.filter(t => t.status === 'Ativo' && t.plano === 'Premium').reduce((acc, t) => acc + Number(t.valorTotal || 0), 0) }
   ];
 
   const statusData = [
@@ -851,6 +911,31 @@ const SuperAdmin: React.FC = () => {
                           <Edit2 size={14} />
                         </button>
                       </div>
+                      {tenant.grupo && (() => {
+                        const cobranca = mensalidadeComFiliais(tenant.valor, tenant.grupo);
+                        const brl = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+                        const qtd = `${cobranca.filiais} ${cobranca.filiais === 1 ? 'filial' : 'filiais'}`;
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>
+                            <span>
+                              {cobranca.filiais === 0
+                                ? 'Sem filiais ativas'
+                                : cobranca.valorPorFilial > 0
+                                  ? `+ ${qtd} × ${brl(cobranca.valorPorFilial)} = ${brl(cobranca.total)}`
+                                  : `+ ${qtd} · valor por filial não definido`}
+                            </span>
+                            <button
+                              className="icon-btn"
+                              onClick={() => { void handleEditValorFilial(tenant); }}
+                              style={{ padding: '2px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                              title="Editar valor por filial"
+                              aria-label={`Editar valor por filial de ${tenant.nomeOficina}`}
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td style={{ padding: '16px 0', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

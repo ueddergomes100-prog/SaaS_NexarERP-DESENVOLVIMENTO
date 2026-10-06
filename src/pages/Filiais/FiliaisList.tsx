@@ -7,6 +7,7 @@ import { rotuloFilial, type FilialDoGrupo } from '../../utils/filialDomain';
 import { NexusSwal, escaparHtml, showError, showSuccess } from '../../utils/alerts';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import FilialFormModal from './FilialFormModal';
+import ResumoDoGrupo from './ResumoDoGrupo';
 
 const formatarCnpj = (cnpj: string) => (
   cnpj.length === 14 ? cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : cnpj
@@ -198,6 +199,8 @@ const FiliaisList: React.FC = () => {
           </>
         )}
       </div>
+
+      {!carregando && !semGrupo && <ResumoDoGrupo filialAtualId={filialAtual?.tenantId} />}
 
       <FilialFormModal
         aberto={formAberto}

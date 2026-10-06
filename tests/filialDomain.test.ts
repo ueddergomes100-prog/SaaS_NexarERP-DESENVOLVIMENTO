@@ -12,8 +12,7 @@ import {
   proximoCodigoDeFilial,
   validarDadosDaFilial,
   validarNomeECodigoDaFilial,
-  validarTrocaDeFilial,
-} from '../src/utils/filialDomain';
+  validarTrocaDeFilial, mensalidadeComFiliais } from '../src/utils/filialDomain';
 
 const CNPJ_MATRIZ = '11222333000181';
 const CNPJ_FILIAL = '11222333000262';
@@ -115,4 +114,12 @@ test('configuracao da filial: copia as regras da matriz, nunca a identidade nem 
 test('matriz: a empresa atual vira a filial 10 com os dados dela', () => {
   const m = matrizAPartirDaConfiguracao('dono', { nomeOficina: 'Loja Centro', cnpj: '11.222.333/0001-81', uf: 'es', cidade: 'Vitória' });
   assert.deepEqual(m, { tenantId: 'dono', codigo: '10', nome: 'LOJA CENTRO', cnpj: CNPJ_MATRIZ, uf: 'ES', cidade: 'VITÓRIA', tipo: 'cnpj_proprio', matriz: true, ativa: true });
+});
+
+test('cobranca: filial ativa alem da matriz paga o valor por filial; sem valor definido nao soma', () => {
+  const filial = (codigo: string, matriz: boolean, ativa = true) => ({ tenantId: codigo, codigo, nome: codigo, cnpj: '', uf: '', cidade: '', tipo: 'cnpj_proprio' as const, matriz, ativa });
+  const grupo = { filiais: [filial('10', true), filial('20', false), filial('30', false), filial('40', false, false)], valorFilialAdicional: 59.9 };
+  assert.deepEqual(mensalidadeComFiliais(149.9, grupo), { filiais: 2, valorPorFilial: 59.9, adicional: 119.8, total: 269.7 });
+  assert.deepEqual(mensalidadeComFiliais(149.9, { ...grupo, valorFilialAdicional: 0 }), { filiais: 2, valorPorFilial: 0, adicional: 0, total: 149.9 });
+  assert.deepEqual(mensalidadeComFiliais(149.9, null), { filiais: 0, valorPorFilial: 0, adicional: 0, total: 149.9 });
 });

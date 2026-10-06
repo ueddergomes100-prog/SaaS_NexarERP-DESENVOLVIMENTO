@@ -2,6 +2,7 @@ import { auth } from './firebase';
 import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
 import type { DadosDaFilial, FilialDoGrupo } from '../utils/filialDomain';
 import type { EstoqueDaFilial } from '../utils/cadastroGrupoDomain';
+import type { ResumoDaFilial } from '../utils/resumoGrupoDomain';
 
 /**
  * Cliente HTTP das FILIAIS (2026-10-06). Grupo, filial ativa do usuario e
@@ -83,5 +84,12 @@ export const consultarEstoqueNasFiliais = (chaves: string[]) => (
 export const consultarSaldoDoClienteNoGrupo = (clienteId: string) => (
   chamar<{ totalCentavos: number; porFilial: Array<{ tenantId: string; codigo: string; nome: string; centavos: number }> }>(
     'GET', `/clientes/${encodeURIComponent(clienteId)}/saldo`,
+  )
+);
+
+/** Fase 5: vendas do periodo, a receber e estoque de cada filial (so' dono/administrador). */
+export const consultarResumoDoGrupo = (inicio: string, fim: string) => (
+  chamar<{ inicio: string; fim: string; filiais: ResumoDaFilial[]; total: Omit<ResumoDaFilial, 'tenantId' | 'codigo' | 'nome'> }>(
+    'GET', `/resumo?inicio=${encodeURIComponent(inicio)}&fim=${encodeURIComponent(fim)}`,
   )
 );

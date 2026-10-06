@@ -1,6 +1,7 @@
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { isPlatformAdminRole, normalizeUserRole } from './roles';
+import { lerGrupo, rotuloFilial } from './filialDomain';
 
 export interface TenantOption {
   id: string;
@@ -41,6 +42,25 @@ export const loadTenantOptions = async (): Promise<TenantOption[]> => {
       email: String(data.email || '')
     });
   });
+
+  // Filiais (2026-10-06): a filial nao tem usuario proprio (quem trabalha
+  // nela entra pela matriz), entao vem do cadastro do grupo.
+  try {
+    const grupos = await getDocs(collection(db, 'grupos'));
+    grupos.forEach((grupoDoc) => {
+      const grupo = lerGrupo(grupoDoc.id, grupoDoc.data());
+      const matriz = tenants.get(grupo.matrizTenantId);
+      grupo.filiais.filter((f) => !f.matriz && !tenants.has(f.tenantId)).forEach((f) => {
+        tenants.set(f.tenantId, {
+          id: f.tenantId,
+          nomeOficina: `${matriz?.nomeOficina || grupo.nome} · filial ${rotuloFilial(f)}${f.ativa ? '' : ' (inativa)'}`,
+          email: matriz?.email || '',
+        });
+      });
+    });
+  } catch (erro) {
+    console.warn('Seletor de empresas: não foi possível listar as filiais.', erro);
+  }
 
   return Array.from(tenants.values()).sort((a, b) => a.nomeOficina.localeCompare(b.nomeOficina));
 };

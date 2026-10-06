@@ -135,3 +135,24 @@ test('editar: nome e codigo, sem inativar a matriz nem a filial em que o proprio
   await assert.rejects(() => s.ativarFilial({ user: DONO, destino: tenantId }), /inativa/);
 });
 
+
+test('resumo do grupo: vendas do periodo, a receber e estoque por filial; funcionario sem cargo de gestor nao ve', async () => {
+  const filial = (tenantId, codigo, nome, matriz) => ({ tenantId, codigo, nome, cnpj: '', uf: 'ES', cidade: '', tipo: 'cnpj_proprio', matriz, ativa: true });
+  const fake = criarBancoFalso({
+    ...semGrupo(),
+    'configuracoes/dono': { ...configMatriz, grupoId: 'g1', filialCodigo: '10' },
+    'grupos/g1': { nome: 'GRUPO', donoUid: 'dono', matrizTenantId: 'dono', filiais: [filial('dono', '10', 'CENTRO', true), filial('fil2', '20', 'BAIXADA', false)] },
+    'pedidos_venda/p1': { tenantId: 'dono', status: 'Finalizada', valorTotalCentavos: 3000, dataVenda: '2026-10-02', createdAt: new Date('2026-10-02T12:00:00Z') },
+    'pedidos_venda/p2': { tenantId: 'dono', status: 'Finalizada', valorTotalCentavos: 9000, dataVenda: '2026-09-02', createdAt: new Date('2026-09-02T12:00:00Z') },
+    'pedidos_venda/p3': { tenantId: 'fil2', status: 'Finalizada', valorTotalCentavos: 1000, createdAt: new Date('2026-10-03T12:00:00Z') },
+    'pedidos_venda/p4': { tenantId: 'fil2', status: 'Cancelada', valorTotalCentavos: 5000, createdAt: new Date('2026-10-03T12:00:00Z') },
+    'transacoes/t1': { tenantId: 'fil2', tipo: 'entrada', status: 'Pendente', valorCentavos: 2500, formaPagamento: 'Boleto' },
+    'estoque/e1': { tenantId: 'dono', quantidade: 4, precoCusto: 2.5 },
+  }, { consultas: true });
+  const s = carregar(fake.db);
+  const r = await s.resumoDoGrupo({ user: DONO, inicio: '2026-10-01', fim: '2026-10-31' });
+  assert.deepEqual(r.filiais.map((f) => [f.codigo, f.vendasCentavos, f.pedidos, f.aReceberCentavos, f.estoqueCentavos]), [['10', 3000, 1, 0, 1000], ['20', 1000, 1, 2500, 0]]);
+  assert.deepEqual([r.total.vendasCentavos, r.total.pedidos, r.total.ticketMedioCentavos], [4000, 2, 2000]);
+  await assert.rejects(() => s.resumoDoGrupo({ user: { uid: 'f1', tenantId: 'dono' }, inicio: '2026-10-01', fim: '2026-10-31' }), /Só o dono ou um administrador/);
+  await assert.rejects(() => s.resumoDoGrupo({ user: DONO, inicio: '2026-10-31', fim: '2026-10-01' }), /período válido/);
+});

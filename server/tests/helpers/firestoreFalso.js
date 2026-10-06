@@ -13,7 +13,7 @@ let contador = 0;
 
 const criarBancoFalso = (inicial, opcoes = {}) => {
   const dados = new Map(Object.entries(inicial).map(([k, v]) => [k, structuredClone(v)]));
-  // Consulta simples (==, in, array-contains) so' quando o teste pede
+  // Consulta simples (==, in, array-contains, >=, <=) so' quando o teste pede
   // (opcoes.consultas). Sem isso, where() falha como antes -- alguns
   // servicos tratam esse erro (ex.: piso da numeracao).
   const consulta = (caminho, filtros) => ({
@@ -25,6 +25,8 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
           op === '==' ? v[campo] === valor
             : op === 'in' ? valor.includes(v[campo])
               : op === 'array-contains' ? Array.isArray(v[campo]) && v[campo].includes(valor)
+                : op === '>=' ? v[campo] !== undefined && v[campo] >= valor
+                  : op === '<=' ? v[campo] !== undefined && v[campo] <= valor
                 : false
         )))
         .map(([k, v]) => ({ id: k.slice(caminho.length + 1), exists: true, data: () => structuredClone(v), ref: ref(caminho, k.slice(caminho.length + 1)) }));

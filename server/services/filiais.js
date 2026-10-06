@@ -277,4 +277,38 @@ const saldoDoClienteNoGrupo = async ({ user, clienteId }) => {
   return { totalCentavos: porFilial.reduce((s, f) => s + f.centavos, 0), porFilial };
 };
 
-module.exports = { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial, estoqueNasFiliais, saldoDoClienteNoGrupo };
+// ---------------------------------------------------------------------------
+// Fase 5: resumo do grupo (so' dono/administrador -- e' financeiro)
+// ---------------------------------------------------------------------------
+
+const resumo = require('../domain/resumoGrupoDomain');
+
+const DATA = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Vendas do periodo, a receber e estoque de cada filial ativa, lado a lado. */
+const resumoDoGrupo = async ({ user, inicio, fim }) => {
+  const { usuario, grupo } = await grupoDoUsuario(user.uid);
+  if (!dominio.ehGestorDoGrupo(grupo, usuario)) throw new ErroFilial(403, 'Só o dono ou um administrador vê o resumo das filiais.');
+  if (!DATA.test(String(inicio)) || !DATA.test(String(fim)) || inicio > fim) throw new ErroFilial(400, 'Escolha um período válido.');
+  // A data que conta e' a da venda (dataVenda), que pode ser retroativa a'
+  // criacao: le com a mesma folga do Dashboard e filtra no dominio.
+  const MARGEM_DIAS = 365;
+  const desde = new Date(Date.parse(`${inicio}T00:00:00-03:00`) - MARGEM_DIAS * 24 * 60 * 60 * 1000);
+  const ate = new Date(Date.parse(`${fim}T23:59:59.999-03:00`) + 24 * 60 * 60 * 1000);
+  const linhas = [];
+  for (const f of grupo.filiais.filter((x) => x.ativa)) {
+    const [pedidos, transacoes, produtos] = await Promise.all([
+      db.collection('pedidos_venda').where('tenantId', '==', f.tenantId).where('createdAt', '>=', desde).where('createdAt', '<=', ate).get(),
+      db.collection('transacoes').where('tenantId', '==', f.tenantId).where('tipo', '==', 'entrada').get(),
+      db.collection('estoque').where('tenantId', '==', f.tenantId).get(),
+    ]);
+    linhas.push(resumo.resumoDaFilial(f, {
+      pedidos: pedidos.docs.map((d) => d.data()),
+      transacoes: transacoes.docs.map((d) => d.data()),
+      produtos: produtos.docs.map((d) => d.data()),
+    }, { inicio, fim }));
+  }
+  return { inicio, fim, filiais: linhas, total: resumo.totalDoGrupo(linhas) };
+};
+
+module.exports = { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial, estoqueNasFiliais, saldoDoClienteNoGrupo, resumoDoGrupo };

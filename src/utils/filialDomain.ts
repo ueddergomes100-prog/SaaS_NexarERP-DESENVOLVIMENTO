@@ -40,6 +40,9 @@ export interface GrupoEmpresarial {
   filiais: FilialDoGrupo[];
   /** Copia dos modulos bloqueados da matriz, para as filiais (o plano e' do grupo). */
   modulosBloqueados: string[];
+  /** Cobranca (fase 5): valor mensal de cada filial alem da matriz, em reais.
+   *  So' o admin da plataforma grava (SuperAdmin). 0 = ainda nao definido. */
+  valorFilialAdicional: number;
 }
 
 export interface UsuarioDaFilial {
@@ -92,7 +95,28 @@ export const lerGrupo = (id: string, dados: unknown): GrupoEmpresarial => {
     matrizTenantId: texto(g.matrizTenantId),
     filiais,
     modulosBloqueados: lista(g.modulosBloqueados),
+    valorFilialAdicional: Math.max(0, Number(g.valorFilialAdicional) || 0),
   };
+};
+
+/**
+ * COBRANCA DAS FILIAIS (fase 5 -- 2026-10-06). Decisao do dono: cada filial
+ * paga um valor menor que a mensalidade da matriz. Conta so' filial ATIVA e
+ * que nao e' a matriz (a matriz ja' paga a mensalidade normal).
+ */
+export const filiaisCobradas = (grupo: Pick<GrupoEmpresarial, 'filiais'> | null | undefined): number => (
+  grupo ? grupo.filiais.filter((f) => f.ativa && !f.matriz).length : 0
+);
+
+export const mensalidadeComFiliais = (
+  valorDaMatriz: number,
+  grupo: Pick<GrupoEmpresarial, 'filiais' | 'valorFilialAdicional'> | null | undefined,
+): { filiais: number; valorPorFilial: number; adicional: number; total: number } => {
+  const base = Math.max(0, Number(valorDaMatriz) || 0);
+  const filiais = filiaisCobradas(grupo);
+  const valorPorFilial = grupo ? Math.max(0, Number(grupo.valorFilialAdicional) || 0) : 0;
+  const adicional = Math.round(filiais * valorPorFilial * 100) / 100;
+  return { filiais, valorPorFilial, adicional, total: Math.round((base + adicional) * 100) / 100 };
 };
 
 const ordenarCodigo = (a: string, b: string): number => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b);

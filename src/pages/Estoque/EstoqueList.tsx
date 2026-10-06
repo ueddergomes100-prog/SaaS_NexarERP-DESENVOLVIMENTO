@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory, ScanBarcode, CaseUpper, Eye, EyeOff } from 'lucide-react';
+import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory, ScanBarcode, CaseUpper, Eye, EyeOff, Building2 } from 'lucide-react';
+import { itemDaFilial } from '../../utils/cadastroGrupoDomain';
 import { collection, query, onSnapshot, doc, where, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { db } from '../../services/firebase';
@@ -18,6 +19,8 @@ import EstadoVazio from '../../components/common/EstadoVazio';
 
 interface PecaData {
   id: string;
+  /** Filiais: onde o cadastro nasceu. */
+  filialOrigem?: string;
   nome: string;
   codigo: string;
   categoria: string;
@@ -45,7 +48,10 @@ const EstoqueList: React.FC = () => {
   /** Configuracoes -> Estoque: mostrar os cartoes de resumo no topo. */
   const [mostrarResumo, setMostrarResumo] = useState(DEFAULT_MOSTRAR_RESUMO_ESTOQUE);
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, grupo, podeTrocarFilial } = useAuth();
+  // Filiais (2026-10-06): a lista ja' vem nos itens desta filial (cadastrados
+  // nela ou com estoque nela); quem usa outras filiais ve o catalogo do grupo.
+  const [escopoFilial, setEscopoFilial] = useState<'filial' | 'grupo'>('filial');
   // So quem tem "Estoque: Abrir Cadastro de Produto" abre/cria/exclui um
   // produto -- ver a lista (nome, categoria, qtd, preco de venda) e' a
   // permissao base (cadastros.estoque). Sem isto, um funcionario so-leitura
@@ -187,7 +193,8 @@ const EstoqueList: React.FC = () => {
   const filteredPecas = pecasList.filter((peca) => {
     const ativo = peca.ativo !== false;
     const passaNoStatus = filtroStatus === 'todos' || (filtroStatus === 'ativos' ? ativo : !ativo);
-    return passaNoStatus && matchesAllSearchTerms([peca.nome, peca.codigo, peca.categoria], searchTerm);
+    const passaNaFilial = !grupo || escopoFilial === 'grupo' || itemDaFilial(peca, tenantId);
+    return passaNoStatus && passaNaFilial && matchesAllSearchTerms([peca.nome, peca.codigo, peca.categoria], searchTerm);
   });
 
   const getStatusBadge = (quantidade: number) => {
@@ -322,6 +329,23 @@ const EstoqueList: React.FC = () => {
               <option value="todos">Todos</option>
             </select>
           </label>
+          {grupo && podeTrocarFilial && (
+            <label
+              className="btn-secondary filter-btn"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+            >
+              <Building2 size={18} />
+              <select
+                value={escopoFilial}
+                onChange={(e) => setEscopoFilial(e.target.value as 'filial' | 'grupo')}
+                aria-label="Itens de qual filial"
+                style={{ background: 'transparent', border: 'none', color: 'inherit', font: 'inherit', cursor: 'pointer' }}
+              >
+                <option value="filial">Itens desta filial</option>
+                <option value="grupo">Todas as filiais</option>
+              </select>
+            </label>
+          )}
         </div>
 
         <div className="table-wrapper">

@@ -125,6 +125,8 @@ interface ServicoData { id: string; nome: string; preco: number; comissaoPercent
 interface ServicoSelecionado { id: string; nome: string; preco: number; quantidade: number; detalhamento?: string; tempoHoras?: number; }
 interface PecaData {
   id: string;
+  /** Filiais: onde o cadastro nasceu (filtro "Itens desta filial"). */
+  filialOrigem?: string;
   nome: string;
   precoVenda: number;
   precoAVista?: number;
@@ -382,6 +384,7 @@ const OSForm: React.FC = () => {
           precoVenda: doc.data().precoVenda,
           precoAVista: Number(doc.data().precoAVista ?? 0),
           quantidade: doc.data().quantidade || 0,
+          filialOrigem: doc.data().filialOrigem || '',
           codigo: doc.data().codigo || '',
           codigoBarras: doc.data().codigoBarras || '',
           // De proposito CRU aqui, sem cair no fallback 'UN': e' em

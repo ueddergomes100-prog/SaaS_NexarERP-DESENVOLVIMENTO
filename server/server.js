@@ -32,6 +32,7 @@ const notaEmailRoutes = require('./routes/notaEmail.routes');
 const financeiroRoutes = require('./routes/financeiro.routes');
 const condicionaisRoutes = require('./routes/condicionais.routes');
 const filiaisRoutes = require('./routes/filiais.routes');
+const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -234,6 +235,9 @@ initQueueService();
 
 // Inicialização do servidor HTTP Express
 const servidor = app.listen(PORT, () => {
+  // Filiais (2026-10-06): mantem iguais os cadastros de clientes e produtos
+  // das filiais de cada grupo -- ver services/espelhoCadastros.js.
+  iniciarEspelhoDosCadastros();
   console.log(`===========================================================`);
   console.log(`🚀 SERVIDOR HENNDER ERP (v${VERSAO}) ONLINE NA PORTA :${PORT}`);
   console.log(`📅 Inicializado em: ${new Date().toLocaleString('pt-BR')}`);

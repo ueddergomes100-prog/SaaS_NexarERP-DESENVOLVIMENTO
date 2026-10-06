@@ -245,6 +245,7 @@ const PDV: React.FC = () => {
               precoVenda: Number(data.precoVenda ?? data.precos?.venda ?? 0),
               precoAVista: Number(data.precoAVista ?? 0),
               quantidade: Number(data.quantidade ?? data.estoque?.quantidadeAtual ?? 0),
+              filialOrigem: normalizeText(data.filialOrigem),
               imagemProduto: normalizeText(data.imagemProduto),
               unidadeMedidaSigla: normalizeText(data.unidadeMedidaSigla) || 'UN',
               unidadeMedidaCasasDecimais: Number(data.unidadeMedidaCasasDecimais ?? 0),

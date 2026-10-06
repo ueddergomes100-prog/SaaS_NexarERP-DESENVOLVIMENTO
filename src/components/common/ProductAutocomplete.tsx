@@ -7,6 +7,8 @@ import {
   type SearchableProduct,
 } from '../../utils/productSearch';
 import ProductSearchModal from './ProductSearchModal';
+import { useAuth } from '../../contexts/AuthContext';
+import { itemDaFilial } from '../../utils/cadastroGrupoDomain';
 import './ProductAutocomplete.css';
 
 export interface ProductAutocompleteProps<T extends SearchableProduct & { id: string }> {
@@ -80,17 +82,29 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   // Comeca travado se ja' vier com valor.
   const [locked, setLocked] = useState(() => value.trim().length > 0);
   const [modalAberto, setModalAberto] = useState(false);
+  // Filiais (2026-10-06): o cadastro de produtos e' do grupo, mas a busca ja'
+  // vem nos "Itens desta filial" (cadastrados nela ou com estoque nela). Quem
+  // pode usar outras filiais troca para "Todos do grupo".
+  const { grupo, tenantId, podeTrocarFilial } = useAuth();
+  const [todasAsFiliais, setTodasAsFiliais] = useState(false);
+  const produtosVisiveis = useMemo(
+    () => (grupo && !todasAsFiliais
+      ? products.filter((p) => itemDaFilial(p as unknown as { filialOrigem?: unknown; quantidade?: unknown }, tenantId))
+      : products),
+    [products, grupo, todasAsFiliais, tenantId],
+  );
+  const escondidosPelaFilial = products.length - produtosVisiveis.length;
 
   const result = useMemo(() => {
     if (!value.trim()) {
       return {
-        items: products.slice(0, limit),
-        total: products.length,
-        truncated: products.length > limit,
+        items: produtosVisiveis.slice(0, limit),
+        total: produtosVisiveis.length,
+        truncated: produtosVisiveis.length > limit,
       };
     }
-    return searchProducts(products, value, { mode, limit });
-  }, [products, value, mode, limit]);
+    return searchProducts(produtosVisiveis, value, { mode, limit });
+  }, [produtosVisiveis, value, mode, limit]);
 
   useEffect(() => {
     setHighlightedIndex(0);
@@ -216,6 +230,17 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
             </button>
           ))}
 
+          {grupo && podeTrocarFilial && (escondidosPelaFilial > 0 || todasAsFiliais) && (
+            <button
+              type="button"
+              className="product-autocomplete__escopo"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => setTodasAsFiliais((v) => !v)}
+            >
+              {todasAsFiliais ? 'Mostrar só os itens desta filial' : 'Ver itens de todas as filiais'}
+            </button>
+          )}
+
           {result.truncated && (
             <button
               type="button"
@@ -230,14 +255,26 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
       )}
 
       {showEmpty && (
-        <div className="product-autocomplete__empty">{emptyHint}</div>
+        <div className="product-autocomplete__empty">
+          {emptyHint}
+          {grupo && podeTrocarFilial && !todasAsFiliais && escondidosPelaFilial > 0 && (
+            <button
+              type="button"
+              className="product-autocomplete__escopo"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => setTodasAsFiliais(true)}
+            >
+              Procurar em todas as filiais
+            </button>
+          )}
+        </div>
       )}
 
       {!onViewMore && modalAberto && (
         <ProductSearchModal
           open={modalAberto}
           onClose={() => { setModalAberto(false); resolvedInputRef.current?.focus(); }}
-          products={products}
+          products={produtosVisiveis}
           onSelect={(product) => { setModalAberto(false); confirmSelect(product); }}
           renderItem={renderItem}
           initialQuery={trimmedValue}

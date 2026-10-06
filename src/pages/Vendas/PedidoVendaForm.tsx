@@ -183,6 +183,8 @@ interface BandeiraCartao {
 }
 interface ProdutoEstoque {
   id: string;
+  /** Filiais: onde o cadastro nasceu (filtro "Itens desta filial"). */
+  filialOrigem?: string;
   nome: string;
   precoVenda: number;
   /** Preco a vista (dinheiro, Pix, debito, credito 1x). 0 = usa o preco de venda. */
@@ -811,6 +813,7 @@ const PedidoVendaForm: React.FC = () => {
           precoVenda: doc.data().precoVenda,
           precoAVista: Number(doc.data().precoAVista) || 0,
           quantidade: doc.data().quantidade || 0,
+          filialOrigem: doc.data().filialOrigem || '',
           codigo: doc.data().codigo || '',
           unidadeMedidaSigla: doc.data().unidadeMedidaSigla,
           unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,

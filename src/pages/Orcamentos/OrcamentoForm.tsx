@@ -83,6 +83,8 @@ const renderPecaRow = renderProdutoOpcaoBusca;
 
 interface PecaOrcamento {
   id: string;
+  /** Filiais: onde o cadastro nasceu (filtro "Itens desta filial"). */
+  filialOrigem?: string;
   nome: string;
   precoVenda: number;
   precoAVista?: number;
@@ -243,6 +245,7 @@ const OrcamentoForm: React.FC = () => {
             precoVenda: Number(data.precoVenda ?? 0),
             precoAVista: Number(data.precoAVista ?? 0),
             quantidade: Number(data.quantidade ?? 0),
+            filialOrigem: data.filialOrigem || '',
             codigo: data.codigo || '',
             codigoBarras: data.codigoBarras || '',
             referencia: data.referencia || '',

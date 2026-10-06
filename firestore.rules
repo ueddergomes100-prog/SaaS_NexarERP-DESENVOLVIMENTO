@@ -435,6 +435,34 @@ service cloud.firestore {
         (!alteraSituacao() && (!cadastroInativo(collectionName) || soMovimentaSaldo(collectionName)));
     }
 
+    // Filiais (2026-10-06): cadastro de cliente e de produto e' do GRUPO
+    // (copias espelhadas pelo servidor, ver src/utils/cadastroGrupoDomain.ts).
+    // Cliente/produto nascido em OUTRA filial: sem "Utiliza outras filiais"
+    // (ou ser dono/administrador), o cliente nao muda e, no produto, so' os
+    // campos da filial mudam (preco, estoque, tributacao -- toda venda mexe
+    // no estoque). Empresa sem filiais nao tem filialOrigem: nada muda.
+    function camposDoProdutoNoGrupo() {
+      // Mesma lista de CAMPOS_DO_PRODUTO_NO_GRUPO (cadastroGrupoDomain.ts).
+      return ['codigo', 'codigoAutomatico', 'nome', 'categoria', 'marca', 'referencia', 'codigoBarras',
+        'descricaoCurta', 'descricaoCompleta', 'observacoesInternas', 'imagemProduto', 'tags',
+        'unidadeMedidaSigla', 'unidadeMedidaNome', 'unidadeMedidaFracionado', 'unidadeMedidaCasasDecimais', 'produtoFracionado',
+        'peso', 'altura', 'largura', 'comprimento', 'pesoLiquidoUnitarioKg', 'pesoEnvio',
+        'ncm', 'cest', 'origem', 'codigoAnp',
+        'skuSistema', 'slugUrl', 'seoTitulo', 'seoDescricao', 'descricaoMarketplace', 'imagensMarketplace',
+        'produzidoInternamente', 'produtoServico', 'produtoRevenda', 'controlarEstoque',
+        'exigirSerialLote', 'controlarLote', 'permiteCondicional', 'permitirCashback', 'produtoDestaque',
+        'ativo', 'statusAtivo', 'grupoChave', 'filialOrigem', 'cadastroHash'];
+    }
+
+    function cadastroDoGrupoRespeitado(collectionName) {
+      return !(collectionName in ['clientes', 'estoque']) ||
+        resource.data.get('filialOrigem', currentTenantId()) == currentTenantId() ||
+        isTenantAdmin() ||
+        hasPermission('filiais.utilizar') ||
+        (collectionName == 'estoque' &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(camposDoProdutoNoGrupo()));
+    }
+
     function canDeleteTenantDocument() {
       return isSuperAdmin() ||
         (hasProfile() && perfilAtivo() && resource.data.tenantId == currentTenantId());
@@ -898,7 +926,7 @@ service cloud.firestore {
         'entregas',
         'caixas_pdv',
         'notas_avulsas'
-      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && (
+      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && (
         // Os movimentos de SALDO vem PRIMEIRO de proposito (2026-09-29): sao
         // as escritas mais comuns (toda venda mexe em estoque e banco) e as
         // mais baratas de conferir. O Firestore para de avaliar a regra depois

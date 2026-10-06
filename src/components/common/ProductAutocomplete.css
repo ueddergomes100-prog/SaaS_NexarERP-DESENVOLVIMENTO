@@ -213,3 +213,28 @@
   font-size: 13px;
   text-align: center;
 }
+
+/* Filiais (2026-10-06): "Ver itens de todas as filiais" / "Mostrar so os desta filial". */
+.product-autocomplete__escopo {
+  display: block;
+  width: 100%;
+  padding: 8px 16px;
+  border: none;
+  border-top: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+}
+
+.product-autocomplete__escopo:hover {
+  color: var(--accent-purple);
+}
+
+.product-autocomplete__empty .product-autocomplete__escopo {
+  margin-top: 8px;
+  border-top: 0;
+  color: var(--accent-purple);
+}

@@ -1,4 +1,5 @@
 import type { PaymentDraft } from '../../utils/financeDomain';
+import type { OrigemPreco, TabelaDePrecoDoItem } from '../../utils/precoVendaDomain';
 
 export interface PdvProduct {
   id: string;
@@ -9,6 +10,8 @@ export interface PdvProduct {
   skuSistema: string;
   categoria: string;
   precoVenda: number;
+  /** Preco a vista do cadastro (0 = nao tem). Ver precoVendaDomain.ts. */
+  precoAVista?: number;
   quantidade: number;
   imagemProduto: string;
   unidadeMedidaSigla?: string;
@@ -60,6 +63,11 @@ export interface PdvCartItem {
   /** Quantas unidades base cada unidade vendida consome. */
   fatorConversao?: number;
   quantidadeBase?: number;
+  /** Tabela (venda, a vista, promocao) de onde o preco saiu -- a mesma do Pedido de Venda (2026-10-06). */
+  tabelaPreco?: TabelaDePrecoDoItem;
+  origemPreco?: OrigemPreco;
+  promocaoId?: string;
+  promocaoNome?: string;
 }
 
 export interface PdvTotals {

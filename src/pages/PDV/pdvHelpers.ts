@@ -6,6 +6,7 @@ import {
   toCents,
   type CreditCardFeeSchedule,
 } from '../../utils/financeDomain';
+import type { CamposDePrecoDoItem } from '../../utils/precoComPromocaoDomain';
 import {
   productMatchesExactCode as sharedProductMatchesExactCode,
   productMatchesSearch as sharedProductMatchesSearch,
@@ -117,6 +118,8 @@ export const makeCartItemFromProduct = (
   product: PdvProduct,
   quantity = 1,
   opcao?: OpcaoUnidadeVenda,
+  /** Preco ja' decidido pela tabela (a vista/promocao) e os campos de rastreio. Sem ele, vale o preco de venda. */
+  precificacao?: { preco: number; campos: CamposDePrecoDoItem },
 ): PdvCartItem => ({
   id: makeCartLineId(product.id, opcao?.embalagemId),
   productId: product.id,
@@ -126,7 +129,8 @@ export const makeCartItemFromProduct = (
   categoria: product.categoria,
   imagemProduto: product.imagemProduto,
   estoqueDisponivel: Number(product.quantidade || 0),
-  precoUnitarioCentavos: toCents(opcao ? opcao.precoVenda : (product.precoVenda || 0)),
+  precoUnitarioCentavos: toCents(precificacao ? precificacao.preco : (opcao ? opcao.precoVenda : (product.precoVenda || 0))),
+  ...(precificacao ? precificacao.campos : {}),
   quantidade: quantity,
   descontoCentavos: 0,
   unidadeMedidaSigla: opcao?.sigla || product.unidadeMedidaSigla || 'UN',

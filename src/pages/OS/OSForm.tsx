@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X, History } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
@@ -103,6 +103,9 @@ import {
   type PaymentMethod,
   type PaymentRecord,
 } from '../../utils/financeDomain';
+import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
+import { camposDePrecoDoItem, precoSugeridoDoItem } from '../../utils/precoComPromocaoDomain';
+import { FORMAS_A_VISTA_PADRAO, ROTULO_CONDICAO, condicaoDoPagamento, parseFormasAVista, precoAutomatico, type OrigemPreco, type TabelaDePrecoDoItem } from '../../utils/precoVendaDomain';
 import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import './OS.css';
@@ -124,6 +127,7 @@ interface PecaData {
   id: string;
   nome: string;
   precoVenda: number;
+  precoAVista?: number;
   quantidade?: number;
   codigo?: string;
   codigoBarras?: string;
@@ -145,6 +149,11 @@ interface PecaSelecionada {
   unidadeMedidaSigla?: string;
   unidadeMedidaFracionado?: boolean;
   unidadeMedidaCasasDecimais?: number;
+  /** De onde veio o preco (tabela/promocao), como no Pedido de Venda (2026-10-06). */
+  tabelaPreco?: TabelaDePrecoDoItem;
+  origemPreco?: OrigemPreco;
+  promocaoId?: string;
+  promocaoNome?: string;
 }
 
 // A linha de produto e a MESMA nas quatro telas de busca -- antes cada uma
@@ -245,6 +254,7 @@ const OSForm: React.FC = () => {
   const [isPecaSearchModalOpen, setIsPecaSearchModalOpen] = useState(false);
   const [pecasSelecionadas, setPecasSelecionadas] = useState<PecaSelecionada[]>([]);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
+  const [formasPrecoAVista, setFormasPrecoAVista] = useState<string[]>(FORMAS_A_VISTA_PADRAO);
   const [pecaSearchMode, setPecaSearchMode] = useState<ProductSearchMode>(DEFAULT_PRODUCT_SEARCH_MODE);
   const [momentoBaixaEstoque, setMomentoBaixaEstoque] = useState<MomentoBaixaEstoque>(DEFAULT_MOMENTO_BAIXA_ESTOQUE);
   const [descontoInput, setDescontoInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
@@ -370,6 +380,7 @@ const OSForm: React.FC = () => {
           id: doc.id,
           nome: doc.data().nome,
           precoVenda: doc.data().precoVenda,
+          precoAVista: Number(doc.data().precoAVista ?? 0),
           quantidade: doc.data().quantidade || 0,
           codigo: doc.data().codigo || '',
           codigoBarras: doc.data().codigoBarras || '',
@@ -395,6 +406,7 @@ const OSForm: React.FC = () => {
         if (configSnap.exists()) {
           const config = configSnap.data();
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
+          setFormasPrecoAVista(parseFormasAVista(config.formasPrecoAVista));
           setPagamentoCartaoSimplificadoAtivo(parsePagamentoCartaoSimplificadoAtivo(config.pagamentoCartaoSimplificadoAtivo));
           setPecaSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           setMomentoBaixaEstoque((config.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque);
@@ -756,6 +768,35 @@ const OSForm: React.FC = () => {
     }
   };
 
+  // Promocoes e preco a vista na OS (2026-10-06), a mesma tabela do Pedido de
+  // Venda: a condicao vem do pagamento escolhido (a prazo por padrao) e, quando
+  // ela muda, as pecas com preco automatico sao recalculadas -- avisando.
+  const condicaoPagamento = useMemo(() => condicaoDoPagamento(paymentDrafts, formasPrecoAVista), [paymentDrafts, formasPrecoAVista]);
+  const { tabelaDe } = usePromocoesVigentes(tenantId, id);
+  const pecasSelecionadasRef = useRef(pecasSelecionadas);
+  useEffect(() => { pecasSelecionadasRef.current = pecasSelecionadas; }, [pecasSelecionadas]);
+  useEffect(() => {
+    let alterados = 0;
+    const novas = pecasSelecionadasRef.current.map((peca) => {
+      if (!peca.tabelaPreco || peca.origemPreco === 'manual') return peca;
+      const auto = precoAutomatico(peca.tabelaPreco, condicaoPagamento);
+      if (Math.abs(auto.preco - peca.preco) < 0.0001 && auto.origem === peca.origemPreco) return peca;
+      alterados += 1;
+      const nova: PecaSelecionada = { ...peca, preco: auto.preco, origemPreco: auto.origem };
+      delete nova.promocaoId;
+      delete nova.promocaoNome;
+      if (auto.origem === 'promocao' && peca.tabelaPreco.promocao) {
+        nova.promocaoId = peca.tabelaPreco.promocao.id;
+        nova.promocaoNome = peca.tabelaPreco.promocao.nome;
+      }
+      return nova;
+    });
+    if (alterados > 0) {
+      setPecasSelecionadas(novas);
+      showWarning('Preço das peças recalculado', `${alterados} peça(s) mudaram de preço porque o pagamento ficou ${ROTULO_CONDICAO[condicaoPagamento]}.`);
+    }
+  }, [condicaoPagamento]);
+
   const handleAddPeca = async () => {
     if (!pecaNomeInput || !pecaPrecoInput) return;
     const precoNum = parseFloat(pecaPrecoInput.replace(',', '.'));
@@ -807,12 +848,15 @@ const OSForm: React.FC = () => {
         const aviso = avisoUnidadeMedidaAusente(peca.nome);
         showWarning(aviso.title, aviso.text);
       }
+      // Preco digitado igual ao da tabela = automatico (com promocao, se houver); diferente = manual.
+      const precificacao = camposDePrecoDoItem(tabelaDe(peca), condicaoPagamento, precoNum);
       setPecasSelecionadas([...pecasSelecionadas, {
         id: peca.id,
         nome: peca.nome,
-        preco: precoNum,
+        preco: precificacao.preco,
         quantidade: 1,
         ...resolveUnidadeMedidaProduto(peca),
+        ...precificacao.campos,
       }]);
       setPecaNomeInput('');
       setPecaPrecoInput('');
@@ -1793,7 +1837,7 @@ const OSForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label>Telefone / WhatsApp</label>
-              <input type="text" name="clienteTelefone" placeholder="(00) 00000-0000" value={formData.clienteTelefone} onChange={handleChange} />
+              <input type="text" name="clienteTelefone" value={formData.clienteTelefone} onChange={handleChange} />
             </div>
           </div>
 
@@ -1842,15 +1886,15 @@ const OSForm: React.FC = () => {
             )}
 
             <div className="grid-2-col">
-              <div className="input-group"><label>Placa *</label><input type="text" name="placa" placeholder="ABC-1234" style={{ textTransform: 'uppercase' }} value={formData.placa} onChange={handleChange} /></div>
-              <div className="input-group"><label>Modelo</label><input type="text" name="modelo" placeholder="Ex: Honda Civic" value={formData.modelo} onChange={handleChange} /></div>
-              <div className="input-group"><label>Marca</label><input type="text" name="marca" placeholder="Ex: Honda" value={formData.marca} onChange={handleChange} /></div>
-              <div className="input-group"><label>Ano</label><input type="text" name="ano" placeholder="Ex: 2018" value={formData.ano} onChange={handleChange} /></div>
-              <div className="input-group"><label>Cor</label><input type="text" name="cor" placeholder="Ex: Prata" value={formData.cor} onChange={handleChange} /></div>
-              <div className="input-group"><label>RENAVAM</label><input type="text" name="renavam" placeholder="Ex: 00123456789" value={formData.renavam} onChange={handleChange} /></div>
+              <div className="input-group"><label>Placa *</label><input type="text" name="placa" style={{ textTransform: 'uppercase' }} value={formData.placa} onChange={handleChange} /></div>
+              <div className="input-group"><label>Modelo</label><input type="text" name="modelo" value={formData.modelo} onChange={handleChange} /></div>
+              <div className="input-group"><label>Marca</label><input type="text" name="marca" value={formData.marca} onChange={handleChange} /></div>
+              <div className="input-group"><label>Ano</label><input type="text" name="ano" value={formData.ano} onChange={handleChange} /></div>
+              <div className="input-group"><label>Cor</label><input type="text" name="cor" value={formData.cor} onChange={handleChange} /></div>
+              <div className="input-group"><label>RENAVAM</label><input type="text" name="renavam" value={formData.renavam} onChange={handleChange} /></div>
               <div className="input-group">
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Gauge size={14} /> Quilometragem</label>
-                <input type="number" name="quilometragem" placeholder="Ex: 41600" value={formData.quilometragem} onChange={handleChange} min="0" />
+                <input type="number" name="quilometragem" value={formData.quilometragem} onChange={handleChange} min="0" />
               </div>
               <div className="input-group">
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Fuel size={14} /> Combustível</label>
@@ -2011,7 +2055,6 @@ const OSForm: React.FC = () => {
                               type="number"
                               value={getServiceHours(s)}
                               onChange={e => updateTempoServico(index, Number(e.target.value))}
-                              placeholder="1,00"
                               min="0"
                               step="0.1"
                               style={{ width: '90px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '4px', fontSize: '12px' }}
@@ -2090,11 +2133,11 @@ const OSForm: React.FC = () => {
                   onChange={(value) => {
                     setPecaNomeInput(value);
                     const exists = pecasEstoque.find(p => p.nome.toLowerCase() === value.toLowerCase());
-                    if (exists) setPecaPrecoInput(String(exists.precoVenda));
+                    if (exists) setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(exists), condicaoPagamento)));
                   }}
                   onSelect={(p) => {
                     setPecaNomeInput(p.nome);
-                    setPecaPrecoInput(String(p.precoVenda));
+                    setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), condicaoPagamento)));
                   }}
                   mode={pecaSearchMode}
                   placeholder={`Busque ou digite nova peça — ${DICA_BUSCA_MULTIPLA}`}
@@ -2119,7 +2162,7 @@ const OSForm: React.FC = () => {
                   products={pecasEstoque}
                   onSelect={(p) => {
                     setPecaNomeInput(p.nome);
-                    setPecaPrecoInput(String(p.precoVenda));
+                    setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), condicaoPagamento)));
                   }}
                   mode={pecaSearchMode}
                   renderItem={renderPecaRow}
@@ -2251,11 +2294,11 @@ const OSForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Package size={14} /> Materiais fornecidos pelo cliente</label>
-              <textarea name="materiaisCliente" placeholder="Ex: óleo do motor, filtro de óleo e filtro de ar..." rows={3} value={formData.materiaisCliente} onChange={handleChange}></textarea>
+              <textarea name="materiaisCliente" rows={3} value={formData.materiaisCliente} onChange={handleChange}></textarea>
             </div>
             <div className="input-group">
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><ClipboardList size={14} /> Condições de pagamento</label>
-              <textarea name="condicoesPagamento" placeholder="Ex: pagamento referente à mão de obra, via Pix na entrega..." rows={3} value={formData.condicoesPagamento} onChange={handleChange}></textarea>
+              <textarea name="condicoesPagamento" rows={3} value={formData.condicoesPagamento} onChange={handleChange}></textarea>
             </div>
             <div className="input-group">
               <label>Observações do recibo</label>

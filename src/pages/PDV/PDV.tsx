@@ -19,7 +19,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
+import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
 import {
   applyStockAdjustments,
@@ -66,6 +66,9 @@ import {
   makePdvSessionStorageKey,
   toCurrencyInput,
 } from './pdvHelpers';
+import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
+import { camposDePrecoDoItem, type CamposDePrecoDoItem } from '../../utils/precoComPromocaoDomain';
+import { FORMAS_A_VISTA_PADRAO, condicaoDoPagamento, parseFormasAVista, precoAutomatico } from '../../utils/precoVendaDomain';
 import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   buildOpcoesUnidadeVenda,
@@ -138,6 +141,16 @@ const PDV: React.FC = () => {
   const [search, setSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<PdvProduct | null>(null);
   const [cartItems, setCartItems] = useState<PdvCartItem[]>([]);
+  // Promocoes e preco a vista no caixa (2026-10-06). O PDV e' venda a vista
+  // por padrao (Dinheiro, Pix, debito, credito 1x), entao o item entra com a
+  // tabela na condicao 'vista' -- promocao de hoje e preco a vista do
+  // cadastro. Pagamento a prazo (credito parcelado, cheque) e' tratado em
+  // finalizeSale: nunca muda o total em silencio.
+  const CONDICAO_PDV = 'vista' as const;
+  const [formasPrecoAVista, setFormasPrecoAVista] = useState<string[]>(FORMAS_A_VISTA_PADRAO);
+  const { tabelaDe, quantidadeLiberada } = usePromocoesVigentes(tenantId);
+  const cartItemsRef = useRef<PdvCartItem[]>([]);
+  useEffect(() => { cartItemsRef.current = cartItems; }, [cartItems]);
   const [selectedItemId, setSelectedItemId] = useState('');
   const [selectedClient, setSelectedClient] = useState<PdvClient | null>(null);
   const [saleDiscountCents, setSaleDiscountCents] = useState(0);
@@ -230,6 +243,7 @@ const PDV: React.FC = () => {
               skuSistema: normalizeText(data.skuSistema || data.ecommerce?.skuSistema),
               categoria: normalizeText(data.categoria),
               precoVenda: Number(data.precoVenda ?? data.precos?.venda ?? 0),
+              precoAVista: Number(data.precoAVista ?? 0),
               quantidade: Number(data.quantidade ?? data.estoque?.quantidadeAtual ?? 0),
               imagemProduto: normalizeText(data.imagemProduto),
               unidadeMedidaSigla: normalizeText(data.unidadeMedidaSigla) || 'UN',
@@ -267,6 +281,7 @@ const PDV: React.FC = () => {
         setProducts(nextProducts);
         setClients(nextClients);
         setAllowNegativeStock(configData?.venderSemEstoque === true);
+        setFormasPrecoAVista(parseFormasAVista(configData?.formasPrecoAVista));
         setVenderPorEmbalagem(configData?.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
         setLimiteDescontoPdv(parseLimiteDescontoConfig(configData?.limiteDescontoPdv));
         setModoLimiteDesconto(parseModoLimiteDesconto(configData?.modoLimiteDesconto));
@@ -588,6 +603,26 @@ const PDV: React.FC = () => {
     return findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(product), embalagemId);
   }, [search, venderPorEmbalagem]);
 
+  /** Preco da linha pela tabela (a vista/promocao), respeitando quota e limite por venda da promocao. */
+  const precificarLinha = useCallback((product: PdvProduct, opcao: OpcaoUnidadeVenda, quantidadeTotal: number, linhaId?: string): { preco: number; campos: CamposDePrecoDoItem } => {
+    let tabela = tabelaDe(product, { fatorConversao: opcao.fatorConversao, precoProprio: opcao.precoVendaProprio, precoAVistaProprio: opcao.precoAVistaProprio });
+    if (tabela.promocao) {
+      const promoId = tabela.promocao.id;
+      const jaNestaVenda = cartItemsRef.current
+        .filter((item) => item.productId === product.id && item.id !== linhaId && item.promocaoId === promoId)
+        .reduce((total, item) => total + (item.quantidadeBase ?? item.quantidade), 0);
+      const quota = quantidadeLiberada(product, jaNestaVenda);
+      const base = opcao.embalagemId ? toBaseQuantity(quantidadeTotal, opcao.fatorConversao) : quantidadeTotal;
+      if (quota && quota.liberada !== null && base > quota.liberada) {
+        tabela = { ...tabela, promocao: null };
+        showWarning(`${product.nome}: fora da promoção`, quota.liberada > 0
+          ? `A promoção "${quota.promo.nome}" só libera mais ${quota.liberada} unidade(s) nesta venda. O item entrou no preço normal.`
+          : `A quantidade da promoção "${quota.promo.nome}" acabou. O item entrou no preço normal.`);
+      }
+    }
+    return camposDePrecoDoItem(tabela, CONDICAO_PDV);
+  }, [tabelaDe, quantidadeLiberada]);
+
   const addProductToCart = useCallback((product: PdvProduct, quantity = 1, opcao?: OpcaoUnidadeVenda) => {
     if (!session) {
       void openSession();
@@ -596,6 +631,9 @@ const PDV: React.FC = () => {
 
     const opcaoFinal = opcao || buildOpcoesUnidadeVenda(product)[0];
     const lineId = makeCartLineId(product.id, opcaoFinal.embalagemId);
+    // Fora do updater de proposito (ele pode rodar duas vezes no StrictMode e o aviso de quota sairia dobrado).
+    const linhaAntes = cartItemsRef.current.find((item) => item.id === lineId);
+    const precificacao = precificarLinha(product, opcaoFinal, (linhaAntes?.quantidade || 0) + quantity, linhaAntes?.id);
 
     setCartItems((current) => {
       // Funde por LINHA (produto + embalagem), nao por produto: bipar o saco
@@ -611,18 +649,23 @@ const PDV: React.FC = () => {
               ...item,
               quantidade: nextQuantity,
               ...(item.embalagemId ? { quantidadeBase: toBaseQuantity(nextQuantity, item.fatorConversao) } : {}),
+              // A quota da promocao pode acabar ao somar: o preco acompanha a quantidade nova.
+              precoUnitarioCentavos: toCents(precificacao.preco),
+              promocaoId: undefined,
+              promocaoNome: undefined,
+              ...precificacao.campos,
             }
           : item);
       }
 
-      const nextItem = makeCartItemFromProduct(product, quantity, opcaoFinal);
+      const nextItem = makeCartItemFromProduct(product, quantity, opcaoFinal, precificacao);
       setSelectedItemId(nextItem.id);
       return [...current, nextItem];
     });
 
     setSelectedProduct(product);
     setSearch('');
-  }, [openSession, session, validateQuantity]);
+  }, [openSession, session, validateQuantity, precificarLinha]);
 
   const updateItemQuantity = useCallback((itemId: string, quantity: number) => {
     setCartItems((current) => current.flatMap((item) => {
@@ -656,6 +699,11 @@ const PDV: React.FC = () => {
    * unidade de destino, as duas seriam a mesma coisa -- em vez de criar id
    * duplicado, recusa e explica. */
   const changeItemUnit = useCallback((itemId: string, embalagemId: string) => {
+    const itemAtual = cartItemsRef.current.find((entry) => entry.id === itemId);
+    const produtoAtual = itemAtual ? products.find((entry) => entry.id === itemAtual.productId) : undefined;
+    const precificacao = itemAtual && produtoAtual
+      ? precificarLinha(produtoAtual, findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(produtoAtual), embalagemId), itemAtual.quantidade, itemAtual.id)
+      : null;
     setCartItems((current) => {
       const item = current.find((entry) => entry.id === itemId);
       if (!item) return current;
@@ -676,7 +724,10 @@ const PDV: React.FC = () => {
         ...entry,
         id: novoId,
         // O preco acompanha a unidade -- o saco nao custa o mesmo que o quilo.
-        precoUnitarioCentavos: toCents(opcao.precoVenda),
+        precoUnitarioCentavos: toCents(precificacao ? precificacao.preco : opcao.precoVenda),
+        promocaoId: undefined,
+        promocaoNome: undefined,
+        ...(precificacao ? precificacao.campos : {}),
         // Desconto em reais foi calculado sobre o preco antigo; mante-lo aqui
         // aplicaria um abatimento sem relacao com o novo valor da linha.
         descontoCentavos: 0,
@@ -688,7 +739,7 @@ const PDV: React.FC = () => {
         quantidadeBase: opcao.embalagemId ? toBaseQuantity(entry.quantidade, opcao.fatorConversao) : undefined,
       });
     });
-  }, [products, validateQuantity]);
+  }, [products, validateQuantity, precificarLinha]);
 
   const updateItemDiscount = useCallback((itemId: string, discountCents: number) => {
     setCartItems((current) => current.map((item) => {
@@ -771,6 +822,48 @@ const PDV: React.FC = () => {
           cancelButtonText: 'Revisar desconto',
         });
         if (!confirm.isConfirmed) return;
+      }
+    }
+
+    // Os itens entraram com preco a vista / promocao (CONDICAO_PDV). Pagamento
+    // a prazo (credito parcelado, cheque) muda o preco -- nunca em silencio:
+    // a pessoa escolhe recalcular e confere o total de novo.
+    const condicaoEscolhida = condicaoDoPagamento(drafts, formasPrecoAVista);
+    if (condicaoEscolhida === 'prazo') {
+      let alterados = 0;
+      let diferencaCentavos = 0;
+      const reprecificados = cartItems.map((item) => {
+        if (!item.tabelaPreco || item.origemPreco === 'manual') return item;
+        const auto = precoAutomatico(item.tabelaPreco, condicaoEscolhida);
+        const centavos = toCents(auto.preco);
+        if (centavos === item.precoUnitarioCentavos) return item;
+        alterados += 1;
+        diferencaCentavos += Math.round((centavos - item.precoUnitarioCentavos) * item.quantidade);
+        return {
+          ...item,
+          precoUnitarioCentavos: centavos,
+          origemPreco: auto.origem,
+          promocaoId: undefined,
+          promocaoNome: undefined,
+          ...(auto.origem === 'promocao' && item.tabelaPreco.promocao ? { promocaoId: item.tabelaPreco.promocao.id, promocaoNome: item.tabelaPreco.promocao.nome } : {}),
+        };
+      });
+      if (alterados > 0) {
+        const valor = fromCents(Math.abs(diferencaCentavos)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        const escolha = await NexusSwal.fire({
+          title: 'Pagamento a prazo',
+          text: `${alterados} item(ns) estão com preço à vista ou promoção só à vista. Com este pagamento o total ${diferencaCentavos >= 0 ? 'sobe' : 'cai'} ${valor}. Recalcular os preços e abrir o pagamento de novo?`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Recalcular preços',
+          cancelButtonText: 'Voltar',
+        });
+        if (escolha.isConfirmed) {
+          setCartItems(reprecificados);
+          setPaymentModalOpen(false);
+          showWarning('Preços recalculados para a prazo', 'Confira o total e abra o pagamento de novo (F6).');
+        }
+        return;
       }
     }
 
@@ -879,6 +972,9 @@ const PDV: React.FC = () => {
             subtotalCentavos: subtotalCents,
             unidadeMedidaSigla: item.unidadeMedidaSigla,
             unidadeMedidaCasasDecimais: item.unidadeMedidaCasasDecimais,
+            // De onde veio o preco (a vista / promocao), como no Pedido de Venda.
+            ...(item.origemPreco ? { origemPreco: item.origemPreco } : {}),
+            ...(item.promocaoId ? { promocaoId: item.promocaoId, promocaoNome: item.promocaoNome || '' } : {}),
             ...camposDeLoteDoItem(planoLotes, String(indiceDoItem)),
             // Mesmo contrato do Pedido de Venda: item na unidade base nao
             // ganha campo de embalagem, para nao mudar o formato historico.
@@ -902,6 +998,8 @@ const PDV: React.FC = () => {
 
         transaction.set(newPedidoRef, {
           numeroPedido: finalNumeroPedido,
+          // Promocoes do cupom: e' por aqui que a quota (vendidoNaPromocao) conta a venda do PDV.
+          promocaoIds: [...new Set(itens.map((item) => item.promocaoId).filter((p): p is string => Boolean(p)))],
           // O 'pdv' ja era gravado em cada TRANSACOES de pagamento (F16),
           // mas nunca no documento da venda em si -- sem isso, nao ha como
           // distinguir uma venda de balcao de um Pedido de Venda comum so

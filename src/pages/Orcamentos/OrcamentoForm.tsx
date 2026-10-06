@@ -46,6 +46,9 @@ import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../
 import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
+import { camposDePrecoDoItem, precoSugeridoDoItem } from '../../utils/precoComPromocaoDomain';
+import type { OrigemPreco, TabelaDePrecoDoItem } from '../../utils/precoVendaDomain';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
@@ -67,6 +70,11 @@ interface ItemOrcamento {
   unidadeMedidaSigla?: string;
   unidadeMedidaFracionado?: boolean;
   unidadeMedidaCasasDecimais?: number;
+  /** De onde veio o preco (tabela/promocao), como no Pedido de Venda (2026-10-06). */
+  tabelaPreco?: TabelaDePrecoDoItem;
+  origemPreco?: OrigemPreco;
+  promocaoId?: string;
+  promocaoNome?: string;
 }
 // A linha de produto e a MESMA nas quatro telas de busca -- antes cada uma
 // desenhava a sua, com informacao diferente (a OS nem mostrava estoque).
@@ -77,6 +85,7 @@ interface PecaOrcamento {
   id: string;
   nome: string;
   precoVenda: number;
+  precoAVista?: number;
   quantidade?: number;
   codigo?: string;
   codigoBarras?: string;
@@ -158,6 +167,11 @@ const OrcamentoForm: React.FC = () => {
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido } = useAuth();
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
+  // Promocao de hoje no orcamento (2026-10-06). Orcamento nao tem pagamento
+  // escolhido, entao vale a condicao padrao do sistema: a prazo (preco de
+  // venda) -- promocao "so a vista" fica para a venda. Orcamento nao consome quota.
+  const CONDICAO_ORCAMENTO = 'prazo' as const;
+  const { tabelaDe } = usePromocoesVigentes(tenantId);
   const canVerAuditoria = hasModuleAccess({ role: userRole, isOwner, permissions: userPermissions, requiredPermission: 'administrativo.logs' });
   const [auditoriaAberta, setAuditoriaAberta] = useState(false);
 
@@ -227,6 +241,7 @@ const OrcamentoForm: React.FC = () => {
             id: doc.id,
             nome: data.nome || '',
             precoVenda: Number(data.precoVenda ?? 0),
+            precoAVista: Number(data.precoAVista ?? 0),
             quantidade: Number(data.quantidade ?? 0),
             codigo: data.codigo || '',
             codigoBarras: data.codigoBarras || '',
@@ -357,6 +372,7 @@ const OrcamentoForm: React.FC = () => {
 
     let existingId: string | undefined;
     let unidadeMedida: UnidadeMedidaProduto | null = null;
+    let precificacao: ReturnType<typeof camposDePrecoDoItem> | null = null;
 
     if (tipo === 'peca') {
       const peca = pecaSelecionada || pecasEstoque.find(p => p.nome.toLowerCase() === nome.toLowerCase());
@@ -374,6 +390,8 @@ const OrcamentoForm: React.FC = () => {
       }
 
       existingId = peca.id;
+      // Preco digitado igual ao da tabela = automatico (com promocao, se houver); diferente = manual.
+      precificacao = camposDePrecoDoItem(tabelaDe(peca), CONDICAO_ORCAMENTO, precoNum);
 
       if (!permitirVendaSemEstoque && peca && 1 > (peca.quantidade || 0)) {
         showError('Estoque Insuficiente', `Você tem apenas ${peca.quantidade || 0} un. no estoque. Venda sem estoque desativada.`);
@@ -398,7 +416,7 @@ const OrcamentoForm: React.FC = () => {
     const novoItem: ItemOrcamento = {
       id: existingId || 'avulso',
       nome: nome.toUpperCase(),
-      preco: precoNum,
+      preco: precificacao ? precificacao.preco : precoNum,
       quantidade: 1,
       tipo,
       // Servico continua SEM os 3 campos, de proposito: servico nao tem
@@ -407,6 +425,7 @@ const OrcamentoForm: React.FC = () => {
       // preenchidos, entao nenhum `undefined` chega no Firestore (que
       // recusa: "Unsupported field value: undefined").
       ...(unidadeMedida ?? {}),
+      ...(precificacao ? precificacao.campos : {}),
     };
 
     setItens([...itens, novoItem]);
@@ -781,6 +800,8 @@ const OrcamentoForm: React.FC = () => {
             quantidade: i.quantidade,
             desconto: 0,
             subtotal: i.preco * i.quantidade,
+            ...(i.origemPreco ? { origemPreco: i.origemPreco } : {}),
+            ...(i.promocaoId ? { promocaoId: i.promocaoId, promocaoNome: i.promocaoNome || '' } : {}),
             ...camposDeLoteDoItem(planoLotes, String(indiceDoItem)),
           }));
 
@@ -797,6 +818,7 @@ const OrcamentoForm: React.FC = () => {
 
           transaction.set(newVendaRef, {
             numeroPedido: formatSequenceValue(nextPedido, 4),
+            promocaoIds: [...new Set(vendaItens.map((i) => i.promocaoId).filter((p): p is string => Boolean(p)))],
             // Sem isso, a tela de NF-e casava o cliente so pelo nome ao
             // importar este pedido -- clienteId e' o vinculo confiavel.
             ...(formData.clienteId ? { clienteId: formData.clienteId } : {}),
@@ -989,7 +1011,7 @@ const OrcamentoForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label>WhatsApp / Telefone</label>
-              <input type="text" name="clienteTelefone" value={formData.clienteTelefone} onChange={handleChange} placeholder="(00) 00000-0000" />
+              <input type="text" name="clienteTelefone" value={formData.clienteTelefone} onChange={handleChange} />
             </div>
           </div>
 
@@ -1028,10 +1050,10 @@ const OrcamentoForm: React.FC = () => {
             )}
 
             <div className="grid-2-col">
-              <div className="input-group"><label>Placa</label><input type="text" name="placa" value={formData.placa} onChange={handleChange} placeholder="AAA-0000" style={{ textTransform: 'uppercase' }} /></div>
-              <div className="input-group"><label>Modelo</label><input type="text" name="modelo" value={formData.modelo} onChange={handleChange} placeholder="Ex: Civic" /></div>
-              <div className="input-group"><label>Ano</label><input type="text" name="ano" value={formData.ano} onChange={handleChange} placeholder="2020" /></div>
-              <div className="input-group"><label>Cor</label><input type="text" name="cor" value={formData.cor} onChange={handleChange} placeholder="Prata" /></div>
+              <div className="input-group"><label>Placa</label><input type="text" name="placa" value={formData.placa} onChange={handleChange} style={{ textTransform: 'uppercase' }} /></div>
+              <div className="input-group"><label>Modelo</label><input type="text" name="modelo" value={formData.modelo} onChange={handleChange} /></div>
+              <div className="input-group"><label>Ano</label><input type="text" name="ano" value={formData.ano} onChange={handleChange} /></div>
+              <div className="input-group"><label>Cor</label><input type="text" name="cor" value={formData.cor} onChange={handleChange} /></div>
             </div>
           </div>
 
@@ -1108,7 +1130,7 @@ const OrcamentoForm: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Preço</label>
-                  <input type="text" placeholder="R$ 0,00" value={servicoPrecoInput} onChange={(e) => setServicoPrecoInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('servico'); } }} />
+                  <input type="text" value={servicoPrecoInput} onChange={(e) => setServicoPrecoInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('servico'); } }} />
                 </div>
                 <button className="add-item-btn" onClick={() => handleAddItem('servico')} title="Adicionar Serviço">
                   <Plus size={20} />
@@ -1131,7 +1153,7 @@ const OrcamentoForm: React.FC = () => {
                     }}
                     onSelect={(p) => {
                       setPecaNomeInput(p.nome);
-                      setPecaPrecoInput(p.precoVenda.toString());
+                      setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), CONDICAO_ORCAMENTO)));
                       setPecaSelecionada(p);
                     }}
                     placeholder={`Nome do produto — ${DICA_BUSCA_MULTIPLA}`}
@@ -1157,7 +1179,7 @@ const OrcamentoForm: React.FC = () => {
                     products={pecasEstoque}
                     onSelect={(p) => {
                       setPecaNomeInput(p.nome);
-                      setPecaPrecoInput(p.precoVenda.toString());
+                      setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), CONDICAO_ORCAMENTO)));
                       setPecaSelecionada(p);
                     }}
                     renderItem={renderPecaRow}
@@ -1167,7 +1189,7 @@ const OrcamentoForm: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Preço</label>
-                  <input type="text" placeholder="R$ 0,00" value={pecaPrecoInput} onChange={(e) => setPecaPrecoInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('peca'); } }} />
+                  <input type="text" value={pecaPrecoInput} onChange={(e) => setPecaPrecoInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('peca'); } }} />
                 </div>
                 <button className="add-item-btn" onClick={() => handleAddItem('peca')} title="Adicionar Produto">
                   <Plus size={20} />
@@ -1274,7 +1296,7 @@ const OrcamentoForm: React.FC = () => {
               <FileText size={20} className="section-icon" />
               <h3>Observações Internas / Cliente</h3>
             </div>
-            <textarea name="observacoes" value={formData.observacoes} onChange={handleChange} placeholder="Ex: Desconto condicionado ao pagamento à vista..." rows={4} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)' }} />
+            <textarea name="observacoes" value={formData.observacoes} onChange={handleChange} rows={4} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)' }} />
           </div>
       </div>
     </div>

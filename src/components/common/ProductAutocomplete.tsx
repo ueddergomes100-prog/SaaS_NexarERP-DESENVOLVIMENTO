@@ -168,7 +168,11 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
 
   const trimmedValue = value.trim();
   const showResults = isOpen && result.items.length > 0;
-  const showEmpty = isOpen && trimmedValue.length > 0 && result.items.length === 0 && emptyHint !== undefined;
+  // Filiais: nada desta filial (mas ha' itens de outras) tambem precisa dizer
+  // algo -- senao a pessoa acha que o produto nao existe.
+  const nadaDestaFilial = Boolean(grupo) && !todasAsFiliais && escondidosPelaFilial > 0 && result.items.length === 0;
+  const showEmpty = isOpen && result.items.length === 0
+    && ((trimmedValue.length > 0 && emptyHint !== undefined) || nadaDestaFilial);
   const extraCount = result.total - result.items.length;
 
   return (
@@ -256,8 +260,10 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
 
       {showEmpty && (
         <div className="product-autocomplete__empty">
-          {emptyHint}
-          {grupo && podeTrocarFilial && !todasAsFiliais && escondidosPelaFilial > 0 && (
+          {nadaDestaFilial
+            ? (trimmedValue ? 'Nenhum item desta filial com esse nome.' : 'Esta filial ainda não tem itens próprios nem estoque recebido.')
+            : emptyHint}
+          {podeTrocarFilial && nadaDestaFilial && (
             <button
               type="button"
               className="product-autocomplete__escopo"

@@ -22,7 +22,7 @@
  * trava de edicao; o servidor usa para planejar as gravacoes.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.mudouCadastroDoGrupo = exports.itemDaFilial = exports.aplicarNoIndice = exports.planejarEspelho = exports.indexar = exports.criarIndice = exports.chaveNatural = exports.idDaCopia = exports.chaveDoGrupo = exports.hashDoCadastro = exports.camposDoGrupo = exports.participaDoEspelho = exports.CAMPOS_DO_PRODUTO_NO_GRUPO = exports.COLECOES_ESPELHADAS = void 0;
+exports.estoquePorFilial = exports.chaveDoProdutoPeloId = exports.mudouCadastroDoGrupo = exports.itemDaFilial = exports.aplicarNoIndice = exports.planejarEspelho = exports.indexar = exports.criarIndice = exports.chaveNatural = exports.idDaCopia = exports.chaveDoGrupo = exports.hashDoCadastro = exports.camposDoGrupo = exports.participaDoEspelho = exports.CAMPOS_DO_PRODUTO_NO_GRUPO = exports.COLECOES_ESPELHADAS = void 0;
 /** Na ordem em que o servidor liga o espelho: catalogos antes dos produtos (unidade). */
 exports.COLECOES_ESPELHADAS = ['unidades_medida', 'categorias', 'marcas', 'clientes', 'estoque'];
 /** Campos de controle de cada copia: nunca sao comparados nem copiados. */
@@ -292,3 +292,26 @@ exports.itemDaFilial = itemDaFilial;
 /** O cadastro (parte do grupo) mudou entre o que foi aberto e o que vai ser salvo? */
 const mudouCadastroDoGrupo = (colecao, antes, depois) => ((0, exports.hashDoCadastro)((0, exports.camposDoGrupo)(colecao, antes)) !== (0, exports.hashDoCadastro)((0, exports.camposDoGrupo)(colecao, depois)));
 exports.mudouCadastroDoGrupo = mudouCadastroDoGrupo;
+// ---------------------------------------------------------------------------
+// Fase 2: estoque das outras filiais
+// ---------------------------------------------------------------------------
+/**
+ * Chave do grupo a partir do id do produto na filial: a copia criada pelo
+ * espelho tem id `${chave}_${tenantId}`; o original tem o proprio id. Assim
+ * as telas de venda (que nao carregam grupoChave) acham o produto no grupo.
+ */
+const chaveDoProdutoPeloId = (id, tenantId) => {
+    const sufixo = tenantId ? `_${tenantId}` : '';
+    return sufixo && id.endsWith(sufixo) ? id.slice(0, -sufixo.length) : id;
+};
+exports.chaveDoProdutoPeloId = chaveDoProdutoPeloId;
+/** Estoque do produto em cada filial ativa do grupo (filial sem a copia aparece com zero). */
+const estoquePorFilial = (filiais, copias) => filiais
+    .filter((f) => f.ativa)
+    .map((f) => {
+    const copia = copias.find((c) => c.tenantId === f.tenantId);
+    const quantidade = Number(copia?.quantidade) || 0;
+    const reservada = Math.max(0, Number(copia?.quantidadeReservada) || 0);
+    return { tenantId: f.tenantId, codigo: f.codigo, nome: f.nome, quantidade, reservada, disponivel: quantidade - reservada };
+});
+exports.estoquePorFilial = estoquePorFilial;

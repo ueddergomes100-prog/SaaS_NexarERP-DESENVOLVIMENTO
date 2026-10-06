@@ -10,7 +10,8 @@ import { UNIDADE_MEDIDA_FALLBACK, resolverUnidadeDoCadastro } from '../../utils/
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
-import { mudouCadastroDoGrupo } from '../../utils/cadastroGrupoDomain';
+import { chaveDoProdutoPeloId, mudouCadastroDoGrupo } from '../../utils/cadastroGrupoDomain';
+import EstoqueNasFiliais from '../../components/common/EstoqueNasFiliais';
 import { PERMISSAO_UTILIZA_OUTRAS_FILIAIS, rotuloFilial } from '../../utils/filialDomain';
 import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, CSOSN_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
 import { ENQUADRAMENTO_IPI_PADRAO, IPI_CST_SAIDA_OPTIONS, PIS_COFINS_CST_SAIDA_OPTIONS } from '../../utils/notaFiscalItemDomain';
@@ -1532,6 +1533,9 @@ const EstoqueForm: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Filiais (2026-10-06): quanto deste produto ha' em cada filial. */}
+      {isEditing && id && grupo && <EstoqueNasFiliais chave={chaveDoProdutoPeloId(id, tenantId)} />}
 
       {produtoInativo && (
         <div style={{ padding: '14px 18px', marginBottom: '16px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', color: 'var(--text-primary)', fontSize: '14px' }}>

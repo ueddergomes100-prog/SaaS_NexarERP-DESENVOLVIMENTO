@@ -327,3 +327,39 @@ export const itemDaFilial = (produto: { filialOrigem?: unknown; quantidade?: unk
 export const mudouCadastroDoGrupo = (colecao: ColecaoEspelhada, antes: Record<string, unknown>, depois: Record<string, unknown>): boolean => (
   hashDoCadastro(camposDoGrupo(colecao, antes)) !== hashDoCadastro(camposDoGrupo(colecao, depois))
 );
+
+// ---------------------------------------------------------------------------
+// Fase 2: estoque das outras filiais
+// ---------------------------------------------------------------------------
+
+/**
+ * Chave do grupo a partir do id do produto na filial: a copia criada pelo
+ * espelho tem id `${chave}_${tenantId}`; o original tem o proprio id. Assim
+ * as telas de venda (que nao carregam grupoChave) acham o produto no grupo.
+ */
+export const chaveDoProdutoPeloId = (id: string, tenantId: string | null | undefined): string => {
+  const sufixo = tenantId ? `_${tenantId}` : '';
+  return sufixo && id.endsWith(sufixo) ? id.slice(0, -sufixo.length) : id;
+};
+
+export interface EstoqueDaFilial {
+  tenantId: string;
+  codigo: string;
+  nome: string;
+  quantidade: number;
+  reservada: number;
+  disponivel: number;
+}
+
+/** Estoque do produto em cada filial ativa do grupo (filial sem a copia aparece com zero). */
+export const estoquePorFilial = (
+  filiais: Array<{ tenantId: string; codigo: string; nome: string; ativa: boolean }>,
+  copias: Array<{ tenantId?: unknown; quantidade?: unknown; quantidadeReservada?: unknown }>,
+): EstoqueDaFilial[] => filiais
+  .filter((f) => f.ativa)
+  .map((f) => {
+    const copia = copias.find((c) => c.tenantId === f.tenantId);
+    const quantidade = Number(copia?.quantidade) || 0;
+    const reservada = Math.max(0, Number(copia?.quantidadeReservada) || 0);
+    return { tenantId: f.tenantId, codigo: f.codigo, nome: f.nome, quantidade, reservada, disponivel: quantidade - reservada };
+  });

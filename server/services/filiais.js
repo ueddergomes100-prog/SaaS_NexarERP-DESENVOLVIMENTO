@@ -202,4 +202,79 @@ const editarFilial = async ({ user, tenantId, corpo }) => db.runTransaction(asyn
   return { filial, antes: atual };
 });
 
-module.exports = { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial };
+// ---------------------------------------------------------------------------
+// Fase 2: consultas entre filiais (leitura, sem transacao)
+// ---------------------------------------------------------------------------
+
+const espelho = require('../domain/cadastroGrupoDomain');
+const { transactionNetCents } = require('../domain/financeDomain');
+
+/** Mesmas formas excluidas do saldo em aberto em src/utils/contasReceberQuery.ts (cartao fica na tela Banco). */
+const FORMAS_EXCLUIDAS_SALDO_ABERTO = ['Cartão de Crédito', 'Cartão de Débito'];
+const LIMITE_DO_IN = 30;
+
+const grupoDoUsuario = async (uid) => {
+  const usuarioSnap = await db.collection('usuarios').doc(uid).get();
+  if (!usuarioSnap.exists) throw new ErroFilial(404, 'Seu usuário não foi encontrado. Saia do sistema e entre de novo.');
+  const dados = usuarioSnap.data();
+  const usuario = { ...dados, uid, tenantId: dados.tenantId || uid };
+  const configSnap = await db.collection('configuracoes').doc(usuario.tenantId).get();
+  const grupoId = configSnap.exists ? configSnap.data().grupoId : '';
+  const grupoSnap = grupoId ? await db.collection('grupos').doc(grupoId).get() : null;
+  const grupo = grupoSnap && grupoSnap.exists ? dominio.lerGrupo(grupoSnap.id, grupoSnap.data()) : null;
+  if (!grupo || !dominio.pertenceAoGrupo(grupo, usuario)) throw new ErroFilial(404, 'Sua empresa não tem filiais cadastradas.');
+  return { usuario, grupo };
+};
+
+/**
+ * Quanto de cada produto ha' em cada filial (decisao do dono: todo usuario
+ * ve, so' a quantidade). `chaves` = grupoChave dos produtos.
+ */
+const estoqueNasFiliais = async ({ user, chaves }) => {
+  const { grupo } = await grupoDoUsuario(user.uid);
+  const doGrupo = new Set(grupo.filiais.map((f) => f.tenantId));
+  const lista = [...new Set((Array.isArray(chaves) ? chaves : []).filter((c) => typeof c === 'string' && c))].slice(0, 60);
+  const copiasPorChave = new Map(lista.map((c) => [c, []]));
+  for (let i = 0; i < lista.length; i += LIMITE_DO_IN) {
+    const snap = await db.collection('estoque').where('grupoChave', 'in', lista.slice(i, i + LIMITE_DO_IN)).get();
+    snap.docs.forEach((d) => {
+      const dados = d.data();
+      if (doGrupo.has(dados.tenantId) && copiasPorChave.has(dados.grupoChave)) copiasPorChave.get(dados.grupoChave).push(dados);
+    });
+  }
+  return Object.fromEntries([...copiasPorChave.entries()].map(([chave, copias]) => [chave, espelho.estoquePorFilial(grupo.filiais, copias)]));
+};
+
+/**
+ * Saldo em aberto do cliente somando TODAS as filiais (decisao do dono: o
+ * limite de credito e' do grupo -- quem deve no Centro fica travado na
+ * Baixada). `clienteId` e' o id do cliente na filial em que o usuario esta.
+ */
+const saldoDoClienteNoGrupo = async ({ user, clienteId }) => {
+  const { grupo } = await grupoDoUsuario(user.uid);
+  const clienteSnap = await db.collection('clientes').doc(String(clienteId || '')).get();
+  if (!clienteSnap.exists || clienteSnap.data().tenantId !== user.tenantId) throw new ErroFilial(404, 'Cliente não encontrado nesta filial.');
+  const chave = clienteSnap.data().grupoChave || clienteSnap.id;
+  const doGrupo = new Map(grupo.filiais.map((f) => [f.tenantId, f]));
+  const copiasSnap = await db.collection('clientes').where('grupoChave', '==', chave).get();
+  const copias = copiasSnap.docs.filter((d) => doGrupo.has(d.data().tenantId));
+  if (!copias.some((d) => d.id === clienteSnap.id)) copias.push(clienteSnap);
+
+  const porFilial = [];
+  for (const copia of copias) {
+    const tenantId = copia.data().tenantId;
+    const snap = await db.collection('transacoes')
+      .where('tenantId', '==', tenantId)
+      .where('clienteId', '==', copia.id)
+      .where('status', '==', 'Pendente')
+      .get();
+    const centavos = snap.docs.reduce((total, d) => (
+      FORMAS_EXCLUIDAS_SALDO_ABERTO.includes(d.data().formaPagamento) ? total : total + transactionNetCents(d.data())
+    ), 0);
+    const filial = doGrupo.get(tenantId);
+    porFilial.push({ tenantId, codigo: filial ? filial.codigo : '', nome: filial ? filial.nome : '', centavos });
+  }
+  return { totalCentavos: porFilial.reduce((s, f) => s + f.centavos, 0), porFilial };
+};
+
+module.exports = { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial, estoqueNasFiliais, saldoDoClienteNoGrupo };

@@ -487,7 +487,7 @@ const PedidoVendaForm: React.FC = () => {
   // (gravar/finalizar/cancelar). State aqui seria uma segunda copia da
   // verdade, que envelhece se outra aba mexer na mesma pre-venda.
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido, grupo } = useAuth();
 
   // PRECO A VISTA x PRECO DE VENDA E PROMOCOES (2026-10-01). A condicao do
   // pagamento (a vista / a prazo) decide o preco de cada item; promocao vigente
@@ -2845,7 +2845,7 @@ const PedidoVendaForm: React.FC = () => {
           ? Math.round(clienteEncontrado.limiteDeCredito * 100)
           : null;
         const saldoEmAbertoCents = clienteIdParaSalvar
-          ? await calcularSaldoEmAbertoClienteCents(tenantId, clienteIdParaSalvar)
+          ? await calcularSaldoEmAbertoClienteCents(tenantId, clienteIdParaSalvar, Boolean(grupo))
           : 0;
         // Depois do saldo, nunca antes: assim toda venda a prazo gravada
         // ate aqui ja esta refletida no saldo OU na versao.

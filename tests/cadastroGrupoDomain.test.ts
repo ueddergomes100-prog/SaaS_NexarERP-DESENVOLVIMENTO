@@ -145,3 +145,17 @@ test('na tela: "itens desta filial" e trava do cadastro do grupo', () => {
   assert.equal(mudouCadastroDoGrupo('estoque', antes, { ...antes, precoVenda: 1, quantidade: 99 }), false);
   assert.equal(mudouCadastroDoGrupo('estoque', antes, { ...antes, nome: 'OUTRO' }), true);
 });
+
+test('fase 2: chave do produto pelo id da copia e estoque por filial', async () => {
+  const { chaveDoProdutoPeloId, estoquePorFilial } = await import('../src/utils/cadastroGrupoDomain');
+  assert.equal(chaveDoProdutoPeloId('p1_baixada', 'baixada'), 'p1');
+  assert.equal(chaveDoProdutoPeloId('p1', 'matriz'), 'p1');
+  assert.equal(chaveDoProdutoPeloId('p1_baixada', null), 'p1_baixada');
+  const filiais = [
+    { tenantId: 'matriz', codigo: '10', nome: 'CENTRO', ativa: true },
+    { tenantId: 'baixada', codigo: '20', nome: 'BAIXADA', ativa: true },
+    { tenantId: 'velha', codigo: '30', nome: 'FECHADA', ativa: false },
+  ];
+  const r = estoquePorFilial(filiais, [{ tenantId: 'matriz', quantidade: 12, quantidadeReservada: 2 }]);
+  assert.deepEqual(r.map((f) => [f.codigo, f.quantidade, f.disponivel]), [['10', 12, 10], ['20', 0, 0]]);
+});

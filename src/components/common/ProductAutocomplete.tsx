@@ -8,7 +8,8 @@ import {
 } from '../../utils/productSearch';
 import ProductSearchModal from './ProductSearchModal';
 import { useAuth } from '../../contexts/AuthContext';
-import { itemDaFilial } from '../../utils/cadastroGrupoDomain';
+import { chaveDoProdutoPeloId, itemDaFilial } from '../../utils/cadastroGrupoDomain';
+import EstoqueNasFiliais from './EstoqueNasFiliais';
 import './ProductAutocomplete.css';
 
 export interface ProductAutocompleteProps<T extends SearchableProduct & { id: string }> {
@@ -233,6 +234,10 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
               {renderItem(product, highlightedIndex === index, value)}
             </button>
           ))}
+
+          {grupo && result.items[highlightedIndex] && (
+            <EstoqueNasFiliais chave={chaveDoProdutoPeloId(result.items[highlightedIndex].id, tenantId)} compacto atrasoMs={250} />
+          )}
 
           {grupo && podeTrocarFilial && (escondidosPelaFilial > 0 || todasAsFiliais) && (
             <button

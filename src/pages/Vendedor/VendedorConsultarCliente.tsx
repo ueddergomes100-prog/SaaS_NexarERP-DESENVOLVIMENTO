@@ -43,7 +43,7 @@ const toMillis = (value: unknown): number => {
 
 const VendedorConsultarCliente: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, userPermissions } = useAuth();
+  const { tenantId, userPermissions, grupo } = useAuth();
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
 
   const [busca, setBusca] = useState('');
@@ -82,7 +82,7 @@ const VendedorConsultarCliente: React.FC = () => {
 
     (async () => {
       const [saldo, pedidosSnap, orcamentosSnap] = await Promise.all([
-        calcularSaldoEmAbertoClienteCents(tenantId, selecionado.id).catch(() => 0),
+        calcularSaldoEmAbertoClienteCents(tenantId, selecionado.id, Boolean(grupo)).catch(() => 0),
         getDocs(query(
           collection(db, 'pedidos_venda'),
           where('tenantId', '==', tenantId),

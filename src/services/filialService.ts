@@ -1,6 +1,7 @@
 import { auth } from './firebase';
 import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
 import type { DadosDaFilial, FilialDoGrupo } from '../utils/filialDomain';
+import type { EstoqueDaFilial } from '../utils/cadastroGrupoDomain';
 
 /**
  * Cliente HTTP das FILIAIS (2026-10-06). Grupo, filial ativa do usuario e
@@ -71,4 +72,16 @@ export const lerCadastroDaFilial = (tenantId: string) => (
 
 export const alterarFilial = (tenantId: string, dados: Partial<DadosDaFilial> & { ativa?: boolean }) => (
   chamar<{ ok: true; filial: FilialDoGrupo }>('PUT', `/${encodeURIComponent(tenantId)}`, dados)
+);
+
+/** Fase 2: estoque de cada produto (por grupoChave) em cada filial ativa. */
+export const consultarEstoqueNasFiliais = (chaves: string[]) => (
+  chamar<Record<string, EstoqueDaFilial[]>>('POST', '/estoque', { chaves })
+);
+
+/** Fase 2: saldo em aberto do cliente somando todas as filiais (limite de credito do grupo). */
+export const consultarSaldoDoClienteNoGrupo = (clienteId: string) => (
+  chamar<{ totalCentavos: number; porFilial: Array<{ tenantId: string; codigo: string; nome: string; centavos: number }> }>(
+    'GET', `/clientes/${encodeURIComponent(clienteId)}/saldo`,
+  )
 );

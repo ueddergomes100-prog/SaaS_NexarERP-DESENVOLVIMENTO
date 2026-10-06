@@ -2,7 +2,7 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const { rotuloFilial } = require('../domain/filialDomain');
-const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial } = require('../services/filiais');
+const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial, estoqueNasFiliais, saldoDoClienteNoGrupo } = require('../services/filiais');
 
 /**
  * FILIAIS -- ver services/filiais.js e docs/PLANO_FILIAIS.md.
@@ -11,6 +11,8 @@ const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerC
  *   POST /api/filiais            cadastrar filial (dono/administrador)
  *   GET  /api/filiais/:tenantId  cadastro completo da filial (para editar)
  *   PUT  /api/filiais/:tenantId  mudar o cadastro (menos CNPJ) ou a situacao
+ *   POST /api/filiais/estoque     estoque dos produtos em cada filial (fase 2)
+ *   GET  /api/filiais/clientes/:id/saldo  saldo em aberto do cliente no grupo
  */
 const router = express.Router();
 router.use(authenticate);
@@ -54,6 +56,23 @@ router.post('/', async (req, res) => {
     return res.status(201).json(resultado);
   } catch (erro) {
     return responderErro(res, erro, 'cadastrar a filial');
+  }
+});
+
+// Rotas fixas ANTES de '/:tenantId' (senao 'estoque' vira um tenantId).
+router.post('/estoque', async (req, res) => {
+  try {
+    return res.json(await estoqueNasFiliais({ user: req.user, chaves: req.body?.chaves }));
+  } catch (erro) {
+    return responderErro(res, erro, 'consultar o estoque das filiais');
+  }
+});
+
+router.get('/clientes/:id/saldo', async (req, res) => {
+  try {
+    return res.json(await saldoDoClienteNoGrupo({ user: req.user, clienteId: req.params.id }));
+  } catch (erro) {
+    return responderErro(res, erro, 'somar o saldo do cliente nas filiais');
   }
 });
 

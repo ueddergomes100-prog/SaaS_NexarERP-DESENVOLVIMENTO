@@ -1,6 +1,7 @@
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { transactionNetCents } from './financeDomain';
+import { consultarSaldoDoClienteNoGrupo } from '../services/filialService';
 
 /** Mesmas formas de pagamento excluidas do saldo em aberto em ContasReceber.tsx
  * (cartao fica na tela Banco, nao e' "credito concedido" ao cliente). */
@@ -13,7 +14,10 @@ const FORMAS_EXCLUIDAS_SALDO_ABERTO = ['Cartão de Crédito', 'Cartão de Débit
  * (nao carrega a colecao inteira de `transacoes` do tenant) -- usado na
  * checagem de limite de credito ao finalizar uma venda a prazo.
  */
-export const calcularSaldoEmAbertoClienteCents = async (tenantId: string, clienteId: string): Promise<number> => {
+export const calcularSaldoEmAbertoClienteCents = async (tenantId: string, clienteId: string, noGrupo = false): Promise<number> => {
+  // Filiais (2026-10-06): o limite de credito e' do GRUPO -- o servidor soma o
+  // que o cliente deve em todas as filiais (a tela so' enxerga a dela).
+  if (noGrupo) return (await consultarSaldoDoClienteNoGrupo(clienteId)).totalCentavos;
   const q = query(
     collection(db, 'transacoes'),
     where('tenantId', '==', tenantId),

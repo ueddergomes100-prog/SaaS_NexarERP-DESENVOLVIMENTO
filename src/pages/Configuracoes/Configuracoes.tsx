@@ -1,4 +1,5 @@
 import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
+import { TRIBUTACAO_TRANSFERENCIA_OPCOES, TRIBUTACAO_TRANSFERENCIA_PADRAO, parseTributacaoTransferencia, type TributacaoTransferencia } from '../../utils/notaTransferenciaDomain';
 import React, { useState, useEffect, useRef } from 'react';
 import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy } from 'lucide-react';
 import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
@@ -200,6 +201,8 @@ const Configuracoes: React.FC = () => {
     trabalhaComCondicional: DEFAULT_TRABALHA_COM_CONDICIONAL,
     /** Filiais (2026-10-06): libera a transferencia sem nota (so' dono e gerente usam). */
     transferenciaSemNota: false,
+    /** Filiais F4: tributacao da NF-e de transferencia (notaTransferenciaDomain.ts). */
+    transferenciaNfeTributacao: TRIBUTACAO_TRANSFERENCIA_PADRAO as TributacaoTransferencia,
     agenteDigitalAtivo: DEFAULT_AGENTE_DIGITAL_ATIVO,
     alterarPagamentoVendaFinalizada: DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
     exigirIdentificacaoVendedor: DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
@@ -361,6 +364,7 @@ const Configuracoes: React.FC = () => {
             trabalhaComPreVenda: parseTrabalhaComPreVenda(data.trabalhaComPreVenda),
             trabalhaComCondicional: parseTrabalhaComCondicional(data.trabalhaComCondicional),
             transferenciaSemNota: data.transferenciaSemNota === true,
+            transferenciaNfeTributacao: parseTributacaoTransferencia(data.transferenciaNfeTributacao),
             agenteDigitalAtivo: parseAgenteDigitalAtivo(data.agenteDigitalAtivo),
             alterarPagamentoVendaFinalizada: parseAlterarPagamentoVendaFinalizada(data.alterarPagamentoVendaFinalizada),
             exigirIdentificacaoVendedor: parseExigirIdentificacaoVendedor(data.exigirIdentificacaoVendedor),
@@ -2089,6 +2093,20 @@ const Configuracoes: React.FC = () => {
                   </label>
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                     Esta filial pode enviar mercadoria para outra filial do grupo <strong>sem nota fiscal</strong> (Estoque → Transferências). Só o dono ou um gerente usa. Mercadoria entre CNPJs diferentes circula com nota — use sem nota para loja ou depósito do mesmo CNPJ, ou acerto interno.
+                  </p>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '520px', marginTop: '4px' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Tributação da nota de transferência</span>
+                    <select
+                      value={formData.transferenciaNfeTributacao}
+                      onChange={(e) => setFormData({ ...formData, transferenciaNfeTributacao: parseTributacaoTransferencia(e.target.value) })}
+                      disabled={!isEditingMode}
+                      style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+                    >
+                      {TRIBUTACAO_TRANSFERENCIA_OPCOES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </label>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                    A NF-e de transferência sai pelo custo, com CFOP 5152/6152 (revenda) ou 5151/6151 (produção própria), escolhido pelo estado das duas filiais. O padrão é <strong>sem ICMS</strong>: o STF (ADC 49) e a LC 204/2023 afastaram o ICMS na transferência entre estabelecimentos do mesmo dono. Confirme com o contador antes da primeira nota.
                   </p>
                 </div>
               )}

@@ -21,7 +21,7 @@ export class TransferenciaError extends Error {
   }
 }
 
-const chamar = async <T>(caminho: string, corpo: Record<string, unknown>): Promise<T> => {
+const chamar = async <T>(caminho: string, corpo: Record<string, unknown> | null): Promise<T> => {
   if (!API_URL) {
     throw new TransferenciaError('Esta operação precisa do servidor da empresa, que não está configurado neste ambiente. Avise o suporte.', 0);
   }
@@ -30,11 +30,13 @@ const chamar = async <T>(caminho: string, corpo: Record<string, unknown>): Promi
 
   let resposta: Response;
   try {
-    resposta = await fetchComTimeout(`${API_URL}/api/transferencias${caminho}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(corpo),
-    });
+    resposta = await fetchComTimeout(`${API_URL}/api/transferencias${caminho}`, corpo === null
+      ? { method: 'GET', headers: { Authorization: `Bearer ${token}` } }
+      : {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(corpo),
+      });
   } catch (erro) {
     throw new TransferenciaError(`${mensagemDeFalhaDeRede(erro)} Confira na lista de transferências se a operação foi registrada antes de repetir.`, 0);
   }
@@ -49,7 +51,7 @@ export const enviarTransferencia = (dados: {
   observacao?: string;
   comNota: boolean;
   idDocumento: string;
-}) => chamar<{ id: string; numeroTransferencia: string; jaEnviada: boolean }>('', dados);
+}) => chamar<{ id: string; numeroTransferencia: string; jaEnviada: boolean; nota?: NotaDaTransferencia; avisos?: string[] }>('', dados);
 
 export const receberTransferencia = (id: string, recebidas: Record<number, number>) => (
   chamar<{ ok: true; divergente: boolean }>(`/${encodeURIComponent(id)}/receber`, { recebidas })
@@ -58,3 +60,27 @@ export const receberTransferencia = (id: string, recebidas: Record<number, numbe
 export const recusarTransferencia = (id: string, motivo: string) => chamar<{ ok: true }>(`/${encodeURIComponent(id)}/recusar`, { motivo });
 
 export const cancelarTransferencia = (id: string, motivo: string) => chamar<{ ok: true }>(`/${encodeURIComponent(id)}/cancelar`, { motivo });
+
+/** Espelho da nota fiscal na transferencia (fase 4 -- server/services/notaTransferencia.js). */
+export interface NotaDaTransferencia {
+  status: string;
+  notaId?: string;
+  number?: number | string | null;
+  accessKey?: string | null;
+  mensagem?: string;
+  tentativa?: number;
+  cfops?: string[];
+  cfopsEntrada?: string[];
+  tributacao?: string;
+  reservadoEmMs?: number | null;
+}
+
+/** Origem emite a nota de novo (a anterior foi rejeitada, nao saiu ou ficou sem confirmacao). */
+export const reemitirNotaDaTransferencia = (id: string) => (
+  chamar<{ ok: true; nota: NotaDaTransferencia; avisos: string[] }>(`/${encodeURIComponent(id)}/nota`, {})
+);
+
+/** Consulta a Spedy e devolve a situacao atual da nota. */
+export const consultarNotaDaTransferencia = (id: string) => (
+  chamar<{ nota: NotaDaTransferencia | null }>(`/${encodeURIComponent(id)}/nota`, null)
+);

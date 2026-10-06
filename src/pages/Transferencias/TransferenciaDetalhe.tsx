@@ -1,13 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, PackageCheck, Undo2, XCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, FileText, Loader2, PackageCheck, RefreshCw, Send, Undo2, XCircle } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
+import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { ROTULO_STATUS_TRANSFERENCIA } from '../../utils/transferenciaDomain';
-import { cancelarTransferencia, receberTransferencia, recusarTransferencia } from '../../services/transferenciaService';
+import { STATUS_NOTA_SEM_VALOR, rotuloStatusNota, statusEfetivoDaNota } from '../../utils/notaTransferenciaDomain';
+import {
+  cancelarTransferencia,
+  consultarNotaDaTransferencia,
+  receberTransferencia,
+  recusarTransferencia,
+  reemitirNotaDaTransferencia,
+} from '../../services/transferenciaService';
 import { ESTILO_STATUS_TRANSFERENCIA, dataHora, moeda, quantidade as fmtQtd, type TransferenciaDoc } from './transferenciaTipos';
 
 /**
@@ -15,6 +22,9 @@ import { ESTILO_STATUS_TRANSFERENCIA, dataHora, moeda, quantidade as fmtQtd, typ
  * transferencia em transito e' CONFERIDA: cada item comeca com o enviado e a
  * pessoa corrige o que chegou; a falta volta para a origem. O destino tambem
  * pode recusar tudo; a origem pode cancelar enquanto nao foi recebida.
+ * Fase 4: com nota, o quadro "Nota fiscal" mostra a situacao (espelho gravado
+ * pelo servidor), deixa consultar a Spedy e, na origem, emitir de novo
+ * quando a nota nao vale; o recebimento so' libera com a nota autorizada.
  */
 const TransferenciaDetalhe: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +34,13 @@ const TransferenciaDetalhe: React.FC = () => {
   const [carregando, setCarregando] = useState(true);
   const [conferidas, setConferidas] = useState<Record<number, string>>({});
   const [salvando, setSalvando] = useState(false);
+  const [consultandoNota, setConsultandoNota] = useState(false);
+  // Relogio da tela (reserva de nota esquecida vira "sem confirmacao" depois de 5 min).
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    const relogio = window.setInterval(() => setAgora(Date.now()), 30_000);
+    return () => window.clearInterval(relogio);
+  }, []);
 
   useEffect(() => {
     if (!id) return undefined;
@@ -40,6 +57,44 @@ const TransferenciaDetalhe: React.FC = () => {
   const souOrigem = t.tenantOrigem === tenantId;
   const emTransito = t.status === 'em_transito';
   const estilo = ESTILO_STATUS_TRANSFERENCIA[t.status];
+  const statusNota = t.comNota ? statusEfetivoDaNota(t.notaFiscal, agora) : '';
+  const notaAutorizada = statusNota === 'authorized';
+  const notaSemValor = !statusNota || STATUS_NOTA_SEM_VALOR.includes(statusNota);
+  const recebimentoTravado = Boolean(t.comNota) && !notaAutorizada;
+
+  const atualizarNota = async () => {
+    setConsultandoNota(true);
+    try {
+      const r = await consultarNotaDaTransferencia(t.id);
+      if (r.nota) showSuccess(`Nota ${rotuloStatusNota(r.nota.status)}.`);
+    } catch (erro) {
+      showError('Não foi possível consultar a nota', erro instanceof Error ? erro.message : undefined);
+    } finally {
+      setConsultandoNota(false);
+    }
+  };
+
+  const emitirDeNovo = async () => {
+    const r = await NexusSwal.fire({
+      title: 'Emitir a nota de novo?',
+      html: 'Corrija antes o que fez a nota não valer (o motivo está no quadro da nota). O sistema monta a nota de novo a partir do cadastro e envia para a SEFAZ.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Emitir a nota',
+      cancelButtonText: 'Voltar',
+    });
+    if (!r.isConfirmed) return;
+    setSalvando(true);
+    try {
+      const resultado = await reemitirNotaDaTransferencia(t.id);
+      showSuccess('Nota fiscal na fila da SEFAZ.');
+      if (resultado.avisos.length > 0) showWarning('Confira o cadastro', resultado.avisos.join(' '));
+    } catch (erro) {
+      showError('A nota não foi emitida', erro instanceof Error ? erro.message : undefined);
+    } finally {
+      setSalvando(false);
+    }
+  };
 
   const pedirMotivo = async (titulo: string, confirmar: string) => {
     const r = await NexusSwal.fire({
@@ -128,6 +183,49 @@ const TransferenciaDetalhe: React.FC = () => {
         </div>
       </div>
 
+      {t.comNota && (
+        <div className="card" style={{ padding: '16px 20px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <FileText size={18} style={{ color: 'var(--accent-purple)' }} aria-hidden="true" />
+            <strong>Nota fiscal de transferência</strong>
+            <span style={{
+              padding: '3px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: 600,
+              background: notaAutorizada ? 'rgba(16, 185, 129, 0.15)' : notaSemValor ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.15)',
+              color: notaAutorizada ? '#10b981' : notaSemValor ? '#ef4444' : '#f59e0b',
+            }}
+            >
+              {rotuloStatusNota(statusNota)}
+            </span>
+            {t.notaFiscal?.number ? <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>NF-e nº {t.notaFiscal.number}</span> : null}
+            <div style={{ flex: 1 }} />
+            <button type="button" className="btn-secondary" disabled={consultandoNota} onClick={() => { void atualizarNota(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '13px' }}>
+              {consultandoNota ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />} Atualizar situação
+            </button>
+            {souOrigem && emTransito && notaSemValor && (
+              <button type="button" className="btn-primary" disabled={salvando} onClick={() => { void emitirDeNovo(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '13px' }}>
+                <Send size={14} /> Emitir a nota de novo
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', fontSize: '13px', color: 'var(--text-secondary)' }}>
+            {t.notaFiscal?.cfops?.length ? <span>CFOP de saída: <strong>{t.notaFiscal.cfops.join(', ')}</strong></span> : null}
+            {t.notaFiscal?.cfopsEntrada?.length ? <span>Entrada no destino: <strong>{t.notaFiscal.cfopsEntrada.join(', ')}</strong></span> : null}
+            {t.notaFiscal?.accessKey ? <span style={{ fontVariantNumeric: 'tabular-nums', wordBreak: 'break-all' }}>Chave: {t.notaFiscal.accessKey}</span> : null}
+          </div>
+          {t.notaFiscal?.mensagem && !notaAutorizada && (
+            <p style={{ margin: 0, fontSize: '13px', color: notaSemValor ? '#ef4444' : 'var(--text-secondary)' }}>{t.notaFiscal.mensagem}</p>
+          )}
+          {statusNota === 'falha_envio' && (
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
+              A Spedy não respondeu no envio. {souOrigem ? 'Use "Emitir a nota de novo": o sistema reenvia com a mesma identificação e a Spedy não cria nota dobrada.' : 'A filial que enviou precisa emitir a nota de novo.'}
+            </p>
+          )}
+          {souDestino && t.entradaNotaId && (
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>A nota de entrada foi lançada no Histórico de Entradas desta filial.</p>
+          )}
+        </div>
+      )}
+
       {t.divergente && (
         <div style={{ padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.1)', fontSize: '14px' }}>
           Faltou mercadoria na conferência. A diferença voltou para o estoque da filial {t.origemCodigo} · {t.origemNome}.
@@ -141,6 +239,7 @@ const TransferenciaDetalhe: React.FC = () => {
           <p style={{ marginTop: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
             <PackageCheck size={15} style={{ verticalAlign: '-3px', marginRight: '6px', color: 'var(--accent-purple)' }} />
             Confira a mercadoria: a coluna <strong>Chegou</strong> já vem com o enviado — corrija só o que veio a menos.
+            {recebimentoTravado && <> O recebimento libera quando a nota fiscal for <strong>autorizada</strong>.</>}
           </p>
         )}
         <div style={{ overflowX: 'auto' }}>
@@ -193,7 +292,7 @@ const TransferenciaDetalhe: React.FC = () => {
                 <button type="button" className="btn-secondary" disabled={salvando} onClick={() => { void desfazer('recusar'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#ef4444' }}>
                   <XCircle size={16} /> Recusar
                 </button>
-                <button type="button" className="btn-primary" disabled={salvando} onClick={() => { void receber(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <button type="button" className="btn-primary" disabled={salvando || recebimentoTravado} title={recebimentoTravado ? 'Aguarde a nota fiscal ser autorizada' : undefined} onClick={() => { void receber(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                   {salvando ? <Loader2 size={16} className="spin-icon" /> : <CheckCircle2 size={16} />} Confirmar recebimento
                 </button>
               </>

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { criarBancoFalso, carregarComBancoFalso } = require('./helpers/firestoreFalso');
 
 const HOJE = '2026-10-06';
-const carregar = (db) => carregarComBancoFalso(db, 'services/transferencias')[3];
+const carregar = (db) => carregarComBancoFalso(db, 'services/spedyAcesso', 'services/notaTransferencia', 'services/transferencias').pop();
 
 const grupo = {
   nome: 'SHOPPING RURAL', donoUid: 'dono', matrizTenantId: 'centro',
@@ -99,4 +99,131 @@ test('travas: sem nota desligada, funcionario sem nivel gerente, sem a permissao
   );
   await assert.rejects(() => s.enviarTransferencia({ user: DONO_NO_CENTRO, corpo: { destino: 'centro', itens: [{ produtoId: 'p1', quantidade: 1 }] }, hoje: HOJE }), /precisa ser outra/);
   await assert.rejects(() => s.enviarTransferencia({ user: DONO_NO_CENTRO, corpo: { destino: 'baixada', itens: [{ produtoId: 'p1', quantidade: 99 }] }, hoje: HOJE }), /Estoque insuficiente/);
+});
+
+// ---------------------------------------------------------------------------
+// Fase 4: transferencia com nota (Spedy simulada)
+// ---------------------------------------------------------------------------
+const path = require('node:path');
+
+const chamadasSpedy = [];
+let respostaPost = null;
+let respostaGet = null;
+const caminhoFetch = require.resolve(path.join(__dirname, '..', 'utils/fetchComTimeout'));
+const instalarSpedyFalsa = () => {
+  require.cache[caminhoFetch] = {
+    id: caminhoFetch, filename: caminhoFetch, loaded: true,
+    exports: {
+      PERFIS: { spedyEmissao: {}, spedyLeitura: {} },
+      fetchComTimeout: async (url, init) => {
+        chamadasSpedy.push({ url, metodo: init.method, corpo: init.body ? JSON.parse(init.body) : null });
+        const r = init.method === 'POST' ? respostaPost : respostaGet;
+        if (r instanceof Error) throw r;
+        return { ok: r.ok !== false, status: r.status || 200, json: async () => r.corpo };
+      },
+    },
+  };
+};
+
+const fiscal = { ncm: '23091000', csosn: '102', origem: '0', cfop: '5102', cstPis: '99', cstCofins: '99' };
+const comNota = (extra = {}) => base({
+  'configuracoes/centro': {
+    grupoId: 'g1', cnpj: '11222333000181', razaoSocial: 'SHOPPING RURAL CENTRO LTDA', uf: 'ES', regimeTributario: 'simples_nacional',
+    spedyEnabled: true, spedyEnvironment: 'sandbox',
+  },
+  'configuracoes_privadas/centro': { spedyApiKey: 'chave-teste' },
+  'configuracoes/baixada': {
+    grupoId: 'g1', cnpj: '11222333000262', razaoSocial: 'SHOPPING RURAL BAIXADA LTDA', inscricaoEstadual: '082123456', rua: 'RUA B',
+    numero: '10', bairro: 'CENTRO', cep: '29160000', nfseCidadeCodigo: '3205002', nfseCidadeNome: 'Serra', nfseCidadeEstado: 'ES', uf: 'ES',
+  },
+  'estoque/p1': { tenantId: 'centro', nome: 'RAÇÃO 15KG', codigo: '1001', grupoChave: 'p1', filialOrigem: 'centro', quantidade: 20, precoCusto: 120, unidadeMedidaSigla: 'SC', ...fiscal },
+  ...extra,
+});
+
+test('com nota: baixa, emite a NF-e 5152 pelo custo e o destino so recebe com a nota autorizada, lancando a entrada 1152', async () => {
+  instalarSpedyFalsa();
+  chamadasSpedy.length = 0;
+  respostaPost = { corpo: { id: 'sp1', status: 'enqueued' } };
+  respostaGet = { corpo: { id: 'sp1', status: 'enqueued' } };
+  const fake = criarBancoFalso(comNota(), { consultas: true });
+  const s = carregar(fake.db);
+  const r = await s.enviarTransferencia({ user: DONO_NO_CENTRO, corpo: { destino: 'baixada', comNota: true, itens: [{ produtoId: 'p1', quantidade: 2 }], idDocumento: 'tn1' }, hoje: HOJE });
+  assert.equal(r.nota.status, 'enqueued');
+  assert.equal(fake.ler('estoque/p1').quantidade, 18);
+  const t = fake.ler('transferencias/tn1');
+  assert.equal(t.comNota, true);
+  assert.equal(t.notaFiscal.status, 'enqueued');
+  assert.deepEqual(t.notaFiscal.cfopsEntrada, ['1152']);
+  const nota = fake.ler(`notas_fiscais/${t.notaFiscal.notaId}`);
+  assert.equal(nota.finalidade, 'transferencia');
+  assert.equal(nota.transferenciaId, 'tn1');
+  assert.equal('pedidoId' in nota, false);
+  assert.equal(nota.tenantId, 'centro');
+  const envio = chamadasSpedy.find((c) => c.metodo === 'POST').corpo;
+  assert.equal(envio.integrationId, 'transf-tn1');
+  assert.equal(envio.items[0].cfop, 5152);
+  assert.equal(envio.items[0].totalAmount, 240);
+  assert.equal(envio.receiver.federalTaxNumber, '11222333000262');
+
+  await assert.rejects(() => s.receberTransferencia({ user: DONO_NA_BAIXADA, id: 'tn1', corpo: {} }), /ainda não foi autorizada/);
+
+  respostaGet = { corpo: { id: 'sp1', status: 'authorized', number: 15, accessKey: '3'.repeat(44) } };
+  await assert.rejects(() => s.desfazerTransferencia({ user: DONO_NO_CENTRO, id: 'tn1', corpo: { motivo: 'desisti do envio' }, acao: 'cancelar' }), /nº 15 desta transferência já foi autorizada/);
+  const recebido = await s.receberTransferencia({ user: DONO_NA_BAIXADA, id: 'tn1', corpo: {} });
+  assert.equal(recebido.divergente, false);
+  assert.equal(fake.ler('estoque/p1_baixada').quantidade, 4);
+  const depois = fake.ler('transferencias/tn1');
+  assert.equal(depois.status, 'recebida');
+  assert.equal(depois.notaFiscal.status, 'authorized');
+  const entrada = fake.ler(`notas_fiscais_entrada/${depois.entradaNotaId}`);
+  assert.equal(entrada.tenantId, 'baixada');
+  assert.equal(entrada.numeroNF, '15');
+  assert.equal(entrada.chaveAcesso, '3'.repeat(44));
+  assert.equal(entrada.itens[0].cfop, '1152');
+  assert.equal(entrada.itens[0].itemId, 'p1_baixada');
+  assert.deepEqual(entrada.titulosPagarIds, []);
+  const fornecedor = fake.ler(`fornecedores/${entrada.fornecedorId}`);
+  assert.equal(fornecedor.cnpj, '11222333000181');
+  assert.equal(fornecedor.tenantId, 'baixada');
+});
+
+test('com nota: Spedy recusa -> a transferencia e cancelada e o estoque volta; cadastro incompleto nem mexe no estoque', async () => {
+  instalarSpedyFalsa();
+  respostaPost = { ok: false, status: 400, corpo: { errors: [{ message: 'Inscrição estadual do destinatário inválida.' }] } };
+  const fake = criarBancoFalso(comNota(), { consultas: true });
+  const s = carregar(fake.db);
+  await assert.rejects(
+    () => s.enviarTransferencia({ user: DONO_NO_CENTRO, corpo: { destino: 'baixada', comNota: true, itens: [{ produtoId: 'p1', quantidade: 2 }], idDocumento: 'tn2' }, hoje: HOJE }),
+    /não foi emitida: Inscrição estadual do destinatário inválida\..*foi cancelada e o estoque voltou/,
+  );
+  assert.equal(fake.ler('estoque/p1').quantidade, 20);
+  assert.equal(fake.ler('transferencias/tn2').status, 'cancelada');
+  assert.equal(fake.ler('transferencias/tn2').notaFiscal.status, 'nao_emitida');
+
+  const semIe = criarBancoFalso(comNota({ 'configuracoes/baixada': { grupoId: 'g1', cnpj: '11222333000262', razaoSocial: 'X', uf: 'ES' } }), { consultas: true });
+  const s2 = carregar(semIe.db);
+  await assert.rejects(
+    () => s2.enviarTransferencia({ user: DONO_NO_CENTRO, corpo: { destino: 'baixada', comNota: true, itens: [{ produtoId: 'p1', quantidade: 2 }], idDocumento: 'tn3' }, hoje: HOJE }),
+    /A nota fiscal não pode sair: .*inscrição estadual/,
+  );
+  assert.equal(semIe.ler('estoque/p1').quantidade, 20);
+  assert.equal(semIe.ler('transferencias/tn3'), undefined);
+});
+
+test('com nota: rejeitada pela SEFAZ, a origem emite de novo com outra tentativa', async () => {
+  instalarSpedyFalsa();
+  respostaPost = { corpo: { id: 'sp1', status: 'enqueued' } };
+  respostaGet = { corpo: { id: 'sp1', status: 'enqueued' } };
+  const fake = criarBancoFalso(comNota(), { consultas: true });
+  const s = carregar(fake.db);
+  await s.enviarTransferencia({ user: DONO_NO_CENTRO, corpo: { destino: 'baixada', comNota: true, itens: [{ produtoId: 'p1', quantidade: 1 }], idDocumento: 'tn4' }, hoje: HOJE });
+  await assert.rejects(() => s.reemitirNota({ user: DONO_NO_CENTRO, id: 'tn4' }), /na fila da SEFAZ: não precisa emitir de novo/);
+  respostaGet = { corpo: { id: 'sp1', status: 'rejected', processingDetail: { message: 'Rejeição 999' } } };
+  respostaPost = { corpo: { id: 'sp2', status: 'enqueued' } };
+  chamadasSpedy.length = 0;
+  const r = await s.reemitirNota({ user: DONO_NO_CENTRO, id: 'tn4' });
+  assert.equal(r.nota.tentativa, 2);
+  assert.equal(r.nota.spedyId, 'sp2');
+  assert.equal(chamadasSpedy.find((c) => c.metodo === 'POST').corpo.integrationId, 'transf-tn4-t2');
+  await assert.rejects(() => s.reemitirNota({ user: DONO_NA_BAIXADA, id: 'tn4' }), /Só a filial que enviou/);
 });

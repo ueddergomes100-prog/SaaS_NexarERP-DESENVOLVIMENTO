@@ -6,17 +6,20 @@
  * aqui, numa transacao (as firestore.rules deixam a colecao so' para
  * leitura). Os lotes sao lidos FORA da transacao (consulta) e relidos DENTRO
  * dela por id, como na Troca: o saldo usado e' sempre o da hora de gravar.
+ *
+ * Fase 4 (2026-10-06): transferencia COM NOTA. A nota sai da filial que envia
+ * (services/notaTransferencia.js) logo depois da baixa; se a Spedy recusa, a
+ * transferencia e' cancelada sozinha e o estoque volta. O destino so' recebe
+ * com a nota autorizada, e o recebimento lanca a nota de entrada (CFOP
+ * 1152/2152) no historico de entradas do destino.
  */
 const { db, admin } = require('../config/firebase');
 const filial = require('../domain/filialDomain');
 const regras = require('../domain/transferenciaDomain');
-
-class ErroTransferencia extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
+const notaRegras = require('../domain/notaTransferenciaDomain');
+const { getDateInputInTimeZone } = require('../domain/dateTime');
+const notaSrv = require('./notaTransferencia');
+const { ErroTransferencia } = require('./erroTransferencia');
 
 const agora = () => admin.firestore.FieldValue.serverTimestamp();
 const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
@@ -136,12 +139,13 @@ const enviarTransferencia = async ({ user, corpo, hoje }) => {
   if (!destino.ativa) throw new ErroTransferencia(400, `A filial ${filial.rotuloFilial(destino)} está inativa.`);
 
   const comNota = corpo?.comNota === true;
-  if (comNota) throw new ErroTransferencia(400, 'A transferência com nota fiscal é emitida pela tela de Transferências com nota (fase 4).');
-  const configOrigem = await db.collection('configuracoes').doc(filialAtiva.tenantId).get();
-  if (!regras.parseTransferenciaSemNota(configOrigem.exists ? configOrigem.data().transferenciaSemNota : undefined)) {
-    throw new ErroTransferencia(400, 'A transferência sem nota está desligada nesta filial. Ligue em Configurações ("Permitir transferência sem nota") ou use a transferência com nota.');
+  if (!comNota) {
+    const configOrigem = await db.collection('configuracoes').doc(filialAtiva.tenantId).get();
+    if (!regras.parseTransferenciaSemNota(configOrigem.exists ? configOrigem.data().transferenciaSemNota : undefined)) {
+      throw new ErroTransferencia(400, 'A transferência sem nota está desligada nesta filial. Ligue em Configurações ("Permitir transferência sem nota") ou use a transferência com nota.');
+    }
+    if (!regras.podeTransferirSemNota(usuario)) throw new ErroTransferencia(403, 'Só o dono ou um gerente faz transferência sem nota.');
   }
-  if (!regras.podeTransferirSemNota(usuario)) throw new ErroTransferencia(403, 'Só o dono ou um gerente faz transferência sem nota.');
 
   const pedidos = (Array.isArray(corpo?.itens) ? corpo.itens : [])
     .map((i) => ({ produtoId: String(i?.produtoId || ''), quantidade: Number(i?.quantidade) }))
@@ -157,7 +161,30 @@ const enviarTransferencia = async ({ user, corpo, hoje }) => {
   const idsLotes = await lotesDosProdutos(filialAtiva.tenantId, comLote);
   const nome = nomeDoUsuario(usuario, user);
 
-  return db.runTransaction(async (tx) => {
+  // Com nota: confere ANTES de mexer no estoque se a nota pode sair (cadastro
+  // fiscal dos produtos, das duas filiais e a Spedy da origem).
+  let tributacao = null;
+  if (comNota) {
+    const rotuloOrigem = filial.rotuloFilial(filialAtiva);
+    const rotuloDestino = filial.rotuloFilial(destino);
+    const porId = Object.fromEntries(previa.filter((s) => s.exists && s.data().tenantId === filialAtiva.tenantId).map((s) => [s.id, s.data()]));
+    const itensPrevia = pedidos.filter((p) => porId[p.produtoId]).map((p) => ({
+      produtoIdOrigem: p.produtoId,
+      codigo: String(porId[p.produtoId].codigo || ''),
+      nome: String(porId[p.produtoId].nome || ''),
+      unidade: String(porId[p.produtoId].unidadeMedidaSigla || ''),
+      quantidade: Number(p.quantidade) || 0,
+      custoUnitario: r4(Number(porId[p.produtoId].precoCusto) || 0),
+    }));
+    const { preparo, tributacao: t } = await notaSrv.prepararNota({
+      tenantOrigem: filialAtiva.tenantId, tenantDestino: destino.tenantId, rotuloOrigem, rotuloDestino, itens: itensPrevia,
+    });
+    if (!preparo.ok) throw new ErroTransferencia(422, `A nota fiscal não pode sair: ${preparo.erros.join(' ')}`);
+    await notaSrv.spedyDaOrigem(filialAtiva.tenantId, rotuloOrigem);
+    tributacao = t;
+  }
+
+  const resultado = await db.runTransaction(async (tx) => {
     const existente = await tx.get(ref);
     if (existente.exists) {
       if (existente.data().tenantOrigem !== filialAtiva.tenantId) throw new ErroTransferencia(409, 'Este envio já foi registrado por outra filial. Atualize a tela.');
@@ -193,7 +220,8 @@ const enviarTransferencia = async ({ user, corpo, hoje }) => {
       destinoNome: destino.nome,
       numeroTransferencia,
       status: 'em_transito',
-      comNota: false,
+      comNota,
+      ...(comNota ? { notaFiscal: { status: 'reservada', tentativa: 1, reservadoEmMs: Date.now(), tributacao } } : {}),
       itens: plano.itens,
       valorCentavos: plano.valorCentavos,
       observacao: String(corpo?.observacao || '').trim().slice(0, 500),
@@ -204,6 +232,20 @@ const enviarTransferencia = async ({ user, corpo, hoje }) => {
     });
     return { id: ref.id, numeroTransferencia, jaEnviada: false };
   });
+
+  if (!comNota || resultado.jaEnviada) return resultado;
+  const envio = await notaSrv.enviarNota({ id: resultado.id, user, nomeUsuario: nome });
+  if (envio.ok) return { ...resultado, nota: envio.nota, avisos: envio.avisos };
+  if (envio.motivo === 'falha_envio') {
+    // A nota pode ter sido criada: a transferencia fica em transito e a
+    // pessoa confirma pela tela ("Emitir a nota de novo" nao duplica).
+    return { ...resultado, nota: { status: 'falha_envio', mensagem: envio.mensagem } };
+  }
+  // A Spedy recusou (nada foi criado): desfaz o envio, o estoque volta.
+  await desfazer({
+    user, nome, id: resultado.id, acao: 'cancelar', motivo: `Nota fiscal não emitida: ${envio.mensagem}`.slice(0, 300), conferirNota: false,
+  });
+  throw new ErroTransferencia(422, `A nota fiscal não foi emitida: ${envio.mensagem} A transferência nº ${resultado.numeroTransferencia} foi cancelada e o estoque voltou para esta filial. Corrija e envie de novo.`);
 };
 
 const lerTransferencia = async (tx, id) => {
@@ -228,11 +270,29 @@ const receberTransferencia = async ({ user, id, corpo }) => {
   const idsDestino = [...new Set((previa.data().itens || []).map((i) => i.produtoIdDestino))];
   const idsLotesDestino = await lotesDosProdutos(previa.data().tenantDestino, idsDestino);
 
+  // Com nota: so' recebe com a nota autorizada (consulta a Spedy se ainda
+  // estiver na fila) e lanca a nota de entrada, com a origem como fornecedor.
+  let entrada = null;
+  if (previa.data().comNota === true && previa.data().tenantDestino === user.tenantId) {
+    const situacao = await notaSrv.atualizarSituacaoDaNota({ id: previa.id, ...previa.data() });
+    const bloqueio = notaRegras.bloqueioDoRecebimentoComNota(notaRegras.statusEfetivoDaNota(situacao, Date.now()), previa.data().numeroTransferencia);
+    if (bloqueio) throw new ErroTransferencia(409, bloqueio);
+    entrada = await prepararEntradaComNota({ id: previa.id, ...previa.data() }, user);
+  }
+
   return db.runTransaction(async (tx) => {
     const { ref, transferencia } = await lerTransferencia(tx, id);
     if (transferencia.tenantDestino !== user.tenantId) throw new ErroTransferencia(403, 'Só a filial de destino recebe a transferência. Entre nela pelo seletor do topo.');
     const erroStatus = regras.proximoStatusPermitido(transferencia.status, 'recebida');
     if (erroStatus) throw new ErroTransferencia(409, erroStatus);
+    let notaLocal = null;
+    if (transferencia.comNota === true) {
+      const notaId = transferencia.notaFiscal?.notaId;
+      const notaSnap = notaId ? await tx.get(db.collection('notas_fiscais').doc(notaId)) : null;
+      notaLocal = notaSnap && notaSnap.exists ? notaSnap.data() : null;
+      const bloqueio = notaRegras.bloqueioDoRecebimentoComNota(notaLocal?.status, transferencia.numeroTransferencia);
+      if (bloqueio) throw new ErroTransferencia(409, bloqueio);
+    }
 
     const produtosDestino = await lerProdutos(tx, transferencia.itens.map((i) => i.produtoIdDestino));
     const lotesDestino = await lerLotes(tx, idsLotesDestino, transferencia.tenantDestino);
@@ -251,7 +311,14 @@ const receberTransferencia = async ({ user, id, corpo }) => {
       origemTransferencia: transferencia.numeroTransferencia, createdAt: agora(), updatedAt: agora(),
     }));
     gravarRetorno(tx, transferencia, plano.retornos, preparado, user, nome, `Faltou na conferência da transferência nº ${transferencia.numeroTransferencia}`);
+    let entradaNotaId = null;
+    if (notaLocal && entrada && !entrada.jaLancada) {
+      const entradaRef = db.collection('notas_fiscais_entrada').doc();
+      entradaNotaId = entradaRef.id;
+      tx.set(entradaRef, registroDeEntrada({ transferencia, notaLocal, entrada, user, divergente: plano.divergente }));
+    }
     tx.update(ref, {
+      ...(entradaNotaId ? { entradaNotaId } : {}),
       status: 'recebida',
       itens: plano.itensFinais,
       divergente: plano.divergente,
@@ -270,14 +337,30 @@ const desfazerTransferencia = async ({ user, id, corpo, acao }) => {
   const nome = nomeDoUsuario(usuario, user);
   const motivo = String(corpo?.motivo || '').trim();
   if (motivo.length < 5) throw new ErroTransferencia(400, 'Escreva o motivo (pelo menos 5 letras).');
-  const status = acao === 'recusar' ? 'recusada' : 'cancelada';
+  // Com nota ainda na fila, atualiza a situacao antes de decidir.
+  const previa = await db.collection('transferencias').doc(String(id || '')).get();
+  if (previa.exists && previa.data().comNota === true) {
+    await notaSrv.atualizarSituacaoDaNota({ id: previa.id, ...previa.data() }).catch(() => null);
+  }
+  return desfazer({ user, nome, id, acao, motivo, conferirNota: true });
+};
 
+/** Desfaz dentro de uma transacao. conferirNota=false so' no cancelamento automatico (a Spedy recusou a nota). */
+const desfazer = async ({ user, nome, id, acao, motivo, conferirNota }) => {
+  const status = acao === 'recusar' ? 'recusada' : 'cancelada';
   return db.runTransaction(async (tx) => {
     const { ref, transferencia } = await lerTransferencia(tx, id);
     if (acao === 'recusar' && transferencia.tenantDestino !== user.tenantId) throw new ErroTransferencia(403, 'Só a filial de destino recusa a transferência.');
     if (acao === 'cancelar' && transferencia.tenantOrigem !== user.tenantId) throw new ErroTransferencia(403, 'Só a filial que enviou cancela a transferência.');
     const erroStatus = regras.proximoStatusPermitido(transferencia.status, status);
     if (erroStatus) throw new ErroTransferencia(409, erroStatus);
+    if (conferirNota && transferencia.comNota === true) {
+      const notaId = transferencia.notaFiscal?.notaId;
+      const notaSnap = notaId ? await tx.get(db.collection('notas_fiscais').doc(notaId)) : null;
+      const situacao = notaSnap && notaSnap.exists ? { status: notaSnap.data().status } : transferencia.notaFiscal;
+      const bloqueio = notaRegras.bloqueioDoDesfazerComNota(notaRegras.statusEfetivoDaNota(situacao, Date.now()), acao, notaSnap?.exists ? notaSnap.data().number : null);
+      if (bloqueio) throw new ErroTransferencia(409, bloqueio);
+    }
     const retornos = regras.retornoCompleto(transferencia.itens);
     const preparado = await prepararRetorno(tx, transferencia, retornos);
     gravarRetorno(tx, transferencia, retornos, preparado, user, nome, `Transferência nº ${transferencia.numeroTransferencia} ${status}: ${motivo}`);
@@ -293,4 +376,123 @@ const desfazerTransferencia = async ({ user, id, corpo, acao }) => {
   });
 };
 
-module.exports = { ErroTransferencia, enviarTransferencia, receberTransferencia, desfazerTransferencia };
+// ---------------------------------------------------------------------------
+// Fase 4: nota de transferencia (reemissao, situacao e nota de entrada)
+// ---------------------------------------------------------------------------
+
+const somenteDigitos = (v) => String(v ?? '').replace(/\D/g, '');
+
+/**
+ * Fornecedor = a filial que enviou, no cadastro do destino (procura pelo CNPJ;
+ * sem ele, cadastra). Fora da transacao: e' so' um cadastro.
+ */
+const prepararEntradaComNota = async (transferencia, user) => {
+  const configOrigem = await db.collection('configuracoes').doc(transferencia.tenantOrigem).get();
+  const dadosOrigem = configOrigem.exists ? configOrigem.data() : {};
+  const cnpj = somenteDigitos(dadosOrigem.cnpj);
+  const nome = String(dadosOrigem.razaoSocial || dadosOrigem.nomeOficina || `FILIAL ${transferencia.origemCodigo} · ${transferencia.origemNome}`).trim().toUpperCase();
+  const existentes = await db.collection('fornecedores').where('tenantId', '==', transferencia.tenantDestino).where('cnpj', '==', cnpj).get();
+  let fornecedorId = existentes.empty ? '' : existentes.docs[0].id;
+  if (!fornecedorId) {
+    const novo = db.collection('fornecedores').doc();
+    await novo.set({
+      nome,
+      cnpj,
+      tenantId: transferencia.tenantDestino,
+      observacao: `Filial ${transferencia.origemCodigo} do grupo (cadastrado sozinho pela transferência com nota).`,
+      createdAt: agora(),
+      criadoPor: user.uid,
+      criadoEm: agora(),
+    });
+    fornecedorId = novo.id;
+  }
+  // Mesma chave ja' lancada (ex.: importaram o XML na Entrada de NF-e): nao lanca de novo.
+  const chave = String(transferencia.notaFiscal?.accessKey || '');
+  let jaLancada = false;
+  if (chave) {
+    const mesmas = await db.collection('notas_fiscais_entrada').where('tenantId', '==', transferencia.tenantDestino).where('chaveAcesso', '==', chave).get();
+    jaLancada = mesmas.docs.some((d) => (d.data().status || 'ativa') !== 'excluida');
+  }
+  return { fornecedorId, fornecedorNome: nome, fornecedorCnpj: cnpj, jaLancada };
+};
+
+const registroDeEntrada = ({ transferencia, notaLocal, entrada, user, divergente }) => {
+  const itensNota = Array.isArray(notaLocal.itensFiscais) ? notaLocal.itensFiscais : [];
+  const emissao = notaLocal.data ? getDateInputInTimeZone(new Date(notaLocal.data)) : getDateInputInTimeZone();
+  return {
+    numeroNF: String(notaLocal.number ?? ''),
+    modelo: '55',
+    chaveAcesso: String(notaLocal.accessKey || ''),
+    dataEmissao: emissao,
+    dataEntrada: getDateInputInTimeZone(),
+    valorTotal: Number(notaLocal.valor) || 0,
+    fornecedorId: entrada.fornecedorId,
+    fornecedorNome: entrada.fornecedorNome,
+    fornecedorCnpj: entrada.fornecedorCnpj,
+    naturezaOperacao: 'Transferência de mercadoria',
+    itens: (transferencia.itens || []).map((item, indice) => ({
+      itemId: item.produtoIdDestino,
+      tipo: 'revenda',
+      codigoXml: String(item.codigo || ''),
+      descricaoXml: String(item.nome || ''),
+      quantidade: Number(item.quantidade) || 0,
+      valorUnitario: Number(item.custoUnitario) || 0,
+      novo: false,
+      cfop: notaRegras.cfopDeEntradaDaTransferencia(String(itensNota[indice]?.cfop || '')),
+    })),
+    titulosPagarIds: [],
+    observacao: `Entrada automática da transferência nº ${transferencia.numeroTransferencia} (filial ${transferencia.origemCodigo} · ${transferencia.origemNome}). O estoque entrou pelo recebimento da transferência.${divergente ? ' Conferência com falta: a diferença voltou para a origem só no controle de estoque; confira com o contador.' : ''}`,
+    status: 'ativa',
+    transferenciaId: transferencia.id,
+    tenantId: transferencia.tenantDestino,
+    createdAt: agora(),
+    criadoPor: user.uid,
+    criadoEm: agora(),
+    alteradoPor: user.uid,
+    alteradoEm: agora(),
+  };
+};
+
+/** Origem emite a nota de novo (a anterior nao vale: rejeitada, nao emitida, sem confirmacao...). */
+const reemitirNota = async ({ user, id }) => {
+  const { usuario } = await contexto(user);
+  const nome = nomeDoUsuario(usuario, user);
+  const previa = await db.collection('transferencias').doc(String(id || '')).get();
+  if (previa.exists && previa.data().comNota === true) {
+    await notaSrv.atualizarSituacaoDaNota({ id: previa.id, ...previa.data() }).catch(() => null);
+  }
+  const reserva = await db.runTransaction(async (tx) => {
+    const { ref, transferencia } = await lerTransferencia(tx, id);
+    if (transferencia.tenantOrigem !== user.tenantId) throw new ErroTransferencia(403, 'Só a filial que enviou emite a nota da transferência.');
+    if (transferencia.comNota !== true) throw new ErroTransferencia(400, 'Esta transferência é sem nota.');
+    if (transferencia.status !== 'em_transito') throw new ErroTransferencia(409, `Esta transferência já está ${String(regras.ROTULO_STATUS_TRANSFERENCIA[transferencia.status] || transferencia.status).toLowerCase()}.`);
+    const atual = transferencia.notaFiscal || {};
+    const efetivo = notaRegras.statusEfetivoDaNota(atual, Date.now());
+    if (atual.status && !notaRegras.STATUS_NOTA_SEM_VALOR.includes(efetivo)) {
+      throw new ErroTransferencia(409, `A nota desta transferência está ${notaRegras.rotuloStatusNota(efetivo)}: não precisa emitir de novo.`);
+    }
+    // Sem resposta da Spedy: repete o MESMO integrationId (a Spedy nao duplica).
+    const tentativa = efetivo === 'falha_envio' ? (Number(atual.tentativa) || 1) : (Number(atual.tentativa) || 0) + 1;
+    tx.update(ref, { notaFiscal: { ...atual, status: 'reservada', tentativa, reservadoEmMs: Date.now() } });
+    return { numeroTransferencia: transferencia.numeroTransferencia, tenantOrigem: transferencia.tenantOrigem, tenantDestino: transferencia.tenantDestino };
+  });
+  const envio = await notaSrv.enviarNota({ id: String(id), user, nomeUsuario: nome });
+  if (envio.ok) return { ok: true, nota: envio.nota, avisos: envio.avisos, ...reserva };
+  if (envio.motivo === 'falha_envio') {
+    throw new ErroTransferencia(504, `A Spedy não respondeu (${envio.mensagem}). Tente "Emitir a nota de novo" em instantes: o sistema não duplica a nota.`);
+  }
+  throw new ErroTransferencia(422, `A nota fiscal não foi emitida: ${envio.mensagem}`);
+};
+
+/** Qualquer das duas filiais: consulta a Spedy e devolve a situacao da nota. */
+const consultarNota = async ({ user, id }) => {
+  await contexto(user);
+  const snap = await db.collection('transferencias').doc(String(id || '')).get();
+  if (!snap.exists) throw new ErroTransferencia(404, 'Transferência não encontrada.');
+  const t = { id: snap.id, ...snap.data() };
+  if (![t.tenantOrigem, t.tenantDestino].includes(user.tenantId)) throw new ErroTransferencia(403, 'Esta transferência não é da filial em que você está.');
+  if (t.comNota !== true) return { nota: null };
+  return { nota: await notaSrv.atualizarSituacaoDaNota(t) };
+};
+
+module.exports = { ErroTransferencia, enviarTransferencia, receberTransferencia, desfazerTransferencia, reemitirNota, consultarNota };

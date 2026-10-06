@@ -392,11 +392,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUserNome(typeof data.nome === 'string' && data.nome ? data.nome : (typeof data.nomeResponsavel === 'string' ? data.nomeResponsavel : ''));
             let finalBlockedModules: string[] = [];
 
-            if (user.uid === finalTenant) {
+            // Modulos do plano: do dono da empresa CASA (na filial, o grupo
+            // sobrepoe -- ver o efeito do grupo). Ler usuarios/{filial} dava
+            // permissao negada: a filial nao tem usuario proprio.
+            if (user.uid === homeTenant) {
               finalBlockedModules = toStringArray(data.modulosBloqueados);
             } else {
               try {
-                const ownerDoc = await getDoc(doc(db, 'usuarios', finalTenant));
+                const ownerDoc = await getDoc(doc(db, 'usuarios', homeTenant));
                 if (ownerDoc.exists()) {
                   finalBlockedModules = toStringArray(ownerDoc.data().modulosBloqueados);
                 }

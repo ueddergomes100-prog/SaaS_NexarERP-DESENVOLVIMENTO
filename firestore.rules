@@ -454,6 +454,12 @@ service cloud.firestore {
         'ativo', 'statusAtivo', 'grupoChave', 'filialOrigem', 'cadastroHash'];
     }
 
+    // Filiais F4: a nota de entrada lancada pela transferencia (servidor) nao
+    // e' excluida/alterada pela tela -- o estoque entrou pela transferencia.
+    function entradaDeTransferenciaIntacta(collectionName) {
+      return collectionName != 'notas_fiscais_entrada' || resource.data.get('transferenciaId', '') == '';
+    }
+
     function cadastroDoGrupoRespeitado(collectionName) {
       return !(collectionName in ['clientes', 'estoque']) ||
         resource.data.get('filialOrigem', currentTenantId()) == currentTenantId() ||
@@ -941,7 +947,7 @@ service cloud.firestore {
         'entregas',
         'caixas_pdv',
         'notas_avulsas'
-      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && (
+      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && entradaDeTransferenciaIntacta(collectionName) && (
         // Os movimentos de SALDO vem PRIMEIRO de proposito (2026-09-29): sao
         // as escritas mais comuns (toda venda mexe em estoque e banco) e as
         // mais baratas de conferir. O Firestore para de avaliar a regra depois

@@ -2,7 +2,7 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
-const { ErroTransferencia, enviarTransferencia, receberTransferencia, desfazerTransferencia } = require('../services/transferencias');
+const { ErroTransferencia, enviarTransferencia, receberTransferencia, desfazerTransferencia, reemitirNota, consultarNota } = require('../services/transferencias');
 
 /**
  * TRANSFERENCIAS ENTRE FILIAIS (fase 3) -- ver services/transferencias.js.
@@ -10,6 +10,8 @@ const { ErroTransferencia, enviarTransferencia, receberTransferencia, desfazerTr
  *   POST /api/transferencias/:id/receber   receber no destino, com conferencia
  *   POST /api/transferencias/:id/recusar   destino recusa: tudo volta
  *   POST /api/transferencias/:id/cancelar  origem cancela: tudo volta
+ *   POST /api/transferencias/:id/nota      origem emite a nota de novo (fase 4)
+ *   GET  /api/transferencias/:id/nota      situacao da nota (consulta a Spedy)
  */
 const router = express.Router();
 router.use(authenticate);
@@ -60,5 +62,23 @@ for (const acao of ['recusar', 'cancelar']) {
     }
   });
 }
+
+router.post('/:id/nota', async (req, res) => {
+  try {
+    const r = await reemitirNota({ user: req.user, id: req.params.id });
+    logNasDuas(req.user, { ...r, id: req.params.id }, `Emitiu de novo a nota da transferência nº ${r.numeroTransferencia}`);
+    return res.json({ ok: true, nota: r.nota, avisos: r.avisos || [] });
+  } catch (erro) {
+    return responderErro(res, erro, 'emitir a nota da transferência');
+  }
+});
+
+router.get('/:id/nota', async (req, res) => {
+  try {
+    return res.json(await consultarNota({ user: req.user, id: req.params.id }));
+  } catch (erro) {
+    return responderErro(res, erro, 'consultar a nota da transferência');
+  }
+});
 
 module.exports = router;

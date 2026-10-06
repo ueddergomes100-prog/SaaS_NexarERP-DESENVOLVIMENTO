@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import { ROTULO_STATUS_TRANSFERENCIA } from '../../utils/transferenciaDomain';
+import { rotuloStatusNota } from '../../utils/notaTransferenciaDomain';
 import { ESTILO_STATUS_TRANSFERENCIA, dataHora, moeda, type TransferenciaDoc } from './transferenciaTipos';
 
 type Aba = 'receber' | 'transito' | 'concluidas' | 'todas';
@@ -113,14 +114,15 @@ const TransferenciasList: React.FC = () => {
                 <th style={{ padding: '12px 14px', textAlign: 'right' }}>Itens</th>
                 <th style={{ padding: '12px 14px', textAlign: 'right' }}>Valor (custo)</th>
                 <th style={{ padding: '12px 14px' }}>Situação</th>
+                <th style={{ padding: '12px 14px' }}>Nota</th>
                 <th style={{ padding: '12px 14px', textAlign: 'center' }}>Ação</th>
               </tr>
             </thead>
             <tbody>
               {carregando ? (
-                <tr><td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando...</td></tr>
+                <tr><td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando...</td></tr>
               ) : filtradas.length === 0 ? (
-                <tr><td colSpan={7} style={{ padding: '8px' }}><EstadoVazio titulo="Nenhuma transferência nesta lista." compacto /></td></tr>
+                <tr><td colSpan={8} style={{ padding: '8px' }}><EstadoVazio titulo="Nenhuma transferência nesta lista." compacto /></td></tr>
               ) : filtradas.map((t) => {
                 const estilo = ESTILO_STATUS_TRANSFERENCIA[t.status];
                 return (
@@ -140,6 +142,11 @@ const TransferenciasList: React.FC = () => {
                       <span style={{ padding: '3px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: 600, background: estilo.fundo, color: estilo.cor }}>
                         {ROTULO_STATUS_TRANSFERENCIA[t.status]}{t.divergente ? ' (com falta)' : ''}
                       </span>
+                    </td>
+                    <td style={{ padding: '12px 14px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      {t.comNota
+                        ? `NF-e${t.notaFiscal?.number ? ` nº ${t.notaFiscal.number}` : ''} · ${rotuloStatusNota(t.notaFiscal?.status)}`
+                        : 'Sem nota'}
                     </td>
                     <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                       <button type="button" className="btn-secondary" aria-label={`Abrir a transferência ${t.numeroTransferencia}`} onClick={(e) => { e.stopPropagation(); abrir(t); }} style={{ padding: '6px 10px', display: 'inline-flex' }}>

@@ -1,4 +1,5 @@
 import type { ItemDaTransferencia, StatusTransferencia } from '../../utils/transferenciaDomain';
+import type { NotaDaTransferencia } from '../../services/transferenciaService';
 
 export interface TransferenciaDoc {
   id: string;
@@ -20,6 +21,10 @@ export interface TransferenciaDoc {
   enviadoEm?: { toDate?: () => Date } | null;
   recebidoPorNome?: string;
   historico?: Array<{ acao: string; em: string; por: string; motivo?: string }>;
+  /** Fase 4: espelho da NF-e de transferencia. */
+  notaFiscal?: NotaDaTransferencia;
+  /** Nota de entrada lancada no destino ao receber (notas_fiscais_entrada). */
+  entradaNotaId?: string;
 }
 
 export const ESTILO_STATUS_TRANSFERENCIA: Record<StatusTransferencia, { fundo: string; cor: string }> = {

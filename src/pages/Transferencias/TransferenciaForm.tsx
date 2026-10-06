@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ArrowLeftRight, Loader2, Send, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, FileText, Loader2, PackageOpen, Send, Trash2 } from 'lucide-react';
 import { collection, doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
-import { NexusSwal, escaparHtml, showError, showSuccess } from '../../utils/alerts';
+import { NexusSwal, escaparHtml, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { parseTransferenciaSemNota, podeTransferirSemNota } from '../../utils/transferenciaDomain';
 import { rotuloFilial } from '../../utils/filialDomain';
 import { enviarTransferencia } from '../../services/transferenciaService';
@@ -45,11 +45,28 @@ const useSemNotaDaFilial = (tenantId: string | null) => {
 };
 
 const disponivel = (p: ProdutoTransferivel) => (Number(p.quantidade) || 0) - Math.max(0, Number(p.quantidadeReservada) || 0);
+const soDigitos = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+
+const estiloOpcao = (marcada: boolean, desligada: boolean): React.CSSProperties => ({
+  display: 'flex',
+  gap: '10px',
+  alignItems: 'flex-start',
+  padding: '12px 14px',
+  borderRadius: 'var(--radius-md)',
+  border: `1px solid ${marcada ? 'var(--accent-purple)' : 'var(--border-color)'}`,
+  background: marcada ? 'rgba(139, 92, 246, 0.08)' : 'var(--bg-tertiary)',
+  cursor: desligada ? 'not-allowed' : 'pointer',
+  opacity: desligada ? 0.55 : 1,
+  flex: '1 1 260px',
+});
 
 /**
  * NOVA TRANSFERENCIA (Filiais, fase 3). Origem = a filial em que a pessoa esta.
  * Escolhe o destino e os itens; o servidor baixa o estoque (e os lotes, pelo
  * vence-primeiro) e a mercadoria fica em transito ate' o destino receber.
+ * Fase 4: COM NOTA (padrao) emite a NF-e de transferencia logo depois da
+ * baixa; SEM NOTA so' dono/gerente, com a opcao ligada na filial. Entre
+ * filiais do mesmo CNPJ so' existe sem nota.
  */
 const TransferenciaForm: React.FC = () => {
   const { tenantId, filialAtual, filiaisDoUsuario, userRole, nivelAcesso } = useAuth();
@@ -63,6 +80,7 @@ const TransferenciaForm: React.FC = () => {
   // Id fixo do envio: repetir depois de uma queda de internet nao baixa duas vezes.
   const [idDocumento] = useState(() => doc(collection(db, 'transferencias')).id);
   const { semNotaLigada } = useSemNotaDaFilial(tenantId);
+  const [modo, setModo] = useState<'com' | 'sem'>('com');
 
   const destinos = filiaisDoUsuario.filter((f) => f.tenantId !== tenantId);
   const podeSemNota = podeTransferirSemNota({ role: userRole, nivelAcesso });
@@ -72,6 +90,11 @@ const TransferenciaForm: React.FC = () => {
     setBusca('');
     setLinhas((atual) => (atual.some((l) => l.produto.id === produto.id) ? atual : [...atual, { produto, quantidade: '1' }]));
   };
+
+  const destinoEscolhido = destinos.find((f) => f.tenantId === destino);
+  // Mesmo CNPJ: nota nao sai de um CNPJ para ele mesmo (o servidor confere de novo).
+  const mesmoCnpj = Boolean(destinoEscolhido && filialAtual && soDigitos(destinoEscolhido.cnpj) && soDigitos(destinoEscolhido.cnpj) === soDigitos(filialAtual.cnpj));
+  const modoEfetivo: 'com' | 'sem' = mesmoCnpj ? 'sem' : modo;
 
   const enviar = async () => {
     const destinoFilial = destinos.find((f) => f.tenantId === destino);
@@ -83,7 +106,9 @@ const TransferenciaForm: React.FC = () => {
 
     const resposta = await NexusSwal.fire({
       title: `Enviar para ${rotuloFilial(destinoFilial)}?`,
-      html: `${itens.length} produto(s) saem do estoque desta filial agora e ficam <strong>em trânsito</strong> até a filial <strong>${escaparHtml(destinoFilial.nome)}</strong> conferir e receber.<br/><br/>Transferência <strong>sem nota fiscal</strong>.`,
+      html: `${itens.length} produto(s) saem do estoque desta filial agora e ficam <strong>em trânsito</strong> até a filial <strong>${escaparHtml(destinoFilial.nome)}</strong> conferir e receber.<br/><br/>${modoEfetivo === 'com'
+        ? 'A <strong>nota fiscal de transferência</strong> (NF-e, pelo custo) sai agora pela Spedy. O destino só recebe depois da nota autorizada.'
+        : 'Transferência <strong>sem nota fiscal</strong>: só controle de estoque.'}`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonText: 'Enviar transferência',
@@ -92,8 +117,15 @@ const TransferenciaForm: React.FC = () => {
     if (!resposta.isConfirmed) return;
     setEnviando(true);
     try {
-      const r = await enviarTransferencia({ destino, itens, observacao, comNota: false, idDocumento });
-      showSuccess(`Transferência nº ${r.numeroTransferencia} enviada.`);
+      const r = await enviarTransferencia({ destino, itens, observacao, comNota: modoEfetivo === 'com', idDocumento });
+      if (r.nota?.status === 'falha_envio') {
+        showWarning(`Transferência nº ${r.numeroTransferencia} enviada sem confirmação da nota`, 'A Spedy não respondeu. Abra a transferência e use "Emitir a nota de novo": o sistema não duplica a nota.');
+      } else if (r.nota) {
+        showSuccess(`Transferência nº ${r.numeroTransferencia} enviada. Nota fiscal na fila da SEFAZ.`);
+        if (r.avisos && r.avisos.length > 0) showWarning('Confira o cadastro', r.avisos.join(' '));
+      } else {
+        showSuccess(`Transferência nº ${r.numeroTransferencia} enviada.`);
+      }
       openTab(`/estoque/transferencias/${r.id}`, `Transferência #${r.numeroTransferencia}`);
     } catch (erro) {
       showError('Não foi possível enviar a transferência', erro instanceof Error ? erro.message : undefined);
@@ -122,12 +154,6 @@ const TransferenciaForm: React.FC = () => {
         </div>
       </div>
 
-      {bloqueioSemNota && (
-        <div style={{ padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.1)', fontSize: '14px' }}>
-          {bloqueioSemNota} A transferência com nota fiscal chega na próxima etapa.
-        </div>
-      )}
-
       <div className="card" style={{ padding: '20px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '420px' }}>
           <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Para qual filial</span>
@@ -136,6 +162,36 @@ const TransferenciaForm: React.FC = () => {
             {destinos.map((f) => <option key={f.tenantId} value={f.tenantId}>{rotuloFilial(f)}</option>)}
           </select>
         </label>
+
+        <fieldset style={{ border: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <legend style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px', padding: 0 }}>Documento</legend>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <label style={estiloOpcao(modoEfetivo === 'com', mesmoCnpj)}>
+              <input type="radio" name="documento-transferencia" checked={modoEfetivo === 'com'} disabled={mesmoCnpj} onChange={() => setModo('com')} style={{ accentColor: 'var(--accent-purple)', marginTop: '3px' }} />
+              <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}><FileText size={15} aria-hidden="true" /> Com nota fiscal</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>NF-e de transferência pela Spedy, pelo custo. O destino recebe depois da nota autorizada.</span>
+              </span>
+            </label>
+            <label style={estiloOpcao(modoEfetivo === 'sem', Boolean(bloqueioSemNota))}>
+              <input type="radio" name="documento-transferencia" checked={modoEfetivo === 'sem'} disabled={Boolean(bloqueioSemNota) && !mesmoCnpj} onChange={() => setModo('sem')} style={{ accentColor: 'var(--accent-purple)', marginTop: '3px' }} />
+              <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}><PackageOpen size={15} aria-hidden="true" /> Sem nota fiscal</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Só controle de estoque. Para loja ou depósito do mesmo CNPJ, ou acerto interno.</span>
+              </span>
+            </label>
+          </div>
+          {mesmoCnpj && (
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
+              Esta filial e a de destino têm o mesmo CNPJ: entre elas a transferência é sem nota.
+            </p>
+          )}
+          {modoEfetivo === 'sem' && bloqueioSemNota && (
+            <p role="alert" style={{ margin: 0, padding: '10px 12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.1)', fontSize: '13px' }}>
+              {bloqueioSemNota}
+            </p>
+          )}
+        </fieldset>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Produtos (só os com estoque disponível nesta filial)</span>
@@ -201,7 +257,7 @@ const TransferenciaForm: React.FC = () => {
         </label>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button type="button" className="btn-primary" disabled={enviando || Boolean(bloqueioSemNota)} onClick={() => { void enviar(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          <button type="button" className="btn-primary" disabled={enviando || (modoEfetivo === 'sem' && Boolean(bloqueioSemNota))} onClick={() => { void enviar(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
             {enviando ? <Loader2 size={16} className="spin-icon" /> : <Send size={16} />}
             Enviar transferência
           </button>

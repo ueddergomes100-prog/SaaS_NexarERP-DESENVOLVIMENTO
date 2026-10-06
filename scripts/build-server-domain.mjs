@@ -38,6 +38,12 @@ const MODULOS = [
   'src/utils/cadastroGrupoDomain.ts',
   'src/utils/transferenciaDomain.ts',
   'src/utils/resumoGrupoDomain.ts',
+  // Filiais F4: nota de transferencia montada no servidor com o mesmo item fiscal das telas.
+  'src/utils/osServicePricing.ts',
+  'src/utils/fiscalDomain.ts',
+  'src/utils/importacaoFiscalDomain.ts',
+  'src/utils/notaFiscalItemDomain.ts',
+  'src/utils/notaTransferenciaDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

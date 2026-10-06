@@ -14,7 +14,7 @@ Exemplo do dono: o Shopping Rural pode ter a loja do Centro e a loja da Baixada 
 |---|---|
 | Clientes | **Compartilhados no grupo**: o mesmo cadastro em todas as filiais. Vendas, notas e financeiro continuam de cada filial. |
 | Produtos | **Cadastro único do grupo**, todas as filiais veem. **Preço e estoque são de cada filial.** |
-| Filtro de produtos | Já vem marcado na filial em que o usuário está trabalhando. O item guarda **a filial em que foi cadastrado** (quem cadastrou com a filial 3 selecionada → item da filial 3). |
+| Filtro de produtos | Já vem marcado na filial em que o usuário está trabalhando. O item guarda **a filial em que foi cadastrado** (quem cadastrou com a filial 3 selecionada → item da filial 3). Item que recebeu estoque numa filial também aparece nela. |
 | Preço inicial | Quando uma filial começa a vender um item, o preço **copia o da matriz**; depois cada filial ajusta o seu. |
 | Permissões | **As mesmas em todas** as filiais que o usuário acessa. |
 | Permissão-chave | **"Utiliza outras filiais"**: libera trocar de filial, ver os itens das outras filiais, alterar o cadastro de item de outra filial e transferir. |
@@ -66,7 +66,7 @@ Grupo "Shopping Rural"  (grupos/{grupoId})
 
 - **Clientes**: criar ou alterar em qualquer filial → o servidor cria/atualiza a cópia nas outras. Tudo do cliente é compartilhado (inclusive alerta, desconto padrão e limite de crédito); o que ele deve fica no financeiro de cada filial.
 - **Produtos**: campos do cadastro são compartilhados; **preço, custo, estoque, estoque mínimo, lotes e promoções são da filial**. Quando uma filial começa a vender o item (entrada de estoque, transferência ou definir preço), o preço inicial vem **da matriz**.
-- **Onde o item "é"**: `filialOrigem` = a filial selecionada quando foi cadastrado. O filtro das listas e buscas de produto (Estoque, PDV, Pedido, OS, Orçamento, etiquetas...) já vem em **"Itens desta filial"**; quem tem "Utiliza outras filiais" troca para **"Todos do grupo"**. Proposta a confirmar: item que **recebeu estoque** nesta filial (por transferência ou nota) também aparece em "Itens desta filial", senão a filial não acharia o que acabou de receber.
+- **Onde o item "é"**: `filialOrigem` = a filial selecionada quando foi cadastrado. O filtro das listas e buscas de produto (Estoque, PDV, Pedido, OS, Orçamento, etiquetas...) já vem em **"Itens desta filial"**; quem tem "Utiliza outras filiais" troca para **"Todos do grupo"**. Item que **recebeu estoque** nesta filial (por transferência ou nota) também aparece em "Itens desta filial" (confirmado pelo dono em 06/10).
 - **Quem altera**: sem "Utiliza outras filiais", o usuário altera só itens da própria filial; com a permissão, qualquer item. A alteração vale em todas as cópias e vai para o log com quem e de qual filial.
 - Como o servidor garante: depois de cada gravação de cadastro a tela chama o servidor (`/api/grupo/cadastro/sincronizar`); uma conferência periódica acerta qualquer cópia que tenha ficado para trás (queda de internet, etc.). Cada cópia guarda a versão para não voltar dado antigo por cima de novo.
 - Importações (planilha de produtos/clientes), entrada de NF-e que cria produto, cadastro rápido, app Vendas: todos passam pelo mesmo sincronizador.

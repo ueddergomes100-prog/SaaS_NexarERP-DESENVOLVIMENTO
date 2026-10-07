@@ -46,6 +46,8 @@ const MODULOS = [
   'src/utils/notaTransferenciaDomain.ts',
   // Configuracoes por filial, fase A: maior atraso do cliente (saldo no grupo).
   'src/utils/parametrosVendaDomain.ts',
+  // Configuracoes por filial, fase C: numeracao dos documentos.
+  'src/utils/numeracaoDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

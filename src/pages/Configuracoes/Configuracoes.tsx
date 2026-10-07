@@ -2,13 +2,16 @@ import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
 import { TRIBUTACAO_TRANSFERENCIA_OPCOES, TRIBUTACAO_TRANSFERENCIA_PADRAO, parseTributacaoTransferencia, type TributacaoTransferencia } from '../../utils/notaTransferenciaDomain';
 import { PARAMETROS_VENDA_PADRAO, parametrosVendaDoForm, parametrosVendaParaForm, parseParametrosVenda, type ParametrosVendaForm } from '../../utils/parametrosVendaDomain';
 import { DOCUMENTOS_COM_MENSAGEM, LIMITE_MENSAGEM_PADRAO, MENSAGENS_PADRAO_VAZIAS, parseMensagensPadrao, type MensagensPadrao } from '../../utils/mensagensPadraoDomain';
+import { ajustarNumeracao, listarNumeracao } from '../../services/numeracaoService';
+import type { SituacaoDaSequencia } from '../../utils/numeracaoDomain';
+import { isTenantManagerRole } from '../../utils/roles';
 import React, { useState, useEffect, useRef } from 'react';
 import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy } from 'lucide-react';
 import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
 import { db, storage } from '../../services/firebase';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
 import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/pedidoPrintModels';
 import { formatCompanyAddress } from '../../utils/companyAddress';
@@ -122,7 +125,7 @@ const toCreditCardRateInputs = (value: unknown, fallbackFeePercent = 0) => (
 );
 
 const Configuracoes: React.FC = () => {
-  const { currentUser, tenantId, userRole, grupo } = useAuth();
+  const { currentUser, tenantId, userRole, grupo, isOwner } = useAuth();
   const isPlatformAdmin = isPlatformAdminRole(userRole);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
@@ -142,6 +145,44 @@ const Configuracoes: React.FC = () => {
   const [showParametrosVenda, setShowParametrosVenda] = useState(false);
   // Configuracoes por filial, fase B (2026-10-07): mensagens padrao por documento.
   const [showMensagensPadrao, setShowMensagensPadrao] = useState(false);
+  // Configuracoes por filial, fase C (2026-10-07): numeracao dos documentos (so' dono/administrador; vem do servidor).
+  const [showNumeracao, setShowNumeracao] = useState(false);
+  const [numeracao, setNumeracao] = useState<SituacaoDaSequencia[] | null>(null);
+  const [numeracaoErro, setNumeracaoErro] = useState('');
+  const podeVerNumeracao = isOwner || isTenantManagerRole(userRole);
+  const carregarNumeracao = async () => {
+    setNumeracaoErro('');
+    try {
+      setNumeracao((await listarNumeracao()).sequencias);
+    } catch (erro) {
+      setNumeracao([]);
+      setNumeracaoErro(erro instanceof Error ? erro.message : 'Não foi possível ler a numeração.');
+    }
+  };
+  useEffect(() => {
+    if (showNumeracao && podeVerNumeracao && numeracao === null) void carregarNumeracao();
+  }, [showNumeracao, podeVerNumeracao, numeracao]); // eslint-disable-line react-hooks/exhaustive-deps
+  const adiantarNumeracao = async (linha: SituacaoDaSequencia) => {
+    const { value } = await NexusSwal.fire({
+      title: `Próximo número de ${linha.rotulo.toLowerCase()}`,
+      html: `<div style="text-align:left;font-size:14px;color:#d4d4d8;">O último ${escaparHtml(linha.rotulo.toLowerCase())} gravado nesta filial é o <strong>nº ${linha.ultimo.toLocaleString('pt-BR')}</strong>. Informe o número que o <strong>próximo</strong> deve receber. A numeração só anda para a frente.</div>`,
+      input: 'text',
+      inputValue: String(linha.proximo),
+      inputAttributes: { inputmode: 'numeric' },
+      showCancelButton: true,
+      confirmButtonColor: '#8b5cf6',
+      confirmButtonText: 'Ajustar numeração',
+      cancelButtonText: 'Cancelar',
+    });
+    if (value === undefined) return;
+    try {
+      const r = await ajustarNumeracao(linha.chave, String(value));
+      showSuccess(`Numeração ajustada: o próximo ${r.rotulo.toLowerCase()} será o nº ${r.proximo.toLocaleString('pt-BR')}.`);
+      await carregarNumeracao();
+    } catch (erro) {
+      showError('Não foi possível ajustar a numeração', erro instanceof Error ? erro.message : undefined);
+    }
+  };
   const [showSpedy, setShowSpedy] = useState(false);
   const [novaReceitaInput, setNovaReceitaInput] = useState('');
   const [novaDespesaInput, setNovaDespesaInput] = useState('');
@@ -1931,6 +1972,66 @@ const Configuracoes: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Numeracao dos documentos (Configuracoes por filial, fase C -- 2026-10-07). Acao imediata no servidor, fora do Salvar. */}
+        {podeVerNumeracao && (
+          <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showNumeracao ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+              onClick={() => setShowNumeracao(!showNumeracao)}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Sliders size={20} style={{ color: 'var(--accent-purple)' }} />
+                <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Numeração dos documentos</h3>
+              </div>
+              <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                {showNumeracao ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+              </button>
+            </div>
+
+            {showNumeracao && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                  Último número usado e próximo de cada documento <strong>desta filial</strong>. Dá para <strong>adiantar</strong> a numeração (ex.: continuar do pedido 75.713 ao sair de outro sistema); ela nunca volta. Boletos são numerados por banco (Cadastros → Bancos) e a NF-e/NFC-e pela Spedy (bloco de Nota Fiscal). O ajuste vale na hora, sem precisar de Salvar.
+                </p>
+                {numeracaoErro && <p style={{ margin: 0, fontSize: '13px', color: '#ef4444' }} role="alert">{numeracaoErro}</p>}
+                {numeracao === null && !numeracaoErro && <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Carregando...</p>}
+                {numeracao && numeracao.length > 0 && (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '12px', textTransform: 'uppercase' }}>
+                          <th style={{ padding: '10px 12px' }}>Documento</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'right' }}>Último usado</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'right' }}>Próximo</th>
+                          <th style={{ padding: '10px 12px' }}>Último ajuste</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'right' }}>Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {numeracao.map((linha) => (
+                          <tr key={linha.chave} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                            <td style={{ padding: '10px 12px', fontWeight: 600 }}>{linha.rotulo}</td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{linha.ultimo > 0 ? linha.ultimo.toLocaleString('pt-BR') : '—'}</td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{linha.proximo.toLocaleString('pt-BR')}</td>
+                            <td style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                              {linha.ajustadoPor ? `${linha.ajustadoPor}${linha.ajustadoEm ? ` em ${new Date(linha.ajustadoEm).toLocaleDateString('pt-BR')}` : ''}` : '—'}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                              <button type="button" className="btn-secondary" onClick={() => { void adiantarNumeracao(linha); }} style={{ padding: '6px 12px', fontSize: '12px' }}>
+                                Ajustar
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Mensagens padrao por documento (Configuracoes por filial, fase B -- 2026-10-07). Em branco, o documento sai como hoje. */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>

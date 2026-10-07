@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Receipt, X } from 'lucide-react';
-import { collection, doc, getDocs, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
+import { PARAMETROS_VENDA_PADRAO, checarPrazoDevolucao, parseParametrosVenda, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
@@ -47,6 +48,8 @@ interface DevolucaoVendaModalProps {
   itens: Array<{ id: string; nome: string; precoUnitario: number; quantidade: number; desconto: number; quantidadeJaDevolvida?: number; fatorConversao?: number; unidadeMedidaSigla?: string }>;
   onClose: () => void;
   onSuccess: () => void;
+  /** Data da venda ('AAAA-MM-DD'), para o prazo de devolucao da filial (parametros de venda). */
+  dataVenda?: string;
 }
 
 /**
@@ -55,7 +58,7 @@ interface DevolucaoVendaModalProps {
  * DevolucoesVenda.tsx, que buscava o pedido pelo numero). Logica de
  * confirmar devolucao movida sem alteracao da tela antiga.
  */
-const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, numeroPedido, clienteNome, itens: itensOriginais, onClose, onSuccess }) => {
+const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, numeroPedido, clienteNome, itens: itensOriginais, onClose, onSuccess, dataVenda }) => {
   const { currentUser, tenantId, controlaFiscal, isOwner, userRole, userPermissions } = useAuth();
   const podeEmitirNota = Boolean(controlaFiscal) && (isOwner || isPlatformAdminRole(userRole) || Boolean(userPermissions?.includes('fiscal.emitir')));
   /** Devolucao recem-registrada cuja NF-e de devolucao esta sendo emitida (abre o pop-up fiscal). */
@@ -64,6 +67,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
   const [destinoValor, setDestinoValor] = useState<'credito' | 'caixa' | 'banco'>('credito');
   const [formaBancaria, setFormaBancaria] = useState<FormaBancaria>('Pix');
   const [bancoId, setBancoId] = useState('');
+  const [parametrosVenda, setParametrosVenda] = useState<ParametrosVenda>(PARAMETROS_VENDA_PADRAO);
   const [bancos, setBancos] = useState<BancoOption[]>([]);
   const [motivo, setMotivo] = useState('');
   const [observacao, setObservacao] = useState('');
@@ -81,6 +85,10 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
 
   useEffect(() => {
     if (!tenantId) return;
+    // Parametros de venda da filial (fase A): prazo para devolucao.
+    getDoc(doc(db, 'configuracoes', tenantId))
+      .then((snap) => setParametrosVenda(parseParametrosVenda(snap.exists() ? snap.data().parametrosVenda : undefined)))
+      .catch(() => setParametrosVenda(PARAMETROS_VENDA_PADRAO));
     getDocs(query(collection(db, 'bancos'), where('tenantId', '==', tenantId), where('ativo', '==', true)))
       .then((snap) => setBancos(snap.docs.map((d) => ({ id: d.id, nome: String(d.data().nome || '') }))))
       .catch((error) => console.error('Erro ao carregar bancos:', error));
@@ -142,6 +150,23 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
     if (destinoValor === 'banco' && !bancoId) {
       showError('Atenção', 'Selecione de qual banco o dinheiro está saindo.');
       return;
+    }
+    // Prazo de devolucao da filial (parametros de venda, fase A).
+    const prazo = checarPrazoDevolucao(parametrosVenda, dataVenda, getDateInputInTimeZone());
+    if (prazo.foraDoPrazo) {
+      if (prazo.acao === 'bloquear') {
+        showError('Devolução fora do prazo', prazo.mensagem);
+        return;
+      }
+      const seguir = await NexusSwal.fire({
+        title: 'Devolução fora do prazo',
+        text: prazo.mensagem,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Registrar mesmo assim',
+        cancelButtonText: 'Voltar',
+      });
+      if (!seguir.isConfirmed) return;
     }
 
     returnLockRef.current = true;

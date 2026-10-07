@@ -110,6 +110,8 @@ export interface PedidoDeBaixa {
   /** yyyy-mm-dd: dia em que foi pago/recebido de verdade (pode ser antes de hoje). */
   dataPagamento: string;
   bancoId?: string;
+  /** Juros e multa cobrados junto (centavos), so' no Receber. O servidor grava como lancamento proprio. */
+  acrescimoCentavos?: number;
   /** Empresa aberta na tela (o admin da plataforma pode estar noutra). */
   tenantId: string;
 }

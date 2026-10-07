@@ -47,7 +47,8 @@ import {
   parseCreditoVersao,
   parseTrabalhaComLimiteCredito,
 } from '../../utils/creditoDomain';
-import { calcularSaldoEmAbertoClienteCents } from '../../utils/contasReceberQuery';
+import { calcularSaldoEmAbertoClienteCents, situacaoEmAbertoDoCliente } from '../../utils/contasReceberQuery';
+import { PARAMETROS_VENDA_PADRAO, bloqueioPorAtraso, parseParametrosVenda, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
 import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../components/common/CadastroRapidoClienteModal';
 import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
@@ -282,6 +283,8 @@ const OSForm: React.FC = () => {
 
   const [modoValidacaoCliente, setModoValidacaoCliente] = useState<ModoValidacaoCliente>(DEFAULT_MODO_VALIDACAO_CLIENTE);
   const [trabalhaComLimiteCredito, setTrabalhaComLimiteCredito] = useState(false);
+  // Parametros de venda da filial (fase A, 2026-10-07): bloqueio por atraso.
+  const [parametrosVenda, setParametrosVenda] = useState<ParametrosVenda>(PARAMETROS_VENDA_PADRAO);
   const [cadastroRapidoAberto, setCadastroRapidoAberto] = useState(false);
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
@@ -421,6 +424,7 @@ const OSForm: React.FC = () => {
           setTipoDescontoPadrao(parseTipoDescontoPadrao(config.tipoDescontoPadrao));
           setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
           setTrabalhaComLimiteCredito(parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito));
+          setParametrosVenda(parseParametrosVenda(config.parametrosVenda));
           setComissaoPadraoPecas(typeof config.comissaoPadraoPecas === 'number' ? config.comissaoPadraoPecas : undefined);
           setComissaoPadraoServicos(typeof config.comissaoPadraoServicos === 'number' ? config.comissaoPadraoServicos : undefined);
           const configuredTerms = parseCreditTerms(config.diasCrediario);
@@ -1109,6 +1113,14 @@ const OSForm: React.FC = () => {
       // com o saldo e' reconferida DENTRO da transacao -- e' o que impede
       // uma OS e uma venda a prazo do mesmo cliente, ao mesmo tempo, de
       // furarem o limite juntas. Ver creditoDomain.ts.
+      // Parametros de venda (fase A): cliente com titulo vencido ha' mais de N
+      // dias nao fecha OS a prazo -- independe do limite de credito estar ligado.
+      if (formData.status === 'Finalizada' && paymentSummary?.paymentCondition === 'aprazo' && parametrosVenda.bloqueioAtraso.ativo && clienteIdParaSalvar) {
+        const situacao = await situacaoEmAbertoDoCliente(tenantId, clienteIdParaSalvar, Boolean(grupo));
+        const bloqueioAtraso = bloqueioPorAtraso(parametrosVenda, situacao.maiorAtrasoDias, nomeClienteFormatado);
+        if (bloqueioAtraso) throw new Error(bloqueioAtraso);
+      }
+
       const osEhAprazo = formData.status === 'Finalizada'
         && trabalhaComLimiteCredito
         && paymentSummary?.paymentCondition === 'aprazo';

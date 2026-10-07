@@ -136,7 +136,8 @@ import {
   somarCreditosCentavos,
   type CreditoClienteDisponivel,
 } from '../../utils/creditoDomain';
-import { calcularSaldoEmAbertoClienteCents } from '../../utils/contasReceberQuery';
+import { calcularSaldoEmAbertoClienteCents, situacaoEmAbertoDoCliente } from '../../utils/contasReceberQuery';
+import { PARAMETROS_VENDA_PADRAO, bloqueioPorAtraso, parseParametrosVenda, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
 import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../components/common/CadastroRapidoClienteModal';
 import {
@@ -449,6 +450,8 @@ const PedidoVendaForm: React.FC = () => {
   const [permitirDescontoPorItem, setPermitirDescontoPorItem] = useState(DEFAULT_PERMITIR_DESCONTO_POR_ITEM);
   const [modoValidacaoCliente, setModoValidacaoCliente] = useState<ModoValidacaoCliente>(DEFAULT_MODO_VALIDACAO_CLIENTE);
   const [trabalhaComLimiteCredito, setTrabalhaComLimiteCredito] = useState(false);
+  // Parametros de venda da filial (fase A, 2026-10-07): bloqueio por atraso.
+  const [parametrosVenda, setParametrosVenda] = useState<ParametrosVenda>(PARAMETROS_VENDA_PADRAO);
   const [cadastroRapidoAberto, setCadastroRapidoAberto] = useState(false);
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
@@ -857,6 +860,7 @@ const PedidoVendaForm: React.FC = () => {
           setPermitirDescontoPorItem(parsePermitirDescontoPorItem(config.permitirDescontoPorItem));
           setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
           setTrabalhaComLimiteCredito(parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito));
+          setParametrosVenda(parseParametrosVenda(config.parametrosVenda));
           setImprimirMinutaAposVendaAtiva(config.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA);
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
@@ -2837,6 +2841,14 @@ const PedidoVendaForm: React.FC = () => {
       // com o saldo e' reconferida la dentro (ver creditoDomain.ts) -- e' o
       // que impede dois vendedores de furarem o limite do mesmo cliente ao
       // mesmo tempo.
+      // Parametros de venda (fase A): cliente com titulo vencido ha' mais de N
+      // dias nao compra a prazo -- independe do limite de credito estar ligado.
+      if (paymentSummary.paymentCondition === 'aprazo' && parametrosVenda.bloqueioAtraso.ativo && clienteIdParaSalvar) {
+        const situacao = await situacaoEmAbertoDoCliente(tenantId, clienteIdParaSalvar, Boolean(grupo));
+        const bloqueioAtraso = bloqueioPorAtraso(parametrosVenda, situacao.maiorAtrasoDias, finalClienteNome);
+        if (bloqueioAtraso) throw new Error(bloqueioAtraso);
+      }
+
       const vendaEhAprazo = trabalhaComLimiteCredito && paymentSummary.paymentCondition === 'aprazo';
       let creditoVersaoNaChecagem = 0;
 
@@ -4561,6 +4573,7 @@ const PedidoVendaForm: React.FC = () => {
           pedidoId={id!}
           numeroPedido={numeroPedido}
           clienteNome={clienteNome}
+          dataVenda={dataVenda}
           itens={itens}
           onClose={() => setShowDevolucaoModal(false)}
           onSuccess={async () => {

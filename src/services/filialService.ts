@@ -85,7 +85,7 @@ export const consultarEstoqueNasFiliais = (chaves: string[]) => (
 
 /** Fase 2: saldo em aberto do cliente somando todas as filiais (limite de credito do grupo). */
 export const consultarSaldoDoClienteNoGrupo = (clienteId: string) => (
-  chamar<{ totalCentavos: number; porFilial: Array<{ tenantId: string; codigo: string; nome: string; centavos: number }> }>(
+  chamar<{ totalCentavos: number; maiorAtrasoDias: number; porFilial: Array<{ tenantId: string; codigo: string; nome: string; centavos: number }> }>(
     'GET', `/clientes/${encodeURIComponent(clienteId)}/saldo`,
   )
 );

@@ -67,6 +67,18 @@ const validarPedidoDeBaixa = (corpo, hoje) => {
     return { erro: tipo === 'saida' ? 'Escolha de qual banco saiu o pagamento.' : 'Escolha em qual banco caiu o recebimento.' };
   }
 
+  // Juros e multa (parametros de venda, fase A -- 2026-10-07): so' no Receber,
+  // inteiro em centavos, >= 0. O valor em si e' decisao de quem recebe (pode
+  // negociar); o servico ainda barra valor absurdo em relacao ao titulo.
+  let acrescimoCentavos = 0;
+  if (corpo.acrescimoCentavos !== undefined && corpo.acrescimoCentavos !== null && corpo.acrescimoCentavos !== 0) {
+    if (tipo !== 'entrada') return { erro: 'Juros e multa só se aplicam a recebimentos.' };
+    if (!Number.isInteger(corpo.acrescimoCentavos) || corpo.acrescimoCentavos < 0) {
+      return { erro: 'Juros e multa: informe um valor em reais maior ou igual a zero.' };
+    }
+    acrescimoCentavos = corpo.acrescimoCentavos;
+  }
+
   return {
     pedido: {
       tipo,
@@ -74,6 +86,7 @@ const validarPedidoDeBaixa = (corpo, hoje) => {
       formaPagamento,
       dataPagamento: String(corpo.dataPagamento).trim(),
       ...(bancoId ? { bancoId } : {}),
+      ...(acrescimoCentavos > 0 ? { acrescimoCentavos } : {}),
     },
   };
 };

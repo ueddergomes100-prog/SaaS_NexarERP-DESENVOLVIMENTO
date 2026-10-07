@@ -188,3 +188,43 @@ test('estorno de recebimento do balcao (nao veio de "Dar Baixa") e\' bloqueado',
   );
   assert.equal(fake.ler('transacoes/r9').status, 'Paga');
 });
+
+test('Receber com juros e multa: lancamento proprio, banco credita os dois, estorno desfaz os dois', async () => {
+  const fake = criarBancoFalso({
+    'transacoes/t3': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'Parcela 2/3 - Venda 0101', valor: 100, valorCentavos: 10000, dataVencimento: '2026-09-22', clienteId: 'c1', clienteNome: 'MARIA' },
+    'bancos/b1': { tenantId: 'emp1', nome: 'Sicoob', ativo: true, saldoCentavos: 500000 },
+  });
+  const s = carregarServico(fake.db);
+  const valid = s.validarPedidoDeBaixa({ tipo: 'entrada', transacaoId: 't3', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', acrescimoCentavos: 350 }, HOJE);
+  assert.equal(valid.erro, undefined, valid.erro);
+  assert.equal(valid.pedido.acrescimoCentavos, 350);
+  assert.match(String(s.validarPedidoDeBaixa({ tipo: 'saida', transacaoId: 't3', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', acrescimoCentavos: 350 }, HOJE).erro), /só se aplicam a recebimentos/);
+  assert.match(String(s.validarPedidoDeBaixa({ tipo: 'entrada', transacaoId: 't3', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', acrescimoCentavos: 3.5 }, HOJE).erro), /maior ou igual a zero/);
+
+  const resumo = await s.registrarBaixa({ user: USER, tenantId: 'emp1', pedido: valid.pedido });
+  assert.equal(resumo.acrescimoCentavos, 350);
+  assert.equal(fake.ler('bancos/b1').saldoCentavos, 510350);
+  const titulo = fake.ler('transacoes/t3');
+  assert.equal(titulo.status, 'Paga');
+  assert.equal(titulo.valorCentavos, 10000, 'o titulo continua valendo o que o cliente devia');
+  assert.equal(titulo.baixaManual.acrescimoCentavos, 350);
+  const jurosId = titulo.baixaManual.acrescimoTransacaoId;
+  const juros = fake.ler(`transacoes/${jurosId}`);
+  assert.equal(juros.status, 'Paga');
+  assert.equal(juros.valorCentavos, 350);
+  assert.equal(juros.categoria, 'Juros e multa recebidos');
+  assert.equal(juros.acrescimoDaTransacaoId, 't3');
+  assert.equal(juros.clienteNome, 'MARIA');
+  assert.deepEqual(juros.baixaManual, { origem: 'contas_receber', formaPagamento: 'Pix', dataPagamento: HOJE, valorCentavos: 350, bancoId: 'b1', movimentoBancoCentavos: 350 });
+
+  // Acima do razoavel: barra antes de gravar.
+  const fake2 = criarBancoFalso({ 'transacoes/t4': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'X', valor: 10, valorCentavos: 1000 } });
+  await assert.rejects(() => carregarServico(fake2.db).registrarBaixa({ user: USER, tenantId: 'emp1', pedido: { tipo: 'entrada', transacaoId: 't4', formaPagamento: 'Dinheiro', dataPagamento: HOJE, acrescimoCentavos: 500000 } }), /muito acima do título/);
+
+  const estorno = s.validarPedidoDeEstorno({ tipo: 'entrada', transacaoId: 't3', motivo: 'recebi do cliente errado' }).pedido;
+  const r = await s.registrarEstorno({ user: USER, tenantId: 'emp1', pedido: estorno });
+  assert.equal(r.acrescimoCentavos, 350);
+  assert.equal(fake.ler('bancos/b1').saldoCentavos, 500000, 'banco volta ao que era: titulo e juros');
+  assert.equal(fake.ler('transacoes/t3').status, 'Pendente');
+  assert.equal(fake.ler(`transacoes/${jurosId}`).status, 'Cancelada');
+});

@@ -11,6 +11,7 @@ import {
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
+import { parseParametrosVenda, validadeOrcamentoPadrao } from '../../utils/parametrosVendaDomain';
 import { baixarLotesNaTransacao, camposDeLoteDoItem, linhasParaLote, prepararBaixaDeLotes } from '../../services/loteBaixaService';
 import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, reserveTenantSequence, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
@@ -272,6 +273,11 @@ const OrcamentoForm: React.FC = () => {
             setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
             setTipoDescontoPadrao(parseTipoDescontoPadrao(config.tipoDescontoPadrao));
             setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
+            // Parametros de venda (fase A): orcamento NOVO abre com a validade da filial.
+            if (!isEditing) {
+              const validade = String(validadeOrcamentoPadrao(parseParametrosVenda(config.parametrosVenda)));
+              setFormData((atual) => (atual.validadeDias === '15' ? { ...atual, validadeDias: validade } : atual));
+            }
           }
         } catch (err) { console.error(err); }
 

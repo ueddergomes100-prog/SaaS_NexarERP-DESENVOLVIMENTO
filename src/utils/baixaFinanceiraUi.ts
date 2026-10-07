@@ -19,6 +19,14 @@ export interface DadosBaixa {
   forma: string;
   /** yyyy-mm-dd */
   data: string;
+  /** Juros e multa cobrados junto (centavos). 0 = nenhum. So' no Receber. */
+  acrescimoCentavos: number;
+}
+
+/** Sugestao de juros e multa para titulo em atraso (parametrosVendaDomain.acrescimoPorAtraso). */
+export interface SugestaoDeAcrescimo {
+  centavos: number;
+  detalhe: string;
 }
 
 /**
@@ -35,6 +43,8 @@ export const pedirDadosBaixa = async (args: {
   mensagemSemForma: string;
   rotuloData: string;
   textoConfirmar: string;
+  /** Receber em atraso com juros/multa configurados: mostra a sugestao, que a pessoa ajusta ou tira. */
+  acrescimo?: SugestaoDeAcrescimo | null;
 }): Promise<DadosBaixa | null> => {
   const hoje = getDateInputInTimeZone();
   const opcoes = args.formas
@@ -54,7 +64,16 @@ export const pedirDadosBaixa = async (args: {
       <input id="baixa-data" type="date" class="swal2-input" value="${hoje}" max="${hoje}" style="${ESTILO_CAMPO}" />
       <div style="text-align:left;font-size:12px;color:#a1a1aa;margin-top:6px;">
         Foi pago em outro dia? Troque a data acima. Ela vale para o Fluxo de Caixa e os relatórios.
-      </div>`,
+      </div>
+      ${args.acrescimo ? `
+      <label for="baixa-acrescimo-ligado" style="${ESTILO_ROTULO};display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input id="baixa-acrescimo-ligado" type="checkbox" checked style="accent-color:#8b5cf6;width:16px;height:16px;" />
+        Cobrar juros e multa (${escaparHtml(args.acrescimo.detalhe)})
+      </label>
+      <input id="baixa-acrescimo" type="text" inputmode="decimal" class="swal2-input" value="${(args.acrescimo.centavos / 100).toFixed(2).replace('.', ',')}" style="${ESTILO_CAMPO}" aria-label="Valor de juros e multa em reais" />
+      <div style="text-align:left;font-size:12px;color:#a1a1aa;margin-top:6px;">
+        Valor sugerido pelos parâmetros da filial; pode ajustar. Entra como lançamento "Juros e multa" junto deste recebimento.
+      </div>` : ''}`,
     focusConfirm: false,
     showCancelButton: true,
     confirmButtonText: args.textoConfirmar,
@@ -71,7 +90,20 @@ export const pedirDadosBaixa = async (args: {
         NexusSwal.showValidationMessage(erroData);
         return false;
       }
-      return { forma, data } as DadosBaixa;
+      let acrescimoCentavos = 0;
+      if (args.acrescimo) {
+        const ligado = (document.getElementById('baixa-acrescimo-ligado') as HTMLInputElement | null)?.checked ?? false;
+        const texto = (document.getElementById('baixa-acrescimo') as HTMLInputElement | null)?.value || '';
+        if (ligado) {
+          const valor = Number(texto.replace(/\./g, '').replace(',', '.'));
+          if (!Number.isFinite(valor) || valor < 0) {
+            NexusSwal.showValidationMessage('Juros e multa: informe um valor em reais (ex.: 12,50) ou desmarque a opção.');
+            return false;
+          }
+          acrescimoCentavos = Math.round(valor * 100);
+        }
+      }
+      return { forma, data, acrescimoCentavos } as DadosBaixa;
     },
   });
 

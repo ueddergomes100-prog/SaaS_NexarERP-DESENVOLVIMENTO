@@ -93,6 +93,7 @@ const lerBanco = async (tx, tenantId, bancoId, mensagemSemBanco) => {
  */
 const registrarBaixa = async ({ user, tenantId, pedido }) => {
   const { tipo, formaPagamento, dataPagamento, bancoId } = pedido;
+  const acrescimoCentavos = tipo === 'entrada' ? Math.max(0, Math.round(Number(pedido.acrescimoCentavos) || 0)) : 0;
   const resumo = {};
 
   await db.runTransaction(async (tx) => {
@@ -121,6 +122,15 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
     resumo.descricao = String(dados.descricao || '');
     resumo.valorCentavos = valorCentavos;
     resumo.bancoNome = bancoNome;
+    resumo.acrescimoCentavos = acrescimoCentavos;
+    // Juros e multa acima de 2x o titulo (+ R$ 1.000) e' erro de digitacao.
+    if (acrescimoCentavos > valorCentavos * 2 + 100000) {
+      throw new ErroBaixa(400, 'O valor de juros e multa está muito acima do título. Confira o valor digitado (em reais, com vírgula).');
+    }
+    // O acrescimo vira um lancamento PROPRIO (entrada paga no mesmo dia), ligado
+    // ao titulo nos dois sentidos: o Fluxo de Caixa ve a receita de juros e o
+    // estorno do titulo desfaz os dois (parametros de venda, fase A -- 2026-10-07).
+    const acrescimoRef = acrescimoCentavos > 0 ? db.collection('transacoes').doc() : null;
 
     // --- escritas ---
     if (tipo === 'saida') {
@@ -160,23 +170,62 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
       naturezaFinanceira: settledFinancialNatureForPayment(formaPagamento),
       movimentaCaixaFisico: formaPagamento === 'Dinheiro',
       ...(banco ? { bancoId, bancoNome } : {}),
-      baixaManual: montarBaixaManual({
-        origem: 'contas_receber',
-        formaPagamento,
-        dataPagamento,
-        valorCentavos,
-        ...(banco ? { bancoId, movimentoBancoCentavos: valorCentavos } : {}),
-      }),
+      baixaManual: {
+        ...montarBaixaManual({
+          origem: 'contas_receber',
+          formaPagamento,
+          dataPagamento,
+          valorCentavos,
+          ...(banco ? { bancoId, movimentoBancoCentavos: valorCentavos } : {}),
+        }),
+        ...(acrescimoRef ? { acrescimoCentavos, acrescimoTransacaoId: acrescimoRef.id } : {}),
+      },
       recebidoEm: agora(),
       updatedAt: agora(),
-      ...buildDocumentUpdateMetadata(user.uid, agora(), 'Recebimento confirmado'),
+      ...buildDocumentUpdateMetadata(user.uid, agora(), acrescimoRef ? `Recebimento confirmado com juros e multa de ${fromCents(acrescimoCentavos).toFixed(2)}` : 'Recebimento confirmado'),
     });
+
+    if (acrescimoRef) {
+      tx.set(acrescimoRef, {
+        tenantId,
+        tipo: 'entrada',
+        status: 'Paga',
+        descricao: `Juros e multa — ${resumo.descricao}`,
+        categoria: 'Juros e multa recebidos',
+        valor: fromCents(acrescimoCentavos),
+        valorCentavos: acrescimoCentavos,
+        data: dataPagamento,
+        dataVencimento: dataPagamento,
+        dataPagamento,
+        formaPagamento,
+        naturezaFinanceira: settledFinancialNatureForPayment(formaPagamento),
+        movimentaCaixaFisico: formaPagamento === 'Dinheiro',
+        ...(banco ? { bancoId, bancoNome } : {}),
+        clienteId: dados.clienteId || null,
+        clienteNome: dados.clienteNome || null,
+        ...(dados.vendedorId ? { vendedorId: dados.vendedorId } : {}),
+        acrescimoDaTransacaoId: titulo.ref.id,
+        baixaManual: montarBaixaManual({
+          origem: 'contas_receber',
+          formaPagamento,
+          dataPagamento,
+          valorCentavos: acrescimoCentavos,
+          ...(banco ? { bancoId, movimentoBancoCentavos: acrescimoCentavos } : {}),
+        }),
+        createdAt: agora(),
+        recebidoEm: agora(),
+        updatedAt: agora(),
+        criadoPor: user.uid,
+        criadoEm: agora(),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `Juros e multa do recebimento "${resumo.descricao}"`),
+      });
+    }
 
     if (banco) {
       tx.update(banco.ref, {
-        saldoCentavos: Number(banco.dados.saldoCentavos || 0) + valorCentavos,
+        saldoCentavos: Number(banco.dados.saldoCentavos || 0) + valorCentavos + acrescimoCentavos,
         updatedAt: agora(),
-        ...buildDocumentUpdateMetadata(user.uid, agora(), `Recebimento de "${resumo.descricao}"`),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `Recebimento de "${resumo.descricao}"${acrescimoCentavos > 0 ? ' com juros e multa' : ''}`),
       });
     }
 
@@ -233,6 +282,15 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
     resumo.valorCentavos = valorCentavos;
     resumo.ajusteBancoCentavos = banco ? plano.ajusteBancoCentavos : 0;
 
+    // Juros e multa gravados junto da baixa (lancamento proprio): saem junto.
+    const acrescimoId = dados.baixaManual && dados.baixaManual.acrescimoTransacaoId ? String(dados.baixaManual.acrescimoTransacaoId) : '';
+    const acrescimoSnap = acrescimoId ? await tx.get(db.collection('transacoes').doc(acrescimoId)) : null;
+    const acrescimo = acrescimoSnap && acrescimoSnap.exists && acrescimoSnap.data().tenantId === tenantId && acrescimoSnap.data().status === 'Paga'
+      ? { ref: db.collection('transacoes').doc(acrescimoId), centavos: Number(acrescimoSnap.data().valorCentavos) || 0, bancoId: acrescimoSnap.data().bancoId || null }
+      : null;
+    const acrescimoNoBancoCentavos = acrescimo && banco && acrescimo.bancoId === banco.ref.id ? acrescimo.centavos : 0;
+    resumo.acrescimoCentavos = acrescimo ? acrescimo.centavos : 0;
+
     const registroDoEstorno = {
       estornadaEm: agora(),
       ultimoEstorno: {
@@ -272,9 +330,19 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
       });
     }
 
+    if (acrescimo) {
+      tx.update(acrescimo.ref, {
+        status: 'Cancelada',
+        motivoCancelamento: `Estorno do recebimento de origem: ${motivo}`,
+        canceladaEm: agora(),
+        updatedAt: agora(),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), 'Juros e multa estornados junto com o recebimento'),
+      });
+    }
+
     if (banco) {
       tx.update(banco.ref, {
-        saldoCentavos: Number(banco.dados.saldoCentavos || 0) + plano.ajusteBancoCentavos,
+        saldoCentavos: Number(banco.dados.saldoCentavos || 0) + plano.ajusteBancoCentavos - acrescimoNoBancoCentavos,
         updatedAt: agora(),
         ...buildDocumentUpdateMetadata(
           user.uid,

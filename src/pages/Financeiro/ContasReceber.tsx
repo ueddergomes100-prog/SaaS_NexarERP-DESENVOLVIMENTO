@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, where, doc, getDocs, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, doc, getDoc, getDocs, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -17,8 +17,7 @@ import {
   transactionNetAmount,
   type ChequeDetails,
   type PaymentMethod,
-  type PaymentRecord,
-} from '../../utils/financeDomain';
+  type PaymentRecord, transactionNetCents } from '../../utils/financeDomain';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import { isPlatformAdminRole } from '../../utils/roles';
 import {
@@ -28,6 +27,7 @@ import {
   type TituloParaEstorno,
 } from '../../utils/baixaFinanceiraDomain';
 import { pedirDadosBaixa } from '../../utils/baixaFinanceiraUi';
+import { PARAMETROS_VENDA_PADRAO, acrescimoPorAtraso, descricaoDoAcrescimo, parseParametrosVenda, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
 import { estornarBaixaComConfirmacao, registrarBaixa } from '../../services/baixaFinanceiraService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
@@ -102,6 +102,14 @@ const ContasReceber: React.FC = () => {
   const [situacaoTitulo, setSituacaoTitulo] = useState<SituacaoTitulo>(SITUACAO_TITULO_PADRAO);
   const [periodoDe, setPeriodoDe] = useState('');
   const [periodoAte, setPeriodoAte] = useState('');
+  // Parametros de venda da filial (fase A, 2026-10-07): juros e multa sugeridos na baixa em atraso.
+  const [parametrosVenda, setParametrosVenda] = useState<ParametrosVenda>(PARAMETROS_VENDA_PADRAO);
+  useEffect(() => {
+    if (!tenantId) return;
+    getDoc(doc(db, 'configuracoes', tenantId))
+      .then((snap) => setParametrosVenda(parseParametrosVenda(snap.exists() ? snap.data().parametrosVenda : undefined)))
+      .catch(() => setParametrosVenda(PARAMETROS_VENDA_PADRAO));
+  }, [tenantId]);
 
   /**
    * Baixa de Receber pelo servidor (services/baixaFinanceiraService): titulo,
@@ -112,6 +120,7 @@ const ContasReceber: React.FC = () => {
     formaPgto: PaymentMethod,
     bancoId?: string,
     dataRecebimento: string = getDateInputInTimeZone(),
+    acrescimoCentavos = 0,
   ) => {
     if (!tenantId || !currentUser) return;
     await registrarBaixa({
@@ -121,6 +130,7 @@ const ContasReceber: React.FC = () => {
       // Dia em que o dinheiro entrou de verdade (pode ser anterior a hoje).
       dataPagamento: dataRecebimento,
       ...(bancoId ? { bancoId } : {}),
+      ...(acrescimoCentavos > 0 ? { acrescimoCentavos } : {}),
       tenantId,
     });
   };
@@ -233,9 +243,12 @@ const ContasReceber: React.FC = () => {
 
   const solicitarFormaRecebimento = async (t: TransacaoData) => {
     const FORMAS_RECEBIMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Outros'];
+    // Titulo vencido com juros/multa configurados na filial: sugere o acrescimo (editavel).
+    const sugestao = acrescimoPorAtraso(parametrosVenda, transactionNetCents(t), t.dataVencimento, getDateInputInTimeZone());
     const dados = await pedirDadosBaixa({
       titulo: 'Confirmar Recebimento?',
       texto: `Valor líquido de R$ ${transactionNetAmount(t).toFixed(2)} referente a ${t.descricao}.`,
+      acrescimo: sugestao ? { centavos: sugestao.totalCentavos, detalhe: descricaoDoAcrescimo(sugestao) } : null,
       formas: FORMAS_RECEBIMENTO,
       formaInicial: t.formaPagamento && FORMAS_RECEBIMENTO.includes(t.formaPagamento) ? t.formaPagamento : '',
       rotuloForma: 'Como foi recebido?',
@@ -285,7 +298,7 @@ const ContasReceber: React.FC = () => {
     }
 
     try {
-      await confirmarRecebimento(t, formaPgto, bancoId, dataRecebimento);
+      await confirmarRecebimento(t, formaPgto, bancoId, dataRecebimento, dados.acrescimoCentavos);
       const noDia = dataRecebimento === getDateInputInTimeZone() ? '' : ` com a data de ${dataBrasileira(dataRecebimento)}`;
       showSuccess(formaPgto === 'Dinheiro'
         ? `Recebimento confirmado e lançado no caixa físico${noDia}!`

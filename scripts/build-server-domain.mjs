@@ -44,6 +44,8 @@ const MODULOS = [
   'src/utils/importacaoFiscalDomain.ts',
   'src/utils/notaFiscalItemDomain.ts',
   'src/utils/notaTransferenciaDomain.ts',
+  // Configuracoes por filial, fase A: maior atraso do cliente (saldo no grupo).
+  'src/utils/parametrosVendaDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

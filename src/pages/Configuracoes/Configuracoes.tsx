@@ -1,5 +1,6 @@
 import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
 import { TRIBUTACAO_TRANSFERENCIA_OPCOES, TRIBUTACAO_TRANSFERENCIA_PADRAO, parseTributacaoTransferencia, type TributacaoTransferencia } from '../../utils/notaTransferenciaDomain';
+import { PARAMETROS_VENDA_PADRAO, parametrosVendaDoForm, parametrosVendaParaForm, parseParametrosVenda, type ParametrosVendaForm } from '../../utils/parametrosVendaDomain';
 import React, { useState, useEffect, useRef } from 'react';
 import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy } from 'lucide-react';
 import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
@@ -136,6 +137,8 @@ const Configuracoes: React.FC = () => {
   const [showPermissoes, setShowPermissoes] = useState(false);
   const [showPlanoContas, setShowPlanoContas] = useState(false);
   const [showConfigAvancadas, setShowConfigAvancadas] = useState(false);
+  // Configuracoes por filial, fase A (2026-10-07): parametros de venda.
+  const [showParametrosVenda, setShowParametrosVenda] = useState(false);
   const [showSpedy, setShowSpedy] = useState(false);
   const [novaReceitaInput, setNovaReceitaInput] = useState('');
   const [novaDespesaInput, setNovaDespesaInput] = useState('');
@@ -188,6 +191,7 @@ const Configuracoes: React.FC = () => {
     limiteDescontoPedido: { tipo: 'percentual' as DescontoTipo, valor: '' },
     limiteDescontoOrcamento: { tipo: 'percentual' as DescontoTipo, valor: '' },
     limiteDescontoPdv: { tipo: 'percentual' as DescontoTipo, valor: '' },
+    parametrosVenda: parametrosVendaParaForm(PARAMETROS_VENDA_PADRAO) as ParametrosVendaForm,
     permitirDescontoPorItem: DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
     permitirDividirPagamento: DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
     ordemFormasPagamento: [] as string[],
@@ -352,6 +356,7 @@ const Configuracoes: React.FC = () => {
             limiteDescontoPedido: toLimiteDescontoFormValue(data.limiteDescontoPedido),
             limiteDescontoOrcamento: toLimiteDescontoFormValue(data.limiteDescontoOrcamento),
             limiteDescontoPdv: toLimiteDescontoFormValue(data.limiteDescontoPdv),
+            parametrosVenda: parametrosVendaParaForm(parseParametrosVenda(data.parametrosVenda)),
             permitirDescontoPorItem: parsePermitirDescontoPorItem(data.permitirDescontoPorItem),
             permitirDividirPagamento: parsePermitirDividirPagamento(data.permitirDividirPagamento),
             ordemFormasPagamento: parseOrdemFormasPagamento(data.ordemFormasPagamento),
@@ -836,6 +841,12 @@ const Configuracoes: React.FC = () => {
       showError('Limite de desconto inválido', 'O limite percentual deve estar entre 0% e 100%. Deixe em branco para não limitar.');
       return;
     }
+    // Parametros de venda (fase A): em branco = comportamento de hoje.
+    const parametrosVendaResultado = parametrosVendaDoForm(formData.parametrosVenda);
+    if (!parametrosVendaResultado.ok) {
+      showError('Parâmetros de venda', parametrosVendaResultado.erro);
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -870,6 +881,7 @@ const Configuracoes: React.FC = () => {
 
       await setDoc(docRef, {
         ...publicFormData,
+        parametrosVenda: parametrosVendaResultado.parametros,
         diasCrediario: creditTerms.join(', '),
         maxParcelasCartao: maxCardInstallments,
         taxasCartaoCreditoPorParcela: creditCardFees,
@@ -1912,6 +1924,90 @@ const Configuracoes: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Parametros de venda (Configuracoes por filial, fase A -- 2026-10-07). Tudo opcional: em branco, o sistema segue como antes. */}
+        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showParametrosVenda ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+            onClick={() => setShowParametrosVenda(!showParametrosVenda)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Sliders size={20} style={{ color: 'var(--accent-purple)' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Parâmetros de venda</h3>
+            </div>
+            <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {showParametrosVenda ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
+          </div>
+
+          {showParametrosVenda && (() => {
+            const pv = formData.parametrosVenda;
+            const mudar = (campo: keyof ParametrosVendaForm, valor: string | boolean) => setFormData((atual) => ({ ...atual, parametrosVenda: { ...atual.parametrosVenda, [campo]: valor } }));
+            const campo: React.CSSProperties = { backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)', width: '100%' };
+            const rotulo: React.CSSProperties = { fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 };
+            const dica: React.CSSProperties = { fontSize: '12px', color: 'var(--text-muted)', margin: 0 };
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                <p style={{ ...dica, gridColumn: '1 / -1', fontSize: '13px' }}>
+                  Regras desta filial. Campo em branco ou desmarcado = o sistema segue como hoje. Cada filial tem os próprios parâmetros.
+                </p>
+
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={rotulo}>Validade padrão do orçamento (dias)</label>
+                  <input type="number" min={1} max={365} inputMode="numeric" value={pv.validadeOrcamentoDias} onChange={(e) => mudar('validadeOrcamentoDias', e.target.value)} disabled={!isEditingMode} placeholder="15" style={campo} />
+                  <p style={dica}>Orçamento novo já abre com esta validade (a pessoa pode mudar no orçamento). Em branco: 15 dias.</p>
+                </div>
+
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={rotulo}>Prazo para devolução de venda (dias)</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <input type="number" min={1} max={3650} inputMode="numeric" value={pv.prazoDevolucaoDias} onChange={(e) => mudar('prazoDevolucaoDias', e.target.value)} disabled={!isEditingMode} placeholder="Sem prazo" style={campo} />
+                    <select value={pv.acaoDevolucao} onChange={(e) => mudar('acaoDevolucao', e.target.value)} disabled={!isEditingMode || !pv.prazoDevolucaoDias.trim()} style={campo}>
+                      <option value="avisar">Depois do prazo: avisar</option>
+                      <option value="bloquear">Depois do prazo: bloquear</option>
+                    </select>
+                  </div>
+                  <p style={dica}>Conta a partir da data da venda. "Avisar" pergunta se quer registrar mesmo assim; "bloquear" não deixa. Em branco: sem controle.</p>
+                </div>
+
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', gridColumn: '1 / -1' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input type="checkbox" checked={pv.bloqueioAtrasoAtivo} onChange={(e) => mudar('bloqueioAtrasoAtivo', e.target.checked)} disabled={!isEditingMode} style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }} />
+                    Bloquear venda a prazo para cliente com título em atraso
+                  </label>
+                  {pv.bloqueioAtrasoAtivo && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 260px))', gap: '12px' }}>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <span style={rotulo}>Dias de atraso para bloquear</span>
+                        <input type="number" min={0} inputMode="numeric" value={pv.diasAtraso} onChange={(e) => mudar('diasAtraso', e.target.value)} disabled={!isEditingMode} placeholder="0 = qualquer vencido" style={campo} />
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <span style={rotulo}>Carência (dias de tolerância)</span>
+                        <input type="number" min={0} inputMode="numeric" value={pv.carenciaDias} onChange={(e) => mudar('carenciaDias', e.target.value)} disabled={!isEditingMode} placeholder="0" style={campo} />
+                      </label>
+                    </div>
+                  )}
+                  <p style={dica}>Vale no Pedido de Venda e na OS ao escolher pagamento a prazo. Com filiais, conta o que o cliente deve em todas elas. Cartão não entra. A mensagem diz ao vendedor para receber em Contas a Receber ou vender à vista.</p>
+                </div>
+
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', gridColumn: '1 / -1' }}>
+                  <label style={rotulo}>Juros e multa do crediário em atraso</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 260px))', gap: '12px' }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <span style={rotulo}>Juros ao mês (%)</span>
+                      <input inputMode="decimal" value={pv.jurosAoMes} onChange={(e) => mudar('jurosAoMes', e.target.value)} disabled={!isEditingMode} placeholder="ex.: 2" style={campo} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <span style={rotulo}>Multa (%)</span>
+                      <input inputMode="decimal" value={pv.multa} onChange={(e) => mudar('multa', e.target.value)} disabled={!isEditingMode} placeholder="ex.: 2" style={campo} />
+                    </label>
+                  </div>
+                  <p style={dica}>Ao receber um título vencido em Contas a Receber, o sistema sugere os juros (proporcionais aos dias de atraso) e a multa; quem recebe pode ajustar ou tirar. O valor entra como lançamento próprio "Juros e multa" no financeiro, e sai junto se o recebimento for estornado. Em branco: não sugere.</p>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Configurações Avançadas */}

@@ -225,6 +225,8 @@ const editarFilial = async ({ user, tenantId, corpo }) => db.runTransaction(asyn
 
 const espelho = require('../domain/cadastroGrupoDomain');
 const { transactionNetCents } = require('../domain/financeDomain');
+const parametrosVenda = require('../domain/parametrosVendaDomain');
+const { getDateInputInTimeZone } = require('../domain/dateTime');
 
 /** Mesmas formas excluidas do saldo em aberto em src/utils/contasReceberQuery.ts (cartao fica na tela Banco). */
 const FORMAS_EXCLUIDAS_SALDO_ABERTO = ['Cartão de Crédito', 'Cartão de Débito'];
@@ -278,6 +280,7 @@ const saldoDoClienteNoGrupo = async ({ user, clienteId }) => {
   if (!copias.some((d) => d.id === clienteSnap.id)) copias.push(clienteSnap);
 
   const porFilial = [];
+  const titulosPendentes = [];
   for (const copia of copias) {
     const tenantId = copia.data().tenantId;
     const snap = await db.collection('transacoes')
@@ -285,13 +288,16 @@ const saldoDoClienteNoGrupo = async ({ user, clienteId }) => {
       .where('clienteId', '==', copia.id)
       .where('status', '==', 'Pendente')
       .get();
+    snap.docs.forEach((d) => titulosPendentes.push(d.data()));
     const centavos = snap.docs.reduce((total, d) => (
       FORMAS_EXCLUIDAS_SALDO_ABERTO.includes(d.data().formaPagamento) ? total : total + transactionNetCents(d.data())
     ), 0);
     const filial = doGrupo.get(tenantId);
     porFilial.push({ tenantId, codigo: filial ? filial.codigo : '', nome: filial ? filial.nome : '', centavos });
   }
-  return { totalCentavos: porFilial.reduce((s, f) => s + f.centavos, 0), porFilial };
+  // Parametros de venda, fase A (2026-10-07): bloqueio da venda a prazo por atraso olha o grupo inteiro.
+  const maiorAtrasoDias = parametrosVenda.maiorAtrasoEmDias(titulosPendentes, getDateInputInTimeZone());
+  return { totalCentavos: porFilial.reduce((s, f) => s + f.centavos, 0), maiorAtrasoDias, porFilial };
 };
 
 // ---------------------------------------------------------------------------

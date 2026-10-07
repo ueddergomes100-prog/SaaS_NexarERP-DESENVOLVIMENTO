@@ -10,7 +10,7 @@ import { isPlatformAdminRole } from '../../utils/roles';
 import { moduleLabelMap } from '../../utils/moduleCatalog';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { showError, showSuccess } from '../../utils/alerts';
-import { lerGrupo, mensalidadeComFiliais, type GrupoEmpresarial } from '../../utils/filialDomain';
+import { lerGrupo, lerLimiteFiliais, lerPercentualFilial, mensalidadeComFiliais, type GrupoEmpresarial } from '../../utils/filialDomain';
 import { spedyAdminService, type SpedyMasterKeyStatus } from '../../services/spedyAdminService';
 import CadastrarEmpresaSpedyModal from '../../components/admin/CadastrarEmpresaSpedyModal';
 
@@ -30,7 +30,11 @@ interface TenantInfo {
   createdAt?: any;
   /** Filiais (fase 5, 2026-10-06): grupo em que a empresa e' a matriz. */
   grupo?: GrupoEmpresarial | null;
-  /** Mensalidade da matriz + filiais ativas x valor por filial. */
+  /** Quantas filiais (alem da matriz) a empresa pode ter. Padrao 0 = nao contratou. */
+  limiteFiliais: number;
+  /** % da mensalidade que cada filial ativa paga. */
+  percentualFilial: number;
+  /** Mensalidade + filiais ativas x (mensalidade x %). */
   valorTotal: number;
 }
 
@@ -157,6 +161,8 @@ const SuperAdmin: React.FC = () => {
               limiteAcessoMobile: data.limiteAcessoMobile !== undefined ? data.limiteAcessoMobile : 0,
               createdAt: data.createdAt,
               grupo: null,
+              limiteFiliais: lerLimiteFiliais(data.limiteFiliais),
+              percentualFilial: lerPercentualFilial(data.percentualFilial),
               valorTotal: data.valorMensalidade || 149.90,
             });
           }
@@ -170,7 +176,7 @@ const SuperAdmin: React.FC = () => {
           grupos.forEach((g) => { const grupo = lerGrupo(g.id, g.data()); porMatriz.set(grupo.matrizTenantId, grupo); });
           listOfTenants.forEach((t) => {
             t.grupo = porMatriz.get(t.id) ?? null;
-            t.valorTotal = mensalidadeComFiliais(t.valor, t.grupo).total;
+            t.valorTotal = mensalidadeComFiliais(t.valor, t.grupo, t.percentualFilial).total;
           });
         } catch (erroGrupos) {
           console.warn('SuperAdmin: não foi possível ler os grupos de filiais.', erroGrupos);
@@ -210,7 +216,7 @@ const SuperAdmin: React.FC = () => {
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Mensalidade alterada pelo admin da plataforma'),
         });
         
-        setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, valor: Number(novoValor), valorTotal: mensalidadeComFiliais(Number(novoValor), t.grupo).total } : t));
+        setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, valor: Number(novoValor), valorTotal: mensalidadeComFiliais(Number(novoValor), t.grupo, t.percentualFilial).total } : t));
         Swal.fire('Atualizado!', 'Mensalidade atualizada com sucesso.', 'success');
       } catch (err) {
         console.error(err);
@@ -219,42 +225,77 @@ const SuperAdmin: React.FC = () => {
     }
   };
 
-  /** Filiais (fase 5): valor mensal de cada filial alem da matriz. */
-  const handleEditValorFilial = async (tenant: TenantInfo) => {
-    const grupo = tenant.grupo;
-    if (!grupo || !currentUser) return;
-    const { value: novoValor } = await Swal.fire({
-      title: 'Valor por filial',
+  /** Filiais (07/10): quantas filiais a empresa pode ter alem da matriz -- como o limite de acesso mobile. */
+  const handleEditLimiteFiliais = async (tenant: TenantInfo) => {
+    if (!currentUser) return;
+    const emUso = tenant.grupo ? tenant.grupo.filiais.filter((f) => f.ativa && !f.matriz).length : 0;
+    const { value: novoLimite } = await Swal.fire({
+      title: 'Filiais do plano',
       input: 'number',
-      inputLabel: `Quanto cada filial ativa de ${tenant.nomeOficina} paga por mês, além da mensalidade da matriz (R$)`,
-      inputValue: grupo.valorFilialAdicional || '',
-      inputAttributes: { min: '0', step: '0.01' },
+      inputLabel: `Quantas filiais (além da matriz) ${tenant.nomeOficina} pode ter. Hoje usa ${emUso}. Com 0, o menu Filiais nem aparece para a empresa.`,
+      inputValue: String(tenant.limiteFiliais),
+      inputAttributes: { min: '0', step: '1' },
       showCancelButton: true,
-      confirmButtonText: 'Salvar valor',
+      confirmButtonColor: '#8b5cf6',
+      confirmButtonText: 'Salvar',
       cancelButtonText: 'Cancelar',
       inputValidator: (value) => {
-        if (value === '' || !Number.isFinite(Number(value)) || Number(value) < 0) {
-          return 'Informe o valor por filial (use 0 para não cobrar).';
-        }
+        if (value === '' || !Number.isInteger(Number(value)) || Number(value) < 0) return 'Informe um número inteiro maior ou igual a 0.';
+        if (Number(value) < emUso) return `A empresa já tem ${emUso} filial(is) ativa(s). Inative filiais antes de reduzir o limite.`;
         return undefined;
       }
     });
-    if (novoValor === undefined) return;
-    const valor = Math.round(Number(novoValor) * 100) / 100;
+    if (novoLimite === undefined || novoLimite === null) return;
+    const val = Number(novoLimite);
+    setLoading(true);
     try {
-      await updateDoc(doc(db, 'grupos', grupo.id), {
-        valorFilialAdicional: valor,
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Valor por filial alterado pelo admin da plataforma'),
-      });
-      setTenants(prev => prev.map(t => {
-        if (t.id !== tenant.id || !t.grupo) return t;
-        const novoGrupo = { ...t.grupo, valorFilialAdicional: valor };
-        return { ...t, grupo: novoGrupo, valorTotal: mensalidadeComFiliais(t.valor, novoGrupo).total };
-      }));
-      showSuccess('Valor por filial atualizado.');
+      const meta = buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Limite de filiais alterado pelo admin da plataforma');
+      await updateDoc(doc(db, 'usuarios', tenant.id), { limiteFiliais: val, ...meta });
+      try {
+        await updateDoc(doc(db, 'configuracoes', tenant.id), { limiteFiliais: val, ...meta });
+      } catch {
+        await setDoc(doc(db, 'configuracoes', tenant.id), { limiteFiliais: val, ...meta }, { merge: true });
+      }
+      setTenants(prev => prev.map(t => t.id === tenant.id ? { ...t, limiteFiliais: val } : t));
+      showSuccess('Limite de filiais atualizado.');
     } catch (err) {
-      console.error('Erro ao salvar o valor por filial', err);
-      showError('Não foi possível salvar o valor por filial', 'Confira se as regras do banco de dados desta versão já foram publicadas e tente de novo.');
+      console.error('Erro ao salvar o limite de filiais', err);
+      showError('Não foi possível salvar o limite de filiais', 'Confira se as regras do banco de dados desta versão já foram publicadas e tente de novo.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** Filiais (07/10): cada filial ativa paga um % da mensalidade da empresa. */
+  const handleEditPercentualFilial = async (tenant: TenantInfo) => {
+    if (!currentUser) return;
+    const { value: novoPercentual } = await Swal.fire({
+      title: 'Percentual por filial',
+      input: 'number',
+      inputLabel: `Quanto cada filial ativa de ${tenant.nomeOficina} paga por mês, em % da mensalidade (${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(tenant.valor)}).`,
+      inputValue: tenant.percentualFilial || '',
+      inputAttributes: { min: '0', max: '100', step: '0.5' },
+      showCancelButton: true,
+      confirmButtonColor: '#8b5cf6',
+      confirmButtonText: 'Salvar percentual',
+      cancelButtonText: 'Cancelar',
+      inputValidator: (value) => {
+        if (value === '' || !Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 100) return 'Informe um percentual entre 0 e 100 (0 = não cobra).';
+        return undefined;
+      }
+    });
+    if (novoPercentual === undefined || novoPercentual === null) return;
+    const pct = lerPercentualFilial(novoPercentual);
+    try {
+      await updateDoc(doc(db, 'usuarios', tenant.id), {
+        percentualFilial: pct,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Percentual por filial alterado pelo admin da plataforma'),
+      });
+      setTenants(prev => prev.map(t => (t.id === tenant.id ? { ...t, percentualFilial: pct, valorTotal: mensalidadeComFiliais(t.valor, t.grupo, pct).total } : t)));
+      showSuccess('Percentual por filial atualizado.');
+    } catch (err) {
+      console.error('Erro ao salvar o percentual por filial', err);
+      showError('Não foi possível salvar o percentual por filial', 'Confira se as regras do banco de dados desta versão já foram publicadas e tente de novo.');
     }
   };
 
@@ -869,6 +910,7 @@ const SuperAdmin: React.FC = () => {
                   <th style={{ padding: '16px 0' }}>Mensalidade</th>
                   <th style={{ padding: '16px 0' }}>Usuários</th>
                   <th style={{ padding: '16px 0' }}>Acesso Mobile</th>
+                  <th style={{ padding: '16px 0' }}>Filiais</th>
                   <th style={{ padding: '16px 0' }}>Status Fatura</th>
                   <th style={{ padding: '16px 0', textAlign: 'right' }}>Ação</th>
                 </tr>
@@ -911,25 +953,25 @@ const SuperAdmin: React.FC = () => {
                           <Edit2 size={14} />
                         </button>
                       </div>
-                      {tenant.grupo && (() => {
-                        const cobranca = mensalidadeComFiliais(tenant.valor, tenant.grupo);
+                      {(tenant.grupo || tenant.limiteFiliais > 0) && (() => {
+                        const cobranca = mensalidadeComFiliais(tenant.valor, tenant.grupo, tenant.percentualFilial);
                         const brl = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
                         const qtd = `${cobranca.filiais} ${cobranca.filiais === 1 ? 'filial' : 'filiais'}`;
                         return (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>
                             <span>
-                              {cobranca.filiais === 0
-                                ? 'Sem filiais ativas'
-                                : cobranca.valorPorFilial > 0
-                                  ? `+ ${qtd} × ${brl(cobranca.valorPorFilial)} = ${brl(cobranca.total)}`
-                                  : `+ ${qtd} · valor por filial não definido`}
+                              {cobranca.percentual === 0
+                                ? `Filiais: % não definido${cobranca.filiais > 0 ? ` (${qtd} ativa${cobranca.filiais === 1 ? '' : 's'})` : ''}`
+                                : cobranca.filiais === 0
+                                  ? `Filial: ${cobranca.percentual}% (${brl(cobranca.valorPorFilial)} cada) · nenhuma ativa`
+                                  : `+ ${qtd} × ${cobranca.percentual}% (${brl(cobranca.valorPorFilial)}) = ${brl(cobranca.total)}`}
                             </span>
                             <button
                               className="icon-btn"
-                              onClick={() => { void handleEditValorFilial(tenant); }}
+                              onClick={() => { void handleEditPercentualFilial(tenant); }}
                               style={{ padding: '2px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                              title="Editar valor por filial"
-                              aria-label={`Editar valor por filial de ${tenant.nomeOficina}`}
+                              title="Editar percentual por filial"
+                              aria-label={`Editar percentual por filial de ${tenant.nomeOficina}`}
                             >
                               <Edit2 size={12} />
                             </button>
@@ -960,6 +1002,22 @@ const SuperAdmin: React.FC = () => {
                           onClick={() => handleEditLimiteAcessoMobile(tenant.id, tenant.limiteAcessoMobile !== undefined ? tenant.limiteAcessoMobile : 0)}
                           style={{ padding: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
                           title="Editar Limite de Acesso Mobile"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                    <td style={{ padding: '16px 0', fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={!tenant.limiteFiliais ? { color: 'var(--text-muted)' } : undefined} title="Filiais além da matriz: em uso / liberadas no plano">
+                          {tenant.grupo ? tenant.grupo.filiais.filter((f) => f.ativa && !f.matriz).length : 0}/{tenant.limiteFiliais}
+                        </span>
+                        <button
+                          className="icon-btn"
+                          onClick={() => { void handleEditLimiteFiliais(tenant); }}
+                          style={{ padding: '4px', backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          title="Editar filiais do plano"
+                          aria-label={`Editar filiais do plano de ${tenant.nomeOficina}`}
                         >
                           <Edit2 size={14} />
                         </button>

@@ -39,8 +39,17 @@ const lerGrupoDaCasa = async (tx, casaTenantId) => {
   return { config, grupo: grupoSnap.exists ? dominio.lerGrupo(grupoSnap.id, grupoSnap.data()) : null };
 };
 
-const resumoParaTela = (grupo, usuario) => ({
+/** Limite de filiais contratado: mora no registro do dono da MATRIZ (usuarios/{matriz}). */
+const lerLimiteFiliais = async (tx, matrizTenantId) => {
+  const snap = await tx.get(db.collection('usuarios').doc(matrizTenantId));
+  return dominio.lerLimiteFiliais(snap.exists ? snap.data().limiteFiliais : undefined);
+};
+
+const resumoParaTela = (grupo, usuario, limiteFiliais) => ({
   grupo: grupo ? { id: grupo.id, nome: grupo.nome, matrizTenantId: grupo.matrizTenantId } : null,
+  // Plano (07/10): quantas filiais a empresa pode ter alem da matriz e quantas ja' usa.
+  limiteFiliais,
+  filiaisEmUso: dominio.filiaisCobradas(grupo),
   casa: usuario.tenantId,
   filialAtiva: dominio.filialAtivaDoUsuario(usuario),
   filiais: dominio.filiaisDoUsuario(grupo, usuario),
@@ -57,7 +66,8 @@ const resumoParaTela = (grupo, usuario) => ({
 const listarFiliais = async ({ user }) => db.runTransaction(async (tx) => {
   const usuario = await lerUsuario(tx, user.uid);
   const { grupo } = await lerGrupoDaCasa(tx, usuario.tenantId);
-  return resumoParaTela(grupo, usuario);
+  const limiteFiliais = await lerLimiteFiliais(tx, grupo ? grupo.matrizTenantId : usuario.tenantId);
+  return resumoParaTela(grupo, usuario, limiteFiliais);
 });
 
 /** Entra em outra filial: grava a filial ativa do usuario (ou apaga, ao voltar para a casa). */
@@ -96,6 +106,11 @@ const criarFilial = async ({ user, corpo }) => db.runTransaction(async (tx) => {
   exigirGestor(casa.grupo, usuario, 'cadastrar filiais');
 
   const matrizTenantId = casa.grupo ? casa.grupo.matrizTenantId : usuario.tenantId;
+  // Trava do plano (07/10): como o limite de usuarios, so' o admin da plataforma libera.
+  const registroMatrizSnap = await tx.get(db.collection('usuarios').doc(matrizTenantId));
+  const registroMatriz = registroMatrizSnap.exists ? registroMatrizSnap.data() : {};
+  const erroLimite = dominio.erroLimiteDeFiliais(casa.grupo, dominio.lerLimiteFiliais(registroMatriz.limiteFiliais));
+  if (erroLimite) throw new ErroFilial(403, erroLimite);
   const configMatriz = matrizTenantId === usuario.tenantId
     ? casa.config
     : ((await tx.get(db.collection('configuracoes').doc(matrizTenantId))).data() || {});
@@ -116,10 +131,7 @@ const criarFilial = async ({ user, corpo }) => db.runTransaction(async (tx) => {
     }
   }
 
-  const registroMatrizSnap = await tx.get(db.collection('usuarios').doc(matrizTenantId));
-  const modulosBloqueados = registroMatrizSnap.exists && Array.isArray(registroMatrizSnap.data().modulosBloqueados)
-    ? registroMatrizSnap.data().modulosBloqueados
-    : [];
+  const modulosBloqueados = Array.isArray(registroMatriz.modulosBloqueados) ? registroMatriz.modulosBloqueados : [];
 
   const grupoRef = casa.grupo ? db.collection('grupos').doc(casa.grupo.id) : db.collection('grupos').doc();
   const novaRef = db.collection('configuracoes').doc();
@@ -185,6 +197,11 @@ const editarFilial = async ({ user, tenantId, corpo }) => db.runTransaction(asyn
   if (!ativa && atual.matriz) throw new ErroFilial(400, 'A matriz não pode ser inativada.');
   if (!ativa && atual.ativa && dominio.filialAtivaDoUsuario(usuario) === tenantId) {
     throw new ErroFilial(400, 'Você está trabalhando nesta filial. Entre em outra antes de inativá-la.');
+  }
+  if (ativa && !atual.ativa) {
+    // Reativar ocupa uma vaga do plano, como cadastrar.
+    const erroLimite = dominio.erroLimiteDeFiliais(grupo, await lerLimiteFiliais(tx, grupo.matrizTenantId));
+    if (erroLimite) throw new ErroFilial(403, erroLimite);
   }
 
   const anteriores = dominio.dadosDaFilialNaConfiguracao(atual, config);

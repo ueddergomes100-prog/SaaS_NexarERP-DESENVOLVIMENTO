@@ -102,7 +102,8 @@ const Sidebar: React.FC = () => {
     trabalhaComCondicional,
     temVendedorCadastrado,
     nivelAcesso,
-    grupo
+    grupo,
+    limiteFiliais
   } = useAuth();
   const navigate = useNavigate();
   const { tabs, activeTabId, openTab } = useTabs();
@@ -158,6 +159,8 @@ const Sidebar: React.FC = () => {
     if (!trabalhaComCondicional && item.module === 'comercial.condicional') return false;
     // Transferencias so' existem em empresa com filiais (2026-10-06).
     if (!grupo && item.to === '/estoque/transferencias') return false;
+    // Filiais nao liberadas no plano (07/10): o menu nem aparece.
+    if (!grupo && limiteFiliais === 0 && item.to === '/configuracoes/filiais') return false;
     if (item.managerOnly && !hasFullAccess) return false;
     // Funcionario nivel Gerente enxerga o menu Usuarios mesmo sem a permissao
     // 'administrativo.equipe' marcada -- e' o mesmo bypass que ja libera o
@@ -165,7 +168,7 @@ const Sidebar: React.FC = () => {
     // sem isto aqui o menu nunca aparecia pra ele abrir a tela em primeiro lugar.
     if (item.permission === 'administrativo.equipe' && podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso })) return true;
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, grupo, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
+  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, grupo, limiteFiliais, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
 
   const groups = useMemo<NavGroup[]>(() => [
     {

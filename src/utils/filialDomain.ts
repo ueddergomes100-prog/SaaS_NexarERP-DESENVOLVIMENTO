@@ -40,9 +40,6 @@ export interface GrupoEmpresarial {
   filiais: FilialDoGrupo[];
   /** Copia dos modulos bloqueados da matriz, para as filiais (o plano e' do grupo). */
   modulosBloqueados: string[];
-  /** Cobranca (fase 5): valor mensal de cada filial alem da matriz, em reais.
-   *  So' o admin da plataforma grava (SuperAdmin). 0 = ainda nao definido. */
-  valorFilialAdicional: number;
 }
 
 export interface UsuarioDaFilial {
@@ -95,28 +92,46 @@ export const lerGrupo = (id: string, dados: unknown): GrupoEmpresarial => {
     matrizTenantId: texto(g.matrizTenantId),
     filiais,
     modulosBloqueados: lista(g.modulosBloqueados),
-    valorFilialAdicional: Math.max(0, Number(g.valorFilialAdicional) || 0),
   };
 };
 
 /**
- * COBRANCA DAS FILIAIS (fase 5 -- 2026-10-06). Decisao do dono: cada filial
- * paga um valor menor que a mensalidade da matriz. Conta so' filial ATIVA e
- * que nao e' a matriz (a matriz ja' paga a mensalidade normal).
+ * PLANO E COBRANCA DAS FILIAIS (fase 5 -- 2026-10-06, ajustado em 07/10).
+ * Decisoes do dono: a quantidade de filiais e' contratada a parte, como os
+ * limites de usuarios e de acesso mobile (`usuarios/{matriz}.limiteFiliais`,
+ * so' o admin da plataforma grava; padrao 0 = sem filiais); cada filial paga
+ * um PERCENTUAL da mensalidade da empresa (`percentualFilial`). A matriz
+ * nao conta no limite nem na cobranca: conta so' filial ATIVA alem dela.
  */
+export const LIMITE_FILIAIS_PADRAO = 0;
+
+export const lerLimiteFiliais = (valor: unknown): number => Math.max(0, Math.floor(Number(valor) || 0));
+
+export const lerPercentualFilial = (valor: unknown): number => Math.min(100, Math.max(0, Number(valor) || 0));
+
 export const filiaisCobradas = (grupo: Pick<GrupoEmpresarial, 'filiais'> | null | undefined): number => (
   grupo ? grupo.filiais.filter((f) => f.ativa && !f.matriz).length : 0
 );
 
+/** Mensagem que impede cadastrar (ou reativar) mais uma filial; null = pode. */
+export const erroLimiteDeFiliais = (grupo: Pick<GrupoEmpresarial, 'filiais'> | null | undefined, limite: number): string | null => {
+  const usadas = filiaisCobradas(grupo);
+  if (usadas < limite) return null;
+  if (limite === 0) return 'Sua empresa ainda não tem filiais liberadas no plano. Fale com o suporte para contratar.';
+  return `Sua empresa já usa ${limite === 1 ? 'a filial' : `as ${limite} filiais`} do plano. Fale com o suporte para aumentar o limite.`;
+};
+
 export const mensalidadeComFiliais = (
   valorDaMatriz: number,
-  grupo: Pick<GrupoEmpresarial, 'filiais' | 'valorFilialAdicional'> | null | undefined,
-): { filiais: number; valorPorFilial: number; adicional: number; total: number } => {
+  grupo: Pick<GrupoEmpresarial, 'filiais'> | null | undefined,
+  percentualFilial: unknown,
+): { filiais: number; percentual: number; valorPorFilial: number; adicional: number; total: number } => {
   const base = Math.max(0, Number(valorDaMatriz) || 0);
   const filiais = filiaisCobradas(grupo);
-  const valorPorFilial = grupo ? Math.max(0, Number(grupo.valorFilialAdicional) || 0) : 0;
+  const percentual = lerPercentualFilial(percentualFilial);
+  const valorPorFilial = Math.round(base * percentual) / 100;
   const adicional = Math.round(filiais * valorPorFilial * 100) / 100;
-  return { filiais, valorPorFilial, adicional, total: Math.round((base + adicional) * 100) / 100 };
+  return { filiais, percentual, valorPorFilial, adicional, total: Math.round((base + adicional) * 100) / 100 };
 };
 
 const ordenarCodigo = (a: string, b: string): number => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b);

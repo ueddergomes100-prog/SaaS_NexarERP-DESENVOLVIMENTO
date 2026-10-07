@@ -45,6 +45,10 @@ const FiliaisList: React.FC = () => {
   }, [resumo, mostrarInativas]);
   const inativas = (resumo?.todasAsFiliais ?? []).filter((f) => !f.ativa).length;
   const semGrupo = Boolean(resumo && !resumo.grupo);
+  // Plano (07/10): vagas de filial alem da matriz.
+  const limite = resumo?.limiteFiliais ?? 0;
+  const emUso = resumo?.filiaisEmUso ?? 0;
+  const semVaga = Boolean(resumo) && emUso >= limite;
 
   const abrirNova = () => { setEmEdicao(null); setFormAberto(true); };
   const abrirEdicao = (filial: FilialDoGrupo) => { setEmEdicao(filial); setFormAberto(true); };
@@ -90,6 +94,14 @@ const FiliaisList: React.FC = () => {
     }
   };
 
+  if (!carregando && semGrupo && limite === 0) {
+    return (
+      <div className="card" style={{ padding: '32px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
+        <EstadoVazio titulo="Filiais não estão liberadas no plano da sua empresa." texto="Fale com o suporte para contratar filiais. Depois da liberação, o menu Configurações → Filiais passa a cadastrar lojas e depósitos da mesma empresa." />
+      </div>
+    );
+  }
+
   if (!carregando && !ehGestorDasFiliais) {
     return (
       <div className="card" style={{ padding: '32px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
@@ -111,9 +123,14 @@ const FiliaisList: React.FC = () => {
           </p>
         </div>
         {!semGrupo && (
-          <button className="btn-primary" onClick={abrirNova} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Plus size={20} /> Nova filial
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+            <button className="btn-primary" onClick={abrirNova} disabled={semVaga} title={semVaga ? 'Todas as filiais do plano estão em uso' : undefined} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Plus size={20} /> Nova filial
+            </button>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              {emUso} de {limite} {limite === 1 ? 'filial' : 'filiais'} do plano em uso{semVaga ? ' · fale com o suporte para aumentar' : ''}
+            </span>
+          </div>
         )}
       </div>
 
@@ -124,7 +141,7 @@ const FiliaisList: React.FC = () => {
           <EstadoVazio
             titulo="Sua empresa ainda não tem filiais"
             texto="Cadastre a primeira filial (outra loja ou um depósito). A empresa atual vira a matriz, com o código 10."
-            acao={{ rotulo: 'Cadastrar a primeira filial', onClick: abrirNova, icone: <Plus size={16} /> }}
+            acao={semVaga ? undefined : { rotulo: 'Cadastrar a primeira filial', onClick: abrirNova, icone: <Plus size={16} /> }}
           />
         ) : (
           <>

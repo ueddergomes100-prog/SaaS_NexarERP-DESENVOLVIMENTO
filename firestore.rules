@@ -80,6 +80,10 @@ service cloud.firestore {
         // motivo do limiteUsuarios: contratado a parte, so o SuperAdmin
         // altera. Padrao quando ausente e' 0 -- ver acessoMobileDomain.ts.
         'limiteAcessoMobile',
+        // Filiais (07/10): quantas filiais a empresa pode ter alem da matriz e
+        // o % da mensalidade que cada uma paga. Mesmo motivo dos limites acima.
+        'limiteFiliais',
+        'percentualFilial',
         'limites',
         'statusSaas',
         'billingStatus',
@@ -533,18 +537,14 @@ service cloud.firestore {
     }
 
     // Grupo de filiais (2026-10-06). Le quem trabalha numa filial do grupo;
-    // so' o servidor grava (services/filiais.js) -- exceto o valor cobrado
-    // por filial, que o admin da plataforma ajusta no SuperAdmin (fase 5).
+    // so' o servidor grava (services/filiais.js). Limite e cobranca das
+    // filiais ficam em usuarios/{matriz} (platformManagedFields), nao aqui.
     match /grupos/{grupoId} {
       allow read: if isSuperAdmin() || (
         hasProfile() && perfilAtivo() &&
         get(/databases/$(database)/documents/configuracoes/$(currentTenantId())).data.get('grupoId', '') == grupoId
       );
-      allow update: if isSuperAdmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['valorFilialAdicional', 'alteradoPor', 'alteradoEm', 'ultimaAlteracao'])
-        && request.resource.data.valorFilialAdicional is number
-        && request.resource.data.valorFilialAdicional >= 0;
-      allow create, delete: if false;
+      allow write: if false;
     }
 
     // Transferencias entre filiais (2026-10-06, fase 3): as duas filiais

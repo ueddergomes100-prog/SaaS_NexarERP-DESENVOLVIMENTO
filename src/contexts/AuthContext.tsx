@@ -35,7 +35,7 @@ import {
   parseTrabalhaComPreVenda,
 } from '../utils/preVendaDomain';
 import { DEFAULT_CONFERENCIA_MERCADORIA } from '../utils/conferenciaDomain';
-import { ehGestorDoGrupo, filiaisDoUsuario, lerGrupo, podeUsarOutrasFiliais, type FilialDoGrupo, type GrupoEmpresarial } from '../utils/filialDomain';
+import { ehGestorDoGrupo, filiaisDoUsuario, lerGrupo, podeUsarOutrasFiliais, type FilialDoGrupo, type GrupoEmpresarial, lerLimiteFiliais } from '../utils/filialDomain';
 import { entrarNaFilial } from '../services/filialService';
 import { DEFAULT_TRABALHA_COM_CONDICIONAL, parseTrabalhaComCondicional } from '../utils/condicionalDomain';
 import { DEFAULT_LOTE_AVISAR_VENCIDO, DEFAULT_LOTE_MODO_SAIDA, parseLoteAvisarVencido, parseLoteModoSaida, type ModoSaidaLote } from '../utils/loteDomain';
@@ -54,6 +54,8 @@ interface AuthContextType {
   homeTenantId: string | null;
   /** Grupo de filiais da empresa (null quando ela nao tem filiais). */
   grupo: GrupoEmpresarial | null;
+  /** Filiais liberadas no plano da empresa casa (usuarios/{dono}.limiteFiliais). 0 = menu Filiais escondido. */
+  limiteFiliais: number;
   /** Filiais em que o usuario pode entrar (ativas). */
   filiaisDoUsuario: FilialDoGrupo[];
   /** A filial em que o usuario esta agora (null sem grupo). */
@@ -190,6 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [grupoId, setGrupoId] = useState<string | null>(null);
   const [grupo, setGrupo] = useState<GrupoEmpresarial | null>(null);
   const [blockedModules, setBlockedModules] = useState<string[]>([]);
+  const [limiteFiliais, setLimiteFiliais] = useState(0);
   const [isOwner, setIsOwner] = useState<boolean>(false);
   const [tenantOptions, setTenantOptions] = useState<TenantOption[]>([]);
   const [selectedTenant, setSelectedTenant] = useState<TenantOption | null>(null);
@@ -391,17 +394,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setAcessoAppMobile(data.acessoAppMobile === true);
             setUserNome(typeof data.nome === 'string' && data.nome ? data.nome : (typeof data.nomeResponsavel === 'string' ? data.nomeResponsavel : ''));
             let finalBlockedModules: string[] = [];
+            let limiteFiliaisDoPlano = 0;
 
             // Modulos do plano: do dono da empresa CASA (na filial, o grupo
             // sobrepoe -- ver o efeito do grupo). Ler usuarios/{filial} dava
             // permissao negada: a filial nao tem usuario proprio.
             if (user.uid === homeTenant) {
               finalBlockedModules = toStringArray(data.modulosBloqueados);
+              limiteFiliaisDoPlano = lerLimiteFiliais(data.limiteFiliais);
             } else {
               try {
                 const ownerDoc = await getDoc(doc(db, 'usuarios', homeTenant));
                 if (ownerDoc.exists()) {
                   finalBlockedModules = toStringArray(ownerDoc.data().modulosBloqueados);
+                  limiteFiliaisDoPlano = lerLimiteFiliais(ownerDoc.data().limiteFiliais);
                 }
               } catch (error) {
                 console.error('Erro ao buscar modulos bloqueados do dono:', error);
@@ -416,6 +422,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setTenantId(finalTenant);
             setHomeTenantId(homeTenant);
             setBlockedModules(finalBlockedModules);
+            setLimiteFiliais(limiteFiliaisDoPlano);
             // Dono = quem abriu a conta (a casa dele e' o uid), em qualquer filial.
             setIsOwner(user.uid === homeTenant);
             setLoading(false);
@@ -702,7 +709,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComCondicional, permiteVendaSemEstoque, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComCondicional, permiteVendaSemEstoque, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
       {children}
     </AuthContext.Provider>
   );

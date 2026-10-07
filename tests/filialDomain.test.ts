@@ -12,7 +12,7 @@ import {
   proximoCodigoDeFilial,
   validarDadosDaFilial,
   validarNomeECodigoDaFilial,
-  validarTrocaDeFilial, mensalidadeComFiliais } from '../src/utils/filialDomain';
+  validarTrocaDeFilial, mensalidadeComFiliais, erroLimiteDeFiliais, lerLimiteFiliais, lerPercentualFilial } from '../src/utils/filialDomain';
 
 const CNPJ_MATRIZ = '11222333000181';
 const CNPJ_FILIAL = '11222333000262';
@@ -116,10 +116,22 @@ test('matriz: a empresa atual vira a filial 10 com os dados dela', () => {
   assert.deepEqual(m, { tenantId: 'dono', codigo: '10', nome: 'LOJA CENTRO', cnpj: CNPJ_MATRIZ, uf: 'ES', cidade: 'VITÓRIA', tipo: 'cnpj_proprio', matriz: true, ativa: true });
 });
 
-test('cobranca: filial ativa alem da matriz paga o valor por filial; sem valor definido nao soma', () => {
+test('cobranca: filial ativa alem da matriz paga um % da mensalidade; sem % definido nao soma', () => {
   const filial = (codigo: string, matriz: boolean, ativa = true) => ({ tenantId: codigo, codigo, nome: codigo, cnpj: '', uf: '', cidade: '', tipo: 'cnpj_proprio' as const, matriz, ativa });
-  const grupo = { filiais: [filial('10', true), filial('20', false), filial('30', false), filial('40', false, false)], valorFilialAdicional: 59.9 };
-  assert.deepEqual(mensalidadeComFiliais(149.9, grupo), { filiais: 2, valorPorFilial: 59.9, adicional: 119.8, total: 269.7 });
-  assert.deepEqual(mensalidadeComFiliais(149.9, { ...grupo, valorFilialAdicional: 0 }), { filiais: 2, valorPorFilial: 0, adicional: 0, total: 149.9 });
-  assert.deepEqual(mensalidadeComFiliais(149.9, null), { filiais: 0, valorPorFilial: 0, adicional: 0, total: 149.9 });
+  const grupo = { filiais: [filial('10', true), filial('20', false), filial('30', false), filial('40', false, false)] };
+  assert.deepEqual(mensalidadeComFiliais(149.9, grupo, 30), { filiais: 2, percentual: 30, valorPorFilial: 44.97, adicional: 89.94, total: 239.84 });
+  assert.deepEqual(mensalidadeComFiliais(149.9, grupo, undefined), { filiais: 2, percentual: 0, valorPorFilial: 0, adicional: 0, total: 149.9 });
+  assert.deepEqual(mensalidadeComFiliais(149.9, null, 30), { filiais: 0, percentual: 30, valorPorFilial: 44.97, adicional: 0, total: 149.9 });
+  assert.equal(lerPercentualFilial(150), 100);
+});
+
+test('limite de filiais do plano: matriz nao conta; 0 = nao liberado', () => {
+  const filial = (codigo: string, matriz: boolean, ativa = true) => ({ tenantId: codigo, codigo, nome: codigo, cnpj: '', uf: '', cidade: '', tipo: 'cnpj_proprio' as const, matriz, ativa });
+  const grupo = { filiais: [filial('10', true), filial('20', false), filial('30', false, false)] };
+  assert.match(String(erroLimiteDeFiliais(null, 0)), /não tem filiais liberadas/);
+  assert.equal(erroLimiteDeFiliais(null, 1), null);
+  assert.match(String(erroLimiteDeFiliais(grupo, 1)), /já usa a filial do plano/);
+  assert.equal(erroLimiteDeFiliais(grupo, 2), null, 'a inativa (30) nao conta');
+  assert.equal(lerLimiteFiliais('3.7'), 3);
+  assert.equal(lerLimiteFiliais(undefined), 0);
 });

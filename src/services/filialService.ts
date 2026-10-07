@@ -32,6 +32,9 @@ export interface ResumoDasFiliais {
   todasAsFiliais: FilialDoGrupo[];
   modulosBloqueados: string[];
   proximoCodigo: string;
+  /** Plano (07/10): filiais liberadas alem da matriz e quantas estao em uso. */
+  limiteFiliais: number;
+  filiaisEmUso: number;
 }
 
 const chamar = async <T>(metodo: 'GET' | 'POST' | 'PUT', caminho: string, corpo?: Record<string, unknown>): Promise<T> => {

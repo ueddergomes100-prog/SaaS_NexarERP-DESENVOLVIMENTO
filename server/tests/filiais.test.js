@@ -12,7 +12,7 @@ const configMatriz = {
 };
 
 const semGrupo = (extra = {}) => ({
-  'usuarios/dono': { tenantId: 'dono', role: 'Master', modulosBloqueados: ['producao'] },
+  'usuarios/dono': { tenantId: 'dono', role: 'Master', modulosBloqueados: ['producao'], limiteFiliais: 3 },
   'usuarios/f1': { tenantId: 'dono', role: 'Funcionario', permissoes: [] },
   'configuracoes/dono': configMatriz,
   ...extra,
@@ -67,6 +67,24 @@ test('segunda filial entra no mesmo grupo; codigo e CNPJ repetidos sao recusados
 test('CNPJ ja cadastrado como outra empresa do sistema e\' recusado', async () => {
   const fake = criarBancoFalso(semGrupo({ [`cnpjs_cadastrados/${CNPJ_FILIAL}`]: { tenantId: 'outra' } }));
   await assert.rejects(() => carregar(fake.db).criarFilial({ user: DONO, corpo: novaFilial() }), /já está cadastrado no sistema/);
+});
+
+test('limite de filiais do plano: sem liberacao nao cadastra; cheio nao cadastra nem reativa', async () => {
+  const semLiberacao = criarBancoFalso(semGrupo({ 'usuarios/dono': { tenantId: 'dono', role: 'Master' } }));
+  await assert.rejects(() => carregar(semLiberacao.db).criarFilial({ user: DONO, corpo: novaFilial() }), /não tem filiais liberadas no plano/);
+  assert.equal(semLiberacao.listar('grupos/').length, 0, 'nada e\' gravado');
+
+  const umaVaga = criarBancoFalso(semGrupo({ 'usuarios/dono': { tenantId: 'dono', role: 'Master', limiteFiliais: 1 } }));
+  const s = carregar(umaVaga.db);
+  const r = await s.criarFilial({ user: DONO, corpo: novaFilial() });
+  await assert.rejects(() => s.criarFilial({ user: DONO, corpo: novaFilial({ codigo: '30', cnpj: '11.222.333/0003-43' }) }), /já usa a filial do plano/);
+  await s.editarFilial({ user: DONO, tenantId: r.tenantId, corpo: { ativa: false } });
+  // Inativa libera a vaga: a segunda entra; reativar a primeira estoura o limite.
+  const r2 = await s.criarFilial({ user: DONO, corpo: novaFilial({ codigo: '30', cnpj: '11.222.333/0003-43' }) });
+  assert.ok(r2.tenantId);
+  await assert.rejects(() => s.editarFilial({ user: DONO, tenantId: r.tenantId, corpo: { ativa: true } }), /já usa a filial do plano/);
+  const lista = await s.listarFiliais({ user: DONO });
+  assert.deepEqual([lista.limiteFiliais, lista.filiaisEmUso], [1, 1]);
 });
 
 test('so\' dono ou administrador cadastra filial', async () => {

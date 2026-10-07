@@ -2,6 +2,7 @@ import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
 import { TRIBUTACAO_TRANSFERENCIA_OPCOES, TRIBUTACAO_TRANSFERENCIA_PADRAO, parseTributacaoTransferencia, type TributacaoTransferencia } from '../../utils/notaTransferenciaDomain';
 import { PARAMETROS_VENDA_PADRAO, parametrosVendaDoForm, parametrosVendaParaForm, parseParametrosVenda, type ParametrosVendaForm } from '../../utils/parametrosVendaDomain';
 import { DOCUMENTOS_COM_MENSAGEM, LIMITE_MENSAGEM_PADRAO, MENSAGENS_PADRAO_VAZIAS, parseMensagensPadrao, type MensagensPadrao } from '../../utils/mensagensPadraoDomain';
+import { DOCUMENTOS_DE_COBRANCA, EMISSAO_DOCUMENTOS_PADRAO, MODOS_DE_EMISSAO, VIAS_MAXIMAS, parseEmissaoDocumentos, type EmissaoDocumentos, type ModoEmissao } from '../../utils/documentosCobrancaDomain';
 import { ajustarNumeracao, listarNumeracao } from '../../services/numeracaoService';
 import type { SituacaoDaSequencia } from '../../utils/numeracaoDomain';
 import { isTenantManagerRole } from '../../utils/roles';
@@ -145,6 +146,7 @@ const Configuracoes: React.FC = () => {
   const [showParametrosVenda, setShowParametrosVenda] = useState(false);
   // Configuracoes por filial, fase B (2026-10-07): mensagens padrao por documento.
   const [showMensagensPadrao, setShowMensagensPadrao] = useState(false);
+  const [showEmissaoDocumentos, setShowEmissaoDocumentos] = useState(false);
   // Configuracoes por filial, fase C (2026-10-07): numeracao dos documentos (so' dono/administrador; vem do servidor).
   const [showNumeracao, setShowNumeracao] = useState(false);
   const [numeracao, setNumeracao] = useState<SituacaoDaSequencia[] | null>(null);
@@ -237,6 +239,7 @@ const Configuracoes: React.FC = () => {
     limiteDescontoPdv: { tipo: 'percentual' as DescontoTipo, valor: '' },
     parametrosVenda: parametrosVendaParaForm(PARAMETROS_VENDA_PADRAO) as ParametrosVendaForm,
     mensagensPadrao: { ...MENSAGENS_PADRAO_VAZIAS } as MensagensPadrao,
+    emissaoDocumentos: parseEmissaoDocumentos(EMISSAO_DOCUMENTOS_PADRAO) as EmissaoDocumentos,
     permitirDescontoPorItem: DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
     permitirDividirPagamento: DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
     ordemFormasPagamento: [] as string[],
@@ -403,6 +406,7 @@ const Configuracoes: React.FC = () => {
             limiteDescontoPdv: toLimiteDescontoFormValue(data.limiteDescontoPdv),
             parametrosVenda: parametrosVendaParaForm(parseParametrosVenda(data.parametrosVenda)),
             mensagensPadrao: parseMensagensPadrao(data.mensagensPadrao),
+            emissaoDocumentos: parseEmissaoDocumentos(data.emissaoDocumentos),
             permitirDescontoPorItem: parsePermitirDescontoPorItem(data.permitirDescontoPorItem),
             permitirDividirPagamento: parsePermitirDividirPagamento(data.permitirDividirPagamento),
             ordemFormasPagamento: parseOrdemFormasPagamento(data.ordemFormasPagamento),
@@ -929,6 +933,7 @@ const Configuracoes: React.FC = () => {
         ...publicFormData,
         parametrosVenda: parametrosVendaResultado.parametros,
         mensagensPadrao: parseMensagensPadrao(formData.mensagensPadrao),
+        emissaoDocumentos: parseEmissaoDocumentos(formData.emissaoDocumentos),
         diasCrediario: creditTerms.join(', '),
         maxParcelasCartao: maxCardInstallments,
         taxasCartaoCreditoPorParcela: creditCardFees,
@@ -2065,6 +2070,55 @@ const Configuracoes: React.FC = () => {
                     style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }}
                   />
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{docInfo.onde} Até {LIMITE_MENSAGEM_PADRAO} caracteres.</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Emissao por documento (Configuracoes por filial, fase D -- 2026-10-07). Padrao "Não emitir": nada muda; o botao manual continua em todo caso. */}
+        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showEmissaoDocumentos ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+            onClick={() => setShowEmissaoDocumentos(!showEmissaoDocumentos)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <FileText size={20} style={{ color: 'var(--accent-purple)' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Documentos ao vender e ao receber</h3>
+            </div>
+            <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {showEmissaoDocumentos ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
+          </div>
+
+          {showEmissaoDocumentos && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 8px' }}>
+                Recibo de pagamento, promissória, carnê e duplicata desta filial, em PDF. "Perguntar na hora" oferece o documento no momento certo; "Emitir sempre" abre o PDF sem perguntar; "Não emitir" deixa só o botão manual (Pedido de Venda → Mais ações → Documentos de cobrança; Contas a Receber → Recibo).
+              </p>
+              {DOCUMENTOS_DE_COBRANCA.map((docInfo) => (
+                <div key={docInfo.chave} style={{ display: 'grid', gridTemplateColumns: '1fr 190px 100px', gap: '16px', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border-color)' }}>
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 600 }}>{docInfo.rotulo}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{docInfo.quando}</div>
+                  </div>
+                  <select
+                    value={formData.emissaoDocumentos[docInfo.chave].modo}
+                    disabled={!isEditingMode}
+                    onChange={(e) => { const modo = e.target.value as ModoEmissao; setFormData((atual) => ({ ...atual, emissaoDocumentos: { ...atual.emissaoDocumentos, [docInfo.chave]: { ...atual.emissaoDocumentos[docInfo.chave], modo } } })); }}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}
+                  >
+                    {MODOS_DE_EMISSAO.map((m) => <option key={m.valor} value={m.valor}>{m.rotulo}</option>)}
+                  </select>
+                  <select
+                    value={formData.emissaoDocumentos[docInfo.chave].vias}
+                    disabled={!isEditingMode}
+                    title="Quantas vias saem no PDF"
+                    onChange={(e) => { const vias = Number(e.target.value); setFormData((atual) => ({ ...atual, emissaoDocumentos: { ...atual.emissaoDocumentos, [docInfo.chave]: { ...atual.emissaoDocumentos[docInfo.chave], vias } } })); }}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}
+                  >
+                    {Array.from({ length: VIAS_MAXIMAS }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n} via{n > 1 ? 's' : ''}</option>)}
+                  </select>
                 </div>
               ))}
             </div>

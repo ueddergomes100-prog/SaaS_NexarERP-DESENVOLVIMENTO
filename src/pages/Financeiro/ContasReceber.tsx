@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { collection, query, onSnapshot, where, doc, getDoc, getDocs, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
-import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2 } from 'lucide-react';
+import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText } from 'lucide-react';
 import {
   applyPaymentReceipt,
   fromCents,
@@ -28,6 +28,10 @@ import {
 } from '../../utils/baixaFinanceiraDomain';
 import { pedirDadosBaixa } from '../../utils/baixaFinanceiraUi';
 import { PARAMETROS_VENDA_PADRAO, acrescimoPorAtraso, descricaoDoAcrescimo, parseParametrosVenda, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
+import { emitenteDaConfiguracao, montarRecibo, parseEmissaoDocumentos, parteDoCliente } from '../../utils/documentosCobrancaDomain';
+import { gerarPdfRecibo } from '../../utils/documentosCobrancaPdf';
+import { mensagemDoDocumento, parseMensagensPadrao } from '../../utils/mensagensPadraoDomain';
+import PdfVisualizador from '../../components/common/PdfVisualizador';
 import { estornarBaixaComConfirmacao, registrarBaixa } from '../../services/baixaFinanceiraService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
@@ -104,12 +108,73 @@ const ContasReceber: React.FC = () => {
   const [periodoAte, setPeriodoAte] = useState('');
   // Parametros de venda da filial (fase A, 2026-10-07): juros e multa sugeridos na baixa em atraso.
   const [parametrosVenda, setParametrosVenda] = useState<ParametrosVenda>(PARAMETROS_VENDA_PADRAO);
+  // O documento inteiro fica guardado para o recibo de pagamento (fase D): empresa, mensagem padrao e regra de emissao.
+  const [configFilial, setConfigFilial] = useState<Record<string, unknown>>({});
   useEffect(() => {
     if (!tenantId) return;
     getDoc(doc(db, 'configuracoes', tenantId))
-      .then((snap) => setParametrosVenda(parseParametrosVenda(snap.exists() ? snap.data().parametrosVenda : undefined)))
-      .catch(() => setParametrosVenda(PARAMETROS_VENDA_PADRAO));
+      .then((snap) => {
+        const data = (snap.exists() ? snap.data() : {}) as Record<string, unknown>;
+        setConfigFilial(data);
+        setParametrosVenda(parseParametrosVenda(data.parametrosVenda));
+      })
+      .catch(() => { setConfigFilial({}); setParametrosVenda(PARAMETROS_VENDA_PADRAO); });
   }, [tenantId]);
+  const emissaoDocumentos = useMemo(() => parseEmissaoDocumentos(configFilial.emissaoDocumentos), [configFilial]);
+  const [pdfRecibo, setPdfRecibo] = useState<{ blob: Blob; nome: string } | null>(null);
+
+  /**
+   * Recibo de pagamento em PDF (Configuracoes por filial, fase D -- 2026-10-07):
+   * o titulo recebido mais os juros/multa da baixa, com a mensagem padrao da
+   * filial. Sempre disponivel pelo botao "Recibo" da conta recebida; ao dar
+   * baixa, sai conforme a filial configurou (perguntar / sempre / nunca).
+   */
+  const emitirRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number }) => {
+    try {
+      let cadastroCliente: unknown = null;
+      if (t.clienteId) {
+        const snapCliente = await getDoc(doc(db, 'clientes', t.clienteId));
+        if (snapCliente.exists()) cadastroCliente = snapCliente.data();
+      }
+      const recibo = montarRecibo({
+        titulo: {
+          id: t.id,
+          descricao: t.descricao,
+          valorCentavos: transactionNetCents(t),
+          formaPagamento: dados.formaPagamento || t.formaPagamento,
+          dataPagamento: dados.dataPagamento || t.dataPagamento || getDateInputInTimeZone(),
+        },
+        acrescimoCentavos: dados.acrescimoCentavos,
+        empresa: emitenteDaConfiguracao(configFilial),
+        cliente: parteDoCliente(cadastroCliente, t.clienteNome || 'Cliente'),
+        mensagem: mensagemDoDocumento(parseMensagensPadrao(configFilial.mensagensPadrao), 'recibo'),
+      });
+      setPdfRecibo({ blob: gerarPdfRecibo(recibo, emissaoDocumentos.recibo.vias), nome: `RECIBO ${recibo.numero} - ${recibo.pagador.nome}.pdf` });
+    } catch (error) {
+      console.error('Erro ao gerar o recibo:', error);
+      showError('Não foi possível gerar o recibo', error instanceof Error ? error.message : 'Tente de novo pelo botão Recibo da conta recebida.');
+    }
+  };
+
+  const oferecerRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number }) => {
+    const modo = emissaoDocumentos.recibo.modo;
+    if (modo === 'nunca') return;
+    if (modo === 'perguntar') {
+      const resposta = await NexusSwal.fire({
+        title: 'Emitir recibo de pagamento?',
+        text: `Recibo de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((transactionNetCents(t) + (dados.acrescimoCentavos || 0)) / 100)} para ${t.clienteNome || 'o cliente'}.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Emitir recibo',
+        cancelButtonText: 'Agora não',
+      });
+      if (!resposta.isConfirmed) return;
+    }
+    await emitirRecibo(t, dados);
+  };
+
+  /** Juros/multa que entraram junto com a baixa, para o recibo manual repetir o valor recebido de fato. */
+  const acrescimoDaBaixa = (t: TransacaoData) => Math.max(0, Math.round(Number(t.baixaManual?.acrescimoCentavos) || 0));
 
   /**
    * Baixa de Receber pelo servidor (services/baixaFinanceiraService): titulo,
@@ -303,6 +368,7 @@ const ContasReceber: React.FC = () => {
       showSuccess(formaPgto === 'Dinheiro'
         ? `Recebimento confirmado e lançado no caixa físico${noDia}!`
         : `Recebimento confirmado no fluxo financeiro correspondente${noDia}!`);
+      await oferecerRecibo(t, { formaPagamento: formaPgto, dataPagamento: dataRecebimento, acrescimoCentavos: dados.acrescimoCentavos });
     } catch (error) {
       console.error('Erro ao confirmar recebimento:', error);
       showError('Erro', error instanceof Error ? error.message : 'Não foi possível aprovar a transação.');
@@ -820,6 +886,16 @@ const ContasReceber: React.FC = () => {
                                               <Undo2 size={13} /> Estornar
                                             </button>
                                           )}
+                                          {!t.acrescimoDaTransacaoId && (
+                                            <button
+                                              onClick={() => void emitirRecibo(t, { acrescimoCentavos: acrescimoDaBaixa(t) })}
+                                              disabled={isProcessing}
+                                              title="Recibo de pagamento desta conta, em PDF"
+                                              style={{ backgroundColor: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6', cursor: 'pointer', borderRadius: '4px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: isProcessing ? 0.6 : 1 }}
+                                            >
+                                              <FileText size={13} /> Recibo
+                                            </button>
+                                          )}
                                         </div>
                                       ) : (
                                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
@@ -949,6 +1025,7 @@ const ContasReceber: React.FC = () => {
         </div>
       )}
 
+      {pdfRecibo && <PdfVisualizador titulo="Recibo de pagamento" nomeArquivo={pdfRecibo.nome} pdf={pdfRecibo.blob} onFechar={() => setPdfRecibo(null)} />}
       <ChequeCaptureModal
         aberto={chequeBaixaState !== null}
         dataMinima={getDateInputInTimeZone()}

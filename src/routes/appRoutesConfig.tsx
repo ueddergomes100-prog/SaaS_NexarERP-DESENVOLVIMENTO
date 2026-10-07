@@ -31,6 +31,7 @@ const OsPrint = lazy(() => import('../pages/OS/OsPrint'));
 const PedidoVendaForm = lazy(() => import('../pages/Vendas/PedidoVendaForm'));
 const PedidoPrint = lazy(() => import('../pages/Vendas/PedidoPrint'));
 const PedidoPrintLote = lazy(() => import('../pages/Vendas/PedidoPrintLote'));
+const DocumentosCobranca = lazy(() => import('../pages/Vendas/DocumentosCobranca'));
 const EstoqueList = lazy(() => import('../pages/Estoque/EstoqueList'));
 const EstoqueForm = lazy(() => import('../pages/Estoque/EstoqueForm'));
 const ImportarProdutos = lazy(() => import('../pages/Estoque/ImportarProdutos'));
@@ -130,6 +131,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'pedidos-venda/visualizar/:id', element: <PedidoVendaForm /> },
   { path: 'pedidos-venda/print/:id', element: <PedidoPrint /> },
   { path: 'pedidos-venda/print-lote', element: <PedidoPrintLote /> },
+  { path: 'pedidos-venda/documentos/:id', element: <DocumentosCobranca /> },
   { path: 'vendas/devolucoes', element: <DevolucoesVenda /> },
   { path: 'vendas/promocoes', element: <PromocoesList /> },
   { path: 'vendas/promocoes/nova', element: <PromocaoForm /> },

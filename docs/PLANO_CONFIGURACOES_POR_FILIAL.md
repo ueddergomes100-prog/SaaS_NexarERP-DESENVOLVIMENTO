@@ -56,3 +56,14 @@ Todos em PDF pela mesma base do boleto e do DANFE (`jsPDF`), abrindo na tela par
 ## 4. Fora deste plano (anotado, sem data)
 
 CNAE e mês/ano de atividade; atacado e varejo; reserva de estoque no orçamento; aviso de estoque mínimo na venda; bloquear pré-venda no romaneio; montagem de produtos; frete padrão da NF; conta bancária padrão por documento; checagem campo a campo do cadastro do cliente (avisar/bloquear); valor máximo de venda sem CPF na NFC-e; fidelidade por crédito; custo real com alíquotas; MDF-e; FUNRURAL; SPED (contabilista, substituto tributário por UF, apuração) — o SPED já está na fila antiga do plano de evolução.
+
+## 5. Situação em 07/10/2026 (noite)
+
+As quatro fases foram implementadas e testadas no dev (matriz 10) na branch `config-filial`:
+
+- **Fase A** `fd1f627` + `fe2146f` — Parâmetros de venda (`parametrosVendaDomain.ts`): validade do orçamento, bloqueio a prazo por atraso (Pedido e OS), juros/multa na baixa (lançamento próprio no servidor, estorno casado), prazo de devolução.
+- **Fase B** `ef837e7` — Mensagens padrão por documento (`mensagensPadraoDomain.ts`): recibo, minuta, orçamento, nota fiscal (infCpl), carnê/promissória.
+- **Fase C** `7af66be` — Numeração dos documentos (`numeracaoDomain.ts`, `server/services/numeracao.js`, `/api/numeracao`): ver e adiantar o próximo número, nunca voltar, com auditoria.
+- **Fase D** — Documentos ao vender e ao receber (`documentosCobrancaDomain.ts`, `documentosCobrancaPdf.ts`, tela `DocumentosCobranca.tsx` em `/pedidos-venda/documentos/:id`): recibo de pagamento, promissória, carnê e duplicata em PDF; regra Não emitir / Perguntar / Sempre + vias por filial (`configuracoes.emissaoDocumentos`); gancho no fim da venda a prazo, botão em Mais ações e recibo em Contas a Receber (automático pela regra e manual na linha).
+
+Falta: juntar `config-filial` no `main` depois do push de produção das 19h (filiais), enviar para `dev`, e o dono decidir quando vai para produção.

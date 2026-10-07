@@ -84,6 +84,9 @@ export interface BaixaManualRegistro {
   bancoId?: string;
   /** Com sinal: negativo = a baixa DEBITOU o banco, positivo = CREDITOU. */
   movimentoBancoCentavos?: number;
+  /** Juros e multa recebidos junto (fase A, 2026-10-07): gravados pelo servidor em services/baixaFinanceira.js. */
+  acrescimoCentavos?: number;
+  acrescimoTransacaoId?: string;
 }
 
 export const montarBaixaManual = (args: {

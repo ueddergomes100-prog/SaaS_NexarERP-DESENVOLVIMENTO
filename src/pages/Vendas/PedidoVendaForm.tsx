@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
-import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown, FileText } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -138,6 +138,7 @@ import {
 } from '../../utils/creditoDomain';
 import { calcularSaldoEmAbertoClienteCents, situacaoEmAbertoDoCliente } from '../../utils/contasReceberQuery';
 import { PARAMETROS_VENDA_PADRAO, bloqueioPorAtraso, parseParametrosVenda, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
+import { EMISSAO_DOCUMENTOS_PADRAO, documentosParaMomento, parseEmissaoDocumentos, rotuloDoDocumento, type DocumentoDeCobranca, type EmissaoDocumentos } from '../../utils/documentosCobrancaDomain';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
 import CadastroRapidoClienteModal, { type ClienteCadastradoRapido } from '../../components/common/CadastroRapidoClienteModal';
 import {
@@ -452,6 +453,8 @@ const PedidoVendaForm: React.FC = () => {
   const [trabalhaComLimiteCredito, setTrabalhaComLimiteCredito] = useState(false);
   // Parametros de venda da filial (fase A, 2026-10-07): bloqueio por atraso.
   const [parametrosVenda, setParametrosVenda] = useState<ParametrosVenda>(PARAMETROS_VENDA_PADRAO);
+  // Documentos de cobranca ao finalizar a prazo (fase D, 2026-10-07): promissoria, carne, duplicata conforme a filial.
+  const [emissaoDocumentos, setEmissaoDocumentos] = useState<EmissaoDocumentos>(EMISSAO_DOCUMENTOS_PADRAO);
   const [cadastroRapidoAberto, setCadastroRapidoAberto] = useState(false);
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
@@ -861,6 +864,7 @@ const PedidoVendaForm: React.FC = () => {
           setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
           setTrabalhaComLimiteCredito(parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito));
           setParametrosVenda(parseParametrosVenda(config.parametrosVenda));
+          setEmissaoDocumentos(parseEmissaoDocumentos(config.emissaoDocumentos));
           setImprimirMinutaAposVendaAtiva(config.imprimirMinutaAposVenda ?? DEFAULT_IMPRIMIR_MINUTA_APOS_VENDA);
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
@@ -3263,6 +3267,30 @@ const PedidoVendaForm: React.FC = () => {
       // reorganiza-lo -- os 5 pontos de saida desse fluxo (sucesso NFC-e,
       // erro NFC-e com/sem fallback de recibo, Imprimir Recibo, Apenas
       // Concluir) passam a chamar isto em vez de `navigate` direto.
+      // Documentos de cobranca da venda a prazo (Configuracoes por filial,
+      // fase D -- 2026-10-07): o que a filial marcou "Emitir sempre" sai sem
+      // perguntar; o que marcou "Perguntar na hora" vira caixa de marcar aqui.
+      // Padrao "Não emitir" devolve lista vazia e nada muda no fluxo.
+      const escolherDocumentosDeCobranca = async (): Promise<DocumentoDeCobranca[]> => {
+        if (paymentSummary.paymentCondition !== 'aprazo') return [];
+        const { sempre, perguntar } = documentosParaMomento(emissaoDocumentos, 'venda_a_prazo');
+        if (perguntar.length === 0) return sempre;
+        const escolha = await NexusSwal.fire({
+          title: 'Documentos da venda a prazo',
+          html: '<div style="text-align:left;font-size:14px;">'
+            + (sempre.length > 0 ? `<p style="margin:0 0 10px;">Vão sair: <b>${sempre.map(rotuloDoDocumento).join(', ')}</b>.</p>` : '')
+            + '<p style="margin:0 0 6px;">Emitir também:</p>'
+            + perguntar.map((d) => `<label style="display:flex;align-items:center;gap:8px;margin:6px 0;cursor:pointer;"><input type="checkbox" id="doc-cobranca-${d}" checked /> ${rotuloDoDocumento(d)}</label>`).join('')
+            + '</div>',
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonText: 'Emitir',
+          cancelButtonText: sempre.length > 0 ? 'Só o obrigatório' : 'Não emitir',
+          preConfirm: () => perguntar.filter((d) => (document.getElementById(`doc-cobranca-${d}`) as HTMLInputElement | null)?.checked),
+        });
+        return escolha.isConfirmed ? [...sempre, ...((escolha.value as DocumentoDeCobranca[]) || [])] : sempre;
+      };
+
       const askMinutaAndNavigate = async (destino: string) => {
         // `finalizandoPedidoAberto && origemPedido === 'balcao'` e' exatamente
         // a pre-venda do balcao -- a unica que ja' recebeu a oferta da minuta
@@ -3278,10 +3306,15 @@ const PedidoVendaForm: React.FC = () => {
             confirmButtonText: 'Sim, imprimir minuta',
             cancelButtonText: 'Não'
           });
-          if (minutaResult.isConfirmed) {
-            navigate(`/operacoes/expedicao/minuta/${newPedidoId}`);
-            return;
-          }
+          if (minutaResult.isConfirmed) destino = `/operacoes/expedicao/minuta/${newPedidoId}`;
+        }
+        // Promissoria/carne/duplicata primeiro, com o cliente ainda no balcao;
+        // a tela de documentos segue para `destino` no "Continuar", entao o
+        // recibo e a minuta escolhidos acima nao se perdem.
+        const documentosDeCobranca = await escolherDocumentosDeCobranca();
+        if (documentosDeCobranca.length > 0) {
+          navigate(`/pedidos-venda/documentos/${newPedidoId}?emitir=${documentosDeCobranca.join(',')}&depois=${encodeURIComponent(destino)}`);
+          return;
         }
         navigate(destino);
       };
@@ -4368,6 +4401,8 @@ const PedidoVendaForm: React.FC = () => {
                         2026-09-21): a venda fecha no balcao e a mercadoria sai depois. */}
                     <ItemMaisAcoes Icone={Truck} texto="Imprimir Minuta" titulo="Imprime a minuta de entrega, com os itens e sem valores"
                       onClick={() => { setMaisAcoesAberto(false); navigate(`/operacoes/expedicao/minuta/${id}`); }} />
+                    <ItemMaisAcoes Icone={FileText} texto="Documentos de cobrança" titulo="Promissória, carnê de parcelas e duplicata desta venda, em PDF"
+                      onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/documentos/${id}`); }} />
                     {podeCriarCopia && (
                       <ItemMaisAcoes Icone={Copy} texto="Criar cópia (nova venda)" titulo="Abre uma venda nova com o mesmo cliente e os mesmos itens, para conferir e gravar"
                         onClick={() => { setMaisAcoesAberto(false); void openTab(`/pedidos-venda/novo?copiarDe=${id}`, 'Cópia do pedido'); }} />

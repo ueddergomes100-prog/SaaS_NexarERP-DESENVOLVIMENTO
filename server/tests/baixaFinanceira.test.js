@@ -221,6 +221,8 @@ test('Receber com juros e multa: lancamento proprio, banco credita os dois, esto
   const fake2 = criarBancoFalso({ 'transacoes/t4': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'X', valor: 10, valorCentavos: 1000 } });
   await assert.rejects(() => carregarServico(fake2.db).registrarBaixa({ user: USER, tenantId: 'emp1', pedido: { tipo: 'entrada', transacaoId: 't4', formaPagamento: 'Dinheiro', dataPagamento: HOJE, acrescimoCentavos: 500000 } }), /muito acima do título/);
 
+  // Estornar so' o lancamento de juros e' barrado: ele sai junto com o titulo.
+  await assert.rejects(() => s.registrarEstorno({ user: USER, tenantId: 'emp1', pedido: { tipo: 'entrada', transacaoId: jurosId, motivo: 'tentativa errada de estorno' } }), /estorne o recebimento de origem/);
   const estorno = s.validarPedidoDeEstorno({ tipo: 'entrada', transacaoId: 't3', motivo: 'recebi do cliente errado' }).pedido;
   const r = await s.registrarEstorno({ user: USER, tenantId: 'emp1', pedido: estorno });
   assert.equal(r.acrescimoCentavos, 350);

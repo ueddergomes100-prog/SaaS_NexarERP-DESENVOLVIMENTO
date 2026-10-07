@@ -122,6 +122,8 @@ export interface TituloParaEstorno {
   devolucaoId?: string;
   pedidoOrigemId?: string;
   idempotencyKey?: string;
+  /** Lancamento de juros e multa gravado junto da baixa de OUTRO titulo (parametros de venda, fase A). */
+  acrescimoDaTransacaoId?: string | null;
 }
 
 export interface PlanoEstorno {
@@ -215,6 +217,11 @@ export const planejarEstornoPagar = (titulo: TituloParaEstorno): PlanoEstorno =>
 
 /** Contas a Receber: baixa = recebimento confirmado (credita o banco, se houve, e atualiza a venda/OS). */
 export const planejarEstornoReceber = (titulo: TituloParaEstorno): PlanoEstorno => {
+  // Juros e multa de outro recebimento: saem junto no estorno do titulo de
+  // origem; estornar so' eles deixaria um 'a receber' de juros que nao existe.
+  if (titulo.acrescimoDaTransacaoId) {
+    return bloqueado('Este lançamento é de juros e multa de outro recebimento e sai junto quando ele for estornado. Para desfazer, estorne o recebimento de origem.', false);
+  }
   if (titulo.status !== 'Paga') return bloqueado(MENSAGEM_SO_PAGA, false);
 
   const forma = String(titulo.formaPagamento || '');

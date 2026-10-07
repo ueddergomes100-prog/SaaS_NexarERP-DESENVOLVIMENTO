@@ -285,10 +285,12 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
     // Juros e multa gravados junto da baixa (lancamento proprio): saem junto.
     const acrescimoId = dados.baixaManual && dados.baixaManual.acrescimoTransacaoId ? String(dados.baixaManual.acrescimoTransacaoId) : '';
     const acrescimoSnap = acrescimoId ? await tx.get(db.collection('transacoes').doc(acrescimoId)) : null;
-    const acrescimo = acrescimoSnap && acrescimoSnap.exists && acrescimoSnap.data().tenantId === tenantId && acrescimoSnap.data().status === 'Paga'
-      ? { ref: db.collection('transacoes').doc(acrescimoId), centavos: Number(acrescimoSnap.data().valorCentavos) || 0, bancoId: acrescimoSnap.data().bancoId || null }
+    // Cancela o lancamento de juros em qualquer situacao que nao 'Cancelada'; o
+    // banco so' volta o que ainda estava la' (status 'Paga').
+    const acrescimo = acrescimoSnap && acrescimoSnap.exists && acrescimoSnap.data().tenantId === tenantId && acrescimoSnap.data().status !== 'Cancelada'
+      ? { ref: db.collection('transacoes').doc(acrescimoId), centavos: Number(acrescimoSnap.data().valorCentavos) || 0, bancoId: acrescimoSnap.data().bancoId || null, pago: acrescimoSnap.data().status === 'Paga' }
       : null;
-    const acrescimoNoBancoCentavos = acrescimo && banco && acrescimo.bancoId === banco.ref.id ? acrescimo.centavos : 0;
+    const acrescimoNoBancoCentavos = acrescimo && acrescimo.pago && banco && acrescimo.bancoId === banco.ref.id ? acrescimo.centavos : 0;
     resumo.acrescimoCentavos = acrescimo ? acrescimo.centavos : 0;
 
     const registroDoEstorno = {

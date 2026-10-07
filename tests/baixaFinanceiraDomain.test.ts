@@ -250,3 +250,10 @@ test('data em texto brasileiro', () => {
   assert.equal(dataBrasileira(undefined), '');
   assert.equal(dataBrasileira('lixo'), '');
 });
+
+test('receber: lançamento de juros e multa de outro título não estorna sozinho e não mostra botão', () => {
+  const plano = planejarEstornoReceber({ status: 'Paga', formaPagamento: 'Pix', valorCentavos: 64, acrescimoDaTransacaoId: 't3', baixaManual: { origem: 'contas_receber', formaPagamento: 'Pix', dataPagamento: '2026-10-07', valorCentavos: 64 } });
+  assert.equal(plano.permitido, false);
+  assert.equal(plano.mostrarBotao, false);
+  assert.match(plano.bloqueio, /estorne o recebimento de origem/);
+});

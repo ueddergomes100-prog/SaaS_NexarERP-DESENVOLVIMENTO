@@ -128,6 +128,8 @@ export const registrarBaixa = async (pedido: PedidoDeBaixa): Promise<void> => {
     formaPagamento: pedido.formaPagamento,
     dataPagamento: pedido.dataPagamento,
     ...(pedido.bancoId ? { bancoId: pedido.bancoId } : {}),
+    // Juros e multa (parametros de venda, fase A): so' vai quando ha' valor.
+    ...(pedido.acrescimoCentavos && pedido.acrescimoCentavos > 0 ? { acrescimoCentavos: pedido.acrescimoCentavos } : {}),
     tenantId: pedido.tenantId,
   });
 };

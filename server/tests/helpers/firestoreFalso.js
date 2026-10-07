@@ -11,17 +11,61 @@ const DEL = { __apagar: true };
 
 let contador = 0;
 
-const criarBancoFalso = (inicial) => {
+const criarBancoFalso = (inicial, opcoes = {}) => {
   const dados = new Map(Object.entries(inicial).map(([k, v]) => [k, structuredClone(v)]));
+  // Grava como o Firestore: "a.b" no update mexe no campo b dentro de a.
+  const aplicar = (chave, campos, substitui) => {
+    const atual = substitui ? {} : structuredClone(dados.get(chave) || {});
+    for (const [campo, valor] of Object.entries(campos)) {
+      const partes = substitui ? [campo] : campo.split('.');
+      let alvo = atual;
+      for (const parte of partes.slice(0, -1)) {
+        if (!alvo[parte] || typeof alvo[parte] !== 'object') alvo[parte] = {};
+        alvo = alvo[parte];
+      }
+      const ultimo = partes[partes.length - 1];
+      if (valor === DEL) delete alvo[ultimo];
+      else alvo[ultimo] = valor;
+    }
+    dados.set(chave, atual);
+  };
+  // Consulta simples (==, in, array-contains, >=, <=) so' quando o teste pede
+  // (opcoes.consultas). Sem isso, where() falha como antes -- alguns
+  // servicos tratam esse erro (ex.: piso da numeracao).
+  const consulta = (caminho, filtros) => ({
+    where: (campo, op, valor) => consulta(caminho, [...filtros, [campo, op, valor]]),
+    get: async () => {
+      const docs = [...dados.entries()]
+        .filter(([k]) => k.startsWith(`${caminho}/`) && !k.slice(caminho.length + 1).includes('/'))
+        .filter(([, v]) => filtros.every(([campo, op, valor]) => (
+          op === '==' ? v[campo] === valor
+            : op === 'in' ? valor.includes(v[campo])
+              : op === 'array-contains' ? Array.isArray(v[campo]) && v[campo].includes(valor)
+                : op === '>=' ? v[campo] !== undefined && v[campo] >= valor
+                  : op === '<=' ? v[campo] !== undefined && v[campo] <= valor
+                : false
+        )))
+        .map(([k, v]) => ({ id: k.slice(caminho.length + 1), exists: true, data: () => structuredClone(v), ref: ref(caminho, k.slice(caminho.length + 1)) }));
+      return { empty: docs.length === 0, size: docs.length, docs };
+    },
+  });
   const colecaoEm = (caminho) => ({
     doc: (id) => ref(caminho, id || `auto${(contador += 1)}`),
-    // Consulta nao e' simulada: quem chama precisa tratar o erro (ex.: piso da numeracao).
-    where: () => { throw new Error('consulta nao simulada no Firestore falso'); },
+    where: opcoes.consultas
+      ? (campo, op, valor) => consulta(caminho, [[campo, op, valor]])
+      : () => { throw new Error('consulta nao simulada no Firestore falso'); },
   });
   const ref = (caminho, id) => ({
     chave: `${caminho}/${id}`,
     id,
     collection: (sub) => colecaoEm(`${caminho}/${id}/${sub}`),
+    get: async () => ({ exists: dados.has(`${caminho}/${id}`), id, data: () => structuredClone(dados.get(`${caminho}/${id}`)) }),
+    // Gravacao direta (fora de transacao).
+    set: async (campos, opcoesSet) => aplicar(`${caminho}/${id}`, campos, !opcoesSet?.merge),
+    update: async (campos) => {
+      if (!dados.has(`${caminho}/${id}`)) throw new Error(`documento ${caminho}/${id} nao existe`);
+      aplicar(`${caminho}/${id}`, campos, false);
+    },
   });
   const db = {
     collection: (colecao) => colecaoEm(colecao),
@@ -34,14 +78,7 @@ const criarBancoFalso = (inicial) => {
         set: (r, campos, opcoes) => escritas.push([r, campos, !opcoes?.merge]),
       };
       const resultado = await fn(tx);
-      for (const [r, campos, substitui] of escritas) {
-        const atual = substitui ? {} : { ...(dados.get(r.chave) || {}) };
-        for (const [campo, valor] of Object.entries(campos)) {
-          if (valor === DEL) delete atual[campo];
-          else atual[campo] = valor;
-        }
-        dados.set(r.chave, atual);
-      }
+      for (const [r, campos, substitui] of escritas) aplicar(r.chave, campos, substitui);
       return resultado;
     },
   };

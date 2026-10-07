@@ -41,6 +41,10 @@ export const motivosAjusteEstoquePorTipo = (tipo: TipoAjusteEstoque): MotivoAjus
  *  baixa o estoque com este motivo (server/routes/trocas.routes.js). */
 const MOTIVOS_DO_SISTEMA: Record<string, string> = {
   troca_cliente: 'Troca de cliente',
+  // Transferencia entre filiais (2026-10-06, server/services/transferencias.js).
+  transferencia_saida: 'Transferência para outra filial',
+  transferencia_entrada: 'Transferência de outra filial',
+  transferencia_retorno: 'Transferência devolvida',
 };
 
 export const labelMotivoAjusteEstoque = (tipo: TipoAjusteEstoque, value: string): string =>

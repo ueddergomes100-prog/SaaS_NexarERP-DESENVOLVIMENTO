@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, Receipt, LifeBuoy, ShieldCheck } from 'lucide-react';
+import FilialSeletor from './FilialSeletor';
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
 import { collection, query, where, onSnapshot, doc, getDocs, limit } from 'firebase/firestore';
@@ -12,7 +13,7 @@ import './Layout.css';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 
 const TopBar: React.FC = () => {
-  const { currentUser, tenantId, userRole, userPermissions, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, userNome } = useAuth();
   const { openTab } = useTabs();
   // Navegacao real (nao openTab): o painel da plataforma vive FORA do sistema
   // de abas, com shell proprio -- abrir como aba o colocaria dentro do ERP de
@@ -432,6 +433,8 @@ const TopBar: React.FC = () => {
           </div>
         )}
 
+        <FilialSeletor />
+
         <button
           className="action-btn theme-toggle-btn" 
           onClick={toggleTheme}
@@ -531,7 +534,7 @@ const TopBar: React.FC = () => {
               <User size={20} />
             </div>
             <div className="profile-info">
-              <span className="profile-name">{userData?.nome || configData?.nomeUsuario || 'Administrador'}</span>
+              <span className="profile-name">{userNome || userData?.nome || configData?.nomeUsuario || 'Administrador'}</span>
               <span className="profile-role">{selectedTenant?.nomeOficina || configData?.nomeOficina || 'Empresa Logada'}</span>
             </div>
             <ChevronDown size={16} style={{ color: 'var(--text-muted)', marginLeft: '8px' }} />
@@ -546,7 +549,7 @@ const TopBar: React.FC = () => {
               display: 'flex', flexDirection: 'column'
             }}>
               <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '14px' }}>{userData?.nome || configData?.nomeUsuario || 'Administrador'}</span>
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '14px' }}>{userNome || userData?.nome || configData?.nomeUsuario || 'Administrador'}</span>
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{currentUser?.email || 'Usuário do Sistema'}</span>
               </div>
               

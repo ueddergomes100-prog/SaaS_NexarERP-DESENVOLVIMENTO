@@ -10,6 +10,9 @@ import { UNIDADE_MEDIDA_FALLBACK, resolverUnidadeDoCadastro } from '../../utils/
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
+import { chaveDoProdutoPeloId, mudouCadastroDoGrupo } from '../../utils/cadastroGrupoDomain';
+import EstoqueNasFiliais from '../../components/common/EstoqueNasFiliais';
+import { PERMISSAO_UTILIZA_OUTRAS_FILIAIS, rotuloFilial } from '../../utils/filialDomain';
 import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, CSOSN_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
 import { ENQUADRAMENTO_IPI_PADRAO, IPI_CST_SAIDA_OPTIONS, PIS_COFINS_CST_SAIDA_OPTIONS } from '../../utils/notaFiscalItemDomain';
 import { computeAvailableStock } from '../../utils/estoqueReservaDomain';
@@ -460,7 +463,7 @@ const EstoqueForm: React.FC = () => {
   const [unidadesDB, setUnidadesDB] = useState<UnidadeMedida[]>([]);
   const [validarCadastroProduto, setValidarCadastroProduto] = useState(false);
   const [regimeTributario, setRegimeTributario] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, controlaFiscal } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, controlaFiscal, grupo, ehGestorDasFiliais } = useAuth();
 
   const fallbackUnidades: UnidadeMedida[] = [
     { id: 'un', sigla: 'UN', nome: 'UNIDADE', casasDecimais: 0, permiteFracionado: false },
@@ -1391,6 +1394,19 @@ const EstoqueForm: React.FC = () => {
         // Mandar o saldo lido ao abrir a tela sobrescreveria uma venda feita
         // enquanto ela estava aberta.
         const { quantidade: _saldo, ativo: _ativo, statusAtivo: _statusAtivo, ...produtoDataSemSaldo } = produtoData;
+        // Filiais (2026-10-06): o cadastro do produto e' do grupo. Produto
+        // nascido em OUTRA filial: sem "Utiliza outras filiais", a pessoa
+        // altera o que e' desta filial (preco, estoque, tributacao), mas nao
+        // o cadastro (nome, codigo, codigo de barras, NCM...). As
+        // firestore.rules conferem o mesmo.
+        const origemDoProduto = String((produtoOriginal as Record<string, unknown> | null)?.filialOrigem || '');
+        const podeAlterarCadastroDoGrupo = !grupo || ehGestorDasFiliais || userPermissions.includes(PERMISSAO_UTILIZA_OUTRAS_FILIAIS);
+        if (origemDoProduto && origemDoProduto !== tenantId && !podeAlterarCadastroDoGrupo
+          && mudouCadastroDoGrupo('estoque', (produtoOriginal || {}) as Record<string, unknown>, { ...(produtoOriginal || {}), ...produtoDataSemSaldo })) {
+          const filialDeOrigem = grupo?.filiais.find((f) => f.tenantId === origemDoProduto);
+          showError('Produto de outra filial', `Este produto foi cadastrado na filial ${filialDeOrigem ? rotuloFilial(filialDeOrigem) : 'de origem'}. Aqui você altera preço, estoque e tributação desta filial. Nome, código, código de barras, NCM e o resto do cadastro só com a permissão "Utiliza outras filiais" — peça ao responsável ou desfaça essas mudanças.`);
+          return false;
+        }
         await updateDoc(doc(db, 'estoque', id), {
           ...produtoDataSemSaldo,
           // updateDoc so mescla campos que aparecem no payload -- so OMITIR
@@ -1517,6 +1533,9 @@ const EstoqueForm: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Filiais (2026-10-06): quanto deste produto ha' em cada filial. */}
+      {isEditing && id && grupo && <EstoqueNasFiliais chave={chaveDoProdutoPeloId(id, tenantId)} />}
 
       {produtoInativo && (
         <div style={{ padding: '14px 18px', marginBottom: '16px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', color: 'var(--text-primary)', fontSize: '14px' }}>

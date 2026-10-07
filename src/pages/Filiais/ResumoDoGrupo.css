@@ -1,0 +1,186 @@
+/* Resumo do grupo (Filiais, fase 5 -- 2026-10-06). So' variaveis do tema. */
+.resumo-grupo {
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: 0;
+  overflow: hidden;
+}
+
+.resumo-grupo__cabeca {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 24px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.resumo-grupo__cabeca > svg:first-child { color: var(--accent-purple); flex: none; }
+.resumo-grupo__cabeca:focus-visible { outline: 2px solid var(--accent-purple); outline-offset: -2px; }
+
+.resumo-grupo__titulo { font-weight: 700; font-size: 15px; }
+
+.resumo-grupo__dica {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resumo-grupo__seta { color: var(--text-muted); transition: transform 0.2s ease; flex: none; }
+.resumo-grupo--aberto .resumo-grupo__seta { transform: rotate(180deg); }
+
+.resumo-grupo__corpo { padding: 0 24px 20px; }
+
+.resumo-grupo__barra {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.resumo-grupo__periodos {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+}
+
+.resumo-grupo__periodo {
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.resumo-grupo__periodo--ativo { background: var(--accent-purple); color: #fff; }
+
+.resumo-grupo__periodo:focus-visible,
+.resumo-grupo__atualizar:focus-visible { outline: 2px solid var(--accent-purple); outline-offset: 2px; }
+
+.resumo-grupo__atualizar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-color);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.resumo-grupo__atualizar:disabled { opacity: 0.6; cursor: default; }
+
+.resumo-grupo__girando { animation: resumo-grupo-gira 0.9s linear infinite; }
+
+@keyframes resumo-grupo-gira { to { transform: rotate(360deg); } }
+
+.resumo-grupo__tabela-rolagem { overflow-x: auto; }
+.resumo-grupo__tabela-rolagem[aria-busy='true'] { opacity: 0.6; transition: opacity 0.15s; }
+
+.resumo-grupo__tabela { width: 100%; border-collapse: collapse; font-size: 14px; }
+
+.resumo-grupo__tabela thead th {
+  padding: 10px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.resumo-grupo__tabela tbody th,
+.resumo-grupo__tabela tbody td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.resumo-grupo__tabela tbody th { font-weight: 600; }
+
+.resumo-grupo__tabela tfoot th,
+.resumo-grupo__tabela tfoot td {
+  padding: 12px;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.resumo-grupo__tabela .resumo-grupo__num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.resumo-grupo__codigo {
+  display: inline-block;
+  min-width: 28px;
+  margin-right: 8px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.resumo-grupo__aqui {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-purple);
+}
+
+.resumo-grupo__venda { display: inline-flex; align-items: center; gap: 10px; justify-content: flex-end; }
+
+.resumo-grupo__fatia {
+  width: 72px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+  flex: none;
+}
+
+.resumo-grupo__fatia > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-purple);
+}
+
+.resumo-grupo__pct { width: 36px; color: var(--text-muted); font-size: 12px; text-align: right; }
+
+.resumo-grupo__nota,
+.resumo-grupo__vazio { margin: 12px 0 0; font-size: 12px; color: var(--text-muted); white-space: normal; }
+
+.resumo-grupo__erro { margin: 0; color: #ef4444; font-size: 13px; }
+
+@media (max-width: 640px) {
+  .resumo-grupo__cabeca { padding: 14px 16px; }
+  .resumo-grupo__corpo { padding: 0 16px 16px; }
+  .resumo-grupo__dica { display: none; }
+  .resumo-grupo__fatia { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .resumo-grupo__seta { transition: none; }
+  .resumo-grupo__girando { animation: none; }
+}

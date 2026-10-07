@@ -29,8 +29,10 @@ export interface ChecagemLimiteAcessoMobile {
  * tinha o acesso ligado -- editar outros campos de quem ja tem acesso nao
  * precisa passar por aqui de novo, so a ativacao de uma vaga nova.
  */
-export const checarLimiteAcessoMobile = async (tenantId: string): Promise<ChecagemLimiteAcessoMobile> => {
-  const tenantSnap = await getDoc(doc(db, 'usuarios', tenantId));
+export const checarLimiteAcessoMobile = async (tenantId: string, registroTenantId: string = tenantId): Promise<ChecagemLimiteAcessoMobile> => {
+  // O limite contratado mora no registro da empresa (cadastro do dono). Numa
+  // filial (2026-10-06), e' o da MATRIZ do grupo -- o plano e' do grupo.
+  const tenantSnap = await getDoc(doc(db, 'usuarios', registroTenantId));
   const limite = tenantSnap.exists() && tenantSnap.data().limiteAcessoMobile !== undefined
     ? tenantSnap.data().limiteAcessoMobile
     : LIMITE_ACESSO_MOBILE_PADRAO;

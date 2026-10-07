@@ -125,6 +125,8 @@ interface ServicoData { id: string; nome: string; preco: number; comissaoPercent
 interface ServicoSelecionado { id: string; nome: string; preco: number; quantidade: number; detalhamento?: string; tempoHoras?: number; }
 interface PecaData {
   id: string;
+  /** Filiais: onde o cadastro nasceu (filtro "Itens desta filial"). */
+  filialOrigem?: string;
   nome: string;
   precoVenda: number;
   precoAVista?: number;
@@ -284,7 +286,7 @@ const OSForm: React.FC = () => {
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido, grupo } = useAuth();
   const canVerAuditoria = hasModuleAccess({ role: userRole, isOwner, permissions: userPermissions, requiredPermission: 'administrativo.logs' });
   const [auditoriaAberta, setAuditoriaAberta] = useState(false);
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
@@ -382,6 +384,7 @@ const OSForm: React.FC = () => {
           precoVenda: doc.data().precoVenda,
           precoAVista: Number(doc.data().precoAVista ?? 0),
           quantidade: doc.data().quantidade || 0,
+          filialOrigem: doc.data().filialOrigem || '',
           codigo: doc.data().codigo || '',
           codigoBarras: doc.data().codigoBarras || '',
           // De proposito CRU aqui, sem cair no fallback 'UN': e' em
@@ -1116,7 +1119,7 @@ const OSForm: React.FC = () => {
           ? Math.round(clienteEncontrado.limiteDeCredito * 100)
           : null;
         const saldoEmAbertoCents = clienteIdParaSalvar
-          ? await calcularSaldoEmAbertoClienteCents(tenantId, clienteIdParaSalvar)
+          ? await calcularSaldoEmAbertoClienteCents(tenantId, clienteIdParaSalvar, Boolean(grupo))
           : 0;
         // Depois do saldo, nunca antes: assim tudo que foi gravado ate aqui
         // ja esta refletido no saldo OU na versao.

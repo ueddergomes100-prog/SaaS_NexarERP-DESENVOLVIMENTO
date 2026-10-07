@@ -42,7 +42,7 @@ interface PermissoesUsuarioModalProps {
  * bateria numa parede. O popup funciona pra quem ja esta na tela.
  */
 const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuarioId, usuarioNome, onClose, onSaved }) => {
-  const { currentUser, tenantId, userRole, isOwner, restringirVendasPorUsuario } = useAuth();
+  const { currentUser, tenantId, userRole, isOwner, restringirVendasPorUsuario, grupo } = useAuth();
   // Gerente (nivel de vendas) tambem abre este popup agora, mas so' pode
   // mexer nos modulos liberados -- nivel de acesso e acesso mobile
   // continuam so' Admin/Master/Dono (a regra do Firestore recusa a troca
@@ -112,7 +112,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
 
     const ligandoAcessoMobileAgora = podeAlterarNivelEMobile && acessoAppMobile && !acessoAppMobileOriginal;
     if (ligandoAcessoMobileAgora && tenantId) {
-      const checagem = await checarLimiteAcessoMobile(tenantId);
+      const checagem = await checarLimiteAcessoMobile(tenantId, grupo?.matrizTenantId || tenantId);
       if (!checagem.ok) {
         showError('Limite de acesso mobile atingido', checagem.motivo);
         return;

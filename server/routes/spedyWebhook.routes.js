@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { admin, db } = require('../config/firebase');
 const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
+const { espelharNaTransferencia } = require('../services/notaTransferencia');
 
 const BASE_URLS = {
   sandbox: 'https://sandbox-api.spedy.com.br/v1',
@@ -84,6 +85,16 @@ router.post('/:secret', async (req, res) => {
       processingCode: freshNote.processingDetail?.code || null,
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
+    // Nota de transferencia entre filiais: o destino acompanha pelo espelho
+    // na transferencia (services/notaTransferencia.js).
+    if (noteData.finalidade === 'transferencia' && noteData.transferenciaId) {
+      await espelharNaTransferencia(noteData.transferenciaId, {
+        status: freshNote.status,
+        number: freshNote.number ?? noteData.number ?? null,
+        accessKey: freshNote.accessKey || noteData.accessKey || null,
+        processingMessage: freshNote.processingDetail?.message || null,
+      }).catch((erro) => console.error('[Spedy Webhook] espelho da transferencia:', erro.message));
+    }
   } catch (error) {
     console.error('[Spedy Webhook]', error);
   }

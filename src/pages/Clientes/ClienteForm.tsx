@@ -17,6 +17,7 @@ import { spedyService, type SpedyCity } from '../../services/spedyService';
 import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 import { fetchComTimeout } from '../../utils/fetchComTimeout';
 import { ALERTA_TAMANHO_MAXIMO, camposDoAlertaParaGravar, erroDoAlertaDoCliente } from '../../utils/clienteAlertaDomain';
+import { PERMISSAO_UTILIZA_OUTRAS_FILIAIS, rotuloFilial } from '../../utils/filialDomain';
 
 /** ViaCEP responde em menos de 1 s; mais de 10 s e' instabilidade dele. */
 const TEMPO_LIMITE_CEP_MS = 10_000;
@@ -80,7 +81,7 @@ const ClienteForm: React.FC = () => {
   const [isFetching, setIsFetching] = useState(isEditing);
   /** Cliente que ja' estava inativo ao abrir: so' consulta (firestore.rules). */
   const [inativo, setInativo] = useState(false);
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, grupo, ehGestorDasFiliais, userPermissions } = useAuth();
 
   // Busca ao vivo de cidades pra pegar o codigo IBGE -- mesmo mecanismo de
   // Configuracoes.tsx (cidade da empresa), reaproveitado aqui porque a
@@ -319,6 +320,17 @@ const ClienteForm: React.FC = () => {
     }
     if (!formData.nome) {
       showError('Campos incompletos', 'Por favor, preencha o Nome do Cliente.');
+      return;
+    }
+
+    // Filiais (2026-10-06): o cadastro de clientes e' do grupo. Cliente
+    // nascido em OUTRA filial so' se altera com "Utiliza outras filiais" (ou
+    // sendo dono/administrador) -- as firestore.rules conferem o mesmo.
+    const origemDoCliente = String((formData as Record<string, unknown>).filialOrigem || '');
+    if (isEditing && origemDoCliente && origemDoCliente !== tenantId && grupo
+      && !ehGestorDasFiliais && !userPermissions.includes(PERMISSAO_UTILIZA_OUTRAS_FILIAIS)) {
+      const filialDeOrigem = grupo.filiais.find((f) => f.tenantId === origemDoCliente);
+      showError('Cliente de outra filial', `Este cliente foi cadastrado na filial ${filialDeOrigem ? rotuloFilial(filialDeOrigem) : 'de origem'}. Para alterar o cadastro dele, é preciso a permissão "Utiliza outras filiais". Peça ao responsável.`);
       return;
     }
 

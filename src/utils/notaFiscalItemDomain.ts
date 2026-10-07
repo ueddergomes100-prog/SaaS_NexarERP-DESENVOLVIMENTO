@@ -100,6 +100,12 @@ export interface ContextoNota {
   regime: RegimeTributario;
   /** Venda para outro estado (so' NF-e; NFC-e e' sempre interna). */
   interestadual: boolean;
+  /**
+   * CFOP decidido pela OPERACAO, nao pelo cadastro (transferencia entre
+   * filiais: 5151/5152/6151/6152 -- notaTransferenciaDomain.ts). Vale para o
+   * item como veio: sem trocar 5->6 nem usar o CFOP interestadual do cadastro.
+   */
+  cfopDaOperacao?: string;
 }
 
 export interface ValoresTributosItem {
@@ -419,13 +425,17 @@ export const montarItemNotaFiscal = (a: {
   if (ncm.length !== 8) {
     return { ok: false, erro: ncm ? `O NCM do produto "${p.nome}" ("${p.ncm}") não tem 8 dígitos. Edite o produto em Estoque > aba Fiscal.` : `O produto "${p.nome}" está sem NCM. Edite o produto em Estoque > aba Fiscal e informe o NCM (8 dígitos).` };
   }
-  const cfopCadastro = soDigitos(p.cfop);
+  const cfopOperacao = soDigitos(contexto.cfopDaOperacao);
+  if (contexto.cfopDaOperacao !== undefined && cfopOperacao.length !== 4) {
+    return { ok: false, erro: `O CFOP da operação ("${contexto.cfopDaOperacao}") não tem 4 dígitos.` };
+  }
+  const cfopCadastro = cfopOperacao || soDigitos(p.cfop);
   if (cfopCadastro.length !== 4) {
     return { ok: false, erro: `O produto "${p.nome}" está sem CFOP de saída. Edite o produto em Estoque > aba Fiscal.` };
   }
-  let cfop = isExportCfop(cfopCadastro) ? cfopCadastro : cfopParaDestino(cfopCadastro, contexto.interestadual);
+  let cfop = cfopOperacao || (isExportCfop(cfopCadastro) ? cfopCadastro : cfopParaDestino(cfopCadastro, contexto.interestadual));
   let produtoFiscal = p;
-  if (contexto.interestadual && !isExportCfop(cfopCadastro)) {
+  if (!cfopOperacao && contexto.interestadual && !isExportCfop(cfopCadastro)) {
     const cfopInter = soDigitos(p.cfopInterestadual);
     const csosnInter = String(p.csosnInterestadual ?? '').trim();
     if (cfopInter) {

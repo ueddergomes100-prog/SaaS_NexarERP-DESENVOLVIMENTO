@@ -82,6 +82,8 @@ const CAMPOS_DA_PLATAFORMA = [
   'valorMensalidade',
   'limiteUsuarios',
   'limiteAcessoMobile',
+  'limiteFiliais',
+  'percentualFilial',
   'limites',
   'statusSaas',
   'billingStatus',

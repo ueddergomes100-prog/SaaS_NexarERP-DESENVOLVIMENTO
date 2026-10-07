@@ -78,6 +78,9 @@ interface LocalInvoice {
   devolucaoId?: string | null;
   /** Pedido da venda devolvida (nas notas de devolucao; `pedidoId` fica vazio de proposito). */
   pedidoOrigemId?: string | null;
+  /** 'transferencia' (Filiais F4): transferencia entre filiais que esta nota documenta. */
+  transferenciaId?: string | null;
+  numeroTransferencia?: string | null;
 }
 
 interface ClienteOption {
@@ -1180,7 +1183,9 @@ const NFE: React.FC = () => {
           cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : [],
           finalidade: data.finalidade || null,
           devolucaoId: data.devolucaoId || null,
-          pedidoOrigemId: data.pedidoOrigemId || null
+          pedidoOrigemId: data.pedidoOrigemId || null,
+          transferenciaId: data.transferenciaId || null,
+          numeroTransferencia: data.numeroTransferencia || null
         });
       });
 
@@ -1248,7 +1253,9 @@ const NFE: React.FC = () => {
           cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : [],
           finalidade: data.finalidade || null,
           devolucaoId: data.devolucaoId || null,
-          pedidoOrigemId: data.pedidoOrigemId || null
+          pedidoOrigemId: data.pedidoOrigemId || null,
+          transferenciaId: data.transferenciaId || null,
+          numeroTransferencia: data.numeroTransferencia || null
         });
       });
       list.sort((a, b) => b.id.localeCompare(a.id));
@@ -2464,6 +2471,20 @@ const NFE: React.FC = () => {
   };
 
   const handleRetransmitRejected = async (note: LocalInvoice) => {
+    // Nota de TRANSFERENCIA entre filiais: e' emitida de novo pela propria transferencia
+    // (o servidor remonta a nota a partir do cadastro -- services/notaTransferencia.js).
+    if (note.finalidade === 'transferencia' && note.transferenciaId) {
+      const escolha = await NexusSwal.fire({
+        icon: 'info',
+        title: `Nota da transferência nº ${note.numeroTransferencia || ''}`,
+        html: 'Corrija o cadastro indicado na rejeição e emita a nota de novo pela transferência (Estoque → Transferências → "Emitir a nota de novo").',
+        showCancelButton: true,
+        confirmButtonText: 'Abrir a transferência',
+        cancelButtonText: 'Fechar',
+      });
+      if (escolha.isConfirmed) navigate(`/estoque/transferencias/${note.transferenciaId}`);
+      return;
+    }
     // Nota de DEVOLUCAO rejeitada volta pelo pop-up da devolucao: o fluxo abaixo remontaria
     // o pedido como uma venda normal.
     if (note.finalidade === 'devolucao' && note.devolucaoId) {
@@ -2791,6 +2812,11 @@ const NFE: React.FC = () => {
                       {note.finalidade === 'devolucao' && (
                         <span title="NF-e de devolução de venda (nota de entrada)" style={{ marginLeft: '6px', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', backgroundColor: 'rgba(139,92,246,0.15)', color: '#a78bfa', fontWeight: 600 }}>
                           Devolução
+                        </span>
+                      )}
+                      {note.finalidade === 'transferencia' && (
+                        <span title={`NF-e de transferência entre filiais${note.numeroTransferencia ? ` (transferência nº ${note.numeroTransferencia})` : ''}`} style={{ marginLeft: '6px', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', backgroundColor: 'rgba(14,165,233,0.15)', color: '#38bdf8', fontWeight: 600 }}>
+                          Transferência
                         </span>
                       )}
                     </td>

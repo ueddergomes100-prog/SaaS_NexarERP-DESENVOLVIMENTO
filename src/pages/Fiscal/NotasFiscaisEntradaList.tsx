@@ -45,6 +45,8 @@ interface NotaFiscalEntradaDoc {
   observacao?: string;
   pagamento?: { modo?: string; forma?: string; categoria?: string };
   xmlGzipBase64?: string;
+  /** Entrada lancada sozinha pela transferencia entre filiais (Filiais F4). */
+  transferenciaId?: string;
 }
 
 interface TituloPagar {
@@ -444,7 +446,14 @@ const NotasFiscaisEntradaList: React.FC = () => {
                   <tr key={nota.id} {...linha(nota.id, () => handleVerDetalhes(nota))}>
                     <td>{formatDateInputPtBr(nota.dataEmissao)}</td>
                     <td className="font-medium">{nota.numeroNF}</td>
-                    <td>{nota.fornecedorNome}</td>
+                    <td>
+                      {nota.fornecedorNome}
+                      {nota.transferenciaId && (
+                        <span title="Entrada lançada pela transferência entre filiais. Para desfazer, use a transferência." style={{ marginLeft: '6px', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', backgroundColor: 'rgba(14,165,233,0.15)', color: '#38bdf8', fontWeight: 600 }}>
+                          Transferência
+                        </span>
+                      )}
+                    </td>
                     <td style={{ textAlign: 'center' }}>{nota.itens.length}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>{currency(nota.valorTotal)}</td>
                     <td style={{ textAlign: 'center' }}>
@@ -464,7 +473,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
                         >
                           <Barcode size={16} />
                         </button>
-                        {nota.status === 'ativa' && (
+                        {nota.status === 'ativa' && !nota.transferenciaId && (
                           <button
                             className="icon-btn"
                             title="Excluir (reverte estoque e títulos)"

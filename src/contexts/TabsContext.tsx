@@ -64,6 +64,14 @@ export const TabActiveContext = createContext(true);
 export const TabIdContext = createContext<string | null>(null);
 
 const STORAGE_KEY = 'nexus_tabs_v1';
+
+/**
+ * Esquece as abas salvas (Filiais, 2026-10-06): ao trocar de filial, as abas
+ * abertas sao dados da filial anterior e nao podem voltar abertas.
+ */
+export const limparAbasSalvas = (): void => {
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* sem localStorage: nada salvo */ }
+};
 const MAX_TABS = 8;
 
 let tabIdCounter = 0;
@@ -112,6 +120,8 @@ const SECTION_LABELS: Array<[string, string]> = [
   ['/relatorios-diversos', 'Relatórios Diversos'],
   ['/logs-sistema', 'Logs do Sistema'],
   ['/configuracoes', 'Configurações'],
+  ['/configuracoes/filiais', 'Filiais'],
+  ['/estoque/transferencias', 'Transferências'],
   ['/operacoes/expedicao', 'Expedição'],
   ['/operacoes/frota/custos', 'Custo por Veículo'],
   ['/operacoes/frota', 'Frota'],

@@ -3,6 +3,8 @@ import type { OrigemPreco, TabelaDePrecoDoItem } from '../../utils/precoVendaDom
 
 export interface PdvProduct {
   id: string;
+  /** Filiais: onde o cadastro nasceu (filtro "Itens desta filial"). */
+  filialOrigem?: string;
   nome: string;
   codigo: string;
   codigoBarras: string;

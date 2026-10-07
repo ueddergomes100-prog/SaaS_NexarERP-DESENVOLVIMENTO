@@ -17,8 +17,12 @@ service cloud.firestore {
       return get(userPath(request.auth.uid)).data;
     }
 
+    // Empresa da vez. Com filiais (2026-10-06), e' a FILIAL ATIVA quando o
+    // usuario entrou em outra filial do grupo -- campo gravado so' pelo
+    // servidor (services/filiais.js confere o grupo e a permissao "Utiliza
+    // outras filiais"); sem ele, a filial "casa" do usuario (tenantId).
     function currentTenantId() {
-      return hasProfile() ? currentProfile().tenantId : null;
+      return hasProfile() ? currentProfile().get('filialAtiva', currentProfile().tenantId) : null;
     }
 
     function currentRole() {
@@ -76,6 +80,10 @@ service cloud.firestore {
         // motivo do limiteUsuarios: contratado a parte, so o SuperAdmin
         // altera. Padrao quando ausente e' 0 -- ver acessoMobileDomain.ts.
         'limiteAcessoMobile',
+        // Filiais (07/10): quantas filiais a empresa pode ter alem da matriz e
+        // o % da mensalidade que cada uma paga. Mesmo motivo dos limites acima.
+        'limiteFiliais',
+        'percentualFilial',
         'limites',
         'statusSaas',
         'billingStatus',
@@ -85,7 +93,14 @@ service cloud.firestore {
         // /requisitos) -- se o Admin da empresa pudesse trocar, apontaria pra
         // empresa de OUTRO cliente e mexeria na numeracao/ambiente fiscal
         // dela. So' o servidor grava (Admin SDK, ver spedyCompanies.routes.js).
-        'spedyCompanyId'
+        'spedyCompanyId',
+        // Filiais (2026-10-06): o grupo de uma empresa, o codigo da filial e a
+        // filial em que o usuario esta trabalhando so' o servidor grava --
+        // senao um administrador se colocaria no grupo (ou na filial) de
+        // outra empresa e leria os dados dela.
+        'grupoId',
+        'filialCodigo',
+        'filialAtiva'
       ];
     }
 
@@ -424,6 +439,40 @@ service cloud.firestore {
         (!alteraSituacao() && (!cadastroInativo(collectionName) || soMovimentaSaldo(collectionName)));
     }
 
+    // Filiais (2026-10-06): cadastro de cliente e de produto e' do GRUPO
+    // (copias espelhadas pelo servidor, ver src/utils/cadastroGrupoDomain.ts).
+    // Cliente/produto nascido em OUTRA filial: sem "Utiliza outras filiais"
+    // (ou ser dono/administrador), o cliente nao muda e, no produto, so' os
+    // campos da filial mudam (preco, estoque, tributacao -- toda venda mexe
+    // no estoque). Empresa sem filiais nao tem filialOrigem: nada muda.
+    function camposDoProdutoNoGrupo() {
+      // Mesma lista de CAMPOS_DO_PRODUTO_NO_GRUPO (cadastroGrupoDomain.ts).
+      return ['codigo', 'codigoAutomatico', 'nome', 'categoria', 'marca', 'referencia', 'codigoBarras',
+        'descricaoCurta', 'descricaoCompleta', 'observacoesInternas', 'imagemProduto', 'tags',
+        'unidadeMedidaSigla', 'unidadeMedidaNome', 'unidadeMedidaFracionado', 'unidadeMedidaCasasDecimais', 'produtoFracionado',
+        'peso', 'altura', 'largura', 'comprimento', 'pesoLiquidoUnitarioKg', 'pesoEnvio',
+        'ncm', 'cest', 'origem', 'codigoAnp',
+        'skuSistema', 'slugUrl', 'seoTitulo', 'seoDescricao', 'descricaoMarketplace', 'imagensMarketplace',
+        'produzidoInternamente', 'produtoServico', 'produtoRevenda', 'controlarEstoque',
+        'exigirSerialLote', 'controlarLote', 'permiteCondicional', 'permitirCashback', 'produtoDestaque',
+        'ativo', 'statusAtivo', 'grupoChave', 'filialOrigem', 'cadastroHash'];
+    }
+
+    // Filiais F4: a nota de entrada lancada pela transferencia (servidor) nao
+    // e' excluida/alterada pela tela -- o estoque entrou pela transferencia.
+    function entradaDeTransferenciaIntacta(collectionName) {
+      return collectionName != 'notas_fiscais_entrada' || resource.data.get('transferenciaId', '') == '';
+    }
+
+    function cadastroDoGrupoRespeitado(collectionName) {
+      return !(collectionName in ['clientes', 'estoque']) ||
+        resource.data.get('filialOrigem', currentTenantId()) == currentTenantId() ||
+        isTenantAdmin() ||
+        hasPermission('filiais.utilizar') ||
+        (collectionName == 'estoque' &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(camposDoProdutoNoGrupo()));
+    }
+
     function canDeleteTenantDocument() {
       return isSuperAdmin() ||
         (hasProfile() && perfilAtivo() && resource.data.tenantId == currentTenantId());
@@ -485,6 +534,27 @@ service cloud.firestore {
       // UsuariosList.tsx). Antes o Tenant Admin tambem podia; fechado pra
       // nao sobrar um caminho de exclusao fisica sem UI nenhuma usando.
       allow delete: if isSuperAdmin();
+    }
+
+    // Grupo de filiais (2026-10-06). Le quem trabalha numa filial do grupo;
+    // so' o servidor grava (services/filiais.js). Limite e cobranca das
+    // filiais ficam em usuarios/{matriz} (platformManagedFields), nao aqui.
+    match /grupos/{grupoId} {
+      allow read: if isSuperAdmin() || (
+        hasProfile() && perfilAtivo() &&
+        get(/databases/$(database)/documents/configuracoes/$(currentTenantId())).data.get('grupoId', '') == grupoId
+      );
+      allow write: if false;
+    }
+
+    // Transferencias entre filiais (2026-10-06, fase 3): as duas filiais
+    // (origem e destino) leem; so' o servidor grava (services/transferencias.js).
+    match /transferencias/{transferenciaId} {
+      allow read: if isSuperAdmin() || (
+        hasProfile() && perfilAtivo() &&
+        resource.data.tenantIds.hasAny([currentTenantId()])
+      );
+      allow write: if false;
     }
 
     match /usernames/{username} {
@@ -877,7 +947,7 @@ service cloud.firestore {
         'entregas',
         'caixas_pdv',
         'notas_avulsas'
-      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && (
+      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && entradaDeTransferenciaIntacta(collectionName) && (
         // Os movimentos de SALDO vem PRIMEIRO de proposito (2026-09-29): sao
         // as escritas mais comuns (toda venda mexe em estoque e banco) e as
         // mais baratas de conferir. O Firestore para de avaliar a regra depois

@@ -144,3 +144,11 @@ Para ir para produção (fora do horário de pico):
 2. O dono publica as `firestore.rules` e `storage.rules` em produção.
 3. Push para `production` (reinicia o servidor, que passa a rodar o espelho de cadastros).
 4. Antes da primeira nota de transferência real: cidade/estado e inscrição estadual das filiais completos em Configurações, Spedy ligada na filial que envia e tributação conferida pelo contador.
+
+### 07/10/2026 — juntado no `main` e testado
+
+- `d229911`: limite de filiais do plano (`usuarios/{matriz}.limiteFiliais`, padrão 0; a matriz não conta; menu escondido sem liberação) e cobrança em **% da mensalidade** (`percentualFilial`), ambos no SuperAdmin. `grupos` voltou a ser só do servidor.
+- `2e3469a`: merge da branch `filiais` no `main`.
+- `863fac1`: cidade da filial com código IBGE (ViaCEP + API do IBGE → cidade fiscal); formulário de transferência limpo depois de enviar (a aba reaproveitada repetia o id do envio); log de login na filial ativa; cartões do Estoque seguem o filtro de filial.
+- Testado no dev com o dono logado: cadastro de filial + espelho, trava do plano, troca de filial, transferência com nota (Spedy sandbox aceitou; SEFAZ rejeitou por falta de certificado na empresa de teste; cancelamento devolveu o estoque), transferência sem nota com conferência com falta, Configurações e Estoque da filial, Resumo do grupo.
+- Enviado para `dev`. **Produção pendente** (push fora do pico + rules publicadas pelo dono).

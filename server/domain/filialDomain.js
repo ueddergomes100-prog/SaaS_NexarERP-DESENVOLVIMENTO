@@ -16,7 +16,7 @@
  *    Decisao do dono (06/10): as permissoes valem iguais em todas as filiais.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.matrizAPartirDaConfiguracao = exports.filialParaGravar = exports.configuracaoInicialDaFilial = exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = exports.validarDadosDaFilial = exports.validarNomeECodigoDaFilial = exports.proximoCodigoDeFilial = exports.cnpjValido = exports.validarEdicaoDaFilial = exports.identidadeParaConfiguracao = exports.dadosDaFilialNaConfiguracao = exports.lerDadosDaFilial = exports.filialAtivaParaGravar = exports.validarTrocaDeFilial = exports.filiaisDoUsuario = exports.podeUsarOutrasFiliais = exports.pertenceAoGrupo = exports.ehGestorDoGrupo = exports.filialAtivaDoUsuario = exports.rotuloFilial = exports.mensalidadeComFiliais = exports.erroLimiteDeFiliais = exports.filiaisCobradas = exports.lerPercentualFilial = exports.lerLimiteFiliais = exports.LIMITE_FILIAIS_PADRAO = exports.lerGrupo = exports.lerFilial = exports.UFS = exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = void 0;
+exports.matrizAPartirDaConfiguracao = exports.filialParaGravar = exports.configuracaoInicialDaFilial = exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = exports.validarDadosDaFilial = exports.validarNomeECodigoDaFilial = exports.proximoCodigoDeFilial = exports.cnpjValido = exports.validarEdicaoDaFilial = exports.identidadeParaConfiguracao = exports.dadosDaFilialNaConfiguracao = exports.lerDadosDaFilial = exports.acharCodigoIbge = exports.normalizarNomeCidade = exports.filialAtivaParaGravar = exports.validarTrocaDeFilial = exports.filiaisDoUsuario = exports.podeUsarOutrasFiliais = exports.pertenceAoGrupo = exports.ehGestorDoGrupo = exports.filialAtivaDoUsuario = exports.rotuloFilial = exports.mensalidadeComFiliais = exports.erroLimiteDeFiliais = exports.filiaisCobradas = exports.lerPercentualFilial = exports.lerLimiteFiliais = exports.LIMITE_FILIAIS_PADRAO = exports.lerGrupo = exports.lerFilial = exports.UFS = exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = void 0;
 exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = 'filiais.utilizar';
 const texto = (valor) => (typeof valor === 'string' ? valor.trim() : '');
 const soDigitos = (valor) => String(valor ?? '').replace(/\D/g, '');
@@ -146,6 +146,20 @@ exports.validarTrocaDeFilial = validarTrocaDeFilial;
  */
 const filialAtivaParaGravar = (usuario, destino) => (destino === texto(usuario.tenantId) ? null : destino);
 exports.filialAtivaParaGravar = filialAtivaParaGravar;
+/** Nome de cidade sem acento, maiusculo e sem pontuacao, para casar com a lista do IBGE. */
+const normalizarNomeCidade = (nome) => texto(nome)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+exports.normalizarNomeCidade = normalizarNomeCidade;
+/** Acha o codigo IBGE pelo nome na lista de municipios da UF (API do IBGE: { id, nome }). */
+const acharCodigoIbge = (municipios, nome) => {
+    const alvo = (0, exports.normalizarNomeCidade)(nome);
+    if (!alvo)
+        return '';
+    const achado = municipios.find((m) => (0, exports.normalizarNomeCidade)(m.nome) === alvo);
+    return achado ? soDigitos(achado.id).slice(0, 7) : '';
+};
+exports.acharCodigoIbge = acharCodigoIbge;
 const lerDadosDaFilial = (dados) => {
     const d = (dados && typeof dados === 'object' ? dados : {});
     return {
@@ -158,6 +172,7 @@ const lerDadosDaFilial = (dados) => {
         inscricaoMunicipal: texto(d.inscricaoMunicipal).toUpperCase(),
         uf: texto(d.uf).toUpperCase(),
         cidade: texto(d.cidade).toUpperCase(),
+        codigoIbge: soDigitos(d.codigoIbge).length === 7 ? soDigitos(d.codigoIbge) : '',
         rua: texto(d.rua).toUpperCase(),
         numero: texto(d.numero).toUpperCase(),
         complemento: texto(d.complemento).toUpperCase(),
@@ -180,6 +195,7 @@ const dadosDaFilialNaConfiguracao = (filial, config) => (0, exports.lerDadosDaFi
     inscricaoMunicipal: config.nfseInscricaoMunicipal,
     uf: config.uf || filial.uf,
     cidade: config.cidade || filial.cidade,
+    codigoIbge: config.nfseCidadeCodigo || config.codigoIbge,
     rua: config.rua,
     numero: config.numero,
     complemento: config.complemento,
@@ -202,6 +218,9 @@ const identidadeParaConfiguracao = (dados) => ({
     nfseInscricaoMunicipal: dados.inscricaoMunicipal,
     uf: dados.uf,
     cidade: dados.cidade,
+    // Cidade fiscal (a mesma "Cidade da Empresa" das Configuracoes). Sem o
+    // codigo, nao mexe no que ja' estiver la' -- a pessoa escolhe depois.
+    ...(dados.codigoIbge ? { codigoIbge: dados.codigoIbge, nfseCidadeCodigo: dados.codigoIbge, nfseCidadeNome: dados.cidade, nfseCidadeEstado: dados.uf } : {}),
     rua: dados.rua,
     numero: dados.numero,
     complemento: dados.complemento,

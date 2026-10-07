@@ -197,6 +197,10 @@ const EstoqueList: React.FC = () => {
     return passaNoStatus && passaNaFilial && matchesAllSearchTerms([peca.nome, peca.codigo, peca.categoria], searchTerm);
   });
 
+  // Cartoes de resumo seguem o filtro de filial (07/10): numa filial nova, os
+  // 700 itens do grupo sem estoque aqui apareciam como 'esgotados'.
+  const pecasDoResumo = grupo && escopoFilial === 'filial' ? pecasList.filter((peca) => itemDaFilial(peca, tenantId)) : pecasList;
+
   const getStatusBadge = (quantidade: number) => {
     if (quantidade <= 0) {
       return (
@@ -274,7 +278,7 @@ const EstoqueList: React.FC = () => {
             </div>
           </div>
           <div className="stat-info">
-            <h3>{pecasList.length}</h3>
+            <h3>{pecasDoResumo.length}</h3>
             <p>Itens Cadastrados</p>
           </div>
         </div>
@@ -285,7 +289,7 @@ const EstoqueList: React.FC = () => {
             </div>
           </div>
           <div className="stat-info">
-            <h3>{pecasList.filter(p => p.quantidade > 0 && p.quantidade < 5).length}</h3>
+            <h3>{pecasDoResumo.filter(p => p.quantidade > 0 && p.quantidade < 5).length}</h3>
             <p>Estoque Baixo</p>
           </div>
         </div>
@@ -296,7 +300,7 @@ const EstoqueList: React.FC = () => {
             </div>
           </div>
           <div className="stat-info">
-            <h3>{pecasList.filter(p => p.quantidade <= 0).length}</h3>
+            <h3>{pecasDoResumo.filter(p => p.quantidade <= 0).length}</h3>
             <p>Itens Esgotados</p>
           </div>
         </div>

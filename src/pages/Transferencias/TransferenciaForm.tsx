@@ -78,7 +78,10 @@ const TransferenciaForm: React.FC = () => {
   const [observacao, setObservacao] = useState('');
   const [enviando, setEnviando] = useState(false);
   // Id fixo do envio: repetir depois de uma queda de internet nao baixa duas vezes.
-  const [idDocumento] = useState(() => doc(collection(db, 'transferencias')).id);
+  // Depois de um envio que deu certo o id e' trocado (a aba 'Nova transferencia'
+  // e' reaproveitada pelo sistema de abas; sem isso o proximo envio repetia o id,
+  // o servidor respondia 'ja enviada' e nada novo era criado -- bug visto em 07/10).
+  const [idDocumento, setIdDocumento] = useState(() => doc(collection(db, 'transferencias')).id);
   const { semNotaLigada } = useSemNotaDaFilial(tenantId);
   const [modo, setModo] = useState<'com' | 'sem'>('com');
 
@@ -118,7 +121,9 @@ const TransferenciaForm: React.FC = () => {
     setEnviando(true);
     try {
       const r = await enviarTransferencia({ destino, itens, observacao, comNota: modoEfetivo === 'com', idDocumento });
-      if (r.nota?.status === 'falha_envio') {
+      if (r.jaEnviada) {
+        showWarning('Este envio já estava registrado', `Transferência nº ${r.numeroTransferencia}. Nada saiu do estoque de novo.`);
+      } else if (r.nota?.status === 'falha_envio') {
         showWarning(`Transferência nº ${r.numeroTransferencia} enviada sem confirmação da nota`, 'A Spedy não respondeu. Abra a transferência e use "Emitir a nota de novo": o sistema não duplica a nota.');
       } else if (r.nota) {
         showSuccess(`Transferência nº ${r.numeroTransferencia} enviada. Nota fiscal na fila da SEFAZ.`);
@@ -126,6 +131,12 @@ const TransferenciaForm: React.FC = () => {
       } else {
         showSuccess(`Transferência nº ${r.numeroTransferencia} enviada.`);
       }
+      // Formulario limpo para o proximo envio (a aba continua aberta).
+      setLinhas([]);
+      setDestino('');
+      setObservacao('');
+      setBusca('');
+      setIdDocumento(doc(collection(db, 'transferencias')).id);
       openTab(`/estoque/transferencias/${r.id}`, `Transferência #${r.numeroTransferencia}`);
     } catch (erro) {
       showError('Não foi possível enviar a transferência', erro instanceof Error ? erro.message : undefined);

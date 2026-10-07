@@ -254,7 +254,11 @@ const AuthPage: React.FC = () => {
             return;
           }
 
-          userTenantId = typeof userData.tenantId === 'string' ? userData.tenantId : 'geral';
+          // Filiais (07/10): o log de login vai para a filial em que a pessoa esta
+          // trabalhando (filialAtiva); as rules so' deixam gravar nela.
+          userTenantId = typeof userData.filialAtiva === 'string' && userData.filialAtiva
+            ? userData.filialAtiva
+            : (typeof userData.tenantId === 'string' ? userData.tenantId : 'geral');
           activeSessionId = typeof userData.activeSessionId === 'string' ? userData.activeSessionId : '';
           activeSession = (userData.activeSession as ActiveSessionInfo | undefined) || null;
         } else if (!isPlatformLogin) {

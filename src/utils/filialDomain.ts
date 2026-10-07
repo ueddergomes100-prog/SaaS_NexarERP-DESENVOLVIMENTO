@@ -206,6 +206,9 @@ export interface DadosDaFilial {
   inscricaoMunicipal: string;
   uf: string;
   cidade: string;
+  /** Codigo IBGE da cidade (7 digitos). A NF-e de transferencia precisa dele
+   *  no destinatario; vazio = a pessoa escolhe a cidade depois em Configuracoes. */
+  codigoIbge: string;
   rua: string;
   numero: string;
   complemento: string;
@@ -216,6 +219,19 @@ export interface DadosDaFilial {
   /** Pessoa de contato da filial. */
   contato: string;
 }
+
+/** Nome de cidade sem acento, maiusculo e sem pontuacao, para casar com a lista do IBGE. */
+export const normalizarNomeCidade = (nome: unknown): string => texto(nome)
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+
+/** Acha o codigo IBGE pelo nome na lista de municipios da UF (API do IBGE: { id, nome }). */
+export const acharCodigoIbge = (municipios: Array<{ id: number | string; nome: string }>, nome: unknown): string => {
+  const alvo = normalizarNomeCidade(nome);
+  if (!alvo) return '';
+  const achado = municipios.find((m) => normalizarNomeCidade(m.nome) === alvo);
+  return achado ? soDigitos(achado.id).slice(0, 7) : '';
+};
 
 export const lerDadosDaFilial = (dados: unknown): DadosDaFilial => {
   const d = (dados && typeof dados === 'object' ? dados : {}) as Record<string, unknown>;
@@ -229,6 +245,7 @@ export const lerDadosDaFilial = (dados: unknown): DadosDaFilial => {
     inscricaoMunicipal: texto(d.inscricaoMunicipal).toUpperCase(),
     uf: texto(d.uf).toUpperCase(),
     cidade: texto(d.cidade).toUpperCase(),
+    codigoIbge: soDigitos(d.codigoIbge).length === 7 ? soDigitos(d.codigoIbge) : '',
     rua: texto(d.rua).toUpperCase(),
     numero: texto(d.numero).toUpperCase(),
     complemento: texto(d.complemento).toUpperCase(),
@@ -251,6 +268,7 @@ export const dadosDaFilialNaConfiguracao = (filial: FilialDoGrupo, config: Recor
   inscricaoMunicipal: config.nfseInscricaoMunicipal,
   uf: config.uf || filial.uf,
   cidade: config.cidade || filial.cidade,
+  codigoIbge: config.nfseCidadeCodigo || config.codigoIbge,
   rua: config.rua,
   numero: config.numero,
   complemento: config.complemento,
@@ -273,6 +291,9 @@ export const identidadeParaConfiguracao = (dados: DadosDaFilial): Record<string,
   nfseInscricaoMunicipal: dados.inscricaoMunicipal,
   uf: dados.uf,
   cidade: dados.cidade,
+  // Cidade fiscal (a mesma "Cidade da Empresa" das Configuracoes). Sem o
+  // codigo, nao mexe no que ja' estiver la' -- a pessoa escolhe depois.
+  ...(dados.codigoIbge ? { codigoIbge: dados.codigoIbge, nfseCidadeCodigo: dados.codigoIbge, nfseCidadeNome: dados.cidade, nfseCidadeEstado: dados.uf } : {}),
   rua: dados.rua,
   numero: dados.numero,
   complemento: dados.complemento,

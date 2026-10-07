@@ -3,7 +3,7 @@ import { Loader2, X } from 'lucide-react';
 import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton';
 import type { ConsultaCnpjResultado } from '../../services/documentoService';
 import { alterarFilial, cadastrarFilial, lerCadastroDaFilial } from '../../services/filialService';
-import { UFS, lerDadosDaFilial, type DadosDaFilial, type FilialDoGrupo, type TipoFilial } from '../../utils/filialDomain';
+import { UFS, acharCodigoIbge, lerDadosDaFilial, type DadosDaFilial, type FilialDoGrupo, type TipoFilial } from '../../utils/filialDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { useEscapeLayer } from '../../hooks/useKeyboardFlow';
 import { fetchComTimeout } from '../../utils/fetchComTimeout';
@@ -35,6 +35,29 @@ const estiloSecao: React.CSSProperties = {
 const TEMPO_LIMITE_CEP_MS = 10_000;
 
 /**
+ * Municipios de cada UF na API publica do IBGE (sem chave), guardados por
+ * UF enquanto a tela estiver aberta. A NF-e de transferencia precisa do
+ * codigo IBGE da cidade de destino; o ViaCEP ja' traz o codigo, e quem digita
+ * a cidade na mao recebe o codigo casado pelo nome.
+ */
+const municipiosPorUf = new Map<string, Promise<Array<{ id: number; nome: string }>>>();
+const municipiosDaUf = (uf: string) => {
+  const chave = uf.toUpperCase();
+  if (!municipiosPorUf.has(chave)) {
+    const pedido = fetchComTimeout(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${chave}/municipios?orderBy=nome`, {}, TEMPO_LIMITE_CEP_MS)
+      .then(async (r) => {
+        if (!r.ok) throw new Error('IBGE indisponível');
+        return (await r.json()) as Array<{ id: number; nome: string }>;
+      })
+      .catch((erro) => { municipiosPorUf.delete(chave); throw erro; });
+    municipiosPorUf.set(chave, pedido);
+  }
+  return municipiosPorUf.get(chave)!;
+};
+
+type SituacaoIbge = '' | 'buscando' | 'ok' | 'nao_achou' | 'erro';
+
+/**
  * Cadastro de filial (2026-10-06): o cabecalho e a aba Endereco do "Cadastro
  * de Filial" do Integra. O resto das abas de la' (Complemento, Parametros,
  * Outros) sao as Configuracoes de cada filial, que a filial nova recebe da
@@ -42,6 +65,7 @@ const TEMPO_LIMITE_CEP_MS = 10_000;
  */
 const FilialFormModal: React.FC<FilialFormModalProps> = ({ aberto, filial, proximoCodigo, primeiraFilial, onFechar, onSalvo }) => {
   const [dados, setDados] = useState<DadosDaFilial>(VAZIO);
+  const [situacaoIbge, setSituacaoIbge] = useState<SituacaoIbge>('');
   const [carregando, setCarregando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const editando = Boolean(filial);
@@ -67,9 +91,38 @@ const FilialFormModal: React.FC<FilialFormModalProps> = ({ aberto, filial, proxi
     return () => { cancelado = true; };
   }, [aberto, filial, proximoCodigo]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Cidade digitada (ou vinda do CNPJ) sem codigo: casa pelo nome na lista do IBGE da UF.
+  useEffect(() => {
+    if (!aberto) return undefined;
+    if (dados.codigoIbge) { setSituacaoIbge('ok'); return undefined; }
+    const uf = dados.uf.trim();
+    const cidade = dados.cidade.trim();
+    if (uf.length !== 2 || cidade.length < 3) { setSituacaoIbge(''); return undefined; }
+    let cancelado = false;
+    setSituacaoIbge('buscando');
+    const timer = window.setTimeout(() => {
+      municipiosDaUf(uf)
+        .then((lista) => {
+          if (cancelado) return;
+          const codigo = acharCodigoIbge(lista, cidade);
+          if (codigo) {
+            setDados((atual) => (atual.cidade.trim() === cidade && atual.uf.trim() === uf ? { ...atual, codigoIbge: codigo } : atual));
+            setSituacaoIbge('ok');
+          } else {
+            setSituacaoIbge('nao_achou');
+          }
+        })
+        .catch(() => { if (!cancelado) setSituacaoIbge('erro'); });
+    }, 500);
+    return () => { cancelado = true; window.clearTimeout(timer); };
+  }, [aberto, dados.cidade, dados.uf, dados.codigoIbge]);
+
   if (!aberto) return null;
 
-  const mudar = (campo: keyof DadosDaFilial, valor: string) => setDados((atual) => ({ ...atual, [campo]: valor }));
+  const mudar = (campo: keyof DadosDaFilial, valor: string) => setDados((atual) => (
+    // Mudou a cidade ou a UF: o codigo IBGE anterior nao vale mais.
+    campo === 'cidade' || campo === 'uf' ? { ...atual, [campo]: valor, codigoIbge: '' } : { ...atual, [campo]: valor }
+  ));
 
   const preencherDeCnpj = (r: ConsultaCnpjResultado) => {
     setDados((atual) => ({
@@ -81,6 +134,7 @@ const FilialFormModal: React.FC<FilialFormModalProps> = ({ aberto, filial, proxi
       bairro: (r.bairro || atual.bairro).toUpperCase(),
       cidade: (r.municipio || atual.cidade).toUpperCase(),
       uf: (r.uf || atual.uf).toUpperCase(),
+      ...(r.municipio || r.uf ? { codigoIbge: '' } : {}),
       telefone: atual.telefone || r.telefone || '',
       email: atual.email || (r.email || '').toLowerCase(),
     }));
@@ -99,6 +153,8 @@ const FilialFormModal: React.FC<FilialFormModalProps> = ({ aberto, filial, proxi
         bairro: atual.bairro || String(r.bairro || '').toUpperCase(),
         cidade: String(r.localidade || atual.cidade).toUpperCase(),
         uf: String(r.uf || atual.uf).toUpperCase(),
+        // O ViaCEP ja' devolve o codigo IBGE da cidade.
+        codigoIbge: String(r.ibge || '').replace(/\D/g, '').length === 7 ? String(r.ibge) : atual.codigoIbge,
       }));
     } catch {
       // Sem CEP automatico: a pessoa digita o endereco.
@@ -239,6 +295,14 @@ const FilialFormModal: React.FC<FilialFormModalProps> = ({ aberto, filial, proxi
                 </select>
               </label>
             </div>
+            {situacaoIbge !== '' && (
+              <p style={{ margin: '-6px 0 0', fontSize: '12px', color: situacaoIbge === 'nao_achou' ? '#f59e0b' : 'var(--text-muted)' }} role={situacaoIbge === 'nao_achou' ? 'alert' : undefined}>
+                {situacaoIbge === 'buscando' && 'Procurando a cidade no IBGE...'}
+                {situacaoIbge === 'ok' && `Código IBGE da cidade: ${dados.codigoIbge}`}
+                {situacaoIbge === 'nao_achou' && `Cidade não encontrada no IBGE para ${dados.uf}. Confira o nome: a nota fiscal de transferência precisa do código da cidade.`}
+                {situacaoIbge === 'erro' && 'Não deu para consultar o IBGE agora. A cidade pode ser escolhida depois, em Configurações da filial.'}
+              </p>
+            )}
 
             <div style={estiloSecao}>Contato</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px' }}>

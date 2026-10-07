@@ -2870,7 +2870,7 @@ const NFE: React.FC = () => {
                         {canEmitirNota && (note.status === 'rejected' || note.status === 'denied') && (
                           <button
                             className="icon-btn"
-                            title={note.finalidade === 'devolucao' ? 'Corrigir e reemitir a devolução' : 'Corrigir e Transmitir Novamente'}
+                            title={note.finalidade === 'devolucao' ? 'Corrigir e reemitir a devolução' : note.finalidade === 'transferencia' ? 'Emitir de novo pela transferência' : 'Corrigir e Transmitir Novamente'}
                             onClick={() => handleRetransmitRejected(note)}
                             style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'transparent', border: 'none', color: '#f59e0b', cursor: 'pointer' }}
                           >

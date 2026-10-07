@@ -12,7 +12,7 @@ import {
   proximoCodigoDeFilial,
   validarDadosDaFilial,
   validarNomeECodigoDaFilial,
-  validarTrocaDeFilial, mensalidadeComFiliais, erroLimiteDeFiliais, lerLimiteFiliais, lerPercentualFilial } from '../src/utils/filialDomain';
+  validarTrocaDeFilial, mensalidadeComFiliais, erroLimiteDeFiliais, lerLimiteFiliais, lerPercentualFilial, acharCodigoIbge, identidadeParaConfiguracao, dadosDaFilialNaConfiguracao } from '../src/utils/filialDomain';
 
 const CNPJ_MATRIZ = '11222333000181';
 const CNPJ_FILIAL = '11222333000262';
@@ -123,6 +123,19 @@ test('cobranca: filial ativa alem da matriz paga um % da mensalidade; sem % defi
   assert.deepEqual(mensalidadeComFiliais(149.9, grupo, undefined), { filiais: 2, percentual: 0, valorPorFilial: 0, adicional: 0, total: 149.9 });
   assert.deepEqual(mensalidadeComFiliais(149.9, null, 30), { filiais: 0, percentual: 30, valorPorFilial: 44.97, adicional: 0, total: 149.9 });
   assert.equal(lerPercentualFilial(150), 100);
+});
+
+test('cidade da filial: codigo IBGE casado pelo nome sem acento; identidade só grava a cidade fiscal quando tem o codigo', () => {
+  const municipios = [{ id: 3205309, nome: 'Vitória' }, { id: 3205002, nome: 'Serra' }, { id: 3201308, nome: 'Cachoeiro de Itapemirim' }];
+  assert.equal(acharCodigoIbge(municipios, 'VITORIA'), '3205309');
+  assert.equal(acharCodigoIbge(municipios, 'cachoeiro de itapemirim'), '3201308');
+  assert.equal(acharCodigoIbge(municipios, 'Vila Velha'), '');
+  const base = lerDadosDaFilial({ codigo: '20', nome: 'Baixada', cidade: 'Serra', uf: 'es', codigoIbge: '3205002' });
+  const com = identidadeParaConfiguracao(base);
+  assert.deepEqual([com.nfseCidadeCodigo, com.nfseCidadeNome, com.nfseCidadeEstado, com.codigoIbge], ['3205002', 'SERRA', 'ES', '3205002']);
+  const sem = identidadeParaConfiguracao(lerDadosDaFilial({ ...base, codigoIbge: '12' }));
+  assert.equal('nfseCidadeCodigo' in sem, false, 'codigo invalido e\' descartado e a cidade fiscal fica como estava');
+  assert.equal(dadosDaFilialNaConfiguracao({ tenantId: 'x', codigo: '20', nome: 'B', cnpj: '', uf: 'ES', cidade: 'SERRA', tipo: 'cnpj_proprio', matriz: false, ativa: true }, { nfseCidadeCodigo: '3205002' }).codigoIbge, '3205002');
 });
 
 test('limite de filiais do plano: matriz nao conta; 0 = nao liberado', () => {

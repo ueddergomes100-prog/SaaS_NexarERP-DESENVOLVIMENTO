@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { mensagemDoDocumento } from '../../utils/mensagensPadraoDomain';
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { formatarDocumento } from '../../utils/documentoValidacao';
 import { ehPreVenda, STATUS_PRE_VENDA, STATUS_EM_ANALISE, STATUS_FINALIZADA, STATUS_CANCELADA } from '../../utils/preVendaDomain';
@@ -229,6 +230,9 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
           <strong>Observações:</strong>
           <p>{configData.observacoesPadraoPedido}</p>
         </div>
+      )}
+      {mensagemDoDocumento(configData, 'recibo') && (
+        <p className="mf-situacao" style={{ whiteSpace: 'pre-line' }}>{mensagemDoDocumento(configData, 'recibo')}</p>
       )}
 
       <div className="mf-signatures">

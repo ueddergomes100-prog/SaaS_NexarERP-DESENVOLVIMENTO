@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { mensagemDoDocumento } from '../../utils/mensagensPadraoDomain';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft } from 'lucide-react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
@@ -201,6 +202,9 @@ const OrcamentoPrint: React.FC = () => {
         </div>
 
         <div className="a4-footer">
+          {mensagemDoDocumento(configData, 'orcamento') && (
+            <p style={{ whiteSpace: 'pre-line' }}>{mensagemDoDocumento(configData, 'orcamento')}</p>
+          )}
           <p>Este orçamento tem validade de {data.validadeDias || 15} dias a partir da data de emissão.</p>
           <p>Gerado pelo Sistema Hennder ERP.</p>
         </div>

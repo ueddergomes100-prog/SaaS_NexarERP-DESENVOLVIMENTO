@@ -1,4 +1,5 @@
 import React from 'react';
+import { mensagemDoDocumento } from '../../utils/mensagensPadraoDomain';
 import { getCompanyAddressRows } from '../../utils/companyAddress';
 import { ehPreVenda } from '../../utils/preVendaDomain';
 
@@ -148,7 +149,8 @@ const PedidoPrintDocument: React.FC<PedidoPrintDocumentProps> = ({ pedidoData, c
       </div>
 
       <div className="a4-footer">
-        <p>Obrigado pela preferência!</p>
+        {/* Mensagem padrao do recibo (Configuracoes > Mensagens padrao por documento); em branco, a frase de sempre. */}
+        <p style={{ whiteSpace: 'pre-line' }}>{mensagemDoDocumento(configData, 'recibo') || 'Obrigado pela preferência!'}</p>
         <p>Gerado pelo Sistema Hennder ERP.</p>
       </div>
     </div>

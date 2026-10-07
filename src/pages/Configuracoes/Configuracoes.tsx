@@ -1,6 +1,7 @@
 import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
 import { TRIBUTACAO_TRANSFERENCIA_OPCOES, TRIBUTACAO_TRANSFERENCIA_PADRAO, parseTributacaoTransferencia, type TributacaoTransferencia } from '../../utils/notaTransferenciaDomain';
 import { PARAMETROS_VENDA_PADRAO, parametrosVendaDoForm, parametrosVendaParaForm, parseParametrosVenda, type ParametrosVendaForm } from '../../utils/parametrosVendaDomain';
+import { DOCUMENTOS_COM_MENSAGEM, LIMITE_MENSAGEM_PADRAO, MENSAGENS_PADRAO_VAZIAS, parseMensagensPadrao, type MensagensPadrao } from '../../utils/mensagensPadraoDomain';
 import React, { useState, useEffect, useRef } from 'react';
 import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy } from 'lucide-react';
 import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
@@ -139,6 +140,8 @@ const Configuracoes: React.FC = () => {
   const [showConfigAvancadas, setShowConfigAvancadas] = useState(false);
   // Configuracoes por filial, fase A (2026-10-07): parametros de venda.
   const [showParametrosVenda, setShowParametrosVenda] = useState(false);
+  // Configuracoes por filial, fase B (2026-10-07): mensagens padrao por documento.
+  const [showMensagensPadrao, setShowMensagensPadrao] = useState(false);
   const [showSpedy, setShowSpedy] = useState(false);
   const [novaReceitaInput, setNovaReceitaInput] = useState('');
   const [novaDespesaInput, setNovaDespesaInput] = useState('');
@@ -192,6 +195,7 @@ const Configuracoes: React.FC = () => {
     limiteDescontoOrcamento: { tipo: 'percentual' as DescontoTipo, valor: '' },
     limiteDescontoPdv: { tipo: 'percentual' as DescontoTipo, valor: '' },
     parametrosVenda: parametrosVendaParaForm(PARAMETROS_VENDA_PADRAO) as ParametrosVendaForm,
+    mensagensPadrao: { ...MENSAGENS_PADRAO_VAZIAS } as MensagensPadrao,
     permitirDescontoPorItem: DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
     permitirDividirPagamento: DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
     ordemFormasPagamento: [] as string[],
@@ -357,6 +361,7 @@ const Configuracoes: React.FC = () => {
             limiteDescontoOrcamento: toLimiteDescontoFormValue(data.limiteDescontoOrcamento),
             limiteDescontoPdv: toLimiteDescontoFormValue(data.limiteDescontoPdv),
             parametrosVenda: parametrosVendaParaForm(parseParametrosVenda(data.parametrosVenda)),
+            mensagensPadrao: parseMensagensPadrao(data.mensagensPadrao),
             permitirDescontoPorItem: parsePermitirDescontoPorItem(data.permitirDescontoPorItem),
             permitirDividirPagamento: parsePermitirDividirPagamento(data.permitirDividirPagamento),
             ordemFormasPagamento: parseOrdemFormasPagamento(data.ordemFormasPagamento),
@@ -882,6 +887,7 @@ const Configuracoes: React.FC = () => {
       await setDoc(docRef, {
         ...publicFormData,
         parametrosVenda: parametrosVendaResultado.parametros,
+        mensagensPadrao: parseMensagensPadrao(formData.mensagensPadrao),
         diasCrediario: creditTerms.join(', '),
         maxParcelasCartao: maxCardInstallments,
         taxasCartaoCreditoPorParcela: creditCardFees,
@@ -1922,6 +1928,44 @@ const Configuracoes: React.FC = () => {
               <div style={{ gridColumn: '1 / -1' }}>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Estas categorias aparecerão automaticamente na hora de lançar uma nova Receita ou Despesa no Fluxo de Caixa.</p>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Mensagens padrao por documento (Configuracoes por filial, fase B -- 2026-10-07). Em branco, o documento sai como hoje. */}
+        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showMensagensPadrao ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+            onClick={() => setShowMensagensPadrao(!showMensagensPadrao)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Sliders size={20} style={{ color: 'var(--accent-purple)' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Mensagens padrão por documento</h3>
+            </div>
+            <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {showMensagensPadrao ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
+          </div>
+
+          {showMensagensPadrao && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+              <p style={{ gridColumn: '1 / -1', fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                Texto que sai impresso em cada documento desta filial. Em branco, o documento sai como hoje. O pedido de venda e a OS continuam com os textos de "Textos Padrões".
+              </p>
+              {DOCUMENTOS_COM_MENSAGEM.map((docInfo) => (
+                <div key={docInfo.chave} className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px', gridColumn: docInfo.chave === 'notaFiscal' ? '1 / -1' : undefined }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>{docInfo.rotulo}</label>
+                  <textarea
+                    value={formData.mensagensPadrao[docInfo.chave]}
+                    onChange={(e) => { const valor = e.target.value; setFormData((atual) => ({ ...atual, mensagensPadrao: { ...atual.mensagensPadrao, [docInfo.chave]: valor } })); }}
+                    disabled={!isEditingMode}
+                    rows={3}
+                    maxLength={LIMITE_MENSAGEM_PADRAO}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }}
+                  />
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{docInfo.onde} Até {LIMITE_MENSAGEM_PADRAO} caracteres.</p>
+                </div>
+              ))}
             </div>
           )}
         </div>

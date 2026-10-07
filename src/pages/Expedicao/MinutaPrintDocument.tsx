@@ -1,4 +1,5 @@
 import React from 'react';
+import { mensagemDoDocumento } from '../../utils/mensagensPadraoDomain';
 import { NexusSwal } from '../../utils/alerts';
 import type { ViasMinuta } from '../../utils/pedidoImpressaoDomain';
 import {
@@ -231,6 +232,10 @@ const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({
           <span className="minuta-tracos">_____ : _____</span>
         </div>
       </div>
+
+      {mensagemDoDocumento(configData, 'minuta') && (
+        <p style={{ margin: '10px 0 6px', fontSize: '12px', whiteSpace: 'pre-line' }}>{mensagemDoDocumento(configData, 'minuta')}</p>
+      )}
 
       <div className="minuta-assinaturas">
         <div className="minuta-assinatura">

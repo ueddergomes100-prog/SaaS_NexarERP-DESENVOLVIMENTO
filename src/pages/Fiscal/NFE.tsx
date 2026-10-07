@@ -5,6 +5,7 @@ import {
   ChevronLeft, ChevronRight, MessageCircle, Loader2, FilePenLine, RotateCcw, Mail
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { informacoesComplementaresComMensagem, mensagemDoDocumento } from '../../utils/mensagensPadraoDomain';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -221,6 +222,8 @@ const NFE: React.FC = () => {
   const [emailPeloSistema, setEmailPeloSistema] = useState(false);
   const [isConfigLoading, setIsConfigLoading] = useState(true);
   const [regimeTributario, setRegimeTributario] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
+  /** Mensagem padrao da filial para a nota (Configuracoes > Mensagens padrao por documento). */
+  const [mensagemPadraoNota, setMensagemPadraoNota] = useState('');
   const [nfseConfig, setNfseConfig] = useState<NfseConfig>({ habilitada: false });
 
   // Estado de dados
@@ -409,6 +412,7 @@ const NFE: React.FC = () => {
         const configData = configSnap.data();
         setEmailPeloSistema(configData?.emailNotasConfigurado === true);
         setRegimeTributario((configData?.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
+        setMensagemPadraoNota(mensagemDoDocumento(configData, 'notaFiscal'));
 
         // 1c. Config de NFS-e do tenant (Configuracoes > Emissao Fiscal
         // Habilitada > Emite NFS-e) -- so preenche os defaults do modal
@@ -1768,12 +1772,13 @@ const NFE: React.FC = () => {
 
     // Informacoes complementares [infCpl]: pedido, frase obrigatoria do Simples
     // Nacional e o valor aproximado dos tributos (Lei 12.741).
-    const informacoesComplementares = [
+    // A mensagem padrao da filial vem primeiro (Configuracoes > Mensagens padrao por documento).
+    const informacoesComplementares = informacoesComplementaresComMensagem(mensagemPadraoNota, [
       a.numeroPedido ? `Pedido de venda nº ${a.numeroPedido}.` : '',
       a.referencedAccessKey ? `Referente ao cupom fiscal chave ${a.referencedAccessKey}.` : '',
       usesCsosn(regimeTributario) ? TEXTO_OPTANTE_SIMPLES_NACIONAL : '',
       textoTributosAproximados(tributosNota, valorNumerico),
-    ].filter(Boolean).join(' ');
+    ]);
 
     const payload = {
       integrationId: a.integrationId,

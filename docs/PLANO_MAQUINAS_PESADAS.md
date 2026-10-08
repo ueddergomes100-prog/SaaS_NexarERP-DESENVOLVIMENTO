@@ -174,3 +174,7 @@ docs); limpeza de dados de teste do dev.
 - Preço do km único na filial ou por veículo da empresa.
 - Assinatura do cliente obrigatória para "Concluir atendimento" ou opcional.
 - Nome do perfil no app ("Técnico") e se o técnico vê valores (R$) das peças.
+
+## 8. Situação
+
+- **07/10/2026 (noite) — Fase 1 feita** (`b30e21c`, `f4bb802`; no `main` e no repositório dev), testada no dev: chave ligada, equipamento sem placa, OS com deslocamento de 40 km virando serviço de R$ 200,00 e impressão no modelo do talão. Fases 2 a 5 a fazer, nesta ordem.

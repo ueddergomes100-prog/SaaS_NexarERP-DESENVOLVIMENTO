@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowDownCircle, ArrowUpCircle, Box, ChevronRight, ClipboardList, FileText, ListChecks, LogOut, Receipt, Repeat, Send, SquarePlus, Tag, Users, Wrench } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Box, ChevronRight, ClipboardList, FileText, ListChecks, LogOut, Receipt, Repeat, Send, SquarePlus, Tag, Truck, Users, Wrench } from 'lucide-react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
 import { db } from '../../services/firebase';
@@ -9,7 +9,7 @@ import { buscarResumoHojeDoVendedor } from '../../services/vendedorRankingServic
 import { CAMINHO_INSTALACAO, estaInstalado } from './pwa';
 import { listarRascunhos } from './vendedorRascunhosStore';
 import './vendedorMobile.css';
-import { PERMISSAO_BALANCO, podeUsarOsNoApp } from './vendedorPermissoes';
+import { PERMISSAO_BALANCO, podeUsarEntregasNoApp, podeUsarOsNoApp } from './vendedorPermissoes';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
 
@@ -247,6 +247,17 @@ const VendedorHome: React.FC = () => {
               >
                 <Wrench size={28} color="var(--brand-400)" strokeWidth={1.7} />
                 <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Ordens de Serviço</span>
+              </button>
+            )}
+
+            {podeUsarEntregasNoApp(userRole, isOwner, userPermissions) && (
+              <button
+                type="button"
+                onClick={() => navigate('/vendedor/entregas')}
+                style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+              >
+                <Truck size={28} color="var(--brand-400)" strokeWidth={1.7} />
+                <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Entregas</span>
               </button>
             )}
 

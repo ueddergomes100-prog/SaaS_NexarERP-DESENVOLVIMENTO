@@ -119,6 +119,7 @@ try {
     resolve('node_modules/typescript/bin/tsc'),
     'tests/financeDomain.test.ts',
     'tests/romaneioDomain.test.ts',
+    'tests/temaDomain.test.ts',
     'tests/precoPromocaoDomain.test.ts',
     'tests/productSearch.test.ts',
     'tests/keyboardFlow.test.ts',

@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, Receipt, LifeBuoy, ShieldCheck } from 'lucide-react';
+import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, SunMoon, Receipt, LifeBuoy, ShieldCheck } from 'lucide-react';
+import { usePreferenciaTema } from '../../hooks/usePreferenciaTema';
+import { proximaPreferenciaTema, tituloDoBotaoDeTema } from '../../utils/temaDomain';
 import FilialSeletor from './FilialSeletor';
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
@@ -36,20 +38,9 @@ const TopBar: React.FC = () => {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  const [theme, setTheme] = useState(() => localStorage.getItem('nexus_theme') || 'dark');
-
-  useEffect(() => {
-    if (theme === 'light') {
-      document.body.classList.add('light-theme');
-    } else {
-      document.body.classList.remove('light-theme');
-    }
-    localStorage.setItem('nexus_theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-  };
+  // Escuro -> claro -> automatico (segue o aparelho) -> escuro. Ver utils/temaDomain.ts.
+  const { preferencia: temaPreferido, aparelhoEscuro, escolher: escolherTema } = usePreferenciaTema();
+  const toggleTheme = () => escolherTema(proximaPreferenciaTema(temaPreferido));
 
   useEffect(() => {
     if (!currentUser || !tenantId) return;
@@ -438,9 +429,10 @@ const TopBar: React.FC = () => {
         <button
           className="action-btn theme-toggle-btn" 
           onClick={toggleTheme}
-          title={theme === 'dark' ? "Mudar para tema claro" : "Mudar para tema escuro"}
+          title={tituloDoBotaoDeTema(temaPreferido, aparelhoEscuro)}
+          aria-label={tituloDoBotaoDeTema(temaPreferido, aparelhoEscuro)}
         >
-          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+          {temaPreferido === 'dark' ? <Sun size={20} /> : temaPreferido === 'light' ? <SunMoon size={20} /> : <Moon size={20} />}
         </button>
         <div style={{ position: 'relative' }} ref={dropdownRef}>
           <button className="action-btn notifications-btn" onClick={handleNotificationClick}>

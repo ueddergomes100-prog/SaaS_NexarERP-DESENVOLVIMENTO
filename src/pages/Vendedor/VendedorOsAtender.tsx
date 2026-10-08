@@ -240,7 +240,9 @@ const VendedorOsAtender: React.FC = () => {
   };
 
   const voltar = async () => {
-    if (!sujo) { navigate(`/vendedor/os/${id}`); return; }
+    // replace: a tela de atender sai do historico. Sem isso, Voltar no detalhe
+    // caia de novo aqui e o usuario ficava preso entre as duas telas.
+    if (!sujo) { navigate(`/vendedor/os/${id}`, { replace: true }); return; }
     const r = await NexusSwal.fire({
       title: 'Sair sem salvar?',
       text: 'Há alterações no atendimento que ainda não foram salvas.',
@@ -251,8 +253,8 @@ const VendedorOsAtender: React.FC = () => {
       denyButtonText: 'Sair sem salvar',
       cancelButtonText: 'Ficar',
     });
-    if (r.isConfirmed) { if (await salvar(true)) navigate(`/vendedor/os/${id}`); }
-    else if (r.isDenied) navigate(`/vendedor/os/${id}`);
+    if (r.isConfirmed) { if (await salvar(true)) navigate(`/vendedor/os/${id}`, { replace: true }); }
+    else if (r.isDenied) navigate(`/vendedor/os/${id}`, { replace: true });
   };
 
   const enviarFotos = async (arquivos: FileList | null) => {

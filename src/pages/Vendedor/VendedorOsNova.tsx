@@ -12,7 +12,7 @@ import { abrirOsNoCampo } from '../../services/osCampoService';
 import VendedorHeader from './VendedorHeader';
 import VendedorSeletorCliente from './VendedorSeletorCliente';
 import type { ClienteConfirmavel } from './VendedorConfirmarClienteModal';
-import { podeUsarOsNoApp } from './vendedorPermissoes';
+import { podeAbrirOsNoApp } from './vendedorPermissoes';
 
 /*
  * NOVA OS NO CAMPO (app do tecnico, fase 3 -- 2026-10-08).
@@ -61,7 +61,7 @@ const VendedorOsNova: React.FC = () => {
   const [reclamacao, setReclamacao] = useState('');
   const [abrindo, setAbrindo] = useState(false);
 
-  if (!podeUsarOsNoApp(userRole, isOwner, userPermissions)) {
+  if (!podeAbrirOsNoApp(userRole, isOwner, userPermissions)) {
     return <Navigate to="/vendedor" replace />;
   }
 

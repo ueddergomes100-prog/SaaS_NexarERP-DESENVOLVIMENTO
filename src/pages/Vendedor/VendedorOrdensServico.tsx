@@ -8,7 +8,7 @@ import { DEFAULT_MOSTRAR_VALOR_LISTA_OS, parseMostrarValorListaOS } from '../../
 import { normalizeSearchText } from '../../utils/textSearch';
 import VendedorHeader from './VendedorHeader';
 import { useModoOficina } from '../../hooks/useModoOficina';
-import { podeUsarOsNoApp } from './vendedorPermissoes';
+import { podeAbrirOsNoApp, podeUsarOsNoApp } from './vendedorPermissoes';
 import { descricaoDoEquipamento, osEncerrada } from '../../utils/osCampoDomain';
 import { rotuloNumeroOS } from '../../utils/offlineDomain';
 
@@ -123,7 +123,7 @@ const VendedorOrdensServico: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
       <VendedorHeader
         titulo="Ordens de Serviço"
-        acao={(
+        acao={podeAbrirOsNoApp(userRole, isOwner, userPermissions) && (
           <button
             type="button"
             onClick={() => navigate('/vendedor/os/nova')}

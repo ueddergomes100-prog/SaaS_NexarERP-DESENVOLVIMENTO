@@ -31,6 +31,8 @@ import {
   erroParaFechar,
   erroParaLiberar,
   FORMAS_RECEBIDAS_NA_ENTREGA,
+  centavosDoTexto,
+  diferencaDoRecebido,
   linhasDoAcerto,
   montarDocumentoRomaneio,
   moverEntrega,
@@ -38,10 +40,13 @@ import {
   ordenarPorCidade,
   parseMotivosNaoEntrega,
   parseTiposAcerto,
+  precisaJustificarValor,
   resumoDoRomaneio,
   ROTULO_NATUREZA_ACERTO,
   ROTULO_STATUS_ENTREGA,
   ROTULO_STATUS_ROMANEIO,
+  textoDaDiferenca,
+  textoDosCentavos,
   tituloDoRomaneio,
   type EntregaRomaneio,
   type NaturezaAcerto,
@@ -62,11 +67,6 @@ import {
 
 const moeda = (centavos: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((centavos || 0) / 100);
 const dataBr = (data: string) => (data ? data.slice(0, 10).split('-').reverse().join('/') : '');
-const centavosDoTexto = (texto: string): number => {
-  const n = Number(String(texto).replace(/\./g, '').replace(',', '.'));
-  return Number.isFinite(n) ? Math.round(n * 100) : 0;
-};
-const textoDosCentavos = (centavos: number) => (centavos ? (centavos / 100).toFixed(2).replace('.', ',') : '');
 const kmDoTexto = (texto: string): number | null => {
   const limpo = texto.replace(/\D/g, '');
   return limpo ? Number(limpo) : null;
@@ -261,6 +261,7 @@ const RomaneioForm: React.FC = () => {
       html: [
         `Entregues: <strong>${resumoFinal.entregues}</strong> · Não entregues: <strong>${resumoFinal.naoEntregues}</strong> (voltam a ficar livres para outra rota).`,
         `Saldo a prestar pelo motorista: <strong>${moeda(resumoFinal.saldoAPrestarCentavos)}</strong>.`,
+        ...(resumoFinal.comDiferenca > 0 ? [`<strong>${resumoFinal.comDiferenca}</strong> entrega(s) com valor recebido diferente do pedido — confira a justificativa de cada uma antes de fechar.`] : []),
         lancarDespesas && despesas > 0 ? `${despesas} despesa(s) serão lançadas como pagas em "DESPESAS DE ROTA".` : 'Nenhuma despesa será lançada no financeiro.',
         'A baixa dos títulos dos clientes continua em Contas a Receber.',
       ].join('<br/><br/>'),
@@ -465,6 +466,17 @@ const RomaneioForm: React.FC = () => {
                       {e.status === 'entregue' && <div style={{ color: 'var(--text-muted)' }}>{e.recebedorNome}{e.registradoEm ? ` · ${new Date(e.registradoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}</div>}
                       {e.status === 'nao_entregue' && <div style={{ color: 'var(--text-muted)' }}>{e.motivo}</div>}
                       {e.recebidoCentavos > 0 && <div style={{ color: 'var(--text-muted)' }}>Recebeu {moeda(e.recebidoCentavos)} ({e.recebidoForma})</div>}
+                      {precisaJustificarValor(e) && (
+                        <div style={{ color: '#f59e0b', fontWeight: 600 }} title="Valor recebido diferente do valor do pedido">
+                          Diferença {textoDaDiferenca(diferencaDoRecebido(e))}: <span style={{ fontWeight: 400 }}>{e.justificativaValor}</span>
+                        </div>
+                      )}
+                      {(e.registradoVia === 'app' || e.canhotoUrl) && (
+                        <div style={{ color: 'var(--text-muted)', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          {e.registradoVia === 'app' && <span>Pelo app do motorista</span>}
+                          {e.canhotoUrl && <a href={e.canhotoUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-purple)', fontWeight: 600 }}>Ver canhoto</a>}
+                        </div>
+                      )}
                     </td>
                   )}
                   <td style={{ padding: '8px', whiteSpace: 'nowrap', textAlign: 'center' }}>
@@ -790,12 +802,15 @@ const RegistrarEntregaModal: React.FC<{
   const [recebido, setRecebido] = useState(textoDosCentavos(entrega.recebidoCentavos));
   const [recebidoForma, setRecebidoForma] = useState(entrega.recebidoForma || 'Dinheiro');
   const [observacao, setObservacao] = useState(entrega.observacao);
+  const [justificativa, setJustificativa] = useState(entrega.justificativaValor);
   const [salvando, setSalvando] = useState(false);
+  const recebidoCentavos = status === 'pendente' ? 0 : centavosDoTexto(recebido);
+  const diferenca = status === 'pendente' ? 0 : diferencaDoRecebido({ recebidoCentavos, valorTotalCentavos: entrega.valorTotalCentavos });
 
   const salvar = async () => {
     setSalvando(true);
     try {
-      await onSalvar({ status, recebedorNome, recebedorDocumento, motivo, recebidoCentavos: status === 'pendente' ? 0 : centavosDoTexto(recebido), recebidoForma, observacao });
+      await onSalvar({ status, recebedorNome, recebedorDocumento, motivo, recebidoCentavos, recebidoForma, observacao, justificativaValor: justificativa });
     } finally {
       setSalvando(false);
     }
@@ -865,6 +880,13 @@ const RegistrarEntregaModal: React.FC<{
                 {FORMAS_RECEBIDAS_NA_ENTREGA.map((f) => <option key={f} value={f}>{f}</option>)}
               </select>
             </label>
+            {diferenca !== 0 && (
+              <div style={{ gridColumn: '1 / -1', padding: '10px 12px', borderRadius: '8px', border: '1px solid #f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.08)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: '#f59e0b' }}>Valor diferente do pedido: {textoDaDiferenca(diferenca)}</span>
+                <span style={estiloRotulo}>Por quê? (pagamento parcial, abatimento de outra nota...) *</span>
+                <textarea value={justificativa} onChange={(e) => setJustificativa(e.target.value)} rows={2} style={{ ...estiloCampo, height: 'auto', padding: '8px 10px', resize: 'vertical' }} />
+              </div>
+            )}
             <span style={{ gridColumn: '1 / -1', fontSize: '12px', color: 'var(--text-muted)' }}>
               Só registro para o acerto. A baixa do título continua em Contas a Receber.
             </span>

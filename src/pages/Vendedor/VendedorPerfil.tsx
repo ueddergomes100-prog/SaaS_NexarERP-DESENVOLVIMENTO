@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { LogOut, RefreshCw, SquarePlus } from 'lucide-react';
+import { LogOut, Moon, RefreshCw, SquarePlus, Sun, SunMoon } from 'lucide-react';
+import { usePreferenciaTema } from '../../hooks/usePreferenciaTema';
+import { DESCRICAO_TEMA, PREFERENCIAS_TEMA, ROTULO_TEMA, type PreferenciaTema } from '../../utils/temaDomain';
 import { useAuth } from '../../contexts/AuthContext';
 import VendedorHeader from './VendedorHeader';
 import { CAMINHO_INSTALACAO, estaInstalado, sincronizarApp } from './pwa';
@@ -14,6 +16,9 @@ const VendedorPerfil: React.FC = () => {
     setSincronizando(true);
     void sincronizarApp();
   };
+
+  const { preferencia: temaPreferido, escolher: escolherTema } = usePreferenciaTema();
+  const iconeDoTema: Record<PreferenciaTema, React.ReactNode> = { dark: <Moon size={18} />, light: <Sun size={18} />, auto: <SunMoon size={18} /> };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
@@ -70,6 +75,32 @@ const VendedorPerfil: React.FC = () => {
           >
             <LogOut size={18} /> Sair
           </button>
+        </div>
+
+        {/* Aparencia: a mesma preferencia do sistema (utils/temaDomain.ts). */}
+        <div style={{ marginTop: '14px', borderRadius: '18px', padding: '18px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>Aparência</div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {PREFERENCIAS_TEMA.map((opcao) => (
+              <button
+                key={opcao}
+                type="button"
+                onClick={() => escolherTema(opcao)}
+                aria-pressed={temaPreferido === opcao}
+                style={{
+                  flex: 1, height: '58px', borderRadius: '12px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                  fontSize: '13px', fontWeight: 700,
+                  border: `2px solid ${temaPreferido === opcao ? 'var(--brand-500)' : 'var(--border-color)'}`,
+                  backgroundColor: temaPreferido === opcao ? 'rgba(139, 92, 246, 0.14)' : 'var(--bg-tertiary)',
+                  color: temaPreferido === opcao ? 'var(--brand-400)' : 'var(--text-primary)',
+                }}
+              >
+                {iconeDoTema[opcao]} {ROTULO_TEMA[opcao]}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>{DESCRICAO_TEMA[temaPreferido]}</div>
         </div>
       </div>
     </div>

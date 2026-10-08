@@ -166,7 +166,8 @@ service cloud.firestore {
 
     function canWriteTenantCollection(collectionName) {
       return canManageTenantData() ||
-        (collectionName in ['clientes', 'veiculos'] && hasAnyPermission(['cadastros.clientes', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'crm.agenda', 'crm.alertas'])) ||
+        // 'mecanica.os_app_abrir' (2026-10-08): o tecnico que abre OS no campo cadastra o equipamento novo (veiculos).
+        (collectionName in ['clientes', 'veiculos'] && hasAnyPermission(['cadastros.clientes', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_app_abrir', 'crm.agenda', 'crm.alertas'])) ||
         (collectionName in ['produtos', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'entregas'] && hasPermission('cadastros.estoque')) ||
         // estoque (o cadastro do produto em si, com custo/margem/fornecedor)
         // saiu do grupo acima em 2026-08-28: cadastros.estoque virou "ver a
@@ -220,7 +221,9 @@ service cloud.firestore {
         // saldo = saldo inicial e, depois, saldo e saldo inicial nao mudam por aqui.
         (collectionName == 'bancos' && hasPermission('cadastros.bancos') && cadastroDeBancoSemMexerNoSaldo()) ||
         (collectionName == 'lancamentos_bancarios' && hasPermission('cadastros.bancos')) ||
-        (collectionName == 'ordens_de_servico' && hasAnyPermission(['mecanica.os', 'mecanica.os_alterar'])) ||
+        // App do tecnico (2026-10-08): 'mecanica.os_app' atende (pecas, servicos, fotos, assinatura, Aguardando
+        // conferencia); 'mecanica.os_app_abrir' tambem abre OS nova no campo. Permissoes so' do app.
+        (collectionName == 'ordens_de_servico' && hasAnyPermission(['mecanica.os', 'mecanica.os_alterar', 'mecanica.os_app', 'mecanica.os_app_abrir'])) ||
         // vendas.pedidos_pendentes_editar cobre tanto editar/finalizar quanto
         // recusar um pedido "Em Analise" vindo de integracao externa (agente
         // de WhatsApp) -- as 4 permissoes granulares de cliente/qtd/adicionar/
@@ -308,6 +311,8 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'quantidadeReservada', 'updatedAt']) &&
         hasAnyPermission([
           'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar', 'estoque.ajusteManual',
+          // App do tecnico (2026-10-08): a OS atendida no campo reserva as pecas ("Reservar no Pedido e na OS").
+          'mecanica.os_app', 'mecanica.os_app_abrir',
           'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar'
           // 'financeiro.boletos' SAIU daqui (2026-09-29): tinha entrado por
           // engano -- o comentario dizia "boleto consome a sequencia do nosso
@@ -315,6 +320,23 @@ service cloud.firestore {
           // ela aqui, quem so' emitia boleto conseguia mudar quantidade de
           // produto, e continuava sem conseguir emitir boleto.
         ]);
+    }
+
+    // Entregas pelo app do motorista (2026-10-08): quem tem so'
+    // 'operacoes.entregas_app' grava APENAS o mapa `registros` (entregue/nao
+    // entregue, recebido, canhoto) de uma rota EM ANDAMENTO, mais os campos de
+    // auditoria. Nada de pedidos, motorista, acerto ou situacao -- isso e' da
+    // tela de romaneio (operacoes.romaneios). Rota fechada nao aceita mais o
+    // registro: o que ficou no celular sem sinal e so' chegou depois e' recusado.
+    function canRegisterDeliveryFromApp() {
+      return hasProfile() &&
+        perfilAtivo() &&
+        resource.data.tenantId == currentTenantId() &&
+        request.resource.data.tenantId == resource.data.tenantId &&
+        resource.data.status == 'em_rota' &&
+        request.resource.data.status == 'em_rota' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registros', 'updatedAt'].concat(documentAuditFields())) &&
+        hasPermission('operacoes.entregas_app');
     }
 
     // Movimento de SALDO do banco (2026-09-29). Venda, OS, baixa de titulo,
@@ -360,6 +382,7 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'updatedAt']) &&
         hasAnyPermission([
           'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar', 'estoque.ajusteManual',
+          'mecanica.os_app', 'mecanica.os_app_abrir',
           'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar',
           'operacoes.producao', 'estoque.nota_avulsa', 'fiscal.entrada'
         ]);
@@ -670,6 +693,8 @@ service cloud.firestore {
       return canManageTenantData() ||
         hasAnyPermission([
           'mecanica.os', 'vendas.pedidos', 'vendas.orcamentos', 'operacoes.producao', 'estoque.nota_avulsa',
+          // Numero da OS aberta pelo app do tecnico (2026-10-08).
+          'mecanica.os_app_abrir',
           // Quem cria pre-venda consome a sequencia do pedido (o pedido em si ja'
           // aceitava essas permissoes -- faltava aqui).
           'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar',
@@ -959,6 +984,7 @@ service cloud.firestore {
         (collectionName == 'estoque_lotes' && canAdjustLoteQuantity()) ||
         (collectionName == 'materias_primas' && canAdjustMateriaPrimaQuantity()) ||
         (collectionName == 'pedidos_venda' && canCloseConferenciaOnPedido()) ||
+        (collectionName == 'romaneios' && canRegisterDeliveryFromApp()) ||
         canWriteTenantCollection(collectionName)
       );
 

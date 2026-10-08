@@ -34,6 +34,17 @@ service firebase.storage {
       allow delete: if request.auth != null && usuarioDaEmpresa(tenantId);
     }
 
+    // Foto do canhoto da entrega (app do motorista, 2026-10-08): mesmas
+    // regras das fotos da OS. Caminho montado em entregaCampoDomain.ts.
+    match /empresas/{tenantId}/romaneios/{romaneioId}/{arquivo} {
+      allow read: if request.auth != null && usuarioDaEmpresa(tenantId);
+      allow create, update: if request.auth != null
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*')
+        && usuarioDaEmpresa(tenantId);
+      allow delete: if request.auth != null && usuarioDaEmpresa(tenantId);
+    }
+
     function usuarioDaEmpresa(tenantId) {
       return request.auth.uid == tenantId
         || firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.get('filialAtiva', firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.tenantId) == tenantId;

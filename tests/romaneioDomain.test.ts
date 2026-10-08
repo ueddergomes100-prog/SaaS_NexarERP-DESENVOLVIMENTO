@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  aplicarRegistros,
+  caminhosDoRegistro,
+  centavosDoTexto,
+  diferencaDoRecebido,
   erroDoPedidoParaRomaneio,
   erroDoRegistroDeEntrega,
+  linkDoMapa,
+  precisaJustificarValor,
+  registroParaGravar,
+  separarEntregas,
+  textoDaDiferenca,
+  textoDosCentavos,
   erroParaCancelar,
   erroParaFechar,
   erroParaLiberar,
@@ -172,4 +182,74 @@ test('PDF do romaneio: rota a sair leva o quadro do acerto em branco; o relatór
   );
   assert.equal(rel.secoes[0].linhas.length, 1);
   assert.equal(rel.secoes[1].linhas[0].motivo, 'CLIENTE RECUSOU');
+});
+
+// ---------------------------------------------------------------------------
+// App do motorista (2026-10-08)
+// ---------------------------------------------------------------------------
+
+test('valor recebido diferente do pedido exige justificativa; zero e igual nao', () => {
+  const base = { status: 'entregue' as const, recebedorNome: 'MARIA', recebidoForma: 'Dinheiro', valorTotalCentavos: 10000 };
+  assert.equal(erroDoRegistroDeEntrega({ ...base, recebidoCentavos: 10000 }), null);
+  assert.equal(erroDoRegistroDeEntrega({ ...base, recebidoCentavos: 0 }), null);
+  assert.match(erroDoRegistroDeEntrega({ ...base, recebidoCentavos: 8000 }) || '', /menor que o valor do pedido .*administrativo/);
+  assert.match(erroDoRegistroDeEntrega({ ...base, recebidoCentavos: 12000, justificativaValor: 'ok' }) || '', /maior que o valor do pedido/);
+  assert.equal(erroDoRegistroDeEntrega({ ...base, recebidoCentavos: 12000, justificativaValor: 'abate a nota 55' }), null);
+  // nao entregue com valor parcial tambem explica
+  assert.match(erroDoRegistroDeEntrega({ status: 'nao_entregue', motivo: 'X', recebidoForma: 'Pix', recebidoCentavos: 500, valorTotalCentavos: 10000 }) || '', /menor/);
+  assert.equal(diferencaDoRecebido({ recebidoCentavos: 12000, valorTotalCentavos: 10000 }), 2000);
+  assert.equal(diferencaDoRecebido({ recebidoCentavos: 0, valorTotalCentavos: 10000 }), 0);
+  assert.equal(precisaJustificarValor({ status: 'pendente', recebidoCentavos: 5, valorTotalCentavos: 10 }), false);
+  assert.equal(textoDaDiferenca(2000), '+R$\u00a020,00');
+  assert.equal(textoDaDiferenca(-150), '−R$\u00a01,50');
+  assert.equal(textoDaDiferenca(0), '');
+});
+
+test('registro do app: completo, sem undefined, campo a campo em registros.{pedidoId}', () => {
+  const e = entrega('7', { canhotoUrl: 'http://x/c.jpg', canhotoCaminho: 'empresas/t/romaneios/r/p7-1.jpg' });
+  const gravado = registroParaGravar(e, {
+    status: 'entregue', recebedorNome: ' joão ', recebedorDocumento: ' 123 ', motivo: 'ignorado', recebidoCentavos: 10000.4, recebidoForma: 'Pix', observacao: ' obs ', justificativaValor: '',
+  }, { nome: 'Pedro', via: 'app', agoraIso: '2026-10-08T12:00:00.000Z' });
+  assert.deepEqual(gravado, {
+    status: 'entregue', recebedorNome: 'JOÃO', recebedorDocumento: '123', motivo: '', recebidoCentavos: 10000, recebidoForma: 'Pix',
+    observacao: 'obs', justificativaValor: '', registradoEm: '2026-10-08T12:00:00.000Z', registradoPor: 'Pedro', registradoVia: 'app',
+    canhotoUrl: 'http://x/c.jpg', canhotoCaminho: 'empresas/t/romaneios/r/p7-1.jpg',
+  });
+  assert.ok(Object.values(gravado).every((v) => v !== undefined));
+  const caminhos = caminhosDoRegistro('p7', gravado);
+  assert.equal(caminhos['registros.p7.status'], 'entregue');
+  assert.equal(caminhos['registros.p7.canhotoUrl'], 'http://x/c.jpg');
+  assert.equal(Object.keys(caminhos).length, 13);
+  // voltar a pendente limpa tudo e nao carimba quem/quando; o canhoto fica
+  const pendente = registroParaGravar(e, { ...gravado, status: 'pendente', recebidoCentavos: 500, justificativaValor: 'x' }, { nome: 'Pedro', via: 'sistema', agoraIso: 'agora' });
+  assert.equal(pendente.recebidoCentavos, 0);
+  assert.equal(pendente.registradoEm, '');
+  assert.equal(pendente.justificativaValor, '');
+  assert.equal(pendente.canhotoUrl, 'http://x/c.jpg');
+});
+
+test('mapa registros vale sobre a lista; pedido sem registro fica como esta', () => {
+  const lista = [entrega('1'), entrega('2', { status: 'nao_entregue', motivo: 'FECHADO' })];
+  const mescladas = aplicarRegistros(lista, { p1: { status: 'entregue', recebedorNome: 'ANA', recebidoCentavos: 10000, registradoVia: 'app', canhotoUrl: null } });
+  assert.equal(mescladas[0].status, 'entregue');
+  assert.equal(mescladas[0].recebedorNome, 'ANA');
+  assert.equal(mescladas[0].registradoVia, 'app');
+  assert.equal(mescladas[0].canhotoUrl, '');
+  assert.equal(mescladas[0].clienteNome, 'CLIENTE 1');
+  assert.equal(mescladas[1].status, 'nao_entregue');
+  assert.deepEqual(aplicarRegistros(lista, undefined), lista);
+  assert.deepEqual(aplicarRegistros(lista, { p9: { status: 'entregue' } }), lista);
+  const { faltam, feitas } = separarEntregas(mescladas);
+  assert.deepEqual(faltam.map((e) => e.numeroPedido), []);
+  assert.deepEqual(feitas.map((e) => e.numeroPedido), ['1', '2']);
+});
+
+test('link do mapa e texto de dinheiro', () => {
+  assert.equal(linkDoMapa({ endereco: 'Rua A, 5 - Centro', cidade: 'MANHUAÇU/MG' }), 'https://www.google.com/maps/search/?api=1&query=Rua%20A%2C%205%20-%20Centro%2C%20MANHUA%C3%87U%2FMG');
+  assert.equal(linkDoMapa({ endereco: '', cidade: '' }), '');
+  assert.equal(centavosDoTexto('1.234,56'), 123456);
+  assert.equal(centavosDoTexto('80'), 8000);
+  assert.equal(centavosDoTexto(''), 0);
+  assert.equal(textoDosCentavos(123456), '1234,56');
+  assert.equal(textoDosCentavos(0), '');
 });

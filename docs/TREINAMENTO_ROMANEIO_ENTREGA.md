@@ -204,3 +204,27 @@ para o cliente ler antes de confirmar.
   valor ficou zero, ou o item é de natureza adiantamento/informativo.
 - **Marquei entregue errado e fechei.** Não reabre. Conferir o resumo antes de
   confirmar o fechamento.
+
+## 10. No app do motorista (app Vendas)
+
+Desde 08/10/2026 o motorista registra as entregas pelo celular, dentro do app
+Vendas. O escritório continua montando, liberando e fechando a rota.
+
+- **Permissão**: no usuário, marque **Entregas no app (motorista)**. Marque
+  também **Este funcionário é motorista** para a rota aparecer em "Minhas
+  rotas" (dono e gestor veem todas).
+- **Fluxo no celular**: Início › **Entregas** › toca na rota › aba **Faltam
+  entregar** › toca em **Registrar**. Entregue: quem recebeu e documento.
+  Não entregue: motivo da lista configurada. Recebeu R$ e como.
+- **Valor diferente do pedido**: se o motorista digitar um valor maior ou
+  menor que o do pedido, o app exige uma explicação (pagamento parcial,
+  abatimento de outra nota). Essa explicação aparece para o escritório na
+  linha da entrega, na confirmação de fechar e na impressão.
+- **Canhoto**: foto opcional, uma por entrega. Sobe sozinha quando houver
+  sinal.
+- **Sem sinal**: tudo o que o motorista registra fica no aparelho e sobe
+  quando a rede voltar. Se o escritório fechar a rota antes disso, o registro
+  atrasado é recusado, por isso feche só depois que o motorista voltou.
+- **Mapa e telefone**: cada entrega tem os botões Mapa (abre o Google Maps no
+  endereço do cliente) e Ligar.
+

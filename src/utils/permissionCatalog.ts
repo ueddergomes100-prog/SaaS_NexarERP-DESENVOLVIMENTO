@@ -104,6 +104,10 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
     itens: [
       { id: 'mecanica.os', label: 'Serviços: Ordens de Serviço', color: '#3b82f6' },
       { id: 'mecanica.os_alterar', label: 'Serviços: Alterar OS', color: '#3b82f6' },
+      // App do tecnico (2026-10-08): permissoes so' do app, separadas da tela de OS do sistema.
+      // Quem ja' tem 'mecanica.os' continua entrando no app (nao quebra ninguem).
+      { id: 'mecanica.os_app', label: 'Serviços: OS no app (técnico) — ver e atender pelo celular', color: '#3b82f6' },
+      { id: 'mecanica.os_app_abrir', label: 'Serviços: OS no app — abrir OS nova no campo', color: '#3b82f6' },
       { id: 'mecanica.os_excluir', label: 'Serviços: Excluir OS', color: '#ef4444' },
       { id: 'mecanica.relatorios', label: 'Serviços: Relatórios', color: '#3b82f6' },
     ],
@@ -155,6 +159,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // motorista (a loja), nao faz sentido separar.
       { id: 'operacoes.rotas', label: 'Rotas: Motoristas e Despesas de Viagem', color: '#14b8a6' },
       { id: 'operacoes.romaneios', label: 'Romaneio de Entrega: montar rota, registrar entregas e acerto', color: '#14b8a6' },
+      // App do motorista (2026-10-08): so' registra entregue/nao entregue, recebido e canhoto
+      // nas rotas em andamento. NAO da' acesso a tela de romaneio do sistema.
+      { id: 'operacoes.entregas_app', label: 'Entregas no app (motorista): registrar entregue/não entregue, recebido e foto do canhoto', color: '#14b8a6' },
     ],
   },
   {

@@ -27,6 +27,9 @@ import { PERMISSAO_BALANCO } from './vendedorPermissoes';
 import VendedorNovoCliente from './VendedorNovoCliente';
 import VendedorNovaTroca from './VendedorNovaTroca';
 import VendedorTrocas from './VendedorTrocas';
+import VendedorEntregas from './VendedorEntregas';
+import VendedorEntregaRota from './VendedorEntregaRota';
+import VendedorEntregaRegistrar from './VendedorEntregaRegistrar';
 
 /**
  * Guarda de acesso do aplicativo do vendedor externo, separada da
@@ -120,6 +123,9 @@ const VendedorShell: React.FC = () => {
           <Route path="os/nova" element={<VendedorOsNova />} />
           <Route path="os/:id/atender" element={<VendedorOsAtender />} />
           <Route path="os/:id" element={<VendedorOrdemServicoDetalhe />} />
+          <Route path="entregas" element={<VendedorEntregas />} />
+          <Route path="entregas/:id" element={<VendedorEntregaRota />} />
+          <Route path="entregas/:id/:pedidoId" element={<VendedorEntregaRegistrar />} />
           <Route path="pedidos" element={<VendedorMeusPedidos />} />
           <Route path="cliente" element={<VendedorConsultarCliente />} />
           <Route path="cliente/novo" element={<VendedorNovoCliente />} />

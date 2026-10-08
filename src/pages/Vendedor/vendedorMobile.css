@@ -67,11 +67,11 @@
  * NA TELA do celular -- no papel/PDF vale o @media print de OsPrint.css,
  * igual ao desktop.
  *
- * A folha tem 210mm (~794px) e o celular ~375px: a folha padrao A4 passa a
- * ocupar a largura da tela, e os modelos personalizados (largura fixa
- * propria) rolam de lado. `flex-start` em vez de `center` porque conteudo
- * centralizado mais largo que a tela fica com o lado esquerdo cortado e
- * impossivel de rolar ate la'.
+ * A folha tem 210mm (~794px) e o celular ~375px: desde 08/10/2026 a folha
+ * (qualquer modelo) e' reduzida com scale para caber na largura da tela, com
+ * zoom de pinca liberado -- ver .vendedor-folha-escalada abaixo. `flex-start`
+ * em vez de `center` porque conteudo centralizado mais largo que a tela fica
+ * com o lado esquerdo cortado e impossivel de rolar ate la'.
  */
 .vendedor-impressao.print-layout-wrapper {
   align-items: flex-start;
@@ -79,13 +79,23 @@
   padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
 }
 
-@media screen and (max-width: 820px) {
-  .vendedor-impressao .a4-page {
-    width: 100%;
-    min-height: auto;
-    padding: 16px;
-    box-sizing: border-box;
-  }
+/* Folha reduzida para caber na largura da tela (VendedorImpressaoLayout
+ * mede e aplica o scale). A folha dentro continua com a largura real (210mm
+ * ou a do modelo), so' aparece menor; o wrapper de fora recebe a altura ja'
+ * escalada para nao sobrar espaco em branco embaixo. */
+.vendedor-folha-escalada {
+  width: 100%;
+  overflow: hidden;
+}
+
+.vendedor-folha-escalada__folha {
+  transform-origin: top left;
+  width: max-content;
+}
+
+@media print {
+  .vendedor-folha-escalada { height: auto !important; overflow: visible !important; }
+  .vendedor-folha-escalada__folha { transform: none !important; width: auto !important; }
 }
 
 /* App do tecnico sem valores (Configuracoes -> tecnicoVeValores desligado): some o preco da busca de produto. */

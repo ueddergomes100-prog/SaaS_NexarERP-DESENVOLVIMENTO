@@ -16,6 +16,8 @@ import { addDaysToDateInput } from '../utils/dateTime';
 import { CATEGORIA_DESPESA_ROTA, descricaoDaDespesaNoFinanceiro, type DespesaRota } from '../utils/rotaDomain';
 import {
   acertoParaGravar,
+  aplicarRegistros,
+  caminhosDoRegistro,
   erroDoAcerto,
   erroDoPedidoParaRomaneio,
   erroDoRegistroDeEntrega,
@@ -24,13 +26,14 @@ import {
   erroParaLiberar,
   montarEntregaDoPedido,
   normalizarEntrega,
+  registroParaGravar,
   situacaoDoPedidoAoEncerrar,
   tituloDoRomaneio,
+  type DadosDoRegistro,
   type EntregaRomaneio,
   type LancamentoAcerto,
   type PedidoParaRomaneio,
   type Romaneio,
-  type StatusEntrega,
 } from '../utils/romaneioDomain';
 
 /**
@@ -150,7 +153,11 @@ export const lerRomaneio = (dados: Record<string, unknown>): Romaneio => ({
   kmChegada: Number.isFinite(Number(dados.kmChegada)) && dados.kmChegada !== null && dados.kmChegada !== '' ? Number(dados.kmChegada) : null,
   horarioChegada: String(dados.horarioChegada || ''),
   observacao: String(dados.observacao || ''),
-  entregas: Array.isArray(dados.entregas) ? (dados.entregas as Array<Partial<EntregaRomaneio> & { pedidoId: string }>).filter((e) => e?.pedidoId).map(normalizarEntrega) : [],
+  // O que o app do motorista gravou em `registros.{pedidoId}` vale sobre a lista (romaneioDomain.ts, "REGISTROS DO APP").
+  entregas: aplicarRegistros(
+    Array.isArray(dados.entregas) ? (dados.entregas as Array<Partial<EntregaRomaneio> & { pedidoId: string }>).filter((e) => e?.pedidoId).map(normalizarEntrega) : [],
+    dados.registros,
+  ),
   acerto: Array.isArray(dados.acerto) ? (dados.acerto as LancamentoAcerto[]) : [],
   observacaoAcerto: String(dados.observacaoAcerto || ''),
 });
@@ -301,15 +308,7 @@ export const salvarDadosEmRota = async (tenantId: string, uid: string, id: strin
   });
 };
 
-export interface RegistroDeEntrega {
-  status: StatusEntrega;
-  recebedorNome: string;
-  recebedorDocumento: string;
-  motivo: string;
-  recebidoCentavos: number;
-  recebidoForma: string;
-  observacao: string;
-}
+export type RegistroDeEntrega = DadosDoRegistro;
 
 /** Entregue, nao entregue ou de volta a "falta entregar" -- uma entrega por vez. */
 export const registrarEntrega = async (args: {
@@ -320,31 +319,24 @@ export const registrarEntrega = async (args: {
   pedidoId: string;
   registro: RegistroDeEntrega;
 }): Promise<void> => {
-  const erro = erroDoRegistroDeEntrega(args.registro);
-  if (erro) throw new Error(erro);
   await runTransaction(db, async (transaction) => {
     const { ref, romaneio } = await lerNaTransacao(transaction, args.tenantId, args.id);
     if (romaneio.status !== 'em_rota') throw new Error('Só dá para registrar entrega numa rota que já saiu e ainda não foi fechada.');
     const indice = romaneio.entregas.findIndex((e) => e.pedidoId === args.pedidoId);
     if (indice < 0) throw new Error('Este pedido não está mais nesta rota. Atualize a página.');
-    const r = args.registro;
-    const pendente = r.status === 'pendente';
-    const entregas = romaneio.entregas.map((e, i) => (i !== indice ? e : {
-      ...e,
-      status: r.status,
-      recebedorNome: r.status === 'entregue' ? r.recebedorNome.trim().toUpperCase() : '',
-      recebedorDocumento: r.status === 'entregue' ? r.recebedorDocumento.trim() : '',
-      motivo: r.status === 'nao_entregue' ? r.motivo : '',
-      recebidoCentavos: pendente ? 0 : Math.max(0, Math.round(r.recebidoCentavos || 0)),
-      recebidoForma: pendente || !(r.recebidoCentavos > 0) ? '' : r.recebidoForma,
-      observacao: r.observacao.trim(),
-      registradoEm: pendente ? '' : new Date().toISOString(),
-      registradoPor: pendente ? '' : args.nomeUsuario,
-    }));
+    const atual = romaneio.entregas[indice];
+    // A regra da justificativa compara com o valor do pedido que esta' na rota.
+    const erro = erroDoRegistroDeEntrega({ ...args.registro, valorTotalCentavos: atual.valorTotalCentavos });
+    if (erro) throw new Error(erro);
+    // Grava na lista E no mapa `registros` (o app do motorista le e grava no mapa);
+    // o canhoto que o app ja' tiver enviado e' preservado.
+    const gravado = registroParaGravar(atual, args.registro, { nome: args.nomeUsuario, via: 'sistema', agoraIso: new Date().toISOString() });
+    const entregas = romaneio.entregas.map((e, i) => (i !== indice ? e : { ...e, ...gravado }));
     transaction.update(ref, {
       entregas,
+      ...caminhosDoRegistro(args.pedidoId, gravado),
       updatedAt: serverTimestamp(),
-      ...buildDocumentUpdateMetadata(args.uid, serverTimestamp(), `Entrega do pedido #${romaneio.entregas[indice].numeroPedido}: ${r.status}`),
+      ...buildDocumentUpdateMetadata(args.uid, serverTimestamp(), `Entrega do pedido #${atual.numeroPedido}: ${args.registro.status}`),
     });
   });
 };

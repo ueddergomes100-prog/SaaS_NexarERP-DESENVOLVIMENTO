@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   LIMITE_TENTATIVAS,
+  canhotosPendentesDaRota,
   NUMERO_OS_PROVISORIO,
   esperaAposFalhaMs,
   fotosPendentesDaOs,
@@ -58,4 +59,18 @@ test('fotos e assinatura pendentes de uma OS', () => {
   assert.deepEqual(fotosPendentesDaOs(lista, 'outra'), []);
   assert.equal(temAssinaturaPendente(lista, 'os1'), true);
   assert.equal(temAssinaturaPendente(lista, 'outra'), false);
+});
+
+test('canhotos pendentes de uma rota, por pedido (o mais novo vale)', () => {
+  const canhotos: Pendencia[] = [
+    { ...base, id: 'c1', osId: '', tipo: 'canhoto', romaneioId: 'r1', pedidoId: 'p1', nomeArquivo: 'a.jpg', criadoEm: '2026-10-08T10:00:00Z' },
+    { ...base, id: 'c2', osId: '', tipo: 'canhoto', romaneioId: 'r1', pedidoId: 'p1', nomeArquivo: 'b.jpg', criadoEm: '2026-10-08T10:05:00Z' },
+    { ...base, id: 'c3', osId: '', tipo: 'canhoto', romaneioId: 'r2', pedidoId: 'p2', nomeArquivo: 'c.jpg', criadoEm: '2026-10-08T10:06:00Z' },
+  ];
+  const mapa = canhotosPendentesDaRota([...lista, ...canhotos], 'r1');
+  assert.deepEqual([...mapa.keys()], ['p1']);
+  assert.equal(mapa.get('p1')?.id, 'c2');
+  assert.equal(canhotosPendentesDaRota(canhotos, 'r3').size, 0);
+  // o canhoto entra na fila com o peso das fotos, depois de numero/reserva/assinatura
+  assert.deepEqual(ordenarPendencias([...lista, canhotos[0]]).map((p) => p.id), ['n1', 'r1', 'a1', 'c1', 'f1', 'f2']);
 });

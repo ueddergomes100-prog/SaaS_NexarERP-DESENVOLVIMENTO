@@ -131,6 +131,7 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
       <VendedorHeader
         titulo={os ? `OS ${rotuloNumeroOS(os.numeroOS, os.numeroProvisorio)}` : 'Ordem de Serviço'}
+        aoVoltar={() => navigate('/vendedor/os')}
         acao={os && (
           <button
             type="button"

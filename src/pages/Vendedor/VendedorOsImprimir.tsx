@@ -5,12 +5,13 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import OsPrintDocument from '../OS/OsPrintDocument';
 import VendedorImpressaoLayout from './VendedorImpressaoLayout';
+import { podeUsarOsNoApp } from './vendedorPermissoes';
 
 /* Mesmo carregamento de OsPrint.tsx (desktop): OS + cliente + veiculo +
  * configuracao da empresa, e a mesma folha (OsPrintDocument). */
 const VendedorOsImprimir: React.FC = () => {
   const { id } = useParams();
-  const { tenantId, userPermissions } = useAuth();
+  const { tenantId, userPermissions, userRole, isOwner } = useAuth();
   const [dados, setDados] = useState<{ osData: any; clientData: any; vehicleData: any; configData: any } | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
@@ -53,7 +54,7 @@ const VendedorOsImprimir: React.FC = () => {
     return () => { cancelado = true; };
   }, [id, tenantId]);
 
-  if (!userPermissions.includes('mecanica.os')) {
+  if (!podeUsarOsNoApp(userRole, isOwner, userPermissions)) {
     return <Navigate to="/vendedor" replace />;
   }
 

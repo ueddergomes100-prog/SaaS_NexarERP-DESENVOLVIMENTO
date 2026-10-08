@@ -1,6 +1,7 @@
 import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { enviarAssinatura, enviarFotoReduzida, estaOnline, type UsuarioDoCampo } from './osCampoService';
+import { enviarCanhotoReduzido } from './entregaCampoService';
 import { applyStockFieldDeltas, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../utils/firestoreAtomic';
 import { computeReservationDelta } from '../utils/estoqueReservaDomain';
 import { buildDocumentUpdateMetadata } from '../utils/documentMetadata';
@@ -75,6 +76,10 @@ const executar = async (p: PendenciaGuardada, usuario: UsuarioDoCampo): Promise<
     case 'assinatura':
       if (!p.blob) throw new Error('A assinatura não está mais no aparelho (o navegador limpou os dados).');
       await enviarAssinatura({ tenantId: p.tenantId, usuario, osId: p.osId, png: p.blob, nomeAssinante: p.nomeAssinante });
+      return;
+    case 'canhoto':
+      if (!p.blob) throw new Error('A foto do canhoto não está mais no aparelho (o navegador limpou os dados).');
+      await enviarCanhotoReduzido({ tenantId: p.tenantId, usuario, romaneioId: p.romaneioId, pedidoId: p.pedidoId, blob: p.blob });
       return;
     default:
       throw new Error(`Pendência desconhecida: ${(p as Pendencia).tipo}`);

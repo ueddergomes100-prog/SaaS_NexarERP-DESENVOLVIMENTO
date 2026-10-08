@@ -72,6 +72,17 @@ export interface EntregaRomaneio {
   observacao: string;
   /** Foto do canhoto (app do motorista); vazio quando a loja marcou na mao. */
   canhotoUrl: string;
+  /** Caminho no Storage da foto do canhoto (para trocar a foto). */
+  canhotoCaminho: string;
+  /**
+   * Por que o valor recebido e' diferente do valor do pedido (pagamento
+   * parcial, abatimento de outra nota...). Obrigatoria quando ha' diferenca
+   * (decisao do dono, 08/10/2026): e' o recado do motorista para o
+   * administrativo.
+   */
+  justificativaValor: string;
+  /** 'app' quando o motorista registrou pelo celular; vazio/'sistema' quando a loja marcou. */
+  registradoVia: string;
 }
 
 export type NaturezaAcerto = 'adiantamento' | 'despesa' | 'informativo';
@@ -110,6 +121,15 @@ export const MOTIVOS_NAO_ENTREGA_PADRAO: string[] = [
 ];
 
 export const FORMAS_RECEBIDAS_NA_ENTREGA = ['Dinheiro', 'Cheque', 'Pix', 'Cartão', 'Boleto'] as const;
+
+/** "1.234,56" -> 123456. Aceita ponto ou virgula; texto vazio ou invalido = 0. */
+export const centavosDoTexto = (texto: string): number => {
+  const n = Number(String(texto ?? '').split('.').join('').replace(',', '.'));
+  return Number.isFinite(n) ? Math.max(0, Math.round(n * 100)) : 0;
+};
+
+/** 123456 -> "1234,56"; zero vira vazio (campo em branco). */
+export const textoDosCentavos = (centavos: number): string => (centavos ? (centavos / 100).toFixed(2).replace('.', ',') : '');
 
 export interface LancamentoAcerto {
   tipo: string;
@@ -263,6 +283,9 @@ export const montarEntregaDoPedido = (
   status: 'pendente',
   recebedorNome: '',
   recebedorDocumento: '',
+  canhotoCaminho: '',
+  justificativaValor: '',
+  registradoVia: '',
   registradoEm: '',
   registradoPor: '',
   motivo: '',
@@ -319,9 +342,40 @@ export const erroParaLiberar = (romaneio: Pick<Romaneio, 'status' | 'motoristaId
   return null;
 };
 
+/**
+ * Diferenca entre o que o motorista recebeu e o valor do pedido, em centavos
+ * (positivo = recebeu a mais). Zero quando nada foi recebido: "nao recebi"
+ * e' o normal do pedido a prazo e nao pede explicacao.
+ */
+export const diferencaDoRecebido = (registro: { recebidoCentavos?: number; valorTotalCentavos?: number }): number => {
+  const recebido = Number(registro.recebidoCentavos) || 0;
+  const total = Number(registro.valorTotalCentavos) || 0;
+  if (recebido <= 0 || total <= 0) return 0;
+  return recebido - total;
+};
+
+export const precisaJustificarValor = (registro: { status?: StatusEntrega; recebidoCentavos?: number; valorTotalCentavos?: number }): boolean => (
+  registro.status !== 'pendente' && diferencaDoRecebido(registro) !== 0
+);
+
+export const TAMANHO_MINIMO_JUSTIFICATIVA = 5;
+
+/** "+R$ 10,00" / "−R$ 10,00" para a tela e a impressao. */
+export const textoDaDiferenca = (centavos: number): string => (
+  centavos === 0 ? '' : `${centavos > 0 ? '+' : '−'}${moeda(Math.abs(centavos))}`
+);
+
 /** Pode registrar uma entrega/tentativa? */
 export const erroDoRegistroDeEntrega = (
-  registro: { status: StatusEntrega; recebedorNome?: string; motivo?: string; recebidoCentavos?: number; recebidoForma?: string },
+  registro: {
+    status: StatusEntrega;
+    recebedorNome?: string;
+    motivo?: string;
+    recebidoCentavos?: number;
+    recebidoForma?: string;
+    valorTotalCentavos?: number;
+    justificativaValor?: string;
+  },
 ): string | null => {
   if (registro.status === 'entregue' && !limpar(registro.recebedorNome)) {
     return 'Informe o nome de quem recebeu a mercadoria.';
@@ -332,7 +386,98 @@ export const erroDoRegistroDeEntrega = (
   const recebido = Number(registro.recebidoCentavos) || 0;
   if (recebido < 0) return 'O valor recebido não pode ser negativo.';
   if (recebido > 0 && !limpar(registro.recebidoForma)) return 'Informe como o motorista recebeu (dinheiro, cheque...).';
+  if (precisaJustificarValor(registro) && limpar(registro.justificativaValor).length < TAMANHO_MINIMO_JUSTIFICATIVA) {
+    const diferenca = diferencaDoRecebido(registro);
+    return `O valor recebido (${moeda(recebido)}) é ${diferenca > 0 ? 'maior' : 'menor'} que o valor do pedido (${moeda(Number(registro.valorTotalCentavos) || 0)}). Explique o motivo (pagamento parcial, abatimento de outra nota...) para o administrativo.`;
+  }
   return null;
+};
+
+// ---------------------------------------------------------------------------
+// REGISTROS DO APP DO MOTORISTA (2026-10-08)
+// ---------------------------------------------------------------------------
+//
+// O motorista registra a entrega sem sinal. Regravar a lista `entregas`
+// inteira de um celular que ficou horas offline atropelaria o que a loja fez
+// nesse meio-tempo. Por isso o app grava cada registro num mapa a parte,
+// `registros.{pedidoId}`, campo a campo (update com caminho pontilhado): dois
+// aparelhos mexendo em pedidos diferentes nunca se sobrescrevem, e a loja
+// (registrarEntrega) grava nos DOIS lugares. Na leitura, o que esta' no mapa
+// vale sobre a lista.
+
+/** O que o app grava por pedido -- subconjunto da entrega. */
+export const CAMPOS_DO_REGISTRO = [
+  'status', 'recebedorNome', 'recebedorDocumento', 'motivo', 'recebidoCentavos', 'recebidoForma',
+  'observacao', 'justificativaValor', 'registradoEm', 'registradoPor', 'registradoVia', 'canhotoUrl', 'canhotoCaminho',
+] as const;
+
+export type RegistroGravado = Pick<EntregaRomaneio, (typeof CAMPOS_DO_REGISTRO)[number]>;
+
+/** Mapa `registros` do documento aplicado sobre a lista de entregas. */
+export const aplicarRegistros = (entregas: EntregaRomaneio[], registros: unknown): EntregaRomaneio[] => {
+  if (!registros || typeof registros !== 'object') return entregas;
+  const mapa = registros as Record<string, Partial<RegistroGravado> | undefined>;
+  return entregas.map((entrega) => {
+    const registro = mapa[entrega.pedidoId];
+    if (!registro || typeof registro !== 'object') return entrega;
+    const limpo = Object.fromEntries(
+      CAMPOS_DO_REGISTRO.filter((campo) => registro[campo] !== undefined && registro[campo] !== null).map((campo) => [campo, registro[campo]]),
+    );
+    return normalizarEntrega({ ...entrega, ...limpo, pedidoId: entrega.pedidoId });
+  });
+};
+
+export interface DadosDoRegistro {
+  status: StatusEntrega;
+  recebedorNome: string;
+  recebedorDocumento: string;
+  motivo: string;
+  recebidoCentavos: number;
+  recebidoForma: string;
+  observacao: string;
+  justificativaValor: string;
+}
+
+/** O registro que vai para `registros.{pedidoId}` -- sem undefined, sempre completo. */
+export const registroParaGravar = (
+  entrega: Pick<EntregaRomaneio, 'canhotoUrl' | 'canhotoCaminho'>,
+  r: DadosDoRegistro,
+  quem: { nome: string; via: 'app' | 'sistema'; agoraIso: string },
+): RegistroGravado => {
+  const pendente = r.status === 'pendente';
+  const recebido = pendente ? 0 : Math.max(0, Math.round(Number(r.recebidoCentavos) || 0));
+  return {
+    status: r.status,
+    recebedorNome: r.status === 'entregue' ? limpar(r.recebedorNome).toUpperCase() : '',
+    recebedorDocumento: r.status === 'entregue' ? limpar(r.recebedorDocumento) : '',
+    motivo: r.status === 'nao_entregue' ? limpar(r.motivo) : '',
+    recebidoCentavos: recebido,
+    recebidoForma: recebido > 0 ? limpar(r.recebidoForma) : '',
+    observacao: limpar(r.observacao),
+    justificativaValor: pendente ? '' : limpar(r.justificativaValor),
+    registradoEm: pendente ? '' : quem.agoraIso,
+    registradoPor: pendente ? '' : quem.nome,
+    registradoVia: pendente ? '' : quem.via,
+    canhotoUrl: limpar(entrega.canhotoUrl),
+    canhotoCaminho: limpar(entrega.canhotoCaminho),
+  };
+};
+
+/** Campo a campo (`registros.{pedidoId}.status`...): e' o que deixa dois aparelhos gravarem sem se atropelar. */
+export const caminhosDoRegistro = (pedidoId: string, registro: RegistroGravado): Record<string, string | number> => (
+  Object.fromEntries(CAMPOS_DO_REGISTRO.map((campo) => [`registros.${pedidoId}.${campo}`, registro[campo]]))
+);
+
+/** Entregas que faltam e as ja' resolvidas, na ordem da rota -- as duas abas do app. */
+export const separarEntregas = (entregas: EntregaRomaneio[]): { faltam: EntregaRomaneio[]; feitas: EntregaRomaneio[] } => ({
+  faltam: entregas.filter((e) => e.status === 'pendente'),
+  feitas: entregas.filter((e) => e.status !== 'pendente'),
+});
+
+/** Link do Google Maps para o endereco da entrega (abre o app de mapas no celular). */
+export const linkDoMapa = (entrega: Pick<EntregaRomaneio, 'endereco' | 'cidade'>): string => {
+  const partes = [limpar(entrega.endereco), limpar(entrega.cidade)].filter(Boolean);
+  return partes.length ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(partes.join(', '))}` : '';
 };
 
 /** O que impede fechar o acerto, ou null. Toda entrega precisa ter desfecho. */
@@ -375,6 +520,8 @@ export interface ResumoRomaneio {
   entregues: number;
   naoEntregues: number;
   pendentes: number;
+  /** Entregas em que o motorista recebeu valor diferente do pedido (com justificativa). */
+  comDiferenca: number;
   valorTotalCentavos: number;
   valorEntregueCentavos: number;
   valorNaoEntregueCentavos: number;
@@ -396,6 +543,7 @@ export const resumoDoRomaneio = (romaneio: Pick<Romaneio, 'entregas' | 'acerto' 
     if (e.recebidoCentavos > 0) porForma.set(e.recebidoForma || 'Não informada', (porForma.get(e.recebidoForma || 'Não informada') || 0) + e.recebidoCentavos);
   });
   const recebido = soma(romaneio.entregas, 'recebidoCentavos');
+  const comDiferenca = romaneio.entregas.filter((e) => precisaJustificarValor(e)).length;
   const porNatureza = (natureza: NaturezaAcerto) => romaneio.acerto
     .filter((l) => l.natureza === natureza)
     .reduce((t, l) => t + (Number(l.valorCentavos) || 0), 0);
@@ -409,6 +557,7 @@ export const resumoDoRomaneio = (romaneio: Pick<Romaneio, 'entregas' | 'acerto' 
     entregues: entregues.length,
     naoEntregues: naoEntregues.length,
     pendentes: romaneio.entregas.length - entregues.length - naoEntregues.length,
+    comDiferenca,
     valorTotalCentavos: soma(romaneio.entregas, 'valorTotalCentavos'),
     valorEntregueCentavos: soma(entregues, 'valorTotalCentavos'),
     valorNaoEntregueCentavos: soma(naoEntregues, 'valorTotalCentavos'),
@@ -485,6 +634,7 @@ export const montarDocumentoRomaneio = (romaneio: Romaneio): DocumentoRomaneio =
     { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 22, padrao: romaneio.status === 'fechado', valor: (e) => ROTULO_STATUS_ENTREGA[e.status] },
     { id: 'recebedor', titulo: 'Recebido por', tipo: 'texto', largura: 34, padrao: romaneio.status === 'fechado', valor: (e) => (e.status === 'nao_entregue' ? e.motivo : e.recebedorNome) },
     { id: 'recebido', titulo: 'Recebido (R$)', tipo: 'moeda', padrao: romaneio.status === 'fechado', valor: (e) => e.recebidoCentavos },
+    { id: 'diferenca', titulo: 'Diferença no valor', tipo: 'texto', largura: 40, padrao: resumo.comDiferenca > 0, valor: (e) => (precisaJustificarValor(e) ? `${textoDaDiferenca(diferencaDoRecebido(e))}: ${e.justificativaValor}` : '') },
     { id: 'assinatura', titulo: 'Assinatura', tipo: 'texto', largura: 34, padrao: false, valor: () => '' },
   ];
 

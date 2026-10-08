@@ -37,6 +37,16 @@
     <title>Hennder Vendas</title>
   </head>
   <body>
+    <!-- Tema antes de o React montar, para nao piscar escuro e clarear (utils/tema.ts). -->
+    <script>
+      (function () {
+        try {
+          var p = localStorage.getItem('nexus_theme');
+          var escuro = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (p === 'light' || (p === 'auto' && !escuro)) document.body.classList.add('light-theme');
+        } catch (e) { /* sem localStorage: fica escuro */ }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

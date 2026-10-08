@@ -19,7 +19,7 @@
  * nova tentativa.
  */
 
-export type TipoPendencia = 'numero_os' | 'reserva_os' | 'foto' | 'assinatura';
+export type TipoPendencia = 'numero_os' | 'reserva_os' | 'foto' | 'assinatura' | 'canhoto';
 
 export interface PendenciaBase {
   id: string;
@@ -39,8 +39,10 @@ export interface PendenciaNumeroOs extends PendenciaBase { tipo: 'numero_os'; }
 export interface PendenciaReservaOs extends PendenciaBase { tipo: 'reserva_os'; }
 export interface PendenciaFoto extends PendenciaBase { tipo: 'foto'; legenda: string; nomeArquivo: string; }
 export interface PendenciaAssinatura extends PendenciaBase { tipo: 'assinatura'; nomeAssinante: string; }
+/** Foto do canhoto de uma entrega do romaneio (app do motorista, 2026-10-08). `osId` fica vazio. */
+export interface PendenciaCanhoto extends PendenciaBase { tipo: 'canhoto'; romaneioId: string; pedidoId: string; nomeArquivo: string; }
 
-export type Pendencia = PendenciaNumeroOs | PendenciaReservaOs | PendenciaFoto | PendenciaAssinatura;
+export type Pendencia = PendenciaNumeroOs | PendenciaReservaOs | PendenciaFoto | PendenciaAssinatura | PendenciaCanhoto;
 
 /** Numero que a OS carrega enquanto nao passou pelo servidor. */
 export const NUMERO_OS_PROVISORIO = 'PENDENTE';
@@ -54,9 +56,10 @@ export const ROTULO_PENDENCIA: Record<TipoPendencia, string> = {
   reserva_os: 'Reservar o estoque das peças',
   foto: 'Enviar foto',
   assinatura: 'Enviar assinatura',
+  canhoto: 'Enviar foto do canhoto',
 };
 
-const PESO: Record<TipoPendencia, number> = { numero_os: 0, reserva_os: 1, assinatura: 2, foto: 3 };
+const PESO: Record<TipoPendencia, number> = { numero_os: 0, reserva_os: 1, assinatura: 2, foto: 3, canhoto: 3 };
 
 /** Numero primeiro (a OS precisa existir "de verdade"), depois reserva, assinatura e fotos, na ordem em que foram feitas. */
 export const ordenarPendencias = <T extends Pendencia>(lista: ReadonlyArray<T>): T[] => (
@@ -110,6 +113,16 @@ export const fotosPendentesDaOs = (lista: ReadonlyArray<Pendencia>, osId: string
 export const temAssinaturaPendente = (lista: ReadonlyArray<Pendencia>, osId: string): boolean => (
   lista.some((p) => p.tipo === 'assinatura' && p.osId === osId)
 );
+
+/** Canhotos de uma rota ainda no aparelho, por pedido (o app mostra "foto pendente"). */
+export const canhotosPendentesDaRota = (lista: ReadonlyArray<Pendencia>, romaneioId: string): Map<string, PendenciaCanhoto> => {
+  const mapa = new Map<string, PendenciaCanhoto>();
+  lista
+    .filter((p): p is PendenciaCanhoto => p.tipo === 'canhoto' && p.romaneioId === romaneioId)
+    .sort((a, b) => a.criadoEm.localeCompare(b.criadoEm))
+    .forEach((p) => mapa.set(p.pedidoId, p));
+  return mapa;
+};
 
 /** Mensagem curta para a faixa do app. */
 export const textoDaFaixaOffline = (online: boolean, resumo: ResumoPendencias, enviando: boolean): string | null => {

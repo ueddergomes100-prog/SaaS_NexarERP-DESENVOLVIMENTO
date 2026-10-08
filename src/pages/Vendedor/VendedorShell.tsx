@@ -18,6 +18,8 @@ import VendedorPedidoDetalhe from './VendedorPedidoDetalhe';
 import VendedorPedidoImprimir from './VendedorPedidoImprimir';
 import VendedorOrdensServico from './VendedorOrdensServico';
 import VendedorOrdemServicoDetalhe from './VendedorOrdemServicoDetalhe';
+import VendedorOsNova from './VendedorOsNova';
+import VendedorOsAtender from './VendedorOsAtender';
 import VendedorOsImprimir from './VendedorOsImprimir';
 import './vendedorMobile.css';
 import { PERMISSAO_BALANCO } from './vendedorPermissoes';
@@ -113,6 +115,8 @@ const VendedorShell: React.FC = () => {
           <Route path="troca/rascunho/:localId" element={<VendedorNovaTroca />} />
           <Route path="trocas" element={<VendedorTrocas />} />
           <Route path="os" element={<VendedorOrdensServico />} />
+          <Route path="os/nova" element={<VendedorOsNova />} />
+          <Route path="os/:id/atender" element={<VendedorOsAtender />} />
           <Route path="os/:id" element={<VendedorOrdemServicoDetalhe />} />
           <Route path="pedidos" element={<VendedorMeusPedidos />} />
           <Route path="cliente" element={<VendedorConsultarCliente />} />

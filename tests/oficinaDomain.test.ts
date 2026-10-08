@@ -28,6 +28,9 @@ test('configuracao: desligada por padrao; lixo vira padrao; formulario ida e vol
   assert.equal(c.precoKmCentavos, 250);
   assert.equal(c.valorVisitaCentavos, 0, 'negativo vira 0');
   assert.equal(c.textoConcordancia, TEXTO_CONCORDANCIA_PADRAO);
+  assert.equal(c.tecnicoVeValores, true, 'app do tecnico ve valores por padrao');
+  assert.equal(c.exigirAssinatura, false);
+  assert.equal(parseConfigMaquinasPesadas({ tecnicoVeValores: false, exigirAssinatura: true }).tecnicoVeValores, false);
   const form = configMaquinasParaForm(c);
   assert.equal(form.precoKm, '2,50');
   assert.equal(form.valorVisita, '');

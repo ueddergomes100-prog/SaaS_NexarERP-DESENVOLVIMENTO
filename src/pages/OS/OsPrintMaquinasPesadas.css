@@ -57,6 +57,7 @@
 .os-mp-assinatura { flex: 1; text-align: center; font-size: 9px; }
 .os-mp-assinatura-curta { flex: 0 0 90px; }
 .os-mp-linha { border-top: 1px solid #111; margin-bottom: 3px; height: 1px; }
+.os-mp-assinatura-img { display: block; height: 42px; max-width: 90%; margin: 0 auto -6px; object-fit: contain; }
 
 @media print {
   .os-mp-page { box-shadow: none; margin: 0; width: auto; min-height: auto; padding: 8mm 10mm; }

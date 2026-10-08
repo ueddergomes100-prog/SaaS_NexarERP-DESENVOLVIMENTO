@@ -31,6 +31,10 @@ export interface ConfigMaquinasPesadas {
   valorVisitaCentavos: number;
   /** Texto de concordancia impresso acima da assinatura do cliente. */
   textoConcordancia: string;
+  /** App do tecnico (fase 3): mostra R$ de pecas/servicos/total no celular. Padrao ligado. */
+  tecnicoVeValores: boolean;
+  /** App do tecnico: so' conclui o atendimento com a assinatura do cliente na tela. Padrao desligado. */
+  exigirAssinatura: boolean;
 }
 
 export const CONFIG_MAQUINAS_PESADAS_PADRAO: ConfigMaquinasPesadas = {
@@ -39,6 +43,8 @@ export const CONFIG_MAQUINAS_PESADAS_PADRAO: ConfigMaquinasPesadas = {
   precoKmCentavos: 0,
   valorVisitaCentavos: 0,
   textoConcordancia: TEXTO_CONCORDANCIA_PADRAO,
+  tecnicoVeValores: true,
+  exigirAssinatura: false,
 };
 
 const texto = (v: unknown) => (typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim());
@@ -58,6 +64,8 @@ export const parseConfigMaquinasPesadas = (raw: unknown): ConfigMaquinasPesadas 
     precoKmCentavos: centavos(r.precoKmCentavos),
     valorVisitaCentavos: centavos(r.valorVisitaCentavos),
     textoConcordancia: texto(r.textoConcordancia) || TEXTO_CONCORDANCIA_PADRAO,
+    tecnicoVeValores: r.tecnicoVeValores !== false,
+    exigirAssinatura: r.exigirAssinatura === true,
   };
 };
 
@@ -77,6 +85,8 @@ export interface ConfigMaquinasPesadasForm {
   precoKm: string;
   valorVisita: string;
   textoConcordancia: string;
+  tecnicoVeValores: boolean;
+  exigirAssinatura: boolean;
 }
 
 const reaisTexto = (c: number) => (c > 0 ? (c / 100).toFixed(2).replace('.', ',') : '');
@@ -94,6 +104,8 @@ export const configMaquinasParaForm = (c: ConfigMaquinasPesadas): ConfigMaquinas
   precoKm: reaisTexto(c.precoKmCentavos),
   valorVisita: reaisTexto(c.valorVisitaCentavos),
   textoConcordancia: c.textoConcordancia,
+  tecnicoVeValores: c.tecnicoVeValores,
+  exigirAssinatura: c.exigirAssinatura,
 });
 
 export const configMaquinasDoForm = (f: ConfigMaquinasPesadasForm): { ok: true; config: ConfigMaquinasPesadas } | { ok: false; erro: string } => {
@@ -110,6 +122,8 @@ export const configMaquinasDoForm = (f: ConfigMaquinasPesadasForm): { ok: true; 
       precoKmCentavos: precoKm,
       valorVisitaCentavos: visita,
       textoConcordancia: f.textoConcordancia.trim() || TEXTO_CONCORDANCIA_PADRAO,
+      tecnicoVeValores: f.tecnicoVeValores !== false,
+      exigirAssinatura: f.exigirAssinatura === true,
     },
   };
 };

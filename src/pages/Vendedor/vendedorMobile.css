@@ -87,3 +87,6 @@
     box-sizing: border-box;
   }
 }
+
+/* App do tecnico sem valores (Configuracoes -> tecnicoVeValores desligado): some o preco da busca de produto. */
+.os-campo-sem-valores .produto-opcao__preco { display: none; }

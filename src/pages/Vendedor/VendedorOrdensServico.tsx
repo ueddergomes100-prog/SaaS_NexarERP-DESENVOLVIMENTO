@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Search, Plus } from 'lucide-react';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { DEFAULT_MOSTRAR_VALOR_LISTA_OS, parseMostrarValorListaOS } from '../../utils/osListaValorDomain';
 import { normalizeSearchText } from '../../utils/textSearch';
 import VendedorHeader from './VendedorHeader';
+import { useModoOficina } from '../../hooks/useModoOficina';
+import { descricaoDoEquipamento, osEncerrada } from '../../utils/osCampoDomain';
 
 /**
  * Consulta de Ordens de Servico da empresa -- so leitura.
@@ -26,6 +28,9 @@ interface OsResumo {
   clienteNome: string;
   placa: string;
   modelo: string;
+  /** Maquinas pesadas: "Frota 12 · New Holland TL75" (osCampoDomain.ts). */
+  equipamento: string;
+  mecanicoId: string;
   valorTotal: number;
   criadoEmSegundos: number;
 }
@@ -38,7 +43,10 @@ const normalizar = normalizeSearchText;
 
 const VendedorOrdensServico: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, userPermissions } = useAuth();
+  const { tenantId, userPermissions, currentUser } = useAuth();
+  const { modo, rotulos } = useModoOficina();
+  // App do tecnico (fase 3): "Minhas" = as minhas ainda abertas; "Todas" = a consulta geral de sempre.
+  const [aba, setAba] = useState<'minhas' | 'todas'>('minhas');
   const [ordens, setOrdens] = useState<OsResumo[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
@@ -62,6 +70,8 @@ const VendedorOrdensServico: React.FC = () => {
             clienteNome: data.clienteNome || '',
             placa: (data.placa || '').toUpperCase(),
             modelo: data.modelo || '',
+            equipamento: descricaoDoEquipamento(modo, data),
+            mecanicoId: data.mecanicoId || '',
             valorTotal: Number(data.valorTotal || 0),
             criadoEmSegundos: data.createdAt?.seconds || 0,
           };
@@ -83,19 +93,22 @@ const VendedorOrdensServico: React.FC = () => {
       .catch(() => {});
 
     return () => { cancelado = true; };
-  }, [tenantId]);
+  }, [tenantId, modo]);
 
+  const minhas = useMemo(() => ordens.filter((os) => os.mecanicoId === currentUser?.uid && !osEncerrada(os.status)), [ordens, currentUser]);
   const filtradas = useMemo(() => {
+    const base = aba === 'minhas' ? minhas : ordens;
     const termo = normalizar(busca.trim());
-    if (!termo) return ordens.slice(0, LIMITE_SEM_BUSCA);
+    if (!termo) return aba === 'minhas' ? base : base.slice(0, LIMITE_SEM_BUSCA);
     const termoPlaca = termo.replace(/[^a-z0-9]/g, '');
-    return ordens.filter((os) => (
+    return base.filter((os) => (
       normalizar(os.clienteNome).includes(termo)
       || normalizar(String(os.numeroOS)).includes(termo)
       || normalizar(os.modelo).includes(termo)
+      || normalizar(os.equipamento).includes(termo)
       || (termoPlaca.length > 0 && normalizar(os.placa).replace(/[^a-z0-9]/g, '').includes(termoPlaca))
     ));
-  }, [ordens, busca]);
+  }, [ordens, minhas, aba, busca]);
 
   if (!userPermissions.includes('mecanica.os')) {
     return <Navigate to="/vendedor" replace />;
@@ -103,16 +116,37 @@ const VendedorOrdensServico: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
-      <VendedorHeader titulo="Ordens de Serviço" />
-
-      <div style={{ padding: '16px 20px 0' }}>
+      <VendedorHeader
+        titulo="Ordens de Serviço"
+        acao={(
+          <button
+            type="button"
+            onClick={() => navigate('/vendedor/os/nova')}
+            style={{ height: '38px', padding: '0 14px', borderRadius: '10px', backgroundColor: 'var(--brand-600, #7c3aed)', border: 'none', color: '#fff', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', flexShrink: 0 }}
+          >
+            <Plus size={16} /> Nova OS
+          </button>
+        )}
+      />
+      <div style={{ padding: '14px 20px 0', display: 'flex', gap: '8px' }}>
+        {(['minhas', 'todas'] as const).map((opcao) => {
+          const ativa = aba === opcao;
+          return (
+            <button key={opcao} type="button" onClick={() => setAba(opcao)} aria-pressed={ativa}
+              style={{ flex: 1, height: '38px', borderRadius: '10px', border: `1px solid ${ativa ? 'var(--brand-500, #7c3aed)' : 'var(--border-color)'}`, backgroundColor: ativa ? 'rgba(124,58,237,0.16)' : 'var(--bg-elevated)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '14px' }}>
+              {opcao === 'minhas' ? `Minhas (${minhas.length})` : 'Todas'}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ padding: '12px 20px 0' }}>
         <div style={{ position: 'relative' }}>
           <Search size={17} color="var(--text-muted)" style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
           <input
             type="search"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Cliente, placa, veículo ou nº da OS"
+            placeholder={modo === 'maquinas_pesadas' ? 'Cliente, frota, série, equipamento ou nº da OS' : `Cliente, placa, ${rotulos.veiculo.toLowerCase()} ou nº da OS`}
             aria-label="Buscar ordem de serviço"
             style={{
               width: '100%', height: '46px', borderRadius: '12px', border: '1px solid var(--border-color)',
@@ -130,11 +164,11 @@ const VendedorOrdensServico: React.FC = () => {
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>{erro}</div>
         ) : filtradas.length === 0 ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
-            {busca.trim() ? 'Nenhuma ordem de serviço encontrada.' : 'Nenhuma ordem de serviço cadastrada.'}
+            {busca.trim() ? 'Nenhuma ordem de serviço encontrada.' : aba === 'minhas' ? 'Nenhuma OS sua em aberto. Toque em "Nova OS" para abrir uma no campo.' : 'Nenhuma ordem de serviço cadastrada.'}
           </div>
         ) : (
           <>
-            {!busca.trim() && ordens.length > LIMITE_SEM_BUSCA && (
+            {!busca.trim() && aba === 'todas' && ordens.length > LIMITE_SEM_BUSCA && (
               <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
                 Mostrando as {LIMITE_SEM_BUSCA} mais recentes. Use a busca para encontrar as outras.
               </div>
@@ -154,7 +188,7 @@ const VendedorOrdensServico: React.FC = () => {
                     {os.clienteNome || 'Sem cliente'}
                   </div>
                   <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    OS #{os.numeroOS}{os.placa ? ` · ${os.placa}` : ''}{os.modelo ? ` · ${os.modelo}` : ''}
+                    OS #{os.numeroOS}{os.equipamento && os.equipamento !== 'Sem equipamento' ? ` · ${os.equipamento}` : ''}
                   </div>
                   <div style={{ fontSize: '13px', fontWeight: 600, marginTop: '3px', color: os.statusColor || 'var(--brand-400)' }}>{os.status}</div>
                 </div>

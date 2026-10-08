@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
-import { Printer } from 'lucide-react';
+import { Printer, Wrench } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import { resolverDescontoImpressaoOS, totalComDescontoOS } from '../../utils/osDescontoImpressao';
 import VendedorHeader from './VendedorHeader';
+import { osEncerrada, type AssinaturaOS, type FotoOS } from '../../utils/osCampoDomain';
 
 /**
  * OS so' leitura, com os mesmos calculos da folha impressa (OsPrintDocument):
@@ -30,6 +31,8 @@ interface OsDetalhe {
   veiculo: string;
   defeitoRelatado: string;
   relatorioTecnico: string;
+  fotos: FotoOS[];
+  assinaturaCliente: AssinaturaOS | null;
   criadoEm: string;
   linhas: LinhaOS[];
   subtotal: number;
@@ -98,6 +101,8 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
         veiculo: [data.modelo, data.placa ? String(data.placa).toUpperCase() : '', data.ano, data.cor].filter(Boolean).join(' · '),
         defeitoRelatado: data.defeitoRelatado || '',
         relatorioTecnico: data.relatorioTecnico || '',
+        fotos: Array.isArray(data.fotos) ? data.fotos : [],
+        assinaturaCliente: data.assinaturaCliente || null,
         criadoEm: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString('pt-BR') : '',
         linhas,
         subtotal,
@@ -179,6 +184,28 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
               </div>
             )}
 
+            {(os.fotos.length > 0 || os.assinaturaCliente) && (
+              <div style={cardStyle}>
+                <div style={tituloSecao}>Atendimento no campo</div>
+                {os.fotos.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: os.assinaturaCliente ? '12px' : 0 }}>
+                    {os.fotos.map((foto, i) => (
+                      <a key={foto.caminho} href={foto.url} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
+                        <img src={foto.url} alt={foto.legenda || `Foto ${i + 1}`} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '10px', display: 'block' }} />
+                        {foto.legenda && <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{foto.legenda}</div>}
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {os.assinaturaCliente && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <img src={os.assinaturaCliente.url} alt="Assinatura do cliente" style={{ height: '56px', maxWidth: '55%', objectFit: 'contain', backgroundColor: '#f8fafc', borderRadius: '10px', padding: '4px' }} />
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Assinado por {os.assinaturaCliente.nomeAssinante || 'cliente'}<br />{new Date(os.assinaturaCliente.em).toLocaleString('pt-BR')}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={cardStyle}>
               <div style={tituloSecao}>Serviços e peças</div>
               {os.linhas.length === 0 ? (
@@ -212,6 +239,13 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
           </>
         )}
       </div>
+      {os && !osEncerrada(os.status) && (
+        <div style={{ padding: '12px 20px 20px', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
+          <button type="button" className="btn-primary" onClick={() => navigate(`/vendedor/os/${os.id}/atender`)} style={{ width: '100%', height: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '16px' }}>
+            <Wrench size={18} /> Atender esta OS
+          </button>
+        </div>
+      )}
     </div>
   );
 };

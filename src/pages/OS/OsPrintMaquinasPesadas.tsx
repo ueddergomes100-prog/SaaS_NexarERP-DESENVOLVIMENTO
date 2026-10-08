@@ -162,7 +162,10 @@ const OsPrintMaquinasPesadas: React.FC<Props> = ({ osData, clientData, vehicleDa
       <section className="os-mp-concordancia">
         <p>{configMaquinas.textoConcordancia}</p>
         <div className="os-mp-assinaturas">
-          <div className="os-mp-assinatura"><div className="os-mp-linha" /><span>Ass. do Cliente</span></div>
+          <div className="os-mp-assinatura">
+            {osData.assinaturaCliente?.url && <img src={osData.assinaturaCliente.url} alt="Assinatura do cliente" className="os-mp-assinatura-img" />}
+            <div className="os-mp-linha" /><span>Ass. do Cliente{osData.assinaturaCliente?.nomeAssinante ? ` — ${osData.assinaturaCliente.nomeAssinante}` : ''}</span>
+          </div>
           <div className="os-mp-assinatura os-mp-assinatura-curta"><div className="os-mp-linha" /><span>Data</span></div>
           <div className="os-mp-assinatura"><div className="os-mp-linha" /><span>Local</span></div>
         </div>

@@ -24,6 +24,8 @@ interface Props {
   itens: ItemVendaExterna[];
   onItensChange: (itens: ItemVendaExterna[]) => void;
   permitirVendaSemEstoque: boolean;
+  /** App do tecnico (fase 3): a empresa pode esconder os valores em R$ do tecnico. Padrao mostra. */
+  mostrarValores?: boolean;
 }
 
 const RESULTADOS_LIMITE = 15;
@@ -46,7 +48,7 @@ const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 
  * painel -- exatamente o oposto do que precisa aqui. Escrever a lista de novo
  * aqui evita arriscar as telas desktop, que continuam com o fluxo de sempre.
  */
-const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, permitirVendaSemEstoque }) => {
+const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, permitirVendaSemEstoque, mostrarValores = true }) => {
   const [produtoBusca, setProdutoBusca] = useState('');
   // Tocar na busca ja' mostra a lista (mesmo comportamento do Pedido de Venda);
   // "Mostrar mais" aumenta o corte. "#" lista tudo, "#gel" filtra.
@@ -268,10 +270,10 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
                   {item.nome}
                 </div>
                 <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '3px' }}>
-                  {item.quantidade} {item.unidadeMedidaSigla} &times; {formatarMoeda(item.precoUnitario)}
+                  {item.quantidade} {item.unidadeMedidaSigla}{mostrarValores ? <> &times; {formatarMoeda(item.precoUnitario)}</> : null}
                 </div>
               </div>
-              <div style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.subtotal)}</div>
+              {mostrarValores && <div style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.subtotal)}</div>}
               <button
                 type="button"
                 onClick={() => handleRemover(index)}
@@ -287,7 +289,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '6px' }}>
         <span style={{ fontSize: '15px', color: 'var(--text-secondary)', fontWeight: 500 }}>Total</span>
-        <span style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>{formatarMoeda(total)}</span>
+        <span style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>{mostrarValores ? formatarMoeda(total) : '—'}</span>
       </div>
     </div>
   );

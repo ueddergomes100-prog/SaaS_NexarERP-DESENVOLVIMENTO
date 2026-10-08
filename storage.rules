@@ -21,6 +21,24 @@ service firebase.storage {
       allow delete: if false;
     }
 
+    // Fotos e assinatura do atendimento da OS (app do tecnico, 2026-10-08):
+    // leitura e gravacao so' por usuario da PROPRIA empresa (matriz ou
+    // filial ativa), imagem ate' 5 MB. Apagar so' a propria empresa tambem
+    // (o tecnico tira a foto errada). O caminho e' montado em osCampoDomain.ts.
+    match /empresas/{tenantId}/os/{osId}/{arquivo} {
+      allow read: if request.auth != null && usuarioDaEmpresa(tenantId);
+      allow create, update: if request.auth != null
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*')
+        && usuarioDaEmpresa(tenantId);
+      allow delete: if request.auth != null && usuarioDaEmpresa(tenantId);
+    }
+
+    function usuarioDaEmpresa(tenantId) {
+      return request.auth.uid == tenantId
+        || firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.get('filialAtiva', firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.tenantId) == tenantId;
+    }
+
     match /{resto=**} {
       allow read, write: if false;
     }

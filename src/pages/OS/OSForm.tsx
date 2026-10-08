@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X, History, Truck } from 'lucide-react';
+import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X, History, Truck, Camera } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -113,6 +113,7 @@ import './OS.css';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import { useModoOficina } from '../../hooks/useModoOficina';
 import { DESLOCAMENTO_VAZIO, aplicarDeslocamentoNosServicos, identificacaoCurta, kmDoDeslocamento, parseDeslocamento, temDeslocamento, validarIdentificacaoEquipamento, valorDeslocamentoCentavos, type Deslocamento } from '../../utils/oficinaDomain';
+import { AVISO_OS_EM_ATENDIMENTO_NO_CAMPO, CORES_STATUS_OS_CAMPO, STATUS_OS_AGUARDANDO_CONFERENCIA, STATUS_OS_EM_ATENDIMENTO, osEmAtendimentoNoCampo, type AssinaturaOS, type FotoOS } from '../../utils/osCampoDomain';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; descontoPadraoPercentual?: number | null; }
 interface Banco { id: string; nome: string; ativo: boolean; }
@@ -299,6 +300,8 @@ const OSForm: React.FC = () => {
   // equipamento e deslocamento com preco por km. Ver oficinaDomain.ts.
   const { modo: modoOficina, rotulos, configMaquinas } = useModoOficina();
   const [deslocamento, setDeslocamento] = useState<Deslocamento>(DESLOCAMENTO_VAZIO);
+  // Atendimento feito pelo app do tecnico (fase 3): fotos e assinatura so' se consultam aqui.
+  const [atendimentoCampo, setAtendimentoCampo] = useState<{ fotos: FotoOS[]; assinatura: AssinaturaOS | null } | null>(null);
   const [frotaEmpresa, setFrotaEmpresa] = useState<Array<{ id: string; nome: string }>>([]);
   /** Edita o deslocamento e refaz a linha de servico "Deslocamento -- N km" (idempotente). */
   const atualizarDeslocamento = (parte: Partial<Deslocamento>) => {
@@ -560,6 +563,8 @@ const OSForm: React.FC = () => {
             });
             setServicosSelecionados(os.servicos || []);
             setDeslocamento(parseDeslocamento(os.deslocamento));
+            setAtendimentoCampo({ fotos: Array.isArray(os.fotos) ? os.fotos : [], assinatura: os.assinaturaCliente || null });
+            if (osEmAtendimentoNoCampo(os.status)) showWarning('OS em atendimento no campo', AVISO_OS_EM_ATENDIMENTO_NO_CAMPO);
             // OS antiga pode ter peca gravada sem unidade (documento salvo
             // antes da feature existir): completa com 'UN' na carga, pra
             // ficar consistente com o que o catalogo devolve hoje.
@@ -1043,6 +1048,8 @@ const OSForm: React.FC = () => {
       case 'Orçamento Pendente': return '#3b82f6'; // Azul
       case 'Aguardando Peça': return '#f59e0b'; // Amarelo
       case 'Em Manutenção': return '#8b5cf6'; // Roxo
+      case STATUS_OS_EM_ATENDIMENTO: return CORES_STATUS_OS_CAMPO[STATUS_OS_EM_ATENDIMENTO]; // app do tecnico, no campo
+      case STATUS_OS_AGUARDANDO_CONFERENCIA: return CORES_STATUS_OS_CAMPO[STATUS_OS_AGUARDANDO_CONFERENCIA]; // tecnico concluiu; oficina finaliza
       case 'Cancelada': return '#ef4444'; // Vermelho
       default: return '#6b7280'; // Cinza
     }
@@ -1797,6 +1804,8 @@ const OSForm: React.FC = () => {
                 <option value="Orçamento Pendente">Orçamento Pendente</option>
                 <option value="Aguardando Peça">Aguardando Peça</option>
                 <option value="Em Manutenção">Em Manutenção</option>
+                <option value={STATUS_OS_EM_ATENDIMENTO}>Em atendimento (técnico no campo)</option>
+                <option value={STATUS_OS_AGUARDANDO_CONFERENCIA}>Aguardando conferência (técnico concluiu)</option>
                 <option value="Finalizada">Finalizada (Gera Receita no Caixa)</option>
                 <option value="Cancelada">Cancelada</option>
               </select>
@@ -2402,6 +2411,34 @@ const OSForm: React.FC = () => {
         />
 
         <div className="form-column">
+          {atendimentoCampo && (atendimentoCampo.fotos.length > 0 || atendimentoCampo.assinatura) && (
+            <div className="card form-section">
+              <div className="section-header">
+                <Camera size={20} className="section-icon" />
+                <h3>Atendimento no campo (app do técnico)</h3>
+              </div>
+              {atendimentoCampo.fotos.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '10px', marginBottom: atendimentoCampo.assinatura ? '16px' : 0 }}>
+                  {atendimentoCampo.fotos.map((foto, i) => (
+                    <a key={foto.caminho} href={foto.url} target="_blank" rel="noreferrer" title={foto.legenda || `Foto ${i + 1}`} style={{ display: 'block' }}>
+                      <img src={foto.url} alt={foto.legenda || `Foto ${i + 1}`} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '8px', display: 'block' }} />
+                      {foto.legenda && <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>{foto.legenda}</div>}
+                    </a>
+                  ))}
+                </div>
+              )}
+              {atendimentoCampo.assinatura && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <img src={atendimentoCampo.assinatura.url} alt="Assinatura do cliente" style={{ height: '70px', maxWidth: '280px', objectFit: 'contain', backgroundColor: '#f8fafc', borderRadius: '8px', padding: '6px' }} />
+                  <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                    Assinado por <b style={{ color: 'var(--text-primary)' }}>{atendimentoCampo.assinatura.nomeAssinante || 'cliente'}</b><br />
+                    {new Date(atendimentoCampo.assinatura.em).toLocaleString('pt-BR')} · colhida por {atendimentoCampo.assinatura.por}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="card form-section fill-height">
             <div className="section-header">
               <FileText size={20} className="section-icon" />

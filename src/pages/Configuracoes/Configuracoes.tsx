@@ -2126,6 +2126,26 @@ const Configuracoes: React.FC = () => {
                   <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>Para a OS <b>reservar</b> as peças pré-lançadas enquanto está aberta, escolha em Configurações Avançadas → Momento da baixa de estoque a opção "Reservar no Pedido e na OS". A reserva aparece no Estoque e em toda busca de produto.</span>
                 </span>
               </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                  <input type="checkbox" checked={formData.maquinasPesadas.tecnicoVeValores} disabled={!isEditingMode}
+                    onChange={(e) => { const tecnicoVeValores = e.target.checked; setFormData((atual) => ({ ...atual, maquinasPesadas: { ...atual.maquinasPesadas, tecnicoVeValores } })); }}
+                    style={{ width: '18px', height: '18px', marginTop: '2px' }} />
+                  <span>
+                    <strong style={{ display: 'block', fontSize: '14px' }}>Técnico vê valores (R$) no app</strong>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Peças, serviços e total aparecem no celular do técnico, como no talão. Desligado, ele vê só quantidades.</span>
+                  </span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                  <input type="checkbox" checked={formData.maquinasPesadas.exigirAssinatura} disabled={!isEditingMode}
+                    onChange={(e) => { const exigirAssinatura = e.target.checked; setFormData((atual) => ({ ...atual, maquinasPesadas: { ...atual.maquinasPesadas, exigirAssinatura } })); }}
+                    style={{ width: '18px', height: '18px', marginTop: '2px' }} />
+                  <span>
+                    <strong style={{ display: 'block', fontSize: '14px' }}>Exigir assinatura do cliente para concluir</strong>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No app, "Concluir atendimento" só passa com a assinatura na tela. Desligado, sem assinatura só avisa.</span>
+                  </span>
+                </label>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', opacity: formData.maquinasPesadas.ativo ? 1 : 0.6 }}>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Preço do km de deslocamento (R$)</label>

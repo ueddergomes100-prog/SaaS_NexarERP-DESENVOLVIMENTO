@@ -10,6 +10,7 @@ import VendedorHeader from './VendedorHeader';
 import { useModoOficina } from '../../hooks/useModoOficina';
 import { podeUsarOsNoApp } from './vendedorPermissoes';
 import { descricaoDoEquipamento, osEncerrada } from '../../utils/osCampoDomain';
+import { rotuloNumeroOS } from '../../utils/offlineDomain';
 
 /**
  * Consulta de Ordens de Servico da empresa -- so leitura.
@@ -24,6 +25,8 @@ import { descricaoDoEquipamento, osEncerrada } from '../../utils/osCampoDomain';
 interface OsResumo {
   id: string;
   numeroOS: string;
+  /** Aberta sem sinal: ainda sem numero do servidor (offlineDomain.ts). */
+  numeroProvisorio: boolean;
   status: string;
   statusColor?: string;
   clienteNome: string;
@@ -66,6 +69,7 @@ const VendedorOrdensServico: React.FC = () => {
           return {
             id: d.id,
             numeroOS: data.numeroOS || d.id.substring(0, 6).toUpperCase(),
+            numeroProvisorio: data.numeroProvisorio === true,
             status: data.status || '',
             statusColor: data.statusColor,
             clienteNome: data.clienteNome || '',
@@ -189,7 +193,7 @@ const VendedorOrdensServico: React.FC = () => {
                     {os.clienteNome || 'Sem cliente'}
                   </div>
                   <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    OS #{os.numeroOS}{os.equipamento && os.equipamento !== 'Sem equipamento' ? ` · ${os.equipamento}` : ''}
+                    OS {rotuloNumeroOS(os.numeroOS, os.numeroProvisorio)}{os.equipamento && os.equipamento !== 'Sem equipamento' ? ` · ${os.equipamento}` : ''}
                   </div>
                   <div style={{ fontSize: '13px', fontWeight: 600, marginTop: '3px', color: os.statusColor || 'var(--brand-400)' }}>{os.status}</div>
                 </div>

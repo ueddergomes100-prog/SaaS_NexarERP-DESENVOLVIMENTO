@@ -9,6 +9,7 @@ import { resolverDescontoImpressaoOS, totalComDescontoOS } from '../../utils/osD
 import VendedorHeader from './VendedorHeader';
 import { osEncerrada, type AssinaturaOS, type FotoOS } from '../../utils/osCampoDomain';
 import { podeUsarOsNoApp } from './vendedorPermissoes';
+import { rotuloNumeroOS } from '../../utils/offlineDomain';
 
 /**
  * OS so' leitura, com os mesmos calculos da folha impressa (OsPrintDocument):
@@ -25,6 +26,7 @@ interface LinhaOS {
 interface OsDetalhe {
   id: string;
   numeroOS: string;
+  numeroProvisorio: boolean;
   status: string;
   statusColor?: string;
   clienteNome: string;
@@ -95,6 +97,7 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
       setOs({
         id: snap.id,
         numeroOS: data.numeroOS || snap.id.substring(0, 6).toUpperCase(),
+        numeroProvisorio: data.numeroProvisorio === true,
         status: data.status || '',
         statusColor: data.statusColor,
         clienteNome: data.clienteNome || '',
@@ -127,7 +130,7 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
       <VendedorHeader
-        titulo={os ? `OS #${os.numeroOS}` : 'Ordem de Serviço'}
+        titulo={os ? `OS ${rotuloNumeroOS(os.numeroOS, os.numeroProvisorio)}` : 'Ordem de Serviço'}
         acao={os && (
           <button
             type="button"

@@ -20,6 +20,7 @@ import VendedorOrdensServico from './VendedorOrdensServico';
 import VendedorOrdemServicoDetalhe from './VendedorOrdemServicoDetalhe';
 import VendedorOsNova from './VendedorOsNova';
 import VendedorOsAtender from './VendedorOsAtender';
+import VendedorFaixaOffline from './VendedorFaixaOffline';
 import VendedorOsImprimir from './VendedorOsImprimir';
 import './vendedorMobile.css';
 import { PERMISSAO_BALANCO } from './vendedorPermissoes';
@@ -103,6 +104,7 @@ const VendedorShell: React.FC = () => {
       {/* key por rota: sair de um rascunho e abrir Novo Pedido tem que
           comecar a tela do zero, nao herdar o estado do rascunho. */}
       <div key={location.pathname} style={{ flex: 1, minHeight: 0 }}>
+        <VendedorFaixaOffline />
         <Routes>
           <Route index element={<VendedorHome />} />
           <Route path="pedido/novo" element={<VendedorNovoPedido />} />

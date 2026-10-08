@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { browserLocalPersistence, browserSessionPersistence, getAuth, setPersistence } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
@@ -15,8 +15,15 @@ export const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Services
-export const db = getFirestore(app);
+// O app do vendedor/tecnico (/vendedor) roda na roca sem sinal: Firestore com
+// cache PERSISTENTE (IndexedDB) -- le o que ja' viu e enfileira set/update ate'
+// a rede voltar (fase 4 do plano de maquinas pesadas, 2026-10-08). O desktop
+// continua em memoria, de proposito: balcao/caixa quer o dado vivo e nada
+// guardado numa maquina compartilhada.
+const isAppVendedorExterno = window.location.pathname.startsWith('/vendedor');
+export const db = isAppVendedorExterno
+  ? initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) })
+  : getFirestore(app);
 export const auth = getAuth(app);
 
 /**
@@ -38,7 +45,6 @@ export const auth = getAuth(app);
  * de proposito -- redundante com isto aqui, mas inofensivo, e cobre a
  * mesma garantia se algum dia essa rota mudar de prefixo.
  */
-const isAppVendedorExterno = window.location.pathname.startsWith('/vendedor');
 export const authPersistenceReady = setPersistence(auth, isAppVendedorExterno ? browserLocalPersistence : browserSessionPersistence).catch((error) => {
   console.error('Erro ao configurar persistencia de sessao:', error);
 });

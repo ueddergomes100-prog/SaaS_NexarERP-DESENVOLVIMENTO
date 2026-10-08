@@ -29,6 +29,8 @@ import VendedorHeader from './VendedorHeader';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
 import VendedorAssinaturaModal from './VendedorAssinaturaModal';
 import { podeUsarOsNoApp } from './vendedorPermissoes';
+import { fotosPendentesDaOs, rotuloNumeroOS, temAssinaturaPendente } from '../../utils/offlineDomain';
+import { assinarFilaOffline, listarPendenciasDaOs, type PendenciaGuardada } from '../../utils/filaOffline';
 
 /*
  * ATENDIMENTO DA OS NO CAMPO (app do tecnico, fase 3 -- 2026-10-08).
@@ -46,6 +48,7 @@ interface ServicoCatalogo { id: string; nome: string; preco?: number; ativo?: bo
 
 interface OsDoc {
   numeroOS: string;
+  numeroProvisorio: boolean;
   status: string;
   clienteNome: string;
   clienteTelefone: string;
@@ -88,6 +91,8 @@ const VendedorOsAtender: React.FC = () => {
   const [buscaServico, setBuscaServico] = useState('');
   const [enviandoFotos, setEnviandoFotos] = useState('');
   const [assinando, setAssinando] = useState(false);
+  // Fase 4 (offline): fotos e assinatura que ficaram no aparelho esperando a rede.
+  const [pendencias, setPendencias] = useState<PendenciaGuardada[]>([]);
   const carregouLocal = useRef(false);
   const inputCamera = useRef<HTMLInputElement>(null);
   const inputGaleria = useRef<HTMLInputElement>(null);
@@ -104,6 +109,15 @@ const VendedorOsAtender: React.FC = () => {
   }, [tenantId]);
 
   useEffect(() => {
+    if (!id) return;
+    const carregar = () => { void listarPendenciasDaOs(id).then(setPendencias); };
+    carregar();
+    return assinarFilaOffline(carregar);
+  }, [id]);
+  const urlsPendentes = useMemo(() => Object.fromEntries(pendencias.filter((p) => p.tipo === 'foto' && p.blob).map((p) => [p.id, URL.createObjectURL(p.blob as Blob)])), [pendencias]);
+  useEffect(() => () => { Object.values(urlsPendentes).forEach((u) => URL.revokeObjectURL(u)); }, [urlsPendentes]);
+
+  useEffect(() => {
     if (!id || !tenantId) return;
     const parar = onSnapshot(doc(db, 'ordens_de_servico', id), (snap) => {
       const d = snap.exists() ? snap.data() : null;
@@ -113,6 +127,7 @@ const VendedorOsAtender: React.FC = () => {
       }
       const lida: OsDoc = {
         numeroOS: String(d.numeroOS || snap.id.slice(0, 6).toUpperCase()),
+        numeroProvisorio: d.numeroProvisorio === true,
         status: String(d.status || ''),
         clienteNome: String(d.clienteNome || ''),
         clienteTelefone: String(d.clienteTelefone || ''),
@@ -148,6 +163,8 @@ const VendedorOsAtender: React.FC = () => {
   }, [buscaServico, catalogoServicos]);
   const totalCentavos = totalDoAtendimentoCentavos(pecas, servicos);
   const veValores = configMaquinas.tecnicoVeValores;
+  const fotosPendentes = fotosPendentesDaOs(pendencias, id || '');
+  const assinaturaPendente = temAssinaturaPendente(pendencias, id || '');
 
   if (!podeUsarOsNoApp(userRole, isOwner, userPermissions)) return <Navigate to="/vendedor" replace />;
   if (erro) return <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>{erro}</div>;
@@ -178,7 +195,7 @@ const VendedorOsAtender: React.FC = () => {
     try {
       await salvarAtendimento({
         tenantId, usuario, osId: id, pecas, servicos, deslocamento, horimetro, relatorioTecnico: relatorio,
-        momentoBaixaEstoque, permitirVendaSemEstoque: Boolean(permiteVendaSemEstoque),
+        momentoBaixaEstoque, permitirVendaSemEstoque: Boolean(permiteVendaSemEstoque), statusAtual: os.status,
       });
       setSujo(false);
       if (!silencioso) showSuccess('Atendimento salvo.');
@@ -193,7 +210,7 @@ const VendedorOsAtender: React.FC = () => {
 
   const concluir = async () => {
     const checagem = validarConclusaoAtendimento({
-      status: os.status, relatorioTecnico: relatorio, temAssinatura: !!os.assinaturaCliente, exigirAssinatura: configMaquinas.exigirAssinatura, pecas, servicos,
+      status: os.status, relatorioTecnico: relatorio, temAssinatura: !!os.assinaturaCliente || assinaturaPendente, exigirAssinatura: configMaquinas.exigirAssinatura, pecas, servicos,
     });
     if (!checagem.ok) {
       showError('Ainda não dá para concluir', checagem.erros.join(' '));
@@ -201,7 +218,7 @@ const VendedorOsAtender: React.FC = () => {
     }
     const confirmou = await NexusSwal.fire({
       title: 'Concluir o atendimento?',
-      html: `<div style="text-align:left;font-size:14px;">A OS #${escaparHtml(os.numeroOS)} vai para <b>Aguardando conferência</b>: a oficina confere, lança o pagamento e finaliza. Depois disso o app não altera mais esta OS.`
+      html: `<div style="text-align:left;font-size:14px;">A OS ${escaparHtml(rotuloNumeroOS(os.numeroOS, os.numeroProvisorio))} vai para <b>Aguardando conferência</b>: a oficina confere, lança o pagamento e finaliza. Depois disso o app não altera mais esta OS.`
         + (checagem.avisos.length ? `<p style="margin:10px 0 0;color:#fbbf24;">${checagem.avisos.map(escaparHtml).join('<br>')}</p>` : '') + '</div>',
       icon: 'question',
       showCancelButton: true,
@@ -212,8 +229,8 @@ const VendedorOsAtender: React.FC = () => {
     if (!(await salvar(true))) return;
     setSalvando(true);
     try {
-      await concluirAtendimento({ tenantId, usuario, osId: id });
-      showSuccess(`OS #${os.numeroOS} concluída no campo. A oficina finaliza no sistema.`);
+      await concluirAtendimento({ tenantId, usuario, osId: id, statusAtual: os.status, numeroOS: os.numeroOS });
+      showSuccess(`OS ${rotuloNumeroOS(os.numeroOS, os.numeroProvisorio)} concluída no campo. A oficina finaliza no sistema.`);
       navigate('/vendedor/os', { replace: true });
     } catch (e) {
       showError('Não foi possível concluir', e instanceof Error ? e.message : 'Tente de novo.');
@@ -241,20 +258,23 @@ const VendedorOsAtender: React.FC = () => {
   const enviarFotos = async (arquivos: FileList | null) => {
     if (!arquivos || arquivos.length === 0) return;
     const lista = Array.from(arquivos);
-    const cabe = podeAdicionarFotos(os.fotos, lista.length);
+    const cabe = podeAdicionarFotos([...os.fotos, ...fotosPendentes], lista.length);
     if (!cabe.ok) { showError('Limite de fotos', cabe.erro); return; }
     let atuais = [...os.fotos];
+    let guardadas = 0;
     for (let i = 0; i < lista.length; i++) {
       setEnviandoFotos(`Enviando foto ${i + 1} de ${lista.length}…`);
       try {
-        const foto = await adicionarFotoOs({ tenantId, usuario, osId: id, arquivo: lista[i], legenda: '', fotosAtuais: atuais, indice: atuais.length });
-        atuais = [...atuais, foto];
+        const foto = await adicionarFotoOs({ tenantId, usuario, osId: id, arquivo: lista[i], legenda: '', fotosAtuais: atuais, indice: atuais.length + fotosPendentes.length + guardadas });
+        if (foto) atuais = [...atuais, foto];
+        else guardadas++;
       } catch (e) {
         showError('Foto não enviada', e instanceof Error ? e.message : 'Tente de novo.');
         break;
       }
     }
     setEnviandoFotos('');
+    if (guardadas > 0) showWarning('Foto guardada no aparelho', guardadas === 1 ? 'Sem conexão agora: a foto sobe sozinha quando a rede voltar.' : `Sem conexão agora: ${guardadas} fotos sobem sozinhas quando a rede voltar.`);
     if (inputCamera.current) inputCamera.current.value = '';
     if (inputGaleria.current) inputGaleria.current.value = '';
   };
@@ -278,7 +298,7 @@ const VendedorOsAtender: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
       <VendedorHeader
-        titulo={`Atender OS #${os.numeroOS}`}
+        titulo={`Atender OS ${rotuloNumeroOS(os.numeroOS, os.numeroProvisorio)}`}
         aoVoltar={() => void voltar()}
         acao={(
           <button type="button" aria-label="Imprimir" onClick={() => navigate(`/vendedor/os/${id}/imprimir`)}
@@ -397,10 +417,10 @@ const VendedorOsAtender: React.FC = () => {
 
         <section style={cardStyle}>
           <div style={{ ...tituloSecao, justifyContent: 'space-between' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Images size={15} /> Fotos ({os.fotos.length}/{LIMITE_FOTOS_OS})</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Images size={15} /> Fotos ({os.fotos.length + fotosPendentes.length}/{LIMITE_FOTOS_OS})</span>
             {enviandoFotos && <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--brand-400)' }}>{enviandoFotos}</span>}
           </div>
-          {os.fotos.length > 0 && (
+          {(os.fotos.length > 0 || fotosPendentes.length > 0) && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '10px' }}>
               {os.fotos.map((foto, i) => (
                 <div key={foto.caminho} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -409,6 +429,17 @@ const VendedorOsAtender: React.FC = () => {
                     <button type="button" aria-label="Apagar foto" onClick={() => void apagarFoto(foto)} style={{ position: 'absolute', top: '4px', right: '4px', width: '28px', height: '28px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(0,0,0,0.6)', color: '#f87171', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={14} /></button>
                   </div>
                   <input type="text" defaultValue={foto.legenda} placeholder="Legenda" onBlur={(e) => void salvarLegenda(i, e.target.value)} style={{ ...campo, height: '32px', fontSize: '12px', padding: '0 8px' }} />
+                </div>
+              ))}
+              {fotosPendentes.map((f) => (
+                <div key={f.pendenciaId} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ position: 'relative' }}>
+                    {urlsPendentes[f.pendenciaId]
+                      ? <img src={urlsPendentes[f.pendenciaId]} alt={f.legenda || 'Foto pendente'} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '10px', display: 'block', opacity: 0.75, border: '2px dashed #fbbf24', boxSizing: 'border-box' }} />
+                      : <div style={{ width: '100%', aspectRatio: '1', borderRadius: '10px', border: '2px dashed #fbbf24', boxSizing: 'border-box' }} />}
+                    <span style={{ position: 'absolute', bottom: '4px', left: '4px', fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '6px', backgroundColor: 'rgba(0,0,0,0.65)', color: '#fbbf24' }}>{f.erro ? 'Erro ao enviar' : 'Pendente'}</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{f.erro || f.legenda || 'Sobe quando a rede voltar'}</div>
                 </div>
               ))}
             </div>
@@ -429,6 +460,11 @@ const VendedorOsAtender: React.FC = () => {
               <div style={{ flex: 1, fontSize: '12px', color: 'var(--text-muted)' }}>
                 {os.assinaturaCliente.nomeAssinante || 'Cliente'}<br />{new Date(os.assinaturaCliente.em).toLocaleString('pt-BR')}
               </div>
+              <button type="button" className="btn-secondary" onClick={() => setAssinando(true)} style={{ height: '40px' }}>Refazer</button>
+            </div>
+          ) : assinaturaPendente ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ flex: 1, fontSize: '13px', color: '#fbbf24' }}>Assinatura guardada no aparelho — sobe quando a rede voltar.</div>
               <button type="button" className="btn-secondary" onClick={() => setAssinando(true)} style={{ height: '40px' }}>Refazer</button>
             </div>
           ) : (
@@ -458,9 +494,9 @@ const VendedorOsAtender: React.FC = () => {
           nomeSugerido={os.assinaturaCliente?.nomeAssinante || os.clienteNome}
           onFechar={() => setAssinando(false)}
           onConfirmar={async (png, nomeAssinante) => {
-            await salvarAssinaturaOs({ tenantId, usuario, osId: id, png, nomeAssinante });
+            const gravada = await salvarAssinaturaOs({ tenantId, usuario, osId: id, png, nomeAssinante });
             setAssinando(false);
-            showSuccess('Assinatura guardada.');
+            showSuccess(gravada ? 'Assinatura guardada.' : 'Assinatura guardada no aparelho; sobe quando a rede voltar.');
           }}
         />
       )}

@@ -89,6 +89,7 @@ interface PecaOrcamento {
   filialOrigem?: string;
   nome: string;
   precoVenda: number;
+  quantidadeReservada?: number;
   precoAVista?: number;
   quantidade?: number;
   codigo?: string;
@@ -249,6 +250,7 @@ const OrcamentoForm: React.FC = () => {
             precoVenda: Number(data.precoVenda ?? 0),
             precoAVista: Number(data.precoAVista ?? 0),
             quantidade: Number(data.quantidade ?? 0),
+            quantidadeReservada: Number(data.quantidadeReservada ?? 0),
             filialOrigem: data.filialOrigem || '',
             codigo: data.codigo || '',
             codigoBarras: data.codigoBarras || '',

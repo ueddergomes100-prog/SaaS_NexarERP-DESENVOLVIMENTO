@@ -2020,7 +2020,7 @@ const EstoqueForm: React.FC = () => {
                   {isEditing && Number(produtoOriginal?.quantidadeReservada) > 0 && (
                     <span className="field-hint">
                       Disponível: {computeAvailableStock(Number(formData.quantidade), produtoOriginal?.quantidadeReservada)}
-                      {' '}({produtoOriginal?.quantidadeReservada} reservado em Ordens de Serviço)
+                      {' '}({produtoOriginal?.quantidadeReservada} reservado em pré-venda, condicional, OS ou troca em aberto — veja de onde vem na lista de Estoque)
                     </span>
                   )}
                 </div>

@@ -9,6 +9,9 @@ import {
   DEFAULT_MOMENTO_BAIXA_ESTOQUE,
   MOMENTO_BAIXA_ESTOQUE_OPTIONS,
   type StockLineItem,
+  resumoDeReserva,
+  textoDaReserva,
+  quantidadeDoProdutoNosItens,
 } from '../src/utils/estoqueReservaDomain';
 
 const item = (id: string, quantidade: number, nome?: string): StockLineItem => ({ id, nome, quantidade });
@@ -126,4 +129,17 @@ test('computeReservationReturn: devolve a quantidade real e libera reserva reman
 test('computeReservationRelease e exatamente computeReservationCommit(previous, [])', () => {
   const previous = [item('p1', 7, 'Peca 1'), item('p2', 3, 'Peca 2')];
   assert.deepEqual(computeReservationRelease(previous), computeReservationCommit(previous, []));
+});
+
+test('reserva visivel: resumo, texto e soma do produto nos itens do documento', () => {
+  assert.deepEqual(resumoDeReserva({ quantidade: 10, quantidadeReservada: 2 }), { quantidade: 10, reservada: 2, disponivel: 8, temReserva: true });
+  assert.deepEqual(resumoDeReserva({ quantidade: 3 }), { quantidade: 3, reservada: 0, disponivel: 3, temReserva: false });
+  assert.equal(resumoDeReserva({ quantidade: 1, quantidadeReservada: 5 }).disponivel, 0, 'reserva maior que o estoque nao fica negativa');
+  assert.equal(textoDaReserva({ quantidade: 10, quantidadeReservada: 2, unidadeMedidaSigla: 'UN' }), 'Reservado: 2 UN · Disponível: 8 UN');
+  assert.equal(textoDaReserva({ quantidade: 10.5, quantidadeReservada: 0.5, unidadeMedidaSigla: 'KG', unidadeMedidaCasasDecimais: 1 }), 'Reservado: 0.5 KG · Disponível: 10.0 KG');
+  assert.equal(textoDaReserva({ quantidade: 10 }), '');
+  const itens = [{ id: 'p1', quantidade: 2 }, { produtoId: 'p1', quantidade: 1 }, { id: 'p2', quantidade: 9 }, { id: 'p1', quantidade: 'x' }];
+  assert.equal(quantidadeDoProdutoNosItens(itens, 'p1'), 3);
+  assert.equal(quantidadeDoProdutoNosItens(itens, 'p9'), 0);
+  assert.equal(quantidadeDoProdutoNosItens(null, 'p1'), 0);
 });

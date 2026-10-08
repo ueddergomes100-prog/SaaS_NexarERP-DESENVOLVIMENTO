@@ -189,6 +189,8 @@ interface ProdutoEstoque {
   filialOrigem?: string;
   nome: string;
   precoVenda: number;
+  /** Preso em pre-venda, condicional, OS ou troca (estoqueReservaDomain.ts). */
+  quantidadeReservada?: number;
   /** Preco a vista (dinheiro, Pix, debito, credito 1x). 0 = usa o preco de venda. */
   precoAVista?: number;
   quantidade: number;
@@ -819,6 +821,7 @@ const PedidoVendaForm: React.FC = () => {
           precoVenda: doc.data().precoVenda,
           precoAVista: Number(doc.data().precoAVista) || 0,
           quantidade: doc.data().quantidade || 0,
+          quantidadeReservada: Number(doc.data().quantidadeReservada || 0),
           filialOrigem: doc.data().filialOrigem || '',
           codigo: doc.data().codigo || '',
           unidadeMedidaSigla: doc.data().unidadeMedidaSigla,

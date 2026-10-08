@@ -134,6 +134,8 @@ interface PecaData {
   precoVenda: number;
   precoAVista?: number;
   quantidade?: number;
+  /** Preso em pre-venda, condicional, OS ou troca (estoqueReservaDomain.ts). */
+  quantidadeReservada?: number;
   codigo?: string;
   codigoBarras?: string;
   unidadeMedidaSigla?: string;
@@ -420,6 +422,7 @@ const OSForm: React.FC = () => {
           precoVenda: doc.data().precoVenda,
           precoAVista: Number(doc.data().precoAVista ?? 0),
           quantidade: doc.data().quantidade || 0,
+          quantidadeReservada: Number(doc.data().quantidadeReservada || 0),
           filialOrigem: doc.data().filialOrigem || '',
           codigo: doc.data().codigo || '',
           codigoBarras: doc.data().codigoBarras || '',

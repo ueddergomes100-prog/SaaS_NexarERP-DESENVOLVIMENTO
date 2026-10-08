@@ -16,6 +16,8 @@ import './Estoque.css';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import OrigensDaReservaModal from '../../components/common/OrigensDaReservaModal';
+import { resumoDeReserva } from '../../utils/estoqueReservaDomain';
 
 interface PecaData {
   id: string;
@@ -25,6 +27,8 @@ interface PecaData {
   codigo: string;
   categoria: string;
   quantidade: number;
+  /** Preso em pre-venda, condicional, OS ou troca em aberto (estoqueReservaDomain.ts). */
+  quantidadeReservada?: number;
   precoVenda: number;
   unidadeMedidaSigla?: string;
   unidadeMedidaCasasDecimais?: number;
@@ -42,6 +46,9 @@ const EstoqueList: React.FC = () => {
    * aparece aqui por padrao pra nao confundir com o que da pra vender de
    * verdade. */
   const [filtroStatus, setFiltroStatus] = useState<'ativos' | 'inativos' | 'todos'>('ativos');
+  // Reserva visivel (maquinas pesadas, fase 2): filtro 'so com reserva' e a janela de onde vem.
+  const [soComReserva, setSoComReserva] = useState(false);
+  const [reservaAberta, setReservaAberta] = useState<PecaData | null>(null);
   /** Linha destacada por um clique simples. Editar exige duplo clique (ou
    * Enter), pra um clique de leitura nao abrir uma aba sem querer. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -194,7 +201,8 @@ const EstoqueList: React.FC = () => {
     const ativo = peca.ativo !== false;
     const passaNoStatus = filtroStatus === 'todos' || (filtroStatus === 'ativos' ? ativo : !ativo);
     const passaNaFilial = !grupo || escopoFilial === 'grupo' || itemDaFilial(peca, tenantId);
-    return passaNoStatus && passaNaFilial && matchesAllSearchTerms([peca.nome, peca.codigo, peca.categoria], searchTerm);
+    const passaNaReserva = !soComReserva || resumoDeReserva(peca).temReserva;
+    return passaNoStatus && passaNaFilial && passaNaReserva && matchesAllSearchTerms([peca.nome, peca.codigo, peca.categoria], searchTerm);
   });
 
   // Cartoes de resumo seguem o filtro de filial (07/10): numa filial nova, os
@@ -307,6 +315,10 @@ const EstoqueList: React.FC = () => {
       </div>
       )}
 
+      {reservaAberta && tenantId && (
+        <OrigensDaReservaModal tenantId={tenantId} produto={reservaAberta} onFechar={() => setReservaAberta(null)} />
+      )}
+
       <div className="card list-container">
         <div className="list-toolbar">
           <div className="search-box">
@@ -333,6 +345,16 @@ const EstoqueList: React.FC = () => {
               <option value="todos">Todos</option>
             </select>
           </label>
+          <button
+            type="button"
+            className="btn-secondary filter-btn"
+            onClick={() => setSoComReserva((v) => !v)}
+            aria-pressed={soComReserva}
+            title="Mostrar só os produtos com estoque reservado em pré-venda, condicional, OS ou troca"
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', ...(soComReserva ? { borderColor: '#a855f7', color: '#c084fc' } : {}) }}
+          >
+            Com reserva
+          </button>
           {grupo && podeTrocarFilial && (
             <label
               className="btn-secondary filter-btn"
@@ -360,6 +382,8 @@ const EstoqueList: React.FC = () => {
                 <th>Nome do Produto</th>
                 <th>Categoria</th>
                 <th>Qtd.</th>
+                <th>Reservado</th>
+                <th>Disponível</th>
                 <th>Preço (Venda)</th>
                 <th>Status</th>
                 <th>Ativo</th>
@@ -369,11 +393,11 @@ const EstoqueList: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '20px' }}>Carregando Estoque...</td>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: '20px' }}>Carregando Estoque...</td>
                 </tr>
               ) : filteredPecas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: '8px' }}>
+                  <td colSpan={10} style={{ padding: '8px' }}>
                     <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhum produto cadastrado no estoque.'} compacto />
                   </td>
                 </tr>
@@ -400,6 +424,33 @@ const EstoqueList: React.FC = () => {
                     <td className="font-medium">
                       {Number(peca.quantidade).toFixed(peca.unidadeMedidaCasasDecimais ?? 0)} {peca.unidadeMedidaSigla || 'UN'}
                     </td>
+                    {(() => {
+                      // Reservado e disponivel sem abrir o cadastro; clicar no
+                      // reservado mostra em que documento ele esta preso.
+                      const reserva = resumoDeReserva(peca);
+                      const casas = peca.unidadeMedidaCasasDecimais ?? 0;
+                      return (
+                        <>
+                          <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                            {reserva.temReserva ? (
+                              <button
+                                type="button"
+                                onClick={() => setReservaAberta(peca)}
+                                title="Ver de onde vem a reserva"
+                                style={{ background: 'color-mix(in srgb, #a855f7 16%, transparent)', color: '#c084fc', border: 'none', borderRadius: '999px', padding: '2px 10px', fontWeight: 600, cursor: 'pointer', fontVariantNumeric: 'tabular-nums' }}
+                              >
+                                {reserva.reservada.toFixed(casas)}
+                              </button>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>—</span>
+                            )}
+                          </td>
+                          <td className="font-medium" style={{ color: reserva.temReserva ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                            {reserva.disponivel.toFixed(casas)}
+                          </td>
+                        </>
+                      );
+                    })()}
                     <td>
                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(peca.precoVenda))}
                     </td>

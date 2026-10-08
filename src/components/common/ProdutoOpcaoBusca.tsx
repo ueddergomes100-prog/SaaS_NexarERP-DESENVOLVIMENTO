@@ -1,5 +1,6 @@
 import React from 'react';
 import { destacarTrechosDaBusca, nivelDeEstoque } from '../../utils/buscaProdutoOpcaoDomain';
+import { resumoDeReserva } from '../../utils/estoqueReservaDomain';
 
 /**
  * A linha de produto na busca -- autocomplete e popup "Ver mais".
@@ -39,6 +40,8 @@ export interface ProdutoParaOpcaoBusca {
   skuSistema?: string | null;
   precoVenda?: number | null;
   quantidade?: number | null;
+  /** Reservado em pre-venda, condicional, OS ou troca (estoqueReservaDomain.ts). */
+  quantidadeReservada?: number | null;
   unidadeMedidaSigla?: string | null;
   unidadeMedidaCasasDecimais?: number | null;
 }
@@ -64,6 +67,9 @@ const ProdutoOpcaoBusca: React.FC<Props> = ({ produto, termo }) => {
   const codigo = produto.codigo || produto.codigoBarras || produto.skuSistema || '';
   const casas = produto.unidadeMedidaCasasDecimais ?? 0;
   const quantidade = Number(produto.quantidade || 0);
+  // Reserva visivel em TODA busca (maquinas pesadas, fase 2): quem tem
+  // estoque reservado ve o disponivel de verdade, nao so o total.
+  const reserva = resumoDeReserva(produto);
 
   return (
     <>
@@ -84,6 +90,11 @@ const ProdutoOpcaoBusca: React.FC<Props> = ({ produto, termo }) => {
             ? ROTULO_ESTOQUE.zerado
             : `${quantidade.toFixed(casas)} ${produto.unidadeMedidaSigla || 'UN'}`}
         </span>
+        {reserva.temReserva && (
+          <span className="produto-opcao__reserva" title="Quantidade presa em pré-venda, condicional, OS ou troca em aberto">
+            Reservado: {reserva.reservada.toFixed(casas)} · Disponível: {reserva.disponivel.toFixed(casas)}
+          </span>
+        )}
         {codigo && <span className="produto-opcao__codigo">cód. {codigo}</span>}
       </span>
     </>

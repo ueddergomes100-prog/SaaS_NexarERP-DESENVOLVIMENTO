@@ -2,7 +2,7 @@ export type MomentoBaixaEstoque = 'imediato' | 'pedido' | 'caixa' | 'nf';
 
 export const MOMENTO_BAIXA_ESTOQUE_OPTIONS: Array<{ value: MomentoBaixaEstoque; label: string }> = [
   { value: 'imediato', label: 'Baixar imediatamente (padrão)' },
-  { value: 'pedido', label: 'Reservar no Pedido' },
+  { value: 'pedido', label: 'Reservar no Pedido e na OS (baixa só ao finalizar)' },
   { value: 'caixa', label: 'Baixar no Caixa' },
   { value: 'nf', label: 'Baixar na NF' },
 ];
@@ -123,3 +123,68 @@ export const computeReservationReturn = (previous: StockLineItem[], returned: St
 // site que e' so liberacao.
 export const computeReservationRelease = (previous: StockLineItem[]): StockFieldDelta[] =>
   computeReservationCommit(previous, []);
+
+// ---------------------------------------------------------------------------
+// Reserva VISIVEL (maquinas pesadas, fase 2 -- 2026-10-07). O numero ja
+// existia em `quantidadeReservada` (pre-venda, condicional, OS com "Reservar
+// no Pedido", troca); faltava mostrar na lista de Estoque e em toda busca.
+// ---------------------------------------------------------------------------
+
+export interface ResumoDeReserva {
+  quantidade: number;
+  reservada: number;
+  disponivel: number;
+  temReserva: boolean;
+}
+
+export const resumoDeReserva = (produto: { quantidade?: unknown; quantidadeReservada?: unknown } | null | undefined): ResumoDeReserva => {
+  const quantidade = Math.max(0, Number(produto?.quantidade) || 0);
+  const reservada = Math.max(0, Number(produto?.quantidadeReservada) || 0);
+  return {
+    quantidade,
+    reservada,
+    disponivel: computeAvailableStock(quantidade, reservada),
+    temReserva: reservada > 0,
+  };
+};
+
+const formatarQtd = (valor: number, casas: number, sigla: string) => `${valor.toFixed(Math.max(0, casas))} ${sigla || 'UN'}`;
+
+/** "Reservado: 2 UN · Disponível: 8 UN" -- so' quando ha reserva; senao ''. */
+export const textoDaReserva = (produto: { quantidade?: unknown; quantidadeReservada?: unknown; unidadeMedidaSigla?: string | null; unidadeMedidaCasasDecimais?: number | null } | null | undefined): string => {
+  const r = resumoDeReserva(produto);
+  if (!r.temReserva) return '';
+  const casas = produto?.unidadeMedidaCasasDecimais ?? 0;
+  const sigla = produto?.unidadeMedidaSigla || 'UN';
+  return `Reservado: ${formatarQtd(r.reservada, casas, sigla)} · Disponível: ${formatarQtd(r.disponivel, casas, sigla)}`;
+};
+
+/** Onde uma reserva pode estar: o que a tela "de onde vem" procura. */
+export type OrigemDeReserva = 'pre_venda' | 'ordem_de_servico' | 'condicional' | 'troca';
+
+export const ROTULO_ORIGEM_RESERVA: Record<OrigemDeReserva, string> = {
+  pre_venda: 'Pré-venda',
+  ordem_de_servico: 'Ordem de Serviço',
+  condicional: 'Condicional',
+  troca: 'Troca',
+};
+
+export interface ReservaEncontrada {
+  origem: OrigemDeReserva;
+  documentoId: string;
+  numero: string;
+  cliente: string;
+  quantidade: number;
+}
+
+/** Soma o que cada documento aberto segura de um produto (itens com o mesmo id somam). */
+export const quantidadeDoProdutoNosItens = (itens: unknown, produtoId: string): number => {
+  if (!Array.isArray(itens)) return 0;
+  return itens.reduce<number>((total, item) => {
+    const i = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    const id = i.id ?? i.produtoId ?? i.pecaId;
+    if (id !== produtoId) return total;
+    const qtd = Number(i.quantidade ?? i.qtd ?? 0);
+    return total + (Number.isFinite(qtd) && qtd > 0 ? qtd : 0);
+  }, 0);
+};

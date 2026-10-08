@@ -168,6 +168,17 @@
   color: #f87171;
 }
 
+.produto-opcao__reserva {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background-color: color-mix(in srgb, #a855f7 16%, transparent);
+  color: #c084fc;
+}
+
 .produto-opcao__codigo {
   font-variant-numeric: tabular-nums;
 }

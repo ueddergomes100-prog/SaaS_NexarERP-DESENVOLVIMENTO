@@ -2123,6 +2123,7 @@ const Configuracoes: React.FC = () => {
                 <span>
                   <strong style={{ display: 'block', fontSize: '14px' }}>Empresa de máquinas pesadas (tratores, colheitadeiras, retroescavadeiras…)</strong>
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>A OS, o cadastro de Veículos (vira Equipamentos), as listas e a impressão passam a falar de equipamento, frota, série/chassi, horímetro e técnico. A placa deixa de ser obrigatória. Desligado, nada muda.</span>
+                  <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>Para a OS <b>reservar</b> as peças pré-lançadas enquanto está aberta, escolha em Configurações Avançadas → Momento da baixa de estoque a opção "Reservar no Pedido e na OS". A reserva aparece no Estoque e em toda busca de produto.</span>
                 </span>
               </label>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', opacity: formData.maquinasPesadas.ativo ? 1 : 0.6 }}>

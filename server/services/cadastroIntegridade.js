@@ -160,6 +160,62 @@ const listarNomes = (nomes, max = 3) => (
 );
 
 // ---------------------------------------------------------------------------
+// De onde vem a reserva de um produto (2026-10-08)
+// ---------------------------------------------------------------------------
+//
+// O produto guarda so' o numero (quantidadeReservada). Dizer "tem 2
+// reservado(s) em pre-venda aberta" obrigava o usuario a abrir pre-venda por
+// pre-venda pra achar qual. Aqui procuramos o produto nos documentos que
+// seguram reserva -- o mesmo criterio da janela "Reservas de ..." da tela de
+// Estoque (src/components/common/OrigensDaReservaModal.tsx) -- e a mensagem
+// cita cada um pelo numero e cliente.
+
+/** Soma o que um documento segura do produto (itens com o mesmo id somam).
+ * Espelha quantidadeDoProdutoNosItens de src/utils/estoqueReservaDomain.ts. */
+const quantidadeDoProdutoNosItens = (itens, produtoId) => (Array.isArray(itens) ? itens : []).reduce((total, item) => {
+  const i = item && typeof item === 'object' ? item : {};
+  const id = i.id ?? i.produtoId ?? i.pecaId;
+  if (id !== produtoId) return total;
+  const qtd = Number(i.quantidade ?? i.qtd ?? 0);
+  return total + (Number.isFinite(qtd) && qtd > 0 ? qtd : 0);
+}, 0);
+
+const ROTULO_ORIGEM_RESERVA = { pre_venda: 'Pré-venda', ordem_de_servico: 'OS', condicional: 'Condicional', troca: 'Troca' };
+
+const reservasDoProduto = async (tenantId, produtoId) => {
+  const [pedidos, ordens, condicionais, trocas] = await Promise.all([
+    buscar('pedidos_venda', tenantId, 'estoqueReservado', true),
+    buscar('ordens_de_servico', tenantId, 'estoqueReservado', true),
+    buscar('condicionais', tenantId, 'status', 'aberto'),
+    buscar('trocas', tenantId, 'estoqueReservado', true),
+  ]);
+  const achadas = [];
+  const juntar = (docs, origem, campoItens, campoNumero, filtro) => docs.forEach((d) => {
+    const dados = d.data();
+    if (filtro && !filtro(dados)) return;
+    const quantidade = quantidadeDoProdutoNosItens(dados[campoItens], produtoId);
+    if (quantidade > 0) achadas.push({ origem, numero: String(dados[campoNumero] || ''), cliente: String(dados.clienteNome || '').trim(), quantidade });
+  });
+  juntar(pedidos, 'pre_venda', 'itens', 'numeroPedido', (dados) => STATUS_PEDIDO_ABERTO.includes(String(dados.status || '')));
+  juntar(ordens, 'ordem_de_servico', 'pecas', 'numeroOS');
+  juntar(condicionais, 'condicional', 'itens', 'numero');
+  juntar(trocas, 'troca', 'itens', 'numero');
+  return achadas;
+};
+
+/** Texto do bloqueio por reserva, citando cada documento. Puro, pros testes. */
+const textoDasReservas = (quantidadeReservada, reservas, max = 5) => {
+  const total = Number(quantidadeReservada || 0);
+  if (!reservas.length) {
+    return `tem ${total} reservado(s), mas nenhuma pré-venda, OS, condicional ou troca em aberto segura essa reserva `
+      + '(reserva antiga). Confira pela coluna "Reservado" na tela de Estoque e avise o suporte';
+  }
+  const linha = (r) => `${ROTULO_ORIGEM_RESERVA[r.origem]} #${r.numero || '?'}${r.cliente ? ` de ${r.cliente}` : ''} (${r.quantidade})`;
+  const lista = reservas.slice(0, max).map(linha).join(', ') + (reservas.length > max ? ` e mais ${reservas.length - max}` : '');
+  return `tem ${total} reservado(s) em: ${lista}. Finalize ou cancele esse(s) documento(s) para liberar a reserva`;
+};
+
+// ---------------------------------------------------------------------------
 // Pendencias que impedem INATIVAR
 // ---------------------------------------------------------------------------
 
@@ -204,7 +260,7 @@ const PENDENCIAS_INATIVACAO = {
   async estoque(tenantId, id, dados) {
     const bloqueios = [];
     if (Number(dados.quantidadeReservada || 0) > 0) {
-      bloqueios.push(`tem ${dados.quantidadeReservada} reservado(s) em pré-venda aberta`);
+      bloqueios.push(textoDasReservas(dados.quantidadeReservada, await reservasDoProduto(tenantId, id)));
     }
     const receitas = await receitasAtivasQueUsam(tenantId, 'estoque', id);
     if (receitas.length) bloqueios.push(`é componente da receita de ${listarNomes(receitas)}`);
@@ -456,4 +512,6 @@ module.exports = {
   mensagemBloqueioInativacao,
   mensagemBloqueioExclusao,
   listarNomes,
+  quantidadeDoProdutoNosItens,
+  textoDasReservas,
 };

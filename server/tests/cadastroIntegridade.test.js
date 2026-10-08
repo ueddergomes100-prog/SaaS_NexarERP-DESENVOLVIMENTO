@@ -8,6 +8,8 @@ const {
   mensagemBloqueioInativacao,
   mensagemBloqueioExclusao,
   listarNomes,
+  quantidadeDoProdutoNosItens,
+  textoDasReservas,
 } = require('../services/cadastroIntegridade');
 
 test('permissao: dono/admin sempre; funcionario so com a permissao do cadastro', () => {
@@ -76,4 +78,25 @@ test('todo cadastro tem plural pra mensagem de permissao', () => {
   }
   assert.equal(CADASTROS.unidades_medida.plural, 'unidades de medida');
   assert.equal(CADASTROS.bandeiras_cartao.plural, 'bandeiras de cartão');
+});
+
+test('reserva: soma o produto nos itens, aceitando id/produtoId/pecaId', () => {
+  const itens = [{ id: 'p1', quantidade: 2 }, { produtoId: 'p1', qtd: 1 }, { pecaId: 'p2', quantidade: 5 }, { id: 'p1', quantidade: -3 }];
+  assert.equal(quantidadeDoProdutoNosItens(itens, 'p1'), 3);
+  assert.equal(quantidadeDoProdutoNosItens(itens, 'p3'), 0);
+  assert.equal(quantidadeDoProdutoNosItens(undefined, 'p1'), 0);
+});
+
+test('bloqueio por reserva cita cada documento pelo numero e cliente', () => {
+  const texto = textoDasReservas(3, [
+    { origem: 'pre_venda', numero: '0078', cliente: 'JOÃO', quantidade: 2 },
+    { origem: 'ordem_de_servico', numero: '14', cliente: '', quantidade: 1 },
+  ]);
+  assert.equal(texto, 'tem 3 reservado(s) em: Pré-venda #0078 de JOÃO (2), OS #14 (1). Finalize ou cancele esse(s) documento(s) para liberar a reserva');
+  // passou do limite: resume
+  const muitas = Array.from({ length: 7 }, (_, i) => ({ origem: 'pre_venda', numero: String(i + 1), cliente: 'C', quantidade: 1 }));
+  assert.match(textoDasReservas(7, muitas), /Pré-venda #5 de C \(1\) e mais 2\./);
+  // reserva orfã: diz que nao achou documento e o que fazer
+  assert.match(textoDasReservas(2, []), /^tem 2 reservado\(s\), mas nenhuma pré-venda, OS, condicional ou troca em aberto/);
+  assert.match(textoDasReservas(2, []), /avise o suporte$/);
 });

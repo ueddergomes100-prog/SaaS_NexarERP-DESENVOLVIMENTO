@@ -13,7 +13,7 @@ import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms } from '../../utils/textSear
 import { DEFAULT_MOSTRAR_RESUMO_ESTOQUE, parseMostrarResumoEstoque } from '../../utils/estoqueResumoDomain';
 import { avisoInativacaoComSaldo, avisoInativacaoSemSaldo, precisaZerarParaInativar } from '../../utils/estoqueInativacaoDomain';
 import './Estoque.css';
-import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import { CadastroError, alterarSituacaoCadastro } from '../../services/cadastroService';
 import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import OrigensDaReservaModal from '../../components/common/OrigensDaReservaModal';
@@ -158,7 +158,22 @@ const EstoqueList: React.FC = () => {
           : 'Produto inativado!');
     } catch (error) {
       console.error('Erro ao atualizar status do produto:', error);
-      showError(novoStatus ? 'Não foi possível ativar' : 'Não foi possível inativar', (error as Error).message || 'Tente novamente mais tarde.');
+      const titulo = novoStatus ? 'Não foi possível ativar' : 'Não foi possível inativar';
+      const texto = (error as Error).message || 'Tente novamente mais tarde.';
+      // Bloqueio por reserva: a mensagem do servidor ja' cita as pre-vendas/OS,
+      // e o segundo botao abre a janela "Reservas de ..." com o atalho pra
+      // cada documento -- sem ter que procurar pre-venda por pre-venda.
+      const bloqueadoPorReserva = !novoStatus && error instanceof CadastroError && error.status === 409 && resumoDeReserva(peca).reservada > 0;
+      if (!bloqueadoPorReserva) { showError(titulo, texto); return; }
+      const resposta = await NexusSwal.fire({
+        icon: 'error',
+        title: titulo,
+        text: texto,
+        confirmButtonText: 'Ver onde está reservado',
+        showCancelButton: true,
+        cancelButtonText: 'Entendi',
+      });
+      if (resposta.isConfirmed) setReservaAberta(peca);
     }
   };
 

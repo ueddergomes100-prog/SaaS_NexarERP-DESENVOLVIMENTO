@@ -169,11 +169,12 @@ docs); limpeza de dados de teste do dev.
 - App separado na Play Store para o técnico (o TWA do app Vendas já serve o
   mesmo endereço; se o dono quiser um ícone próprio, é só outro pacote).
 
-## 7. Em aberto (decidir na hora, por caixa de perguntas)
+## 7. Decisões tomadas em 08/10 (00h40) para a fase 3
 
-- Preço do km único na filial ou por veículo da empresa.
-- Assinatura do cliente obrigatória para "Concluir atendimento" ou opcional.
-- Nome do perfil no app ("Técnico") e se o técnico vê valores (R$) das peças.
+- Técnico vê valores em R$ no app: **configurável por empresa** (chave em Configurações, padrão ligado).
+- Assinatura do cliente para "Concluir atendimento": **opcional, configurável** (chave "Exigir assinatura do cliente para concluir", padrão desligado; sem assinatura o app só avisa).
+- Fotos: **até 10 por OS, reduzidas a 1280px** no aparelho (~200–400 KB cada), legenda opcional.
+- Preço do km: único por filial (fase 1). Por veículo da empresa só se alguém pedir.
 
 ## 8. Situação
 

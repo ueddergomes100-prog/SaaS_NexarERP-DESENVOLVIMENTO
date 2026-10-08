@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X, History } from 'lucide-react';
+import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X, History, Truck } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -111,6 +111,8 @@ import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import './OS.css';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
+import { useModoOficina } from '../../hooks/useModoOficina';
+import { DESLOCAMENTO_VAZIO, aplicarDeslocamentoNosServicos, identificacaoCurta, kmDoDeslocamento, parseDeslocamento, temDeslocamento, validarIdentificacaoEquipamento, valorDeslocamentoCentavos, type Deslocamento } from '../../utils/oficinaDomain';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; descontoPadraoPercentual?: number | null; }
 interface Banco { id: string; nome: string; ativo: boolean; }
@@ -174,6 +176,11 @@ interface VeiculoBasico {
   renavam: string;
   combustivel: string;
   clienteId: string;
+  /** Maquinas pesadas (oficinaDomain.ts). */
+  frota?: string;
+  serie?: string;
+  horimetro?: number;
+  tipoEquipamento?: string;
 }
 
 const getLocalDateInputValue = (date = new Date()) => {
@@ -190,6 +197,7 @@ const OSForm: React.FC = () => {
     clienteNome: '', clienteTelefone: '',
     placa: '', modelo: '', marca: '', ano: '', cor: '',
     renavam: '', quilometragem: '', combustivel: '',
+    frota: '', serie: '', horimetro: '', tipoEquipamento: '',
     dataEntrada: getLocalDateInputValue(), dataSaida: '',
     horaEntrada: '', horaSaida: '',
     defeitoRelatado: '', relatorioTecnico: '',
@@ -285,11 +293,32 @@ const OSForm: React.FC = () => {
   const [trabalhaComLimiteCredito, setTrabalhaComLimiteCredito] = useState(false);
   // Parametros de venda da filial (fase A, 2026-10-07): bloqueio por atraso.
   const [parametrosVenda, setParametrosVenda] = useState<ParametrosVenda>(PARAMETROS_VENDA_PADRAO);
+  // Oficina de maquinas pesadas (fase 1, 2026-10-07): rotulos, identificacao do
+  // equipamento e deslocamento com preco por km. Ver oficinaDomain.ts.
+  const { modo: modoOficina, rotulos, configMaquinas } = useModoOficina();
+  const [deslocamento, setDeslocamento] = useState<Deslocamento>(DESLOCAMENTO_VAZIO);
+  const [frotaEmpresa, setFrotaEmpresa] = useState<Array<{ id: string; nome: string }>>([]);
+  /** Edita o deslocamento e refaz a linha de servico "Deslocamento -- N km" (idempotente). */
+  const atualizarDeslocamento = (parte: Partial<Deslocamento>) => {
+    const novo = { ...deslocamento, ...parte };
+    setDeslocamento(novo);
+    setServicosSelecionados((servicos) => aplicarDeslocamentoNosServicos(servicos, kmDoDeslocamento(novo), configMaquinas));
+  };
   const [cadastroRapidoAberto, setCadastroRapidoAberto] = useState(false);
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido, grupo } = useAuth();
+  // Veiculos da empresa (colecao frota) para o deslocamento -- so no modo maquinas.
+  useEffect(() => {
+    if (!tenantId || modoOficina !== 'maquinas_pesadas') return;
+    getDocs(query(collection(db, 'frota'), where('tenantId', '==', tenantId)))
+      .then((snap) => setFrotaEmpresa(snap.docs
+        .filter((d) => d.data().ativo !== false)
+        .map((d) => ({ id: d.id, nome: [d.data().placa, d.data().modelo].filter(Boolean).join(' - ') || d.id }))
+        .sort((a, b) => a.nome.localeCompare(b.nome))))
+      .catch(() => setFrotaEmpresa([]));
+  }, [tenantId, modoOficina]);
   const canVerAuditoria = hasModuleAccess({ role: userRole, isOwner, permissions: userPermissions, requiredPermission: 'administrativo.logs' });
   const [auditoriaAberta, setAuditoriaAberta] = useState(false);
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
@@ -347,6 +376,10 @@ const OSForm: React.FC = () => {
         ano: doc.data().ano || '',
         cor: doc.data().cor || '',
         kmAtual: Number(doc.data().kmAtual || 0),
+        frota: doc.data().frota || '',
+        serie: doc.data().serie || '',
+        horimetro: Number(doc.data().horimetro || 0),
+        tipoEquipamento: doc.data().tipoEquipamento || '',
         renavam: doc.data().renavam || '',
         combustivel: doc.data().combustivel || '',
         clienteId: doc.data().clienteId || '',
@@ -498,6 +531,10 @@ const OSForm: React.FC = () => {
               cor: os.cor || '',
               renavam: os.renavam || '',
               quilometragem: os.quilometragem ? String(os.quilometragem) : '',
+              frota: os.frota || '',
+              serie: os.serie || '',
+              horimetro: os.horimetro ? String(os.horimetro) : '',
+              tipoEquipamento: os.tipoEquipamento || '',
               combustivel: os.combustivel || '',
               dataEntrada: os.dataEntrada || (os.createdAt?.toDate ? getLocalDateInputValue(os.createdAt.toDate()) : ''),
               dataSaida: os.dataSaida || '',
@@ -519,6 +556,7 @@ const OSForm: React.FC = () => {
               orcamentoId: os.orcamentoId || '',
             });
             setServicosSelecionados(os.servicos || []);
+            setDeslocamento(parseDeslocamento(os.deslocamento));
             // OS antiga pode ter peca gravada sem unidade (documento salvo
             // antes da feature existir): completa com 'UN' na carga, pra
             // ficar consistente com o que o catalogo devolve hoje.
@@ -1012,8 +1050,15 @@ const OSForm: React.FC = () => {
   const saveOS = async (): Promise<boolean> => {
     if (submitLockRef.current) return false;
     if (!currentUser || !tenantId) return false;
-    if (!formData.clienteNome || !formData.placa) {
-      showError('Campos incompletos', 'Por favor, preencha o Nome do Cliente e a Placa.');
+    if (!formData.clienteNome) {
+      showError('Campos incompletos', 'Por favor, preencha o Nome do Cliente.');
+      return false;
+    }
+    // Oficina de veiculos: placa obrigatoria. Maquinas pesadas: frota, placa
+    // ou serie/chassi -- trator nao tem placa (oficinaDomain.ts).
+    const identificacao = validarIdentificacaoEquipamento(modoOficina, formData);
+    if (!identificacao.ok) {
+      showError('Campos incompletos', identificacao.erro);
       return false;
     }
 
@@ -1369,6 +1414,7 @@ const OSForm: React.FC = () => {
           clienteNome: formData.clienteNome.toUpperCase().trim(),
           servicos: servicosSelecionados,
           pecas: pecasSelecionadas,
+          deslocamento: temDeslocamento(deslocamento) ? deslocamento : null,
           valorTotal: totalOS,
           valorTotalCentavos: totalOSCentavos,
           // Snapshot do desconto geral -- consumido pelo relatorio de
@@ -1854,12 +1900,12 @@ const OSForm: React.FC = () => {
           <div className="card form-section">
             <div className="section-header">
               <Car size={20} className="section-icon" />
-              <h3>Dados do Veículo</h3>
+              <h3>{rotulos.dadosVeiculo}</h3>
             </div>
             
             {isVeiculoDropdownOpen && veiculosDoCliente.length > 1 && (
               <div style={{ padding: '16px', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px dashed #3b82f6', borderRadius: '8px', marginBottom: '16px' }}>
-                <p style={{ color: '#3b82f6', marginBottom: '12px', fontWeight: 'bold' }}>Este cliente possui múltiplos veículos. Selecione qual será atendido:</p>
+                <p style={{ color: '#3b82f6', marginBottom: '12px', fontWeight: 'bold' }}>Este cliente possui mais de um {rotulos.veiculo.toLowerCase()}. Selecione qual será atendido:</p>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   {veiculosDoCliente.map(v => (
                     <button 
@@ -1876,12 +1922,16 @@ const OSForm: React.FC = () => {
                           renavam: v.renavam || '',
                           quilometragem: v.kmAtual ? String(v.kmAtual) : '',
                           combustivel: v.combustivel || '',
+                          frota: v.frota || '',
+                          serie: v.serie || '',
+                          horimetro: v.horimetro ? String(v.horimetro) : '',
+                          tipoEquipamento: v.tipoEquipamento || '',
                         }));
                         setIsVeiculoDropdownOpen(false);
                       }}
                       style={{ padding: '8px 16px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
                     >
-                      {v.placa} - {v.modelo}
+                      {identificacaoCurta(modoOficina, v)} - {v.modelo}
                     </button>
                   ))}
                   <button 
@@ -1896,16 +1946,39 @@ const OSForm: React.FC = () => {
             )}
 
             <div className="grid-2-col">
-              <div className="input-group"><label>Placa *</label><input type="text" name="placa" style={{ textTransform: 'uppercase' }} value={formData.placa} onChange={handleChange} /></div>
+              {modoOficina === 'maquinas_pesadas' && (
+                <>
+                  <div className="input-group"><label>Nº de frota</label><input type="text" name="frota" value={formData.frota} onChange={handleChange} /></div>
+                  <div className="input-group"><label>Série / Chassi</label><input type="text" name="serie" style={{ textTransform: 'uppercase' }} value={formData.serie} onChange={handleChange} /></div>
+                  <div className="input-group">
+                    <label>Tipo de equipamento</label>
+                    <select name="tipoEquipamento" value={formData.tipoEquipamento} onChange={handleChange}>
+                      <option value="">Não informado</option>
+                      {configMaquinas.tiposEquipamento.map((tipo) => <option key={tipo} value={tipo}>{tipo}</option>)}
+                      {formData.tipoEquipamento && !configMaquinas.tiposEquipamento.includes(formData.tipoEquipamento) && <option value={formData.tipoEquipamento}>{formData.tipoEquipamento}</option>}
+                    </select>
+                  </div>
+                </>
+              )}
+              <div className="input-group"><label>{modoOficina === 'veiculos' ? 'Placa *' : rotulos.placa}</label><input type="text" name="placa" style={{ textTransform: 'uppercase' }} value={formData.placa} onChange={handleChange} /></div>
               <div className="input-group"><label>Modelo</label><input type="text" name="modelo" value={formData.modelo} onChange={handleChange} /></div>
               <div className="input-group"><label>Marca</label><input type="text" name="marca" value={formData.marca} onChange={handleChange} /></div>
               <div className="input-group"><label>Ano</label><input type="text" name="ano" value={formData.ano} onChange={handleChange} /></div>
               <div className="input-group"><label>Cor</label><input type="text" name="cor" value={formData.cor} onChange={handleChange} /></div>
-              <div className="input-group"><label>RENAVAM</label><input type="text" name="renavam" value={formData.renavam} onChange={handleChange} /></div>
-              <div className="input-group">
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Gauge size={14} /> Quilometragem</label>
-                <input type="number" name="quilometragem" value={formData.quilometragem} onChange={handleChange} min="0" />
-              </div>
+              {modoOficina === 'veiculos' && (
+                <div className="input-group"><label>RENAVAM</label><input type="text" name="renavam" value={formData.renavam} onChange={handleChange} /></div>
+              )}
+              {modoOficina === 'maquinas_pesadas' ? (
+                <div className="input-group">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Gauge size={14} /> Horímetro (h)</label>
+                  <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} min="0" step="0.1" />
+                </div>
+              ) : (
+                <div className="input-group">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Gauge size={14} /> Quilometragem</label>
+                  <input type="number" name="quilometragem" value={formData.quilometragem} onChange={handleChange} min="0" />
+                </div>
+              )}
               <div className="input-group">
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Fuel size={14} /> Combustível</label>
                 <select name="combustivel" value={formData.combustivel} onChange={handleChange}>
@@ -1941,6 +2014,43 @@ const OSForm: React.FC = () => {
             </div>
           </div>
 
+          {modoOficina === 'maquinas_pesadas' && (
+            <div className="card form-section">
+              <div className="section-header">
+                <Truck size={20} className="section-icon" />
+                <h3>Deslocamento para atendimento ao cliente</h3>
+              </div>
+              <div className="grid-2-col">
+                <div className="input-group"><label>KM inicial</label><input type="number" min="0" value={deslocamento.kmInicial ?? ''} onChange={(e) => atualizarDeslocamento({ kmInicial: e.target.value === '' ? null : Number(e.target.value) })} /></div>
+                <div className="input-group"><label>KM final</label><input type="number" min="0" value={deslocamento.kmFinal ?? ''} onChange={(e) => atualizarDeslocamento({ kmFinal: e.target.value === '' ? null : Number(e.target.value) })} /></div>
+                <div className="input-group">
+                  <label>KM rodados</label>
+                  <input type="number" min="0" step="0.1"
+                    value={deslocamento.kmInicial !== null && deslocamento.kmFinal !== null ? kmDoDeslocamento(deslocamento) : (deslocamento.km || '')}
+                    disabled={deslocamento.kmInicial !== null && deslocamento.kmFinal !== null}
+                    title={deslocamento.kmInicial !== null && deslocamento.kmFinal !== null ? 'Calculado pelo KM inicial e final' : 'Informe os km rodados (ou preencha KM inicial e final)'}
+                    onChange={(e) => atualizarDeslocamento({ km: Number(e.target.value) || 0 })} />
+                </div>
+                <div className="input-group"><label>Local</label><input type="text" value={deslocamento.local} onChange={(e) => atualizarDeslocamento({ local: e.target.value })} /></div>
+                <div className="input-group"><label>Hora de saída</label><input type="time" value={deslocamento.horaSaida} onChange={(e) => atualizarDeslocamento({ horaSaida: e.target.value })} /></div>
+                <div className="input-group"><label>Hora de chegada</label><input type="time" value={deslocamento.horaChegada} onChange={(e) => atualizarDeslocamento({ horaChegada: e.target.value })} /></div>
+                <div className="input-group">
+                  <label>Veículo da empresa</label>
+                  <select value={deslocamento.veiculoEmpresa} onChange={(e) => atualizarDeslocamento({ veiculoEmpresa: e.target.value })}>
+                    <option value="">Não informado</option>
+                    {frotaEmpresa.map((v) => <option key={v.id} value={v.nome}>{v.nome}</option>)}
+                    {deslocamento.veiculoEmpresa && !frotaEmpresa.some((v) => v.nome === deslocamento.veiculoEmpresa) && <option value={deslocamento.veiculoEmpresa}>{deslocamento.veiculoEmpresa}</option>}
+                  </select>
+                </div>
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '12px 0 0' }}>
+                {configMaquinas.precoKmCentavos > 0 || configMaquinas.valorVisitaCentavos > 0
+                  ? `Com ${kmDoDeslocamento(deslocamento)} km, o deslocamento entra como serviço de ${(valorDeslocamentoCentavos(kmDoDeslocamento(deslocamento), configMaquinas) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} (preço do km em Configurações → Oficina de máquinas pesadas).`
+                  : 'Sem preço do km em Configurações → Oficina de máquinas pesadas, o deslocamento fica só registrado; lance o serviço à mão se quiser cobrar.'}
+              </p>
+            </div>
+          )}
+
           <div className="card form-section">
             <div className="section-header">
               <FileText size={20} className="section-icon" />
@@ -1949,7 +2059,7 @@ const OSForm: React.FC = () => {
             
             <div className="input-group" style={{ marginBottom: '20px', paddingBottom: '20px', borderBottom: '1px dashed var(--border-color)' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                Funcionário Responsável
+                {modoOficina === 'maquinas_pesadas' ? 'Técnico responsável' : 'Funcionário Responsável'}
               </label>
               <select 
                 name="mecanicoId" 
@@ -2295,12 +2405,12 @@ const OSForm: React.FC = () => {
               <h3>Relatório Técnico (Impressão)</h3>
             </div>
             <div className="input-group">
-              <label>Defeito Relatado (Cliente)</label>
-              <textarea name="defeitoRelatado" placeholder="Descreva o problema reclamado pelo cliente..." rows={3} value={formData.defeitoRelatado} onChange={handleChange}></textarea>
+              <label>{rotulos.defeito}{modoOficina === 'veiculos' ? ' (Cliente)' : ''}</label>
+              <textarea name="defeitoRelatado" placeholder={rotulos.defeitoPlaceholder} rows={3} value={formData.defeitoRelatado} onChange={handleChange}></textarea>
             </div>
             <div className="input-group" style={{ flex: 1 }}>
               <label>Relatório do Técnico (O que foi feito)</label>
-              <textarea name="relatorioTecnico" placeholder="Descreva tecnicamente o que foi encontrado e reparado no veículo..." rows={10} value={formData.relatorioTecnico} onChange={handleChange}></textarea>
+              <textarea name="relatorioTecnico" placeholder={rotulos.relatorioPlaceholder} rows={10} value={formData.relatorioTecnico} onChange={handleChange}></textarea>
             </div>
             <div className="input-group">
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Package size={14} /> Materiais fornecidos pelo cliente</label>

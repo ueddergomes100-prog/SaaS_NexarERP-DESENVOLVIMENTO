@@ -9,6 +9,8 @@ import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import '../OS/OS.css'; // Reusing OS styles
+import { useModoOficina } from '../../hooks/useModoOficina';
+import { validarIdentificacaoEquipamento } from '../../utils/oficinaDomain';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
 
@@ -26,9 +28,15 @@ const VeiculoForm: React.FC = () => {
     cor: '',
     kmAtual: '',
     clienteId: '',
+    frota: '',
+    serie: '',
+    horimetro: '',
+    tipoEquipamento: '',
     clienteNome: ''
   });
 
+  // Oficina de maquinas pesadas: vira cadastro de Equipamentos (frota, serie, horimetro). Ver oficinaDomain.ts.
+  const { modo: modoOficina, rotulos, configMaquinas } = useModoOficina();
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   /** Veiculo que ja' estava inativo ao abrir: so' consulta (firestore.rules). */
@@ -69,6 +77,10 @@ const VeiculoForm: React.FC = () => {
               ano: data.ano || '',
               cor: data.cor || '',
               kmAtual: data.kmAtual ? String(data.kmAtual) : '',
+              frota: data.frota || '',
+              serie: data.serie || '',
+              horimetro: data.horimetro ? String(data.horimetro) : '',
+              tipoEquipamento: data.tipoEquipamento || '',
               clienteId: data.clienteId || '',
               clienteNome: data.clienteNome || ''
             });
@@ -106,8 +118,13 @@ const VeiculoForm: React.FC = () => {
       showError('Veículo inativo', 'Este veículo está inativo e não pode ser alterado. Para alterar, reative-o na lista de Veículos.');
       return;
     }
-    if (!formData.placa || !formData.modelo || !formData.clienteId) {
-      showError('Atenção', 'Os campos Placa, Modelo e Cliente são obrigatórios.');
+    if (!formData.modelo || !formData.clienteId) {
+      showError('Atenção', modoOficina === 'veiculos' ? 'Os campos Placa, Modelo e Cliente são obrigatórios.' : 'Os campos Modelo e Cliente são obrigatórios.');
+      return;
+    }
+    const identificacao = validarIdentificacaoEquipamento(modoOficina, formData);
+    if (!identificacao.ok) {
+      showError('Atenção', identificacao.erro);
       return;
     }
     if (!currentUser) return;
@@ -117,6 +134,7 @@ const VeiculoForm: React.FC = () => {
       const dataToSave = {
         ...formData,
         kmAtual: formData.kmAtual ? Number(formData.kmAtual) : 0,
+        horimetro: formData.horimetro ? Number(formData.horimetro) : 0,
         tenantId,
         updatedAt: serverTimestamp()
       };
@@ -128,13 +146,15 @@ const VeiculoForm: React.FC = () => {
         });
         showSuccess('Veículo atualizado com sucesso!');
       } else {
-        // Check if placa already exists
-        const qCheck = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId), where('placa', '==', formData.placa));
-        const checkSnap = await getDocs(qCheck);
-        if (!checkSnap.empty) {
-          showError('Atenção', 'Já existe um veículo cadastrado com esta placa.');
-          setIsLoading(false);
-          return;
+        // Placa repetida na empresa (so' quando tem placa -- equipamento pode nao ter).
+        if (formData.placa) {
+          const qCheck = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId), where('placa', '==', formData.placa));
+          const checkSnap = await getDocs(qCheck);
+          if (!checkSnap.empty) {
+            showError('Atenção', `Já existe um ${rotulos.veiculo.toLowerCase()} cadastrado com esta placa.`);
+            setIsLoading(false);
+            return;
+          }
         }
 
         await addDoc(collection(db, 'veiculos'), {
@@ -168,8 +188,8 @@ const VeiculoForm: React.FC = () => {
         <div className="header-title-group">
           <button className="icon-btn back-btn" onClick={() => navigate('/veiculos')}><ArrowLeft size={20} /></button>
           <div>
-            <h1 className="page-title">{isEditing ? 'Editar Veículo' : 'Novo Veículo'}</h1>
-            <p className="page-subtitle">{isEditing ? `Placa: ${formData.placa}` : 'Cadastre os detalhes do carro e vincule ao cliente'}</p>
+            <h1 className="page-title">{isEditing ? `Editar ${rotulos.veiculo}` : `Novo ${rotulos.veiculo}`}</h1>
+            <p className="page-subtitle">{isEditing ? `${rotulos.identificacao}: ${formData.frota || formData.placa || formData.serie}` : `Cadastre os detalhes do ${rotulos.veiculo.toLowerCase()} e vincule ao cliente`}</p>
           </div>
         </div>
       </div>
@@ -234,14 +254,15 @@ const VeiculoForm: React.FC = () => {
           <div className="card form-section" style={{ padding: '24px' }}>
             <div className="section-header" style={{ marginBottom: '24px' }}>
               <Activity size={20} className="section-icon" color="#f59e0b" />
-              <h3>Hodômetro</h3>
+              <h3>{modoOficina === 'maquinas_pesadas' ? 'Horímetro' : 'Hodômetro'}</h3>
             </div>
             <div className="input-group">
-              <label>Quilometragem Atual (KM)</label>
+              <label>{modoOficina === 'maquinas_pesadas' ? 'Horímetro atual (horas)' : 'Quilometragem Atual (KM)'}</label>
               <input 
                 type="number" 
-                name="kmAtual" 
-                value={formData.kmAtual} 
+                step={modoOficina === 'maquinas_pesadas' ? '0.1' : undefined}
+                name={modoOficina === 'maquinas_pesadas' ? 'horimetro' : 'kmAtual'} 
+                value={modoOficina === 'maquinas_pesadas' ? formData.horimetro : formData.kmAtual} 
                 onChange={handleChange} 
                 style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', fontSize: '18px', fontWeight: 600, color: '#f59e0b' }}
               />
@@ -253,22 +274,42 @@ const VeiculoForm: React.FC = () => {
           <div className="card form-section" style={{ padding: '24px' }}>
             <div className="section-header" style={{ marginBottom: '24px' }}>
               <Car size={20} className="section-icon" color="#10b981" />
-              <h3>Dados do Veículo</h3>
+              <h3>{rotulos.dadosVeiculo}</h3>
             </div>
             
             <div className="grid-2-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               <div className="input-group">
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Hash size={14}/> Placa *</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Hash size={14}/> {modoOficina === 'veiculos' ? 'Placa *' : rotulos.placa}</label>
                 <input 
                   type="text" 
                   name="placa" 
                   value={formData.placa} 
                   onChange={handleChange} 
                   style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: '#10b981', fontWeight: 700, fontSize: '16px', textTransform: 'uppercase' }} 
-                  required
+                  required={modoOficina === 'veiculos'}
                 />
               </div>
-              
+              {modoOficina === 'maquinas_pesadas' && (
+                <>
+                  <div className="input-group">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Hash size={14}/> Nº de frota</label>
+                    <input type="text" name="frota" value={formData.frota} onChange={handleChange} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+                  </div>
+                  <div className="input-group">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Hash size={14}/> Série / Chassi</label>
+                    <input type="text" name="serie" value={formData.serie} onChange={handleChange} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', textTransform: 'uppercase' }} />
+                  </div>
+                  <div className="input-group">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Settings size={14}/> Tipo de equipamento</label>
+                    <select name="tipoEquipamento" value={formData.tipoEquipamento} onChange={(e) => setFormData({ ...formData, tipoEquipamento: e.target.value })} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}>
+                      <option value="">Não informado</option>
+                      {configMaquinas.tiposEquipamento.map((tipo) => <option key={tipo} value={tipo}>{tipo}</option>)}
+                      {formData.tipoEquipamento && !configMaquinas.tiposEquipamento.includes(formData.tipoEquipamento) && <option value={formData.tipoEquipamento}>{formData.tipoEquipamento}</option>}
+                    </select>
+                  </div>
+                </>
+              )}
+
               <div className="input-group">
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Settings size={14}/> Marca</label>
                 <input 

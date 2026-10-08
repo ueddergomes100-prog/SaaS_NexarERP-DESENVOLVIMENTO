@@ -5,6 +5,7 @@ import { getCompanyAddressRows } from '../../utils/companyAddress';
 import { resolverDescontoImpressaoOS, totalComDescontoOS } from '../../utils/osDescontoImpressao';
 import OsPrintPersonalizado01 from './OsPrintPersonalizado01';
 import './OsPrint.css';
+import OsPrintMaquinasPesadas from './OsPrintMaquinasPesadas';
 
 interface OsPrintDocumentProps {
   osData: any;
@@ -33,7 +34,9 @@ const OsPrintDocument: React.FC<OsPrintDocumentProps> = ({ osData, clientData, v
 
   return (
     <>
-      {(configData?.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL) === 'personalizado-01' ? (
+      {(configData?.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL) === 'maquinas-pesadas' ? (
+        <OsPrintMaquinasPesadas osData={osData} clientData={clientData} vehicleData={vehicleData} configData={configData} />
+      ) : (configData?.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL) === 'personalizado-01' ? (
         <OsPrintPersonalizado01
           osData={osData}
           clientData={clientData}

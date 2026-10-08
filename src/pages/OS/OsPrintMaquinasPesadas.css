@@ -1,0 +1,64 @@
+/* Modelo "Maquinas pesadas" -- talao de OS em A4, preto no branco, pronto para assinar. */
+.os-mp-page {
+  width: 210mm;
+  min-height: 297mm;
+  margin-bottom: 40px;
+  padding: 10mm 10mm 12mm;
+  background: #fff;
+  color: #111;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+.os-mp-page * { box-sizing: border-box; }
+
+.os-mp-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 2px solid #111; padding-bottom: 6px; margin-bottom: 8px; }
+.os-mp-empresa { display: flex; gap: 10px; align-items: center; font-size: 10px; line-height: 1.35; }
+.os-mp-empresa strong { font-size: 13px; display: block; }
+.os-mp-logo { max-height: 56px; max-width: 150px; object-fit: contain; }
+.os-mp-titulo { text-align: right; }
+.os-mp-titulo h1 { margin: 0; font-size: 18px; letter-spacing: 1px; }
+.os-mp-numero { font-size: 14px; font-weight: 700; color: #b91c1c; }
+
+.os-mp-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 8px; margin-bottom: 8px; }
+.os-mp-bloco { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; border: 1px solid #111; padding: 6px 8px; }
+.os-mp-campo { display: flex; flex-direction: column; min-height: 26px; border-bottom: 1px dotted #999; padding-bottom: 2px; }
+.os-mp-campo span { font-size: 8px; text-transform: uppercase; color: #444; }
+.os-mp-campo b { font-size: 11px; min-height: 13px; word-break: break-word; }
+.os-mp-campo-largo { grid-column: 1 / -1; }
+
+.os-mp-secao { border: 1px solid #111; margin-bottom: 8px; }
+.os-mp-secao-titulo { background: #e5e7eb; font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 3px 8px; border-bottom: 1px solid #111; }
+.os-mp-texto { padding: 6px 8px; min-height: 34px; white-space: pre-wrap; line-height: 1.4; }
+
+.os-mp-tabela { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+.os-mp-tabela th, .os-mp-tabela td { border: 1px solid #111; padding: 3px 6px; font-size: 10.5px; text-align: left; }
+.os-mp-tabela th { background: #e5e7eb; font-size: 9px; text-transform: uppercase; }
+.os-mp-tabela td small { color: #555; font-size: 9px; }
+.os-mp-col-item { width: 32px; text-align: center !important; }
+.os-mp-col-unid { width: 44px; text-align: center !important; }
+.os-mp-col-qtd { width: 52px; text-align: right !important; }
+.os-mp-col-valor { width: 82px; text-align: right !important; }
+.os-mp-linha-vazia td { height: 18px; color: #999; }
+
+.os-mp-deslocamento { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px 8px; padding: 6px 8px; }
+.os-mp-deslocamento .os-mp-campo-largo { grid-column: 1 / -1; }
+
+.os-mp-grid-rodape { grid-template-columns: 1.6fr 1fr; align-items: stretch; }
+.os-mp-totais { border: 1px solid #111; padding: 6px 8px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
+.os-mp-total-linha { display: flex; justify-content: space-between; font-size: 11px; }
+.os-mp-total-geral { font-size: 15px; font-weight: 700; border-top: 1px solid #111; padding-top: 4px; }
+
+.os-mp-concordancia { border: 1px solid #111; padding: 8px; font-size: 9.5px; line-height: 1.4; text-align: justify; }
+.os-mp-concordancia p { margin: 0 0 18px; }
+.os-mp-assinaturas { display: flex; gap: 16px; align-items: flex-end; }
+.os-mp-assinatura { flex: 1; text-align: center; font-size: 9px; }
+.os-mp-assinatura-curta { flex: 0 0 90px; }
+.os-mp-linha { border-top: 1px solid #111; margin-bottom: 3px; height: 1px; }
+
+@media print {
+  .os-mp-page { box-shadow: none; margin: 0; width: auto; min-height: auto; padding: 8mm 10mm; }
+  .os-mp-linha-vazia td { height: 16px; }
+}

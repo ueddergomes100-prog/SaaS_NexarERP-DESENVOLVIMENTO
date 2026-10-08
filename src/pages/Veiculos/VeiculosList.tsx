@@ -11,10 +11,14 @@ import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from 
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import '../OS/OS.css'; // Reusing OS styles
+import { useModoOficina } from '../../hooks/useModoOficina';
+import { identificacaoBateBusca, identificacaoCurta } from '../../utils/oficinaDomain';
 
 interface Veiculo {
   id: string;
   placa: string;
+  frota?: string;
+  serie?: string;
   modelo: string;
   marca?: string;
   ano: string;
@@ -34,6 +38,7 @@ const VeiculosList: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const { openTab } = useTabs();
   const { currentUser, tenantId, userPermissions, userRole, isOwner } = useAuth();
+  const { modo: modoOficina, rotulos } = useModoOficina();
   
   const canEdit = isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('cadastros.veiculos');
 
@@ -96,7 +101,7 @@ const VeiculosList: React.FC = () => {
   };
 
   const filteredVeiculos = veiculos.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter(v => 
-    v.placa.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    identificacaoBateBusca(modoOficina, v, searchTerm) ||
     v.modelo.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (v.clienteNome && v.clienteNome.toLowerCase().includes(searchTerm.toLowerCase()))
   );
@@ -129,7 +134,7 @@ const VeiculosList: React.FC = () => {
           <Search className="search-icon" size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input 
             type="text" 
-            placeholder="Buscar por placa, modelo ou dono do veículo..." 
+            placeholder={modoOficina === 'veiculos' ? 'Buscar por placa, modelo ou dono do veículo...' : 'Buscar por frota, série, placa, modelo ou dono do equipamento...'} 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             style={{ 
@@ -160,7 +165,7 @@ const VeiculosList: React.FC = () => {
             <table className="nexus-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-secondary)' }}>
-                  <th style={{ padding: '16px' }}>Placa / Modelo</th>
+                  <th style={{ padding: '16px' }}>{rotulos.identificacao} / Modelo</th>
                   <th style={{ padding: '16px' }}>Dono (Cliente)</th>
                   <th style={{ padding: '16px', textAlign: 'center' }}>Ano/Cor</th>
                   <th style={{ padding: '16px' }}>Status</th>
@@ -173,7 +178,7 @@ const VeiculosList: React.FC = () => {
                     <td style={{ padding: '16px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontWeight: 700, fontSize: '16px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <Hash size={14} /> {veiculo.placa}
+                          <Hash size={14} /> {identificacaoCurta(modoOficina, veiculo)}
                         </span>
                         <span style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
                           {veiculo.marca ? `${veiculo.marca} ` : ''}{veiculo.modelo}

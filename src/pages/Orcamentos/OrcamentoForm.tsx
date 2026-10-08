@@ -59,6 +59,7 @@ import '../OS/OS.css';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaModal';
 import { hasModuleAccess } from '../../utils/roles';
+import { useModoOficina } from '../../hooks/useModoOficina';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; descontoPadraoPercentual?: number | null; }
 interface ServicoData { id: string; nome: string; preco: number; }
@@ -169,6 +170,8 @@ const OrcamentoForm: React.FC = () => {
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido } = useAuth();
+  // Oficina de maquinas pesadas: so' os rotulos mudam aqui (oficinaDomain.ts).
+  const { rotulos: rotulosOficina } = useModoOficina();
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
   // Promocao de hoje no orcamento (2026-10-06). Orcamento nao tem pagamento
   // escolhido, entao vale a condicao padrao do sistema: a prazo (preco de
@@ -1022,12 +1025,12 @@ const OrcamentoForm: React.FC = () => {
           <div className="card form-section">
             <div className="section-header">
               <Car size={20} className="section-icon" />
-              <h3>Dados do Veículo</h3>
+              <h3>{rotulosOficina.dadosVeiculo}</h3>
             </div>
 
             {isVeiculoDropdownOpen && veiculosDoCliente.length > 1 && (
               <div style={{ padding: '16px', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px dashed #3b82f6', borderRadius: '8px', marginBottom: '16px' }}>
-                <p style={{ color: '#3b82f6', marginBottom: '12px', fontWeight: 'bold' }}>Este cliente possui múltiplos veículos. Selecione qual será atendido:</p>
+                <p style={{ color: '#3b82f6', marginBottom: '12px', fontWeight: 'bold' }}>Este cliente possui mais de um {rotulosOficina.veiculo.toLowerCase()}. Selecione qual será atendido:</p>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   {veiculosDoCliente.map(v => (
                     <button 
@@ -1054,7 +1057,7 @@ const OrcamentoForm: React.FC = () => {
             )}
 
             <div className="grid-2-col">
-              <div className="input-group"><label>Placa</label><input type="text" name="placa" value={formData.placa} onChange={handleChange} style={{ textTransform: 'uppercase' }} /></div>
+              <div className="input-group"><label>{rotulosOficina.placa.replace(' (se tiver)', '')}</label><input type="text" name="placa" value={formData.placa} onChange={handleChange} style={{ textTransform: 'uppercase' }} /></div>
               <div className="input-group"><label>Modelo</label><input type="text" name="modelo" value={formData.modelo} onChange={handleChange} /></div>
               <div className="input-group"><label>Ano</label><input type="text" name="ano" value={formData.ano} onChange={handleChange} /></div>
               <div className="input-group"><label>Cor</label><input type="text" name="cor" value={formData.cor} onChange={handleChange} /></div>

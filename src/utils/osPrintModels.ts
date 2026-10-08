@@ -11,6 +11,11 @@ export const OS_PRINT_MODELS = [
     name: 'Personalizado 01',
     description: 'Modelo técnico completo, com atendimento, execução, materiais e pagamento.',
   },
+  {
+    id: 'maquinas-pesadas',
+    name: 'Máquinas pesadas',
+    description: 'Igual ao talão: equipamento (frota, série, horímetro), reclamação do cliente, peças/serviços, deslocamento, técnico/veículo e assinatura do cliente.',
+  },
 ] as const;
 
 export type OsPrintModelId = (typeof OS_PRINT_MODELS)[number]['id'];

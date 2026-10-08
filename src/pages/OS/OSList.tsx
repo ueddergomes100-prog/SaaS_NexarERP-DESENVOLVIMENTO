@@ -15,6 +15,7 @@ import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFilt
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import './OS.css';
+import { identificacaoBateBusca, identificacaoCurta, modoDaConfiguracao, parseConfigMaquinasPesadas, rotulosOficina, type ModoOficina } from '../../utils/oficinaDomain';
 
 interface OSData {
   id: string;
@@ -22,6 +23,8 @@ interface OSData {
   clienteNome: string;
   modelo: string;
   placa: string;
+  frota?: string;
+  serie?: string;
   status: string;
   statusColor: string;
   createdAt: any;
@@ -82,12 +85,16 @@ const OSList: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser]);
 
+  // Oficina de maquinas pesadas: coluna Frota/Serie e busca por eles (oficinaDomain.ts).
+  const [modoOficina, setModoOficina] = useState<ModoOficina>('veiculos');
+  const rotulos = rotulosOficina(modoOficina);
   // Ao vivo, como o resto das configuracoes: o dono liga/desliga em
   // Configuracoes e a lista acompanha sem ninguem precisar relogar.
   useEffect(() => {
     if (!tenantId) return;
     const unsubscribe = onSnapshot(doc(db, 'configuracoes', tenantId), (snap) => {
       setMostrarValor(parseMostrarValorListaOS(snap.exists() ? snap.data().mostrarValorListaOS : undefined));
+      setModoOficina(modoDaConfiguracao(parseConfigMaquinasPesadas(snap.exists() ? snap.data().maquinasPesadas : undefined)));
     }, (error) => {
       // Falha de leitura MANTEM o que ja estava: piscar a coluna por causa de
       // uma queda de rede seria pior do que continuar mostrando.
@@ -112,7 +119,7 @@ const OSList: React.FC = () => {
 
     const mensagem = encodeURIComponent(
       `Olá, ${os.clienteNome}! Tudo bem?\n\n` +
-      `Somos da Hennder ERP. Gostaríamos de atualizar sobre o serviço do seu ${os.modelo || 'veículo'} (Placa: ${os.placa.toUpperCase()}).\n` +
+      `Somos da Hennder ERP. Gostaríamos de atualizar sobre o serviço do seu ${os.modelo || 'veículo'} (${rotulos.identificacao}: ${identificacaoCurta(modoOficina, os)}).\n` +
       `O status atual da sua OS #${os.numeroOS || os.id.substring(0,8).toUpperCase()} é: *${os.status}*.\n\n` +
       `Acesse seu orçamento/OS neste link: (Link do PDF aqui)`
     );
@@ -144,7 +151,7 @@ const OSList: React.FC = () => {
     const term = searchTerm.toLowerCase();
     return (
       (os.clienteNome && os.clienteNome.toLowerCase().includes(term)) ||
-      (os.placa && os.placa.toLowerCase().includes(term)) ||
+      identificacaoBateBusca(modoOficina, os, term) ||
       (os.numeroOS && os.numeroOS.toLowerCase().includes(term))
     );
   });
@@ -216,7 +223,7 @@ const OSList: React.FC = () => {
             <Search size={18} className="search-icon" />
             <input 
               type="text" 
-              placeholder="Buscar por placa, cliente ou nº OS..." 
+              placeholder={rotulos.buscaLista} 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -239,8 +246,8 @@ const OSList: React.FC = () => {
               <tr>
                 <th>Nº OS</th>
                 <th>Cliente</th>
-                <th>Veículo</th>
-                <th>Placa</th>
+                <th>{rotulos.veiculo}</th>
+                <th>{rotulos.identificacao}</th>
                 <th>Status</th>
                 {mostrarValor && <th style={{ textAlign: 'right' }}>Valor</th>}
                 <th>Ações</th>
@@ -277,7 +284,7 @@ const OSList: React.FC = () => {
                     </td>
                     <td>{os.clienteNome}</td>
                     <td>{os.modelo || '-'}</td>
-                    <td style={{ textTransform: 'uppercase' }}>{os.placa}</td>
+                    <td style={{ textTransform: modoOficina === 'veiculos' ? 'uppercase' : 'none' }}>{identificacaoCurta(modoOficina, os)}</td>
                     <td>
                       <span className="status-badge" style={{ backgroundColor: `${os.statusColor}20`, color: os.statusColor }}>
                         <span className="status-dot" style={{ backgroundColor: os.statusColor }}></span>

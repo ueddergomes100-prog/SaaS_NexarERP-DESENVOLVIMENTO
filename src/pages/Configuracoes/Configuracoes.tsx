@@ -7,7 +7,7 @@ import { ajustarNumeracao, listarNumeracao } from '../../services/numeracaoServi
 import type { SituacaoDaSequencia } from '../../utils/numeracaoDomain';
 import { isTenantManagerRole } from '../../utils/roles';
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy } from 'lucide-react';
+import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy, Tractor } from 'lucide-react';
 import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
 import { db, storage } from '../../services/firebase';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
@@ -100,6 +100,7 @@ import {
   type NivelAcesso,
 } from '../../utils/visibilidadeVendasDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { CONFIG_MAQUINAS_PESADAS_PADRAO, configMaquinasDoForm, configMaquinasParaForm, parseConfigMaquinasPesadas, type ConfigMaquinasPesadasForm } from '../../utils/oficinaDomain';
 
 const toStringArray = (value: unknown): string[] => {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -147,6 +148,7 @@ const Configuracoes: React.FC = () => {
   // Configuracoes por filial, fase B (2026-10-07): mensagens padrao por documento.
   const [showMensagensPadrao, setShowMensagensPadrao] = useState(false);
   const [showEmissaoDocumentos, setShowEmissaoDocumentos] = useState(false);
+  const [showMaquinasPesadas, setShowMaquinasPesadas] = useState(false);
   // Configuracoes por filial, fase C (2026-10-07): numeracao dos documentos (so' dono/administrador; vem do servidor).
   const [showNumeracao, setShowNumeracao] = useState(false);
   const [numeracao, setNumeracao] = useState<SituacaoDaSequencia[] | null>(null);
@@ -240,6 +242,7 @@ const Configuracoes: React.FC = () => {
     parametrosVenda: parametrosVendaParaForm(PARAMETROS_VENDA_PADRAO) as ParametrosVendaForm,
     mensagensPadrao: { ...MENSAGENS_PADRAO_VAZIAS } as MensagensPadrao,
     emissaoDocumentos: parseEmissaoDocumentos(EMISSAO_DOCUMENTOS_PADRAO) as EmissaoDocumentos,
+    maquinasPesadas: configMaquinasParaForm(CONFIG_MAQUINAS_PESADAS_PADRAO) as ConfigMaquinasPesadasForm,
     permitirDescontoPorItem: DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
     permitirDividirPagamento: DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
     ordemFormasPagamento: [] as string[],
@@ -407,6 +410,7 @@ const Configuracoes: React.FC = () => {
             parametrosVenda: parametrosVendaParaForm(parseParametrosVenda(data.parametrosVenda)),
             mensagensPadrao: parseMensagensPadrao(data.mensagensPadrao),
             emissaoDocumentos: parseEmissaoDocumentos(data.emissaoDocumentos),
+            maquinasPesadas: configMaquinasParaForm(parseConfigMaquinasPesadas(data.maquinasPesadas)),
             permitirDescontoPorItem: parsePermitirDescontoPorItem(data.permitirDescontoPorItem),
             permitirDividirPagamento: parsePermitirDividirPagamento(data.permitirDividirPagamento),
             ordemFormasPagamento: parseOrdemFormasPagamento(data.ordemFormasPagamento),
@@ -892,6 +896,11 @@ const Configuracoes: React.FC = () => {
       return;
     }
     // Parametros de venda (fase A): em branco = comportamento de hoje.
+    const maquinasResultado = configMaquinasDoForm(formData.maquinasPesadas);
+    if (!maquinasResultado.ok) {
+      showError('Oficina de máquinas pesadas', maquinasResultado.erro);
+      return;
+    }
     const parametrosVendaResultado = parametrosVendaDoForm(formData.parametrosVenda);
     if (!parametrosVendaResultado.ok) {
       showError('Parâmetros de venda', parametrosVendaResultado.erro);
@@ -934,6 +943,7 @@ const Configuracoes: React.FC = () => {
         parametrosVenda: parametrosVendaResultado.parametros,
         mensagensPadrao: parseMensagensPadrao(formData.mensagensPadrao),
         emissaoDocumentos: parseEmissaoDocumentos(formData.emissaoDocumentos),
+        maquinasPesadas: maquinasResultado.config,
         diasCrediario: creditTerms.join(', '),
         maxParcelasCartao: maxCardInstallments,
         taxasCartaoCreditoPorParcela: creditCardFees,
@@ -2072,6 +2082,77 @@ const Configuracoes: React.FC = () => {
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{docInfo.onde} Até {LIMITE_MENSAGEM_PADRAO} caracteres.</p>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Oficina de maquinas pesadas (2026-10-07, docs/PLANO_MAQUINAS_PESADAS.md fase 1). Chave desligada = sistema como sempre foi. */}
+        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showMaquinasPesadas ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+            onClick={() => setShowMaquinasPesadas(!showMaquinasPesadas)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Tractor size={20} style={{ color: 'var(--accent-purple)' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Oficina de máquinas pesadas</h3>
+              {formData.maquinasPesadas.ativo && <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', backgroundColor: 'rgba(16,185,129,0.15)', color: '#10b981' }}>LIGADO</span>}
+            </div>
+            <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              {showMaquinasPesadas ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
+          </div>
+
+          {showMaquinasPesadas && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                <input
+                  type="checkbox"
+                  checked={formData.maquinasPesadas.ativo}
+                  disabled={!isEditingMode}
+                  onChange={(e) => {
+                    const ativo = e.target.checked;
+                    setFormData((atual) => ({
+                      ...atual,
+                      maquinasPesadas: { ...atual.maquinasPesadas, ativo },
+                      // Liga: a impressao da OS passa para o talao de maquinas (da' para trocar abaixo). Desliga: volta ao padrao.
+                      modeloImpressaoOS: ativo && atual.modeloImpressaoOS === 'padrao' ? 'maquinas-pesadas' : (!ativo && atual.modeloImpressaoOS === 'maquinas-pesadas' ? 'padrao' : atual.modeloImpressaoOS),
+                    }));
+                  }}
+                  style={{ width: '18px', height: '18px', marginTop: '2px' }}
+                />
+                <span>
+                  <strong style={{ display: 'block', fontSize: '14px' }}>Empresa de máquinas pesadas (tratores, colheitadeiras, retroescavadeiras…)</strong>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>A OS, o cadastro de Veículos (vira Equipamentos), as listas e a impressão passam a falar de equipamento, frota, série/chassi, horímetro e técnico. A placa deixa de ser obrigatória. Desligado, nada muda.</span>
+                </span>
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', opacity: formData.maquinasPesadas.ativo ? 1 : 0.6 }}>
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Preço do km de deslocamento (R$)</label>
+                  <input type="text" inputMode="decimal" value={formData.maquinasPesadas.precoKm} disabled={!isEditingMode}
+                    onChange={(e) => { const precoKm = e.target.value; setFormData((atual) => ({ ...atual, maquinasPesadas: { ...atual.maquinasPesadas, precoKm } })); }}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }} />
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>O técnico informa os km e a OS lança o serviço "Deslocamento — N km" com o valor calculado. Em branco, só registra os km.</p>
+                </div>
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Valor fixo da visita (R$)</label>
+                  <input type="text" inputMode="decimal" value={formData.maquinasPesadas.valorVisita} disabled={!isEditingMode}
+                    onChange={(e) => { const valorVisita = e.target.value; setFormData((atual) => ({ ...atual, maquinasPesadas: { ...atual.maquinasPesadas, valorVisita } })); }}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }} />
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Somado ao deslocamento quando há km. Em branco, não cobra.</p>
+                </div>
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Tipos de equipamento (um por linha)</label>
+                  <textarea value={formData.maquinasPesadas.tiposEquipamento} disabled={!isEditingMode} rows={6}
+                    onChange={(e) => { const tiposEquipamento = e.target.value; setFormData((atual) => ({ ...atual, maquinasPesadas: { ...atual.maquinasPesadas, tiposEquipamento } })); }}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }} />
+                </div>
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Texto de concordância (impresso acima da assinatura do cliente)</label>
+                  <textarea value={formData.maquinasPesadas.textoConcordancia} disabled={!isEditingMode} rows={6} maxLength={800}
+                    onChange={(e) => { const textoConcordancia = e.target.value; setFormData((atual) => ({ ...atual, maquinasPesadas: { ...atual.maquinasPesadas, textoConcordancia } })); }}
+                    style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }} />
+                </div>
+              </div>
             </div>
           )}
         </div>

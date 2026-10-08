@@ -178,3 +178,4 @@ docs); limpeza de dados de teste do dev.
 ## 8. Situação
 
 - **07/10/2026 (noite) — Fase 1 feita** (`b30e21c`, `f4bb802`; no `main` e no repositório dev), testada no dev: chave ligada, equipamento sem placa, OS com deslocamento de 40 km virando serviço de R$ 200,00 e impressão no modelo do talão. Fases 2 a 5 a fazer, nesta ordem.
+- **07/10/2026 (madrugada de 08/10) — Fase 2 feita** (`ef0c854`): a OS já reservava com "Reservar no Pedido e na OS"; entrou a parte visível (colunas Reservado/Disponível, filtro, janela "de onde vem", etiqueta em toda busca).

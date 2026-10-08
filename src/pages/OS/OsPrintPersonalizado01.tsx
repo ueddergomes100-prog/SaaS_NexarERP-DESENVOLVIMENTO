@@ -151,6 +151,9 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
             <div><dt>Veículo</dt><dd>{displayValue(osData.modelo)}</dd></div>
             <div><dt>Marca</dt><dd>{displayValue(osData.marca || vehicleData?.marca)}</dd></div>
             <div><dt>Placa</dt><dd>{displayValue(osData.placa?.toUpperCase())}</dd></div>
+            {osData.frota && <div><dt>Frota</dt><dd>{displayValue(osData.frota)}</dd></div>}
+            {osData.serie && <div><dt>Série / Chassi</dt><dd>{displayValue(String(osData.serie).toUpperCase())}</dd></div>}
+            {osData.horimetro && <div><dt>Horímetro</dt><dd>{displayValue(osData.horimetro)} h</dd></div>}
             <div><dt>Ano / modelo</dt><dd>{displayValue(osData.ano)}</dd></div>
             <div><dt>Cor</dt><dd>{displayValue(osData.cor)}</dd></div>
             <div><dt>RENAVAM</dt><dd>{displayValue(osData.renavam || vehicleData?.renavam)}</dd></div>

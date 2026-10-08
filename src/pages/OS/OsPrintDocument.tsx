@@ -79,10 +79,14 @@ const OsPrintDocument: React.FC<OsPrintDocumentProps> = ({ osData, clientData, v
         </div>
 
         <div className="a4-section">
-          <h3 className="section-title">Dados do Veículo</h3>
+          <h3 className="section-title">{configData?.maquinasPesadas?.ativo ? 'Dados do Equipamento' : 'Dados do Veículo'}</h3>
           <div className="a4-grid">
             <p><strong>Veículo:</strong> {osData.modelo || 'Não informado'}</p>
-            <p><strong>Placa:</strong> {osData.placa?.toUpperCase()}</p>
+            <p><strong>Placa:</strong> {osData.placa?.toUpperCase() || '—'}</p>
+            {/* Maquinas pesadas (2026-10-08): frota, serie e horimetro tambem no modelo padrao. */}
+            {osData.frota && <p><strong>Frota:</strong> {osData.frota}</p>}
+            {osData.serie && <p><strong>Série / Chassi:</strong> {String(osData.serie).toUpperCase()}</p>}
+            {osData.horimetro && <p><strong>Horímetro:</strong> {osData.horimetro} h</p>}
             <p><strong>Ano:</strong> {osData.ano || 'Não informado'}</p>
             <p><strong>Cor:</strong> {osData.cor || 'Não informado'}</p>
           </div>

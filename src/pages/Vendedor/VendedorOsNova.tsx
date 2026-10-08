@@ -12,6 +12,7 @@ import { abrirOsNoCampo } from '../../services/osCampoService';
 import VendedorHeader from './VendedorHeader';
 import VendedorSeletorCliente from './VendedorSeletorCliente';
 import type { ClienteConfirmavel } from './VendedorConfirmarClienteModal';
+import { podeUsarOsNoApp } from './vendedorPermissoes';
 
 /*
  * NOVA OS NO CAMPO (app do tecnico, fase 3 -- 2026-10-08).
@@ -50,7 +51,7 @@ const rotulo: React.CSSProperties = { fontSize: '12px', color: 'var(--text-muted
 
 const VendedorOsNova: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, currentUser, userNome, userPermissions } = useAuth();
+  const { tenantId, currentUser, userNome, userPermissions, userRole, isOwner } = useAuth();
   const { modo, rotulos, configMaquinas } = useModoOficina();
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
   const { items: veiculos } = useTenantCollection<VeiculoDoCliente>('veiculos', tenantId);
@@ -60,7 +61,7 @@ const VendedorOsNova: React.FC = () => {
   const [reclamacao, setReclamacao] = useState('');
   const [abrindo, setAbrindo] = useState(false);
 
-  if (!userPermissions.includes('mecanica.os')) {
+  if (!podeUsarOsNoApp(userRole, isOwner, userPermissions)) {
     return <Navigate to="/vendedor" replace />;
   }
 
@@ -156,30 +157,30 @@ const VendedorOsNova: React.FC = () => {
               </button>
             </div>
             {equipamentoId && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div style={{ gridColumn: '1 / -1' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ flex: '1 1 100%' }}>
                   <label style={rotulo}>Modelo{equipamentoNovo ? ' *' : ''}</label>
                   <input type="text" value={equipamento.modelo} onChange={(e) => editar({ modelo: e.target.value })} readOnly={!equipamentoNovo} style={campo} />
                 </div>
-                <div>
+                <div style={{ flex: '1 1 45%' }}>
                   <label style={rotulo}>Marca</label>
                   <input type="text" value={equipamento.marca} onChange={(e) => editar({ marca: e.target.value })} readOnly={!equipamentoNovo} style={campo} />
                 </div>
-                <div>
+                <div style={{ flex: '1 1 45%' }}>
                   <label style={rotulo}>{maquinas ? rotulos.placa : 'Placa *'}</label>
                   <input type="text" value={equipamento.placa} onChange={(e) => editar({ placa: e.target.value.toUpperCase() })} readOnly={!equipamentoNovo} style={{ ...campo, textTransform: 'uppercase' }} />
                 </div>
                 {maquinas && (
                   <>
-                    <div>
+                    <div style={{ flex: '1 1 45%' }}>
                       <label style={rotulo}>Nº de frota</label>
                       <input type="text" value={equipamento.frota} onChange={(e) => editar({ frota: e.target.value })} readOnly={!equipamentoNovo} style={campo} />
                     </div>
-                    <div>
+                    <div style={{ flex: '1 1 45%' }}>
                       <label style={rotulo}>Série / Chassi</label>
                       <input type="text" value={equipamento.serie} onChange={(e) => editar({ serie: e.target.value.toUpperCase() })} readOnly={!equipamentoNovo} style={{ ...campo, textTransform: 'uppercase' }} />
                     </div>
-                    <div>
+                    <div style={{ flex: '1 1 45%' }}>
                       <label style={rotulo}>Tipo</label>
                       <select value={equipamento.tipoEquipamento} onChange={(e) => editar({ tipoEquipamento: e.target.value })} disabled={!equipamentoNovo} style={campo}>
                         <option value="">Não informado</option>
@@ -187,7 +188,7 @@ const VendedorOsNova: React.FC = () => {
                         {equipamento.tipoEquipamento && !configMaquinas.tiposEquipamento.includes(equipamento.tipoEquipamento) && <option value={equipamento.tipoEquipamento}>{equipamento.tipoEquipamento}</option>}
                       </select>
                     </div>
-                    <div>
+                    <div style={{ flex: '1 1 45%' }}>
                       <label style={rotulo}>Horímetro (h)</label>
                       <input type="number" inputMode="decimal" step="0.1" min="0" value={equipamento.horimetro} onChange={(e) => editar({ horimetro: e.target.value })} style={campo} />
                     </div>

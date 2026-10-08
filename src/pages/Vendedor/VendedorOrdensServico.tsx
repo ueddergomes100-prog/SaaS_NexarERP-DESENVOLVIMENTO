@@ -8,6 +8,7 @@ import { DEFAULT_MOSTRAR_VALOR_LISTA_OS, parseMostrarValorListaOS } from '../../
 import { normalizeSearchText } from '../../utils/textSearch';
 import VendedorHeader from './VendedorHeader';
 import { useModoOficina } from '../../hooks/useModoOficina';
+import { podeUsarOsNoApp } from './vendedorPermissoes';
 import { descricaoDoEquipamento, osEncerrada } from '../../utils/osCampoDomain';
 
 /**
@@ -43,7 +44,7 @@ const normalizar = normalizeSearchText;
 
 const VendedorOrdensServico: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, userPermissions, currentUser } = useAuth();
+  const { tenantId, userPermissions, currentUser, userRole, isOwner } = useAuth();
   const { modo, rotulos } = useModoOficina();
   // App do tecnico (fase 3): "Minhas" = as minhas ainda abertas; "Todas" = a consulta geral de sempre.
   const [aba, setAba] = useState<'minhas' | 'todas'>('minhas');
@@ -110,7 +111,7 @@ const VendedorOrdensServico: React.FC = () => {
     ));
   }, [ordens, minhas, aba, busca]);
 
-  if (!userPermissions.includes('mecanica.os')) {
+  if (!podeUsarOsNoApp(userRole, isOwner, userPermissions)) {
     return <Navigate to="/vendedor" replace />;
   }
 

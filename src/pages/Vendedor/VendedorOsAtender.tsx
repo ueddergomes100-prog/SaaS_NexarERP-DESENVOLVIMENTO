@@ -28,6 +28,7 @@ import { adicionarFotoOs, concluirAtendimento, removerFotoOs, salvarAssinaturaOs
 import VendedorHeader from './VendedorHeader';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
 import VendedorAssinaturaModal from './VendedorAssinaturaModal';
+import { podeUsarOsNoApp } from './vendedorPermissoes';
 
 /*
  * ATENDIMENTO DA OS NO CAMPO (app do tecnico, fase 3 -- 2026-10-08).
@@ -68,7 +69,7 @@ const moeda = (centavos: number) => (centavos / 100).toLocaleString('pt-BR', { s
 const VendedorOsAtender: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { tenantId, currentUser, userNome, userPermissions, permiteVendaSemEstoque } = useAuth();
+  const { tenantId, currentUser, userNome, userPermissions, permiteVendaSemEstoque, userRole, isOwner } = useAuth();
   const { modo, rotulos, configMaquinas } = useModoOficina();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: catalogoServicos } = useTenantCollection<ServicoCatalogo>('servicos', tenantId);
@@ -148,7 +149,7 @@ const VendedorOsAtender: React.FC = () => {
   const totalCentavos = totalDoAtendimentoCentavos(pecas, servicos);
   const veValores = configMaquinas.tecnicoVeValores;
 
-  if (!userPermissions.includes('mecanica.os')) return <Navigate to="/vendedor" replace />;
+  if (!podeUsarOsNoApp(userRole, isOwner, userPermissions)) return <Navigate to="/vendedor" replace />;
   if (erro) return <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>{erro}</div>;
   if (!os || !id || !tenantId || !usuario) return <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando…</div>;
   if (osEncerrada(os.status)) return <Navigate to={`/vendedor/os/${id}`} replace />;
@@ -370,14 +371,16 @@ const VendedorOsAtender: React.FC = () => {
         {modo === 'maquinas_pesadas' && (
           <section style={cardStyle}>
             <div style={tituloSecao}><Truck size={15} /> Deslocamento</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-              <div><label style={rotulo}>KM inicial</label><input type="number" inputMode="numeric" min="0" value={deslocamento.kmInicial ?? ''} onChange={(e) => atualizarDeslocamento({ kmInicial: e.target.value === '' ? null : Number(e.target.value) })} style={campo} /></div>
-              <div><label style={rotulo}>KM final</label><input type="number" inputMode="numeric" min="0" value={deslocamento.kmFinal ?? ''} onChange={(e) => atualizarDeslocamento({ kmFinal: e.target.value === '' ? null : Number(e.target.value) })} style={campo} /></div>
-              <div><label style={rotulo}>KM rodados</label><input type="number" inputMode="decimal" min="0" step="0.1" value={deslocamento.kmInicial !== null && deslocamento.kmFinal !== null ? kmAtual : (deslocamento.km || '')} disabled={deslocamento.kmInicial !== null && deslocamento.kmFinal !== null} onChange={(e) => atualizarDeslocamento({ km: Number(e.target.value) || 0 })} style={campo} /></div>
-              <div style={{ gridColumn: '1 / -1' }}><label style={rotulo}>Local</label><input type="text" value={deslocamento.local} onChange={(e) => atualizarDeslocamento({ local: e.target.value })} style={campo} /></div>
-              <div><label style={rotulo}>Saída</label><input type="time" value={deslocamento.horaSaida} onChange={(e) => atualizarDeslocamento({ horaSaida: e.target.value })} style={campo} /></div>
-              <div><label style={rotulo}>Chegada</label><input type="time" value={deslocamento.horaChegada} onChange={(e) => atualizarDeslocamento({ horaChegada: e.target.value })} style={campo} /></div>
-              <div><label style={rotulo}>Veículo</label><input type="text" value={deslocamento.veiculoEmpresa} onChange={(e) => atualizarDeslocamento({ veiculoEmpresa: e.target.value })} placeholder="Placa ou nome" style={campo} /></div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <div style={{ flex: 1 }}><label style={rotulo}>KM inicial</label><input type="number" inputMode="numeric" min="0" value={deslocamento.kmInicial ?? ''} onChange={(e) => atualizarDeslocamento({ kmInicial: e.target.value === '' ? null : Number(e.target.value) })} style={campo} /></div>
+              <div style={{ flex: 1 }}><label style={rotulo}>KM final</label><input type="number" inputMode="numeric" min="0" value={deslocamento.kmFinal ?? ''} onChange={(e) => atualizarDeslocamento({ kmFinal: e.target.value === '' ? null : Number(e.target.value) })} style={campo} /></div>
+              <div style={{ flex: 1 }}><label style={rotulo}>KM rodados</label><input type="number" inputMode="decimal" min="0" step="0.1" value={deslocamento.kmInicial !== null && deslocamento.kmFinal !== null ? kmAtual : (deslocamento.km || '')} disabled={deslocamento.kmInicial !== null && deslocamento.kmFinal !== null} onChange={(e) => atualizarDeslocamento({ km: Number(e.target.value) || 0 })} style={campo} /></div>
+            </div>
+            <div style={{ marginTop: '10px' }}><label style={rotulo}>Local</label><input type="text" value={deslocamento.local} onChange={(e) => atualizarDeslocamento({ local: e.target.value })} style={campo} /></div>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+              <div style={{ flex: 1 }}><label style={rotulo}>Saída</label><input type="time" value={deslocamento.horaSaida} onChange={(e) => atualizarDeslocamento({ horaSaida: e.target.value })} style={campo} /></div>
+              <div style={{ flex: 1 }}><label style={rotulo}>Chegada</label><input type="time" value={deslocamento.horaChegada} onChange={(e) => atualizarDeslocamento({ horaChegada: e.target.value })} style={campo} /></div>
+              <div style={{ flex: 1.3 }}><label style={rotulo}>Veículo</label><input type="text" value={deslocamento.veiculoEmpresa} onChange={(e) => atualizarDeslocamento({ veiculoEmpresa: e.target.value })} placeholder="Placa ou nome" style={campo} /></div>
             </div>
             <p style={{ margin: '10px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               {cobraDeslocamento

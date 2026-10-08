@@ -8,6 +8,7 @@ import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import { resolverDescontoImpressaoOS, totalComDescontoOS } from '../../utils/osDescontoImpressao';
 import VendedorHeader from './VendedorHeader';
 import { osEncerrada, type AssinaturaOS, type FotoOS } from '../../utils/osCampoDomain';
+import { podeUsarOsNoApp } from './vendedorPermissoes';
 
 /**
  * OS so' leitura, com os mesmos calculos da folha impressa (OsPrintDocument):
@@ -58,7 +59,7 @@ const textoLivre: React.CSSProperties = {
 const VendedorOrdemServicoDetalhe: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { tenantId, userPermissions } = useAuth();
+  const { tenantId, userPermissions, userRole, isOwner } = useAuth();
   const [os, setOs] = useState<OsDetalhe | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
@@ -119,7 +120,7 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
     return () => { cancelado = true; };
   }, [id, tenantId]);
 
-  if (!userPermissions.includes('mecanica.os')) {
+  if (!podeUsarOsNoApp(userRole, isOwner, userPermissions)) {
     return <Navigate to="/vendedor" replace />;
   }
 

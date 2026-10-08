@@ -9,7 +9,7 @@ import { buscarResumoHojeDoVendedor } from '../../services/vendedorRankingServic
 import { CAMINHO_INSTALACAO, estaInstalado } from './pwa';
 import { listarRascunhos } from './vendedorRascunhosStore';
 import './vendedorMobile.css';
-import { PERMISSAO_BALANCO } from './vendedorPermissoes';
+import { PERMISSAO_BALANCO, podeUsarOsNoApp } from './vendedorPermissoes';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
 
@@ -239,7 +239,7 @@ const VendedorHome: React.FC = () => {
               <span style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.25 }}>Rascunhos e Envio</span>
             </button>
 
-            {userPermissions.includes('mecanica.os') && (
+            {podeUsarOsNoApp(userRole, isOwner, userPermissions) && (
               <button
                 type="button"
                 onClick={() => navigate('/vendedor/os')}

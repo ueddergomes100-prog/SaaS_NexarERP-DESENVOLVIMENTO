@@ -167,7 +167,7 @@ const VeiculoForm: React.FC = () => {
       navigate('/veiculos');
     } catch (error) {
       console.error("Erro ao salvar veículo:", error);
-      showError('Erro', 'Não foi possível salvar o veículo.');
+      showError('Erro', `Não foi possível salvar o ${rotulos.veiculo.toLowerCase()}.`);
     } finally {
       setIsLoading(false);
     }
@@ -203,7 +203,7 @@ const VeiculoForm: React.FC = () => {
           <div className="card form-section" style={{ padding: '24px' }}>
             <div className="section-header" style={{ marginBottom: '24px' }}>
               <User size={20} className="section-icon" color="var(--accent-purple)" />
-              <h3>Proprietário do Veículo</h3>
+              <h3>Proprietário do {rotulos.veiculo}</h3>
             </div>
             
             <div className="input-group" style={{ position: 'relative' }} ref={dropdownRef}>
@@ -374,7 +374,7 @@ const VeiculoForm: React.FC = () => {
               }}
             >
               <Save size={20} />
-              {isLoading ? 'SALVANDO...' : 'SALVAR VEÍCULO'}
+              {isLoading ? 'SALVANDO...' : `SALVAR ${rotulos.veiculo.toUpperCase()}`}
             </button>
           </div>
         </div>

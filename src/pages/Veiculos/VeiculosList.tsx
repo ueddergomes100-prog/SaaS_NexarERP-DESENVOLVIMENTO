@@ -113,16 +113,16 @@ const VeiculosList: React.FC = () => {
           <div>
             <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <Car size={28} color="var(--accent-purple)" />
-              Cadastro de Veículos
+              Cadastro de {rotulos.veiculos}
             </h1>
-            <p className="page-subtitle">Gerencie veículos vinculados aos clientes quando aplicável ao seu negócio</p>
+            <p className="page-subtitle">{modoOficina === 'veiculos' ? 'Gerencie veículos vinculados aos clientes quando aplicável ao seu negócio' : 'Tratores, máquinas e implementos dos clientes: frota, série/chassi e horímetro'}</p>
           </div>
         </div>
         <div className="header-actions">
           {canEdit && (
             <button className="btn-primary" onClick={() => openTab('/veiculos/novo')}>
               <Plus size={20} />
-              Novo Veículo
+              Novo {rotulos.veiculo}
             </button>
           )}
         </div>

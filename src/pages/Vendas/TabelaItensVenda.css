@@ -149,6 +149,60 @@
   outline: none;
 }
 
+/* Troca de produto pelo codigo: a celula vira a busca da barra (lista por
+   codigo ou nome) com a lupa da consulta completa. Flutua sobre a linha para
+   caber, sem mudar a altura dela; a lista abre por cima da tabela. */
+.tiv.tiv-trocando { overflow: visible; }
+.tiv-td-troca { position: relative; overflow: visible; }
+
+.tiv-troca {
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 260px;
+  transform: translateY(-50%);
+}
+
+.tiv-troca-busca { flex: 1 1 auto; min-width: 0; }
+
+.tiv-troca-busca .product-autocomplete__input {
+  height: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.tiv-troca-busca .product-autocomplete__panel {
+  right: auto;
+  width: min(560px, 80vw);
+}
+
+.tiv-troca-consulta {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.tiv-troca-consulta:hover,
+.tiv-troca-consulta:focus-visible {
+  border-color: var(--brand-500);
+  color: var(--brand-ink);
+  outline: none;
+}
+
 .tiv-remover {
   display: inline-flex;
   align-items: center;

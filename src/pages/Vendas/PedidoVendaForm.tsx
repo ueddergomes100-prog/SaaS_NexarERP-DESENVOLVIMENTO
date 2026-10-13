@@ -4909,7 +4909,7 @@ const PedidoVendaForm: React.FC = () => {
             />
 
             {itens.length > 0 && (!isViewing || canEditPendingQtd) && (
-              <p className="lanc-nota">Clique no código para trocar o produto, ou na quantidade, no preço e no desconto para alterar. Enter aplica, Esc desfaz.</p>
+              <p className="lanc-nota">Clique no código para trocar o produto (busca por código ou nome, e a lupa abre a consulta completa), ou na quantidade, no preço e no desconto para alterar. Enter aplica, Esc desfaz.</p>
             )}
           </div>
         </div>

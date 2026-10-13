@@ -1,5 +1,8 @@
-import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { Search, Trash2 } from 'lucide-react';
+import ProductAutocomplete from '../../components/common/ProductAutocomplete';
+import ProductSearchModal from '../../components/common/ProductSearchModal';
+import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import { showError } from '../../utils/alerts';
 import type { SearchableProduct } from '../../utils/productSearch';
 import {
@@ -24,7 +27,10 @@ import './TabelaItensVenda.css';
  *  - num item ja' lancado, CODIGO, quantidade, preco unitario e desconto
  *    editam na propria celula: clique, digite, Enter aplica, Tab aplica e
  *    vai para a proxima celula, Esc desfaz. Trocar o codigo troca o produto
- *    da linha (mantendo a quantidade), sem precisar remover e lancar de novo.
+ *    da linha (mantendo a quantidade), sem precisar remover e lancar de novo:
+ *    a celula do codigo vira a MESMA busca da barra (lista por codigo ou
+ *    nome enquanto digita) com a lupa da consulta completa ao lado
+ *    (pedido do dono, 13/10: "digitei 2, tinha que aparecer qual item").
  *
  * A regra do item (estoque, venda fracionada, limite de desconto, preco abaixo
  * da tabela) continua no formulario: ele recebe o que foi digitado e devolve
@@ -52,6 +58,7 @@ export interface ItemDaTabela {
 export interface ProdutoLancavel extends SearchableProduct {
   id: string;
   nome: string;
+  precoVenda?: number | null;
   quantidade: number;
   quantidadeReservada?: number;
   unidadeMedidaSigla?: string;
@@ -100,6 +107,17 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
   const [edicao, setEdicao] = useState<Edicao | null>(null);
   // Evita aplicar duas vezes (Enter ja' aplicou e o blur vem em seguida).
   const aplicando = useRef(false);
+  // Troca de produto pela consulta completa (lupa ou "Ver mais" na celula do codigo).
+  const [consulta, setConsulta] = useState<{ index: number; texto: string } | null>(null);
+  const consultaAberta = useRef(false);
+  const trocaInputRef = useRef<HTMLInputElement>(null);
+  const trocaRef = useRef<HTMLDivElement>(null);
+  const editandoCodigo = edicao?.campo === 'codigo';
+
+  // Ao abrir a troca, o cursor ja' vai para a busca.
+  useEffect(() => {
+    if (editandoCodigo) trocaInputRef.current?.focus();
+  }, [editandoCodigo, edicao?.index]);
 
   const colunas = 6 + (podeRemover ? 1 : 0);
 
@@ -110,7 +128,9 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
     const item = itens[index];
     if (!item) return;
     onSelect(index);
-    setEdicao({ index, campo, texto: textoParaEdicao(campo, item) });
+    // Troca de produto comeca VAZIA: a busca trava quando ja' vem com texto
+    // (ProductAutocomplete), e o codigo atual continua a vista na linha.
+    setEdicao({ index, campo, texto: campo === 'codigo' ? '' : textoParaEdicao(campo, item) });
   };
 
   useImperativeHandle(ref, () => ({
@@ -176,8 +196,80 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
     }
   };
 
+  /** Produto escolhido na busca da celula ou na consulta completa: troca e abre a quantidade. */
+  const trocarPor = (index: number, produto: ProdutoLancavel) => {
+    const item = itens[index];
+    if (!item) { setEdicao(null); return; }
+    const falha = onTrocarProduto(index, produto);
+    if (falha) {
+      showError('Não foi possível trocar o produto', falha);
+      setEdicao(null);
+      return;
+    }
+    // Trocou: confere a quantidade em seguida (Esc sai sem mexer).
+    setEdicao({ index, campo: 'quantidade', texto: textoParaEdicao('quantidade', item) });
+  };
+
+  const abrirConsulta = (index: number, texto: string) => {
+    const item = itens[index];
+    consultaAberta.current = true;
+    setConsulta({ index, texto: texto.trim() === (item?.codigo || '') ? '' : texto.trim() });
+  };
+
+  const fecharConsulta = () => {
+    consultaAberta.current = false;
+    setConsulta(null);
+    setEdicao(null);
+  };
+
+  // Clicou fora da troca (e nao foi para a consulta completa): cancela sem mexer.
+  const aoSairDaTroca = () => {
+    window.setTimeout(() => {
+      if (consultaAberta.current) return;
+      if (trocaRef.current && trocaRef.current.contains(document.activeElement)) return;
+      setEdicao((atual) => (atual?.campo === 'codigo' ? null : atual));
+    }, 150);
+  };
+
   const celula = (index: number, item: ItemDaTabela, campo: CampoEditavel, conteudo: React.ReactNode, classe: string) => {
     const emEdicao = edicao && edicao.index === index && edicao.campo === campo ? edicao : null;
+    if (emEdicao && campo === 'codigo') {
+      return (
+        <td className={`tiv-td tiv-td-troca ${classe}`}>
+          <div
+            ref={trocaRef}
+            className="tiv-troca"
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setEdicao(null); } }}
+            onBlur={aoSairDaTroca}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ProductAutocomplete
+              value={emEdicao.texto}
+              onChange={(texto) => setEdicao({ ...emEdicao, texto })}
+              products={catalogo}
+              onSelect={(produto) => trocarPor(index, produto)}
+              renderItem={renderProdutoOpcaoBusca}
+              inputRef={trocaInputRef}
+              autoFocus
+              placeholder="Código ou nome"
+              ariaLabel={`Trocar o produto ${item.nome}`}
+              className="tiv-troca-busca"
+              onViewMore={() => abrirConsulta(index, emEdicao.texto)}
+            />
+            <button
+              type="button"
+              className="tiv-troca-consulta"
+              title="Abrir a consulta completa de produtos"
+              aria-label="Abrir a consulta completa de produtos"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => abrirConsulta(index, emEdicao.texto)}
+            >
+              <Search size={16} />
+            </button>
+          </div>
+        </td>
+      );
+    }
     if (emEdicao) {
       return (
         <td className={`tiv-td ${classe}`}>
@@ -212,7 +304,7 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
   };
 
   return (
-    <div className="tiv">
+    <div className={editandoCodigo ? 'tiv tiv-trocando' : 'tiv'}>
       <table className="tiv-tabela">
         <colgroup>
           <col className="tiv-col-cod" />
@@ -285,6 +377,20 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
           ))}
         </tbody>
       </table>
+      <ProductSearchModal
+        open={consulta !== null}
+        onClose={fecharConsulta}
+        products={catalogo}
+        onSelect={(produto) => {
+          const indice = consulta?.index;
+          consultaAberta.current = false;
+          setConsulta(null);
+          if (indice !== undefined) trocarPor(indice, produto);
+        }}
+        renderItem={renderProdutoOpcaoBusca}
+        initialQuery={consulta?.texto || ''}
+        title={consulta && itens[consulta.index] ? `Trocar ${itens[consulta.index].nome}` : 'Trocar produto'}
+      />
     </div>
   );
 });

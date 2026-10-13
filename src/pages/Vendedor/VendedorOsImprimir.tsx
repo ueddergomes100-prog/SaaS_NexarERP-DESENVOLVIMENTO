@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import OsPrintDocument from '../OS/OsPrintDocument';
 import VendedorImpressaoLayout from './VendedorImpressaoLayout';
+import { nomeDeArquivoPdf } from './folhaParaPdf';
 import { podeUsarOsNoApp } from './vendedorPermissoes';
 
 /* Mesmo carregamento de OsPrint.tsx (desktop): OS + cliente + veiculo +
@@ -59,7 +60,13 @@ const VendedorOsImprimir: React.FC = () => {
   }
 
   return (
-    <VendedorImpressaoLayout rotuloImprimir="Imprimir OS" carregando={carregando} erro={erro}>
+    <VendedorImpressaoLayout
+      rotuloImprimir="Imprimir OS"
+      carregando={carregando}
+      erro={erro}
+      nomeArquivo={nomeDeArquivoPdf('OS', dados?.osData?.numeroOS as string | undefined, dados?.osData?.clienteNome as string | undefined)}
+      textoCompartilhar={dados?.osData ? `Ordem de serviço ${dados.osData.numeroOS ? `nº ${String(dados.osData.numeroOS)}` : ''}${dados.osData.clienteNome ? ` - ${String(dados.osData.clienteNome)}` : ''}`.trim() : ''}
+    >
       {dados && (
         <OsPrintDocument osData={dados.osData} clientData={dados.clientData} vehicleData={dados.vehicleData} configData={dados.configData} />
       )}

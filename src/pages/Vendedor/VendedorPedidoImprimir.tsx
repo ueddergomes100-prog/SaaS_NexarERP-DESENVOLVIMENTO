@@ -7,6 +7,7 @@ import PedidoPrintModelo from '../Vendas/PedidoPrintModelo';
 import { parcelasParaImpressao } from '../../utils/parcelasExibicaoDomain';
 import { ehPreVenda } from '../../utils/preVendaDomain';
 import VendedorImpressaoLayout from './VendedorImpressaoLayout';
+import { nomeDeArquivoPdf } from './folhaParaPdf';
 
 /* Mesmo carregamento de PedidoPrint.tsx (desktop), com a trava do app:
  * so' o pedido do proprio vendedor. */
@@ -69,6 +70,8 @@ const VendedorPedidoImprimir: React.FC = () => {
   return (
     <VendedorImpressaoLayout
       rotuloImprimir={pedidoData && ehPreVenda(pedidoData.status) ? 'Imprimir Pré-venda' : 'Imprimir'}
+      nomeArquivo={nomeDeArquivoPdf(pedidoData && ehPreVenda(pedidoData.status) ? 'Pre-venda' : 'Pedido', pedidoData?.numeroPedido, pedidoData?.clienteNome)}
+      textoCompartilhar={pedidoData ? `${ehPreVenda(pedidoData.status) ? 'Pré-venda' : 'Pedido'} nº ${pedidoData.numeroPedido || ''}${pedidoData.clienteNome ? ` - ${pedidoData.clienteNome}` : ''}`.trim() : ''}
       carregando={carregando}
       erro={erro}
     >

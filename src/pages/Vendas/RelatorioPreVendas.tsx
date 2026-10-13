@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
+import { useNaoImpressasPrimeiro } from '../../hooks/useNaoImpressasPrimeiro';
 import { ClipboardList, FileText, FilterX, Loader2, Printer, Search } from 'lucide-react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -20,7 +21,6 @@ import {
   type PreVendaDoRelatorio,
   CHAVE_NAO_IMPRESSAS_PRIMEIRO,
   compararPorImpressao,
-  lerNaoImpressasPrimeiro,
   textoDaImpressao,
 } from '../../utils/relatorioPreVendasDomain';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
@@ -69,14 +69,7 @@ const RelatorioPreVendas: React.FC = () => {
   const [busca, setBusca] = useState('');
   const [ordemNumero, inverterOrdemNumero] = useOrdemNumero('preVendas.ordemNumero');
   // Nao impressas no topo (padrao); o botao alterna e a tela lembra.
-  const [naoImpressasPrimeiro, setNaoImpressasPrimeiro] = useState<boolean>(() => {
-    try { return lerNaoImpressasPrimeiro(localStorage.getItem(CHAVE_NAO_IMPRESSAS_PRIMEIRO)); } catch { return true; }
-  });
-  const alternarNaoImpressas = () => {
-    const novo = !naoImpressasPrimeiro;
-    setNaoImpressasPrimeiro(novo);
-    try { localStorage.setItem(CHAVE_NAO_IMPRESSAS_PRIMEIRO, String(novo)); } catch { /* so' preferencia da tela */ }
-  };
+  const [naoImpressasPrimeiro, alternarNaoImpressas] = useNaoImpressasPrimeiro(CHAVE_NAO_IMPRESSAS_PRIMEIRO);
   const [origemFiltro, setOrigemFiltro] = useState<'' | OrigemPedido>('');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');

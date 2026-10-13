@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
+import { useNaoImpressasPrimeiro } from '../../hooks/useNaoImpressasPrimeiro';
+import { compararPorImpressao } from '../../utils/relatorioPreVendasDomain';
 import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, ChevronDown, Filter, Truck, CheckCircle2 } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -235,6 +237,11 @@ const PedidoVendas: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [ordemNumero, inverterOrdemNumero] = useOrdemNumero('pedidos.ordemNumero');
+  // Aba Pre-vendas: o que ainda nao saiu no papel fica no topo (pedido do dono,
+  // 2026-10-13); o cabecalho "Imp." alterna. "Impresso" aqui e' o mesmo que
+  // acende o check da coluna: recibo/pre-venda OU minuta.
+  const [naoImpressasPrimeiro, alternarNaoImpressas] = useNaoImpressasPrimeiro('pedidos.naoImpressasPrimeiro');
+  const foiImpresso = (p: { impresso?: boolean; minutaImpressa?: boolean }) => p.impresso === true || p.minutaImpressa === true;
   const [activeTab, setActiveTab] = useState('Ativos');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   /** Linha destacada por um clique simples (distinta de selectedIds, que sao
@@ -484,7 +491,10 @@ const PedidoVendas: React.FC = () => {
     if (filtroConferencia && p.statusConferencia !== filtroConferencia) return false;
     if (periodoDataFiltro && !isWithinDateRange(dataEfetivaPedido(p), periodoDataFiltro.inicio, periodoDataFiltro.fim)) return false;
     return true;
-  }).sort((a, b) => compararPorNumero(a.numeroPedido, b.numeroPedido, ordemNumero));
+  }).sort((a, b) => (
+    (activeTab === 'PreVendas' && naoImpressasPrimeiro ? compararPorImpressao({ impressa: foiImpresso(a) }, { impressa: foiImpresso(b) }) : 0)
+    || compararPorNumero(a.numeroPedido, b.numeroPedido, ordemNumero)
+  ));
 
   const filtrosDeColunaAtivos = [
     filtroVendedor && { rotulo: 'Vendedor', valor: filtroVendedor, limpar: () => setFiltroVendedor('') },
@@ -821,7 +831,19 @@ const PedidoVendas: React.FC = () => {
                     </FiltroColuna>
                   </th>
                 )}
-                <th style={{ padding: '16px', textAlign: 'center' }} title="Já foi impresso (Recibo/Pré-venda)?">Imp.</th>
+                <th style={{ padding: '16px', textAlign: 'center' }} title={activeTab === 'PreVendas' ? undefined : 'Já foi impresso (Recibo/Pré-venda)?'}>
+                  {activeTab === 'PreVendas' ? (
+                    <button
+                      type="button"
+                      onClick={alternarNaoImpressas}
+                      aria-pressed={naoImpressasPrimeiro}
+                      title={naoImpressasPrimeiro ? 'Não impressas no topo. Clique para ordenar só pelo número.' : 'Clique para trazer as não impressas para o topo.'}
+                      style={{ background: 'none', border: 'none', padding: 0, color: naoImpressasPrimeiro ? '#f59e0b' : 'inherit', font: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      Imp. {naoImpressasPrimeiro ? '▲' : '▼'}
+                    </button>
+                  ) : 'Imp.'}
+                </th>
                 <th style={{ padding: '16px', textAlign: 'right' }}>Total (R$)</th>
                 <th style={{ padding: '16px', textAlign: 'center' }}>Ações</th>
               </tr>

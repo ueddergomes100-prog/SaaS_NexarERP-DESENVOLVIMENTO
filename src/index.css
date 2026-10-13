@@ -395,6 +395,20 @@ body.light-theme textarea:disabled {
     -webkit-overflow-scrolling: touch;
     margin-bottom: 16px;
   }
+
+  /* FOLHA DE IMPRESSAO NAO E' TABELA DE TELA (2026-10-13). A regra acima
+     transforma toda <table> em bloco rolavel no celular -- bom para lista na
+     tela, ruim para o papel: a tabela de pecas/servicos da OS (modelo
+     maquinas pesadas, e as outras folhas) encolhia para a largura do
+     conteudo e sobrava meia pagina em branco ao lado (print do dono). Dentro
+     da folha (OS, pedido, orcamento, minuta, etiqueta, app) a tabela volta a
+     ser tabela e ocupa a largura da folha. */
+  .print-layout-wrapper table,
+  .mf-page table {
+    display: table !important;
+    overflow: visible !important;
+    white-space: normal !important;
+  }
   
   /* Consolidate overlays/modals at any z-index */
   div[style*="position: fixed"] > div[style*="width"],

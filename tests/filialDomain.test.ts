@@ -69,11 +69,12 @@ test('cadastro: codigo de 10 em 10, CNPJ valido e sem repetir', () => {
   assert.equal(validarDadosDaFilial(nova(), grupo, CNPJ_MATRIZ), null);
   assert.match(validarDadosDaFilial(nova({ codigo: '20' }), grupo, CNPJ_MATRIZ) ?? '', /já é da filial 20 · LOJA BAIXADA/);
   assert.match(validarDadosDaFilial(nova({ cnpj: CNPJ_FILIAL }), grupo, CNPJ_MATRIZ) ?? '', /já é da filial/);
-  assert.match(validarDadosDaFilial(nova({ cnpj: CNPJ_MATRIZ }), grupo, CNPJ_MATRIZ) ?? '', /Mesmo CNPJ da matriz/);
+  assert.match(validarDadosDaFilial(nova({ cnpj: CNPJ_MATRIZ }), grupo, CNPJ_MATRIZ) ?? '', /CNPJ da matriz\. Toda filial tem o CNPJ próprio/);
   assert.match(validarDadosDaFilial(nova({ cnpj: '123' }), grupo, CNPJ_MATRIZ) ?? '', /não é válido/);
   assert.match(validarDadosDaFilial(nova({ uf: '' }), grupo, CNPJ_MATRIZ) ?? '', /estado/);
   assert.match(validarDadosDaFilial(nova({ nome: '' }), grupo, CNPJ_MATRIZ) ?? '', /nome da filial/);
-  assert.equal(validarDadosDaFilial(nova({ tipo: 'mesmo_cnpj', cnpj: '' }), grupo, CNPJ_MATRIZ), null);
+  // 13/10/2026: nao existe mais filial com o CNPJ da matriz.
+  assert.match(validarDadosDaFilial(nova({ tipo: 'mesmo_cnpj', cnpj: '' }), grupo, CNPJ_MATRIZ) ?? '', /CNPJ próprio dela/);
   // Editar a propria filial nao acusa o proprio codigo (nem a matriz o proprio CNPJ).
   const baixada = lerDadosDaFilial({ codigo: '20', nome: 'Baixada', uf: 'ES', cidade: 'Serra', cnpj: CNPJ_FILIAL });
   assert.equal(validarDadosDaFilial(baixada, grupo, CNPJ_MATRIZ, 'baixada'), null);
@@ -85,6 +86,9 @@ test('configuracao da filial: copia as regras da matriz, nunca a identidade nem 
   const matriz = {
     tenantId: 'dono', cnpj: CNPJ_MATRIZ, razaoSocial: 'SHOPPING RURAL LTDA', nomeOficina: 'LOJA CENTRO', inscricaoEstadual: '123',
     rua: 'RUA A', cidade: 'VITORIA', uf: 'ES', telefone: '27 3333-0000', spedyApiKey: 'segredo', spedyCompanyId: 'sp1', spedyEnabled: true,
+    spedyNumeracao: { productInvoice: { series: 1, nextNumber: 120 }, consumerInvoice: { series: 1, currentNumber: 900, csc: 'abc', tokenId: '1' } },
+    spedyApiKeyConfigured: true, spedyEmpresaSincronizadaCom: '{}', emiteNFe: true, emiteNFCe: true, emiteNFSe: true,
+    nfseCodigoServicoMunicipal: '1401', nfseAliquotaIssPadrao: 3, regimeTributario: 'simples_nacional',
     trabalhaComPreVenda: true, ordemFormasPagamento: ['pix', 'dinheiro'], limiteDescontoPdv: 5, logo: 'https://logo', campoVazio: undefined,
   };
   const dados = lerDadosDaFilial({ codigo: '20', nome: 'Loja Baixada', uf: 'ES', cidade: 'Serra', cnpj: CNPJ_FILIAL, razaoSocial: 'SHOPPING RURAL BAIXADA LTDA' });
@@ -104,11 +108,12 @@ test('configuracao da filial: copia as regras da matriz, nunca a identidade nem 
   assert.deepEqual(config.ordemFormasPagamento, ['pix', 'dinheiro']);
   assert.equal(config.logo, 'https://logo');
   assert.equal(Object.values(config).some((v) => v === undefined), false, 'nunca grava undefined');
-  // Mesmo CNPJ: CNPJ e razao social da matriz.
-  const dadosDeposito = lerDadosDaFilial({ codigo: '30', nome: 'Depósito', uf: 'ES', cidade: 'Serra', tipo: 'mesmo_cnpj' });
-  const deposito = configuracaoInicialDaFilial(matriz, dadosDeposito, { ...contexto, tenantId: 'dep' });
-  assert.equal(deposito.cnpj, CNPJ_MATRIZ);
-  assert.equal(deposito.razaoSocial, 'SHOPPING RURAL LTDA');
+  // Nota fiscal da filial comeca do zero (13/10/2026): serie, numero, CSC e
+  // "emite NF-e/NFC-e/NFS-e" nao vem da matriz. O regime tributario vem.
+  for (const campo of ['spedyNumeracao', 'spedyApiKeyConfigured', 'spedyEmpresaSincronizadaCom', 'emiteNFe', 'emiteNFCe', 'emiteNFSe', 'nfseCodigoServicoMunicipal', 'nfseAliquotaIssPadrao']) {
+    assert.equal(campo in config, false, `${campo} nao pode vir da matriz`);
+  }
+  assert.equal(config.regimeTributario, 'simples_nacional');
 });
 
 test('matriz: a empresa atual vira a filial 10 com os dados dela', () => {

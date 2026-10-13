@@ -289,16 +289,17 @@ const validarDadosDaFilial = (dados, grupo, cnpjMatriz, ignorarTenantId) => {
         return 'Escolha o estado (UF) da filial.';
     if (!dados.cidade)
         return 'Informe a cidade da filial.';
+    // Decisao do dono (13/10/2026): toda filial tem CNPJ proprio -- "nao tem
+    // filial com mesmo CNPJ da matriz". Nota fiscal, numeracao e Spedy da filial
+    // sao dela, nunca da matriz. Filial antiga "mesmo CNPJ" continua sendo lida
+    // (TipoFilial), mas nao se cadastra mais nenhuma.
     if (dados.tipo === 'mesmo_cnpj') {
-        if (soDigitos(cnpjMatriz) && dados.cnpj && dados.cnpj !== soDigitos(cnpjMatriz)) {
-            return 'Filial "mesmo CNPJ" usa o CNPJ da matriz. Para outro CNPJ, escolha "CNPJ próprio".';
-        }
-        return null;
+        return 'Toda filial precisa ter o CNPJ próprio dela. Informe o CNPJ da filial.';
     }
     if (!(0, exports.cnpjValido)(dados.cnpj))
         return 'O CNPJ da filial não é válido. Confira os números (14 dígitos).';
     if (dados.cnpj === soDigitos(cnpjMatriz)) {
-        return 'Esse é o CNPJ da matriz. Se a filial usa o mesmo CNPJ (loja ou depósito), escolha "Mesmo CNPJ da matriz".';
+        return 'Esse é o CNPJ da matriz. Toda filial tem o CNPJ próprio dela: informe o CNPJ da filial.';
     }
     const mesmoCnpj = outras.find((f) => f.tipo === 'cnpj_proprio' && f.cnpj === dados.cnpj);
     if (mesmoCnpj)
@@ -312,8 +313,10 @@ exports.validarDadosDaFilial = validarDadosDaFilial;
 /**
  * Campos que sao a IDENTIDADE da empresa (ou segredos dela) e por isso nunca
  * sao copiados da matriz para a filial: CNPJ, razao social, IE, endereco,
- * contato, Spedy e NFS-e (inscricao municipal e cidade). O resto (formas de
- * pagamento, regras de venda, modelos de impressao, plano de contas...) vem da
+ * contato, e TUDO de nota fiscal -- Spedy, serie/numeracao/CSC, se emite
+ * NF-e/NFC-e/NFS-e, cidade e codigo de servico da NFS-e (13/10/2026: "tudo de
+ * nota fiscal sera novo" na filial). O resto (formas de pagamento, regras de
+ * venda, modelos de impressao, plano de contas, regime tributario...) vem da
  * matriz e a filial ajusta depois.
  */
 exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = [
@@ -322,7 +325,10 @@ exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = [
     'telefone', 'whatsapp', 'instagram', 'email',
     'rua', 'numero', 'complemento', 'bairro', 'cep', 'endereco', 'cidade', 'uf', 'codigoIbge',
     'spedyEnabled', 'spedyApiKey', 'spedyEnvironment', 'spedyCompanyId',
+    'spedyNumeracao', 'spedyApiKeyConfigured', 'spedyEmpresaSincronizadaCom',
+    'emiteNFe', 'emiteNFCe', 'emiteNFSe',
     'nfseCidadeCodigo', 'nfseCidadeNome', 'nfseCidadeEstado', 'nfseInscricaoMunicipal',
+    'nfseCodigoServicoMunicipal', 'nfseAliquotaIssPadrao',
 ];
 const configuracaoInicialDaFilial = (configMatriz, dados, contexto) => {
     const copia = {};
@@ -331,28 +337,27 @@ const configuracaoInicialDaFilial = (configMatriz, dados, contexto) => {
             continue;
         copia[campo] = valor;
     }
-    const mesmoCnpj = dados.tipo === 'mesmo_cnpj';
     return {
         ...copia,
         ...(0, exports.identidadeParaConfiguracao)(dados),
         tenantId: contexto.tenantId,
         grupoId: contexto.grupoId,
-        razaoSocial: mesmoCnpj ? contexto.razaoSocialMatriz : (dados.razaoSocial || dados.nome),
-        cnpj: mesmoCnpj ? soDigitos(contexto.cnpjMatriz) : dados.cnpj,
+        razaoSocial: dados.razaoSocial || dados.nome,
+        cnpj: dados.cnpj,
         // A filial precisa ser cadastrada na Spedy (CNPJ dela) antes de emitir nota.
         spedyEnabled: false,
     };
 };
 exports.configuracaoInicialDaFilial = configuracaoInicialDaFilial;
 /** Entrada da filial no documento do grupo. */
-const filialParaGravar = (tenantId, dados, cnpjMatriz, matriz) => ({
+const filialParaGravar = (tenantId, dados, matriz) => ({
     tenantId,
     codigo: dados.codigo,
     nome: dados.nome,
-    cnpj: dados.tipo === 'mesmo_cnpj' ? soDigitos(cnpjMatriz) : dados.cnpj,
+    cnpj: dados.cnpj,
     uf: dados.uf,
     cidade: dados.cidade,
-    tipo: dados.tipo,
+    tipo: 'cnpj_proprio',
     matriz,
     ativa: true,
 });

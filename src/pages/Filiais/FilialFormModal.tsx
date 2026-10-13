@@ -3,7 +3,7 @@ import { Loader2, X } from 'lucide-react';
 import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton';
 import type { ConsultaCnpjResultado } from '../../services/documentoService';
 import { alterarFilial, cadastrarFilial, lerCadastroDaFilial } from '../../services/filialService';
-import { UFS, acharCodigoIbge, lerDadosDaFilial, type DadosDaFilial, type FilialDoGrupo, type TipoFilial } from '../../utils/filialDomain';
+import { UFS, acharCodigoIbge, lerDadosDaFilial, type DadosDaFilial, type FilialDoGrupo } from '../../utils/filialDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { useEscapeLayer } from '../../hooks/useKeyboardFlow';
 import { fetchComTimeout } from '../../utils/fetchComTimeout';
@@ -192,8 +192,6 @@ const FilialFormModal: React.FC<FilialFormModalProps> = ({ aberto, filial, proxi
     </label>
   );
 
-  const tipo: TipoFilial = dados.tipo;
-
   return (
     <div
       role="presentation"
@@ -233,42 +231,17 @@ const FilialFormModal: React.FC<FilialFormModalProps> = ({ aberto, filial, proxi
               {campo('Nome resumido', 'nome', { required: true, maxLength: 40, placeholder: 'Como aparece no seletor do topo' })}
             </div>
 
-            {!editando && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <span style={estiloRotulo}>CNPJ da filial</span>
-                <div role="radiogroup" aria-label="CNPJ da filial" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {([['cnpj_proprio', 'CNPJ próprio'], ['mesmo_cnpj', 'Mesmo CNPJ da matriz (loja ou depósito)']] as Array<[TipoFilial, string]>).map(([valor, rotulo]) => (
-                    <button
-                      key={valor}
-                      type="button"
-                      role="radio"
-                      aria-checked={tipo === valor}
-                      onClick={() => setDados((atual) => ({ ...atual, tipo: valor }))}
-                      style={{
-                        padding: '8px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-                        border: `1px solid ${tipo === valor ? 'var(--accent-purple)' : 'var(--border-color)'}`,
-                        background: tipo === valor ? 'var(--accent-purple)' : 'var(--bg-tertiary)',
-                        color: tipo === valor ? '#fff' : 'var(--text-primary)',
-                      }}
-                    >
-                      {rotulo}
-                    </button>
-                  ))}
+            {/* Toda filial tem CNPJ proprio (decisao de 13/10/2026): sem a
+                opcao "mesmo CNPJ da matriz". */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 2fr)', gap: '12px', alignItems: 'end' }}>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                <div style={{ flex: 1 }}>
+                  {campo('CNPJ', 'cnpj', { inputMode: 'numeric', disabled: editando, title: editando ? 'O CNPJ não muda depois de cadastrado. Para trocar, fale com o suporte.' : undefined })}
                 </div>
+                {!editando && <BuscarDocumentoButton documento={dados.cnpj} onEncontrarCnpj={preencherDeCnpj} onEncontrarCpf={() => undefined} />}
               </div>
-            )}
-
-            {(tipo === 'cnpj_proprio' || editando) && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 2fr)', gap: '12px', alignItems: 'end' }}>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-                  <div style={{ flex: 1 }}>
-                    {campo('CNPJ', 'cnpj', { inputMode: 'numeric', disabled: editando, title: editando ? 'O CNPJ não muda depois de cadastrado. Para trocar, fale com o suporte.' : undefined })}
-                  </div>
-                  {!editando && <BuscarDocumentoButton documento={dados.cnpj} onEncontrarCnpj={preencherDeCnpj} onEncontrarCpf={() => undefined} />}
-                </div>
-                {campo('Razão social', 'razaoSocial', { disabled: tipo === 'mesmo_cnpj' })}
-              </div>
-            )}
+              {campo('Razão social', 'razaoSocial')}
+            </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' }}>
               {campo('Inscrição estadual', 'inscricaoEstadual')}

@@ -136,7 +136,7 @@ const criarFilial = async ({ user, corpo }) => db.runTransaction(async (tx) => {
   const grupoRef = casa.grupo ? db.collection('grupos').doc(casa.grupo.id) : db.collection('grupos').doc();
   const novaRef = db.collection('configuracoes').doc();
   const tenantId = novaRef.id;
-  const filial = dominio.filialParaGravar(tenantId, dados, cnpjMatriz, false);
+  const filial = dominio.filialParaGravar(tenantId, dados, false);
   const razaoSocialMatriz = String(configMatriz.razaoSocial || configMatriz.nomeOficina || '');
 
   tx.set(novaRef, {

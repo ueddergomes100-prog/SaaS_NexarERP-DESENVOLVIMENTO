@@ -58,10 +58,13 @@ test('segunda filial entra no mesmo grupo; codigo e CNPJ repetidos sao recusados
   const primeira = await s.criarFilial({ user: DONO, corpo: novaFilial() });
   await assert.rejects(() => s.criarFilial({ user: DONO, corpo: novaFilial({ cnpj: '11.222.333/0003-43' }) }), /código 20 já é da filial/);
   await assert.rejects(() => s.criarFilial({ user: DONO, corpo: novaFilial({ codigo: '30' }) }), /já é da filial/);
-  const deposito = await s.criarFilial({ user: DONO, corpo: novaFilial({ codigo: '30', nome: 'Depósito', tipo: 'mesmo_cnpj', cnpj: '' }) });
+  // Toda filial tem CNPJ proprio (13/10/2026): "mesmo CNPJ da matriz" e' recusado.
+  await assert.rejects(() => s.criarFilial({ user: DONO, corpo: novaFilial({ codigo: '30', nome: 'Depósito', tipo: 'mesmo_cnpj', cnpj: '' }) }), /CNPJ próprio dela/);
+  const deposito = await s.criarFilial({ user: DONO, corpo: novaFilial({ codigo: '30', nome: 'Depósito', cnpj: '11.222.333/0003-43' }) });
   assert.equal(deposito.grupoId, primeira.grupoId);
   assert.deepEqual(fake.ler(`grupos/${primeira.grupoId}`).filiais.map((f) => f.codigo), ['10', '20', '30']);
-  assert.equal(fake.ler(`configuracoes/${deposito.tenantId}`).cnpj, CNPJ_MATRIZ);
+  assert.equal(fake.ler(`configuracoes/${deposito.tenantId}`).cnpj, '11222333000343');
+  assert.equal(fake.ler(`grupos/${primeira.grupoId}`).filiais[2].tipo, 'cnpj_proprio');
 });
 
 test('CNPJ ja cadastrado como outra empresa do sistema e\' recusado', async () => {

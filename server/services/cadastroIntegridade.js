@@ -194,12 +194,14 @@ const reservasDoProduto = async (tenantId, produtoId) => {
     const dados = d.data();
     if (filtro && !filtro(dados)) return;
     const quantidade = quantidadeDoProdutoNosItens(dados[campoItens], produtoId);
-    if (quantidade > 0) achadas.push({ origem, numero: String(dados[campoNumero] || ''), cliente: String(dados.clienteNome || '').trim(), quantidade });
+    if (quantidade > 0) achadas.push({ origem, numero: String(dados[campoNumero] || dados.numero || ''), cliente: String(dados.clienteNome || '').trim(), quantidade });
   });
   juntar(pedidos, 'pre_venda', 'itens', 'numeroPedido', (dados) => STATUS_PEDIDO_ABERTO.includes(String(dados.status || '')));
   juntar(ordens, 'ordem_de_servico', 'pecas', 'numeroOS');
-  juntar(condicionais, 'condicional', 'itens', 'numero');
-  juntar(trocas, 'troca', 'itens', 'numero');
+  // Condicional e troca guardam o numero em campo proprio (numeroCondicional /
+  // numeroTroca); 'numero' fica como reserva para documento antigo.
+  juntar(condicionais, 'condicional', 'itens', 'numeroCondicional');
+  juntar(trocas, 'troca', 'itens', 'numeroTroca');
   return achadas;
 };
 

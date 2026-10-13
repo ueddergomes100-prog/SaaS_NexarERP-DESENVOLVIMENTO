@@ -9,6 +9,9 @@ import {
   totaisPreVendas,
   type FiltroPreVendas,
   type PreVendaDoRelatorio,
+  compararPorImpressao,
+  lerNaoImpressasPrimeiro,
+  textoDaImpressao,
 } from '../src/utils/relatorioPreVendasDomain';
 
 const hoje = new Date('2026-10-02T15:00:00Z');
@@ -17,7 +20,7 @@ const semFiltro: FiltroPreVendas = { busca: '', origem: '', de: '', ate: '' };
 const l = (extra: Partial<PreVendaDoRelatorio>): PreVendaDoRelatorio => ({
   id: Math.random().toString(36).slice(2), numeroPedido: '0100', clienteNome: 'JOÃO', vendedorNome: 'ANA', origem: 'balcao',
   status: 'Pré-venda', data: new Date('2026-09-30T13:00:00Z'), diasEmAberto: 2, totalCents: 10000, itensCount: 1,
-  reservaEstoque: true, comNotaFiscal: null, ...extra,
+  reservaEstoque: true, comNotaFiscal: null, impressa: false, impressaEm: null, ...extra,
 });
 
 const base: PreVendaDoRelatorio[] = [
@@ -81,8 +84,8 @@ test('documento com acesso total: aviso sempre, indicadores, seção por vendedo
   assert.equal(doc.secoes[1].padrao, false);
 
   const secao = doc.secoes[0];
-  assert.deepEqual(secao.colunas.map((c) => c.id), ['numero', 'data', 'dias', 'cliente', 'vendedor', 'origem', 'estoque', 'nota', 'status', 'itens', 'valor']);
-  assert.deepEqual(secao.colunas.filter((c) => c.padrao === false).map((c) => c.id), ['status', 'itens']);
+  assert.deepEqual(secao.colunas.map((c) => c.id), ['numero', 'data', 'dias', 'cliente', 'vendedor', 'origem', 'impressao', 'estoque', 'nota', 'status', 'itens', 'valor']);
+  assert.deepEqual(secao.colunas.filter((c) => c.padrao === false).map((c) => c.id), ['impressao', 'status', 'itens']);
   const col = (id: string) => secao.colunas.find((c) => c.id === id)!;
   assert.equal(col('valor').valor(base[0]), 15050);
   assert.equal(col('valor').total, undefined);
@@ -112,3 +115,16 @@ test('sem pré-vendas: documento vazio não quebra', () => {
   assert.equal(doc.indicadores[1].valor.replace(/\s/g, ''), 'R$0,00');
   assert.equal(doc.secoes[0].linhas.length, 0);
 });
+
+test('nao impressas primeiro: so desempata quem ja saiu no papel; preferencia ausente = ligado', () => {
+  assert.equal(compararPorImpressao({ impressa: false }, { impressa: true }), -1);
+  assert.equal(compararPorImpressao({ impressa: true }, { impressa: false }), 1);
+  assert.equal(compararPorImpressao({ impressa: true }, { impressa: true }), 0);
+  assert.equal(lerNaoImpressasPrimeiro(null), true);
+  assert.equal(lerNaoImpressasPrimeiro('true'), true);
+  assert.equal(lerNaoImpressasPrimeiro('false'), false);
+  assert.equal(textoDaImpressao({ impressa: false, impressaEm: null }), 'Não impressa');
+  assert.equal(textoDaImpressao({ impressa: true, impressaEm: null }), 'Impressa');
+  assert.equal(textoDaImpressao({ impressa: true, impressaEm: new Date(2026, 9, 13, 9, 5) }), 'Impressa 13/10 09:05');
+});
+

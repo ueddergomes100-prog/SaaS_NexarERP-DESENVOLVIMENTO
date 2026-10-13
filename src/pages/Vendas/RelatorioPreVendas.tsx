@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
-import { ClipboardList, FileText, FilterX, Loader2, Search } from 'lucide-react';
+import { ClipboardList, FileText, FilterX, Loader2, Printer, Search } from 'lucide-react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -18,6 +18,10 @@ import {
   montarDocumentoPreVendas,
   totaisPreVendas,
   type PreVendaDoRelatorio,
+  CHAVE_NAO_IMPRESSAS_PRIMEIRO,
+  compararPorImpressao,
+  lerNaoImpressasPrimeiro,
+  textoDaImpressao,
 } from '../../utils/relatorioPreVendasDomain';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 
@@ -64,6 +68,15 @@ const RelatorioPreVendas: React.FC = () => {
   const [error, setError] = useState('');
   const [busca, setBusca] = useState('');
   const [ordemNumero, inverterOrdemNumero] = useOrdemNumero('preVendas.ordemNumero');
+  // Nao impressas no topo (padrao); o botao alterna e a tela lembra.
+  const [naoImpressasPrimeiro, setNaoImpressasPrimeiro] = useState<boolean>(() => {
+    try { return lerNaoImpressasPrimeiro(localStorage.getItem(CHAVE_NAO_IMPRESSAS_PRIMEIRO)); } catch { return true; }
+  });
+  const alternarNaoImpressas = () => {
+    const novo = !naoImpressasPrimeiro;
+    setNaoImpressasPrimeiro(novo);
+    try { localStorage.setItem(CHAVE_NAO_IMPRESSAS_PRIMEIRO, String(novo)); } catch { /* so' preferencia da tela */ }
+  };
   const [origemFiltro, setOrigemFiltro] = useState<'' | OrigemPedido>('');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
@@ -119,8 +132,8 @@ const RelatorioPreVendas: React.FC = () => {
 
   const linhasFiltradas = useMemo(() => (
     filtrarPreVendas(linhas, filtro)
-      .sort((a, b) => compararPorNumero(a.numeroPedido, b.numeroPedido, ordemNumero))
-  ), [linhas, filtro, ordemNumero]);
+      .sort((a, b) => (naoImpressasPrimeiro ? compararPorImpressao(a, b) : 0) || compararPorNumero(a.numeroPedido, b.numeroPedido, ordemNumero))
+  ), [linhas, filtro, ordemNumero, naoImpressasPrimeiro]);
 
   const totais = useMemo(() => totaisPreVendas(linhasFiltradas), [linhasFiltradas]);
 
@@ -159,6 +172,16 @@ const RelatorioPreVendas: React.FC = () => {
             <p className="page-subtitle">Pedidos gravados que ainda não viraram venda</p>
           </div>
         </div>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <button
+          className={naoImpressasPrimeiro ? 'btn-primary' : 'btn-secondary'}
+          onClick={alternarNaoImpressas}
+          aria-pressed={naoImpressasPrimeiro}
+          title={naoImpressasPrimeiro ? 'As pré-vendas ainda não impressas estão no topo. Clique para ordenar só pelo número.' : 'Clique para trazer as pré-vendas ainda não impressas para o topo.'}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+        >
+          <Printer size={18} /> Não impressas primeiro
+        </button>
         <button
           className="btn-secondary"
           onClick={() => setPreviewAberto(true)}
@@ -168,6 +191,7 @@ const RelatorioPreVendas: React.FC = () => {
         >
           <FileText size={18} /> Gerar relatório
         </button>
+        </div>
       </div>
 
       {/* Aviso permanente, nao dispensavel: o numero grande desta tela e' a
@@ -267,6 +291,7 @@ const RelatorioPreVendas: React.FC = () => {
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Cliente</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Vendedor</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Origem</th>
+                  <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Impressão</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Estoque</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Nota fiscal</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'right' }}>Valor</th>
@@ -296,6 +321,19 @@ const RelatorioPreVendas: React.FC = () => {
                         padding: '4px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600,
                       }}>
                         {linha.origem === 'agente' ? 'Agente' : 'Balcão'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '14px 16px' }}>
+                      <span
+                        title={linha.impressa ? 'Esta pré-venda já saiu no papel' : 'Ainda não foi impressa'}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap',
+                          padding: '4px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600,
+                          backgroundColor: linha.impressa ? 'rgba(16,185,129,0.16)' : 'rgba(245,158,11,0.2)',
+                          color: linha.impressa ? '#10b981' : '#f59e0b',
+                        }}
+                      >
+                        <Printer size={12} /> {textoDaImpressao(linha)}
                       </span>
                     </td>
                     <td style={{ padding: '14px 16px', color: 'var(--text-secondary)', fontSize: '13px' }}>

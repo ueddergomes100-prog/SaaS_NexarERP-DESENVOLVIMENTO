@@ -16,6 +16,7 @@ import { trocaService, TrocaError } from '../../services/trocaService';
 import { formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
+import TabelaItensVenda, { type TabelaItensVendaHandle } from './TabelaItensVenda';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import {
@@ -347,6 +348,8 @@ const PedidoVendaForm: React.FC = () => {
   const paymentDraftCounter = useRef(1);
   const submitLockRef = useRef(false);
   const produtoBuscaInputRef = useRef<HTMLInputElement>(null);
+  // Grade de itens (TabelaItensVenda): F5 abre a quantidade da linha selecionada.
+  const tabelaItensRef = useRef<TabelaItensVendaHandle | null>(null);
   const clienteInputRef = useRef<HTMLInputElement>(null);
   const produtoDescontoInputRef = useRef<HTMLInputElement>(null);
   const produtoQtdInputRef = useRef<HTMLInputElement>(null);
@@ -1528,7 +1531,7 @@ const PedidoVendaForm: React.FC = () => {
    * MESMAS travas do lancamento de um item (estoque, venda fracionada). O que
    * nao passa fica de fora e e' listado; o resto entra.
    */
-  const adicionarVariosItens = (lista: Array<{ product: ProdutoEstoque; quantidade: number }>) => {
+  const adicionarVariosItens = (lista: Array<{ product: ProdutoEstoque; quantidade: number }>, opcoes: { silencioso?: boolean } = {}) => {
     const novos: ItemVenda[] = [];
     const recusados: string[] = [];
     const avisosPromocao: string[] = [];
@@ -1574,7 +1577,7 @@ const PedidoVendaForm: React.FC = () => {
         novos.length > 0 ? `${novos.length} item(ns) adicionado(s); ${recusados.length} ficaram de fora` : 'Nenhum item adicionado',
         recusados.join(' '),
       );
-    } else if (novos.length > 0) {
+    } else if (novos.length > 0 && !opcoes.silencioso) {
       showSuccess(`${novos.length} item${novos.length === 1 ? '' : 's'} adicionado${novos.length === 1 ? '' : 's'}.`);
     }
     if (avisosPromocao.length > 0) showWarning(avisosPromocao.join(' '));
@@ -1592,14 +1595,14 @@ const PedidoVendaForm: React.FC = () => {
     setSelectedItemIndex((current) => (current === index ? null : current));
   };
 
-  // Editar item ja lancado: QUANTIDADE e PRECO (duplo clique na linha, ou F5
-  // com a linha selecionada). Vale a mesma regra de quando o item entrou:
-  // estoque, venda fracionada e limite de desconto. Enter na quantidade vai
-  // pro preco; Enter no preco aplica.
-  const editarItem = async (index: number | null) => {
-    if (index === null) return;
+  // Editar item ja' lancado -- QUANTIDADE, PRECO e DESCONTO direto na celula
+  // da grade (TabelaItensVenda, 2026-10-13; antes era uma janela no duplo
+  // clique). Vale a mesma regra de quando o item entrou: estoque, venda
+  // fracionada, preco abaixo da tabela vira desconto, limites de desconto.
+  // Devolve a mensagem de erro (a grade mostra) ou null quando aplicou.
+  const aplicarEdicaoDeItem = (index: number, campos: { quantidade?: number; precoUnitario?: number; desconto?: number }): string | null => {
     const item = itens[index];
-    if (!item) return;
+    if (!item) return 'Item não encontrado. Atualize a tela e tente de novo.';
 
     const produtoCatalogo = produtosCatalogo.find((p) => p.id === item.id);
     // A unidade que vale aqui e a do ITEM (a embalagem escolhida quando ele
@@ -1607,120 +1610,68 @@ const PedidoVendaForm: React.FC = () => {
     const opcaoItem = findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(produtoCatalogo), item.embalagemId);
     const fatorItem = item.fatorConversao ?? opcaoItem.fatorConversao ?? 1;
     const siglaItem = item.unidadeMedidaSigla || opcaoItem.sigla;
-    const estiloCampo = 'width:100%;box-sizing:border-box;margin:4px 0 0;padding:10px 12px;background:#27272a;border:1px solid #3f3f46;border-radius:8px;color:#fff;font-size:15px;';
 
-    // Sem `step` fixo: o input number nativo rejeita fracao com step errado
-    // (ex.: '0.001' recusava "3"). Casas decimais de verdade ficam por conta
-    // de isValidSaleQuantity, com mensagem em portugues.
-    const result = await NexusSwal.fire({
-      title: 'Editar item',
-      html: `
-        <div style="text-align:left;">
-          <p style="margin:0 0 12px;color:#a1a1aa;font-size:14px;">${escaparHtml(item.nome)}</p>
-          <label style="font-size:13px;color:#a1a1aa;">Quantidade (${escaparHtml(siglaItem)})</label>
-          <input id="editar-item-qtd" type="number" min="0" step="any" value="${item.quantidade}" style="${estiloCampo}" />
-          <label style="display:block;margin-top:12px;font-size:13px;color:#a1a1aa;">Preço unitário (R$)</label>
-          <input id="editar-item-preco" type="number" min="0" step="0.01" value="${item.precoUnitario}" style="${estiloCampo}" />
-        </div>`,
-      focusConfirm: false,
-      showCancelButton: true,
-      confirmButtonText: 'Aplicar',
-      cancelButtonText: 'Cancelar',
-      didOpen: (popup) => {
-        const campoQtd = popup.querySelector<HTMLInputElement>('#editar-item-qtd');
-        const campoPreco = popup.querySelector<HTMLInputElement>('#editar-item-preco');
-        if (!campoQtd || !campoPreco) return;
-        campoQtd.focus();
-        campoQtd.select();
-        campoQtd.addEventListener('keydown', (e) => {
-          if (e.key !== 'Enter') return;
-          e.preventDefault();
-          campoPreco.focus();
-          campoPreco.select();
-        });
-        campoPreco.addEventListener('keydown', (e) => {
-          if (e.key !== 'Enter') return;
-          e.preventDefault();
-          NexusSwal.clickConfirm();
-        });
-      },
-      // Erro aparece DENTRO da janela: o operador corrige e aplica de novo,
-      // sem perder o que digitou.
-      preConfirm: () => {
-        const popup = NexusSwal.getPopup();
-        const novaQtd = Number(String(popup?.querySelector<HTMLInputElement>('#editar-item-qtd')?.value ?? '').replace(',', '.'));
-        const novoPreco = Number(String(popup?.querySelector<HTMLInputElement>('#editar-item-preco')?.value ?? '').replace(',', '.'));
+    const novaQtd = campos.quantidade ?? item.quantidade;
+    const novoPreco = campos.precoUnitario ?? item.precoUnitario;
+    if (!Number.isFinite(novaQtd) || novaQtd <= 0) return 'A quantidade deve ser maior que zero.';
+    if (!Number.isFinite(novoPreco) || novoPreco <= 0) return 'Informe um preço unitário maior que zero.';
+    if (!isValidSaleQuantity(novaQtd, opcaoItem.permiteFracionado, opcaoItem.casasDecimais)) {
+      return opcaoItem.permiteFracionado
+        ? `A quantidade de ${item.nome} aceita no máximo ${opcaoItem.casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${siglaItem}.`
+        : `${item.nome} está sendo vendido na unidade ${siglaItem}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`;
+    }
+    const novaQtdBase = toBaseQuantity(novaQtd, fatorItem);
+    if (produtoCatalogo && !permitirVendaSemEstoque && novaQtdBase > (produtoCatalogo.quantidade || 0)) {
+      const siglaBase = produtoCatalogo.unidadeMedidaSigla || 'UN';
+      return fatorItem === 1
+        ? `Você tem apenas ${produtoCatalogo.quantidade || 0} de ${produtoCatalogo.nome} em estoque. Venda sem estoque desativada.`
+        : `${novaQtd} ${siglaItem} consome ${novaQtdBase} ${siglaBase}, mas você tem apenas ${produtoCatalogo.quantidade || 0} ${siglaBase} em estoque.`;
+    }
 
-        if (!Number.isFinite(novaQtd) || novaQtd <= 0) {
-          NexusSwal.showValidationMessage('A quantidade deve ser maior que zero.');
-          return false;
-        }
-        if (!Number.isFinite(novoPreco) || novoPreco <= 0) {
-          NexusSwal.showValidationMessage('Informe um preço unitário maior que zero.');
-          return false;
-        }
-        if (!isValidSaleQuantity(novaQtd, opcaoItem.permiteFracionado, opcaoItem.casasDecimais)) {
-          NexusSwal.showValidationMessage(opcaoItem.permiteFracionado
-            ? `A quantidade de ${item.nome} aceita no máximo ${opcaoItem.casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${siglaItem}.`
-            : `${item.nome} está sendo vendido na unidade ${siglaItem}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
-          return false;
-        }
-        const novaQtdBase = toBaseQuantity(novaQtd, fatorItem);
-        if (produtoCatalogo && !permitirVendaSemEstoque && novaQtdBase > (produtoCatalogo.quantidade || 0)) {
-          const siglaBase = produtoCatalogo.unidadeMedidaSigla || 'UN';
-          NexusSwal.showValidationMessage(fatorItem === 1
-            ? `Você tem apenas ${produtoCatalogo.quantidade || 0} de ${produtoCatalogo.nome} em estoque. Venda sem estoque desativada.`
-            : `${novaQtd} ${siglaItem} consome ${novaQtdBase} ${siglaBase}, mas você tem apenas ${produtoCatalogo.quantidade || 0} ${siglaBase} em estoque.`);
-          return false;
-        }
+    // Preco ABAIXO da tabela vira desconto do item (mesma regra do
+    // lancamento, 2026-10-01): o item fica no preco de tabela e a diferenca
+    // soma no desconto, que passa pelos limites abaixo. So' quando o preco
+    // foi mexido aqui -- editar so' a quantidade nao reavalia o preco.
+    const precoMexido = Math.abs(novoPreco - item.precoUnitario) > 0.0001;
+    const precoTabela = item.tabelaPreco
+      ? precoAutomatico(item.tabelaPreco, condicaoPagamento).preco
+      : (produtoCatalogo ? precoSugerido(produtoCatalogo, opcaoItem) : item.precoUnitario);
+    const abaixoDaTabela = precoMexido && novoPreco < precoTabela - 0.0001;
+    if (abaixoDaTabela && !permitirDescontoPorItem) {
+      return `O preço de tabela é R$ ${precoTabela.toFixed(2).replace('.', ',')} e o desconto por item está desligado em Configurações: o preço não pode ficar abaixo dele.`;
+    }
+    const precoEfetivo = abaixoDaTabela ? precoTabela : novoPreco;
 
-        // Preco ABAIXO da tabela vira desconto do item (mesma regra do
-        // lancamento, 2026-10-01): o item fica no preco de tabela e a diferenca
-        // soma no desconto, que passa pelos limites abaixo. So' quando o preco
-        // foi mexido aqui -- editar so' a quantidade nao reavalia o preco.
-        const precoMexido = Math.abs(novoPreco - item.precoUnitario) > 0.0001;
-        const precoTabela = item.tabelaPreco
-          ? precoAutomatico(item.tabelaPreco, condicaoPagamento).preco
-          : (produtoCatalogo ? precoSugerido(produtoCatalogo, opcaoItem) : item.precoUnitario);
-        const abaixoDaTabela = precoMexido && novoPreco < precoTabela - 0.0001;
-        if (abaixoDaTabela && !permitirDescontoPorItem) {
-          NexusSwal.showValidationMessage(`O preço de tabela é R$ ${precoTabela.toFixed(2).replace('.', ',')} e o desconto por item está desligado em Configurações: o preço não pode ficar abaixo disso.`);
-          return false;
-        }
-        const precoEfetivo = abaixoDaTabela ? precoTabela : novoPreco;
-        const descontoNovo = abaixoDaTabela
-          ? fromCents(toCents(item.desconto) + toCents((precoTabela - novoPreco) * novaQtd))
-          : item.desconto;
+    // Desconto digitado na celula (em R$, ja' convertido pela grade).
+    if (campos.desconto !== undefined && campos.desconto > 0 && !permitirDescontoPorItem) {
+      return 'O desconto por item está desligado em Configurações. Use o desconto geral da venda.';
+    }
+    const descontoBase = campos.desconto ?? item.desconto;
+    if (!Number.isFinite(descontoBase) || descontoBase < 0) return 'O desconto não pode ser negativo.';
+    const descontoNovo = abaixoDaTabela
+      ? fromCents(toCents(descontoBase) + toCents((precoTabela - novoPreco) * novaQtd))
+      : descontoBase;
 
-        // O desconto do item e' em R$ e fica como esta; o que muda e' o valor
-        // cheio (preco x quantidade), entao o limite e' conferido de novo.
-        const precoCheioCents = toCents(precoEfetivo * novaQtd);
-        const descontoCents = toCents(descontoNovo);
-        if (descontoCents > precoCheioCents) {
-          NexusSwal.showValidationMessage('O desconto ficou maior que o valor do item. Confira o preço digitado.');
-          return false;
-        }
-        if (descontoCents > 0) {
-          if (produtoCatalogo && excedeLimiteItem(produtoCatalogo, descontoCents, precoCheioCents)) {
-            NexusSwal.showValidationMessage(`${produtoCatalogo.nome} aceita no máximo ${produtoCatalogo.descontoMaximoPercentual}% de desconto, definido no próprio cadastro. Reduza o desconto do item ou aumente o valor.`);
-            return false;
-          }
-          const limite = checarLimiteTotal(limiteDescontoPedido, precoCheioCents, descontoCents);
-          if (limite.excedeu && modoLimiteDesconto === 'bloquear') {
-            NexusSwal.showValidationMessage(`O desconto deste item (${limite.percentualAplicado.toFixed(1)}%) passa do limite configurado para Pedido de Venda.`);
-            return false;
-          }
-        }
-        return { novaQtd, novoPreco: precoEfetivo, novaQtdBase, descontoNovo };
-      },
-    });
-    if (!result.isConfirmed || !result.value) return;
+    const precoCheioCents = toCents(precoEfetivo * novaQtd);
+    const descontoCents = toCents(descontoNovo);
+    if (descontoCents > precoCheioCents) return 'O desconto ficou maior que o valor do item. Confira o preço digitado.';
+    if (descontoCents > 0) {
+      if (produtoCatalogo && excedeLimiteItem(produtoCatalogo, descontoCents, precoCheioCents)) {
+        return `${produtoCatalogo.nome} aceita no máximo ${produtoCatalogo.descontoMaximoPercentual}% de desconto, definido no próprio cadastro. Reduza o desconto.`;
+      }
+      const limite = checarLimiteTotal(limiteDescontoPedido, precoCheioCents, descontoCents);
+      if (limite.excedeu && modoLimiteDesconto === 'bloquear') {
+        return `O desconto deste item (${limite.percentualAplicado.toFixed(1)}%) passa do limite configurado para Pedido de Venda.`;
+      }
+      if (limite.excedeu) {
+        showWarning(`Desconto de ${limite.percentualAplicado.toFixed(1)}% em ${item.nome} passa do limite configurado. Vai precisar de liberação no fim da venda.`);
+      }
+    }
 
-    const { novaQtd, novoPreco, novaQtdBase, descontoNovo } = result.value as { novaQtd: number; novoPreco: number; novaQtdBase: number; descontoNovo: number };
     let atualizado: ItemVenda = {
       ...item,
       quantidade: novaQtd,
-      precoUnitario: novoPreco,
+      precoUnitario: precoEfetivo,
       desconto: descontoNovo,
       ...(item.embalagemId ? { quantidadeBase: novaQtdBase } : {}),
     };
@@ -1734,16 +1685,25 @@ const PedidoVendaForm: React.FC = () => {
         tabela = conferida.tabela;
         avisoQuota = conferida.aviso;
       }
-      const precoMexido = Math.abs(novoPreco - item.precoUnitario) > 0.0001;
-      const digitado = precoMexido ? novoPreco : (item.origemPreco === 'manual' ? item.precoUnitario : undefined);
-      const { preco, campos } = camposDePreco(tabela, digitado);
+      const mexeuPreco = Math.abs(precoEfetivo - item.precoUnitario) > 0.0001;
+      const digitado = mexeuPreco ? precoEfetivo : (item.origemPreco === 'manual' ? item.precoUnitario : undefined);
+      const { preco, campos: camposPreco } = camposDePreco(tabela, digitado);
       const { promocaoId: _promocaoAnterior, promocaoNome: _nomeAnterior, ...semPromocao } = atualizado;
       void _promocaoAnterior; void _nomeAnterior;
-      atualizado = { ...semPromocao, ...campos, precoUnitario: preco };
+      atualizado = { ...semPromocao, ...camposPreco, precoUnitario: preco };
     }
     atualizado = { ...atualizado, subtotal: Math.max(0, atualizado.precoUnitario * novaQtd - descontoNovo) };
     setItens((current) => current.map((it, idx) => (idx === index ? atualizado : it)));
     if (avisoQuota) showWarning(avisoQuota);
+    return null;
+  };
+
+  // Lancamento pela linha de codigo da grade: entra na unidade base, pelo
+  // preco automatico, sem desconto -- as mesmas travas de adicionarVariosItens.
+  const lancarPorCodigo = (produtoId: string, quantidade: number) => {
+    const produto = produtosCatalogo.find((p) => p.id === produtoId);
+    if (!produto) { showError('Produto não encontrado', 'Atualize a tela e tente de novo.'); return; }
+    adicionarVariosItens([{ product: produto, quantidade }], { silencioso: true });
   };
 
   const focusPagamentoSection = () => {
@@ -1756,7 +1716,7 @@ const PedidoVendaForm: React.FC = () => {
     { key: 'F3', when: !isViewing || canAddPendingItem, handler: () => produtoBuscaInputRef.current?.focus() },
     // F4 (desconto do item) so vale quando o campo existe na tela.
     { key: 'F4', when: permitirDescontoPorItem && (!isViewing || canAddPendingItem), handler: () => produtoDescontoInputRef.current?.focus() },
-    { key: 'F5', when: (!isViewing || canEditPendingQtd) && selectedItemIndex !== null, handler: () => { void editarItem(selectedItemIndex); } },
+    { key: 'F5', when: (!isViewing || canEditPendingQtd) && selectedItemIndex !== null, handler: () => tabelaItensRef.current?.editarSelecionado() },
     { key: 'F6', when: !isViewing || canEditPendingOrder, handler: focusPagamentoSection },
     { key: 'F7', when: !isViewing || canEditPendingOrder, handler: focusPagamentoSection },
   ]);
@@ -4864,66 +4824,32 @@ const PedidoVendaForm: React.FC = () => {
 
           {/* Carrinho de Compras */}
           <div className="card form-section" style={{ padding: '24px' }}>
-            <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: 600 }}>Itens da Venda</h3>
-
-            <div className="table-wrapper">
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
-                    <th style={{ padding: '12px 8px' }}>Produto</th>
-                    <th style={{ padding: '12px 8px', textAlign: 'center' }}>Qtd</th>
-                    <th style={{ padding: '12px 8px', textAlign: 'right' }}>V. Unit</th>
-                    <th style={{ padding: '12px 8px', textAlign: 'right' }}>Desc.</th>
-                    <th style={{ padding: '12px 8px', textAlign: 'right' }}>Subtotal</th>
-                    {(!isViewing || canDeletePendingItem) && <th style={{ padding: '12px 8px', textAlign: 'center' }}>Ação</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {itens.length === 0 ? (
-                    <tr>
-                      <td colSpan={(!isViewing || canDeletePendingItem) ? 6 : 5} style={{ padding: '32px 8px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                        Nenhum produto adicionado à venda.
-                      </td>
-                    </tr>
-                  ) : (
-                    itens.map((item, index) => (
-                      <tr
-                        key={index}
-                        onClick={() => setSelectedItemIndex(index)}
-                        onDoubleClick={(!isViewing || canEditPendingQtd) ? () => { setSelectedItemIndex(index); void editarItem(index); } : undefined}
-                        title={(!isViewing || canEditPendingQtd) ? 'Duplo clique para editar quantidade e preço' : undefined}
-                        className={selectedItemIndex === index ? 'item-row-selectable selected' : 'item-row-selectable'}
-                        style={{ borderBottom: '1px solid var(--border-color)' }}
-                      >
-                        <td style={{ padding: '12px 8px' }}>{item.nome}</td>
-                        <td style={{ padding: '12px 8px', textAlign: 'center' }}>
-                          {item.quantidade.toFixed(item.unidadeMedidaCasasDecimais ?? 0)} {item.unidadeMedidaSigla || 'UN'}
-                        </td>
-                        <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                          R$ {item.precoUnitario.toFixed(2)}
-                          {item.origemPreco === 'promocao' && (
-                            <div title={item.promocaoNome ? `Promoção: ${item.promocaoNome}` : 'Promoção'} style={{ fontSize: '11px', fontWeight: 700, color: '#10b981' }}>
-                              PROMOÇÃO{item.tabelaPreco ? <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> · de <s>R$ {item.tabelaPreco.venda.toFixed(2)}</s></span> : null}
-                            </div>
-                          )}
-                          {item.origemPreco === 'vista' && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>preço à vista</div>}
-                          {item.origemPreco === 'manual' && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }} title="Preço digitado: não muda com a forma de pagamento">preço digitado</div>}
-                        </td>
-                        <td style={{ padding: '12px 8px', textAlign: 'right', color: '#ef4444' }}>{item.desconto > 0 ? `-R$ ${item.desconto.toFixed(2)}` : '-'}</td>
-                        <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>R$ {item.subtotal.toFixed(2)}</td>
-                        {(!isViewing || canDeletePendingItem) && (
-                          <td style={{ padding: '12px 8px', textAlign: 'center' }}>
-                            <button onClick={(e) => { e.stopPropagation(); handleRemoveItem(index); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Itens da Venda</h3>
+              {(!isViewing || canEditPendingQtd) && (
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Clique na quantidade, no preço ou no desconto para alterar · Enter aplica · Esc desfaz</span>
+              )}
             </div>
+
+            <TabelaItensVenda
+              ref={tabelaItensRef}
+              itens={itens}
+              catalogo={produtosCatalogo}
+              podeLancar={!isViewing || canAddPendingItem}
+              podeEditar={!isViewing || canEditPendingQtd}
+              podeRemover={!isViewing || canDeletePendingItem}
+              permitirDescontoPorItem={permitirDescontoPorItem}
+              selectedIndex={selectedItemIndex}
+              onSelect={setSelectedItemIndex}
+              precoSugerido={(produto) => {
+                const doCatalogo = produtosCatalogo.find((p) => p.id === produto.id);
+                return doCatalogo ? precoSugerido(doCatalogo, buildOpcoesUnidadeVenda(doCatalogo)[0]) : 0;
+              }}
+              onLancarPorCodigo={(produto, quantidade) => lancarPorCodigo(produto.id, quantidade)}
+              onBuscarPorNome={(texto) => { setProdutoBusca(texto); setIsProdutoSearchModalOpen(true); }}
+              onAtualizarItem={aplicarEdicaoDeItem}
+              onRemover={handleRemoveItem}
+            />
           </div>
         </div>
 

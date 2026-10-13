@@ -37,6 +37,9 @@ export interface PreVendaDoRelatorio {
   reservaEstoque: boolean;
   /** Marca do vendedor externo (COM/SEM nota fiscal); null = nao informado. */
   comNotaFiscal: boolean | null;
+  /** Ja' saiu no papel (PedidoPrint grava `impresso`). O que ainda nao saiu fica no topo da lista. */
+  impressa: boolean;
+  impressaEm: Date | null;
 }
 
 const UM_DIA_MS = 86400000;
@@ -72,7 +75,34 @@ export const linhaDePreVenda = (pedido: any, usuarios: Record<string, any>, hoje
     itensCount: Array.isArray(pedido.itens) ? pedido.itens.length : 0,
     reservaEstoque: pedido.estoqueReservado === true,
     comNotaFiscal: typeof pedido.comNotaFiscal === 'boolean' ? pedido.comNotaFiscal : null,
+    impressa: pedido.impresso === true,
+    impressaEm: pedido.impresso === true ? dataDoPedido(pedido.impressoEm) : null,
   };
+};
+
+/**
+ * "Nao impressas primeiro" (pedido do dono, 2026-10-13): quem ainda nao
+ * imprimiu a pre-venda precisa achar na hora; a impressa ja' esta' em
+ * andamento. Empate (mesma situacao) devolve 0 para a ordem por numero decidir.
+ */
+export const compararPorImpressao = (a: Pick<PreVendaDoRelatorio, 'impressa'>, b: Pick<PreVendaDoRelatorio, 'impressa'>): number => (
+  Number(a.impressa) - Number(b.impressa)
+);
+
+export const CHAVE_NAO_IMPRESSAS_PRIMEIRO = 'preVendas.naoImpressasPrimeiro';
+
+/** Guardado como texto no localStorage; ausente = ligado (padrao do dono). */
+export const lerNaoImpressasPrimeiro = (valor: unknown): boolean => valor !== 'false';
+
+export const textoDaImpressao = (linha: Pick<PreVendaDoRelatorio, 'impressa' | 'impressaEm'>): string => {
+  if (!linha.impressa) return 'Não impressa';
+  if (!linha.impressaEm) return 'Impressa';
+  const d = linha.impressaEm;
+  const dia = String(d.getDate()).padStart(2, '0');
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const hora = String(d.getHours()).padStart(2, '0');
+  const minuto = String(d.getMinutes()).padStart(2, '0');
+  return `Impressa ${dia}/${mes} ${hora}:${minuto}`;
 };
 
 export interface FiltroPreVendas {
@@ -172,6 +202,7 @@ export const montarDocumentoPreVendas = (
     { id: 'cliente', titulo: 'Cliente', tipo: 'texto', largura: 50, valor: (l) => l.clienteNome },
     { id: 'vendedor', titulo: 'Vendedor', tipo: 'texto', largura: 32, valor: (l) => l.vendedorNome },
     { id: 'origem', titulo: 'Origem', tipo: 'texto', largura: 26, valor: (l) => rotuloOrigemPreVenda(l.origem) },
+    { id: 'impressao', titulo: 'Impressão', tipo: 'texto', largura: 26, padrao: false, valor: (l) => textoDaImpressao(l) },
     { id: 'estoque', titulo: 'Estoque', tipo: 'texto', largura: 20, valor: (l) => (l.reservaEstoque ? 'Reservado' : 'Sem reserva') },
     { id: 'nota', titulo: 'Nota fiscal', tipo: 'texto', largura: 26, valor: (l) => rotuloNotaFiscalPedido(l.comNotaFiscal)?.texto || '' },
     { id: 'status', titulo: 'Status', tipo: 'texto', largura: 20, padrao: false, valor: (l) => l.status },

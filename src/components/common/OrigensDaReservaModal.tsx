@@ -80,12 +80,12 @@ const OrigensDaReservaModal: React.FC<Props> = ({ tenantId, produto, onFechar })
         condicionais.docs.forEach((d) => {
           const dados = d.data();
           const qtd = quantidadeDoProdutoNosItens(dados.itens, produto.id);
-          if (qtd > 0) achadas.push({ origem: 'condicional', documentoId: d.id, numero: String(dados.numero || ''), cliente: String(dados.clienteNome || ''), quantidade: qtd });
+          if (qtd > 0) achadas.push({ origem: 'condicional', documentoId: d.id, numero: String(dados.numeroCondicional || dados.numero || ''), cliente: String(dados.clienteNome || ''), quantidade: qtd });
         });
         trocas.docs.forEach((d) => {
           const dados = d.data();
           const qtd = quantidadeDoProdutoNosItens(dados.itens, produto.id);
-          if (qtd > 0) achadas.push({ origem: 'troca', documentoId: d.id, numero: String(dados.numero || ''), cliente: String(dados.clienteNome || ''), quantidade: qtd });
+          if (qtd > 0) achadas.push({ origem: 'troca', documentoId: d.id, numero: String(dados.numeroTroca || dados.numero || ''), cliente: String(dados.clienteNome || ''), quantidade: qtd });
         });
         if (vivo) setReservas(achadas);
       } catch (e) {

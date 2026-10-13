@@ -11,7 +11,7 @@ const {
   montarMensagem,
   nomeDoAnexo,
 } = require('../services/emailNota');
-const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
+const { baixarArquivoDaSpedy, MENSAGEM_LIMITE_SPEDY } = require('../services/spedyArquivo');
 
 const router = express.Router();
 router.use(authenticate);
@@ -76,9 +76,12 @@ const destinatarioDaNota = async (tenantId, nota) => {
   return { email, nome: String(cliente?.nome || nota.clienteNome || '').trim(), doCadastro };
 };
 
-const baixarArquivo = async ({ apiKey, baseUrl }, caminho, spedyId, extensao) => {
-  const resposta = await fetchComTimeout(`${baseUrl}/${caminho}/${spedyId}/${extensao}`, { method: 'GET', headers: { 'X-Api-Key': apiKey } }, PERFIS.spedyArquivo);
+const baixarArquivo = async (acesso, caminho, spedyId, extensao) => {
+  // Espera e repete no 429 da Spedy (limite de 60/min por empresa): no lote de
+  // NF-e o e-mail de cada nota caia nesse limite e nao saia (13/10/2026).
+  const resposta = await baixarArquivoDaSpedy(acesso, caminho, spedyId, extensao);
   if (!resposta.ok) {
+    if (resposta.status === 429) throw new ErroEmail(429, `${MENSAGEM_LIMITE_SPEDY} Depois use "Reenviar e-mail" na nota.`);
     throw new ErroEmail(502, `Não consegui baixar o ${extensao.toUpperCase()} da nota na Spedy. Tente de novo em instantes.`);
   }
   return Buffer.from(await resposta.arrayBuffer());
@@ -108,10 +111,9 @@ router.post('/nota/:notaId/enviar', async (req, res) => {
 
     const { empresaEmail, empresaNome, smtp } = await carregarConfiguracao(tenantId);
     const acesso = await loadSpedyConfig(tenantId);
-    const [pdf, xml] = await Promise.all([
-      baixarArquivo(acesso, caminho, nota.spedyId, 'pdf'),
-      baixarArquivo(acesso, caminho, nota.spedyId, 'xml'),
-    ]);
+    // Um de cada vez: duas consultas juntas por nota estouravam o limite da Spedy no lote.
+    const pdf = await baixarArquivo(acesso, caminho, nota.spedyId, 'pdf');
+    const xml = await baixarArquivo(acesso, caminho, nota.spedyId, 'xml');
 
     const msg = montarMensagem({ empresaNome, empresaEmail, tipo: nota.tipo, numero: nota.number, chave: nota.accessKey, clienteNome: destino.nome });
     try {

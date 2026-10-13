@@ -43,6 +43,8 @@ import { useEmissaoAcompanhamento, type ProgressoEmissao } from '../../hooks/use
 import type { PaymentRecord } from '../../utils/financeDomain';
 import { ratearValorPorPesos } from '../../utils/notaAvulsaDomain';
 import EmissaoLoteModal, { type PedidoParaLote, type ResultadoItemLote } from './EmissaoLoteModal';
+import { duplicatasDaNota } from '../../utils/duplicatasNfeDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -1749,12 +1751,10 @@ const NFE: React.FC = () => {
     // Duplicatas (parcelas): so' quando a venda importada foi paga em Boleto -- o numero de
     // cada parcela e a data de vencimento vem dos pagamentos gravados no pedido. Sem isso a
     // nota saia sem nenhuma duplicata, mesmo quando o boleto tinha varias parcelas.
-    const pagamentosBoleto = a.pagamentos.filter((p) => p.formaPagamento === 'Boleto' && p.dataVencimento);
-    const duplicatesPayload = pagamentosBoleto.map((p) => ({
-      number: String(p.numeroParcelaAPrazo || 1).padStart(3, '0'),
-      dueDate: `${p.dataVencimento}T00:00:00`,
-      amount: Number(p.valor ?? p.valorCentavos / 100),
-    }));
+    // Parcela ja' vencida na data da emissao fica fora (a SEFAZ rejeita com 900,
+    // pedido #0119 em 13/10/2026) -- ver duplicatasNfeDomain.ts.
+    const { duplicatas: duplicatesPayload, aviso: avisoParcelasVencidas } = duplicatasDaNota(a.pagamentos, getDateInputInTimeZone());
+    if (avisoParcelasVencidas) avisosItens.push(avisoParcelasVencidas);
     // Fatura [cobr/fat] junto das duplicatas (2026-09-30): a SEFAZ exige que a soma das
     // parcelas bata com o valor LIQUIDO da fatura. Mandando so' `duplicates`, a Spedy montava a
     // fatura sem esse valor e a nota voltava "Rejeicao 851: Soma do valor das parcelas difere
@@ -2279,7 +2279,7 @@ const NFE: React.FC = () => {
    * pra aparecer na linha do pedido. `pendente` = a Spedy aceitou e a SEFAZ
    * ainda vai responder (ou ja' autorizou e falta o e-mail).
    */
-  const emitirPedidoDoLote = async (pedido: PedidoVenda): Promise<{ resultado?: ResultadoItemLote; pendente?: { docId: string; spedyId: string } }> => {
+  const emitirPedidoDoLote = async (pedido: PedidoVenda): Promise<{ resultado?: ResultadoItemLote; pendente?: { docId: string; spedyId: string }; aviso?: string }> => {
     if (!config?.spedyApiKey || !tenantId || !currentUser) {
       return { resultado: { estado: 'erro', mensagem: 'A integração fiscal não está configurada.' } };
     }
@@ -2322,7 +2322,7 @@ const NFE: React.FC = () => {
       : null;
     const integrationId = escolha ? escolha.integrationId : crypto.randomUUID();
 
-    const { payload, itemsPayload } = await montarPayloadNfe({
+    const { payload, itemsPayload, avisos: avisosDaNota } = await montarPayloadNfe({
       integrationId,
       form,
       itens: montada.itens,
@@ -2376,9 +2376,10 @@ const NFE: React.FC = () => {
       return { resultado: { estado: 'erro', mensagem: 'A Spedy recebeu a nota, mas o sistema não conseguiu guardá-la na lista. Não emita de novo: avise o suporte.' } };
     }
 
+    const aviso = avisosDaNota.length > 0 ? avisosDaNota.join(' ') : undefined;
     const final = resultadoDoStatusLote(nota);
-    if (final) return { resultado: final, pendente: final.estado === 'autorizada' ? { docId, spedyId: nota.id } : undefined };
-    return { pendente: { docId, spedyId: nota.id } };
+    if (final) return { resultado: final, pendente: final.estado === 'autorizada' ? { docId, spedyId: nota.id } : undefined, aviso };
+    return { pendente: { docId, spedyId: nota.id }, aviso };
   };
 
   const executarLote = async (
@@ -2399,7 +2400,11 @@ const NFE: React.FC = () => {
       console.error('Nao foi possivel conferir os requisitos fiscais (o lote segue):', erroRequisitos);
     }
 
-    const acompanhar: Array<{ pedidoId: string; docId: string; spedyId: string; autorizada: boolean }> = [];
+    const acompanhar: Array<{ pedidoId: string; docId: string; spedyId: string; autorizada: boolean; aviso?: string }> = [];
+    // Aviso da montagem (parcela vencida fora da nota, unidade...) junto do resultado da linha.
+    const comAviso = (resultado: ResultadoItemLote, aviso?: string): ResultadoItemLote => (
+      aviso ? { ...resultado, mensagem: [resultado.mensagem, aviso].filter(Boolean).join(' ') } : resultado
+    );
     for (const id of ids) {
       if (deveParar()) {
         avisar(id, { estado: 'pulada', mensagem: 'Lote interrompido antes desta nota.' });
@@ -2413,18 +2418,23 @@ const NFE: React.FC = () => {
       avisar(id, { estado: 'emitindo' });
       try {
         const r = await emitirPedidoDoLote(pedido);
-        avisar(id, r.resultado || { estado: 'processando' });
-        if (r.pendente) acompanhar.push({ pedidoId: id, ...r.pendente, autorizada: r.resultado?.estado === 'autorizada' });
+        avisar(id, comAviso(r.resultado || { estado: 'processando' }, r.aviso));
+        if (r.pendente) acompanhar.push({ pedidoId: id, ...r.pendente, autorizada: r.resultado?.estado === 'autorizada', aviso: r.aviso });
       } catch (erro) {
         avisar(id, { estado: 'erro', mensagem: (erro as Error).message || 'Não foi possível transmitir a nota.' });
       }
     }
 
     // Espera a SEFAZ responder as que ficaram na fila (ate ~2 min), atualizando a lista.
+    // Uma consulta a cada 1,5 s no maximo (13/10/2026): a Spedy aceita 60 por
+    // minuto por empresa e o lote consultava todas as pendentes a cada 3 s --
+    // passava do limite e, logo depois, o PDF e o e-mail das notas levavam 429.
     const aguardando = acompanhar.filter((a) => !a.autorizada);
-    for (let volta = 0; volta < 40 && aguardando.length > 0; volta += 1) {
+    const inicioDaEspera = Date.now();
+    for (let volta = 0; volta < 40 && aguardando.length > 0 && Date.now() - inicioDaEspera < 150_000; volta += 1) {
       await new Promise((r) => setTimeout(r, 3000));
       for (const item of [...aguardando]) {
+        await new Promise((r) => setTimeout(r, 1500));
         try {
           const nota = await consultarNotaNaSpedy('NF-e', item.spedyId);
           const final = resultadoDoStatusLote(nota);
@@ -2436,7 +2446,7 @@ const NFE: React.FC = () => {
             processingMessage: nota.processingDetail?.message || null,
             processingCode: nota.processingDetail?.code || null,
           }).catch((e) => console.error('Nao atualizou a nota do lote:', e));
-          avisar(item.pedidoId, final);
+          avisar(item.pedidoId, comAviso(final, item.aviso));
           aguardando.splice(aguardando.indexOf(item), 1);
           item.autorizada = final.estado === 'autorizada';
         } catch (erroConsulta) {
@@ -2450,6 +2460,8 @@ const NFE: React.FC = () => {
     if (emailPeloSistema) {
       for (const item of acompanhar.filter((a) => a.autorizada)) {
         await notaEmailService.enviar(item.docId).catch((e) => console.error('E-mail da nota do lote nao enviado:', e));
+        // Cada e-mail baixa PDF e XML na Spedy: um respiro entre as notas (limite de 60/min).
+        await new Promise((r) => setTimeout(r, 2000));
       }
     }
     loadLocalInvoices(false);

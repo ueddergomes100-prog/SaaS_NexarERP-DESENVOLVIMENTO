@@ -10,6 +10,7 @@ const { buildCompanyPayload } = require('../services/spedyEmpresa');
 // (ver utils/fetchComTimeout.js). Sem isso a tela ficava presa em
 // "Transmitindo..." quando a Spedy nao respondia.
 const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
+const { baixarArquivoDaSpedy, MENSAGEM_LIMITE_SPEDY } = require('../services/spedyArquivo');
 
 const TYPE_PATHS = {
   service: 'service-invoices',
@@ -482,16 +483,15 @@ router.get('/:type/:id/:fileType', async (req, res) => {
     }
 
     const tenantId = resolveTenantId(req);
-    const { apiKey, baseUrl } = await loadSpedyConfig(tenantId);
-    const response = await fetchComTimeout(`${baseUrl}/${typePath}/${req.params.id}/${req.params.fileType}`, {
-      method: 'GET',
-      headers: { 'X-Api-Key': apiKey }
-    }, PERFIS.spedyArquivo);
+    const acesso = await loadSpedyConfig(tenantId);
+    // Espera e repete quando a Spedy responde 429 (limite de 60/min por empresa).
+    const response = await baixarArquivoDaSpedy(acesso, typePath, req.params.id, req.params.fileType);
 
     if (!response.ok) {
+      if (response.status === 429) return res.status(429).json({ error: MENSAGEM_LIMITE_SPEDY });
       const data = await response.json().catch(() => ({}));
       return res.status(response.status).json({
-        error: data.errors?.[0]?.message || 'Erro ao baixar arquivo fiscal.'
+        error: data.errors?.[0]?.message || 'Não foi possível baixar o arquivo da nota na Spedy. Tente de novo em instantes.'
       });
     }
 

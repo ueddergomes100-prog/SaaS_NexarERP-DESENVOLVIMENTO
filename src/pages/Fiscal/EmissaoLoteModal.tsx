@@ -78,6 +78,14 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
   const [imprimindoTodas, setImprimindoTodas] = useState(false);
 
   const nomeDoPdf = (p: PedidoParaLote, r: ResultadoItemLote) => nomeArquivoDocumento({ tipo: 'NFE', numero: r.numeroNota, destinatario: p.clienteNome });
+  /**
+   * Os PDFs vem da Spedy, que aceita 60 consultas por minuto por empresa
+   * (13/10/2026: logo depois do lote, todos os downloads levavam "limite
+   * atingido"). Um respiro entre um e outro; o servidor ainda espera e repete
+   * quando a Spedy pede (server/services/spedyArquivo.js).
+   */
+  const ESPACO_ENTRE_DOWNLOADS_MS = 1200;
+  const esperar = (ms: number) => new Promise((resolver) => setTimeout(resolver, ms));
   const verPdf = async (p: PedidoParaLote, r: ResultadoItemLote) => {
     if (!r.spedyId) return;
     setCarregandoPdf(p.id);
@@ -95,8 +103,10 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
     const autorizadas = pedidos.filter((p) => resultados?.[p.id]?.estado === 'autorizada' && resultados[p.id].spedyId);
     setSalvandoTodos(true);
     let falhas = 0;
-    for (const p of autorizadas) {
+    let motivo = '';
+    for (const [indice, p] of autorizadas.entries()) {
       const r = resultados![p.id];
+      if (indice > 0) await esperar(ESPACO_ENTRE_DOWNLOADS_MS);
       try {
         const blob = await baixarPdf(r.spedyId!);
         const url = URL.createObjectURL(blob);
@@ -107,14 +117,13 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
         link.click();
         document.body.removeChild(link);
         setTimeout(() => URL.revokeObjectURL(url), 10000);
-        // Um respiro entre os arquivos: alguns navegadores barram varios downloads seguidos.
-        await new Promise((resolver) => setTimeout(resolver, 400));
-      } catch {
+      } catch (erro) {
         falhas += 1;
+        if (!motivo) motivo = (erro as Error).message || '';
       }
     }
     setSalvandoTodos(false);
-    if (falhas > 0) showError('Alguns PDFs não foram salvos', `${falhas} PDF(s) não puderam ser baixados. Use "Ver PDF" na linha da nota.`);
+    if (falhas > 0) showError('Alguns PDFs não foram salvos', `${falhas} PDF(s) não puderam ser baixados. ${motivo ? `Motivo: ${motivo} ` : ''}Use "Ver PDF" na linha da nota.`);
   };
 
   /**
@@ -127,23 +136,27 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
     setImprimindoTodas(true);
     const arquivos: Blob[] = [];
     const semPdf: string[] = [];
-    for (const p of autorizadas) {
+    let motivo = '';
+    for (const [indice, p] of autorizadas.entries()) {
       const r = resultados![p.id];
+      if (indice > 0) await esperar(ESPACO_ENTRE_DOWNLOADS_MS);
       try {
         arquivos.push(await baixarPdf(r.spedyId!));
-      } catch {
+      } catch (erro) {
         semPdf.push(`nº ${r.numeroNota ?? '?'} (${p.clienteNome})`);
+        if (!motivo) motivo = (erro as Error).message || '';
       }
     }
     try {
       if (arquivos.length === 0) {
-        showError('Não foi possível montar a impressão', 'Nenhum PDF das notas autorizadas pôde ser baixado agora. Tente de novo em instantes.');
+        // O motivo de verdade (vem do servidor, em portugues) -- antes so' "tente de novo".
+        showError('Não foi possível montar a impressão', `Nenhum PDF das notas autorizadas pôde ser baixado. ${motivo || 'Tente de novo em um minuto.'}`);
         return;
       }
       const unico = await juntarPdfs(arquivos);
       setPdfAberto({ titulo: `${arquivos.length} NF-e autorizada${arquivos.length === 1 ? '' : 's'} do lote`, nome: 'NFE lote.pdf', blob: unico, imprimir: true });
       if (semPdf.length > 0) {
-        showWarning('Algumas notas ficaram fora da impressão', `Não foi possível baixar o PDF da(s) nota(s) ${semPdf.join(', ')}. Use "Ver PDF" na linha da nota.`);
+        showWarning('Algumas notas ficaram fora da impressão', `Não foi possível baixar o PDF da(s) nota(s) ${semPdf.join(', ')}. ${motivo ? `${motivo} ` : ''}Use "Ver PDF" na linha da nota.`);
       }
     } catch (erro) {
       console.error('Erro ao juntar os PDFs do lote:', erro);

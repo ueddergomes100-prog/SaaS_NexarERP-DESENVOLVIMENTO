@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Ban, Search, ExternalLink, Edit2, Trash2, Megaphone, Blocks, Wallet, ShieldCheck, ChevronDown, ChevronUp, KeyRound } from 'lucide-react';
+import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Ban, Search, ExternalLink, Edit2, Trash2, Megaphone, Blocks, Wallet, ShieldCheck, ChevronDown, ChevronUp, KeyRound, Server } from 'lucide-react';
 import { collection, query, getDocs, updateDoc, doc, deleteDoc, where, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -36,6 +36,8 @@ interface TenantInfo {
   percentualFilial: number;
   /** Mensalidade + filiais ativas x (mensalidade x %). */
   valorTotal: number;
+  /** Item 8, fatia 3: Finalizar do Pedido de Venda gravado pelo servidor. */
+  vendaPeloServidor: boolean;
 }
 
 const toDate = (value?: any): Date | null => {
@@ -164,6 +166,7 @@ const SuperAdmin: React.FC = () => {
               limiteFiliais: lerLimiteFiliais(data.limiteFiliais),
               percentualFilial: lerPercentualFilial(data.percentualFilial),
               valorTotal: data.valorMensalidade || 149.90,
+              vendaPeloServidor: data.vendaPeloServidor === true,
             });
           }
         });
@@ -222,6 +225,46 @@ const SuperAdmin: React.FC = () => {
         console.error(err);
         Swal.fire('Erro', 'Não foi possível atualizar o valor.', 'error');
       }
+    }
+  };
+
+  /**
+   * VENDA PELO SERVIDOR (item 8 da auditoria, fatia 3 -- 13/10/2026): liga por
+   * empresa o Finalizar do Pedido de Venda gravado pelo servidor (estoque,
+   * comissao, titulos e saldo do banco conferidos la'). Decisao do dono: liga
+   * empresa por empresa, comecando pelo dev e por uma loja. Vale para a matriz
+   * e para todas as filiais do grupo (cada filial tem a sua configuracao).
+   */
+  const handleAlternarVendaPeloServidor = async (tenant: TenantInfo) => {
+    if (!currentUser) return;
+    const ligar = !tenant.vendaPeloServidor;
+    const confirmacao = await Swal.fire({
+      title: ligar ? 'Ligar venda pelo servidor?' : 'Desligar venda pelo servidor?',
+      text: ligar
+        ? `O Finalizar do Pedido de Venda de ${tenant.nomeOficina} passa a ser gravado pelo servidor: estoque, comissão, títulos e saldo do banco conferidos lá. Com o servidor fora do ar, a venda não fecha. Vale também para as filiais da empresa.`
+        : `O Finalizar do Pedido de Venda de ${tenant.nomeOficina} volta a ser gravado pelo navegador, como antes.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#8b5cf6',
+      confirmButtonText: ligar ? 'Ligar' : 'Desligar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirmacao.isConfirmed) return;
+    setLoading(true);
+    try {
+      const meta = buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), ligar ? 'Venda pelo servidor ligada pelo admin da plataforma' : 'Venda pelo servidor desligada pelo admin da plataforma');
+      await updateDoc(doc(db, 'usuarios', tenant.id), { vendaPeloServidor: ligar, ...meta });
+      const empresas = new Set<string>([tenant.id, ...(tenant.grupo ? tenant.grupo.filiais.map((f) => f.tenantId) : [])]);
+      for (const empresaId of empresas) {
+        await setDoc(doc(db, 'configuracoes', empresaId), { vendaPeloServidor: ligar, ...meta }, { merge: true });
+      }
+      setTenants(prev => prev.map(t => t.id === tenant.id ? { ...t, vendaPeloServidor: ligar } : t));
+      showSuccess(ligar ? 'Venda pelo servidor ligada. Quem estiver com o Pedido de Venda aberto precisa reabrir a tela.' : 'Venda pelo servidor desligada.');
+    } catch (err) {
+      console.error('Erro ao alterar a venda pelo servidor', err);
+      showError('Não foi possível alterar a venda pelo servidor', 'Confira a internet e tente de novo. Se continuar, confira se as regras do banco de dados desta versão foram publicadas.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1053,6 +1096,21 @@ const SuperAdmin: React.FC = () => {
                             Acessar Dados <ExternalLink size={14} />
                           </button>
                         )}
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          onClick={() => { void handleAlternarVendaPeloServidor(tenant); }}
+                          aria-pressed={tenant.vendaPeloServidor}
+                          style={{
+                            padding: '8px', borderRadius: 'var(--radius-md)', border: 'none', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            color: tenant.vendaPeloServidor ? '#10b981' : 'var(--text-muted)',
+                            backgroundColor: tenant.vendaPeloServidor ? 'rgba(16, 185, 129, 0.12)' : 'var(--bg-tertiary)',
+                          }}
+                          title={tenant.vendaPeloServidor ? 'Venda pelo servidor: LIGADA (clique para desligar)' : 'Venda pelo servidor: desligada (clique para ligar)'}
+                          aria-label={`Venda pelo servidor de ${tenant.nomeOficina}: ${tenant.vendaPeloServidor ? 'ligada' : 'desligada'}`}
+                        >
+                          <Server size={16} />
+                        </button>
                         <button
                           className="icon-btn"
                           onClick={() => setEmpresaSpedyModal({ tenantId: tenant.id, tenantNome: tenant.nomeOficina })}

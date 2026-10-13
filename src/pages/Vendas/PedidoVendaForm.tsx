@@ -7,6 +7,8 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { conferirSaidaDoProduto } from '../../services/reservaEstoqueService';
+import { finalizarVendaNoServidor } from '../../services/vendaServidorService';
+import { parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
 import { analisarSaidaComReserva } from '../../utils/estoqueReservaDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService } from '../../services/spedyService';
@@ -352,6 +354,13 @@ const PedidoVendaForm: React.FC = () => {
    * (reserva na venda, 13/10/2026).
    */
   const reservaPropriaRef = useRef<Map<string, number>>(new Map());
+  /**
+   * Item 8, fatia 3 (13/10/2026): com a chave da empresa ligada (SuperAdmin),
+   * o Finalizar e' gravado pelo servidor. O id da venda direta nasce aqui e
+   * vai junto: repetir depois de cair a conexao nao grava duas vezes.
+   */
+  const [vendaPeloServidor, setVendaPeloServidor] = useState(false);
+  const idVendaServidorRef = useRef('');
 
   const [nfeDoc, setNfeDoc] = useState<LinkedNfe | null>(null);
   /** NF-e (modelo 55) desta venda -- a que vale: autorizada > na fila > rejeitada > cancelada. */
@@ -881,6 +890,7 @@ const PedidoVendaForm: React.FC = () => {
         if (configSnap.exists()) {
           const config = configSnap.data();
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
+          setVendaPeloServidor(parseVendaPeloServidor(config.vendaPeloServidor));
           setPagamentoCartaoSimplificadoAtivo(parsePagamentoCartaoSimplificadoAtivo(config.pagamentoCartaoSimplificadoAtivo));
           setProdutoSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           setConferenciaMercadoriaAtiva(config.conferenciaMercadoria === true);
@@ -3075,7 +3085,7 @@ const PedidoVendaForm: React.FC = () => {
       // aloca sequencia nova -- senao os numeros ficariam pulados. Venda
       // direta (sem passar por pedido aberto) segue alocando como sempre.
       const finalizandoPedidoAberto = pedidoEstaAberto;
-      const currentMaxPedido = finalizandoPedidoAberto
+      const currentMaxPedido = finalizandoPedidoAberto || vendaPeloServidor
         ? 0
         : await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
       let newPedidoId = '';
@@ -3088,327 +3098,359 @@ const PedidoVendaForm: React.FC = () => {
         }
       });
 
-      await runTransaction(db, async (transaction) => {
-        const nextPedido = finalizandoPedidoAberto
-          ? 0
-          : await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
-        // Vendedor identificado pelo popup vence o estado da tela: quando a
-        // identificacao acabou de acontecer, o setState ainda nao chegou
-        // neste closure, e usar o state vendedorId carimbaria a venda na
-        // pessoa errada. Ver vendedorIdentificadoRef.
-        const selectedSellerId = vendedorIdentificadoRef.current?.vendedorId || vendedorId || currentUser.uid;
-        const sellerSnap = await transaction.get(doc(db, 'usuarios', selectedSellerId));
-        const sellerProfile = sellerSnap.exists() ? sellerSnap.data() : {};
-        if (!sellerSnap.exists() || sellerProfile.tenantId !== tenantId) {
-          throw new Error('O vendedor selecionado não pertence à empresa ativa.');
+      if (vendaPeloServidor) {
+        // O servidor refaz totais, pagamentos, comissao, estoque, lotes, banco
+        // e credito com os dados do banco (server/services/vendaFechamento.js)
+        // e grava tudo numa transacao so'. Daqui vai so' o que a pessoa escolheu.
+        if (!finalizandoPedidoAberto && !idVendaServidorRef.current) {
+          idVendaServidorRef.current = doc(collection(db, 'pedidos_venda')).id;
         }
-        const sellerName = sellerProfile.nome || sellerProfile.nomeResponsavel || currentUser.displayName || currentUser.email || 'Vendedor';
-        vendedorGravado = { id: selectedSellerId, nome: sellerName };
-
-        const bankBalancesById = new Map<string, number>();
-        for (const bancoId of bankCreditsByBanco.keys()) {
-          const bancoSnap = await transaction.get(doc(db, 'bancos', bancoId));
-          if (!bancoSnap.exists()) throw new Error('O banco de destino selecionado não foi encontrado.');
-          bankBalancesById.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
-        }
-
-        // Guarda do limite de credito: confere aqui dentro se outra venda a
-        // prazo do mesmo cliente entrou depois que o saldo foi lido la fora.
-        // Leitura antes de qualquer escrita, como o Firestore exige.
-        const clienteCreditoRef = vendaEhAprazo && clienteIdParaSalvar
-          ? doc(db, 'clientes', clienteIdParaSalvar)
-          : null;
-        let creditoVersaoAtual = 0;
-        if (clienteCreditoRef) {
-          const clienteSnapTx = await transaction.get(clienteCreditoRef);
-          creditoVersaoAtual = parseCreditoVersao(clienteSnapTx.data()?.[CAMPO_CREDITO_VERSAO]);
-          if (creditoFoiAlteradoDurante(creditoVersaoNaChecagem, creditoVersaoAtual)) {
-            throw new Error(MENSAGEM_CREDITO_CONCORRENTE);
-          }
-        }
-
-        // Credito de devolucao usado nesta venda: rele os saldos DENTRO da
-        // transacao (o que a tela carregou pode estar velho -- outra venda
-        // pode ter gasto o mesmo credito nesse meio tempo) e so entao
-        // distribui. Leitura antes de qualquer escrita, como o Firestore exige.
-        const creditoUsadoCentavos = paymentRecords
-          .filter((payment) => payment.formaPagamento === 'Crédito de Devolução')
-          .reduce((soma, payment) => soma + payment.valorCentavos, 0);
-        let consumosCredito: ReturnType<typeof distribuirConsumoCredito> = [];
-        if (creditoUsadoCentavos > 0) {
-          const saldosAtuais: CreditoClienteDisponivel[] = [];
-          for (const credito of creditosCliente) {
-            const creditoSnap = await transaction.get(doc(db, 'creditos_cliente', credito.id));
-            if (!creditoSnap.exists()) continue;
-            const creditoData = creditoSnap.data();
-            if (creditoData.tenantId !== tenantId) continue;
-            if (!['disponivel', 'usado_parcial'].includes(creditoData.status)) continue;
-            saldosAtuais.push({
-              id: credito.id,
-              saldoDisponivelCentavos: Number(creditoData.saldoDisponivelCentavos ?? toCents(creditoData.saldoDisponivel || 0)),
-            });
-          }
-          try {
-            consumosCredito = distribuirConsumoCredito(saldosAtuais, creditoUsadoCentavos);
-          } catch {
-            throw new Error('O crédito deste cliente mudou desde que a venda foi montada. Refaça o pagamento com crédito.');
-          }
-        }
-
-        const newPedidoRef = finalizandoPedidoAberto ? doc(db, 'pedidos_venda', id!) : doc(collection(db, 'pedidos_venda'));
-        newPedidoId = newPedidoRef.id;
-
-        // Le o documento aberto ANTES de qualquer escrita da transacao
-        // (regra do Firestore: toda leitura vem antes de qualquer escrita)
-        // pra preservar createdAt/criadoPor/criadoEm originais -- finalizar
-        // uma pre-venda ou um pedido do agente nao deve apagar quando ele
-        // foi criado de verdade, so registrar quem finalizou.
-        const existingPedidoSnap = finalizandoPedidoAberto ? await transaction.get(newPedidoRef) : null;
-        // Campos gravados por OUTRO setor no documento (hoje, os da
-        // conferencia). Lidos aqui dentro da transacao pra sobreviverem ao
-        // `set` que reescreve o pedido logo abaixo.
-        const dadosPedidoAberto = existingPedidoSnap?.exists() ? existingPedidoSnap.data() : null;
-        if (finalizandoPedidoAberto && !existingPedidoSnap?.exists()) {
-          throw new Error('Este pedido não existe mais.');
-        }
-        // Reserva conforme gravada NO BANCO (nao a da tela): e' o que
-        // precisa ser liberado do estoque agora que a baixa vira real.
-        const pedidoAbertoData = existingPedidoSnap?.data();
-        const reservaGravada = pedidoAbertoData?.estoqueReservado === true
-          ? toStockAdjustmentItems(pedidoAbertoData.itens || [])
-          : [];
-
-        if (!finalizandoPedidoAberto) {
-          finalNumeroPedido = formatSequenceValue(nextPedido, 4);
-        }
-
-        if (reservaGravada.length > 0) {
-          // Pre-venda finalizando: libera 100% da reserva e debita de
-          // verdade os itens atuais. Os dois lados podem divergir -- o
-          // usuario pode ter mexido nos itens na mesma tela que finaliza --
-          // e computeReservationCommit trata exatamente esse caso.
-          // Debitar direto aqui deixaria a reserva pendurada pra sempre,
-          // inflando o "reservado" do produto sem nenhuma pre-venda viva.
-          await applyStockFieldDeltas(
-            transaction,
-            db,
-            computeReservationCommit(reservaGravada, toStockAdjustmentItems(itens)),
-            permitirVendaSemEstoque,
-            { respeitarReserva: true },
-          );
-        } else {
-          await applyStockAdjustments(
-            transaction,
-            db,
-            toStockAdjustmentItems(itens),
-            'decrement',
-            permitirVendaSemEstoque,
-            { respeitarReserva: true },
-          );
-        }
-        baixarLotesNaTransacao(transaction, db, planoLotes);
-
-        if (!finalizandoPedidoAberto) {
-          writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
-        }
-
-        const persistedPayments = paymentRecords.map((payment, index) => ({
-          ...payment,
-          transactionId: index === 0 ? newPedidoRef.id : `${newPedidoRef.id}_pag_${index + 1}`,
-        }));
-        // Hierarquia da comissao, por item: produto (comissao propria, se
-        // configurada) > vendedor (cadastro, se "recebe comissao" = sim) >
-        // padrao do sistema. Item avulso (sem produto no catalogo, id
-        // 'avulso') nao acha correspondencia em produtosCatalogo -- cai
-        // direto pro vendedor/sistema, sem tratamento especial. Ver
-        // resolveComissaoPercentual em financeDomain.ts.
-        const commissionSnapshot = buildCommissionSnapshotFromItems({
-          sellerId: selectedSellerId,
-          sellerName,
-          itens: itens.map((item) => ({
-            id: item.id,
-            nome: item.nome,
-            baseCents: toCents(item.subtotal),
-            percentual: resolveComissaoPercentual({
-              itemPercentual: produtosCatalogo.find((p) => p.id === item.id)?.comissaoPercentual,
-              recebeComissao: sellerProfile.recebeComissaoPecas,
-              percentualVendedor: sellerProfile.comissaoPercentualPecas,
-              percentualPadraoSistema: comissaoPadraoPecas,
-            }),
-          })),
-        });
-
-        const pedidoData = {
-          numeroPedido: finalNumeroPedido,
+        const resposta = await finalizarVendaNoServidor({
+          ...(finalizandoPedidoAberto ? { pedidoId: id } : { idDocumento: idVendaServidorRef.current }),
+          dataVenda: dataVendaParaGravar,
+          vendedorId: vendedorIdentificadoRef.current?.vendedorId || vendedorId || currentUser.uid,
           clienteId: clienteIdParaSalvar,
           clienteNome: finalClienteNome,
           observacao: observacaoPedido.trim(),
           itens: itensComLote,
-          promocaoIds: promocaoIdsDosItens(itens),
-          ...(orcamentoId ? { orcamentoId } : {}),
-          valorTotalItens,
-          valorTotalItensCentavos: toCents(valorTotalItens),
-          valorTotalDescontos,
-          valorTotalDescontosCentavos: toCents(valorTotalDescontos),
-          // Snapshot do desconto GERAL (nao dos descontos de item, ja
-          // embutidos em cada item de `itens`) -- usado pelo relatorio de
-          // descontos concedidos (Fatia 6).
           descontoGeral: {
             tipo: descontoGeralInput.tipo,
             valorInformado: Number(descontoGeralInput.valor.replace(',', '.')) || 0,
-            valorAplicadoCentavos: descontoGeralCents,
             excedeuLimite: checagemLimiteDesconto.excedeu,
-            ...(checagemLimiteDesconto.excedeu && aprovacaoDesconto
-              ? { aprovacao: { modo: 'senha' as const, ...aprovacaoDesconto, aprovadoEm: new Date().toISOString() } }
-              : {}),
+            ...(checagemLimiteDesconto.excedeu && aprovacaoDesconto ? { aprovacao: aprovacaoDesconto } : {}),
           },
           frete: Number(frete || 0),
           encargos: Number(encargos || 0),
-          valorTotal: valorTotalPedido,
-          valorTotalCentavos: valorTotalPedidoCentavos,
-          formaPagamento: paymentSummary.paymentMethodLabel,
-          condicaoPagamento: paymentSummary.paymentCondition,
-          pagamentos: persistedPayments,
-          totalRecebido: paymentSummary.received,
-          totalRecebidoCentavos: paymentSummary.receivedCents,
-          totalPendente: paymentSummary.pending,
-          totalPendenteCentavos: paymentSummary.pendingCents,
-          totalTaxasPagamento: paymentSummary.cardFee,
-          totalTaxasPagamentoCentavos: paymentSummary.cardFeeCents,
-          totalLiquidoFinanceiro: paymentSummary.financialNet,
-          totalLiquidoFinanceiroCentavos: paymentSummary.financialNetCents,
-          dataVenda: dataVendaParaGravar,
-          status: 'Finalizada',
-          // Modulo 12 (Conferencia de mercadoria): so grava o campo quando a
-          // chave-mestra esta ligada -- Firestore rejeita `undefined` como
-          // valor de campo, entao o jeito de "nao gravar" e' nao incluir a
-          // chave no objeto. Tenant com a config desligada continua
-          // gravando exatamente o que gravava antes desta fatia.
-          // Pedido que JA passou pela conferencia mantem o que a expedicao
-          // fechou. Regravar 'aguardando' aqui devolveria pra fila um
-          // pedido ja separado e conferido -- o que acontece toda vez que
-          // uma pre-venda conferida e' faturada, que e' o caminho normal de
-          // quem trabalha com pre-venda + conferencia.
-          ...(conferenciaMercadoriaAtiva ? { statusConferencia: (statusConferencia || 'aguardando') as StatusConferencia } : {}),
-          // Quem conferiu e quando. Este `set` reescreve o documento
-          // INTEIRO, entao um campo nao repetido aqui e' apagado -- e sem
-          // isto, faturar a pre-venda apagava o autor da conferencia que a
-          // expedicao tinha acabado de gravar. As chaves so entram quando
-          // existem de verdade: Firestore recusa `undefined`.
-          ...(dadosPedidoAberto?.conferidoPor ? { conferidoPor: dadosPedidoAberto.conferidoPor } : {}),
-          ...(dadosPedidoAberto?.conferidoPorNome ? { conferidoPorNome: dadosPedidoAberto.conferidoPorNome } : {}),
-          ...(dadosPedidoAberto?.conferidoEm ? { conferidoEm: dadosPedidoAberto.conferidoEm } : {}),
-          tenantId,
-          usuarioResponsavelId: currentUser.uid,
-          vendedorId: selectedSellerId,
-          vendedorNome: sellerName,
-          comissao: commissionSnapshot,
-          // Origem preservada: uma venda que nasceu de pre-venda continua
-          // sabendo que veio do balcao, e a que veio do WhatsApp continua
-          // marcada como do agente depois de faturada.
-          origem: finalizandoPedidoAberto ? origemPedido : 'balcao',
-          // A reserva foi consumida pela baixa real logo acima -- o
-          // documento nao pode continuar dizendo que reserva estoque, senao
-          // um cancelamento futuro tentaria liberar reserva que nao existe
-          // mais e devolveria quantidade a maior pro estoque.
-          estoqueReservado: false,
-          // Pedido aberto (pre-venda do balcao ou pendente do agente)
-          // preserva createdAt/criadoPor/criadoEm originais -- quando o
-          // pedido foi criado de verdade -- e so grava quem finalizou.
-          // Firestore rejeita campo com valor undefined (quebraria a
-          // transacao inteira), entao cai num fallback seguro se esses
-          // campos nao estiverem gravados: no caso do agente, nao da pra
-          // depender de uma integracao externa manter um contrato de
-          // metadados a risca.
-          ...(finalizandoPedidoAberto
-            ? {
-                createdAt: pedidoAbertoData?.createdAt ?? serverTimestamp(),
-                criadoPor: pedidoAbertoData?.criadoPor ?? currentUser.uid,
-                criadoEm: pedidoAbertoData?.criadoEm ?? serverTimestamp(),
-                ...buildDocumentUpdateMetadata(
-                  currentUser.uid,
-                  serverTimestamp(),
-                  isPendingFromAgent ? 'Pedido pendente do agente finalizado' : 'Pré-venda finalizada',
-                ),
-              }
-            : {
-                createdAt: serverTimestamp(),
-                ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          pagamentos: paymentDrafts,
+          ...(orcamentoId ? { orcamentoId } : {}),
+        });
+        newPedidoId = resposta.pedidoId;
+        finalNumeroPedido = resposta.numeroPedido;
+        vendedorGravado = { id: resposta.vendedorId, nome: resposta.vendedorNome };
+        idVendaServidorRef.current = '';
+      } else {
+        await runTransaction(db, async (transaction) => {
+          const nextPedido = finalizandoPedidoAberto
+            ? 0
+            : await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
+          // Vendedor identificado pelo popup vence o estado da tela: quando a
+          // identificacao acabou de acontecer, o setState ainda nao chegou
+          // neste closure, e usar o state vendedorId carimbaria a venda na
+          // pessoa errada. Ver vendedorIdentificadoRef.
+          const selectedSellerId = vendedorIdentificadoRef.current?.vendedorId || vendedorId || currentUser.uid;
+          const sellerSnap = await transaction.get(doc(db, 'usuarios', selectedSellerId));
+          const sellerProfile = sellerSnap.exists() ? sellerSnap.data() : {};
+          if (!sellerSnap.exists() || sellerProfile.tenantId !== tenantId) {
+            throw new Error('O vendedor selecionado não pertence à empresa ativa.');
+          }
+          const sellerName = sellerProfile.nome || sellerProfile.nomeResponsavel || currentUser.displayName || currentUser.email || 'Vendedor';
+          vendedorGravado = { id: selectedSellerId, nome: sellerName };
+
+          const bankBalancesById = new Map<string, number>();
+          for (const bancoId of bankCreditsByBanco.keys()) {
+            const bancoSnap = await transaction.get(doc(db, 'bancos', bancoId));
+            if (!bancoSnap.exists()) throw new Error('O banco de destino selecionado não foi encontrado.');
+            bankBalancesById.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
+          }
+
+          // Guarda do limite de credito: confere aqui dentro se outra venda a
+          // prazo do mesmo cliente entrou depois que o saldo foi lido la fora.
+          // Leitura antes de qualquer escrita, como o Firestore exige.
+          const clienteCreditoRef = vendaEhAprazo && clienteIdParaSalvar
+            ? doc(db, 'clientes', clienteIdParaSalvar)
+            : null;
+          let creditoVersaoAtual = 0;
+          if (clienteCreditoRef) {
+            const clienteSnapTx = await transaction.get(clienteCreditoRef);
+            creditoVersaoAtual = parseCreditoVersao(clienteSnapTx.data()?.[CAMPO_CREDITO_VERSAO]);
+            if (creditoFoiAlteradoDurante(creditoVersaoNaChecagem, creditoVersaoAtual)) {
+              throw new Error(MENSAGEM_CREDITO_CONCORRENTE);
+            }
+          }
+
+          // Credito de devolucao usado nesta venda: rele os saldos DENTRO da
+          // transacao (o que a tela carregou pode estar velho -- outra venda
+          // pode ter gasto o mesmo credito nesse meio tempo) e so entao
+          // distribui. Leitura antes de qualquer escrita, como o Firestore exige.
+          const creditoUsadoCentavos = paymentRecords
+            .filter((payment) => payment.formaPagamento === 'Crédito de Devolução')
+            .reduce((soma, payment) => soma + payment.valorCentavos, 0);
+          let consumosCredito: ReturnType<typeof distribuirConsumoCredito> = [];
+          if (creditoUsadoCentavos > 0) {
+            const saldosAtuais: CreditoClienteDisponivel[] = [];
+            for (const credito of creditosCliente) {
+              const creditoSnap = await transaction.get(doc(db, 'creditos_cliente', credito.id));
+              if (!creditoSnap.exists()) continue;
+              const creditoData = creditoSnap.data();
+              if (creditoData.tenantId !== tenantId) continue;
+              if (!['disponivel', 'usado_parcial'].includes(creditoData.status)) continue;
+              saldosAtuais.push({
+                id: credito.id,
+                saldoDisponivelCentavos: Number(creditoData.saldoDisponivelCentavos ?? toCents(creditoData.saldoDisponivel || 0)),
+              });
+            }
+            try {
+              consumosCredito = distribuirConsumoCredito(saldosAtuais, creditoUsadoCentavos);
+            } catch {
+              throw new Error('O crédito deste cliente mudou desde que a venda foi montada. Refaça o pagamento com crédito.');
+            }
+          }
+
+          const newPedidoRef = finalizandoPedidoAberto ? doc(db, 'pedidos_venda', id!) : doc(collection(db, 'pedidos_venda'));
+          newPedidoId = newPedidoRef.id;
+
+          // Le o documento aberto ANTES de qualquer escrita da transacao
+          // (regra do Firestore: toda leitura vem antes de qualquer escrita)
+          // pra preservar createdAt/criadoPor/criadoEm originais -- finalizar
+          // uma pre-venda ou um pedido do agente nao deve apagar quando ele
+          // foi criado de verdade, so registrar quem finalizou.
+          const existingPedidoSnap = finalizandoPedidoAberto ? await transaction.get(newPedidoRef) : null;
+          // Campos gravados por OUTRO setor no documento (hoje, os da
+          // conferencia). Lidos aqui dentro da transacao pra sobreviverem ao
+          // `set` que reescreve o pedido logo abaixo.
+          const dadosPedidoAberto = existingPedidoSnap?.exists() ? existingPedidoSnap.data() : null;
+          if (finalizandoPedidoAberto && !existingPedidoSnap?.exists()) {
+            throw new Error('Este pedido não existe mais.');
+          }
+          // Reserva conforme gravada NO BANCO (nao a da tela): e' o que
+          // precisa ser liberado do estoque agora que a baixa vira real.
+          const pedidoAbertoData = existingPedidoSnap?.data();
+          const reservaGravada = pedidoAbertoData?.estoqueReservado === true
+            ? toStockAdjustmentItems(pedidoAbertoData.itens || [])
+            : [];
+
+          if (!finalizandoPedidoAberto) {
+            finalNumeroPedido = formatSequenceValue(nextPedido, 4);
+          }
+
+          if (reservaGravada.length > 0) {
+            // Pre-venda finalizando: libera 100% da reserva e debita de
+            // verdade os itens atuais. Os dois lados podem divergir -- o
+            // usuario pode ter mexido nos itens na mesma tela que finaliza --
+            // e computeReservationCommit trata exatamente esse caso.
+            // Debitar direto aqui deixaria a reserva pendurada pra sempre,
+            // inflando o "reservado" do produto sem nenhuma pre-venda viva.
+            await applyStockFieldDeltas(
+              transaction,
+              db,
+              computeReservationCommit(reservaGravada, toStockAdjustmentItems(itens)),
+              permitirVendaSemEstoque,
+              { respeitarReserva: true },
+            );
+          } else {
+            await applyStockAdjustments(
+              transaction,
+              db,
+              toStockAdjustmentItems(itens),
+              'decrement',
+              permitirVendaSemEstoque,
+              { respeitarReserva: true },
+            );
+          }
+          baixarLotesNaTransacao(transaction, db, planoLotes);
+
+          if (!finalizandoPedidoAberto) {
+            writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
+          }
+
+          const persistedPayments = paymentRecords.map((payment, index) => ({
+            ...payment,
+            transactionId: index === 0 ? newPedidoRef.id : `${newPedidoRef.id}_pag_${index + 1}`,
+          }));
+          // Hierarquia da comissao, por item: produto (comissao propria, se
+          // configurada) > vendedor (cadastro, se "recebe comissao" = sim) >
+          // padrao do sistema. Item avulso (sem produto no catalogo, id
+          // 'avulso') nao acha correspondencia em produtosCatalogo -- cai
+          // direto pro vendedor/sistema, sem tratamento especial. Ver
+          // resolveComissaoPercentual em financeDomain.ts.
+          const commissionSnapshot = buildCommissionSnapshotFromItems({
+            sellerId: selectedSellerId,
+            sellerName,
+            itens: itens.map((item) => ({
+              id: item.id,
+              nome: item.nome,
+              baseCents: toCents(item.subtotal),
+              percentual: resolveComissaoPercentual({
+                itemPercentual: produtosCatalogo.find((p) => p.id === item.id)?.comissaoPercentual,
+                recebeComissao: sellerProfile.recebeComissaoPecas,
+                percentualVendedor: sellerProfile.comissaoPercentualPecas,
+                percentualPadraoSistema: comissaoPadraoPecas,
               }),
-        };
-
-        transaction.set(newPedidoRef, pedidoData);
-
-        // Fecha a guarda: a proxima venda a prazo deste cliente que tiver
-        // lido o saldo antes desta aqui vai ver a versao diferente e parar.
-        if (clienteCreditoRef) {
-          transaction.update(clienteCreditoRef, {
-            [CAMPO_CREDITO_VERSAO]: creditoVersaoAtual + 1,
-            updatedAt: serverTimestamp(),
+            })),
           });
-        }
 
-        bankCreditsByBanco.forEach((deltaCents, bancoId) => {
-          transaction.update(doc(db, 'bancos', bancoId), {
-            saldoCentavos: (bankBalancesById.get(bancoId) || 0) + deltaCents,
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Crédito da venda #${finalNumeroPedido}`),
-          });
-        });
-
-        consumosCredito.forEach((consumo) => {
-          transaction.update(doc(db, 'creditos_cliente', consumo.id), {
-            saldoDisponivelCentavos: consumo.saldoRestanteCentavos,
-            saldoDisponivel: fromCents(consumo.saldoRestanteCentavos),
-            status: consumo.saldoRestanteCentavos <= 0 ? 'esgotado' : 'usado_parcial',
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Crédito usado na venda #${finalNumeroPedido}`),
-          });
-        });
-
-        persistedPayments.forEach((payment) => {
-          const parcelaLabel = payment.cartao?.numero
-            ? ` (Parcela ${payment.cartao.numero}/${payment.cartao.totalParcelas})`
-            : '';
-          transaction.set(doc(db, 'transacoes', payment.transactionId), {
-            descricao: `Venda Direta #${finalNumeroPedido} - ${payment.formaPagamento}${parcelaLabel}`,
-            categoria: 'Venda de Peças',
-            valor: payment.valor,
-            valorCentavos: payment.valorCentavos,
-            valorBruto: payment.valor,
-            valorBrutoCentavos: payment.valorCentavos,
-            valorTaxa: payment.cartao?.valorTaxa || 0,
-            valorTaxaCentavos: payment.cartao?.valorTaxaCentavos || 0,
-            valorLiquido: payment.cartao?.valorLiquido ?? payment.valor,
-            valorLiquidoCentavos: payment.cartao?.valorLiquidoCentavos ?? payment.valorCentavos,
-            tipo: 'entrada',
-            formaPagamento: payment.formaPagamento,
-            condicaoPagamento: payment.condicaoPagamento,
-            status: payment.status === 'confirmado' ? 'Paga' : 'Pendente',
-            naturezaFinanceira: payment.naturezaFinanceira,
-            movimentaCaixaFisico: payment.movimentaCaixaFisico,
-            bancoId: payment.bancoId || null,
-            bancoNome: payment.bancoNome || null,
-            prazoDias: payment.prazoDias || null,
-            data: payment.dataVencimento || dataVendaParaGravar,
-            dataVencimento: payment.dataVencimento || null,
-            dataPrevistaRecebimento: payment.dataPrevistaRecebimento || null,
-            cartao: payment.cartao || null,
-            pedidoId: newPedidoRef.id,
-            sourceType: 'pedido_venda',
-            sourceId: newPedidoRef.id,
-            paymentIndex: payment.indice,
-            idempotencyKey: `pedido:${newPedidoRef.id}:pagamento:${payment.indice}`,
+          const pedidoData = {
+            numeroPedido: finalNumeroPedido,
             clienteId: clienteIdParaSalvar,
             clienteNome: finalClienteNome,
+            observacao: observacaoPedido.trim(),
+            itens: itensComLote,
+            promocaoIds: promocaoIdsDosItens(itens),
+            ...(orcamentoId ? { orcamentoId } : {}),
+            valorTotalItens,
+            valorTotalItensCentavos: toCents(valorTotalItens),
+            valorTotalDescontos,
+            valorTotalDescontosCentavos: toCents(valorTotalDescontos),
+            // Snapshot do desconto GERAL (nao dos descontos de item, ja
+            // embutidos em cada item de `itens`) -- usado pelo relatorio de
+            // descontos concedidos (Fatia 6).
+            descontoGeral: {
+              tipo: descontoGeralInput.tipo,
+              valorInformado: Number(descontoGeralInput.valor.replace(',', '.')) || 0,
+              valorAplicadoCentavos: descontoGeralCents,
+              excedeuLimite: checagemLimiteDesconto.excedeu,
+              ...(checagemLimiteDesconto.excedeu && aprovacaoDesconto
+                ? { aprovacao: { modo: 'senha' as const, ...aprovacaoDesconto, aprovadoEm: new Date().toISOString() } }
+                : {}),
+            },
+            frete: Number(frete || 0),
+            encargos: Number(encargos || 0),
+            valorTotal: valorTotalPedido,
+            valorTotalCentavos: valorTotalPedidoCentavos,
+            formaPagamento: paymentSummary.paymentMethodLabel,
+            condicaoPagamento: paymentSummary.paymentCondition,
+            pagamentos: persistedPayments,
+            totalRecebido: paymentSummary.received,
+            totalRecebidoCentavos: paymentSummary.receivedCents,
+            totalPendente: paymentSummary.pending,
+            totalPendenteCentavos: paymentSummary.pendingCents,
+            totalTaxasPagamento: paymentSummary.cardFee,
+            totalTaxasPagamentoCentavos: paymentSummary.cardFeeCents,
+            totalLiquidoFinanceiro: paymentSummary.financialNet,
+            totalLiquidoFinanceiroCentavos: paymentSummary.financialNetCents,
+            dataVenda: dataVendaParaGravar,
+            status: 'Finalizada',
+            // Modulo 12 (Conferencia de mercadoria): so grava o campo quando a
+            // chave-mestra esta ligada -- Firestore rejeita `undefined` como
+            // valor de campo, entao o jeito de "nao gravar" e' nao incluir a
+            // chave no objeto. Tenant com a config desligada continua
+            // gravando exatamente o que gravava antes desta fatia.
+            // Pedido que JA passou pela conferencia mantem o que a expedicao
+            // fechou. Regravar 'aguardando' aqui devolveria pra fila um
+            // pedido ja separado e conferido -- o que acontece toda vez que
+            // uma pre-venda conferida e' faturada, que e' o caminho normal de
+            // quem trabalha com pre-venda + conferencia.
+            ...(conferenciaMercadoriaAtiva ? { statusConferencia: (statusConferencia || 'aguardando') as StatusConferencia } : {}),
+            // Quem conferiu e quando. Este `set` reescreve o documento
+            // INTEIRO, entao um campo nao repetido aqui e' apagado -- e sem
+            // isto, faturar a pre-venda apagava o autor da conferencia que a
+            // expedicao tinha acabado de gravar. As chaves so entram quando
+            // existem de verdade: Firestore recusa `undefined`.
+            ...(dadosPedidoAberto?.conferidoPor ? { conferidoPor: dadosPedidoAberto.conferidoPor } : {}),
+            ...(dadosPedidoAberto?.conferidoPorNome ? { conferidoPorNome: dadosPedidoAberto.conferidoPorNome } : {}),
+            ...(dadosPedidoAberto?.conferidoEm ? { conferidoEm: dadosPedidoAberto.conferidoEm } : {}),
+            tenantId,
             usuarioResponsavelId: currentUser.uid,
             vendedorId: selectedSellerId,
-            tenantId,
-            createdAt: serverTimestamp(),
-            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+            vendedorNome: sellerName,
+            comissao: commissionSnapshot,
+            // Origem preservada: uma venda que nasceu de pre-venda continua
+            // sabendo que veio do balcao, e a que veio do WhatsApp continua
+            // marcada como do agente depois de faturada.
+            origem: finalizandoPedidoAberto ? origemPedido : 'balcao',
+            // A reserva foi consumida pela baixa real logo acima -- o
+            // documento nao pode continuar dizendo que reserva estoque, senao
+            // um cancelamento futuro tentaria liberar reserva que nao existe
+            // mais e devolveria quantidade a maior pro estoque.
+            estoqueReservado: false,
+            // Pedido aberto (pre-venda do balcao ou pendente do agente)
+            // preserva createdAt/criadoPor/criadoEm originais -- quando o
+            // pedido foi criado de verdade -- e so grava quem finalizou.
+            // Firestore rejeita campo com valor undefined (quebraria a
+            // transacao inteira), entao cai num fallback seguro se esses
+            // campos nao estiverem gravados: no caso do agente, nao da pra
+            // depender de uma integracao externa manter um contrato de
+            // metadados a risca.
+            ...(finalizandoPedidoAberto
+              ? {
+                  createdAt: pedidoAbertoData?.createdAt ?? serverTimestamp(),
+                  criadoPor: pedidoAbertoData?.criadoPor ?? currentUser.uid,
+                  criadoEm: pedidoAbertoData?.criadoEm ?? serverTimestamp(),
+                  ...buildDocumentUpdateMetadata(
+                    currentUser.uid,
+                    serverTimestamp(),
+                    isPendingFromAgent ? 'Pedido pendente do agente finalizado' : 'Pré-venda finalizada',
+                  ),
+                }
+              : {
+                  createdAt: serverTimestamp(),
+                  ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+                }),
+          };
+
+          transaction.set(newPedidoRef, pedidoData);
+
+          // Fecha a guarda: a proxima venda a prazo deste cliente que tiver
+          // lido o saldo antes desta aqui vai ver a versao diferente e parar.
+          if (clienteCreditoRef) {
+            transaction.update(clienteCreditoRef, {
+              [CAMPO_CREDITO_VERSAO]: creditoVersaoAtual + 1,
+              updatedAt: serverTimestamp(),
+            });
+          }
+
+          bankCreditsByBanco.forEach((deltaCents, bancoId) => {
+            transaction.update(doc(db, 'bancos', bancoId), {
+              saldoCentavos: (bankBalancesById.get(bancoId) || 0) + deltaCents,
+              updatedAt: serverTimestamp(),
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Crédito da venda #${finalNumeroPedido}`),
+            });
+          });
+
+          consumosCredito.forEach((consumo) => {
+            transaction.update(doc(db, 'creditos_cliente', consumo.id), {
+              saldoDisponivelCentavos: consumo.saldoRestanteCentavos,
+              saldoDisponivel: fromCents(consumo.saldoRestanteCentavos),
+              status: consumo.saldoRestanteCentavos <= 0 ? 'esgotado' : 'usado_parcial',
+              updatedAt: serverTimestamp(),
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Crédito usado na venda #${finalNumeroPedido}`),
+            });
+          });
+
+          persistedPayments.forEach((payment) => {
+            const parcelaLabel = payment.cartao?.numero
+              ? ` (Parcela ${payment.cartao.numero}/${payment.cartao.totalParcelas})`
+              : '';
+            transaction.set(doc(db, 'transacoes', payment.transactionId), {
+              descricao: `Venda Direta #${finalNumeroPedido} - ${payment.formaPagamento}${parcelaLabel}`,
+              categoria: 'Venda de Peças',
+              valor: payment.valor,
+              valorCentavos: payment.valorCentavos,
+              valorBruto: payment.valor,
+              valorBrutoCentavos: payment.valorCentavos,
+              valorTaxa: payment.cartao?.valorTaxa || 0,
+              valorTaxaCentavos: payment.cartao?.valorTaxaCentavos || 0,
+              valorLiquido: payment.cartao?.valorLiquido ?? payment.valor,
+              valorLiquidoCentavos: payment.cartao?.valorLiquidoCentavos ?? payment.valorCentavos,
+              tipo: 'entrada',
+              formaPagamento: payment.formaPagamento,
+              condicaoPagamento: payment.condicaoPagamento,
+              status: payment.status === 'confirmado' ? 'Paga' : 'Pendente',
+              naturezaFinanceira: payment.naturezaFinanceira,
+              movimentaCaixaFisico: payment.movimentaCaixaFisico,
+              bancoId: payment.bancoId || null,
+              bancoNome: payment.bancoNome || null,
+              prazoDias: payment.prazoDias || null,
+              data: payment.dataVencimento || dataVendaParaGravar,
+              dataVencimento: payment.dataVencimento || null,
+              dataPrevistaRecebimento: payment.dataPrevistaRecebimento || null,
+              cartao: payment.cartao || null,
+              pedidoId: newPedidoRef.id,
+              sourceType: 'pedido_venda',
+              sourceId: newPedidoRef.id,
+              paymentIndex: payment.indice,
+              idempotencyKey: `pedido:${newPedidoRef.id}:pagamento:${payment.indice}`,
+              clienteId: clienteIdParaSalvar,
+              clienteNome: finalClienteNome,
+              usuarioResponsavelId: currentUser.uid,
+              vendedorId: selectedSellerId,
+              tenantId,
+              createdAt: serverTimestamp(),
+              ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+            });
           });
         });
-      });
+      }
 
       setNumeroPedido(finalNumeroPedido);
       setFormaPagamento(paymentSummary.paymentMethodLabel);
@@ -3417,7 +3459,8 @@ const PedidoVendaForm: React.FC = () => {
         void atualizarOrcamentoDeOrigem(orcamentoId, { status: 'Finalizado', geradoTipo: 'Venda', geradoId: newPedidoId }, `Convertido na venda #${finalNumeroPedido}`);
       }
 
-      try {
+      // Pelo servidor, o log e' gravado la' (com o valor que ELE calculou).
+      if (!vendaPeloServidor) try {
         const { createAuditLog } = await import('../../services/logService');
         createAuditLog({
           tenantId: tenantId || '',

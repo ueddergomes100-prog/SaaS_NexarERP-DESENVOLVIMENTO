@@ -48,6 +48,11 @@ const MODULOS = [
   'src/utils/parametrosVendaDomain.ts',
   // Configuracoes por filial, fase C: numeracao dos documentos.
   'src/utils/numeracaoDomain.ts',
+  // Item 8, fatia 3 (13/10/2026): fechamento da venda no servidor.
+  'src/utils/descontoDomain.ts',
+  'src/utils/creditoDomain.ts',
+  'src/utils/estoqueReservaDomain.ts',
+  'src/utils/vendaFechamentoDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

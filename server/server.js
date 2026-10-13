@@ -34,6 +34,7 @@ const condicionaisRoutes = require('./routes/condicionais.routes');
 const filiaisRoutes = require('./routes/filiais.routes');
 const transferenciasRoutes = require('./routes/transferencias.routes');
 const numeracaoRoutes = require('./routes/numeracao.routes');
+const vendasRoutes = require('./routes/vendas.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
 
 const app = express();
@@ -189,6 +190,8 @@ app.use('/api/condicionais', condicionaisRoutes);
 app.use('/api/filiais', filiaisRoutes);
 app.use('/api/transferencias', transferenciasRoutes);
 app.use('/api/numeracao', numeracaoRoutes);
+// Item 8, fatia 3 (2026-10-13): fechamento da venda pelo servidor (chave por empresa).
+app.use('/api/vendas', vendasRoutes);
 
 // Rota que nao existe: JSON em portugues, em vez do "Cannot GET /..." em HTML
 // do Express (que ainda entregava o nome do framework de brinde).

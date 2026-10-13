@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
-import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown, FileText } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown, FileText, Plus } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -167,11 +167,11 @@ import { vendidoNaPromocao } from '../../services/promocaoService';
 import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import Swal from 'sweetalert2';
-import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaModal';
 import { motivoPedidoNaoEmiteNota } from '../../utils/notaFiscalVisibilidadeDomain';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
+import './LancamentoItens.css';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; descontoPadraoPercentual?: number | null; }
 interface VendedorBasico { id: string; nome: string; email?: string; }
@@ -1734,14 +1734,6 @@ const PedidoVendaForm: React.FC = () => {
     setItens((current) => current.map((it, idx) => (idx === index ? atualizado : it)));
     if (avisoQuota) showWarning(avisoQuota);
     return null;
-  };
-
-  // Lancamento pela linha de codigo da grade: entra na unidade base, pelo
-  // preco automatico, sem desconto -- as mesmas travas de adicionarVariosItens.
-  const lancarPorCodigo = (produtoId: string, quantidade: number) => {
-    const produto = produtosCatalogo.find((p) => p.id === produtoId);
-    if (!produto) { showError('Produto não encontrado', 'Atualize a tela e tente de novo.'); return; }
-    adicionarVariosItens([{ product: produto, quantidade }], { silencioso: true });
   };
 
   const focusPagamentoSection = () => {
@@ -4709,27 +4701,47 @@ const PedidoVendaForm: React.FC = () => {
             </div>
           </div>
 
-          {/* Seção Adicionar Produto */}
-          {(!isViewing || canAddPendingItem) && (
-            <div className="card form-section" style={{ padding: '24px' }}>
-              <div className="section-header" style={{ marginBottom: '16px' }}>
+          {/* Itens da venda: UMA barra de lancamento + a grade (2026-10-13).
+              Antes eram duas (cartao "Adicionar Produto" e a linha de codigo
+              da grade); a busca ja' aceita codigo e nome. Estilo em
+              LancamentoItens.css. Fluxo do Enter: produto -> Qtd -> Preco ->
+              (Desconto) -> adiciona; escolher o produto ja' leva para a Qtd. */}
+          <div className="card form-section lanc-card">
+            <div className="lanc-cabecalho">
+              <div className="section-header lanc-titulo">
                 <Package size={20} className="section-icon" />
-                <h3>Adicionar Produto</h3>
+                <h3>Itens da venda</h3>
+                {itens.length > 0 && (
+                  <span className="lanc-contagem">{itens.length} {itens.length === 1 ? 'item' : 'itens'}</span>
+                )}
               </div>
+              {(!isViewing || canAddPendingItem) && (
+                <div className="lanc-atalhos" aria-label="Atalhos do teclado">
+                  <span><kbd>F2</kbd>Cliente</span>
+                  <span><kbd>F3</kbd>Produto</span>
+                  {permitirDescontoPorItem && <span><kbd>F4</kbd>Desconto</span>}
+                  <span><kbd>F5</kbd>Editar item</span>
+                  <span><kbd>F6</kbd>Pagamento</span>
+                </div>
+              )}
+            </div>
 
-              <div className="shortcuts-hint" style={{ marginBottom: '16px' }}>
-                <span><kbd>F2</kbd> Cliente</span>
-                <span><kbd>F3</kbd> Produto</span>
-                <span><kbd>F4</kbd> Desconto</span>
-                <span><kbd>F5</kbd> Editar item selecionado</span>
-                <span><kbd>F6</kbd> Pagamento</span>
-                <span><kbd>Esc</kbd> Fechar</span>
-              </div>
-
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <div style={{ flex: '2', position: 'relative', minWidth: '200px' }}>
-                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Buscar Produto</label>
-                  <div style={{ position: 'relative' }}>
+            {(!isViewing || canAddPendingItem) && (
+              <div className="lanc-barra" role="group" aria-label="Adicionar produto à venda">
+                <div className="lanc-seg lanc-seg-produto">
+                  <div className="lanc-rotulo">
+                    <span>Produto</span>
+                    {produtoSelecionado && (
+                      <span className="lanc-meta">
+                        {produtoSelecionado.codigo ? <>Cód. <strong>{produtoSelecionado.codigo}</strong> · </> : null}
+                        Disponível <strong>{Math.max(0, (produtoSelecionado.quantidade || 0) - (produtoSelecionado.quantidadeReservada || 0))}</strong> {produtoSelecionado.unidadeMedidaSigla || 'UN'}
+                        {opcaoUnidadeSelecionada.fatorConversao !== 1 && Number(produtoQtd) > 0 && (
+                          <> · baixa {toBaseQuantity(produtoQtd, opcaoUnidadeSelecionada.fatorConversao)} {produtoSelecionado.unidadeMedidaSigla || 'UN'}</>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  <div className="lanc-busca-wrap">
                     <ProductAutocomplete
                       value={produtoBusca}
                       products={produtosCatalogo}
@@ -4751,26 +4763,25 @@ const PedidoVendaForm: React.FC = () => {
                         setProdutoSelecionado(p);
                         // Produto novo comeca sempre na unidade base.
                         setEmbalagemSelecionadaId('');
+                        // Escolheu (Enter ou clique): o cursor ja' vai pra Qtd,
+                        // como no ERP antigo (codigo -> Enter -> quantidade).
+                        focarCampo(produtoQtdInputRef);
                       }}
                       mode={produtoSearchMode}
-                      placeholder={`Nome ou código — ${DICA_BUSCA_MULTIPLA}`}
+                      placeholder="Código ou nome do produto"
                       ariaLabel="Buscar produto"
-                      className="has-clear-btn"
+                      className="lanc-busca has-clear-btn"
                       onViewMore={() => setIsProdutoSearchModalOpen(true)}
                       renderItem={renderProdutoRow}
-                      // Fluxo do Enter no lancamento (pedido do usuario,
-                      // 2026-09-21): produto escolhido -> Enter vai pra
-                      // QUANTIDADE -> Enter vai pro PRECO -> Enter lanca o
-                      // item. Sem Tab, e sem lancar antes de o operador ter
-                      // passado por quantidade e preco.
                       onEnterComProdutoSelecionado={() => focarCampo(produtoQtdInputRef)}
                     />
                     {produtoBusca && (
                       <button
                         type="button"
-                        onClick={handleClearProdutoSelecionado}
+                        onClick={() => { handleClearProdutoSelecionado(); produtoBuscaInputRef.current?.focus(); }}
                         className="clear-selection-btn"
-                        title="Limpar seleção"
+                        title="Limpar o produto"
+                        aria-label="Limpar o produto"
                       >
                         <X size={16} />
                       </button>
@@ -4785,6 +4796,7 @@ const PedidoVendaForm: React.FC = () => {
                       setProdutoPreco(precoSugerido(p, buildOpcoesUnidadeVenda(p)[0]));
                       setProdutoSelecionado(p);
                       setEmbalagemSelecionadaId('');
+                      window.setTimeout(() => focarCampo(produtoQtdInputRef), 0);
                     }}
                     onSelectMany={adicionarVariosItens}
                     mode={produtoSearchMode}
@@ -4794,101 +4806,111 @@ const PedidoVendaForm: React.FC = () => {
                   />
                 </div>
 
-                {/* Seletor de embalagem: so aparece quando a chave esta ligada
-                    E o produto tem mais de uma unidade de venda cadastrada.
-                    Produto sem embalagem nao ganha um select de uma opcao so. */}
+                {/* Embalagem: so' quando o produto tem mais de uma unidade de venda. */}
                 {opcoesUnidadeVenda.length > 1 && (
-                  <div style={{ flex: '0.7', minWidth: '110px' }}>
-                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Unidade</label>
-                    <select
-                      value={embalagemSelecionadaId}
-                      onChange={(e) => handleSelecionarEmbalagem(e.target.value)}
-                      style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
-                    >
+                  <label className="lanc-seg lanc-seg-unidade">
+                    <span className="lanc-rotulo">Unidade</span>
+                    <select className="lanc-select" value={embalagemSelecionadaId} onChange={(e) => handleSelecionarEmbalagem(e.target.value)}>
                       {opcoesUnidadeVenda.map((opcao) => (
                         <option key={opcao.embalagemId || 'base'} value={opcao.embalagemId}>{opcao.label}</option>
                       ))}
                     </select>
-                  </div>
+                  </label>
                 )}
 
-                <div style={{ flex: '0.5', minWidth: '85px' }}>
-                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    Qtd {produtoSelecionado ? `(${opcaoUnidadeSelecionada.sigla})` : ''}
-                  </label>
+                <label className="lanc-seg lanc-seg-qtd">
+                  <span className="lanc-rotulo">Qtd{produtoSelecionado ? ` (${opcaoUnidadeSelecionada.sigla})` : ''}</span>
                   <input
                     ref={produtoQtdInputRef}
+                    className="lanc-campo"
                     type="number"
-                    min={opcaoUnidadeSelecionada.permiteFracionado ? "0.001" : "1"}
-                    step={opcaoUnidadeSelecionada.permiteFracionado ? "any" : "1"}
+                    inputMode="decimal"
+                    min={opcaoUnidadeSelecionada.permiteFracionado ? '0.001' : '1'}
+                    step={opcaoUnidadeSelecionada.permiteFracionado ? 'any' : '1'}
                     value={produtoQtd}
                     onChange={(e) => setProdutoQtd(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focarCampo(produtoPrecoInputRef); } }}
-                    style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
                   />
-                  {opcaoUnidadeSelecionada.fatorConversao !== 1 && Number(produtoQtd) > 0 && (
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                      Baixa {toBaseQuantity(produtoQtd, opcaoUnidadeSelecionada.fatorConversao)} {produtoSelecionado?.unidadeMedidaSigla || 'UN'}
-                    </span>
-                  )}
-                </div>
+                </label>
 
-                <div style={{ flex: '0.8', minWidth: '100px' }}>
-                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Preço Unt.</label>
-                  <input ref={produtoPrecoInputRef} type="number" step="0.01" value={produtoPreco} onChange={(e) => setProdutoPreco(Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }} style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
-                </div>
+                <label className="lanc-seg lanc-seg-preco">
+                  <span className="lanc-rotulo">Preço unit.</span>
+                  <span className="lanc-com-prefixo">
+                    <span aria-hidden="true">R$</span>
+                    <input
+                      ref={produtoPrecoInputRef}
+                      className="lanc-campo"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      value={produtoPreco ? produtoPreco : ''}
+                      onChange={(e) => setProdutoPreco(Number(e.target.value))}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return;
+                        e.preventDefault();
+                        if (permitirDescontoPorItem) focarCampo(produtoDescontoInputRef);
+                        else handleAddItem();
+                      }}
+                    />
+                  </span>
+                </label>
 
                 {/* Some quando a empresa desliga desconto por item em
                     Configuracoes. O desconto GERAL da venda continua. */}
                 {permitirDescontoPorItem && (
-                  <div style={{ flex: '0.9', minWidth: '130px' }}>
-                    <DescontoInput
-                      label="Desconto"
-                      idPrefix="item-desconto"
-                      value={produtoDescontoInput}
-                      onChange={setProdutoDescontoInput}
-                      inputRef={produtoDescontoInputRef}
-                      onEnterKey={handleAddItem}
-                    />
+                  <div className="lanc-seg lanc-seg-desconto">
+                    <label className="lanc-rotulo" htmlFor="item-desconto-valor">Desconto</label>
+                    <span className="lanc-desconto">
+                      <select
+                        id="item-desconto-tipo"
+                        className="lanc-select"
+                        value={produtoDescontoInput.tipo}
+                        onChange={(e) => setProdutoDescontoInput({ ...produtoDescontoInput, tipo: e.target.value as typeof produtoDescontoInput.tipo })}
+                        aria-label="Desconto em reais ou em percentual"
+                      >
+                        <option value="valor">R$</option>
+                        <option value="percentual">%</option>
+                      </select>
+                      <input
+                        ref={produtoDescontoInputRef}
+                        id="item-desconto-valor"
+                        className="lanc-campo"
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        max={produtoDescontoInput.tipo === 'percentual' ? 100 : undefined}
+                        step="0.01"
+                        value={produtoDescontoInput.valor}
+                        onChange={(e) => setProdutoDescontoInput({ ...produtoDescontoInput, valor: e.target.value })}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem(); } }}
+                      />
+                    </span>
                   </div>
                 )}
 
-                <button type="button" onClick={handleAddItem} className="btn-primary" style={{ padding: '12px 24px', whiteSpace: 'nowrap' }}>
-                  Adicionar
+                <button type="button" onClick={handleAddItem} className="lanc-adicionar">
+                  <Plus size={18} aria-hidden="true" /> Adicionar
                 </button>
               </div>
-            </div>
-          )}
-
-          {/* Carrinho de Compras */}
-          <div className="card form-section" style={{ padding: '24px' }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Itens da Venda</h3>
-              {(!isViewing || canEditPendingQtd) && (
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Clique no código para trocar o produto, ou na quantidade, preço e desconto para alterar · Enter aplica · Tab avança · Esc desfaz</span>
-              )}
-            </div>
+            )}
 
             <TabelaItensVenda
               ref={tabelaItensRef}
               itens={itens}
               catalogo={produtosCatalogo}
-              podeLancar={!isViewing || canAddPendingItem}
               podeEditar={!isViewing || canEditPendingQtd}
               podeRemover={!isViewing || canDeletePendingItem}
               permitirDescontoPorItem={permitirDescontoPorItem}
               selectedIndex={selectedItemIndex}
               onSelect={setSelectedItemIndex}
-              precoSugerido={(produto) => {
-                const doCatalogo = produtosCatalogo.find((p) => p.id === produto.id);
-                return doCatalogo ? precoSugerido(doCatalogo, buildOpcoesUnidadeVenda(doCatalogo)[0]) : 0;
-              }}
-              onLancarPorCodigo={(produto, quantidade) => lancarPorCodigo(produto.id, quantidade)}
-              onBuscarPorNome={(texto) => { setProdutoBusca(texto); setIsProdutoSearchModalOpen(true); }}
               onAtualizarItem={aplicarEdicaoDeItem}
               onTrocarProduto={(index, produto) => trocarProdutoDoItem(index, produto.id)}
               onRemover={handleRemoveItem}
             />
+
+            {itens.length > 0 && (!isViewing || canEditPendingQtd) && (
+              <p className="lanc-nota">Clique no código para trocar o produto, ou na quantidade, no preço e no desconto para alterar. Enter aplica, Esc desfaz.</p>
+            )}
           </div>
         </div>
 

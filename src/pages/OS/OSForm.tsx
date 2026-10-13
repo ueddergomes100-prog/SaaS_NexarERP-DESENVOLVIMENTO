@@ -107,7 +107,6 @@ import {
 import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
 import { camposDePrecoDoItem, precoSugeridoDoItem } from '../../utils/precoComPromocaoDomain';
 import { FORMAS_A_VISTA_PADRAO, ROTULO_CONDICAO, condicaoDoPagamento, parseFormasAVista, precoAutomatico, type OrigemPreco, type TabelaDePrecoDoItem } from '../../utils/precoVendaDomain';
-import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import './OS.css';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
@@ -2272,7 +2271,7 @@ const OSForm: React.FC = () => {
                     setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), condicaoPagamento)));
                   }}
                   mode={pecaSearchMode}
-                  placeholder={`Busque ou digite nova peça — ${DICA_BUSCA_MULTIPLA}`}
+                  placeholder="Busque ou digite nova peça"
                   ariaLabel="Buscar peça"
                   className="has-clear-btn"
                   onViewMore={() => setIsPecaSearchModalOpen(true)}

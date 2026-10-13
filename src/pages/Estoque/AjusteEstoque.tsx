@@ -23,7 +23,6 @@ import {
 } from '../../utils/ajusteEstoqueDomain';
 import { applyAjusteEstoqueManual } from '../../utils/firestoreAtomic';
 import './Estoque.css';
-import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import './AjusteEstoque.css';
 
 interface ProdutoAjuste extends SearchableProduct {
@@ -471,7 +470,7 @@ const AjusteEstoque: React.FC = () => {
             products={produtos}
             onSelect={handleSelectProduto}
             inputRef={searchInputRef}
-            placeholder={`Digite o código, nome ou bipe o código de barras — ${DICA_BUSCA_MULTIPLA}`}
+            placeholder="Código, nome ou código de barras"
             onViewMore={() => setModalOpen(true)}
             renderItem={(produto) => (
               <div className="ajuste-estoque__option">

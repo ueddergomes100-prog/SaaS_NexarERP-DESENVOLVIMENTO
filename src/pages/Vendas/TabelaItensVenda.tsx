@@ -1,5 +1,5 @@
 import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react';
-import { CornerDownLeft, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { showError } from '../../utils/alerts';
 import type { SearchableProduct } from '../../utils/productSearch';
 import {
@@ -18,9 +18,9 @@ import './TabelaItensVenda.css';
  * partir do ERP antigo dos clientes; refeita no mesmo dia depois da critica
  * ao visual):
  *
- *  - a PRIMEIRA linha e' a linha de lancamento: Codigo (matricula) ->
- *    o produto aparece sozinho -> Qtd -> Enter lanca e o cursor volta para o
- *    codigo. Codigo que nao existe: Enter abre a busca por nome com o texto.
+ *  - o lancamento fica na barra unica acima da grade (LancamentoItens.css,
+ *    no PedidoVendaForm); a linha de codigo que existia aqui saiu no mesmo
+ *    dia porque duplicava a busca, que ja' aceita codigo e nome.
  *  - num item ja' lancado, CODIGO, quantidade, preco unitario e desconto
  *    editam na propria celula: clique, digite, Enter aplica, Tab aplica e
  *    vai para a proxima celula, Esc desfaz. Trocar o codigo troca o produto
@@ -61,23 +61,16 @@ export interface ProdutoLancavel extends SearchableProduct {
 export interface TabelaItensVendaHandle {
   /** F5: abre a quantidade da linha selecionada para edicao. */
   editarSelecionado: () => void;
-  focarCodigo: () => void;
 }
 
 interface Props {
   itens: ItemDaTabela[];
   catalogo: ProdutoLancavel[];
-  podeLancar: boolean;
   podeEditar: boolean;
   podeRemover: boolean;
   permitirDescontoPorItem: boolean;
   selectedIndex: number | null;
   onSelect: (index: number | null) => void;
-  /** Preco que o produto entraria hoje (a vista / venda / promocao). */
-  precoSugerido: (produto: ProdutoLancavel) => number;
-  onLancarPorCodigo: (produto: ProdutoLancavel, quantidade: number) => void;
-  /** Codigo nao encontrado: abre a busca por nome com o que foi digitado. */
-  onBuscarPorNome: (texto: string) => void;
   /** Devolve a mensagem de erro em portugues, ou null quando aplicou. */
   onAtualizarItem: (index: number, campos: { quantidade?: number; precoUnitario?: number; desconto?: number }) => string | null;
   /** Troca o produto da linha (codigo editado), mantendo a quantidade. Erro em portugues ou null. */
@@ -101,21 +94,13 @@ const ROTULO_ARIA: Record<CampoEditavel, string> = {
 };
 
 const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
-  itens, catalogo, podeLancar, podeEditar, podeRemover, permitirDescontoPorItem, selectedIndex, onSelect,
-  precoSugerido, onLancarPorCodigo, onBuscarPorNome, onAtualizarItem, onTrocarProduto, onRemover,
+  itens, catalogo, podeEditar, podeRemover, permitirDescontoPorItem, selectedIndex, onSelect,
+  onAtualizarItem, onTrocarProduto, onRemover,
 }, ref) => {
-  const codigoRef = useRef<HTMLInputElement>(null);
-  const qtdRef = useRef<HTMLInputElement>(null);
-  const [codigo, setCodigo] = useState('');
-  const [qtd, setQtd] = useState('1');
   const [edicao, setEdicao] = useState<Edicao | null>(null);
   // Evita aplicar duas vezes (Enter ja' aplicou e o blur vem em seguida).
   const aplicando = useRef(false);
 
-  const produtoDaLinha = localizarProdutoPorCodigo(catalogo, codigo);
-  const precoDaLinha = produtoDaLinha ? precoSugerido(produtoDaLinha) : 0;
-  const qtdDaLinha = interpretarQuantidade(qtd);
-  const podeLancarAgora = Boolean(produtoDaLinha) && !qtdDaLinha.erro;
   const colunas = 6 + (podeRemover ? 1 : 0);
 
   const campoEditavel = (campo: CampoEditavel) => podeEditar && (campo !== 'desconto' || permitirDescontoPorItem);
@@ -130,7 +115,6 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
 
   useImperativeHandle(ref, () => ({
     editarSelecionado: () => { if (selectedIndex !== null) iniciarEdicao(selectedIndex, 'quantidade'); },
-    focarCodigo: () => codigoRef.current?.focus(),
   }));
 
   /** Aplica a celula em edicao. Devolve true quando aplicou (ou nada mudou). */
@@ -192,27 +176,6 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
     }
   };
 
-  const lancar = () => {
-    if (!produtoDaLinha || qtdDaLinha.erro) {
-      if (!produtoDaLinha && codigo.trim()) { onBuscarPorNome(codigo.trim()); setCodigo(''); return; }
-      if (qtdDaLinha.erro) showError('Quantidade', qtdDaLinha.erro);
-      return;
-    }
-    onLancarPorCodigo(produtoDaLinha, qtdDaLinha.valor);
-    setCodigo('');
-    setQtd('1');
-    codigoRef.current?.focus();
-  };
-
-  const aoTeclarNoCodigo = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    if (produtoDaLinha) { qtdRef.current?.focus(); qtdRef.current?.select(); return; }
-    if (codigo.trim()) { onBuscarPorNome(codigo.trim()); setCodigo(''); }
-  };
-
-  const disponivel = (p: ProdutoLancavel) => Math.max(0, (Number(p.quantidade) || 0) - (Number(p.quantidadeReservada) || 0));
-
   const celula = (index: number, item: ItemDaTabela, campo: CampoEditavel, conteudo: React.ReactNode, classe: string) => {
     const emEdicao = edicao && edicao.index === index && edicao.campo === campo ? edicao : null;
     if (emEdicao) {
@@ -272,70 +235,9 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
           </tr>
         </thead>
         <tbody>
-          {podeLancar && (
-            <tr className="tiv-lancamento">
-              <td className="tiv-td">
-                <input
-                  ref={codigoRef}
-                  className="tiv-input tiv-input-cod"
-                  value={codigo}
-                  onChange={(e) => setCodigo(e.target.value)}
-                  onKeyDown={aoTeclarNoCodigo}
-                  placeholder="Código"
-                  aria-label="Código do produto para lançar"
-                  autoComplete="off"
-                />
-              </td>
-              <td className="tiv-td">
-                {produtoDaLinha ? (
-                  <div className="tiv-achado">
-                    <span className="tiv-achado-nome">{produtoDaLinha.nome}</span>
-                    <span className="tiv-achado-estoque">Disponível {disponivel(produtoDaLinha)} {produtoDaLinha.unidadeMedidaSigla || 'UN'}</span>
-                  </div>
-                ) : (
-                  <span className={codigo.trim() ? 'tiv-dica tiv-dica-alerta' : 'tiv-dica'}>
-                    {codigo.trim() ? 'Não achei esse código. Enter abre a busca por nome.' : 'Digite o código do produto e Enter.'}
-                  </span>
-                )}
-              </td>
-              <td className="tiv-td tiv-centro">
-                <input
-                  ref={qtdRef}
-                  className="tiv-input tiv-input-qtd"
-                  value={qtd}
-                  onChange={(e) => setQtd(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); lancar(); } }}
-                  onFocus={(e) => e.target.select()}
-                  aria-label="Quantidade a lançar"
-                  inputMode="decimal"
-                  disabled={!produtoDaLinha}
-                />
-              </td>
-              <td className="tiv-td tiv-direita tiv-num tiv-previa">{produtoDaLinha ? moeda(precoDaLinha) : ''}</td>
-              <td className="tiv-td tiv-direita tiv-num tiv-previa" />
-              <td className="tiv-td tiv-direita tiv-num tiv-previa tiv-forte">
-                {produtoDaLinha && !qtdDaLinha.erro ? moeda(precoDaLinha * qtdDaLinha.valor) : ''}
-              </td>
-              {podeRemover && (
-                <td className="tiv-td tiv-centro">
-                  <button
-                    type="button"
-                    className="tiv-lancar"
-                    onClick={lancar}
-                    disabled={!podeLancarAgora}
-                    title="Lançar o item (Enter)"
-                    aria-label="Lançar o item"
-                  >
-                    <CornerDownLeft size={15} />
-                  </button>
-                </td>
-              )}
-            </tr>
-          )}
-
           {itens.length === 0 ? (
             <tr>
-              <td colSpan={colunas} className="tiv-vazio">Nenhum produto adicionado à venda.</td>
+              <td colSpan={colunas} className="tiv-vazio">Nenhum item na venda ainda. Digite o código ou o nome do produto na barra acima.</td>
             </tr>
           ) : itens.map((item, index) => (
             <tr
@@ -344,7 +246,7 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
               className={selectedIndex === index ? 'tiv-linha tiv-linha-selecionada' : 'tiv-linha'}
             >
               {celula(index, item, 'codigo', <span className="tiv-cod">{item.codigo || '—'}</span>, '')}
-              <td className="tiv-td tiv-nome" title={item.nome}>{item.nome}</td>
+              <td className="tiv-td" title={item.nome}><span className="tiv-nome">{item.nome}</span></td>
               {celula(index, item, 'quantidade', (
                 <span className="tiv-num">{item.quantidade.toFixed(item.unidadeMedidaCasasDecimais ?? 0)} <span className="tiv-unidade">{item.unidadeMedidaSigla || 'UN'}</span></span>
               ), 'tiv-centro')}

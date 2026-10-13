@@ -53,7 +53,6 @@ import type { OrigemPreco, TabelaDePrecoDoItem } from '../../utils/precoVendaDom
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
-import { DICA_BUSCA_MULTIPLA } from '../../utils/textSearch';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import '../OS/OS.css';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
@@ -1165,7 +1164,7 @@ const OrcamentoForm: React.FC = () => {
                       setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), CONDICAO_ORCAMENTO)));
                       setPecaSelecionada(p);
                     }}
-                    placeholder={`Nome do produto — ${DICA_BUSCA_MULTIPLA}`}
+                    placeholder="Código ou nome do produto"
                     ariaLabel="Buscar produto"
                     className="has-clear-btn"
                     onViewMore={() => setIsPecaSearchModalOpen(true)}

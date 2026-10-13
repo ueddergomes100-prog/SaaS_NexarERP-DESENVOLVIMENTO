@@ -191,7 +191,7 @@ const RelatorioAjustesEstoque: React.FC = () => {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={labelStyle}>Produto</label>
-              <input type="text" value={produtoFiltro} onChange={(e) => setProdutoFiltro(e.target.value)} placeholder="Nome do produto (ração+20kg)" style={selectStyle} />
+              <input type="text" value={produtoFiltro} onChange={(e) => setProdutoFiltro(e.target.value)} placeholder="Nome do produto" style={selectStyle} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={labelStyle}>Usuário</label>

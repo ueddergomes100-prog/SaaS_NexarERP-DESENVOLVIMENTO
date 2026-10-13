@@ -97,7 +97,8 @@ function ProductSearchModalInner<T extends SearchableProduct & { id: string }>({
           <input
             autoFocus
             type="text"
-            placeholder={`Nome, código, barras, marca ou categoria — ${DICA_BUSCA_MULTIPLA} — # lista todos (#pedra filtra)`}
+            placeholder="Nome, código, barras, marca ou categoria"
+            title={`${DICA_BUSCA_MULTIPLA}. Digite # para listar todos.`}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />

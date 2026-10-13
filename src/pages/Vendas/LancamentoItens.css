@@ -1,0 +1,288 @@
+/* Itens da venda: UMA barra de lancamento + a grade (2026-10-13).
+ *
+ * Antes eram duas: o cartao "Adicionar Produto" (busca por nome ou codigo) e
+ * uma linha de codigo dentro da grade. O dono achou confuso -- a de cima ja'
+ * aceita codigo e nome. Ficou uma so', dentro do cartao dos itens.
+ *
+ * Desenho: a barra e' UM controle com segmentos (produto | qtd | preco |
+ * desconto | Adicionar) separados por filete, rotulo pequeno em cima de cada
+ * um e campo sem borda embaixo. O segmento onde esta' o cursor ganha um traco
+ * roxo embaixo: mostra o caminho do Enter (produto -> qtd -> preco ->
+ * desconto -> adiciona). Nada de exemplo dentro dos campos.
+ */
+
+.lanc-card {
+  padding: 24px;
+  /* A barra se arruma pela largura do CARTAO (a coluna da esquerda do
+     pedido muda de largura conforme a tela), nao pela da janela. */
+  container-type: inline-size;
+}
+
+.lanc-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.lanc-card .lanc-titulo {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.lanc-contagem {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-ink);
+  background: var(--brand-softer);
+  border: 1px solid var(--brand-soft);
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lanc-atalhos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.lanc-atalhos kbd {
+  display: inline-block;
+  min-width: 22px;
+  margin-right: 5px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- barra */
+
+/* Cartao estreito (padrao): Produto ocupa a primeira linha inteira; Qtd,
+   Preco, Desconto e Adicionar dividem a segunda. Cartao largo: tudo numa
+   linha so' (ver @container no fim). */
+.lanc-barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  margin-bottom: 18px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-tertiary);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.lanc-barra:focus-within {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.lanc-seg {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 14px 11px;
+}
+
+.lanc-seg + .lanc-seg { border-left: 1px solid var(--border-color); }
+
+/* O traco roxo do segmento ativo. */
+.lanc-seg::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--brand-500);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 160ms ease;
+}
+
+.lanc-seg:focus-within::after { transform: scaleX(1); }
+
+.lanc-seg-produto {
+  flex: 1 1 100%;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.lanc-seg-produto + .lanc-seg { border-left: none; }
+
+.lanc-seg-unidade,
+.lanc-seg-qtd,
+.lanc-seg-preco { flex: 1 1 0; }
+
+.lanc-seg-desconto { flex: 1.4 1 0; }
+
+.lanc-rotulo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.lanc-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.lanc-meta strong { color: var(--text-primary); font-weight: 600; }
+
+.lanc-campo {
+  width: 100%;
+  height: 30px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  outline: none;
+  box-shadow: none;
+}
+
+.lanc-campo:focus { outline: none; box-shadow: none; border: none; }
+
+/* Sem as setinhas do campo numerico: aqui se digita, nao se clica. */
+.lanc-campo::-webkit-outer-spin-button,
+.lanc-campo::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.lanc-campo[type='number'] { -moz-appearance: textfield; appearance: textfield; }
+
+.lanc-com-prefixo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lanc-com-prefixo > span {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* A busca de produto (ProductAutocomplete) vira campo sem borda dentro do segmento. */
+.lanc-busca-wrap { position: relative; }
+
+.lanc-busca .product-autocomplete__input,
+.lanc-busca .product-autocomplete__input:focus {
+  height: 30px;
+  padding: 0 34px 0 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 15px;
+}
+
+.lanc-busca-wrap .clear-selection-btn,
+.lanc-busca .product-autocomplete__clear { right: -4px; }
+
+.lanc-busca .product-autocomplete__panel { left: -14px; right: -14px; top: calc(100% + 12px); }
+
+.lanc-select {
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.lanc-seg-unidade .lanc-select { width: 100%; }
+
+.lanc-desconto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lanc-desconto .lanc-select { flex: 0 0 auto; width: 52px; }
+
+.lanc-adicionar {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 24px;
+  border: none;
+  border-left: 1px solid var(--brand-700);
+  border-radius: 0 0 11px 0;
+  background: var(--brand-600);
+  color: var(--brand-contrast, #fff);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.lanc-adicionar:hover { background: var(--brand-700); }
+
+.lanc-adicionar:focus-visible {
+  outline: 2px solid var(--brand-300);
+  outline-offset: -5px;
+}
+
+.lanc-nota {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lanc-seg::after,
+  .lanc-barra { transition: none; }
+}
+
+/* Cartao largo: produto, numeros e Adicionar numa linha so'. */
+@container (min-width: 900px) {
+  .lanc-barra { flex-wrap: nowrap; }
+  .lanc-seg-produto { flex: 1 1 auto; border-bottom: none; }
+  .lanc-seg-produto + .lanc-seg { border-left: 1px solid var(--border-color); }
+  .lanc-seg-unidade { flex: 0 0 132px; }
+  .lanc-seg-qtd { flex: 0 0 104px; }
+  .lanc-seg-preco { flex: 0 0 136px; }
+  .lanc-seg-desconto { flex: 0 0 176px; }
+  .lanc-adicionar { border-radius: 0 11px 11px 0; }
+}
+
+/* Cartao bem estreito (celular): Adicionar ganha a linha de baixo inteira. */
+@container (max-width: 520px) {
+  .lanc-adicionar {
+    flex: 1 1 100%;
+    height: 46px;
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    border-radius: 0 0 11px 11px;
+  }
+}

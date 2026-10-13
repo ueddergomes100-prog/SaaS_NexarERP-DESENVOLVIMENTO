@@ -2256,7 +2256,7 @@ const Configuracoes: React.FC = () => {
 
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <label style={rotulo}>Validade padrão do orçamento (dias)</label>
-                  <input type="number" min={1} max={365} inputMode="numeric" value={pv.validadeOrcamentoDias} onChange={(e) => mudar('validadeOrcamentoDias', e.target.value)} disabled={!isEditingMode} placeholder="15" style={campo} />
+                  <input type="number" min={1} max={365} inputMode="numeric" value={pv.validadeOrcamentoDias} onChange={(e) => mudar('validadeOrcamentoDias', e.target.value)} disabled={!isEditingMode} style={campo} />
                   <p style={dica}>Orçamento novo já abre com esta validade (a pessoa pode mudar no orçamento). Em branco: 15 dias.</p>
                 </div>
 
@@ -2285,7 +2285,7 @@ const Configuracoes: React.FC = () => {
                       </label>
                       <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <span style={rotulo}>Carência (dias de tolerância)</span>
-                        <input type="number" min={0} inputMode="numeric" value={pv.carenciaDias} onChange={(e) => mudar('carenciaDias', e.target.value)} disabled={!isEditingMode} placeholder="0" style={campo} />
+                        <input type="number" min={0} inputMode="numeric" value={pv.carenciaDias} onChange={(e) => mudar('carenciaDias', e.target.value)} disabled={!isEditingMode} style={campo} />
                       </label>
                     </div>
                   )}
@@ -2297,11 +2297,11 @@ const Configuracoes: React.FC = () => {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 260px))', gap: '12px' }}>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <span style={rotulo}>Juros ao mês (%)</span>
-                      <input inputMode="decimal" value={pv.jurosAoMes} onChange={(e) => mudar('jurosAoMes', e.target.value)} disabled={!isEditingMode} placeholder="ex.: 2" style={campo} />
+                      <input inputMode="decimal" value={pv.jurosAoMes} onChange={(e) => mudar('jurosAoMes', e.target.value)} disabled={!isEditingMode} style={campo} />
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <span style={rotulo}>Multa (%)</span>
-                      <input inputMode="decimal" value={pv.multa} onChange={(e) => mudar('multa', e.target.value)} disabled={!isEditingMode} placeholder="ex.: 2" style={campo} />
+                      <input inputMode="decimal" value={pv.multa} onChange={(e) => mudar('multa', e.target.value)} disabled={!isEditingMode} style={campo} />
                     </label>
                   </div>
                   <p style={dica}>Ao receber um título vencido em Contas a Receber, o sistema sugere os juros (proporcionais aos dias de atraso) e a multa; quem recebe pode ajustar ou tirar. O valor entra como lançamento próprio "Juros e multa" no financeiro, e sai junto se o recebimento for estornado. Em branco: não sugere.</p>

@@ -3,7 +3,7 @@
    - so' o nome do produto e' elastico; toda coluna numerica tem largura fixa
      e NUNCA quebra linha (nowrap + numeros tabulares);
    - celula editavel parece texto; a borda tracejada aparece so' no hover/foco;
-   - linha de lancamento no topo com a faixa da marca, sem cartao a mais. */
+   - o lancamento fica na barra unica acima (LancamentoItens.css). */
 
 .tiv {
   overflow-x: auto;
@@ -15,7 +15,7 @@
   width: 100%;
   /* Abaixo disso a tabela rola de lado dentro do cartao, em vez de espremer o
      nome do produto. 552px de colunas fixas + 200px de nome. */
-  min-width: 760px;
+  min-width: 640px;
   border-collapse: collapse;
   table-layout: fixed;
   text-align: left;
@@ -52,7 +52,8 @@
 
 .tiv-nome {
   /* Nome inteiro em ate' duas linhas; so' depois disso corta com reticencias.
-     Numa venda o nome do produto e' o que a pessoa confere. */
+     Numa venda o nome do produto e' o que a pessoa confere. O corte fica no
+     span (na celula, o -webkit-box quebrava o alinhamento vertical). */
   white-space: normal;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -96,15 +97,6 @@
   white-space: normal;
 }
 
-/* Linha de lancamento */
-.tiv-lancamento {
-  background: rgba(139, 92, 246, 0.07);
-  box-shadow: inset 3px 0 0 var(--brand-500, #8b5cf6);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.tiv-lancamento .tiv-td { padding-top: 10px; padding-bottom: 10px; }
-
 .tiv-input {
   width: 100%;
   box-sizing: border-box;
@@ -129,39 +121,10 @@
 
 .tiv-input:disabled { opacity: 0.45; }
 
-.tiv-input-cod { font-weight: 600; letter-spacing: 0.02em; }
-
-.tiv-input-qtd { width: 84px; margin: 0 auto; text-align: center; }
-
 .tiv-input-celula { height: 34px; }
+.tiv-input-cod { font-weight: 600; }
 .tiv-centro .tiv-input-celula { width: 84px; margin: 0 auto; text-align: center; }
 .tiv-direita .tiv-input-celula { text-align: right; }
-
-.tiv-achado { display: flex; flex-direction: column; gap: 1px; line-height: 1.25; white-space: normal; }
-.tiv-achado-nome { font-weight: 600; color: var(--text-primary); }
-.tiv-achado-estoque { font-size: 11px; color: var(--text-muted); }
-
-.tiv-dica { font-size: 13px; color: var(--text-muted); white-space: normal; }
-.tiv-dica-alerta { color: #f59e0b; }
-
-.tiv-previa { color: var(--text-secondary); }
-
-.tiv-lancar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  border: 1px solid var(--brand-500, #8b5cf6);
-  background: transparent;
-  color: var(--brand-400, #a78bfa);
-  cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-
-.tiv-lancar:hover:not(:disabled) { background: var(--brand-600, #7c3aed); color: #fff; }
-.tiv-lancar:disabled { opacity: 0.35; cursor: default; }
 
 /* Celula editavel: texto comum ate' o mouse chegar. */
 .tiv-editavel {

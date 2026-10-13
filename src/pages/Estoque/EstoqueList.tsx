@@ -340,7 +340,8 @@ const EstoqueList: React.FC = () => {
             <Search size={18} className="search-icon" />
             <input
               type="text"
-              placeholder={`Buscar por código, nome ou categoria — ${DICA_BUSCA_MULTIPLA}`}
+              placeholder="Buscar por código, nome ou categoria"
+              title={DICA_BUSCA_MULTIPLA}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />

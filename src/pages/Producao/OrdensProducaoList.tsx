@@ -133,7 +133,8 @@ const OrdensProducaoList: React.FC = () => {
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
             <input
               type="text"
-              placeholder={`Buscar por número ou produto — ${DICA_BUSCA_MULTIPLA}`}
+              placeholder="Buscar por número ou produto"
+              title={DICA_BUSCA_MULTIPLA}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}

@@ -86,4 +86,10 @@ export const matchesAllSearchTerms = (campos: unknown[], termo: unknown): boolea
  * constante unica pra dica ser a MESMA em toda tela -- o operador aprende uma
  * vez e reconhece nas outras.
  */
-export const DICA_BUSCA_MULTIPLA = 'use + entre palavras (ração+20kg)';
+/**
+ * Dica da busca com varias palavras. Vai como DICA (title) do campo, nunca
+ * dentro da barra: o dono pediu (06/10 e 13/10/2026) que as barras de busca
+ * nao tenham exemplo escrito dentro -- cliente acha que o campo ja' esta'
+ * preenchido.
+ */
+export const DICA_BUSCA_MULTIPLA = 'Para buscar por mais de uma palavra, separe com +';

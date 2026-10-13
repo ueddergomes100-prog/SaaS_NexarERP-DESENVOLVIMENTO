@@ -255,7 +255,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
                     <span style={rotulo}>Recebeu (R$)</span>
-                    <input inputMode="decimal" value={recebido} onChange={(e) => setRecebido(e.target.value)} placeholder="0,00 se não recebeu" style={campo} />
+                    <input inputMode="decimal" value={recebido} onChange={(e) => setRecebido(e.target.value)} placeholder="Em branco se não recebeu" style={campo} />
                   </label>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
                     <span style={rotulo}>Como</span>
@@ -275,7 +275,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
                         value={justificativa}
                         onChange={(e) => setJustificativa(e.target.value)}
                         rows={3}
-                        placeholder="Pagamento parcial, abatimento de outra nota, troco..."
+                        placeholder="Explique o motivo da diferença"
                         style={{ ...campo, height: 'auto', padding: '10px 14px', resize: 'vertical', fontSize: '14px' }}
                       />
                     </label>

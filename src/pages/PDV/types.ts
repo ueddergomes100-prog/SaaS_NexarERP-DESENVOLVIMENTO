@@ -15,6 +15,8 @@ export interface PdvProduct {
   /** Preco a vista do cadastro (0 = nao tem). Ver precoVendaDomain.ts. */
   precoAVista?: number;
   quantidade: number;
+  /** Segurado em pre-venda, condicional, OS ou troca: nao esta livre para o balcao. */
+  quantidadeReservada?: number;
   imagemProduto: string;
   unidadeMedidaSigla?: string;
   unidadeMedidaCasasDecimais?: number;

@@ -12,6 +12,8 @@ import {
   resumoDeReserva,
   textoDaReserva,
   quantidadeDoProdutoNosItens,
+  analisarSaidaComReserva,
+  textoDaSaidaComReserva,
 } from '../src/utils/estoqueReservaDomain';
 
 const item = (id: string, quantidade: number, nome?: string): StockLineItem => ({ id, nome, quantidade });
@@ -142,4 +144,76 @@ test('reserva visivel: resumo, texto e soma do produto nos itens do documento', 
   assert.equal(quantidadeDoProdutoNosItens(itens, 'p1'), 3);
   assert.equal(quantidadeDoProdutoNosItens(itens, 'p9'), 0);
   assert.equal(quantidadeDoProdutoNosItens(null, 'p1'), 0);
+});
+
+// ---------------------------------------------------------------------------
+// Reserva na venda (13/10/2026): disponivel = estoque - reservado pelos outros.
+// ---------------------------------------------------------------------------
+
+test('venda dentro do disponivel passa, com ou sem reserva', () => {
+  const r = analisarSaidaComReserva({ quantidade: 10, quantidadeReservada: 4, pedida: 6, permiteVendaSemEstoque: false });
+  assert.equal(r.situacao, 'ok');
+  assert.equal(r.disponivel, 6);
+  assert.equal(r.reservadoPorOutros, 4);
+});
+
+test('empresa que nao vende sem estoque: reserva dos outros trava', () => {
+  const r = analisarSaidaComReserva({ quantidade: 10, quantidadeReservada: 8, pedida: 3, permiteVendaSemEstoque: false });
+  assert.equal(r.situacao, 'bloquear_reserva');
+  assert.equal(r.disponivel, 2);
+});
+
+test('empresa que nao vende sem estoque: sem reserva no meio, e\' falta de estoque comum', () => {
+  const r = analisarSaidaComReserva({ quantidade: 2, quantidadeReservada: 0, pedida: 3, permiteVendaSemEstoque: false });
+  assert.equal(r.situacao, 'bloquear_estoque');
+});
+
+test('empresa que vende sem estoque: so\' avisa quando a reserva entra no meio', () => {
+  assert.equal(analisarSaidaComReserva({ quantidade: 10, quantidadeReservada: 8, pedida: 3, permiteVendaSemEstoque: true }).situacao, 'avisar_reserva');
+  // Sem reserva, segue como sempre: vende negativo sem aviso.
+  assert.equal(analisarSaidaComReserva({ quantidade: 2, quantidadeReservada: 0, pedida: 5, permiteVendaSemEstoque: true }).situacao, 'ok');
+});
+
+test('a reserva do proprio documento volta para ele (pre-venda ou OS aberta)', () => {
+  // Produto com 10, reservado 8 -- 5 sao desta pre-venda. Ela pode usar 10 - 3 = 7.
+  const r = analisarSaidaComReserva({ quantidade: 10, quantidadeReservada: 8, pedida: 7, reservadoPeloDocumento: 5, permiteVendaSemEstoque: false });
+  assert.equal(r.situacao, 'ok');
+  assert.equal(r.disponivel, 7);
+  assert.equal(analisarSaidaComReserva({ quantidade: 10, quantidadeReservada: 8, pedida: 8, reservadoPeloDocumento: 5, permiteVendaSemEstoque: false }).situacao, 'bloquear_reserva');
+  // Reserva propria maior que a gravada no produto (dado antigo) nao vira negativo.
+  assert.equal(analisarSaidaComReserva({ quantidade: 10, quantidadeReservada: 2, pedida: 10, reservadoPeloDocumento: 5, permiteVendaSemEstoque: false }).situacao, 'ok');
+});
+
+test('estoque negativo e valores invalidos nao quebram a conta', () => {
+  const r = analisarSaidaComReserva({ quantidade: -3, quantidadeReservada: 'x', pedida: 1, permiteVendaSemEstoque: false });
+  assert.equal(r.situacao, 'bloquear_estoque');
+  assert.equal(r.disponivel, 0);
+  // Quilo com 3 casas: 0,1 + 0,2 nao pode travar por arredondamento.
+  assert.equal(analisarSaidaComReserva({ quantidade: 0.3, quantidadeReservada: 0, pedida: 0.1 + 0.2, permiteVendaSemEstoque: false }).situacao, 'ok');
+});
+
+test('mensagem cita os numeros e quem segura a reserva', () => {
+  const analise = analisarSaidaComReserva({ quantidade: 10, quantidadeReservada: 8, pedida: 3, permiteVendaSemEstoque: false });
+  const texto = textoDaSaidaComReserva({
+    analise,
+    pedida: 3,
+    sigla: 'UN',
+    reservas: [
+      { origem: 'pre_venda', documentoId: 'p1', numero: '0081', cliente: 'JOAO', quantidade: 5 },
+      { origem: 'ordem_de_servico', documentoId: 'o1', numero: '0012', cliente: '', quantidade: 3 },
+    ],
+  });
+  assert.equal(texto, 'Estoque 10 UN, reservado 8 UN, disponível 2 UN; nesta venda 3 UN. Reservado em: Pré-venda #0081 · JOAO (5 UN); Ordem de Serviço #0012 (3 UN).');
+});
+
+test('mensagem com muitas reservas mostra 5 e conta o resto', () => {
+  const analise = analisarSaidaComReserva({ quantidade: 10, quantidadeReservada: 10, pedida: 1, permiteVendaSemEstoque: false });
+  const reservas = Array.from({ length: 7 }, (_, i) => ({ origem: 'condicional' as const, documentoId: `c${i}`, numero: String(i + 1), cliente: '', quantidade: 1 }));
+  const texto = textoDaSaidaComReserva({ analise, pedida: 1, reservas, sigla: 'KG', casas: 3 });
+  assert.match(texto, /Condicional #5 \(1\.000 KG\) e mais 2\.$/);
+  assert.equal(textoDaSaidaComReserva({ analise, pedida: 1, reservas: [] }), 'Estoque 10 UN, reservado 10 UN, disponível 0 UN; nesta venda 1 UN.');
+});
+
+test('item em embalagem reserva na unidade base', () => {
+  assert.equal(quantidadeDoProdutoNosItens([{ id: 'p', quantidade: 2, quantidadeBase: 40 }, { id: 'p', quantidade: 3 }], 'p'), 43);
 });

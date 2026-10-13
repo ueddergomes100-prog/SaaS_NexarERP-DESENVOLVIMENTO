@@ -184,7 +184,92 @@ export const quantidadeDoProdutoNosItens = (itens: unknown, produtoId: string): 
     const i = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
     const id = i.id ?? i.produtoId ?? i.pecaId;
     if (id !== produtoId) return total;
-    const qtd = Number(i.quantidade ?? i.qtd ?? 0);
+    // Item vendido em embalagem (saco de 20 kg) reserva na unidade base: e' o
+    // `quantidadeBase` que bate com o `quantidadeReservada` do produto.
+    const qtd = Number(i.quantidadeBase ?? i.quantidade ?? i.qtd ?? 0);
     return total + (Number.isFinite(qtd) && qtd > 0 ? qtd : 0);
   }, 0);
+};
+
+// ---------------------------------------------------------------------------
+// RESERVA NA VENDA (decisao do dono, 13/10/2026). PDV, Pedido de Venda e OS
+// olhavam so' o estoque fisico: peca segurada em pre-venda, condicional, OS
+// ou troca aparecia livre no balcao. Agora o que conta e' o DISPONIVEL
+// (estoque - reservado pelos OUTROS documentos -- a reserva do proprio
+// documento volta para ele) e a regra da empresa decide:
+//  - empresa que NAO vende sem estoque: TRAVA, citando quem segura a peca;
+//  - empresa que vende sem estoque: so' AVISA quando a reserva entra no meio.
+// ---------------------------------------------------------------------------
+
+export type SituacaoDaSaida = 'ok' | 'avisar_reserva' | 'bloquear_reserva' | 'bloquear_estoque';
+
+export interface AnaliseDaSaida {
+  situacao: SituacaoDaSaida;
+  /** Estoque fisico do produto. */
+  estoque: number;
+  /** Reservado por OUTROS documentos (sem a reserva deste). */
+  reservadoPorOutros: number;
+  /** O que este documento pode usar: estoque - reservado pelos outros. */
+  disponivel: number;
+}
+
+const numeroOuZero = (valor: unknown): number => {
+  const n = Number(valor);
+  return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * `pedida` e' o TOTAL do produto no documento depois da mudanca (todas as
+ * linhas, na unidade base). `reservadoPeloDocumento` e' o que este documento
+ * ja' segura gravado (pre-venda ou OS aberta com reserva) -- ele nao conta
+ * contra o proprio documento.
+ */
+export const analisarSaidaComReserva = (args: {
+  quantidade: unknown;
+  quantidadeReservada: unknown;
+  pedida: number;
+  reservadoPeloDocumento?: number;
+  permiteVendaSemEstoque: boolean;
+}): AnaliseDaSaida => {
+  const estoque = numeroOuZero(args.quantidade);
+  const reservada = Math.max(0, numeroOuZero(args.quantidadeReservada));
+  const propria = Math.max(0, numeroOuZero(args.reservadoPeloDocumento));
+  const reservadoPorOutros = Math.max(0, reservada - propria);
+  const disponivel = Math.max(0, Math.max(0, estoque) - reservadoPorOutros);
+  const pedida = Math.max(0, numeroOuZero(args.pedida));
+  const base = { estoque, reservadoPorOutros, disponivel };
+  // Folga de arredondamento (quilo com 3 casas).
+  if (pedida <= disponivel + 1e-9) return { situacao: 'ok', ...base };
+  if (args.permiteVendaSemEstoque) {
+    return { situacao: reservadoPorOutros > 0 ? 'avisar_reserva' : 'ok', ...base };
+  }
+  return { situacao: reservadoPorOutros > 0 ? 'bloquear_reserva' : 'bloquear_estoque', ...base };
+};
+
+const rotuloDaReserva = (r: ReservaEncontrada, formatar: (v: number) => string): string => {
+  const numero = r.numero ? ` #${r.numero}` : '';
+  const cliente = r.cliente ? ` · ${r.cliente}` : '';
+  return `${ROTULO_ORIGEM_RESERVA[r.origem]}${numero}${cliente} (${formatar(r.quantidade)})`;
+};
+
+/**
+ * Texto da mensagem: numeros do produto + quem segura a reserva. Lista no
+ * maximo 5 documentos (o resto vira "e mais N") para a mensagem caber.
+ */
+export const textoDaSaidaComReserva = (args: {
+  analise: AnaliseDaSaida;
+  pedida: number;
+  reservas: ReservaEncontrada[];
+  sigla?: string | null;
+  casas?: number | null;
+}): string => {
+  const casas = args.casas ?? 0;
+  const sigla = args.sigla || 'UN';
+  const fmt = (v: number) => formatarQtd(v, casas, sigla);
+  const { analise } = args;
+  const numeros = `Estoque ${fmt(analise.estoque)}, reservado ${fmt(analise.reservadoPorOutros)}, disponível ${fmt(analise.disponivel)}; nesta venda ${fmt(Math.max(0, args.pedida))}.`;
+  if (args.reservas.length === 0) return numeros;
+  const primeiras = args.reservas.slice(0, 5).map((r) => rotuloDaReserva(r, fmt));
+  const resto = args.reservas.length > 5 ? ` e mais ${args.reservas.length - 5}` : '';
+  return `${numeros} Reservado em: ${primeiras.join('; ')}${resto}.`;
 };

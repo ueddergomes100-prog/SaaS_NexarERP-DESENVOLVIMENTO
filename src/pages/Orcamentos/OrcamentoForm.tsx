@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useTabs } from '../../contexts/TabsContext';
 import { 
   ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, 
   Calendar, Package, Wrench, Printer, ShoppingCart, Share2, X, History
@@ -12,8 +13,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { parseParametrosVenda, validadeOrcamentoPadrao } from '../../utils/parametrosVendaDomain';
-import { baixarLotesNaTransacao, camposDeLoteDoItem, linhasParaLote, prepararBaixaDeLotes } from '../../services/loteBaixaService';
-import { applyStockAdjustments, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, reserveTenantSequence, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
+import { formatSequenceValue, getCurrentMaxSequence, reserveTenantSequence } from '../../utils/firestoreAtomic';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import {
   avisoUnidadeMedidaAusente,
@@ -109,6 +109,7 @@ interface VeiculoBasico { id: string; placa: string; modelo: string; ano: string
 
 const OrcamentoForm: React.FC = () => {
   const navigate = useNavigate();
+  const { openTab } = useTabs();
   const { id } = useParams();
   const isEditing = !!id;
   
@@ -169,7 +170,7 @@ const OrcamentoForm: React.FC = () => {
 
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   // Oficina de maquinas pesadas: so' os rotulos mudam aqui (oficinaDomain.ts).
   const { rotulos: rotulosOficina } = useModoOficina();
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
@@ -390,10 +391,8 @@ const OrcamentoForm: React.FC = () => {
     if (tipo === 'peca') {
       const peca = pecaSelecionada || pecasEstoque.find(p => p.nome.toLowerCase() === nome.toLowerCase());
 
-      // Peca sem cadastro no Estoque nao entra: orcamento pode virar venda
-      // com baixa de estoque e financeiro "Paga" direto (handleConvertToVenda),
-      // sem passar pela tela de Pedido de Venda de novo -- item digitado na
-      // mao aqui vira dinheiro sem produto nenhum por tras.
+      // Peca sem cadastro no Estoque nao entra: o orcamento vira venda/OS e
+      // item digitado na mao viraria dinheiro sem produto nenhum por tras.
       if (!peca) {
         showError(
           'Peça não encontrada',
@@ -754,151 +753,33 @@ const OrcamentoForm: React.FC = () => {
     }
   };
 
+  // ORCAMENTO -> VENDA (13/10/2026, decisao do dono): antes este botao
+  // gravava sozinho uma venda finalizada, em dinheiro e paga, sem banco,
+  // vendedor, comissao nem forma de pagamento. Agora abre o Pedido de Venda
+  // com o cliente e as pecas deste orcamento (?doOrcamento=) e a venda segue o
+  // caminho normal; o orcamento muda de status quando a venda e' gravada.
   const handleConvertToVenda = async () => {
     if (submitLockRef.current) return;
+    if (!id) {
+      showError('Grave o orçamento primeiro', 'Clique em Salvar e depois em Converter para Venda.');
+      return;
+    }
+    const pecas = itens.filter((i) => i.tipo === 'peca');
+    if (pecas.length === 0) {
+      showError('Este orçamento não tem peças', 'Só peças viram venda. Para cobrar os serviços, use "Converter para OS".');
+      return;
+    }
+    const servicos = itens.length - pecas.length;
     const confirm = await NexusSwal.fire({
       title: 'Converter para Venda?',
-      text: 'Isso criará um Pedido de Venda e baixará o estoque.',
+      text: `Abre o Pedido de Venda com o cliente e as peças do orçamento como ele está gravado, no preço orçado. Você escolhe o pagamento e grava.${servicos > 0 ? ` ${servicos} serviço(s) ficam de fora: para cobrar serviço, use "Converter para OS".` : ''}`,
       icon: 'question',
       showCancelButton: true,
-      confirmButtonText: 'Sim, Finalizar Venda',
-      cancelButtonText: 'Cancelar'
+      confirmButtonText: 'Abrir a venda',
+      cancelButtonText: 'Cancelar',
     });
-
-    if (confirm.isConfirmed) {
-      submitLockRef.current = true;
-      setIsLoading(true);
-      try {
-        // Filtrar apenas PEÇAS para a Venda
-        const soPecas = itens.filter(i => i.tipo === 'peca');
-        const valorProdutos = soPecas.reduce((acc, i) => acc + (i.preco * i.quantidade), 0);
-
-        if (soPecas.length === 0) {
-          showError('Erro', 'Este orçamento não contém peças para gerar uma venda.');
-          setIsLoading(false);
-          return;
-        }
-
-        if (!tenantId) throw new Error('Tenant nao carregado.');
-        if (!currentUser) throw new Error('Usuário não autenticado.');
-        // Lote e Validade: so' o produto que controla lote entra; os demais seguem so' com o estoque.
-        const planoLotes = await prepararBaixaDeLotes({
-          db,
-          tenantId,
-          linhas: linhasParaLote(soPecas.map((i) => ({ id: i.id, nome: i.nome, quantidade: i.quantidade }))),
-          modo: loteModoSaida,
-          avisarVencido: loteAvisarVencido,
-        });
-        if (planoLotes === null) {
-          setIsLoading(false);
-          submitLockRef.current = false;
-          return;
-        }
-        const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
-        let novaVendaId = '';
-
-        await runTransaction(db, async (transaction) => {
-          const nextPedido = await getNextTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', currentMaxPedido);
-          const newVendaRef = doc(collection(db, 'pedidos_venda'));
-          novaVendaId = newVendaRef.id;
-          const vendaItens = soPecas.map((i, indiceDoItem) => ({
-            id: i.id,
-            nome: i.nome,
-            // Codigo real do produto (nao o id do Firestore) -- e' o que a
-            // NF-e usa como "Codigo Produto" na DANFE quando este pedido for
-            // importado na tela Fiscal. Mesmo campo que fetchPedidoItensTaxes
-            // grava no fluxo normal do Pedido de Venda (NFE.tsx).
-            codigoProduto: pecasEstoque.find(p => p.id === i.id)?.codigo || i.id,
-            precoUnitario: i.preco,
-            quantidade: i.quantidade,
-            desconto: 0,
-            subtotal: i.preco * i.quantidade,
-            ...(i.origemPreco ? { origemPreco: i.origemPreco } : {}),
-            ...(i.promocaoId ? { promocaoId: i.promocaoId, promocaoNome: i.promocaoNome || '' } : {}),
-            ...camposDeLoteDoItem(planoLotes, String(indiceDoItem)),
-          }));
-
-          await applyStockAdjustments(
-            transaction,
-            db,
-            vendaItens.map(item => ({ id: item.id, nome: item.nome, quantidade: item.quantidade })),
-            'decrement',
-            permitirVendaSemEstoque
-          );
-          baixarLotesNaTransacao(transaction, db, planoLotes);
-
-          writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
-
-          transaction.set(newVendaRef, {
-            numeroPedido: formatSequenceValue(nextPedido, 4),
-            promocaoIds: [...new Set(vendaItens.map((i) => i.promocaoId).filter((p): p is string => Boolean(p)))],
-            // Sem isso, a tela de NF-e casava o cliente so pelo nome ao
-            // importar este pedido -- clienteId e' o vinculo confiavel.
-            ...(formData.clienteId ? { clienteId: formData.clienteId } : {}),
-            clienteNome: formData.clienteNome.toUpperCase(),
-            itens: vendaItens,
-            valorTotalItens: valorProdutos,
-            valorTotalDescontos: 0,
-            valorTotal: valorProdutos,
-            formaPagamento: 'Dinheiro',
-            status: 'Finalizada',
-            tenantId,
-            usuarioResponsavelId: currentUser.uid,
-            createdAt: serverTimestamp(),
-            orcamentoId: id,
-            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-          });
-
-          transaction.set(doc(collection(db, 'transacoes')), {
-            descricao: `Venda via Orçamento #${formData.numeroOrcamento}`,
-            categoria: 'Venda de Peças',
-            valor: valorProdutos,
-            tipo: 'entrada',
-            status: 'Paga',
-            formaPagamento: 'Dinheiro',
-            tenantId,
-            createdAt: serverTimestamp(),
-            pedidoId: newVendaRef.id,
-            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-          });
-
-          if (id) {
-            transaction.update(doc(db, 'orcamentos', id), {
-              status: 'Finalizado',
-              geradoTipo: 'Venda',
-              geradoId: newVendaRef.id,
-              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Convertido em venda'),
-            });
-          }
-        });
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId, usuarioId: currentUser.uid, usuarioEmail: currentUser.email || currentUser.uid,
-            modulo: 'vendas', acao: 'criacao',
-            descricao: `Pedido de Venda gerado a partir do Orçamento #${formData.numeroOrcamento} (cliente: ${formData.clienteNome.toUpperCase()}, total: R$ ${valorProdutos.toFixed(2)}).`,
-            registroRelacionadoId: novaVendaId, status: 'sucesso',
-          });
-          if (id) {
-            createAuditLog({
-              tenantId, usuarioId: currentUser.uid, usuarioEmail: currentUser.email || currentUser.uid,
-              modulo: 'vendas', acao: 'edicao',
-              descricao: `Orçamento #${formData.numeroOrcamento} convertido em Pedido de Venda.`,
-              registroRelacionadoId: id, status: 'sucesso',
-            });
-          }
-        } catch (logError) {
-          console.error('Erro ao registrar log de auditoria da conversão em venda:', logError);
-        }
-        showSuccess('Venda realizada com sucesso!');
-        navigate('/pedidos-venda');
-      } catch {
-        showError('Erro ao converter');
-      } finally {
-        setIsLoading(false);
-        submitLockRef.current = false;
-      }
-    }
+    if (!confirm.isConfirmed) return;
+    await openTab(`/pedidos-venda/novo?doOrcamento=${id}`, `Venda do orçamento #${formData.numeroOrcamento}`);
   };
 
   const handleShareWhatsApp = () => {

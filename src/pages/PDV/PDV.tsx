@@ -20,6 +20,7 @@ import {
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
+import { conferirSaidaComReserva } from '../../services/reservaEstoqueService';
 import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
 import {
   applyStockAdjustments,
@@ -583,7 +584,7 @@ const PDV: React.FC = () => {
   /** Valida contra a unidade REALMENTE vendida: um saco continua indivisivel
    * mesmo num produto fracionavel em quilo, e o estoque e sempre comparado
    * na unidade base (2 sacos de 20kg exigem 40kg de saldo). */
-  const validateQuantity = useCallback((product: PdvProduct, nextQuantity: number, opcao?: OpcaoUnidadeVenda) => {
+  const validateQuantity = useCallback((product: PdvProduct, nextQuantity: number, opcao?: OpcaoUnidadeVenda, outrasLinhasBase = 0) => {
     if (nextQuantity <= 0) return false;
     const permiteFracionado = opcao ? opcao.permiteFracionado : product.unidadeMedidaFracionado;
     const casasDecimais = opcao?.casasDecimais ?? product.unidadeMedidaCasasDecimais;
@@ -595,15 +596,29 @@ const PDV: React.FC = () => {
       return false;
     }
     const quantidadeBase = toBaseQuantity(nextQuantity, opcao?.fatorConversao);
-    if (!allowNegativeStock && quantidadeBase > Number(product.quantidade || 0)) {
+    // Reserva na venda (13/10/2026): conta o produto no cupom inteiro (outras
+    // linhas em outra unidade somam) e o que esta reservado em pre-venda,
+    // condicional, OS ou troca. Empresa que nao vende sem estoque trava;
+    // a que vende so' recebe o aviso.
+    const totalBase = quantidadeBase + Math.max(0, outrasLinhasBase);
+    const reserva = conferirSaidaComReserva({ tenantId, produto: product, pedida: totalBase, permiteVendaSemEstoque: allowNegativeStock });
+    if (reserva === false) return false;
+    if (reserva === 'sem_estoque') {
       const siglaBase = product.unidadeMedidaSigla || 'UN';
+      const emEstoque = Number(product.quantidade || 0).toLocaleString('pt-BR');
+      const outras = outrasLinhasBase > 0 ? ` O cupom já tem ${outrasLinhasBase.toLocaleString('pt-BR')} ${siglaBase} deste produto em outra linha.` : '';
       showError('Estoque insuficiente', (opcao?.fatorConversao ?? 1) === 1
-        ? `Disponível: ${Number(product.quantidade || 0).toLocaleString('pt-BR')}.`
-        : `${nextQuantity} ${sigla} consome ${quantidadeBase} ${siglaBase}, mas há apenas ${Number(product.quantidade || 0).toLocaleString('pt-BR')} ${siglaBase}.`);
+        ? `Disponível: ${emEstoque}.${outras}`
+        : `${nextQuantity} ${sigla} consome ${quantidadeBase} ${siglaBase}, mas há apenas ${emEstoque} ${siglaBase}.${outras}`);
       return false;
     }
     return true;
-  }, [allowNegativeStock]);
+  }, [allowNegativeStock, tenantId]);
+
+  /** Quanto do produto ja' esta nas OUTRAS linhas do cupom, na unidade base. */
+  const baseNasOutrasLinhas = (linhas: PdvCartItem[], productId: string, linhaIgnorada: string): number => linhas
+    .filter((linha) => linha.productId === productId && linha.id !== linhaIgnorada)
+    .reduce((total, linha) => total + (linha.quantidadeBase ?? toBaseQuantity(linha.quantidade, linha.fatorConversao)), 0);
 
   /** Quando o termo pesquisado e' o codigo de barras de uma embalagem, o item
    * entra ja naquela unidade -- bipar o saco lanca 1 SC (e baixa 20 kg), nao
@@ -653,7 +668,7 @@ const PDV: React.FC = () => {
       // depois de ja ter vendido a granel nao pode somar na linha do quilo.
       const existing = current.find((item) => item.id === lineId);
       const nextQuantity = (existing?.quantidade || 0) + quantity;
-      if (!validateQuantity(product, nextQuantity, opcaoFinal)) return current;
+      if (!validateQuantity(product, nextQuantity, opcaoFinal, baseNasOutrasLinhas(current, product.id, lineId))) return current;
 
       if (existing) {
         setSelectedItemId(existing.id);
@@ -688,7 +703,7 @@ const PDV: React.FC = () => {
       const opcao = product
         ? findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(product), item.embalagemId)
         : undefined;
-      if (product && !validateQuantity(product, quantity, opcao)) return [item];
+      if (product && !validateQuantity(product, quantity, opcao, baseNasOutrasLinhas(current, product.id, item.id))) return [item];
       return [{
         ...item,
         quantidade: quantity,
@@ -730,7 +745,7 @@ const PDV: React.FC = () => {
         showError('Unidade já lançada', `${product.nome} já está no cupom em ${opcao.sigla}. Altere a quantidade daquela linha.`);
         return current;
       }
-      if (!validateQuantity(product, item.quantidade, opcao)) return current;
+      if (!validateQuantity(product, item.quantidade, opcao, baseNasOutrasLinhas(current, product.id, item.id))) return current;
 
       setSelectedItemId(novoId);
       return current.map((entry) => entry.id !== itemId ? entry : {
@@ -957,6 +972,7 @@ const PDV: React.FC = () => {
           }))),
           'decrement',
           allowNegativeStock,
+          { respeitarReserva: true },
         );
         baixarLotesNaTransacao(transaction, db, planoLotes);
 

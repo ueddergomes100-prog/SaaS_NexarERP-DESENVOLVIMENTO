@@ -5,6 +5,7 @@ import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTim
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showSuccess, showError, showWarning } from '../../utils/alerts';
+import { conferirSaidaComReserva } from '../../services/reservaEstoqueService';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import { baixarLotesNaTransacao, devolucaoTotalDosLotes, devolverAosLotesNaTransacao, linhasParaLote, prepararBaixaDeLotes } from '../../services/loteBaixaService';
 import { somarLotesUsados, type PlanoDeLotes } from '../../utils/loteDomain';
@@ -190,6 +191,19 @@ const getLocalDateInputValue = (date = new Date()) => {
   return localDate.toISOString().slice(0, 10);
 };
 
+/** Quanto a OS ja' tem de uma peca nas linhas, sem a linha `indiceIgnorado`. */
+const quantidadeDaPecaNaOs = (pecas: Array<{ id: string; quantidade: number }>, pecaId: string, indiceIgnorado?: number): number => pecas
+  .reduce((total, p, i) => (i === indiceIgnorado || p.id !== pecaId ? total : total + (Number(p.quantidade) || 0)), 0);
+
+/** Reserva por peca a partir das pecas gravadas da OS. */
+const mapaDaReservaDaOs = (pecas: unknown): Map<string, number> => {
+  const mapa = new Map<string, number>();
+  (Array.isArray(pecas) ? pecas : []).forEach((p: { id?: string; quantidade?: number }) => {
+    if (p?.id) mapa.set(p.id, (mapa.get(p.id) || 0) + (Number(p.quantidade) || 0));
+  });
+  return mapa;
+};
+
 const OSForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams(); // Para modo Edição
@@ -262,6 +276,11 @@ const OSForm: React.FC = () => {
   const [servicosSelecionados, setServicosSelecionados] = useState<ServicoSelecionado[]>([]);
 
   const [pecasEstoque, setPecasEstoque] = useState<PecaData[]>([]);
+  /**
+   * Reserva que ESTA OS ja' segura gravada, por peca. Nao conta contra a
+   * propria OS na conferencia do disponivel (reserva na venda, 13/10/2026).
+   */
+  const reservaPropriaRef = useRef<Map<string, number>>(new Map());
   const [pecaNomeInput, setPecaNomeInput] = useState('');
   const [pecaPrecoInput, setPecaPrecoInput] = useState('');
   const [isPecaSearchModalOpen, setIsPecaSearchModalOpen] = useState(false);
@@ -567,6 +586,7 @@ const OSForm: React.FC = () => {
             // OS antiga pode ter peca gravada sem unidade (documento salvo
             // antes da feature existir): completa com 'UN' na carga, pra
             // ficar consistente com o que o catalogo devolve hoje.
+            reservaPropriaRef.current = os.estoqueReservado === true ? mapaDaReservaDaOs(os.pecas) : new Map();
             setPecasSelecionadas((os.pecas || []).map((peca: PecaSelecionada) => ({
               ...peca,
               ...resolveUnidadeMedidaProduto(peca),
@@ -888,7 +908,18 @@ const OSForm: React.FC = () => {
     }
     
     if (peca) {
-      if (!permitirVendaSemEstoque && (peca.quantidade || 0) < 1) {
+      // Reserva na venda (13/10/2026): conta o que a OS ja' tem desta peca e
+      // o que esta reservado em outros documentos.
+      const reserva = conferirSaidaComReserva({
+        tenantId,
+        produto: peca,
+        pedida: 1 + quantidadeDaPecaNaOs(pecasSelecionadas, peca.id),
+        reservadoPeloDocumento: reservaPropriaRef.current.get(peca.id) || 0,
+        documentoAtualId: id,
+        permiteVendaSemEstoque: permitirVendaSemEstoque,
+      });
+      if (reserva === false) return;
+      if (reserva === 'sem_estoque') {
         showError('Estoque Insuficiente', `A peça ${peca.nome} está sem estoque. Venda sem estoque desativada.`);
         return;
       }
@@ -933,9 +964,18 @@ const OSForm: React.FC = () => {
       return;
     }
 
-    if (!permitirVendaSemEstoque) {
-      const pecaEstoque = pecasEstoque.find(p => p.id === peca.id);
-      if (pecaEstoque && qtd > (pecaEstoque.quantidade || 0)) {
+    const pecaEstoque = pecasEstoque.find(p => p.id === peca.id);
+    if (pecaEstoque) {
+      const reserva = conferirSaidaComReserva({
+        tenantId,
+        produto: pecaEstoque,
+        pedida: qtd + quantidadeDaPecaNaOs(pecasSelecionadas, peca.id, index),
+        reservadoPeloDocumento: reservaPropriaRef.current.get(peca.id) || 0,
+        documentoAtualId: id,
+        permiteVendaSemEstoque: permitirVendaSemEstoque,
+      });
+      if (reserva === false) return;
+      if (reserva === 'sem_estoque') {
         showError('Estoque Insuficiente', `Você tem apenas ${pecaEstoque.quantidade || 0} un. no estoque.`);
         return;
       }
@@ -1335,9 +1375,9 @@ const OSForm: React.FC = () => {
         if (formData.status === 'Finalizada' && !formData.estoqueBaixado) {
           if (hasOrphanReservation || momentoBaixaEstoque === 'pedido') {
             const deltas = computeReservationCommit(previousReserved, pecasItems);
-            if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, permitirVendaSemEstoque);
+            if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, permitirVendaSemEstoque, { respeitarReserva: true });
           } else {
-            await applyStockAdjustments(transaction, db, pecasItems, 'decrement', permitirVendaSemEstoque);
+            await applyStockAdjustments(transaction, db, pecasItems, 'decrement', permitirVendaSemEstoque, { respeitarReserva: true });
           }
           baixarLotesNaTransacao(transaction, db, planoLotes);
           lotesBaixadosDaOs = planoLotes ? somarLotesUsados(Object.values(planoLotes.porLinha)) : [];
@@ -1677,6 +1717,7 @@ const OSForm: React.FC = () => {
         }
       }
 
+      reservaPropriaRef.current = novoEstoqueReservado ? mapaDaReservaDaOs(pecasSelecionadas) : new Map();
       setFormData(prev => ({
         ...prev,
         numeroOS: finalNumeroOS,

@@ -153,12 +153,28 @@ export const writeTenantSequenceValue = (
   );
 };
 
+/**
+ * Opcoes da saida de estoque. `respeitarReserva` (venda: PDV, Pedido de
+ * Venda, OS -- 13/10/2026): a saida nao pode comer o que esta reservado em
+ * pre-venda, condicional, OS ou troca. Vale so' quando a empresa nao vende
+ * sem estoque; a que vende segue como sempre (a tela ja' avisou).
+ */
+export interface OpcoesDeSaidaDeEstoque {
+  respeitarReserva?: boolean;
+}
+
+const mensagemDeReservaNaGravacao = (nome: string, estoque: number, reservada: number) => (
+  `Estoque reservado: ${nome} tem ${estoque} em estoque e ${reservada} reservado em pré-venda, condicional, OS ou troca. `
+  + `Só ${Math.max(0, estoque - reservada)} está livre. Diminua a quantidade ou libere a reserva e grave de novo.`
+);
+
 export const applyStockAdjustments = async (
   transaction: Transaction,
   db: Firestore,
   items: StockAdjustmentItem[],
   direction: 'decrement' | 'increment',
-  allowNegativeStock = false
+  allowNegativeStock = false,
+  opcoes: OpcoesDeSaidaDeEstoque = {},
 ) => {
   const itemsById = new Map<string, StockAdjustmentItem>();
 
@@ -198,7 +214,14 @@ export const applyStockAdjustments = async (
 
     if (nextQuantity < 0 && !allowNegativeStock) {
       const itemName = item.nome || 'item selecionado';
-      throw new Error(`Estoque insuficiente para ${itemName}. Disponivel: ${currentQuantity}.`);
+      throw new Error(`Estoque insuficiente para ${itemName}. Disponível: ${currentQuantity}.`);
+    }
+
+    if (direction === 'decrement' && opcoes.respeitarReserva && !allowNegativeStock) {
+      const reservada = Math.max(0, Number(stockSnap.data().quantidadeReservada || 0));
+      if (nextQuantity < reservada) {
+        throw new Error(mensagemDeReservaNaGravacao(item.nome || 'o item selecionado', currentQuantity, reservada));
+      }
     }
 
     transaction.update(stockRef, {
@@ -216,7 +239,8 @@ export const applyStockFieldDeltas = async (
   transaction: Transaction,
   db: Firestore,
   deltas: StockFieldDelta[],
-  allowNegativeStock = false
+  allowNegativeStock = false,
+  opcoes: OpcoesDeSaidaDeEstoque = {},
 ) => {
   if (deltas.length === 0) return;
 
@@ -240,13 +264,23 @@ export const applyStockFieldDeltas = async (
     const itemName = delta.nome || 'item selecionado';
 
     if (delta.quantidadeDelta < 0 && nextQuantidade < 0 && !allowNegativeStock) {
-      throw new Error(`Estoque insuficiente para ${itemName}. Disponivel: ${currentQuantidade}.`);
+      throw new Error(`Estoque insuficiente para ${itemName}. Disponível: ${currentQuantidade}.`);
     }
 
     if (delta.quantidadeReservadaDelta > 0 && !allowNegativeStock) {
       const disponivel = currentQuantidade - currentReservada;
       if (disponivel < delta.quantidadeReservadaDelta) {
-        throw new Error(`Estoque insuficiente para reservar ${itemName}. Disponivel: ${disponivel}.`);
+        throw new Error(`Estoque insuficiente para reservar ${itemName}. Disponível: ${disponivel}.`);
+      }
+    }
+
+    // Saida que consome a propria reserva (pre-venda/OS finalizando) libera
+    // a parte dela no mesmo delta; o que sobra reservado e' dos OUTROS
+    // documentos e nao pode ficar maior que o estoque.
+    if (delta.quantidadeDelta < 0 && opcoes.respeitarReserva && !allowNegativeStock) {
+      const reservadaDepois = Math.max(0, currentReservada + delta.quantidadeReservadaDelta);
+      if (nextQuantidade < reservadaDepois) {
+        throw new Error(mensagemDeReservaNaGravacao(itemName, currentQuantidade, reservadaDepois));
       }
     }
 

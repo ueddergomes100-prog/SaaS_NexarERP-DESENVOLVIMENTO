@@ -6,6 +6,8 @@ import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
+import { conferirSaidaDoProduto } from '../../services/reservaEstoqueService';
+import { analisarSaidaComReserva } from '../../utils/estoqueReservaDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService } from '../../services/spedyService';
 import * as loteBaixa from '../../services/loteBaixaService';
@@ -309,6 +311,28 @@ const ItemMaisAcoes: React.FC<{
   </button>
 );
 
+/** Reserva por produto (unidade base) a partir dos itens gravados da pre-venda. */
+const mapaDaReserva = (lista: ItemVenda[]): Map<string, number> => {
+  const mapa = new Map<string, number>();
+  toStockAdjustmentItems(lista).forEach((linha) => {
+    if (linha.id && linha.id !== 'avulso') mapa.set(linha.id, (mapa.get(linha.id) || 0) + linha.quantidade);
+  });
+  return mapa;
+};
+
+/** Linha de orcamento como gravada em `orcamentos/{id}.itens` (OrcamentoForm). */
+interface LinhaDeOrcamento {
+  id?: string;
+  nome?: string;
+  preco?: number;
+  quantidade?: number;
+  tipo?: string;
+  tabelaPreco?: ItemVenda['tabelaPreco'];
+  origemPreco?: ItemVenda['origemPreco'];
+  promocaoId?: string;
+  promocaoNome?: string;
+}
+
 const PedidoVendaForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams(); // Para modo Visualização
@@ -318,6 +342,16 @@ const PedidoVendaForm: React.FC = () => {
   /** "Criar copia" de um pedido: /pedidos-venda/novo?copiarDe=<id> abre a venda nova ja' preenchida. */
   const copiarDe = !isViewing ? searchParams.get('copiarDe') : null;
   const copiaAplicadaRef = useRef(false);
+  /** Orcamento -> "Converter para Venda" (13/10/2026): /pedidos-venda/novo?doOrcamento=<id> abre a venda ja' com as pecas do orcamento. */
+  const doOrcamento = !isViewing ? searchParams.get('doOrcamento') : null;
+  const orcamentoAplicadoRef = useRef(false);
+  const numeroOrcamentoOrigemRef = useRef('');
+  /**
+   * Reserva que ESTA pre-venda ja' segura gravada, por produto (unidade base).
+   * Ela nao conta contra a propria pre-venda na conferencia de disponivel
+   * (reserva na venda, 13/10/2026).
+   */
+  const reservaPropriaRef = useRef<Map<string, number>>(new Map());
 
   const [nfeDoc, setNfeDoc] = useState<LinkedNfe | null>(null);
   /** NF-e (modelo 55) desta venda -- a que vale: autorizada > na fila > rejeitada > cancelada. */
@@ -948,6 +982,7 @@ const PedidoVendaForm: React.FC = () => {
             setStatusConferencia((p.statusConferencia as StatusConferencia) || '');
             setConferidoPorNome(p.conferidoPorNome || '');
             setItens(p.itens || []);
+            reservaPropriaRef.current = p.estoqueReservado === true ? mapaDaReserva(p.itens || []) : new Map();
             setOrcamentoId(p.orcamentoId || '');
             setFrete(p.frete || 0);
             setEncargos(p.encargos || 0);
@@ -1133,6 +1168,103 @@ const PedidoVendaForm: React.FC = () => {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isViewing, isFetchingData, copiarDe, tenantId]);
+
+  // ORCAMENTO -> VENDA (13/10/2026, decisao do dono): o "Converter para Venda"
+  // do orcamento gravava sozinho uma venda finalizada, em dinheiro e paga --
+  // sem banco, vendedor, comissao nem forma de pagamento. Agora ele abre esta
+  // tela com o cliente e as PECAS do orcamento, no preco orcado, e a venda
+  // segue o caminho normal (pre-venda, pagamento, limites de desconto, nota).
+  // Servico nao entra em venda (vai pela OS). Peca inativa, sem cadastro ou
+  // sem estoque fica de fora com aviso, como na copia de pedido.
+  useEffect(() => {
+    if (isViewing || isFetchingData || !doOrcamento || orcamentoAplicadoRef.current || !tenantId || produtosCatalogo.length === 0) return;
+    orcamentoAplicadoRef.current = true;
+    void (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'orcamentos', doOrcamento));
+        if (!snap.exists() || snap.data().tenantId !== tenantId) {
+          showError('Orçamento não encontrado', 'Não encontrei o orçamento. Atualize a lista de orçamentos e tente de novo.');
+          return;
+        }
+        const orcamento = snap.data();
+        const numero = String(orcamento.numeroOrcamento || '');
+        if (orcamento.status === 'Finalizado' || orcamento.status === 'Convertido') {
+          showError(
+            `O orçamento #${numero} já foi convertido`,
+            'Ele já virou venda ou OS. Abra a venda ou a OS gerada a partir dele em vez de converter de novo.',
+          );
+          return;
+        }
+        const linhas: LinhaDeOrcamento[] = Array.isArray(orcamento.itens) ? orcamento.itens : [];
+        const novos: ItemVenda[] = [];
+        const deFora: string[] = [];
+        for (const linha of linhas.filter((l) => l.tipo === 'peca')) {
+          const produto = produtosCatalogo.find((p) => p.id === linha.id);
+          if (!produto || produto.ativo === false) {
+            deFora.push(`${linha.nome || 'Peça'} (inativa ou sem cadastro no Estoque)`);
+            continue;
+          }
+          const montado = montarItemDoCatalogo(produto, Number(linha.quantidade || 0));
+          if ('erro' in montado) {
+            deFora.push(montado.erro);
+            continue;
+          }
+          // Preco orcado vale: e' o que o cliente aprovou.
+          const preco = Number(linha.preco || 0);
+          novos.push({
+            ...montado.item,
+            precoUnitario: preco,
+            subtotal: Math.max(0, preco * montado.item.quantidade),
+            ...(linha.tabelaPreco ? { tabelaPreco: linha.tabelaPreco } : {}),
+            ...(linha.origemPreco ? { origemPreco: linha.origemPreco } : {}),
+            ...(linha.promocaoId ? { promocaoId: linha.promocaoId, promocaoNome: linha.promocaoNome || '' } : {}),
+          });
+        }
+        const servicos = linhas.filter((l) => l.tipo === 'servico').length;
+        setClienteNome(orcamento.clienteNome || '');
+        setClienteIdSelecionado(orcamento.clienteId || null);
+        setItens(novos);
+        setOrcamentoId(doOrcamento);
+        numeroOrcamentoOrigemRef.current = numero;
+        const avisos = [
+          ...(deFora.length > 0 ? [`Ficaram de fora: ${deFora.join('; ')}.`] : []),
+          ...(servicos > 0 ? [`${servicos} serviço(s) não entram na venda: para cobrar serviço, use "Converter para OS" no orçamento.`] : []),
+        ];
+        if (avisos.length > 0) {
+          showWarning(`Venda do orçamento #${numero}: confira antes de gravar`, avisos.join(' '));
+        } else {
+          showSuccess(`Venda do orçamento #${numero} pronta: escolha o pagamento e grave.`);
+        }
+      } catch (erro) {
+        console.error('Erro ao abrir a venda do orçamento:', erro);
+        showError('Não foi possível abrir a venda do orçamento', 'Confira sua conexão e tente de novo.');
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isViewing, isFetchingData, doOrcamento, tenantId, produtosCatalogo.length]);
+
+  /**
+   * Orcamento que virou esta pre-venda/venda sai da lista de pendentes (os
+   * botoes de converter somem). Fora da transacao da venda de proposito: a
+   * regra do orcamento pede a permissao de orcamentos, e quem so' vende nao
+   * pode ter a venda recusada por causa do orcamento.
+   */
+  const atualizarOrcamentoDeOrigem = async (idOrcamento: string, dados: Record<string, unknown>, nota: string) => {
+    if (!currentUser) return;
+    try {
+      await updateDoc(doc(db, 'orcamentos', idOrcamento), {
+        ...dados,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), nota),
+      });
+    } catch (erro) {
+      console.error('Erro ao atualizar o orçamento de origem:', erro);
+      const numero = numeroOrcamentoOrigemRef.current;
+      showWarning(
+        'A venda foi gravada, mas o orçamento não mudou de status',
+        `Abra o orçamento${numero ? ` #${numero}` : ''} em Orçamentos e mude o status para não convertê-lo de novo.`,
+      );
+    }
+  };
 
   // Menu "Mais acoes": fecha ao clicar fora ou apertar Esc.
   useEffect(() => {
@@ -1384,7 +1516,13 @@ const PedidoVendaForm: React.FC = () => {
     const quantidadeBase = toBaseQuantity(qtdNum, fatorConversao);
 
     if (produtoEncontrado) {
-      if (!permitirVendaSemEstoque && quantidadeBase > (produtoEncontrado.quantidade || 0)) {
+      const conferencia = conferirReservaNoPedido(produtoEncontrado, quantidadeBase + baseDoProdutoNosItens(itens, produtoEncontrado.id));
+      if (conferencia.situacao === 'bloquear_reserva') {
+        conferencia.mostrar();
+        return;
+      }
+      if (conferencia.situacao === 'avisar_reserva') conferencia.mostrar();
+      if (conferencia.situacao === 'bloquear_estoque') {
         const sigla = produtoEncontrado.unidadeMedidaSigla || 'UN';
         showError('Estoque Insuficiente', fatorConversao === 1
           ? `Você tem apenas ${produtoEncontrado.quantidade || 0} de ${produtoEncontrado.nome} em estoque. Venda sem estoque desativada.`
@@ -1537,17 +1675,35 @@ const PedidoVendaForm: React.FC = () => {
    * lancamento de um item (estoque, venda fracionada). Usado pelo lancamento
    * em lote, pela linha de codigo da grade e pela troca de produto na linha.
    */
+  /** Quanto do produto ja' esta nas linhas da venda (unidade base), sem a linha `indiceIgnorado`. */
+  const baseDoProdutoNosItens = (lista: ItemVenda[], produtoId: string, indiceIgnorado?: number): number => lista
+    .reduce((total, it, i) => (i === indiceIgnorado || it.id !== produtoId ? total : total + toBaseQuantity(it.quantidade, it.fatorConversao)), 0);
+
+  /** Disponivel = estoque - reservado pelos OUTROS documentos; a regra da empresa decide travar ou avisar. */
+  const conferirReservaNoPedido = (produto: ProdutoEstoque, totalBase: number) => conferirSaidaDoProduto({
+    tenantId,
+    produto,
+    pedida: totalBase,
+    reservadoPeloDocumento: reservaPropriaRef.current.get(produto.id) || 0,
+    documentoAtualId: id,
+    permiteVendaSemEstoque: permitirVendaSemEstoque,
+  });
+
   const montarItemDoCatalogo = (
     product: ProdutoEstoque,
     quantidade: number,
     indiceIgnorado?: number,
-  ): { item: ItemVenda; aviso?: string } | { erro: string } => {
+  ): { item: ItemVenda; aviso?: string; avisoReserva?: () => void } | { erro: string; mostrarReserva?: () => void } => {
     if (!(quantidade > 0)) return { erro: `${product.nome}: quantidade inválida.` };
     const opcao = buildOpcoesUnidadeVenda(product)[0];
     const fator = opcao?.fatorConversao ?? 1;
     const quantidadeBase = toBaseQuantity(quantidade, fator);
-    if (!permitirVendaSemEstoque && quantidadeBase > (product.quantidade || 0)) {
+    const conferencia = conferirReservaNoPedido(product, quantidadeBase + baseDoProdutoNosItens(itens, product.id, indiceIgnorado));
+    if (conferencia.situacao === 'bloquear_estoque') {
       return { erro: `${product.nome}: só há ${product.quantidade || 0} em estoque.` };
+    }
+    if (conferencia.situacao === 'bloquear_reserva') {
+      return { erro: `${product.nome}: estoque reservado. ${conferencia.resumo}`, mostrarReserva: conferencia.mostrar };
     }
     if (!isValidSaleQuantity(quantidade, opcao.permiteFracionado, opcao.casasDecimais)) {
       return { erro: `${product.nome}: a unidade ${opcao.sigla} ${opcao.permiteFracionado ? `aceita no máximo ${opcao.casasDecimais ?? 0} casa(s) decimal(is)` : 'não permite quantidade fracionada'}.` };
@@ -1556,6 +1712,7 @@ const PedidoVendaForm: React.FC = () => {
     const { preco, campos: camposPreco } = camposDePreco(conferida.tabela);
     return {
       aviso: conferida.aviso,
+      ...(conferencia.situacao === 'avisar_reserva' ? { avisoReserva: conferencia.mostrar } : {}),
       item: {
         ...camposPreco,
         id: product.id,
@@ -1581,21 +1738,33 @@ const PedidoVendaForm: React.FC = () => {
     const novos: ItemVenda[] = [];
     const recusados: string[] = [];
     const avisosPromocao: string[] = [];
+    const reservaQueTravou: Array<() => void> = [];
+    const avisosDeReserva: Array<() => void> = [];
     lista.forEach(({ product, quantidade }) => {
       const montado = montarItemDoCatalogo(product, quantidade);
-      if ('erro' in montado) { recusados.push(montado.erro); return; }
+      if ('erro' in montado) {
+        recusados.push(montado.erro);
+        if (montado.mostrarReserva) reservaQueTravou.push(montado.mostrarReserva);
+        return;
+      }
       if (montado.aviso) avisosPromocao.push(montado.aviso);
+      if (montado.avisoReserva) avisosDeReserva.push(montado.avisoReserva);
       novos.push(montado.item);
     });
     if (novos.length > 0) {
       setItens((atuais) => [...atuais, ...novos]);
       handleClearProdutoSelecionado();
     }
-    if (recusados.length > 0) {
+    if (recusados.length === 1 && reservaQueTravou.length === 1 && novos.length === 0) {
+      // Um item so', travado pela reserva: a mensagem cita quem segura a peca.
+      reservaQueTravou[0]();
+    } else if (recusados.length > 0) {
       showError(
         novos.length > 0 ? `${novos.length} item(ns) adicionado(s); ${recusados.length} ficaram de fora` : 'Nenhum item adicionado',
         recusados.join(' '),
       );
+    } else if (avisosDeReserva.length === 1) {
+      avisosDeReserva[0]();
     } else if (novos.length > 0 && !opcoes.silencioso) {
       showSuccess(`${novos.length} item${novos.length === 1 ? '' : 's'} adicionado${novos.length === 1 ? '' : 's'}.`);
     }
@@ -1614,7 +1783,11 @@ const PedidoVendaForm: React.FC = () => {
     if (!produto) return 'Produto não encontrado. Atualize a tela e tente de novo.';
     if (produto.id === item.id) return null;
     const montado = montarItemDoCatalogo(produto, item.quantidade, index);
-    if ('erro' in montado) return montado.erro;
+    if ('erro' in montado) {
+      montado.mostrarReserva?.();
+      return montado.erro;
+    }
+    montado.avisoReserva?.();
     setItens((atuais) => atuais.map((it, i) => (i === index ? montado.item : it)));
     if (item.desconto > 0) showWarning(`O desconto de R$ ${item.desconto.toFixed(2).replace('.', ',')} era de ${item.nome} e foi zerado. Lance o desconto de novo se valer para ${produto.nome}.`);
     if (montado.aviso) showWarning(montado.aviso);
@@ -1659,12 +1832,20 @@ const PedidoVendaForm: React.FC = () => {
         : `${item.nome} está sendo vendido na unidade ${siglaItem}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`;
     }
     const novaQtdBase = toBaseQuantity(novaQtd, fatorItem);
-    if (produtoCatalogo && !permitirVendaSemEstoque && novaQtdBase > (produtoCatalogo.quantidade || 0)) {
+    const conferenciaReserva = produtoCatalogo && campos.quantidade !== undefined
+      ? conferirReservaNoPedido(produtoCatalogo, novaQtdBase + baseDoProdutoNosItens(itens, produtoCatalogo.id, index))
+      : null;
+    if (produtoCatalogo && conferenciaReserva?.situacao === 'bloquear_estoque') {
       const siglaBase = produtoCatalogo.unidadeMedidaSigla || 'UN';
       return fatorItem === 1
         ? `Você tem apenas ${produtoCatalogo.quantidade || 0} de ${produtoCatalogo.nome} em estoque. Venda sem estoque desativada.`
         : `${novaQtd} ${siglaItem} consome ${novaQtdBase} ${siglaBase}, mas você tem apenas ${produtoCatalogo.quantidade || 0} ${siglaBase} em estoque.`;
     }
+    if (produtoCatalogo && conferenciaReserva?.situacao === 'bloquear_reserva') {
+      conferenciaReserva.mostrar();
+      return `${produtoCatalogo.nome}: estoque reservado. ${conferenciaReserva.resumo}`;
+    }
+    if (conferenciaReserva?.situacao === 'avisar_reserva') conferenciaReserva.mostrar();
 
     // Preco ABAIXO da tabela vira desconto do item (mesma regra do
     // lancamento, 2026-10-01): o item fica no preco de tabela e a diferenca
@@ -1763,8 +1944,16 @@ const PedidoVendaForm: React.FC = () => {
           warnings.push(`${item.nome}: produto não encontrado mais no catálogo.`);
           return warnings;
         }
-        if (!permitirVendaSemEstoque && produtoAtual.quantidade < item.quantidade) {
-          warnings.push(`${item.nome}: estoque atual (${produtoAtual.quantidade}) é menor que a quantidade do pedido (${item.quantidade}).`);
+        const saida = analisarSaidaComReserva({
+          quantidade: produtoAtual.quantidade,
+          quantidadeReservada: produtoAtual.quantidadeReservada,
+          pedida: toBaseQuantity(item.quantidade, item.fatorConversao),
+          permiteVendaSemEstoque: false,
+        });
+        if (!permitirVendaSemEstoque && saida.situacao !== 'ok') {
+          warnings.push(saida.reservadoPorOutros > 0
+            ? `${item.nome}: disponível agora ${saida.disponivel} (estoque ${saida.estoque}, reservado ${saida.reservadoPorOutros}), menor que a quantidade do pedido (${item.quantidade}).`
+            : `${item.nome}: estoque atual (${produtoAtual.quantidade}) é menor que a quantidade do pedido (${item.quantidade}).`);
         }
         // Item com tabela de precos (2026-10-01) compara o preco de VENDA de quando
         // entrou com o de agora -- comparar o preco cobrado daria alarme falso em
@@ -2146,6 +2335,7 @@ const PedidoVendaForm: React.FC = () => {
           itens,
           // Promocoes usadas -- a quota de cada uma e' contada por este campo (promocaoService.vendidoNaPromocao).
           promocaoIds: promocaoIdsDosItens(itens),
+          ...(orcamentoId ? { orcamentoId } : {}),
           valorTotalItens,
           valorTotalItensCentavos: toCents(valorTotalItens),
           valorTotalDescontos,
@@ -2200,6 +2390,12 @@ const PedidoVendaForm: React.FC = () => {
 
         transaction.set(preVendaRef, preVendaData);
       });
+
+      reservaPropriaRef.current = mapaDaReserva(itens);
+
+      if (orcamentoId && !isPreVendaAberta) {
+        void atualizarOrcamentoDeOrigem(orcamentoId, { status: 'Finalizado', geradoTipo: 'Pré-venda', geradoId: preVendaId }, `Convertido na pré-venda #${numeroGravado}`);
+      }
 
       try {
         const { createAuditLog } = await import('../../services/logService');
@@ -2414,6 +2610,9 @@ const PedidoVendaForm: React.FC = () => {
     setIsLoading(true);
     try {
       await cancelarPreVendaNoBanco('Pré-venda cancelada');
+      if (orcamentoId) {
+        void atualizarOrcamentoDeOrigem(orcamentoId, { status: 'Pendente' }, 'Reaberto pelo cancelamento da pré-venda');
+      }
 
       try {
         const { createAuditLog } = await import('../../services/logService');
@@ -2994,7 +3193,8 @@ const PedidoVendaForm: React.FC = () => {
             transaction,
             db,
             computeReservationCommit(reservaGravada, toStockAdjustmentItems(itens)),
-            permitirVendaSemEstoque
+            permitirVendaSemEstoque,
+            { respeitarReserva: true },
           );
         } else {
           await applyStockAdjustments(
@@ -3002,7 +3202,8 @@ const PedidoVendaForm: React.FC = () => {
             db,
             toStockAdjustmentItems(itens),
             'decrement',
-            permitirVendaSemEstoque
+            permitirVendaSemEstoque,
+            { respeitarReserva: true },
           );
         }
         baixarLotesNaTransacao(transaction, db, planoLotes);
@@ -3044,6 +3245,7 @@ const PedidoVendaForm: React.FC = () => {
           observacao: observacaoPedido.trim(),
           itens: itensComLote,
           promocaoIds: promocaoIdsDosItens(itens),
+          ...(orcamentoId ? { orcamentoId } : {}),
           valorTotalItens,
           valorTotalItensCentavos: toCents(valorTotalItens),
           valorTotalDescontos,
@@ -3210,6 +3412,10 @@ const PedidoVendaForm: React.FC = () => {
 
       setNumeroPedido(finalNumeroPedido);
       setFormaPagamento(paymentSummary.paymentMethodLabel);
+
+      if (orcamentoId) {
+        void atualizarOrcamentoDeOrigem(orcamentoId, { status: 'Finalizado', geradoTipo: 'Venda', geradoId: newPedidoId }, `Convertido na venda #${finalNumeroPedido}`);
+      }
 
       try {
         const { createAuditLog } = await import('../../services/logService');

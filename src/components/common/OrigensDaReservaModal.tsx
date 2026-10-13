@@ -1,12 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
 import { ExternalLink, X } from 'lucide-react';
-import { db } from '../../services/firebase';
+import { buscarReservasDoProduto } from '../../services/reservaEstoqueService';
 import { useTabs } from '../../contexts/TabsContext';
-import { STATUS_PEDIDO_ABERTO } from '../../utils/preVendaDomain';
 import {
   ROTULO_ORIGEM_RESERVA,
-  quantidadeDoProdutoNosItens,
   resumoDeReserva,
   type ReservaEncontrada,
 } from '../../utils/estoqueReservaDomain';
@@ -58,35 +55,7 @@ const OrigensDaReservaModal: React.FC<Props> = ({ tenantId, produto, onFechar })
     let vivo = true;
     const buscar = async () => {
       try {
-        const base = (colecao: string) => collection(db, colecao);
-        const [pedidos, ordens, condicionais, trocas] = await Promise.all([
-          getDocs(query(base('pedidos_venda'), where('tenantId', '==', tenantId), where('estoqueReservado', '==', true))),
-          getDocs(query(base('ordens_de_servico'), where('tenantId', '==', tenantId), where('estoqueReservado', '==', true))),
-          getDocs(query(base('condicionais'), where('tenantId', '==', tenantId), where('status', '==', 'aberto'))),
-          getDocs(query(base('trocas'), where('tenantId', '==', tenantId), where('estoqueReservado', '==', true))),
-        ]);
-        const achadas: ReservaEncontrada[] = [];
-        pedidos.docs.forEach((d) => {
-          const dados = d.data();
-          if (!STATUS_PEDIDO_ABERTO.includes(String(dados.status || ''))) return;
-          const qtd = quantidadeDoProdutoNosItens(dados.itens, produto.id);
-          if (qtd > 0) achadas.push({ origem: 'pre_venda', documentoId: d.id, numero: String(dados.numeroPedido || ''), cliente: String(dados.clienteNome || ''), quantidade: qtd });
-        });
-        ordens.docs.forEach((d) => {
-          const dados = d.data();
-          const qtd = quantidadeDoProdutoNosItens(dados.pecas, produto.id);
-          if (qtd > 0) achadas.push({ origem: 'ordem_de_servico', documentoId: d.id, numero: String(dados.numeroOS || ''), cliente: String(dados.clienteNome || ''), quantidade: qtd });
-        });
-        condicionais.docs.forEach((d) => {
-          const dados = d.data();
-          const qtd = quantidadeDoProdutoNosItens(dados.itens, produto.id);
-          if (qtd > 0) achadas.push({ origem: 'condicional', documentoId: d.id, numero: String(dados.numeroCondicional || dados.numero || ''), cliente: String(dados.clienteNome || ''), quantidade: qtd });
-        });
-        trocas.docs.forEach((d) => {
-          const dados = d.data();
-          const qtd = quantidadeDoProdutoNosItens(dados.itens, produto.id);
-          if (qtd > 0) achadas.push({ origem: 'troca', documentoId: d.id, numero: String(dados.numeroTroca || dados.numero || ''), cliente: String(dados.clienteNome || ''), quantidade: qtd });
-        });
+        const achadas = await buscarReservasDoProduto(tenantId, produto.id);
         if (vivo) setReservas(achadas);
       } catch (e) {
         console.error('Erro ao procurar as reservas do produto:', e);

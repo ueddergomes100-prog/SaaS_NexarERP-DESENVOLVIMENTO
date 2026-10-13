@@ -56,7 +56,8 @@ test('desconto em reais ou em percentual, nunca acima do item', () => {
   assert.match(interpretarDesconto('abc', 47).erro || '', /inválido/);
 });
 
-test('tab anda quantidade -> preco -> desconto (ou para no preco sem desconto por item)', () => {
+test('tab anda codigo -> quantidade -> preco -> desconto (ou para no preco sem desconto por item)', () => {
+  assert.equal(campoSeguinte('codigo', true), 'quantidade');
   assert.equal(campoSeguinte('quantidade', true), 'precoUnitario');
   assert.equal(campoSeguinte('precoUnitario', true), 'desconto');
   assert.equal(campoSeguinte('desconto', true), null);
@@ -64,7 +65,9 @@ test('tab anda quantidade -> preco -> desconto (ou para no preco sem desconto po
 });
 
 test('texto da celula em edicao', () => {
-  const item = { quantidade: 2.5, precoUnitario: 4.7, desconto: 0 };
+  const item = { codigo: '1264', quantidade: 2.5, precoUnitario: 4.7, desconto: 0 };
+  assert.equal(textoParaEdicao('codigo', item), '1264');
+  assert.equal(textoParaEdicao('codigo', { ...item, codigo: undefined }), '');
   assert.equal(textoParaEdicao('quantidade', item), '2,5');
   assert.equal(textoParaEdicao('precoUnitario', item), '4,70');
   assert.equal(textoParaEdicao('desconto', item), '');

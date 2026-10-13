@@ -77,6 +77,11 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   const internalRef = useRef<HTMLInputElement | null>(null);
   const resolvedInputRef = inputRef || internalRef;
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  // Campo VAZIO lista o catalogo inteiro (padrao "# lista tudo"), mas Enter so'
+  // escolhe dali depois de a pessoa navegar com a seta. Sem isso, o Enter
+  // "a mais" depois de lancar um item (campo ja' limpo) pegava o primeiro da
+  // lista e relancava produto sem ninguem ter pesquisado nada (dono, 13/10).
+  const [navegouComSeta, setNavegouComSeta] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   // Depois de selecionado, o campo trava (so' o "x" remove) -- ninguem
   // apaga o produto sem querer digitando/dando backspace em cima do nome.
@@ -109,6 +114,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
 
   useEffect(() => {
     setHighlightedIndex(0);
+    setNavegouComSeta(false);
   }, [value, products]);
 
   // Rede de seguranca: se o valor for limpo por fora (ex: depois de
@@ -135,10 +141,12 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
       if (result.items.length === 0) return;
       event.preventDefault();
       setIsOpen(true);
+      setNavegouComSeta(true);
       setHighlightedIndex((index) => Math.min(index + 1, result.items.length - 1));
     } else if (event.key === 'ArrowUp') {
       if (result.items.length === 0) return;
       event.preventDefault();
+      setNavegouComSeta(true);
       setHighlightedIndex((index) => Math.max(0, index - 1));
     } else if (event.key === 'Enter') {
       // Produto ja escolhido (o campo trava quando isso acontece): Enter aqui
@@ -150,6 +158,8 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
         return;
       }
       if (result.items.length === 0) return;
+      // Nada digitado e sem seta: o Enter nao escolhe ninguem.
+      if (!value.trim() && !navegouComSeta) return;
       event.preventDefault();
       const product = result.items[highlightedIndex] || result.items[0];
       if (product) confirmSelect(product);

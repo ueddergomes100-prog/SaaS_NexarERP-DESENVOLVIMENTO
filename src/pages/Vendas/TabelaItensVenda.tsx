@@ -1,5 +1,5 @@
 import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react';
-import { CornerDownLeft, Pencil, Trash2 } from 'lucide-react';
+import { CornerDownLeft, Trash2 } from 'lucide-react';
 import { showError } from '../../utils/alerts';
 import type { SearchableProduct } from '../../utils/productSearch';
 import {
@@ -15,18 +15,24 @@ import './TabelaItensVenda.css';
 
 /*
  * ITENS DA VENDA como grade de lancamento (2026-10-13, pedido do dono a
- * partir do ERP antigo dos clientes):
+ * partir do ERP antigo dos clientes; refeita no mesmo dia depois da critica
+ * ao visual):
  *
  *  - a PRIMEIRA linha e' a linha de lancamento: Codigo (matricula) ->
  *    o produto aparece sozinho -> Qtd -> Enter lanca e o cursor volta para o
  *    codigo. Codigo que nao existe: Enter abre a busca por nome com o texto.
- *  - quantidade, preco unitario e desconto de um item ja' lancado editam na
- *    propria celula: clique (ou F5 na linha selecionada), digite, Enter aplica,
- *    Tab aplica e vai para a proxima celula, Esc desfaz.
+ *  - num item ja' lancado, CODIGO, quantidade, preco unitario e desconto
+ *    editam na propria celula: clique, digite, Enter aplica, Tab aplica e
+ *    vai para a proxima celula, Esc desfaz. Trocar o codigo troca o produto
+ *    da linha (mantendo a quantidade), sem precisar remover e lancar de novo.
  *
  * A regra do item (estoque, venda fracionada, limite de desconto, preco abaixo
  * da tabela) continua no formulario: ele recebe o que foi digitado e devolve
  * a mensagem de erro, que aparece aqui. Parte pura em itensVendaDomain.ts.
+ *
+ * Desenho: colunas numericas com largura fixa e numeros tabulares, nunca
+ * quebrando linha; o nome do produto e' a unica coluna elastica. A celula
+ * editavel parece texto e so' revela a borda tracejada ao passar o mouse.
  */
 
 export interface ItemDaTabela {
@@ -74,6 +80,8 @@ interface Props {
   onBuscarPorNome: (texto: string) => void;
   /** Devolve a mensagem de erro em portugues, ou null quando aplicou. */
   onAtualizarItem: (index: number, campos: { quantidade?: number; precoUnitario?: number; desconto?: number }) => string | null;
+  /** Troca o produto da linha (codigo editado), mantendo a quantidade. Erro em portugues ou null. */
+  onTrocarProduto: (index: number, produto: ProdutoLancavel) => string | null;
   onRemover: (index: number) => void;
 }
 
@@ -85,9 +93,16 @@ interface Edicao {
   texto: string;
 }
 
+const ROTULO_ARIA: Record<CampoEditavel, string> = {
+  codigo: 'Código',
+  quantidade: 'Quantidade',
+  precoUnitario: 'Preço unitário',
+  desconto: 'Desconto',
+};
+
 const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
   itens, catalogo, podeLancar, podeEditar, podeRemover, permitirDescontoPorItem, selectedIndex, onSelect,
-  precoSugerido, onLancarPorCodigo, onBuscarPorNome, onAtualizarItem, onRemover,
+  precoSugerido, onLancarPorCodigo, onBuscarPorNome, onAtualizarItem, onTrocarProduto, onRemover,
 }, ref) => {
   const codigoRef = useRef<HTMLInputElement>(null);
   const qtdRef = useRef<HTMLInputElement>(null);
@@ -103,9 +118,10 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
   const podeLancarAgora = Boolean(produtoDaLinha) && !qtdDaLinha.erro;
   const colunas = 6 + (podeRemover ? 1 : 0);
 
+  const campoEditavel = (campo: CampoEditavel) => podeEditar && (campo !== 'desconto' || permitirDescontoPorItem);
+
   const iniciarEdicao = (index: number, campo: CampoEditavel) => {
-    if (!podeEditar) return;
-    if (campo === 'desconto' && !permitirDescontoPorItem) return;
+    if (!campoEditavel(campo)) return;
     const item = itens[index];
     if (!item) return;
     onSelect(index);
@@ -121,6 +137,22 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
   const aplicarEdicao = (atual: Edicao): boolean => {
     const item = itens[atual.index];
     if (!item) { setEdicao(null); return true; }
+
+    if (atual.campo === 'codigo') {
+      const texto = atual.texto.trim();
+      if (!texto || texto === (item.codigo || '')) { setEdicao(null); return true; }
+      const produto = localizarProdutoPorCodigo(catalogo, texto);
+      if (!produto) {
+        showError('Produto não encontrado', `Não achei nenhum produto com o código "${texto}". Confira o código no Estoque.`);
+        setEdicao(null);
+        return false;
+      }
+      const falha = onTrocarProduto(atual.index, produto);
+      if (falha) { showError('Não foi possível trocar o produto', falha); setEdicao(null); return false; }
+      setEdicao(null);
+      return true;
+    }
+
     let valor: number;
     let erro: string | null;
     if (atual.campo === 'quantidade') ({ valor, erro } = interpretarQuantidade(atual.texto));
@@ -131,8 +163,7 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
       setEdicao(null);
       return false;
     }
-    const atualValor = item[atual.campo];
-    if (Math.abs(valor - atualValor) < 0.00001) { setEdicao(null); return true; }
+    if (Math.abs(valor - item[atual.campo]) < 0.00001) { setEdicao(null); return true; }
     const falha = onAtualizarItem(atual.index, { [atual.campo]: valor });
     if (falha) {
       showError('Não foi possível alterar o item', falha);
@@ -150,10 +181,14 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
     aplicando.current = true;
     const ok = aplicarEdicao(atual);
     aplicando.current = false;
-    if (!ok) return;
-    if (e.key === 'Tab') {
-      const proximo = e.shiftKey ? null : campoSeguinte(atual.campo, permitirDescontoPorItem);
-      if (proximo) setEdicao({ index: atual.index, campo: proximo, texto: textoParaEdicao(proximo, { ...itens[atual.index], [atual.campo]: itens[atual.index][atual.campo] }) });
+    if (!ok || e.key !== 'Tab' || e.shiftKey) return;
+    const proximo = campoSeguinte(atual.campo, permitirDescontoPorItem);
+    if (proximo && campoEditavel(proximo)) {
+      // O item pode ter acabado de mudar (quantidade/produto): o texto vem do
+      // estado novo no proximo render, por isso a edicao e' aberta sem texto
+      // e preenchida pelo iniciarEdicao do clique... aqui basta o valor atual.
+      const item = itens[atual.index];
+      setEdicao({ index: atual.index, campo: proximo, texto: item ? textoParaEdicao(proximo, item) : '' });
     }
   };
 
@@ -178,62 +213,67 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
 
   const disponivel = (p: ProdutoLancavel) => Math.max(0, (Number(p.quantidade) || 0) - (Number(p.quantidadeReservada) || 0));
 
-  const celulaEditavel = (index: number, item: ItemDaTabela, campo: CampoEditavel, conteudo: React.ReactNode, alinhamento: 'center' | 'right') => {
-    const editavel = podeEditar && (campo !== 'desconto' || permitirDescontoPorItem);
+  const celula = (index: number, item: ItemDaTabela, campo: CampoEditavel, conteudo: React.ReactNode, classe: string) => {
     const emEdicao = edicao && edicao.index === index && edicao.campo === campo ? edicao : null;
     if (emEdicao) {
       return (
-        <td className="tiv-td" style={{ textAlign: alinhamento }}>
+        <td className={`tiv-td ${classe}`}>
           <input
             autoFocus
-            className="tiv-input"
+            className={`tiv-input tiv-input-celula ${campo === 'codigo' ? 'tiv-input-cod' : ''}`}
             value={emEdicao.texto}
-            inputMode="decimal"
-            aria-label={`${campo === 'quantidade' ? 'Quantidade' : campo === 'precoUnitario' ? 'Preço unitário' : 'Desconto'} de ${item.nome}`}
+            inputMode={campo === 'codigo' ? 'text' : 'decimal'}
+            aria-label={`${ROTULO_ARIA[campo]} de ${item.nome}`}
             onFocus={(e) => e.target.select()}
             onChange={(e) => setEdicao({ ...emEdicao, texto: e.target.value })}
             onKeyDown={(e) => aoTeclarNaCelula(e, emEdicao)}
             onBlur={() => { if (!aplicando.current) aplicarEdicao(emEdicao); }}
             onClick={(e) => e.stopPropagation()}
-            style={{ textAlign: alinhamento }}
           />
         </td>
       );
     }
-    if (!editavel) return <td className="tiv-td" style={{ textAlign: alinhamento }}>{conteudo}</td>;
+    if (!campoEditavel(campo)) return <td className={`tiv-td ${classe}`}>{conteudo}</td>;
     return (
-      <td className="tiv-td" style={{ textAlign: alinhamento }}>
+      <td className={`tiv-td ${classe}`}>
         <button
           type="button"
-          className="tiv-celula-editavel"
-          title="Clique para alterar"
+          className="tiv-editavel"
+          title={campo === 'codigo' ? 'Clique para trocar o produto pelo código' : 'Clique para alterar'}
           onClick={(e) => { e.stopPropagation(); iniciarEdicao(index, campo); }}
-          style={{ justifyContent: alinhamento === 'right' ? 'flex-end' : 'center' }}
         >
-          <span>{conteudo}</span>
-          <Pencil size={12} className="tiv-lapis" aria-hidden="true" />
+          {conteudo}
         </button>
       </td>
     );
   };
 
   return (
-    <div className="table-wrapper tiv">
+    <div className="tiv">
       <table className="tiv-tabela">
+        <colgroup>
+          <col className="tiv-col-cod" />
+          <col className="tiv-col-produto" />
+          <col className="tiv-col-qtd" />
+          <col className="tiv-col-unit" />
+          <col className="tiv-col-desc" />
+          <col className="tiv-col-subtotal" />
+          {podeRemover && <col className="tiv-col-acao" />}
+        </colgroup>
         <thead>
           <tr>
-            <th className="tiv-th tiv-col-cod">Cód.</th>
-            <th className="tiv-th tiv-col-produto">Produto</th>
-            <th className="tiv-th" style={{ textAlign: 'center' }}>Qtd</th>
-            <th className="tiv-th" style={{ textAlign: 'right' }}>V. Unit</th>
-            <th className="tiv-th" style={{ textAlign: 'right' }}>Desc.</th>
-            <th className="tiv-th" style={{ textAlign: 'right' }}>Subtotal</th>
-            {podeRemover && <th className="tiv-th" style={{ textAlign: 'center' }}>Ação</th>}
+            <th className="tiv-th">Cód.</th>
+            <th className="tiv-th">Produto</th>
+            <th className="tiv-th tiv-centro">Qtd</th>
+            <th className="tiv-th tiv-direita">V. Unit</th>
+            <th className="tiv-th tiv-direita">Desc.</th>
+            <th className="tiv-th tiv-direita">Subtotal</th>
+            {podeRemover && <th className="tiv-th tiv-centro">Ação</th>}
           </tr>
         </thead>
         <tbody>
           {podeLancar && (
-            <tr className="tiv-lancamento" title="Digite o código do produto, Enter, a quantidade e Enter de novo">
+            <tr className="tiv-lancamento">
               <td className="tiv-td">
                 <input
                   ref={codigoRef}
@@ -244,24 +284,21 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
                   placeholder="Código"
                   aria-label="Código do produto para lançar"
                   autoComplete="off"
-                  inputMode="text"
                 />
               </td>
               <td className="tiv-td">
                 {produtoDaLinha ? (
-                  <div className="tiv-produto-achado">
-                    <span className="tiv-produto-nome">{produtoDaLinha.nome}</span>
-                    <span className="tiv-produto-dica">
-                      Disponível {disponivel(produtoDaLinha)} {produtoDaLinha.unidadeMedidaSigla || 'UN'}
-                    </span>
+                  <div className="tiv-achado">
+                    <span className="tiv-achado-nome">{produtoDaLinha.nome}</span>
+                    <span className="tiv-achado-estoque">Disponível {disponivel(produtoDaLinha)} {produtoDaLinha.unidadeMedidaSigla || 'UN'}</span>
                   </div>
-                ) : codigo.trim() ? (
-                  <span className="tiv-dica tiv-dica-alerta">Não achei esse código. Enter abre a busca por nome.</span>
                 ) : (
-                  <span className="tiv-dica">Digite o código do produto e Enter.</span>
+                  <span className={codigo.trim() ? 'tiv-dica tiv-dica-alerta' : 'tiv-dica'}>
+                    {codigo.trim() ? 'Não achei esse código. Enter abre a busca por nome.' : 'Digite o código do produto e Enter.'}
+                  </span>
                 )}
               </td>
-              <td className="tiv-td" style={{ textAlign: 'center' }}>
+              <td className="tiv-td tiv-centro">
                 <input
                   ref={qtdRef}
                   className="tiv-input tiv-input-qtd"
@@ -274,22 +311,22 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
                   disabled={!produtoDaLinha}
                 />
               </td>
-              <td className="tiv-td tiv-num" style={{ textAlign: 'right' }}>{produtoDaLinha ? moeda(precoDaLinha) : '—'}</td>
-              <td className="tiv-td tiv-num" style={{ textAlign: 'right', color: 'var(--text-muted)' }}>—</td>
-              <td className="tiv-td tiv-num" style={{ textAlign: 'right', fontWeight: 600 }}>
-                {produtoDaLinha && !qtdDaLinha.erro ? moeda(precoDaLinha * qtdDaLinha.valor) : '—'}
+              <td className="tiv-td tiv-direita tiv-num tiv-previa">{produtoDaLinha ? moeda(precoDaLinha) : ''}</td>
+              <td className="tiv-td tiv-direita tiv-num tiv-previa" />
+              <td className="tiv-td tiv-direita tiv-num tiv-previa tiv-forte">
+                {produtoDaLinha && !qtdDaLinha.erro ? moeda(precoDaLinha * qtdDaLinha.valor) : ''}
               </td>
               {podeRemover && (
-                <td className="tiv-td" style={{ textAlign: 'center' }}>
+                <td className="tiv-td tiv-centro">
                   <button
                     type="button"
-                    className="tiv-botao-lancar"
+                    className="tiv-lancar"
                     onClick={lancar}
                     disabled={!podeLancarAgora}
                     title="Lançar o item (Enter)"
                     aria-label="Lançar o item"
                   >
-                    <CornerDownLeft size={15} /> Lançar
+                    <CornerDownLeft size={15} />
                   </button>
                 </td>
               )}
@@ -304,36 +341,36 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
             <tr
               key={index}
               onClick={() => onSelect(index)}
-              className={selectedIndex === index ? 'item-row-selectable selected tiv-linha' : 'item-row-selectable tiv-linha'}
+              className={selectedIndex === index ? 'tiv-linha tiv-linha-selecionada' : 'tiv-linha'}
             >
-              <td className="tiv-td tiv-cod">{item.codigo || '—'}</td>
-              <td className="tiv-td">{item.nome}</td>
-              {celulaEditavel(index, item, 'quantidade', (
-                <>{item.quantidade.toFixed(item.unidadeMedidaCasasDecimais ?? 0)} {item.unidadeMedidaSigla || 'UN'}</>
-              ), 'center')}
-              {celulaEditavel(index, item, 'precoUnitario', (
+              {celula(index, item, 'codigo', <span className="tiv-cod">{item.codigo || '—'}</span>, '')}
+              <td className="tiv-td tiv-nome" title={item.nome}>{item.nome}</td>
+              {celula(index, item, 'quantidade', (
+                <span className="tiv-num">{item.quantidade.toFixed(item.unidadeMedidaCasasDecimais ?? 0)} <span className="tiv-unidade">{item.unidadeMedidaSigla || 'UN'}</span></span>
+              ), 'tiv-centro')}
+              {celula(index, item, 'precoUnitario', (
                 <span className="tiv-num">
                   {moeda(item.precoUnitario)}
                   {item.origemPreco === 'promocao' && (
                     <span className="tiv-sub tiv-sub-promo" title={item.promocaoNome ? `Promoção: ${item.promocaoNome}` : 'Promoção'}>
-                      PROMOÇÃO{item.tabelaPreco ? <span className="tiv-sub-de"> · de <s>{moeda(item.tabelaPreco.venda)}</s></span> : null}
+                      promoção{item.tabelaPreco ? <> · de <s>{moeda(item.tabelaPreco.venda)}</s></> : null}
                     </span>
                   )}
-                  {item.origemPreco === 'vista' && <span className="tiv-sub">preço à vista</span>}
-                  {item.origemPreco === 'manual' && <span className="tiv-sub" title="Preço digitado: não muda com a forma de pagamento">preço digitado</span>}
+                  {item.origemPreco === 'vista' && <span className="tiv-sub">à vista</span>}
+                  {item.origemPreco === 'manual' && <span className="tiv-sub" title="Preço digitado: não muda com a forma de pagamento">digitado</span>}
                 </span>
-              ), 'right')}
-              {celulaEditavel(index, item, 'desconto', (
-                <span className="tiv-num" style={{ color: item.desconto > 0 ? '#ef4444' : 'var(--text-muted)' }}>
-                  {item.desconto > 0 ? `-${moeda(item.desconto)}` : '-'}
+              ), 'tiv-direita')}
+              {celula(index, item, 'desconto', (
+                <span className={item.desconto > 0 ? 'tiv-num tiv-desconto' : 'tiv-num tiv-sem-valor'}>
+                  {item.desconto > 0 ? `−${moeda(item.desconto)}` : '—'}
                 </span>
-              ), 'right')}
-              <td className="tiv-td tiv-num" style={{ textAlign: 'right', fontWeight: 600 }}>{moeda(item.subtotal)}</td>
+              ), 'tiv-direita')}
+              <td className="tiv-td tiv-direita tiv-num tiv-forte">{moeda(item.subtotal)}</td>
               {podeRemover && (
-                <td className="tiv-td" style={{ textAlign: 'center' }}>
+                <td className="tiv-td tiv-centro">
                   <button
                     type="button"
-                    className="tiv-botao-remover"
+                    className="tiv-remover"
                     onClick={(e) => { e.stopPropagation(); onRemover(index); }}
                     title="Tirar da venda"
                     aria-label={`Tirar ${item.nome} da venda`}

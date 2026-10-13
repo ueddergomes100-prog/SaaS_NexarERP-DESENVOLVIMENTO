@@ -13,12 +13,15 @@ import { productMatchesExactCode, type SearchableProduct } from './productSearch
  * desconto) continua no formulario, que e' quem conhece a configuracao.
  */
 
-export type CampoEditavel = 'quantidade' | 'precoUnitario' | 'desconto';
+export type CampoEditavel = 'codigo' | 'quantidade' | 'precoUnitario' | 'desconto';
 
-/** Ordem das celulas editaveis na linha: Tab anda nessa ordem. */
-export const CAMPOS_EDITAVEIS: readonly CampoEditavel[] = ['quantidade', 'precoUnitario', 'desconto'];
+/** Ordem das celulas editaveis na linha: Tab anda nessa ordem. O codigo
+ * vem primeiro porque trocar o produto e' a primeira coisa da linha (como no
+ * ERP antigo: clica na matricula, digita outra, o item vira o outro produto). */
+export const CAMPOS_EDITAVEIS: readonly CampoEditavel[] = ['codigo', 'quantidade', 'precoUnitario', 'desconto'];
 
 export const ROTULO_CAMPO: Record<CampoEditavel, string> = {
+  codigo: 'Código',
   quantidade: 'Quantidade',
   precoUnitario: 'Preço unitário',
   desconto: 'Desconto',
@@ -88,7 +91,8 @@ export const campoSeguinte = (campo: CampoEditavel, comDesconto: boolean): Campo
 };
 
 /** Texto que a celula mostra quando entra em edicao (sem "R$", com virgula). */
-export const textoParaEdicao = (campo: CampoEditavel, item: { quantidade: number; precoUnitario: number; desconto: number; unidadeMedidaCasasDecimais?: number }): string => {
+export const textoParaEdicao = (campo: CampoEditavel, item: { codigo?: string; quantidade: number; precoUnitario: number; desconto: number; unidadeMedidaCasasDecimais?: number }): string => {
+  if (campo === 'codigo') return String(item.codigo ?? '');
   if (campo === 'quantidade') return String(item.quantidade).replace('.', ',');
   if (campo === 'precoUnitario') return item.precoUnitario.toFixed(2).replace('.', ',');
   return item.desconto > 0 ? item.desconto.toFixed(2).replace('.', ',') : '';

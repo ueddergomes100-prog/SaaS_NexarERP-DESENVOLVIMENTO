@@ -1531,30 +1531,32 @@ const PedidoVendaForm: React.FC = () => {
    * MESMAS travas do lancamento de um item (estoque, venda fracionada). O que
    * nao passa fica de fora e e' listado; o resto entra.
    */
-  const adicionarVariosItens = (lista: Array<{ product: ProdutoEstoque; quantidade: number }>, opcoes: { silencioso?: boolean } = {}) => {
-    const novos: ItemVenda[] = [];
-    const recusados: string[] = [];
-    const avisosPromocao: string[] = [];
-    lista.forEach(({ product, quantidade }) => {
-      if (!(quantidade > 0)) {
-        recusados.push(`${product.nome}: quantidade inválida.`);
-        return;
-      }
-      const opcao = buildOpcoesUnidadeVenda(product)[0];
-      const fator = opcao?.fatorConversao ?? 1;
-      const quantidadeBase = toBaseQuantity(quantidade, fator);
-      if (!permitirVendaSemEstoque && quantidadeBase > (product.quantidade || 0)) {
-        recusados.push(`${product.nome}: só há ${product.quantidade || 0} em estoque.`);
-        return;
-      }
-      if (!isValidSaleQuantity(quantidade, opcao.permiteFracionado, opcao.casasDecimais)) {
-        recusados.push(`${product.nome}: a unidade ${opcao.sigla} ${opcao.permiteFracionado ? `aceita no máximo ${opcao.casasDecimais ?? 0} casa(s) decimal(is)` : 'não permite quantidade fracionada'}.`);
-        return;
-      }
-      const conferida = conferirQuotaDaPromocao(product, tabelaDoItemDoCatalogo(product, opcao), quantidadeBase);
-      if (conferida.aviso) avisosPromocao.push(conferida.aviso);
-      const { preco, campos: camposPreco } = camposDePreco(conferida.tabela);
-      novos.push({
+  /**
+   * Um item a partir do produto do catalogo: unidade base, preco automatico
+   * (a vista / venda / promocao), sem desconto -- com as MESMAS travas do
+   * lancamento de um item (estoque, venda fracionada). Usado pelo lancamento
+   * em lote, pela linha de codigo da grade e pela troca de produto na linha.
+   */
+  const montarItemDoCatalogo = (
+    product: ProdutoEstoque,
+    quantidade: number,
+    indiceIgnorado?: number,
+  ): { item: ItemVenda; aviso?: string } | { erro: string } => {
+    if (!(quantidade > 0)) return { erro: `${product.nome}: quantidade inválida.` };
+    const opcao = buildOpcoesUnidadeVenda(product)[0];
+    const fator = opcao?.fatorConversao ?? 1;
+    const quantidadeBase = toBaseQuantity(quantidade, fator);
+    if (!permitirVendaSemEstoque && quantidadeBase > (product.quantidade || 0)) {
+      return { erro: `${product.nome}: só há ${product.quantidade || 0} em estoque.` };
+    }
+    if (!isValidSaleQuantity(quantidade, opcao.permiteFracionado, opcao.casasDecimais)) {
+      return { erro: `${product.nome}: a unidade ${opcao.sigla} ${opcao.permiteFracionado ? `aceita no máximo ${opcao.casasDecimais ?? 0} casa(s) decimal(is)` : 'não permite quantidade fracionada'}.` };
+    }
+    const conferida = conferirQuotaDaPromocao(product, tabelaDoItemDoCatalogo(product, opcao), quantidadeBase, indiceIgnorado);
+    const { preco, campos: camposPreco } = camposDePreco(conferida.tabela);
+    return {
+      aviso: conferida.aviso,
+      item: {
         ...camposPreco,
         id: product.id,
         nome: product.nome,
@@ -1566,7 +1568,24 @@ const PedidoVendaForm: React.FC = () => {
         unidadeMedidaSigla: opcao?.sigla || product.unidadeMedidaSigla || 'UN',
         unidadeMedidaCasasDecimais: opcao?.casasDecimais ?? product.unidadeMedidaCasasDecimais ?? 0,
         ...(opcao?.embalagemId ? { embalagemId: opcao.embalagemId, fatorConversao: fator, quantidadeBase } : {}),
-      });
+      },
+    };
+  };
+
+  /**
+   * Varios produtos de uma vez (janela "Buscar produto", 2026-09-30) ou um so'
+   * pela linha de codigo da grade. O que nao passa fica de fora e e' listado;
+   * o resto entra.
+   */
+  const adicionarVariosItens = (lista: Array<{ product: ProdutoEstoque; quantidade: number }>, opcoes: { silencioso?: boolean } = {}) => {
+    const novos: ItemVenda[] = [];
+    const recusados: string[] = [];
+    const avisosPromocao: string[] = [];
+    lista.forEach(({ product, quantidade }) => {
+      const montado = montarItemDoCatalogo(product, quantidade);
+      if ('erro' in montado) { recusados.push(montado.erro); return; }
+      if (montado.aviso) avisosPromocao.push(montado.aviso);
+      novos.push(montado.item);
     });
     if (novos.length > 0) {
       setItens((atuais) => [...atuais, ...novos]);
@@ -1581,6 +1600,25 @@ const PedidoVendaForm: React.FC = () => {
       showSuccess(`${novos.length} item${novos.length === 1 ? '' : 's'} adicionado${novos.length === 1 ? '' : 's'}.`);
     }
     if (avisosPromocao.length > 0) showWarning(avisosPromocao.join(' '));
+  };
+
+  /**
+   * Troca o produto de uma linha pelo codigo digitado na celula (como no ERP
+   * antigo): mantem a quantidade, o preco vira o automatico do produto novo e
+   * o desconto zera (era do produto antigo). Devolve o erro ou null.
+   */
+  const trocarProdutoDoItem = (index: number, produtoId: string): string | null => {
+    const item = itens[index];
+    if (!item) return 'Item não encontrado. Atualize a tela e tente de novo.';
+    const produto = produtosCatalogo.find((p) => p.id === produtoId);
+    if (!produto) return 'Produto não encontrado. Atualize a tela e tente de novo.';
+    if (produto.id === item.id) return null;
+    const montado = montarItemDoCatalogo(produto, item.quantidade, index);
+    if ('erro' in montado) return montado.erro;
+    setItens((atuais) => atuais.map((it, i) => (i === index ? montado.item : it)));
+    if (item.desconto > 0) showWarning(`O desconto de R$ ${item.desconto.toFixed(2).replace('.', ',')} era de ${item.nome} e foi zerado. Lance o desconto de novo se valer para ${produto.nome}.`);
+    if (montado.aviso) showWarning(montado.aviso);
+    return null;
   };
 
   const handleClearProdutoSelecionado = () => {
@@ -4827,7 +4865,7 @@ const PedidoVendaForm: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Itens da Venda</h3>
               {(!isViewing || canEditPendingQtd) && (
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Clique na quantidade, no preço ou no desconto para alterar · Enter aplica · Esc desfaz</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Clique no código para trocar o produto, ou na quantidade, preço e desconto para alterar · Enter aplica · Tab avança · Esc desfaz</span>
               )}
             </div>
 
@@ -4848,6 +4886,7 @@ const PedidoVendaForm: React.FC = () => {
               onLancarPorCodigo={(produto, quantidade) => lancarPorCodigo(produto.id, quantidade)}
               onBuscarPorNome={(texto) => { setProdutoBusca(texto); setIsProdutoSearchModalOpen(true); }}
               onAtualizarItem={aplicarEdicaoDeItem}
+              onTrocarProduto={(index, produto) => trocarProdutoDoItem(index, produto.id)}
               onRemover={handleRemoveItem}
             />
           </div>

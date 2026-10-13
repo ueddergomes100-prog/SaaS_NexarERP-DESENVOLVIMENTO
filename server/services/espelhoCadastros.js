@@ -148,6 +148,13 @@ const iniciarEspelhoDosCadastros = () => {
     console.log('[Espelho] desligado por ESPELHO_CADASTROS=desligado.');
     return () => {};
   }
+  // Sem credencial do Firebase (comum na maquina local) o servidor sobe do
+  // mesmo jeito, como o agendador e a fila de backup; antes caia aqui com
+  // "Cannot read properties of null".
+  if (!db) {
+    console.warn('[Espelho] Firestore não disponível: o espelho dos cadastros das filiais fica desligado. Configure a credencial do Firebase em server/.env.');
+    return () => {};
+  }
   const cancelarGrupos = db.collection('grupos').onSnapshot((snap) => {
     snap.docChanges().forEach((m) => {
       if (m.type === 'removed') desligarGrupo(m.doc.id);

@@ -57,3 +57,18 @@ test('sem nada a fazer, nao chama a gravacao', async () => {
   assert.deepEqual(r, []);
   assert.equal(chamadas, 0);
 });
+
+test('sem Firestore (maquina local sem credencial) o espelho nao derruba o servidor', () => {
+  const { iniciarEspelhoDosCadastros } = carregarComBancoFalso(null, 'services/espelhoCadastros')[3];
+  const avisoOriginal = console.warn;
+  const avisos = [];
+  console.warn = (...args) => { avisos.push(args.join(' ')); };
+  try {
+    const parar = iniciarEspelhoDosCadastros();
+    assert.equal(typeof parar, 'function');
+    parar();
+  } finally {
+    console.warn = avisoOriginal;
+  }
+  assert.ok(avisos.some((a) => a.includes('Firestore não disponível')));
+});

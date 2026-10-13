@@ -1,29 +1,21 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, MessageCircle, Send, Trash2, XCircle } from 'lucide-react';
+import { CheckCircle2, Circle, MessageCircle, Send, Trash2, XCircle } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
-import { criarOrcamentoExterno, criarPreVendaExterna } from '../../services/vendedorExternoVendaService';
-import { trocaService } from '../../services/trocaService';
 import VendedorHeader from './VendedorHeader';
 import type { MinutaCliente } from '../Expedicao/MinutaPrintDocument';
 import { enviarMinutaPorWhatsApp, gerarMinutaRascunhoPdf, nomeArquivoMinutaRascunho } from './vendedorMinutaPdf';
-import { comNotaFiscalDaEscolha } from '../../utils/pedidoVendedorDomain';
 import {
+  EVENTO_RASCUNHOS_ALTERADOS,
   listarRascunhos,
-  marcarErroRascunho,
+  marcarProntoRascunho,
   removerRascunho,
   type RascunhoVenda,
 } from './vendedorRascunhosStore';
-
-interface ResultadoEnvio {
-  localId: string;
-  descricao: string;
-  ok: boolean;
-  mensagem: string;
-}
+import { enviarRascunhos, rotuloTipoRascunho, type ResultadoEnvio } from './envioRascunhos';
 
 /** Resposta em ate' `ms`; passou disso (ou deu erro), devolve null -- a minuta segue sem esse dado. */
 const comTempoLimite = <T,>(promessa: Promise<T>, ms = 3000): Promise<T | null> => Promise.race([
@@ -35,7 +27,7 @@ const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 
 
 const totalDoRascunho = (rascunho: RascunhoVenda) => rascunho.itens.reduce((soma, item) => soma + item.subtotal, 0);
 
-const rotuloTipo = (rascunho: RascunhoVenda) => (rascunho.tipo === 'pedido' ? 'Pedido' : rascunho.tipo === 'troca' ? 'Troca' : 'Orçamento');
+const rotuloTipo = rotuloTipoRascunho;
 
 /** Quantidade de itens do rascunho (a troca guarda os dela em `itensTroca`). */
 const quantidadeDeItens = (rascunho: RascunhoVenda) => (rascunho.tipo === 'troca' ? (rascunho.itensTroca || []).length : rascunho.itens.length);
@@ -63,6 +55,29 @@ const VendedorRascunhos: React.FC = () => {
 
   const recarregar = () => {
     if (tenantId && currentUser) setRascunhos(listarRascunhos(tenantId, currentUser.uid));
+  };
+
+  // O envio automatico dos prontos (EnvioAutomaticoDeRascunhos) tira o
+  // rascunho do aparelho com esta tela aberta: a lista acompanha.
+  useEffect(() => {
+    const aoMudar = () => recarregar();
+    window.addEventListener(EVENTO_RASCUNHOS_ALTERADOS, aoMudar);
+    return () => window.removeEventListener(EVENTO_RASCUNHOS_ALTERADOS, aoMudar);
+  }, [tenantId, currentUser?.uid]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleAlternarPronto = (rascunho: RascunhoVenda) => {
+    if (!tenantId || !currentUser) return;
+    try {
+      marcarProntoRascunho(tenantId, currentUser.uid, rascunho.localId, !rascunho.pronto);
+      recarregar();
+      if (!rascunho.pronto) {
+        showSuccess(navigator.onLine === false
+          ? 'Pronto para enviar. Sem sinal agora: o app envia sozinho quando a internet voltar.'
+          : 'Pronto para enviar. O app envia para a loja em instantes.');
+      }
+    } catch (error) {
+      showError('Não foi possível marcar o rascunho', error instanceof Error ? error.message : 'Tente novamente.');
+    }
   };
 
   const handleExcluir = async (rascunho: RascunhoVenda) => {
@@ -154,89 +169,26 @@ const VendedorRascunhos: React.FC = () => {
     }
   };
 
-  const enviarUm = async (rascunho: RascunhoVenda): Promise<string> => {
-    if (!tenantId || !currentUser) throw new Error('Sessão expirada. Entre novamente.');
-    if (rascunho.tipo === 'troca') {
-      // Troca vai pelo servidor (a loja aprova depois); reenviar o mesmo rascunho nao duplica.
-      const resposta = await trocaService.solicitar({
-        idDocumento: rascunho.localId,
-        clienteId: rascunho.cliente.id,
-        observacao: rascunho.observacao,
-        itens: (rascunho.itensTroca || []).map((item) => ({
-          id: item.id,
-          quantidade: item.quantidade,
-          motivo: item.motivo,
-          ...(item.motivoDescricao ? { motivoDescricao: item.motivoDescricao } : {}),
-        })),
-      });
-      return `Troca #${resposta.numeroTroca} enviada — aguarde a loja aprovar`;
-    }
-    if (rascunho.tipo === 'pedido') {
-      if (!trabalhaComPreVenda) {
-        throw new Error('A opção "Pré-venda" está desligada nas Configurações da empresa. Peça pro administrador habilitar.');
-      }
-      const { numeroPedido } = await criarPreVendaExterna({
-        tenantId,
-        usuarioId: currentUser.uid,
-        vendedorId: currentUser.uid,
-        vendedorNome: userNome || currentUser.displayName || 'Vendedor',
-        clienteId: rascunho.cliente.id,
-        clienteNome: rascunho.cliente.nome,
-        itens: rascunho.itens,
-        observacao: rascunho.observacao,
-        ...(rascunho.notaFiscal ? { comNotaFiscal: comNotaFiscalDaEscolha(rascunho.notaFiscal) } : {}),
-        // Segue a config da empresa "Permitir venda sem estoque", como as
-        // demais telas de venda -- antes estava fixo em false.
-        permitirVendaSemEstoque: permiteVendaSemEstoque,
-        idDocumento: rascunho.localId,
-        conferenciaMercadoriaAtiva,
-      });
-      return `Pré-venda #${numeroPedido} enviada`;
-    }
-    const { numeroOrcamento } = await criarOrcamentoExterno({
-      tenantId,
-      usuarioId: currentUser.uid,
-      clienteId: rascunho.cliente.id,
-      clienteNome: rascunho.cliente.nome,
-      clienteTelefone: rascunho.cliente.telefone || '',
-      itens: rascunho.itens,
-      idDocumento: rascunho.localId,
-    });
-    return `Orçamento #${numeroOrcamento} enviado`;
-  };
-
   const handleEnviar = async () => {
     if (!tenantId || !currentUser || enviando) return;
-    const pendentes = listarRascunhos(tenantId, currentUser.uid);
-    if (pendentes.length === 0) return;
+    if (listarRascunhos(tenantId, currentUser.uid).length === 0) return;
 
     setEnviando(true);
     setResultados([]);
-    const log: ResultadoEnvio[] = [];
-
-    for (const rascunho of pendentes) {
-      const descricao = `${rotuloTipo(rascunho)} — ${rascunho.cliente.nome}`;
-      try {
-        const mensagem = await enviarUm(rascunho);
-        // So' agora, com a base confirmando, o rascunho sai do aparelho.
-        removerRascunho(tenantId, currentUser.uid, rascunho.localId);
-        log.push({ localId: rascunho.localId, descricao, ok: true, mensagem });
-      } catch (error) {
-        const mensagem = error instanceof Error && error.message
-          ? error.message
-          : 'Não foi possível enviar. Verifique a internet e tente de novo.';
-        try {
-          marcarErroRascunho(tenantId, currentUser.uid, rascunho.localId, mensagem);
-        } catch {
-          // O rascunho continua salvo do jeito que estava; so' o motivo nao gravou.
-        }
-        log.push({ localId: rascunho.localId, descricao, ok: false, mensagem });
-      }
-      setResultados([...log]);
+    try {
+      // O botao manda TODOS (pronto ou nao): e' o vendedor decidindo na hora.
+      await enviarRascunhos({
+        tenantId,
+        usuarioId: currentUser.uid,
+        vendedorNome: userNome || currentUser.displayName || 'Vendedor',
+        trabalhaComPreVenda: Boolean(trabalhaComPreVenda),
+        permiteVendaSemEstoque: Boolean(permiteVendaSemEstoque),
+        conferenciaMercadoriaAtiva: Boolean(conferenciaMercadoriaAtiva),
+      }, () => true, (parcial) => setResultados(parcial));
+    } finally {
+      recarregar();
+      setEnviando(false);
     }
-
-    recarregar();
-    setEnviando(false);
   };
 
   return (
@@ -313,11 +265,35 @@ const VendedorRascunhos: React.FC = () => {
                     </span>
                   </div>
                 )}
+                {rascunho.pronto && !rascunho.ultimoErro && (
+                  <div style={{ fontSize: '11.5px', color: '#10b981', marginTop: '4px', lineHeight: 1.35, fontWeight: 600 }}>
+                    Pronto: vai sozinho para a loja quando tiver sinal
+                  </div>
+                )}
                 {rascunho.ultimoErro && (
                   <div style={{ fontSize: '11.5px', color: '#f87171', marginTop: '4px', lineHeight: 1.35 }}>
                     Não enviado: {rascunho.ultimoErro}
                   </div>
                 )}
+              </button>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={Boolean(rascunho.pronto)}
+                aria-label={rascunho.pronto ? 'Desmarcar pronto para enviar' : 'Marcar pronto para enviar'}
+                title={rascunho.pronto ? 'Pronto para enviar (toque para desmarcar)' : 'Marcar pronto para enviar'}
+                disabled={enviando}
+                onClick={() => handleAlternarPronto(rascunho)}
+                style={{
+                  height: '38px', padding: '0 10px', borderRadius: '10px', flexShrink: 0, display: 'flex', alignItems: 'center',
+                  gap: '5px', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer',
+                  border: `1px solid ${rascunho.pronto ? 'rgba(16,185,129,0.6)' : 'var(--border-color)'}`,
+                  backgroundColor: rascunho.pronto ? 'rgba(16,185,129,0.16)' : 'var(--bg-tertiary)',
+                  color: rascunho.pronto ? '#10b981' : 'var(--text-secondary)',
+                }}
+              >
+                {rascunho.pronto ? <CheckCircle2 size={15} /> : <Circle size={15} />}
+                Pronto
               </button>
               {rascunho.tipo === 'pedido' && (
                 <button

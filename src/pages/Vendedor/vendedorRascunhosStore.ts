@@ -41,7 +41,19 @@ export interface RascunhoVenda {
   atualizadoEm: string;
   /** Motivo da ultima tentativa de envio que falhou. */
   ultimoErro?: string;
+  /**
+   * "Pronto para enviar" (13/10/2026, decisao do dono): o vendedor fechou o
+   * pedido com o cliente e o app manda sozinho quando tiver sinal
+   * (envioRascunhos.ts). Sem isso continua rascunho -- a loja nao pode
+   * separar pedido que o cliente ainda vai mudar. Editar o rascunho tira a
+   * marca: o vendedor confirma de novo ao salvar.
+   */
+  pronto?: boolean;
+  prontoEm?: string;
 }
+
+/** Avisa a tela de Rascunhos (e quem mais escutar) que a lista mudou. */
+export const EVENTO_RASCUNHOS_ALTERADOS = 'nexus-vendedor-rascunhos-alterados';
 
 const chave = (tenantId: string, usuarioId: string) => `nexus_vendedor_rascunhos:${tenantId}:${usuarioId}`;
 
@@ -67,6 +79,7 @@ export const listarRascunhos = (tenantId: string, usuarioId: string): RascunhoVe
 const gravarLista = (tenantId: string, usuarioId: string, lista: RascunhoVenda[]) => {
   try {
     localStorage.setItem(chave(tenantId, usuarioId), JSON.stringify(lista));
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(EVENTO_RASCUNHOS_ALTERADOS));
   } catch {
     // Quem chama precisa saber: um rascunho que nao gravou e' venda perdida.
     throw new RascunhoStorageError('Não foi possível salvar no aparelho. Verifique se há espaço livre no celular e tente de novo.');
@@ -93,5 +106,20 @@ export const removerRascunho = (tenantId: string, usuarioId: string, localId: st
 
 export const marcarErroRascunho = (tenantId: string, usuarioId: string, localId: string, mensagem: string) => {
   const lista = listarRascunhos(tenantId, usuarioId).map((r) => (r.localId === localId ? { ...r, ultimoErro: mensagem } : r));
+  gravarLista(tenantId, usuarioId, lista);
+};
+
+/** Marca/desmarca "Pronto para enviar". Marcar limpa o erro antigo: a proxima tentativa e' nova. */
+export const marcarProntoRascunho = (tenantId: string, usuarioId: string, localId: string, pronto: boolean) => {
+  const agora = new Date().toISOString();
+  const lista = listarRascunhos(tenantId, usuarioId).map((r) => {
+    if (r.localId !== localId) return r;
+    const copia: RascunhoVenda = { ...r };
+    delete copia.pronto;
+    delete copia.prontoEm;
+    if (!pronto) return copia;
+    delete copia.ultimoErro;
+    return { ...copia, pronto: true, prontoEm: agora };
+  });
   gravarLista(tenantId, usuarioId, lista);
 };

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Save } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { showError, showSuccess } from '../../utils/alerts';
@@ -20,6 +19,7 @@ import type { ItemVendaExterna } from '../../services/vendedorExternoVendaServic
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
 import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
 import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } from './vendedorRascunhosStore';
+import VendedorRodapeRascunho, { camposDePronto, mensagemDeRascunhoSalvo } from './VendedorRodapeRascunho';
 
 interface ClienteVendedor extends SearchableClient, ClienteConfirmavel {
   id: string;
@@ -70,7 +70,7 @@ const VendedorNovoPedido: React.FC = () => {
     return <Navigate to="/vendedor/rascunhos" replace />;
   }
 
-  const handleSalvar = () => {
+  const handleSalvar = (pronto: boolean) => {
     if (!trabalhaComPreVenda) {
       showError(
         'Pré-venda não está habilitada',
@@ -109,8 +109,9 @@ const VendedorNovoPedido: React.FC = () => {
         ...(controlaFiscal && notaFiscal ? { notaFiscal } : {}),
         criadoEm: rascunhoAberto?.criadoEm || agora,
         atualizadoEm: agora,
+        ...camposDePronto(pronto, agora),
       });
-      showSuccess('Rascunho salvo! Toque em "Enviar dados" quando o pedido estiver fechado.');
+      showSuccess(mensagemDeRascunhoSalvo(pronto, 'pedido'));
       navigate('/vendedor/rascunhos', { replace: true });
     } catch (error) {
       showError('Não foi possível salvar', error instanceof RascunhoStorageError ? error.message : 'Tente novamente.');
@@ -210,20 +211,7 @@ const VendedorNovoPedido: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ padding: '16px 20px calc(24px + env(safe-area-inset-bottom))', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
-        <button
-          type="button"
-          onClick={handleSalvar}
-          style={{
-            width: '100%', height: '52px', borderRadius: '14px', border: 'none', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', gap: '8px', fontSize: '16px', fontWeight: 700, color: '#fff', cursor: 'pointer',
-            background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
-          }}
-        >
-          <Save size={18} />
-          Salvar rascunho
-        </button>
-      </div>
+      <VendedorRodapeRascunho aoSalvar={handleSalvar} />
     </div>
   );
 };

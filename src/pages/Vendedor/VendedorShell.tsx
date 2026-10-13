@@ -30,6 +30,7 @@ import VendedorTrocas from './VendedorTrocas';
 import VendedorEntregas from './VendedorEntregas';
 import VendedorEntregaRota from './VendedorEntregaRota';
 import VendedorEntregaRegistrar from './VendedorEntregaRegistrar';
+import EnvioAutomaticoDeRascunhos from './EnvioAutomaticoDeRascunhos';
 
 /**
  * Guarda de acesso do aplicativo do vendedor externo, separada da
@@ -147,6 +148,8 @@ const VendedorShell: React.FC = () => {
         </Routes>
       </div>
       {mostraNavbar && <VendedorBottomNav />}
+      {/* Fora do bloco por rota: segue montado em qualquer tela do app. */}
+      <EnvioAutomaticoDeRascunhos />
     </div>
   );
 };

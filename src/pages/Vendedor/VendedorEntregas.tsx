@@ -8,6 +8,7 @@ import VendedorHeader from './VendedorHeader';
 import { podeUsarEntregasNoApp } from './vendedorPermissoes';
 import { lerRomaneio } from '../../services/romaneioService';
 import { resumoDoRomaneio, type Romaneio } from '../../utils/romaneioDomain';
+import { comOrigem, useVoltarPara } from './navegacaoApp';
 
 /*
  * ENTREGAS NO APP DO MOTORISTA (2026-10-08): as rotas EM ANDAMENTO.
@@ -37,6 +38,7 @@ const formatarMoeda = (centavos: number) => (centavos / 100).toLocaleString('pt-
 
 const VendedorEntregas: React.FC = () => {
   const navigate = useNavigate();
+  const voltarPara = useVoltarPara();
   const { tenantId, currentUser, userRole, isOwner, userPermissions } = useAuth();
   const pode = podeUsarEntregasNoApp(userRole, isOwner, userPermissions);
   const [aba, setAba] = useState<'minhas' | 'todas'>('minhas');
@@ -83,7 +85,7 @@ const VendedorEntregas: React.FC = () => {
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <VendedorHeader titulo="Entregas" aoVoltar={() => navigate('/vendedor')} />
+      <VendedorHeader titulo="Entregas" aoVoltar={() => voltarPara('/vendedor')} />
 
       <div style={{ padding: '14px 20px 0', display: 'flex', gap: '8px' }}>
         {abaBotao('minhas', 'Minhas rotas', minhas.length)}
@@ -107,7 +109,7 @@ const VendedorEntregas: React.FC = () => {
             <button
               key={rota.id}
               type="button"
-              onClick={() => navigate(`/vendedor/entregas/${rota.id}`)}
+              onClick={() => navigate(`/vendedor/entregas/${rota.id}`, comOrigem('/vendedor/entregas'))}
               style={{
                 display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: '14px',
                 backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', textAlign: 'left', cursor: 'pointer', width: '100%',

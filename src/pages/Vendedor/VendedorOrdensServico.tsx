@@ -11,6 +11,7 @@ import { useModoOficina } from '../../hooks/useModoOficina';
 import { podeAbrirOsNoApp, podeUsarOsNoApp } from './vendedorPermissoes';
 import { descricaoDoEquipamento, osEncerrada } from '../../utils/osCampoDomain';
 import { rotuloNumeroOS } from '../../utils/offlineDomain';
+import { comOrigem, useVoltarPara } from './navegacaoApp';
 
 /**
  * Consulta de Ordens de Servico da empresa -- so leitura.
@@ -47,6 +48,7 @@ const normalizar = normalizeSearchText;
 
 const VendedorOrdensServico: React.FC = () => {
   const navigate = useNavigate();
+  const voltarPara = useVoltarPara();
   const { tenantId, userPermissions, currentUser, userRole, isOwner } = useAuth();
   const { modo, rotulos } = useModoOficina();
   // App do tecnico (fase 3): "Minhas" = as minhas ainda abertas; "Todas" = a consulta geral de sempre.
@@ -123,10 +125,11 @@ const VendedorOrdensServico: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
       <VendedorHeader
         titulo="Ordens de Serviço"
+        aoVoltar={() => voltarPara('/vendedor')}
         acao={podeAbrirOsNoApp(userRole, isOwner, userPermissions) && (
           <button
             type="button"
-            onClick={() => navigate('/vendedor/os/nova')}
+            onClick={() => navigate('/vendedor/os/nova', comOrigem('/vendedor/os'))}
             style={{ height: '38px', padding: '0 14px', borderRadius: '10px', backgroundColor: 'var(--brand-600, #7c3aed)', border: 'none', color: '#fff', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', flexShrink: 0 }}
           >
             <Plus size={16} /> Nova OS
@@ -182,7 +185,7 @@ const VendedorOrdensServico: React.FC = () => {
               <button
                 key={os.id}
                 type="button"
-                onClick={() => navigate(`/vendedor/os/${os.id}`)}
+                onClick={() => navigate(`/vendedor/os/${os.id}`, comOrigem('/vendedor/os'))}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: '14px',
                   backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', textAlign: 'left', cursor: 'pointer', width: '100%',

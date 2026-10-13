@@ -10,6 +10,7 @@ import VendedorHeader from './VendedorHeader';
 import { osEncerrada, type AssinaturaOS, type FotoOS } from '../../utils/osCampoDomain';
 import { podeUsarOsNoApp } from './vendedorPermissoes';
 import { rotuloNumeroOS } from '../../utils/offlineDomain';
+import { comOrigem, useVoltarPara } from './navegacaoApp';
 
 /**
  * OS so' leitura, com os mesmos calculos da folha impressa (OsPrintDocument):
@@ -61,6 +62,7 @@ const textoLivre: React.CSSProperties = {
 const VendedorOrdemServicoDetalhe: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const voltarPara = useVoltarPara();
   const { tenantId, userPermissions, userRole, isOwner } = useAuth();
   const [os, setOs] = useState<OsDetalhe | null>(null);
   const [carregando, setCarregando] = useState(true);
@@ -131,7 +133,7 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
       <VendedorHeader
         titulo={os ? `OS ${rotuloNumeroOS(os.numeroOS, os.numeroProvisorio)}` : 'Ordem de Serviço'}
-        aoVoltar={() => navigate('/vendedor/os')}
+        aoVoltar={() => voltarPara('/vendedor/os')}
         acao={os && (
           <button
             type="button"
@@ -246,7 +248,7 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
       </div>
       {os && !osEncerrada(os.status) && (
         <div style={{ padding: '12px 20px 20px', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
-          <button type="button" className="btn-primary" onClick={() => navigate(`/vendedor/os/${os.id}/atender`)} style={{ width: '100%', height: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '16px' }}>
+          <button type="button" className="btn-primary" onClick={() => navigate(`/vendedor/os/${os.id}/atender`, comOrigem(`/vendedor/os/${os.id}`))} style={{ width: '100%', height: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '16px' }}>
             <Wrench size={18} /> Atender esta OS
           </button>
         </div>

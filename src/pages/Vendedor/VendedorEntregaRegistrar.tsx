@@ -24,6 +24,7 @@ import {
 import { canhotosPendentesDaRota } from '../../utils/offlineDomain';
 import { assinarFilaOffline, listarPendencias, type PendenciaGuardada } from '../../utils/filaOffline';
 import type { RotaDoApp } from './VendedorEntregas';
+import { useVoltarPara } from './navegacaoApp';
 
 /*
  * REGISTRAR UMA ENTREGA NO APP (2026-10-08).
@@ -52,6 +53,7 @@ const campo: React.CSSProperties = {
 const VendedorEntregaRegistrar: React.FC = () => {
   const { id, pedidoId } = useParams();
   const navigate = useNavigate();
+  const voltarPara = useVoltarPara();
   const { tenantId, currentUser, userNome, userRole, isOwner, userPermissions } = useAuth();
   const pode = podeUsarEntregasNoApp(userRole, isOwner, userPermissions);
   const usuario: UsuarioDoCampo | null = currentUser
@@ -135,7 +137,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
   const diferenca = entrega && status !== 'pendente' ? diferencaDoRecebido({ recebidoCentavos, valorTotalCentavos: entrega.valorTotalCentavos }) : 0;
   const canhotoPendente = Boolean(pedidoId && canhotosPendentesDaRota(pendencias, id || '').has(pedidoId));
 
-  const voltar = () => navigate(`/vendedor/entregas/${id}`, { replace: true });
+  const voltar = () => voltarPara(`/vendedor/entregas/${id}`);
 
   const salvar = async () => {
     if (!tenantId || !usuario || !id || !entrega) return;

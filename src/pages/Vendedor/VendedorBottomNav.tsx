@@ -1,10 +1,23 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, Package, Users, UserCircle } from 'lucide-react';
+import { Home, Package, Users, UserCircle, Wrench } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import { podeUsarOsNoApp } from './vendedorPermissoes';
 
-const ITENS = [
+interface ItemDaBarra {
+  path: string;
+  label: string;
+  Icon: typeof Home;
+  match: (p: string) => boolean;
+  /** Item so' para quem tem a permissao (a barra nao mostra o que a pessoa nao pode abrir). */
+  so?: 'os';
+}
+
+const ITENS: ItemDaBarra[] = [
   { path: '/vendedor', label: 'Início', Icon: Home, match: (p: string) => p === '/vendedor' },
   { path: '/vendedor/pedidos', label: 'Pedidos', Icon: Package, match: (p: string) => p.startsWith('/vendedor/pedidos') },
+  // Atalho da OS (pedido do dono, 13/10/2026): mesma regra do cartao da tela inicial.
+  { path: '/vendedor/os', label: 'OS', Icon: Wrench, match: (p: string) => p.startsWith('/vendedor/os'), so: 'os' },
   { path: '/vendedor/cliente', label: 'Clientes', Icon: Users, match: (p: string) => p.startsWith('/vendedor/cliente') },
   { path: '/vendedor/perfil', label: 'Perfil', Icon: UserCircle, match: (p: string) => p.startsWith('/vendedor/perfil') },
 ];
@@ -12,6 +25,9 @@ const ITENS = [
 const VendedorBottomNav: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { userRole, isOwner, userPermissions } = useAuth();
+  const podeOs = podeUsarOsNoApp(userRole, isOwner, userPermissions);
+  const itens = ITENS.filter((item) => item.so !== 'os' || podeOs);
 
   return (
     <div
@@ -24,12 +40,13 @@ const VendedorBottomNav: React.FC = () => {
         paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
       }}
     >
-      {ITENS.map(({ path, label, Icon, match }) => {
+      {itens.map(({ path, label, Icon, match }) => {
         const ativo = match(location.pathname);
         return (
           <button
             key={path}
             type="button"
+            aria-current={ativo ? 'page' : undefined}
             onClick={() => navigate(path)}
             style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', background: 'none', border: 'none',

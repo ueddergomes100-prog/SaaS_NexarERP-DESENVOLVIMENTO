@@ -13,6 +13,7 @@ import VendedorHeader from './VendedorHeader';
 import VendedorSeletorCliente from './VendedorSeletorCliente';
 import type { ClienteConfirmavel } from './VendedorConfirmarClienteModal';
 import { podeAbrirOsNoApp } from './vendedorPermissoes';
+import { useVoltarPara } from './navegacaoApp';
 
 /*
  * NOVA OS NO CAMPO (app do tecnico, fase 3 -- 2026-10-08).
@@ -51,6 +52,7 @@ const rotulo: React.CSSProperties = { fontSize: '12px', color: 'var(--text-muted
 
 const VendedorOsNova: React.FC = () => {
   const navigate = useNavigate();
+  const voltarPara = useVoltarPara();
   const { tenantId, currentUser, userNome, userPermissions, userRole, isOwner } = useAuth();
   const { modo, rotulos, configMaquinas } = useModoOficina();
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
@@ -121,7 +123,7 @@ const VendedorOsNova: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
-      <VendedorHeader titulo="Nova OS" aoVoltar={() => navigate('/vendedor/os')} />
+      <VendedorHeader titulo="Nova OS" aoVoltar={() => voltarPara('/vendedor/os')} />
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <section style={cardStyle}>
           <div style={tituloSecao}><UserRound size={15} /> Cliente</div>

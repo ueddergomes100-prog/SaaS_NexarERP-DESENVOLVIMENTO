@@ -12,6 +12,7 @@ import './vendedorMobile.css';
 import { PERMISSAO_BALANCO, podeUsarEntregasNoApp, podeUsarOsNoApp } from './vendedorPermissoes';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
+import { comOrigem } from './navegacaoApp';
 
 interface PedidoRecente {
   id: string;
@@ -242,7 +243,7 @@ const VendedorHome: React.FC = () => {
             {podeUsarOsNoApp(userRole, isOwner, userPermissions) && (
               <button
                 type="button"
-                onClick={() => navigate('/vendedor/os')}
+                onClick={() => navigate('/vendedor/os', comOrigem('/vendedor'))}
                 style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
               >
                 <Wrench size={28} color="var(--brand-400)" strokeWidth={1.7} />
@@ -253,7 +254,7 @@ const VendedorHome: React.FC = () => {
             {podeUsarEntregasNoApp(userRole, isOwner, userPermissions) && (
               <button
                 type="button"
-                onClick={() => navigate('/vendedor/entregas')}
+                onClick={() => navigate('/vendedor/entregas', comOrigem('/vendedor'))}
                 style={{ ...atalhoStyle, backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
               >
                 <Truck size={28} color="var(--brand-400)" strokeWidth={1.7} />

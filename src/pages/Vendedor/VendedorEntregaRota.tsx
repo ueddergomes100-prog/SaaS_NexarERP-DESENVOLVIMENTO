@@ -20,6 +20,7 @@ import {
 import { canhotosPendentesDaRota } from '../../utils/offlineDomain';
 import { assinarFilaOffline, listarPendencias, type PendenciaGuardada } from '../../utils/filaOffline';
 import { dataCurta, tituloDaRota, type RotaDoApp } from './VendedorEntregas';
+import { comOrigem, useVoltarPara } from './navegacaoApp';
 
 /*
  * UMA ROTA NO APP DO MOTORISTA (2026-10-08): "Faltam entregar" e "Feitas",
@@ -140,6 +141,7 @@ const CartaoEntrega: React.FC<{
 const VendedorEntregaRota: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const voltarPara = useVoltarPara();
   const { tenantId, currentUser, userRole, isOwner, userPermissions } = useAuth();
   const pode = podeUsarEntregasNoApp(userRole, isOwner, userPermissions);
   const [rota, setRota] = useState<RotaDoApp | null>(null);
@@ -201,7 +203,7 @@ const VendedorEntregaRota: React.FC = () => {
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <VendedorHeader titulo={rota ? tituloDaRota(rota) : 'Rota'} aoVoltar={() => navigate('/vendedor/entregas')} />
+      <VendedorHeader titulo={rota ? tituloDaRota(rota) : 'Rota'} aoVoltar={() => voltarPara('/vendedor/entregas')} />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {carregando ? (
@@ -244,7 +246,7 @@ const VendedorEntregaRota: React.FC = () => {
                 ordem={ordemDe(entrega)}
                 canhotoPendente={canhotosPendentes.has(entrega.pedidoId)}
                 emRota={emRota}
-                onRegistrar={() => navigate(`/vendedor/entregas/${rota.id}/${entrega.pedidoId}`)}
+                onRegistrar={() => navigate(`/vendedor/entregas/${rota.id}/${entrega.pedidoId}`, comOrigem(`/vendedor/entregas/${rota.id}`))}
               />
             ))}
           </>

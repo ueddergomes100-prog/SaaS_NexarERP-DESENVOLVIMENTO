@@ -31,6 +31,7 @@ import VendedorAssinaturaModal from './VendedorAssinaturaModal';
 import { podeUsarOsNoApp } from './vendedorPermissoes';
 import { fotosPendentesDaOs, rotuloNumeroOS, temAssinaturaPendente } from '../../utils/offlineDomain';
 import { assinarFilaOffline, listarPendenciasDaOs, type PendenciaGuardada } from '../../utils/filaOffline';
+import { useVoltarPara } from './navegacaoApp';
 
 /*
  * ATENDIMENTO DA OS NO CAMPO (app do tecnico, fase 3 -- 2026-10-08).
@@ -72,6 +73,7 @@ const moeda = (centavos: number) => (centavos / 100).toLocaleString('pt-BR', { s
 const VendedorOsAtender: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const voltarPara = useVoltarPara();
   const { tenantId, currentUser, userNome, userPermissions, permiteVendaSemEstoque, userRole, isOwner } = useAuth();
   const { modo, rotulos, configMaquinas } = useModoOficina();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
@@ -242,7 +244,7 @@ const VendedorOsAtender: React.FC = () => {
   const voltar = async () => {
     // replace: a tela de atender sai do historico. Sem isso, Voltar no detalhe
     // caia de novo aqui e o usuario ficava preso entre as duas telas.
-    if (!sujo) { navigate(`/vendedor/os/${id}`, { replace: true }); return; }
+    if (!sujo) { voltarPara(`/vendedor/os/${id}`); return; }
     const r = await NexusSwal.fire({
       title: 'Sair sem salvar?',
       text: 'Há alterações no atendimento que ainda não foram salvas.',
@@ -253,8 +255,8 @@ const VendedorOsAtender: React.FC = () => {
       denyButtonText: 'Sair sem salvar',
       cancelButtonText: 'Ficar',
     });
-    if (r.isConfirmed) { if (await salvar(true)) navigate(`/vendedor/os/${id}`, { replace: true }); }
-    else if (r.isDenied) navigate(`/vendedor/os/${id}`, { replace: true });
+    if (r.isConfirmed) { if (await salvar(true)) voltarPara(`/vendedor/os/${id}`); }
+    else if (r.isDenied) voltarPara(`/vendedor/os/${id}`);
   };
 
   const enviarFotos = async (arquivos: FileList | null) => {

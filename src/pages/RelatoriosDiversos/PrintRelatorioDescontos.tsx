@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, Timestamp, type DocumentData, type QuerySnapshot } from 'firebase/firestore';
+import { lerComReserva } from '../../services/consultaComReserva';
+import { dateInputToUtcEnd, dateInputToUtcStart } from '../../utils/dateTime';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
@@ -31,19 +33,43 @@ const PrintRelatorioDescontos: React.FC = () => {
   useEffect(() => {
     let cancelado = false;
     const carregar = async () => {
-      if (!currentUser || !tenantId) return;
+      if (!currentUser || !tenantId || periodoInvalido) {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       setError('');
       try {
-        const doTenant = (nome: string) => getDocs(query(collection(db, nome), where('tenantId', '==', tenantId)));
-        const [pedidosSnap, osSnap, orcamentosSnap] = await Promise.all([
-          doTenant('pedidos_venda'),
-          doTenant('ordens_de_servico'),
-          doTenant('orcamentos'),
+        // So' o periodo, pelo mesmo campo de data que o relatorio usa
+        // (otimizacao de leituras, 2026-10-14 -- antes lia pedidos, OS e
+        // orcamentos INTEIROS). montarDocumentoDescontos continua cortando:
+        // a reserva (sem indice) traz a colecao toda.
+        const doTenant = (nome: string) => query(collection(db, nome), where('tenantId', '==', tenantId));
+        const porTexto = (nome: string, campo: string) => lerComReserva(
+          query(doTenant(nome), where(campo, '>=', inicio), where(campo, '<=', fim)),
+          doTenant(nome),
+          `Relatório de descontos (${nome} por ${campo})`,
+        );
+        const inicioTs = Timestamp.fromDate(dateInputToUtcStart(inicio) as Date);
+        const fimTs = Timestamp.fromDate(dateInputToUtcEnd(fim) as Date);
+        const [pedidosSnap, osPorSaida, osPorEntrada, orcamentosSnap] = await Promise.all([
+          porTexto('pedidos_venda', 'dataVenda'),
+          // OS: data = dataSaida e, sem ela, dataEntrada -- as duas consultas, juntadas.
+          porTexto('ordens_de_servico', 'dataSaida'),
+          porTexto('ordens_de_servico', 'dataEntrada'),
+          lerComReserva(
+            query(doTenant('orcamentos'), where('createdAt', '>=', inicioTs), where('createdAt', '<=', fimTs)),
+            doTenant('orcamentos'),
+            'Relatório de descontos (orcamentos por createdAt)',
+          ),
         ]);
         if (cancelado) return;
-        const lista = (snap: typeof pedidosSnap) => snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
-        setFontes({ pedidos: lista(pedidosSnap), ordens: lista(osSnap), orcamentos: lista(orcamentosSnap) });
+        const lista = (...snaps: QuerySnapshot<DocumentData>[]) => {
+          const porId = new Map<string, DocumentData & { id: string }>();
+          snaps.forEach((snap) => snap.docs.forEach((docSnap) => porId.set(docSnap.id, { id: docSnap.id, ...docSnap.data() })));
+          return Array.from(porId.values());
+        };
+        setFontes({ pedidos: lista(pedidosSnap), ordens: lista(osPorSaida, osPorEntrada), orcamentos: lista(orcamentosSnap) });
       } catch (erro) {
         console.error('Erro ao buscar relatório de descontos concedidos:', erro);
         if (!cancelado) setError('Não foi possível carregar os descontos concedidos. Verifique sua conexão e tente de novo.');
@@ -53,7 +79,7 @@ const PrintRelatorioDescontos: React.FC = () => {
     };
     void carregar();
     return () => { cancelado = true; };
-  }, [currentUser, tenantId]);
+  }, [currentUser, tenantId, inicio, fim, periodoInvalido]);
 
   const titulo = 'Descontos Concedidos';
 

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { BarChart2, FileText, Truck } from 'lucide-react';
 import { db } from '../../services/firebase';
+import { assinarComReserva } from '../../services/consultaComReserva';
+import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 import { useAuth } from '../../contexts/AuthContext';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
@@ -28,13 +30,25 @@ const CustoPorVeiculo: React.FC = () => {
   const [filtro, setFiltro] = useState<FiltroCustoVeiculo>({ de: primeiroDiaDoMes(hoje), ate: hoje, situacao: 'todas' });
   const [previewAberto, setPreviewAberto] = useState(false);
 
+  // Despesas com vencimento (`data`) no periodo do filtro, direto no banco
+  // (otimizacao de leituras, 2026-10-14) -- antes escutava TODAS as despesas
+  // da empresa e o relatorio cortava o periodo. Sem o indice (tenantId, tipo,
+  // data) publicado, cai em todas as despesas e o mesmo corte e' feito aqui.
+  const { de: vencimentoDe, ate: vencimentoAte } = filtro;
   useEffect(() => {
     if (!tenantId) return undefined;
-    const pararTitulos = onSnapshot(query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('tipo', '==', 'saida')), (snap) => {
+    const despesas = query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('tipo', '==', 'saida'));
+    const doPeriodo = query(
+      despesas,
+      ...(vencimentoDe ? [where('data', '>=', vencimentoDe)] : []),
+      ...(vencimentoAte ? [where('data', '<=', vencimentoAte)] : []),
+    );
+    return assinarComReserva(doPeriodo, despesas, 'Custo por veículo (despesas do período)', (snap) => {
       const lista: TituloDeVeiculo[] = [];
       snap.forEach((d) => {
         const x = d.data();
         if (!x.veiculoId) return;
+        if (!dentroDoPeriodo(String(x.data || ''), vencimentoDe, vencimentoAte)) return;
         lista.push({
           id: d.id,
           data: String(x.data || ''),
@@ -56,10 +70,13 @@ const CustoPorVeiculo: React.FC = () => {
       console.error('Erro ao buscar despesas de veículo:', erro);
       setCarregando(false);
     });
-    const pararFrota = onSnapshot(query(collection(db, 'frota'), where('tenantId', '==', tenantId)), (snap) => {
+  }, [tenantId, vencimentoDe, vencimentoAte]);
+
+  useEffect(() => {
+    if (!tenantId) return undefined;
+    return onSnapshot(query(collection(db, 'frota'), where('tenantId', '==', tenantId)), (snap) => {
       setFrota(snap.docs.map((d) => ({ id: d.id, ...d.data() } as VeiculoDaFrota)));
     }, (erro) => console.error('Erro ao buscar a frota:', erro));
-    return () => { pararTitulos(); pararFrota(); };
   }, [tenantId]);
 
   const veiculoEscolhido = frota.find((v) => v.id === filtro.veiculoId);

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, FileText, ClipboardList, PackagePlus, PackageMinus } from 'lucide-react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, query, where, Timestamp } from 'firebase/firestore';
+import { lerComReserva } from '../../services/consultaComReserva';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import StatCard from '../../components/Reports/StatCard';
@@ -46,6 +47,25 @@ const RelatorioAjustesEstoque: React.FC = () => {
   const [produtoFiltro, setProdutoFiltro] = useState('');
   const [usuarioFiltro, setUsuarioFiltro] = useState('');
 
+  // Intervalo de datas do filtro -- vai para a CONSULTA (otimizacao de
+  // leituras, 2026-10-14; antes lia todos os ajustes da empresa). Os demais
+  // filtros (tipo, motivo, produto, usuario) continuam na tela.
+  const intervalo = useMemo(() => {
+    let inicio = startOfDay(new Date());
+    let fim = endOfDay(new Date());
+    switch (period) {
+      case 'hoje': inicio = startOfDay(new Date()); fim = endOfDay(new Date()); break;
+      case 'ontem': inicio = startOfDay(subDays(new Date(), 1)); fim = endOfDay(subDays(new Date(), 1)); break;
+      case 'semana': inicio = startOfDay(subDays(new Date(), 7)); fim = endOfDay(new Date()); break;
+      case 'mes': inicio = startOfMonth(new Date()); fim = endOfMonth(new Date()); break;
+      case 'ano': inicio = startOfYear(new Date()); fim = endOfMonth(new Date()); break;
+      case 'personalizado': inicio = startOfDay(parseISO(startDate)); fim = endOfDay(parseISO(endDate)); break;
+    }
+    return { inicio, fim };
+  }, [period, startDate, endDate]);
+  // Spinner de pagina inteira so' na primeira carga: trocar o periodo relê sem piscar a tela.
+  const [carregouUmaVez, setCarregouUmaVez] = useState(false);
+
   const carregarDados = useCallback(async () => {
     if (!tenantId) {
       setLoading(false);
@@ -53,8 +73,15 @@ const RelatorioAjustesEstoque: React.FC = () => {
     }
     setLoading(true);
     try {
-      const q = query(collection(db, 'ajustes_estoque'), where('tenantId', '==', tenantId));
-      const snap = await getDocs(q);
+      // Data personalizada ainda incompleta: espera, nao le nada.
+      if (Number.isNaN(intervalo.inicio.getTime()) || Number.isNaN(intervalo.fim.getTime())) return;
+      const todos = query(collection(db, 'ajustes_estoque'), where('tenantId', '==', tenantId));
+      // ajustesDoRelatorio continua cortando: a reserva (sem indice) traz todos.
+      const snap = await lerComReserva(
+        query(todos, where('createdAt', '>=', Timestamp.fromDate(intervalo.inicio)), where('createdAt', '<=', Timestamp.fromDate(intervalo.fim))),
+        todos,
+        'Relatório de ajustes de estoque (período)',
+      );
       const lista: AjusteRegistro[] = snap.docs.map((d) => {
         const data = d.data();
         return {
@@ -77,8 +104,9 @@ const RelatorioAjustesEstoque: React.FC = () => {
       console.error('Erro ao carregar relatório de ajustes de estoque:', err);
     } finally {
       setLoading(false);
+      setCarregouUmaVez(true);
     }
-  }, [tenantId]);
+  }, [tenantId, intervalo]);
 
   useEffect(() => {
     carregarDados();
@@ -101,19 +129,9 @@ const RelatorioAjustesEstoque: React.FC = () => {
     });
   }, [tipoFiltro]);
 
-  const filtro = useMemo<FiltroRelatorioAjustes>(() => {
-    let start = startOfDay(new Date());
-    let end = endOfDay(new Date());
-    switch (period) {
-      case 'hoje': start = startOfDay(new Date()); end = endOfDay(new Date()); break;
-      case 'ontem': start = startOfDay(subDays(new Date(), 1)); end = endOfDay(subDays(new Date(), 1)); break;
-      case 'semana': start = startOfDay(subDays(new Date(), 7)); end = endOfDay(new Date()); break;
-      case 'mes': start = startOfMonth(new Date()); end = endOfMonth(new Date()); break;
-      case 'ano': start = startOfYear(new Date()); end = endOfMonth(new Date()); break;
-      case 'personalizado': start = startOfDay(parseISO(startDate)); end = endOfDay(parseISO(endDate)); break;
-    }
-    return { inicio: start, fim: end, tipo: tipoFiltro, motivo: motivoFiltro, produto: produtoFiltro, usuario: usuarioFiltro };
-  }, [period, startDate, endDate, tipoFiltro, motivoFiltro, produtoFiltro, usuarioFiltro]);
+  const filtro = useMemo<FiltroRelatorioAjustes>(() => (
+    { inicio: intervalo.inicio, fim: intervalo.fim, tipo: tipoFiltro, motivo: motivoFiltro, produto: produtoFiltro, usuario: usuarioFiltro }
+  ), [intervalo, tipoFiltro, motivoFiltro, produtoFiltro, usuarioFiltro]);
 
   const filtrados = useMemo(() => ajustesDoRelatorio(ajustes, filtro), [ajustes, filtro]);
 
@@ -138,7 +156,7 @@ const RelatorioAjustesEstoque: React.FC = () => {
     );
   }
 
-  if (loading) return (
+  if (loading && !carregouUmaVez) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-muted)' }}>
       Carregando relatório de ajustes...
     </div>

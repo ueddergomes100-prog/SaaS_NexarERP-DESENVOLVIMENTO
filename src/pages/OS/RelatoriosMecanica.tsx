@@ -4,7 +4,8 @@ import {
   TrendingUp, Users,
   ClipboardList, Package, Activity, FileText
 } from 'lucide-react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { lerComReserva } from '../../services/consultaComReserva';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -41,6 +42,8 @@ const RelatoriosMecanica: React.FC = () => {
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [previewAberto, setPreviewAberto] = useState(false);
+  // Spinner de pagina inteira so' na primeira carga: trocar o periodo relê sem piscar a tela.
+  const [carregouUmaVez, setCarregouUmaVez] = useState(false);
 
   const [data, setData] = useState<{
     os: OsDoRelatorio[];
@@ -50,6 +53,22 @@ const RelatoriosMecanica: React.FC = () => {
     usuarios: {}
   });
 
+  const periodo = useMemo(() => {
+    let start = startOfDay(new Date());
+    let end = endOfDay(new Date());
+
+    switch (period) {
+      case 'hoje': start = startOfDay(new Date()); end = endOfDay(new Date()); break;
+      case 'ontem': start = startOfDay(subDays(new Date(), 1)); end = endOfDay(subDays(new Date(), 1)); break;
+      case 'semana': start = startOfDay(subDays(new Date(), 7)); end = endOfDay(new Date()); break;
+      case 'mes': start = startOfMonth(new Date()); end = endOfMonth(new Date()); break;
+      case 'ano': start = startOfYear(new Date()); end = endOfMonth(new Date()); break;
+      case 'personalizado': start = startOfDay(parseISO(startDate)); end = endOfDay(parseISO(endDate)); break;
+    }
+
+    return { inicio: start, fim: end };
+  }, [period, startDate, endDate]);
+
   const carregarDados = useCallback(async () => {
     if (!tenantId) {
       setLoading(false);
@@ -57,8 +76,17 @@ const RelatoriosMecanica: React.FC = () => {
     }
     setLoading(true);
     try {
-      const qOS = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId));
-      const snapOS = await getDocs(qOS);
+      // So' as OS abertas no periodo escolhido (otimizacao de leituras,
+      // 2026-10-14) -- antes lia todas as OS da empresa e cortava aqui.
+      // osNoPeriodo continua cortando: a reserva (sem indice) traz todas.
+      // Data personalizada ainda incompleta: espera, nao le nada.
+      if (Number.isNaN(periodo.inicio.getTime()) || Number.isNaN(periodo.fim.getTime())) return;
+      const todasAsOs = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId));
+      const snapOS = await lerComReserva(
+        query(todasAsOs, where('createdAt', '>=', Timestamp.fromDate(periodo.inicio)), where('createdAt', '<=', Timestamp.fromDate(periodo.fim))),
+        todasAsOs,
+        'Relatório de serviços (período)',
+      );
       const os: OsDoRelatorio[] = snapOS.docs.map(d => {
         const x = d.data();
         return {
@@ -84,28 +112,14 @@ const RelatoriosMecanica: React.FC = () => {
       console.error("Erro ao carregar dados de serviços:", err);
     } finally {
       setLoading(false);
+      setCarregouUmaVez(true);
     }
-  }, [tenantId]);
+  }, [tenantId, periodo]);
 
   useEffect(() => {
     carregarDados();
   }, [carregarDados]);
 
-  const periodo = useMemo(() => {
-    let start = startOfDay(new Date());
-    let end = endOfDay(new Date());
-
-    switch (period) {
-      case 'hoje': start = startOfDay(new Date()); end = endOfDay(new Date()); break;
-      case 'ontem': start = startOfDay(subDays(new Date(), 1)); end = endOfDay(subDays(new Date(), 1)); break;
-      case 'semana': start = startOfDay(subDays(new Date(), 7)); end = endOfDay(new Date()); break;
-      case 'mes': start = startOfMonth(new Date()); end = endOfMonth(new Date()); break;
-      case 'ano': start = startOfYear(new Date()); end = endOfMonth(new Date()); break;
-      case 'personalizado': start = startOfDay(parseISO(startDate)); end = endOfDay(parseISO(endDate)); break;
-    }
-
-    return { inicio: start, fim: end };
-  }, [period, startDate, endDate]);
 
   const stats = useMemo(
     () => resumirServicosOficina(osNoPeriodo(data.os, periodo), data.usuarios),
@@ -134,7 +148,7 @@ const RelatoriosMecanica: React.FC = () => {
     );
   }
 
-  if (loading) return (
+  if (loading && !carregouUmaVez) return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px' }}>
       <div className="spin-icon" style={{ width: '40px', height: '40px', border: '4px solid var(--accent-purple)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
       <p style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Sincronizando dados técnicos...</p>

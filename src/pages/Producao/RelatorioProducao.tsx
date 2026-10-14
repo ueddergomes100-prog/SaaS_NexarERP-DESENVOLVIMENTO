@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Factory, ClipboardList, CheckCircle2, XCircle, Clock, Activity, TrendingDown, FileText, Undo2
 } from 'lucide-react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, Timestamp } from 'firebase/firestore';
+import { lerComReserva } from '../../services/consultaComReserva';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -40,39 +41,8 @@ const RelatorioProducao: React.FC = () => {
   const [previewAberto, setPreviewAberto] = useState(false);
 
   const [ordens, setOrdens] = useState<OrdemDoRelatorio[]>([]);
-
-  const carregarDados = useCallback(async () => {
-    if (!tenantId) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const q = query(collection(db, 'ordens_producao'), where('tenantId', '==', tenantId));
-      const snap = await getDocs(q);
-      setOrdens(snap.docs.map(d => {
-        const x = d.data();
-        return {
-          id: d.id,
-          produtoNome: x.produtoNome,
-          quantidadePlanejada: x.quantidadePlanejada,
-          quantidadeProduzida: x.quantidadeProduzida,
-          status: String(x.status || ''),
-          responsavelNome: x.responsavelNome,
-          itensConsumidos: Array.isArray(x.itensConsumidos) ? x.itensConsumidos : [],
-          criadoEm: x.createdAt?.toDate ? x.createdAt.toDate() : null,
-        };
-      }));
-    } catch (err) {
-      console.error('Erro ao carregar ordens de produção:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [tenantId]);
-
-  useEffect(() => {
-    carregarDados();
-  }, [carregarDados]);
+  // Spinner de pagina inteira so' na primeira carga: trocar o periodo relê sem piscar a tela.
+  const [carregouUmaVez, setCarregouUmaVez] = useState(false);
 
   const periodo = useMemo(() => {
     let start = startOfDay(new Date());
@@ -90,6 +60,50 @@ const RelatorioProducao: React.FC = () => {
     return { inicio: start, fim: end };
   }, [period, startDate, endDate]);
 
+  const carregarDados = useCallback(async () => {
+    if (!tenantId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      // So' as ordens criadas no periodo escolhido (otimizacao de leituras,
+      // 2026-10-14) -- antes lia todas e cortava aqui. ordensNoPeriodo
+      // continua cortando: a reserva (sem indice) traz todas.
+      // Data personalizada ainda incompleta: espera, nao le nada.
+      if (Number.isNaN(periodo.inicio.getTime()) || Number.isNaN(periodo.fim.getTime())) return;
+      const todas = query(collection(db, 'ordens_producao'), where('tenantId', '==', tenantId));
+      const snap = await lerComReserva(
+        query(todas, where('createdAt', '>=', Timestamp.fromDate(periodo.inicio)), where('createdAt', '<=', Timestamp.fromDate(periodo.fim))),
+        todas,
+        'Relatório de produção (período)',
+      );
+      setOrdens(snap.docs.map(d => {
+        const x = d.data();
+        return {
+          id: d.id,
+          produtoNome: x.produtoNome,
+          quantidadePlanejada: x.quantidadePlanejada,
+          quantidadeProduzida: x.quantidadeProduzida,
+          status: String(x.status || ''),
+          responsavelNome: x.responsavelNome,
+          itensConsumidos: Array.isArray(x.itensConsumidos) ? x.itensConsumidos : [],
+          criadoEm: x.createdAt?.toDate ? x.createdAt.toDate() : null,
+        };
+      }));
+    } catch (err) {
+      console.error('Erro ao carregar ordens de produção:', err);
+    } finally {
+      setLoading(false);
+      setCarregouUmaVez(true);
+    }
+  }, [tenantId, periodo]);
+
+  useEffect(() => {
+    carregarDados();
+  }, [carregarDados]);
+
+
   const stats = useMemo(() => resumirProducao(ordensNoPeriodo(ordens, periodo)), [ordens, periodo]);
 
   const documento = useMemo<DocumentoRelatorioSemEmpresa>(() => montarDocumentoProducao(ordens, periodo), [ordens, periodo]);
@@ -106,7 +120,7 @@ const RelatorioProducao: React.FC = () => {
     );
   }
 
-  if (loading) return (
+  if (loading && !carregouUmaVez) return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px' }}>
       <div className="spin-icon" style={{ width: '40px', height: '40px', border: '4px solid var(--accent-purple)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
       <p style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Carregando dados de produção...</p>

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where } from 'firebase/firestore';
+import { lerComReserva } from '../../services/consultaComReserva';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
@@ -29,11 +30,22 @@ const PrintRelatorioTaxasCartao: React.FC = () => {
   useEffect(() => {
     let cancelado = false;
     const carregar = async () => {
-      if (!currentUser || !tenantId) return;
+      if (!currentUser || !tenantId || periodoInvalido) {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       setError('');
       try {
-        const snapshot = await getDocs(query(collection(db, 'transacoes'), where('tenantId', '==', tenantId)));
+        // So' os lancamentos do periodo (otimizacao de leituras, 2026-10-14) --
+        // antes lia TODAS as transacoes da empresa. O relatorio continua
+        // cortando: a reserva (sem indice) traz todas.
+        const todas = query(collection(db, 'transacoes'), where('tenantId', '==', tenantId));
+        const snapshot = await lerComReserva(
+          query(todas, where('data', '>=', inicio), where('data', '<=', fim)),
+          todas,
+          'Taxas de cartão (período)',
+        );
         if (cancelado) return;
         setTransacoes(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }) as TransacaoCartao));
       } catch (erro) {
@@ -45,7 +57,7 @@ const PrintRelatorioTaxasCartao: React.FC = () => {
     };
     void carregar();
     return () => { cancelado = true; };
-  }, [currentUser, tenantId]);
+  }, [currentUser, tenantId, inicio, fim, periodoInvalido]);
 
   const titulo = 'Taxas Pagas às Administradoras';
 

@@ -394,6 +394,47 @@
         { "fieldPath": "tenantId", "order": "ASCENDING" },
         { "fieldPath": "fechadoEm", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "transacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "tipo", "order": "ASCENDING" },
+        { "fieldPath": "data", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "data", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ordens_de_servico",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "dataSaida", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ordens_de_servico",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "dataEntrada", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ajustes_estoque",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

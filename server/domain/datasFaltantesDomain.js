@@ -1,21 +1,26 @@
 /**
- * DATA DA VENDA AUSENTE (2026-10-14).
+ * DATAS AUSENTES QUE AS TELAS USAM PARA O PERIODO (2026-10-14).
  *
- * As telas filtram o periodo pela `dataVenda` (AAAA-MM-DD) -- Pedidos de
- * Venda, Relatorio de Vendas, importador da NF-e. Pedido gravado sem ela
- * (vendas antigas e as convertidas de orcamento antes de 13/10/2026) sumia
- * desses periodos. A regra que a tela ja' usava como reserva e' a data em que
- * o pedido foi criado; aqui ela e' gravada de vez no pedido (decisao do dono,
- * 14/10: "preencher no banco").
+ * Com a otimizacao de leituras, as telas pedem ao banco so' o periodo, pelo
+ * campo de data de cada uma. Documento gravado sem esse campo sumia do
+ * periodo. A regra que as telas ja' usavam como reserva e' o dia em que o
+ * documento foi criado; aqui ela e' gravada de vez (decisao do dono, 14/10:
+ * "preencher no banco"). Dois casos:
  *
- * Pedido sem `dataVenda` E sem `createdAt` nao tem de onde tirar a data: fica
- * de fora e aparece no resumo do script, para ser corrigido no cadastro.
+ *  - Pedido sem `dataVenda` (vendas antigas e as convertidas de orcamento
+ *    antes de 13/10/2026) -> dataVenda = dia da criacao.
+ *  - Lancamento PAGO sem `dataPagamento` e sem `data` -> dataPagamento = dia
+ *    da criacao (o relatorio financeiro ja' fazia dataPagamento -> data ->
+ *    criacao). Lancamento pendente sem vencimento NAO e' preenchido: inventar
+ *    vencimento faria o titulo aparecer como vencido; ele e' so' listado.
+ *
+ * Documento sem a data E sem `createdAt` nao tem de onde tirar: fica de fora e
+ * aparece no resumo do script, para ser corrigido no cadastro.
  */
 
 const FUSO = 'America/Sao_Paulo';
 
-/** Ja' tem data da venda valida (texto AAAA-MM-DD)? */
-const temDataVenda = (dados) => typeof dados?.dataVenda === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dados.dataVenda);
+const ehDia = (valor) => typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(valor);
 
 /** `createdAt` (Timestamp do Admin, Date ou mapa {_seconds}) -> Date, ou null. */
 const dataDeCriacao = (valor) => {
@@ -33,14 +38,28 @@ const diaNoFuso = (data) => new Intl.DateTimeFormat('en-CA', {
 }).format(data);
 
 /**
- * O que fazer com um pedido: 'ok' (ja' tem), 'preencher' (com `dataVenda`
- * calculada) ou 'sem_data' (nao ha' de onde tirar).
+ * Decide o que fazer com um documento: 'ok' (algum dos campos ja' tem dia
+ * valido), 'preencher' (grava `campo` com o dia da criacao) ou 'sem_data'.
  */
-const decidirDataVenda = (dados) => {
-  if (temDataVenda(dados)) return { acao: 'ok' };
+const decidirDataFaltante = (dados, campo, alternativas = []) => {
+  if ([campo, ...alternativas].some((nome) => ehDia(dados?.[nome]))) return { acao: 'ok' };
   const criacao = dataDeCriacao(dados?.createdAt);
   if (!criacao) return { acao: 'sem_data' };
-  return { acao: 'preencher', dataVenda: diaNoFuso(criacao) };
+  return { acao: 'preencher', campo, valor: diaNoFuso(criacao) };
 };
 
-module.exports = { decidirDataVenda, temDataVenda, dataDeCriacao, diaNoFuso };
+/** Pedido de venda: `dataVenda`. */
+const decidirDataVenda = (pedido) => decidirDataFaltante(pedido, 'dataVenda');
+
+/**
+ * Lancamento financeiro: so' o PAGO sem `dataPagamento` e sem `data` ganha
+ * `dataPagamento`. Os demais ficam como estao ('ok') ou sao so' listados
+ * ('pendente_sem_vencimento').
+ */
+const decidirDataDoLancamento = (lancamento) => {
+  if (lancamento?.status === 'Paga') return decidirDataFaltante(lancamento, 'dataPagamento', ['data']);
+  if (lancamento?.status === 'Pendente' && !ehDia(lancamento?.data)) return { acao: 'pendente_sem_vencimento' };
+  return { acao: 'ok' };
+};
+
+module.exports = { decidirDataFaltante, decidirDataVenda, decidirDataDoLancamento, dataDeCriacao, diaNoFuso };

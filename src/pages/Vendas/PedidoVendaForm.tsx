@@ -2390,6 +2390,14 @@ const PedidoVendaForm: React.FC = () => {
                 createdAt: existingData?.createdAt ?? serverTimestamp(),
                 criadoPor: existingData?.criadoPor ?? currentUser.uid,
                 criadoEm: existingData?.criadoEm ?? serverTimestamp(),
+                // Quem conferiu e quando: este `set` reescreve o documento
+                // INTEIRO, e sem isto editar uma pre-venda ja' conferida
+                // mantinha "Conferido" mas apagava o autor e a data (a fila
+                // de expedicao mostra os conferidos do mes por essa data).
+                // So' entram quando existem: Firestore recusa `undefined`.
+                ...(existingData?.conferidoPor ? { conferidoPor: existingData.conferidoPor } : {}),
+                ...(existingData?.conferidoPorNome ? { conferidoPorNome: existingData.conferidoPorNome } : {}),
+                ...(existingData?.conferidoEm ? { conferidoEm: existingData.conferidoEm } : {}),
                 ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Pré-venda alterada'),
               }
             : {

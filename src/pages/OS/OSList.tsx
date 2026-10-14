@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Printer, Edit, MessageCircle } from 'lucide-react';
-import { collection, query, onSnapshot, where, doc } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, doc, Timestamp, type DocumentData, type Query } from 'firebase/firestore';
+import { assinarComReserva } from '../../services/consultaComReserva';
+import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -60,11 +62,41 @@ const OSList: React.FC = () => {
 
   const canEditOS = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('mecanica.os_alterar'));
 
+  // Leitura por aba (otimizacao de leituras, 2026-10-14). Antes: TODAS as OS
+  // da empresa a cada abertura (e a aba fica viva escondida).
+  //  - Em andamento: status fora de Finalizada/Cancelada, de QUALQUER data --
+  //    OS aberta nunca some por periodo;
+  //  - Finalizadas/Canceladas: pelo periodo de abertura do filtro; vazio = mes
+  //    atual (decisao do dono), com aviso na tela.
+  // Sem o indice (tenantId, status[, createdAt]) publicado, cai na colecao
+  // inteira e o filtro da tela segura o resultado.
+  const hojeLeitura = getDateInputInTimeZone();
+  const abaDeHistorico = activeTab !== 'Ativas';
+  const historicoNoMesPadrao = abaDeHistorico && !periodoDe && !periodoAte;
+  const leituraDe = abaDeHistorico ? (historicoNoMesPadrao ? `${hojeLeitura.slice(0, 7)}-01` : periodoDe) : '';
+  const leituraAte = abaDeHistorico ? (historicoNoMesPadrao ? hojeLeitura : periodoAte) : '';
+
   useEffect(() => {
-    if (!currentUser) return;
-    const q = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId));
-    
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+    if (!currentUser || !tenantId) return undefined;
+    setLoading(true);
+    const base = collection(db, 'ordens_de_servico');
+    const todas = query(base, where('tenantId', '==', tenantId));
+    let enxuta: Query<DocumentData>;
+    if (activeTab === 'Ativas') {
+      enxuta = query(todas, where('status', 'not-in', ['Finalizada', 'Cancelada']));
+    } else {
+      const status = activeTab === 'Finalizadas' ? 'Finalizada' : 'Cancelada';
+      const inicio = leituraDe ? dateInputToUtcStart(leituraDe) : null;
+      const fim = leituraAte ? dateInputToUtcEnd(leituraAte) : null;
+      enxuta = query(
+        todas,
+        where('status', '==', status),
+        ...(inicio ? [where('createdAt', '>=', Timestamp.fromDate(inicio))] : []),
+        ...(fim ? [where('createdAt', '<=', Timestamp.fromDate(fim))] : []),
+      );
+    }
+
+    return assinarComReserva(enxuta, todas, `Ordens de Serviço (${activeTab})`, (querySnapshot) => {
       const osData: OSData[] = [];
       querySnapshot.forEach((doc) => {
         osData.push({ id: doc.id, ...doc.data() } as OSData);
@@ -81,9 +113,7 @@ const OSList: React.FC = () => {
       console.error("Erro ao buscar OS:", error);
       setLoading(false);
     });
-
-    return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser, tenantId, activeTab, leituraDe, leituraAte]);
 
   // Oficina de maquinas pesadas: coluna Frota/Serie e busca por eles (oficinaDomain.ts).
   const [modoOficina, setModoOficina] = useState<ModoOficina>('veiculos');
@@ -239,6 +269,11 @@ const OSList: React.FC = () => {
           </CampoFiltro>
           <CampoPeriodo rotulo="Abertura" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
         </PainelFiltros>
+        {historicoNoMesPadrao && (
+          <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+            {activeTab === 'Finalizadas' ? 'Finalizadas' : 'Canceladas'} abertas este mês. Para outro período, use Filtros › Abertura.
+          </p>
+        )}
 
         <div className="table-wrapper">
           <table className="data-table">

@@ -108,7 +108,9 @@ const CaixaRegistros: React.FC = () => {
 
     setLoadingVendas(sessao.id);
     try {
-      const q = query(collection(db, 'pedidos_venda'), where('pdvSessionId', '==', sessao.id));
+      // tenantId na consulta: sem ele as regras (canReadTenantDocument) negam a
+      // lista inteira e "Vendas vinculadas" ficava sempre vazio.
+      const q = query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where('pdvSessionId', '==', sessao.id));
       const snap = await getDocs(q);
       // As vendas listadas dentro da sessao de caixa seguem a mesma regra
       // de visibilidade das demais telas de venda.

@@ -47,15 +47,40 @@ export const mensagemDeFalhaDeRede = (
   padrao = 'Não foi possível falar com o servidor. Verifique a internet e tente de novo.',
 ): string => (isTimeoutError(erro) ? erro.message : padrao);
 
+/**
+ * Cabecalhos que entram sozinhos nas chamadas ao NOSSO servidor -- hoje o
+ * comprovante do App Check (2026-10-14). Quem registra e' services/firebase.ts,
+ * so' quando o App Check esta ligado; sem registro, nada muda. Falha ao obter
+ * o cabecalho nunca derruba a chamada (o servidor esta em modo de observacao).
+ */
+type CabecalhosAutomaticos = (url: string) => Promise<Record<string, string>>;
+let cabecalhosAutomaticos: CabecalhosAutomaticos | null = null;
+export const definirCabecalhosAutomaticos = (fn: CabecalhosAutomaticos | null) => {
+  cabecalhosAutomaticos = fn;
+};
+
+const comCabecalhosAutomaticos = async (url: string, init: RequestInit): Promise<RequestInit> => {
+  if (!cabecalhosAutomaticos) return init;
+  const extras = await cabecalhosAutomaticos(url).catch(() => ({} as Record<string, string>));
+  const nomes = Object.keys(extras);
+  if (nomes.length === 0) return init;
+  const headers = new Headers(init.headers);
+  nomes.forEach((nome) => {
+    if (!headers.has(nome)) headers.set(nome, extras[nome]);
+  });
+  return { ...init, headers };
+};
+
 export const fetchComTimeout = async (
   url: string,
   init: RequestInit = {},
   timeoutMs: number = TEMPO_LIMITE.padrao,
 ): Promise<Response> => {
+  const pedido = await comCabecalhosAutomaticos(url, init);
   const controlador = new AbortController();
   const timer = window.setTimeout(() => controlador.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controlador.signal });
+    return await fetch(url, { ...pedido, signal: controlador.signal });
   } catch (erro) {
     if ((erro as { name?: string } | null)?.name === 'AbortError') {
       throw new TimeoutError(timeoutMs);

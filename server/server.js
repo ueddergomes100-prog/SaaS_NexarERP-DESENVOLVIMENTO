@@ -13,6 +13,7 @@ const { initQueueService } = require('./services/queue');
 const { diagnosticoConfiguracao, pendenciasDeProducao, trustProxyHops, emProducao } = require('./services/configuracaoAmbiente');
 const { estadoDoFirestore } = require('./services/saude');
 const { limitadorGlobalApi } = require('./middleware/rateLimit');
+const { verificadorAppCheck } = require('./middleware/appCheck');
 const { ipDoCliente } = require('./utils/requestIp');
 const backupRoutes = require('./routes/backup.routes');
 const spedyRoutes = require('./routes/spedy.routes');
@@ -91,7 +92,8 @@ app.use(cors({
     callback(erro);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  // X-Firebase-AppCheck: comprovante de que a chamada veio do nosso sistema (middleware/appCheck.js).
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Firebase-AppCheck'],
   maxAge: 86400
 }));
 
@@ -109,7 +111,8 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     const ms = Number(process.hrtime.bigint() - inicio) / 1e6;
     const uid = req.user && req.user.uid ? ` uid=${req.user.uid}` : '';
-    console.log(`[req] ${req.method} ${caminhoParaLog(req.originalUrl)} ${res.statusCode} ${ms.toFixed(0)}ms ip=${ipDoCliente(req)}${uid}`);
+    const appCheck = req.appCheck ? ` appCheck=${req.appCheck}` : '';
+    console.log(`[req] ${req.method} ${caminhoParaLog(req.originalUrl)} ${res.statusCode} ${ms.toFixed(0)}ms ip=${ipDoCliente(req)}${uid}${appCheck}`);
   });
   next();
 });
@@ -122,6 +125,10 @@ app.use(express.json({ limit: '2mb' }));
 // Freio global por IP em todo /api (ver middleware/rateLimit.js). As rotas
 // publicas (onboarding, login do app) tem limites proprios, mais apertados.
 app.use('/api', limitadorGlobalApi);
+
+// App Check (2026-10-14): confere se a chamada veio do nosso sistema. Em modo
+// de OBSERVACAO ate' APP_CHECK_EXIGIR=true -- so' marca no log. Ver middleware/appCheck.js.
+app.use('/api', verificadorAppCheck());
 
 /**
  * Health check com prova de vida do banco. Responde 503 quando o Firestore

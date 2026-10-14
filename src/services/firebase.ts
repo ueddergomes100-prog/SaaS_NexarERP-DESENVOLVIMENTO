@@ -2,6 +2,8 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { browserLocalPersistence, browserSessionPersistence, indexedDBLocalPersistence, initializeAuth, setPersistence } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
+import { getToken, initializeAppCheck, ReCaptchaEnterpriseProvider, type AppCheck } from 'firebase/app-check';
+import { definirCabecalhosAutomaticos } from '../utils/fetchComTimeout';
 
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -14,6 +16,44 @@ export const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
+
+/**
+ * APP CHECK (2026-10-14) -- pedido do dono: proteger o banco de quem dispara
+ * requisicoes por fora do sistema. O navegador ganha um comprovante
+ * (reCAPTCHA Enterprise, invisivel) que o Firestore, o Storage e o nosso
+ * servidor conferem. So' liga quando existe a chave do site no .env
+ * (VITE_FIREBASE_APPCHECK_SITE_KEY, publica como o resto desta config); sem
+ * ela nada muda. O bloqueio e' decidido FORA do codigo: no console do
+ * Firebase (Firestore/Storage) e com APP_CHECK_EXIGIR no servidor -- comeca
+ * so' observando. Rodando local (npm run dev), usa o token de depuracao do
+ * Firebase, que aparece no console do navegador para cadastrar no projeto dev.
+ * Tem de iniciar antes de qualquer uso do Firestore.
+ */
+const chaveDoAppCheck = String(import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY || '').trim();
+export const appCheck: AppCheck | null = (() => {
+  if (!chaveDoAppCheck) return null;
+  try {
+    if (import.meta.env.DEV) {
+      (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: string | boolean }).FIREBASE_APPCHECK_DEBUG_TOKEN = import.meta.env.VITE_FIREBASE_APPCHECK_DEBUG_TOKEN || true;
+    }
+    return initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider(chaveDoAppCheck), isTokenAutoRefreshEnabled: true });
+  } catch (erro) {
+    console.error('App Check não iniciou (o sistema segue funcionando):', erro);
+    return null;
+  }
+})();
+
+// O comprovante vai junto em toda chamada ao NOSSO servidor (fetchComTimeout).
+const urlDoServidor = String(import.meta.env.VITE_BACKEND_API_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')).trim().replace(/\/$/, '');
+if (appCheck && urlDoServidor) {
+  const verificador = appCheck;
+  definirCabecalhosAutomaticos(async (url): Promise<Record<string, string>> => {
+    if (!url.startsWith(urlDoServidor)) return {};
+    const esperaMaxima = new Promise<never>((_, rejeitar) => { window.setTimeout(() => rejeitar(new Error('App Check demorou')), 3000); });
+    const { token } = await Promise.race([getToken(verificador, false), esperaMaxima]);
+    return { 'X-Firebase-AppCheck': token };
+  });
+}
 
 // O app do vendedor/tecnico (/vendedor) roda na roca sem sinal: Firestore com
 // cache PERSISTENTE (IndexedDB) -- le o que ja' viu e enfileira set/update ate'

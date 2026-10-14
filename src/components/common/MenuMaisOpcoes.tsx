@@ -31,8 +31,14 @@ interface MenuMaisOpcoesProps {
   rotulo?: string;
 }
 
+const LARGURA_MINIMA_MENU = 250;
+
 const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais opções' }) => {
   const [aberto, setAberto] = useState(false);
+  // O menu abre alinhado pela direita do botao; quando o botao fica colado na
+  // esquerda (celular, topo quebrado em linhas) nao cabe e sairia cortado
+  // pela borda -- ai' abre alinhado pela esquerda.
+  const [alinharEsquerda, setAlinharEsquerda] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   const visiveis = itens.filter((item) => !item.oculto);
 
@@ -59,7 +65,11 @@ const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais o
         className="btn-secondary"
         aria-haspopup="menu"
         aria-expanded={aberto}
-        onClick={() => setAberto((atual) => !atual)}
+        onClick={() => {
+          const caixa = ref.current?.getBoundingClientRect();
+          setAlinharEsquerda(Boolean(caixa && caixa.right < LARGURA_MINIMA_MENU + 8));
+          setAberto((atual) => !atual);
+        }}
         style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
       >
         <MoreHorizontal size={18} /> {rotulo} <ChevronDown size={16} />
@@ -68,7 +78,8 @@ const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais o
         <div
           role="menu"
           style={{
-            position: 'absolute', right: 0, top: 'calc(100% + 6px)', minWidth: '250px', zIndex: 50,
+            position: 'absolute', ...(alinharEsquerda ? { left: 0 } : { right: 0 }), top: 'calc(100% + 6px)',
+            minWidth: `${LARGURA_MINIMA_MENU}px`, maxWidth: 'calc(100vw - 16px)', zIndex: 50,
             backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
             boxShadow: '0 12px 28px rgba(0,0,0,0.35)', padding: '6px 0',
           }}

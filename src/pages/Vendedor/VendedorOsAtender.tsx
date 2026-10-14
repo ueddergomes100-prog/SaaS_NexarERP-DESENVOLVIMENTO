@@ -64,7 +64,7 @@ interface OsDoc {
   assinaturaCliente: AssinaturaOS | null;
 }
 
-const cardStyle: React.CSSProperties = { padding: '14px 16px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' };
+const cardStyle: React.CSSProperties = { padding: '14px 16px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)' };
 const tituloSecao: React.CSSProperties = { fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' };
 const campo: React.CSSProperties = { width: '100%', height: '42px', borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', padding: '0 12px', boxSizing: 'border-box', fontSize: '15px' };
 const rotulo: React.CSSProperties = { fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' };

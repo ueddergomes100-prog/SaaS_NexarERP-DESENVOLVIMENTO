@@ -90,7 +90,7 @@ const VendedorTrocas: React.FC = () => {
           const estilo = ESTILO_STATUS_TROCA[troca.status] || ESTILO_STATUS_TROCA.Solicitada;
           const expandida = aberta === troca.id;
           return (
-            <div key={troca.id} style={{ borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+            <div key={troca.id} style={{ borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
               <button
                 type="button"
                 onClick={() => setAberta(expandida ? null : troca.id)}

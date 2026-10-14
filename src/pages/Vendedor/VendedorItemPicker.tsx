@@ -166,8 +166,8 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
           placeholder="Buscar produto por nome ou código (# lista tudo)"
           aria-label="Buscar produto"
           style={{
-            width: '100%', height: '48px', padding: '0 14px 0 42px', borderRadius: '14px', border: '1px solid var(--border-color)',
-            backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box',
+            width: '100%', height: '48px', padding: '0 14px 0 42px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)',
+            backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box',
           }}
         />
       </div>
@@ -261,8 +261,8 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
             <div
               key={`${item.id}-${index}`}
               style={{
-                display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: '14px',
-                backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+                display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: 'var(--app-raio-linha)',
+                backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)',
               }}
             >
               <div style={{ flex: 1, minWidth: 0 }}>

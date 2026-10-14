@@ -1,4 +1,4 @@
-import { CHAVE_TEMA, lerPreferenciaTema, temaEfetivo, type PreferenciaTema, type TemaEfetivo } from './temaDomain';
+import { CHAVE_TEMA, lerPreferenciaTema, preferenciaPadraoDoCaminho, temaEfetivo, type PreferenciaTema, type TemaEfetivo } from './temaDomain';
 
 /*
  * APLICA O TEMA NA PAGINA (2026-10-08). Ver temaDomain.ts.
@@ -19,11 +19,16 @@ const consulta = (): MediaQueryList | null => (
 
 export const aparelhoEstaEscuro = (): boolean => consulta()?.matches ?? true;
 
+/** Sem escolha guardada: desktop escuro, app Vendas (/vendedor) claro. Ver temaDomain.ts. */
+const preferenciaPadrao = (): PreferenciaTema => (
+  typeof window !== 'undefined' ? preferenciaPadraoDoCaminho(window.location.pathname) : 'dark'
+);
+
 export const lerPreferenciaSalva = (): PreferenciaTema => {
   try {
-    return lerPreferenciaTema(localStorage.getItem(CHAVE_TEMA));
+    return lerPreferenciaTema(localStorage.getItem(CHAVE_TEMA), preferenciaPadrao());
   } catch {
-    return 'dark';
+    return preferenciaPadrao();
   }
 };
 

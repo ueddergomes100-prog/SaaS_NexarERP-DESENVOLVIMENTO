@@ -83,7 +83,7 @@ const VendedorContasReceber: React.FC = () => {
         {!carregando && contas.length > 0 && (
           <div
             style={{
-              padding: '14px 16px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)',
+              padding: '14px 16px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)',
               border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             }}
           >
@@ -105,7 +105,7 @@ const VendedorContasReceber: React.FC = () => {
             return (
               <div
                 key={conta.id}
-                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)' }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

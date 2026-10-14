@@ -224,7 +224,7 @@ const VendedorMeusPedidos: React.FC = () => {
             return (
               <div
                 key={`${item.tipo}-${item.id}`}
-                style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+                style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)' }}
               >
                 {/* Pedido abre o detalhe (visualizar/imprimir/cancelar). Orcamento
                     ainda nao tem tela de detalhe no app. */}

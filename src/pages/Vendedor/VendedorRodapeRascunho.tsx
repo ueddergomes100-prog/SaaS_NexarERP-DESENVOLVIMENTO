@@ -36,9 +36,9 @@ const VendedorRodapeRascunho: React.FC<Props> = ({ aoSalvar, ocupado = false, ro
       onClick={() => aoSalvar(false)}
       disabled={ocupado}
       style={{
-        width: '100%', height: '46px', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: '100%', height: '46px', borderRadius: 'var(--app-raio-linha)', display: 'flex', alignItems: 'center', justifyContent: 'center',
         gap: '8px', fontSize: '15px', fontWeight: 600, cursor: ocupado ? 'default' : 'pointer', opacity: ocupado ? 0.7 : 1,
-        border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)',
+        border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-primary)',
       }}
     >
       <Save size={17} />

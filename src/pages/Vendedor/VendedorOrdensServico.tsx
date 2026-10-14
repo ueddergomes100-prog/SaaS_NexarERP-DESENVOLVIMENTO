@@ -157,8 +157,8 @@ const VendedorOrdensServico: React.FC = () => {
             placeholder={modo === 'maquinas_pesadas' ? 'Cliente, frota, série, equipamento ou nº da OS' : `Cliente, placa, ${rotulos.veiculo.toLowerCase()} ou nº da OS`}
             aria-label="Buscar ordem de serviço"
             style={{
-              width: '100%', height: '46px', borderRadius: '12px', border: '1px solid var(--border-color)',
-              backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', padding: '0 14px 0 38px',
+              width: '100%', height: '46px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)',
+              backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-primary)', padding: '0 14px 0 38px',
               boxSizing: 'border-box', textTransform: 'none',
             }}
           />
@@ -187,8 +187,8 @@ const VendedorOrdensServico: React.FC = () => {
                 type="button"
                 onClick={() => navigate(`/vendedor/os/${os.id}`, comOrigem('/vendedor/os'))}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: '14px',
-                  backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', textAlign: 'left', cursor: 'pointer', width: '100%',
+                  display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: 'var(--app-raio-linha)',
+                  backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', textAlign: 'left', cursor: 'pointer', width: '100%',
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>

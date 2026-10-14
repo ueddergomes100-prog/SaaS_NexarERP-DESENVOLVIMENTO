@@ -35,7 +35,7 @@ const formatarMoeda = (centavos: number) => (centavos / 100).toLocaleString('pt-
 const COR_STATUS: Record<EntregaRomaneio['status'], string> = { pendente: 'var(--brand-400)', entregue: '#22c55e', nao_entregue: '#ef4444' };
 
 const cardStyle: React.CSSProperties = {
-  padding: '14px 16px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+  padding: '14px 16px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)',
 };
 
 const chip: React.CSSProperties = {

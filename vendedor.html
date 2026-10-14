@@ -49,10 +49,11 @@
     <script>
       (function () {
         try {
+          // O app abre CLARO quando a pessoa nunca escolheu (temaDomain.ts, 14/10/2026).
           var p = localStorage.getItem('nexus_theme');
           var escuro = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          if (p === 'light' || (p === 'auto' && !escuro)) document.body.classList.add('light-theme');
-        } catch (e) { /* sem localStorage: fica escuro */ }
+          if (p !== 'dark' && !(p === 'auto' && escuro)) document.body.classList.add('light-theme');
+        } catch (e) { document.body.classList.add('light-theme'); }
       })();
     </script>
     <div id="root"></div>

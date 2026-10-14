@@ -25,7 +25,7 @@ const VendedorPerfil: React.FC = () => {
       <VendedorHeader titulo="Perfil" />
 
       <div style={{ flex: 1, padding: '24px 20px' }}>
-        <div style={{ borderRadius: '18px', padding: '24px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
+        <div style={{ borderRadius: '18px', padding: '24px', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
           <div style={{ width: '64px', height: '64px', borderRadius: '18px', backgroundColor: 'var(--brand-600)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', fontWeight: 700 }}>
             {nome.trim().charAt(0).toUpperCase() || 'V'}
           </div>
@@ -78,7 +78,7 @@ const VendedorPerfil: React.FC = () => {
         </div>
 
         {/* Aparencia: a mesma preferencia do sistema (utils/temaDomain.ts). */}
-        <div style={{ marginTop: '14px', borderRadius: '18px', padding: '18px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
+        <div style={{ marginTop: '14px', borderRadius: '18px', padding: '18px', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)' }}>
           <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>Aparência</div>
           <div style={{ display: 'flex', gap: '8px' }}>
             {PREFERENCIAS_TEMA.map((opcao) => (

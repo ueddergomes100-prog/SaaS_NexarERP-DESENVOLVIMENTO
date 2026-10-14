@@ -214,7 +214,7 @@ const VendedorRascunhos: React.FC = () => {
         )}
 
         {resultados.length > 0 && (
-          <div style={{ padding: '12px 14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ padding: '12px 14px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               Resultado do envio
             </div>
@@ -240,7 +240,7 @@ const VendedorRascunhos: React.FC = () => {
           rascunhos.map((rascunho) => (
             <div
               key={rascunho.localId}
-              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: `1px solid ${rascunho.ultimoErro ? 'rgba(239,68,68,0.45)' : 'var(--border-color)'}` }}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: `1px solid ${rascunho.ultimoErro ? 'rgba(239,68,68,0.45)' : 'var(--border-color)'}` }}
             >
               <button
                 type="button"

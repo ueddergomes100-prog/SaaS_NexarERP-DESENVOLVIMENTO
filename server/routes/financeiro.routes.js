@@ -7,6 +7,7 @@ const {
   PERMISSAO_DA_BAIXA,
   temPermissao,
   validarPedidoDeBaixa,
+  validarPedidoDeBaixaEmLote,
   validarPedidoDeEstorno,
   registrarBaixa,
   registrarEstorno,
@@ -45,6 +46,17 @@ const responderErro = (res, erro, acao) => {
 
 const reais = (centavos) => `R$ ${fromCents(centavos).toFixed(2).replace('.', ',')}`;
 
+const semPermissaoDeBaixa = (tipo) => (tipo === 'saida'
+  ? 'Você não tem permissão para dar baixa em contas a pagar. Peça a um responsável liberar "Financeiro: Contas a Pagar" no seu usuário.'
+  : 'Você não tem permissão para dar baixa em contas a receber. Peça a um responsável liberar "Financeiro: Contas a Receber" no seu usuário.');
+
+const registrarLogDaBaixa = (user, tenantId, pedido, resumo, sufixo = '') => registrarLog({ ...user, tenantId }, {
+  modulo: 'financeiro',
+  acao: 'edicao',
+  descricao: `${pedido.tipo === 'saida' ? 'Pagamento' : 'Recebimento'} "${resumo.descricao}" de ${reais(resumo.valorCentavos)} baixado em ${pedido.dataPagamento.split('-').reverse().join('/')} (${pedido.formaPagamento}${resumo.bancoNome ? `, banco ${resumo.bancoNome}` : ''})${sufixo}.`,
+  registroId: pedido.transacaoId,
+});
+
 /** POST /api/financeiro/baixa  { tipo, transacaoId, formaPagamento, dataPagamento, bancoId?, tenantId? } */
 router.post('/baixa', async (req, res) => {
   try {
@@ -52,23 +64,58 @@ router.post('/baixa', async (req, res) => {
     if (erro) return res.status(400).json({ error: erro });
 
     if (!temPermissao(req.user, PERMISSAO_DA_BAIXA[pedido.tipo])) {
-      return res.status(403).json({
-        error: pedido.tipo === 'saida'
-          ? 'Você não tem permissão para dar baixa em contas a pagar. Peça a um responsável liberar "Financeiro: Contas a Pagar" no seu usuário.'
-          : 'Você não tem permissão para dar baixa em contas a receber. Peça a um responsável liberar "Financeiro: Contas a Receber" no seu usuário.',
-      });
+      return res.status(403).json({ error: semPermissaoDeBaixa(pedido.tipo) });
     }
 
     const tenantId = empresaDaOperacao(req.user, req.body);
     const resumo = await registrarBaixa({ user: req.user, tenantId, pedido });
 
-    registrarLog({ ...req.user, tenantId }, {
-      modulo: 'financeiro',
-      acao: 'edicao',
-      descricao: `${pedido.tipo === 'saida' ? 'Pagamento' : 'Recebimento'} "${resumo.descricao}" de ${reais(resumo.valorCentavos)} baixado em ${pedido.dataPagamento.split('-').reverse().join('/')} (${pedido.formaPagamento}${resumo.bancoNome ? `, banco ${resumo.bancoNome}` : ''}).`,
-      registroId: pedido.transacaoId,
-    });
+    registrarLogDaBaixa(req.user, tenantId, pedido, resumo);
     return res.json({ ok: true });
+  } catch (erro) {
+    return responderErro(res, erro, 'dar baixa');
+  }
+});
+
+/**
+ * POST /api/financeiro/baixa-lote
+ *   { tipo, formaPagamento, dataPagamento, bancoId?, tenantId?, titulos: [{ transacaoId, acrescimoCentavos? }] }
+ *
+ * Baixa em lote (2026-10-14): cada conta e' uma baixa COMPLETA e independente
+ * -- a mesma registrarBaixa da rota /baixa, com titulo, saldo do banco e
+ * venda/OS de origem numa transacao --, uma depois da outra (todas mexem no
+ * mesmo saldo de banco). Conta que falha (ja' paga, cancelada...) nao desfaz
+ * as outras: a resposta traz o resultado de cada uma.
+ */
+router.post('/baixa-lote', async (req, res) => {
+  try {
+    const { erro, pedidos } = validarPedidoDeBaixaEmLote(req.body, hojeNoBrasil());
+    if (erro) return res.status(400).json({ error: erro });
+
+    const { tipo } = pedidos[0];
+    if (!temPermissao(req.user, PERMISSAO_DA_BAIXA[tipo])) {
+      return res.status(403).json({ error: semPermissaoDeBaixa(tipo) });
+    }
+
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const resultados = [];
+    for (const pedido of pedidos) {
+      try {
+        const resumo = await registrarBaixa({ user: req.user, tenantId, pedido });
+        registrarLogDaBaixa(req.user, tenantId, pedido, resumo, ' (baixa em lote)');
+        resultados.push({ transacaoId: pedido.transacaoId, ok: true });
+      } catch (erroDaConta) {
+        if (!(erroDaConta instanceof ErroBaixa)) console.error('[Financeiro] erro na baixa em lote:', erroDaConta);
+        resultados.push({
+          transacaoId: pedido.transacaoId,
+          ok: false,
+          erro: erroDaConta instanceof ErroBaixa
+            ? erroDaConta.message
+            : 'Não foi possível dar baixa nesta conta. Nada foi alterado nela. Tente de novo em instantes.',
+        });
+      }
+    }
+    return res.json({ ok: true, resultados });
   } catch (erro) {
     return responderErro(res, erro, 'dar baixa');
   }

@@ -91,6 +91,47 @@ const validarPedidoDeBaixa = (corpo, hoje) => {
   };
 };
 
+/**
+ * BAIXA EM LOTE (2026-10-14): ate' este tanto de contas por vez. Cada uma e'
+ * uma transacao propria, em sequencia (todas mexem no mesmo saldo de banco),
+ * entao o limite segura o tempo da requisicao.
+ */
+const LIMITE_BAIXA_EM_LOTE = 50;
+
+/**
+ * Confere o pedido de baixa EM LOTE: a mesma forma, data e banco para todas
+ * as contas; juros e multa (so' Receber) por conta. Cada conta passa pela
+ * MESMA validarPedidoDeBaixa da baixa individual -- o lote nao tem regra
+ * propria. Qualquer problema recusa o lote inteiro antes de gravar nada.
+ * Devolve `{ erro }` ou `{ pedidos }` (um pedido de baixa por conta).
+ */
+const validarPedidoDeBaixaEmLote = (corpo, hoje) => {
+  const titulos = Array.isArray(corpo?.titulos) ? corpo.titulos : null;
+  if (!titulos || titulos.length === 0) return { erro: 'Selecione ao menos uma conta para dar baixa.' };
+  if (titulos.length > LIMITE_BAIXA_EM_LOTE) {
+    return { erro: `Dê baixa em no máximo ${LIMITE_BAIXA_EM_LOTE} contas por vez. Desmarque algumas e faça em mais de uma etapa.` };
+  }
+  const vistos = new Set();
+  const pedidos = [];
+  for (const item of titulos) {
+    const { erro, pedido } = validarPedidoDeBaixa({
+      tipo: corpo.tipo,
+      transacaoId: item?.transacaoId,
+      formaPagamento: corpo.formaPagamento,
+      dataPagamento: corpo.dataPagamento,
+      bancoId: corpo.bancoId,
+      acrescimoCentavos: item?.acrescimoCentavos,
+    }, hoje);
+    if (erro) return { erro };
+    if (vistos.has(pedido.transacaoId)) {
+      return { erro: 'A mesma conta apareceu duas vezes na seleção. Atualize a tela e selecione de novo.' };
+    }
+    vistos.add(pedido.transacaoId);
+    pedidos.push(pedido);
+  }
+  return { pedidos };
+};
+
 /** Confere o pedido de estorno. Puro. */
 const validarPedidoDeEstorno = (corpo) => {
   const tipo = corpo?.tipo;
@@ -131,6 +172,8 @@ module.exports = {
   temPermissao,
   exigeBanco,
   validarPedidoDeBaixa,
+  validarPedidoDeBaixaEmLote,
+  LIMITE_BAIXA_EM_LOTE,
   validarPedidoDeEstorno,
   camposDoResumoDePagamentos,
 };

@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 
 const {
   validarPedidoDeBaixa,
+  validarPedidoDeBaixaEmLote,
+  LIMITE_BAIXA_EM_LOTE,
   validarPedidoDeEstorno,
   temPermissao,
   exigeBanco,
@@ -230,3 +232,45 @@ test('Receber com juros e multa: lancamento proprio, banco credita os dois, esto
   assert.equal(fake.ler('transacoes/t3').status, 'Pendente');
   assert.equal(fake.ler(`transacoes/${jurosId}`).status, 'Cancelada');
 });
+
+// ---------------------------------------------------------------------------
+// Baixa em lote (2026-10-14): cada conta passa pela mesma validacao da individual
+// ---------------------------------------------------------------------------
+
+const lote = (extra = {}) => ({
+  tipo: 'entrada', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1',
+  titulos: [{ transacaoId: 't1' }, { transacaoId: 't2', acrescimoCentavos: 350 }],
+  ...extra,
+});
+
+test('lote: vira um pedido de baixa por conta, com forma/data/banco comuns e juros por conta', () => {
+  const { erro, pedidos } = validarPedidoDeBaixaEmLote(lote(), HOJE);
+  assert.equal(erro, undefined);
+  assert.deepEqual(pedidos, [
+    { tipo: 'entrada', transacaoId: 't1', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1' },
+    { tipo: 'entrada', transacaoId: 't2', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', acrescimoCentavos: 350 },
+  ]);
+});
+
+test('lote: vazio, acima do limite ou com conta repetida recusam o lote inteiro', () => {
+  assert.match(validarPedidoDeBaixaEmLote(lote({ titulos: [] }), HOJE).erro, /ao menos uma conta/);
+  const muitas = Array.from({ length: LIMITE_BAIXA_EM_LOTE + 1 }, (_, i) => ({ transacaoId: `t${i}` }));
+  assert.match(validarPedidoDeBaixaEmLote(lote({ titulos: muitas }), HOJE).erro, /no máximo 50 contas/);
+  assert.match(validarPedidoDeBaixaEmLote(lote({ titulos: [{ transacaoId: 't1' }, { transacaoId: 't1' }] }), HOJE).erro, /duas vezes/);
+});
+
+test('lote: mesmas regras da baixa individual (banco, cheque, data futura, juros no Pagar)', () => {
+  assert.equal(validarPedidoDeBaixaEmLote(lote({ bancoId: '' }), HOJE).erro, 'Escolha em qual banco caiu o recebimento.');
+  assert.match(validarPedidoDeBaixaEmLote(lote({ formaPagamento: 'Cheque' }), HOJE).erro, /cheque fica aguardando/);
+  assert.ok(validarPedidoDeBaixaEmLote(lote({ dataPagamento: '2026-10-06' }), HOJE).erro, 'data futura recusada');
+  assert.equal(
+    validarPedidoDeBaixaEmLote(lote({ tipo: 'saida', formaPagamento: 'Pix' }), HOJE).erro,
+    'Juros e multa só se aplicam a recebimentos.',
+  );
+});
+
+test('lote: Pagar em dinheiro nao leva banco em nenhuma conta', () => {
+  const { pedidos } = validarPedidoDeBaixaEmLote({ tipo: 'saida', formaPagamento: 'Dinheiro', dataPagamento: HOJE, bancoId: 'b1', titulos: [{ transacaoId: 'a' }, { transacaoId: 'b' }] }, HOJE);
+  assert.ok(pedidos.every((p) => p.bancoId === undefined));
+});
+

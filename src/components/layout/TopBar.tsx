@@ -5,15 +5,16 @@ import { proximaPreferenciaTema, tituloDoBotaoDeTema } from '../../utils/temaDom
 import FilialSeletor from './FilialSeletor';
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
-import { collection, query, where, onSnapshot, doc, getDocs, limit, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDocs, limit, orderBy, Timestamp, type DocumentData, type QueryDocumentSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
-import { productMatchesSearch, type SearchableProduct } from '../../utils/productSearch';
+import { type SearchableProduct } from '../../utils/productSearch';
+import { consultasDaBusca, fimDoPrefixo, LIMITE_POR_CONSULTA } from '../../utils/buscaGlobalDomain';
 import PerfilModal from './PerfilModal';
 import './Layout.css';
 import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
-import { assinarComReserva } from '../../services/consultaComReserva';
+import { assinarComReserva, lerComReserva } from '../../services/consultaComReserva';
 import { diasAteAData } from '../../utils/avisosSinoDomain';
 
 const TopBar: React.FC = () => {
@@ -244,62 +245,99 @@ const TopBar: React.FC = () => {
     setShowSearchDropdown(true);
     setIsSearching(true);
 
+    // Consultas pequenas no cadastro INTEIRO (buscaGlobalDomain.ts): nome que
+    // comeca com o termo e codigos exatos, ate' 5 por consulta. Antes eram os
+    // 80 primeiros documentos de cada colecao (240 leituras por busca) e o
+    // "contem" so' enxergava esses 80. Sem o indice de nome publicado, a
+    // consulta de nome cai na antiga (lerComReserva) e o filtro abaixo segura.
     const debounceTimer = setTimeout(async () => {
       const termLower = searchTerm.toLowerCase();
       try {
-        if (!currentUser) return;
+        if (!currentUser || !tenantId) return;
+        const c = consultasDaBusca(searchTerm);
+        type Docs = QueryDocumentSnapshot<DocumentData>[];
+        const semResultado: Promise<Docs> = Promise.resolve([]);
+        const falhou = (erro: unknown): Docs => {
+          console.error('Busca global:', erro);
+          return [];
+        };
+        const porNome = (colecao: string, campo: string): Promise<Docs> => {
+          if (!c.prefixoNome) return semResultado;
+          const enxuta = query(
+            collection(db, colecao),
+            where('tenantId', '==', tenantId),
+            where(campo, '>=', c.prefixoNome),
+            where(campo, '<=', fimDoPrefixo(c.prefixoNome)),
+            orderBy(campo),
+            limit(LIMITE_POR_CONSULTA),
+          );
+          const reserva = query(collection(db, colecao), where('tenantId', '==', tenantId), limit(80));
+          return lerComReserva(enxuta, reserva, `Busca global (${colecao})`)
+            .then((snap) => snap.docs.filter((d) => String(d.data()[campo] || '').toLowerCase().includes(termLower)))
+            .catch(falhou);
+        };
+        const porValor = (colecao: string, campo: string, valores: Array<string | number>): Promise<Docs> => (
+          valores.length === 0 ? semResultado : getDocs(query(
+            collection(db, colecao),
+            where('tenantId', '==', tenantId),
+            where(campo, 'in', valores),
+            limit(LIMITE_POR_CONSULTA),
+          )).then((snap) => snap.docs).catch(falhou)
+        );
+
+        const [osPorNumero, osPorPlaca, osPorCliente, clientesPorNome, clientesPorDocumento, produtosPorCodigo, produtosPorBarras, produtosPorNome] = await Promise.all([
+          porValor('ordens_de_servico', 'numeroOS', c.numerosOS),
+          porValor('ordens_de_servico', 'placa', c.placas),
+          porNome('ordens_de_servico', 'clienteNome'),
+          porNome('clientes', 'nome'),
+          porValor('clientes', 'documento', c.documentos),
+          porValor('estoque', 'codigo', c.codigosProduto),
+          c.codigoBarras ? porValor('estoque', 'codigoBarras', [c.codigoBarras]) : semResultado,
+          porNome('estoque', 'nome'),
+        ]);
+        const unicos = (...listas: Docs[]) => {
+          const vistos = new Set<string>();
+          return listas.flat().filter((d) => {
+            if (vistos.has(d.id)) return false;
+            vistos.add(d.id);
+            return true;
+          });
+        };
+
         const results: any[] = [];
-        const qOs = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId), limit(80));
-        const qClientes = query(collection(db, 'clientes'), where('tenantId', '==', tenantId), limit(80));
-        const qProdutos = query(collection(db, 'estoque'), where('tenantId', '==', tenantId), limit(80));
-
-        const [osSnap, clientesSnap, produtosSnap] = await Promise.all([getDocs(qOs), getDocs(qClientes), getDocs(qProdutos)]);
-        
-        osSnap.forEach(doc => {
+        unicos(osPorNumero, osPorPlaca, osPorCliente).forEach(doc => {
           const data = doc.data();
-          if (
-            (data.clienteNome && data.clienteNome.toLowerCase().includes(termLower)) ||
-            (data.placa && data.placa.toLowerCase().includes(termLower)) ||
-            (data.numeroOS && data.numeroOS.toLowerCase().includes(termLower))
-          ) {
-            results.push({
-              type: 'OS',
-              id: doc.id,
-              title: `OS #${data.numeroOS || doc.id.substring(0,8).toUpperCase()} - Placa: ${data.placa?.toUpperCase()}`,
-              subtitle: data.clienteNome,
-              link: `/os/editar/${doc.id}`
-            });
-          }
+          results.push({
+            type: 'OS',
+            id: doc.id,
+            title: `OS #${data.numeroOS || doc.id.substring(0,8).toUpperCase()} - Placa: ${data.placa?.toUpperCase()}`,
+            subtitle: data.clienteNome,
+            link: `/os/editar/${doc.id}`
+          });
         });
 
-        clientesSnap.forEach(doc => {
+        unicos(clientesPorDocumento, clientesPorNome).forEach(doc => {
           const data = doc.data();
-          if (
-            (data.nome && data.nome.toLowerCase().includes(termLower)) ||
-            (data.telefone && data.telefone.includes(termLower)) ||
-            (data.documento && data.documento.includes(termLower))
-          ) {
-            results.push({
-              type: 'Cliente',
-              id: doc.id,
-              title: data.nome,
-              subtitle: data.telefone || data.documento || 'Sem detalhes',
-              link: `/clientes/editar/${doc.id}`
-            });
-          }
+          results.push({
+            type: 'Cliente',
+            id: doc.id,
+            title: data.nome,
+            subtitle: data.telefone || data.documento || 'Sem detalhes',
+            link: `/clientes/editar/${doc.id}`
+          });
         });
 
-        produtosSnap.forEach(doc => {
+        unicos(produtosPorCodigo, produtosPorBarras, produtosPorNome).forEach(doc => {
           const data = doc.data() as SearchableProduct;
-          if (productMatchesSearch(data, searchTerm, 'completa')) {
-            results.push({
-              type: 'Produto',
-              id: doc.id,
-              title: data.nome || 'Produto sem nome',
-              subtitle: `Código: ${data.codigo || data.codigoBarras || data.skuSistema || '-'}`,
-              link: `/estoque/editar/${doc.id}`
-            });
-          }
+          // Produto inativado nunca aparece na busca (mesma regra de productMatchesSearch).
+          if (data.ativo === false) return;
+          results.push({
+            type: 'Produto',
+            id: doc.id,
+            title: data.nome || 'Produto sem nome',
+            subtitle: `Código: ${data.codigo || data.codigoBarras || data.skuSistema || '-'}`,
+            link: `/estoque/editar/${doc.id}`
+          });
         });
 
         setSearchResults(results.slice(0, 10)); // Top 10 results max

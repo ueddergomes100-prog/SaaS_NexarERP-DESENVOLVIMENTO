@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { Building2, Database, LogOut, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import hennderIcon from '../../assets/hennder-icon.svg';
+import hennderIcon from '../../assets/hennder-icon.webp';
 
 /**
  * Shell do painel da plataforma. Deliberadamente NAO usa AppLayout: nao tem

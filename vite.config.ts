@@ -37,7 +37,15 @@ export default defineConfig({
               // a importacao.
               return 'vendor-xlsx';
             }
-            return 'vendor'; // other third-party dependencies
+            // So' o nucleo que TODA tela usa vai para o "vendor" comum. O resto
+            // (jsPDF, pdf-lib, pdfjs, html2canvas, codigo de barras, lottie...)
+            // fica sem grupo e o bundler o poe junto da tela que o importa --
+            // antes um "return 'vendor'" generico juntava tudo num pacote de
+            // 2,4 MB baixado ate' na tela de login, anulando os import()
+            // dinamicos (Lighthouse de 14/10: app Vendas 59 no celular).
+            if (/node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom|cookie|set-cookie-parser)[\\/]/.test(id)) {
+              return 'vendor';
+            }
           }
         }
       }

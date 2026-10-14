@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
-import { browserLocalPersistence, browserSessionPersistence, getAuth, setPersistence } from 'firebase/auth';
+import { browserLocalPersistence, browserSessionPersistence, indexedDBLocalPersistence, initializeAuth, setPersistence } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
 export const firebaseConfig = {
@@ -24,7 +24,15 @@ const isAppVendedorExterno = window.location.pathname.startsWith('/vendedor');
 export const db = isAppVendedorExterno
   ? initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) })
   : getFirestore(app);
-export const auth = getAuth(app);
+// initializeAuth em vez de getAuth: o getAuth registra o "popupRedirectResolver",
+// que baixa o iframe.js do Firebase + gapi do Google (~127 KB) em toda abertura,
+// so' para login com Google por pop-up/redirecionamento -- que o sistema nao usa
+// (login e' e-mail/senha e custom token do app Vendas). Mesma lista de
+// persistencia do getAuth; a escolha real (local x sessao) e' feita logo abaixo.
+// Lighthouse 14/10.
+export const auth = initializeAuth(app, {
+  persistence: [indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence],
+});
 
 /**
  * Persistencia padrao do login: sessionStorage pro sistema desktop (de

@@ -6,8 +6,8 @@ import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../services/firebase';
 import { loginVendedorMobile, VendedorMobileAuthError } from '../../services/vendedorMobileAuthService';
 import { CNPJ_LEMBRADO_STORAGE_KEY, CODIGO_VENDEDOR_LEMBRADO_STORAGE_KEY, formatarCnpj, normalizarCnpj } from '../../utils/loginIdentidadeDomain';
-import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
-import wordmarkLight from '../../assets/hennder-wordmark-light.png';
+import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
+import wordmarkLight from '../../assets/hennder-wordmark-light.webp';
 import '../Auth/Auth.css';
 import './vendedorMobile.css';
 

@@ -90,7 +90,7 @@ import {
 } from '../../utils/descontoDomain';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import type { CaixaSangria, PdvCartItem, PdvClient, PdvProduct, PdvSession } from './types';
-import hennderIcon from '../../assets/hennder-icon.svg';
+import hennderIcon from '../../assets/hennder-icon.webp';
 import './PDV.css';
 
 interface BandeiraCartao {

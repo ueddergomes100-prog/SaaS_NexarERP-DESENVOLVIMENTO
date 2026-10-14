@@ -35,12 +35,12 @@ import {
   type PublicCnpjData,
   type StartOnboardingResponse
 } from '../../services/onboardingService';
-import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
-import wordmarkLight from '../../assets/hennder-wordmark-light.png';
-import monogramDark from '../../assets/hennder-monogram.png';
+import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
+import wordmarkLight from '../../assets/hennder-wordmark-light.webp';
+import monogramDark from '../../assets/hennder-monogram.webp';
 // Variante para uso sobre o roxo da marca: a metade roxa do simbolo vira
 // violeta claro, senao ela desaparece contra o painel.
-import monogramOnBrand from '../../assets/hennder-monogram-onbrand.png';
+import monogramOnBrand from '../../assets/hennder-monogram-onbrand.webp';
 import BootSplash from '../../components/layout/BootSplash';
 import './Auth.css';
 

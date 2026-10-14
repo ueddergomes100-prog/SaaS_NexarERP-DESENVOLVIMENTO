@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import hennderIcon from '../../assets/hennder-icon.svg';
+import hennderIcon from '../../assets/hennder-icon.webp';
 import Animacao from '../common/Animacao';
 import { preaquecerAnimacoes } from '../../utils/animacoes';
 

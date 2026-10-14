@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ArrowRight, Share, SquarePlus } from 'lucide-react';
-import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
+import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
 import { estaInstalado } from './pwa';
 import './vendedorMobile.css';
 

@@ -60,9 +60,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
 import { podeGerenciarPermissoesDeEquipe } from '../../utils/visibilidadeVendasDomain';
 import { menuVendedoresVisivel } from '../../utils/vendedorCadastroDomain';
-import hennderIcon from '../../assets/hennder-icon.svg';
-import wordmarkDark from '../../assets/hennder-wordmark-dark.png';
-import wordmarkLight from '../../assets/hennder-wordmark-light.png';
+import hennderIcon from '../../assets/hennder-icon.webp';
+import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
+import wordmarkLight from '../../assets/hennder-wordmark-light.webp';
 import BootSplash from './BootSplash';
 import './Layout.css';
 

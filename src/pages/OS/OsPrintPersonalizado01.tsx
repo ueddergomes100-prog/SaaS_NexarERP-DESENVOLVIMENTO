@@ -10,9 +10,9 @@ import {
 import { getCompanyAddressRows } from '../../utils/companyAddress';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import { resolverDescontoImpressaoOS, totalComDescontoOS } from '../../utils/osDescontoImpressao';
-import instagramIcon from '../../assets/instagram-icon.png';
-import whatsappIcon from '../../assets/whatsapp-icon.png';
-import hennderIcon from '../../assets/hennder-icon.svg';
+import instagramIcon from '../../assets/instagram-icon.webp';
+import whatsappIcon from '../../assets/whatsapp-icon.webp';
+import hennderIcon from '../../assets/hennder-icon.webp';
 import './OsPrintPersonalizado01.css';
 
 interface OsPrintPersonalizado01Props {

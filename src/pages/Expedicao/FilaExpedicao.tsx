@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Printer, Truck, ClipboardCheck } from 'lucide-react';
-import { collection, query, onSnapshot, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, Timestamp, type DocumentData, type QueryDocumentSnapshot } from 'firebase/firestore';
+import { assinarComReserva } from '../../services/consultaComReserva';
+import { dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StatusConferencia } from '../../utils/conferenciaDomain';
@@ -44,6 +46,60 @@ const STATUS_COLORS: Record<StatusConferencia, string> = {
 
 const STATUS_FILTER_ORDER: StatusConferencia[] = ['aguardando', 'em_conferencia', 'divergente', 'conferido'];
 
+/** Ainda tem o que fazer: aparece sempre, de qualquer data. */
+const STATUS_CONFERENCIA_PENDENTE: StatusConferencia[] = ['aguardando', 'em_conferencia', 'divergente'];
+
+/**
+ * Escuta, de uma colecao, o que esta na fila (otimizacao de leituras,
+ * 2026-10-14 -- antes: TODOS os pedidos e TODAS as trocas da empresa,
+ * filtrados aqui): os pendentes de conferencia, de qualquer data, e os
+ * CONFERIDOS desde `inicio` pela data da conferencia (null = todos).
+ */
+const escutarFila = (
+  colecao: 'pedidos_venda' | 'trocas',
+  tenantId: string,
+  inicio: Date | null,
+  aoReceber: (docs: QueryDocumentSnapshot<DocumentData>[]) => void,
+  aoFalhar: (erro: unknown) => void,
+) => {
+  const daEmpresa = query(collection(db, colecao), where('tenantId', '==', tenantId));
+  const conferidos = query(daEmpresa, where('statusConferencia', '==', 'conferido'));
+  let pendentes: QueryDocumentSnapshot<DocumentData>[] = [];
+  let feitos: QueryDocumentSnapshot<DocumentData>[] = [];
+  const publicar = () => {
+    const porId = new Map<string, QueryDocumentSnapshot<DocumentData>>();
+    [...feitos, ...pendentes].forEach((d) => porId.set(d.id, d));
+    aoReceber(Array.from(porId.values()));
+  };
+  const pararPendentes = onSnapshot(query(daEmpresa, where('statusConferencia', 'in', STATUS_CONFERENCIA_PENDENTE)), (snap) => {
+    pendentes = snap.docs;
+    publicar();
+  }, aoFalhar);
+  const pararConferidos = inicio
+    ? assinarComReserva(
+      query(conferidos, where('conferidoEm', '>=', Timestamp.fromDate(inicio))),
+      conferidos,
+      `Fila de expedição (${colecao} conferidos)`,
+      (snap) => {
+        // Mesmo corte da consulta enxuta, para a reserva (sem indice) mostrar o mesmo.
+        feitos = snap.docs.filter((d) => {
+          const em = d.data().conferidoEm;
+          return Boolean(em?.toDate && em.toDate() >= inicio);
+        });
+        publicar();
+      },
+      aoFalhar,
+    )
+    : onSnapshot(conferidos, (snap) => {
+      feitos = snap.docs;
+      publicar();
+    }, aoFalhar);
+  return () => {
+    pararPendentes();
+    pararConferidos();
+  };
+};
+
 const FilaExpedicao: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
   const navigate = useNavigate();
@@ -57,13 +113,17 @@ const FilaExpedicao: React.FC = () => {
   // ouvintes separados e sao juntadas aqui, ordenadas pela data.
   const [pedidosDaFila, setPedidosDaFila] = useState<PedidoExpedicaoData[]>([]);
   const [trocasDaFila, setTrocasDaFila] = useState<PedidoExpedicaoData[]>([]);
+  // Conferidos: deste mes (pela data da conferencia), ou de todo o periodo
+  // quando a pessoa pede. Pendentes aparecem sempre (ver escutarFila).
+  const [conferidosDeTodoPeriodo, setConferidosDeTodoPeriodo] = useState(false);
+  const inicioDoMes = `${getDateInputInTimeZone().slice(0, 7)}-01`;
 
   useEffect(() => {
-    if (!currentUser || !tenantId) return;
-    const q = query(collection(db, 'trocas'), where('tenantId', '==', tenantId));
-    const cancelar = onSnapshot(q, (snapshot) => {
+    if (!currentUser || !tenantId) return undefined;
+    const inicio = conferidosDeTodoPeriodo ? null : dateInputToUtcStart(inicioDoMes);
+    return escutarFila('trocas', tenantId, inicio, (docs) => {
       const lista: PedidoExpedicaoData[] = [];
-      snapshot.forEach((docSnap) => {
+      docs.forEach((docSnap) => {
         const dados = docSnap.data();
         // So troca que ja nasceu na fila (empresa com conferencia ligada) e que ainda tem o que separar.
         if (!dados.statusConferencia || dados.status === 'Recusada' || dados.status === 'Cancelada') return;
@@ -85,8 +145,7 @@ const FilaExpedicao: React.FC = () => {
     }, (error) => {
       console.error('Erro ao buscar trocas da fila de expedição:', error);
     });
-    return () => cancelar();
-  }, [currentUser, tenantId]);
+  }, [currentUser, tenantId, conferidosDeTodoPeriodo, inicioDoMes]);
 
   useEffect(() => {
     const juntas = [...pedidosDaFila, ...filtrarVendasVisiveis(trocasDaFila, vendasVisiveisDeUsuarioId)];
@@ -95,16 +154,14 @@ const FilaExpedicao: React.FC = () => {
   }, [pedidosDaFila, trocasDaFila, vendasVisiveisDeUsuarioId]);
 
   useEffect(() => {
-    if (!currentUser || !tenantId) return;
+    if (!currentUser || !tenantId) return undefined;
 
-    // So le por tenantId (mesmo padrao de PedidoVendas.tsx/OrdensProducaoList.tsx)
-    // -- pedidos sem statusConferencia (tenant nunca ligou a chave, ou venda
-    // anterior ao modulo) sao filtrados no cliente, nunca aparecem na fila.
-    const q = query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId));
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    // Pedido sem statusConferencia (empresa nunca ligou a chave, ou venda
+    // anterior ao modulo) nao entra em nenhuma das duas consultas.
+    const inicio = conferidosDeTodoPeriodo ? null : dateInputToUtcStart(inicioDoMes);
+    return escutarFila('pedidos_venda', tenantId, inicio, (docs) => {
       const data: PedidoExpedicaoData[] = [];
-      snapshot.forEach((docSnap) => {
+      docs.forEach((docSnap) => {
         const item = { id: docSnap.id, ...docSnap.data() } as PedidoExpedicaoData;
         // Pedido ou pre-venda cancelado sai da fila -- nao ha mercadoria a
         // separar. Filtrado aqui (e nao so' ao cancelar) pra tambem limpar
@@ -121,9 +178,7 @@ const FilaExpedicao: React.FC = () => {
       console.error('Erro ao buscar fila de expedição:', error);
       setLoading(false);
     });
-
-    return () => unsubscribe();
-  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
+  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId, conferidosDeTodoPeriodo, inicioDoMes]);
 
   const filteredPedidos = pedidos.filter((p) => {
     if (statusFilter !== 'todos' && p.statusConferencia !== statusFilter) return false;
@@ -179,6 +234,19 @@ const FilaExpedicao: React.FC = () => {
           </button>
         ))}
       </div>
+      {(statusFilter === 'todos' || statusFilter === 'conferido') && (
+        <p style={{ margin: '-16px 0 0', fontSize: '13px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {conferidosDeTodoPeriodo ? 'Conferidos de todo o período.' : 'Pendentes de qualquer data; conferidos, só os deste mês.'}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setConferidosDeTodoPeriodo((atual) => !atual)}
+            style={{ padding: '4px 10px', fontSize: '12px' }}
+          >
+            {conferidosDeTodoPeriodo ? 'Ver só os conferidos deste mês' : 'Ver conferidos de todo o período'}
+          </button>
+        </p>
+      )}
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
         <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>

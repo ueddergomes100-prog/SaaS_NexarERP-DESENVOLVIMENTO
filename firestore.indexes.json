@@ -296,6 +296,24 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "pedidos_venda",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "statusConferencia", "order": "ASCENDING" },
+        { "fieldPath": "conferidoEm", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "trocas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "statusConferencia", "order": "ASCENDING" },
+        { "fieldPath": "conferidoEm", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

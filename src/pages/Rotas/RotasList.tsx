@@ -3,6 +3,8 @@ import { Eye, FileText, IdCard, Plus, Search, Truck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { CampoFiltro, CampoPeriodo, PainelFiltros, BotaoFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
@@ -32,7 +34,6 @@ const RotasList: React.FC = () => {
   const { tenantId } = useAuth();
   const { openTab } = useTabs();
   const { linha } = useLinhaSelecionavel();
-  const { items: rotas, loading } = useTenantCollection<RotaDoc>('rotas', tenantId);
   const { items: motoristas } = useTenantCollection<{ id: string; nome?: string }>('motoristas', tenantId);
 
   const [busca, setBusca] = useState('');
@@ -40,6 +41,16 @@ const RotasList: React.FC = () => {
   const [motoristaId, setMotoristaId] = useState('');
   const [periodoDe, setPeriodoDe] = useState('');
   const [periodoAte, setPeriodoAte] = useState('');
+
+  // Rotas do periodo do filtro -- vazio = mes atual (otimizacao de leituras,
+  // 2026-10-14). Antes lia todas as rotas da empresa.
+  const semPeriodo = !periodoDe && !periodoAte;
+  const { items: rotas, loading } = usePendentesEPeriodo<RotaDoc>('rotas', tenantId, {
+    campoData: 'data',
+    tipoData: 'texto',
+    de: semPeriodo ? `${getDateInputInTimeZone().slice(0, 7)}-01` : periodoDe,
+    ate: semPeriodo ? '' : periodoAte,
+  });
 
   const [previewAberto, setPreviewAberto] = useState(false);
 
@@ -140,6 +151,11 @@ const RotasList: React.FC = () => {
           </CampoFiltro>
           <CampoPeriodo rotulo="Data da rota" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
         </PainelFiltros>
+        {semPeriodo && (
+          <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Rotas deste mês. Para outro período, use Filtros › Data da rota.
+          </p>
+        )}
 
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>

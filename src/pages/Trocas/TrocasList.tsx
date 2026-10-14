@@ -3,7 +3,9 @@ import { AlertTriangle, Eye, Plus, Printer, Repeat, Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
+import AvisoHistoricoDoPeriodo from '../../components/common/AvisoHistoricoDoPeriodo';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from '../Vendas/pedidoPrintLoteConstants';
 import { showWarning } from '../../utils/alerts';
@@ -24,12 +26,26 @@ export const dataDaTrocaMillis = (t: Pick<TrocaFirestore, 'createdAt'>): number 
 
 const formatarData = (millis: number) => (millis ? new Date(millis).toLocaleDateString('pt-BR') : '-');
 
+/** Ainda tem o que fazer: aparece sempre, de qualquer data. */
+const STATUS_TROCA_PENDENTE: StatusTroca[] = ['Solicitada', 'Aprovada'];
+
 const TrocasList: React.FC = () => {
   const { tenantId } = useAuth();
   const { openTab } = useTabs();
   const navigate = useNavigate();
   const { linha } = useLinhaSelecionavel();
-  const { items, loading } = useTenantCollection<TrocaFirestore & { id: string }>('trocas', tenantId);
+  // Aguardando e aprovadas de qualquer data; entregues, recusadas e
+  // canceladas, deste mes -- ou de todo o periodo quando a pessoa pede
+  // (otimizacao de leituras, 2026-10-14; ver usePendentesEPeriodo).
+  const [todoPeriodo, setTodoPeriodo] = useState(false);
+  const inicioDoMes = `${getDateInputInTimeZone().slice(0, 7)}-01`;
+  const { items, loading } = usePendentesEPeriodo<TrocaFirestore & { id: string }>('trocas', tenantId, {
+    statusPendentes: STATUS_TROCA_PENDENTE,
+    campoData: 'createdAt',
+    tipoData: 'timestamp',
+    de: todoPeriodo ? '' : inicioDoMes,
+    ate: '',
+  });
   const [aba, setAba] = useState<StatusTroca | 'todas'>('Solicitada');
   const [busca, setBusca] = useState('');
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
@@ -138,6 +154,15 @@ const TrocasList: React.FC = () => {
           </div>
         </div>
 
+        {!STATUS_TROCA_PENDENTE.includes(aba as StatusTroca) && (
+          <AvisoHistoricoDoPeriodo
+            todoPeriodo={todoPeriodo}
+            onAlternar={() => setTodoPeriodo((atual) => !atual)}
+            textoRecente="Aguardando e aprovadas de qualquer data; entregues, recusadas e canceladas, só as deste mês."
+            textoTodo="Trocas de todo o período."
+            botaoRecente="Ver só as deste mês"
+          />
+        )}
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
@@ -169,7 +194,7 @@ const TrocasList: React.FC = () => {
                 <tr>
                   <td colSpan={8} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <Repeat size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-                    <p>{items.length === 0 ? 'Nenhuma troca ainda. Elas chegam quando o vendedor envia pelo aplicativo.' : 'Nenhuma troca nesta situação.'}</p>
+                    <p>{items.length === 0 && todoPeriodo ? 'Nenhuma troca ainda. Elas chegam quando o vendedor envia pelo aplicativo.' : 'Nenhuma troca nesta situação.'}</p>
                   </td>
                 </tr>
               ) : filtradas.map((troca) => {

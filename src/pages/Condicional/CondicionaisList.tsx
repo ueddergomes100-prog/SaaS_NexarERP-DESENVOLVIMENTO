@@ -2,7 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { AlertTriangle, Eye, Plus, Search, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
+import AvisoHistoricoDoPeriodo from '../../components/common/AvisoHistoricoDoPeriodo';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
@@ -58,7 +59,19 @@ const CondicionaisList: React.FC = () => {
   const podeUsar = usePodeUsarCondicional();
   const { openTab } = useTabs();
   const { linha } = useLinhaSelecionavel();
-  const { items, loading } = useTenantCollection<CondicionalDoc>('condicionais', tenantId, { enabled: trabalhaComCondicional && podeUsar });
+  // Em aberto (inclusive vencidos) de qualquer data; finalizados, devolvidos
+  // e cancelados, deste mes -- ou de todo o periodo quando a pessoa pede
+  // (otimizacao de leituras, 2026-10-14; ver usePendentesEPeriodo).
+  const [todoPeriodo, setTodoPeriodo] = useState(false);
+  const inicioDoMes = `${getDateInputInTimeZone().slice(0, 7)}-01`;
+  const { items, loading } = usePendentesEPeriodo<CondicionalDoc>('condicionais', tenantId, {
+    statusPendentes: ['aberto'],
+    campoData: 'createdAt',
+    tipoData: 'timestamp',
+    de: todoPeriodo ? '' : inicioDoMes,
+    ate: '',
+    enabled: trabalhaComCondicional && podeUsar,
+  });
   const [aba, setAba] = useState<Aba>('aberto');
   const [busca, setBusca] = useState('');
   const hoje = getDateInputInTimeZone();
@@ -142,6 +155,14 @@ const CondicionaisList: React.FC = () => {
           </div>
         </div>
 
+        {aba !== 'aberto' && aba !== 'vencidos' && (
+          <AvisoHistoricoDoPeriodo
+            todoPeriodo={todoPeriodo}
+            onAlternar={() => setTodoPeriodo((atual) => !atual)}
+            textoRecente="Em aberto de qualquer data; finalizados, devolvidos e cancelados, só os deste mês."
+            textoTodo="Condicionais de todo o período."
+          />
+        )}
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>

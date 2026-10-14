@@ -3,6 +3,7 @@ import { ClipboardList, Eye, FileText, Plus, Search, Truck } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { CampoFiltro, CampoPeriodo, PainelFiltros, BotaoFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
@@ -15,6 +16,7 @@ import {
   montarDocumentoRelatorioRomaneios,
   resumoDoRomaneio,
   ROTULO_STATUS_ROMANEIO,
+  STATUS_ROMANEIO_ATIVO,
   tituloDoRomaneio,
   type RomaneioDaLista,
   type StatusRomaneio,
@@ -43,9 +45,7 @@ const RomaneiosList: React.FC = () => {
   const { tenantId } = useAuth();
   const { openTab } = useTabs();
   const { linha } = useLinhaSelecionavel();
-  const { items: brutos, loading } = useTenantCollection<{ id: string } & Record<string, unknown>>('romaneios', tenantId);
   const { items: motoristas } = useTenantCollection<{ id: string; nome?: string }>('motoristas', tenantId);
-  const romaneios = useMemo<RomaneioDaLista[]>(() => brutos.map((r) => ({ ...lerRomaneio(r), id: r.id })), [brutos]);
 
   const [aba, setAba] = useState<Aba>('montagem');
   const [busca, setBusca] = useState('');
@@ -55,6 +55,19 @@ const RomaneiosList: React.FC = () => {
   const [periodoAte, setPeriodoAte] = useState('');
   const hoje = getDateInputInTimeZone();
   const [relatorio, setRelatorio] = useState<{ de: string; ate: string } | null>(null);
+
+  // Em montagem e em rota de qualquer data; fechados e cancelados, do periodo
+  // do filtro -- vazio = ultimos 30 dias, que e' tambem o periodo padrao do
+  // relatorio (otimizacao de leituras, 2026-10-14; ver usePendentesEPeriodo).
+  const semPeriodo = !periodoDe && !periodoAte;
+  const { items: brutos, loading } = usePendentesEPeriodo<{ id: string } & Record<string, unknown>>('romaneios', tenantId, {
+    statusPendentes: STATUS_ROMANEIO_ATIVO,
+    campoData: 'dataSaida',
+    tipoData: 'texto',
+    de: semPeriodo ? addDaysToDateInput(hoje, -30) : periodoDe,
+    ate: semPeriodo ? '' : periodoAte,
+  });
+  const romaneios = useMemo<RomaneioDaLista[]>(() => brutos.map((r) => ({ ...lerRomaneio(r), id: r.id })), [brutos]);
 
   const termo = busca.trim().toLowerCase();
   const filtrados = useMemo(() => romaneios
@@ -142,6 +155,11 @@ const RomaneiosList: React.FC = () => {
           </CampoFiltro>
           <CampoPeriodo rotulo="Data de saída" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
         </PainelFiltros>
+        {semPeriodo && (
+          <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Em montagem e em rota de qualquer data; fechados e cancelados, dos últimos 30 dias. Para outro período, use Filtros › Data de saída.
+          </p>
+        )}
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
           {ABAS.map((chave) => (

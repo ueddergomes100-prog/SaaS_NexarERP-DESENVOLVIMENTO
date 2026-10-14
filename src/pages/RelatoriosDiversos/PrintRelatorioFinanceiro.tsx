@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, type DocumentData, type QueryDocumentSnapshot } from 'firebase/firestore';
+import { lerComReserva } from '../../services/consultaComReserva';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
@@ -51,12 +52,28 @@ const PrintRelatorioFinanceiro: React.FC = () => {
       setLoading(true);
       setError('');
       try {
-        const doTenant = (tipoBusca: string, statusBusca: string) => getDocs(query(
-          collection(db, 'transacoes'),
-          where('tenantId', '==', tenantId),
-          where('tipo', '==', tipoBusca),
-          where('status', '==', statusBusca),
-        ));
+        // So' o periodo, pela mesma data que o relatorio usa (otimizacao de
+        // leituras, 2026-10-14 -- antes lia todos os lancamentos do tipo e
+        // situacao): pagos por dataPagamento e, sem ela, por data; pendentes
+        // por data (vencimento). O relatorio continua cortando: a reserva
+        // (sem indice) traz todos.
+        const doTenant = async (tipoBusca: string, statusBusca: string) => {
+          const todos = query(
+            collection(db, 'transacoes'),
+            where('tenantId', '==', tenantId),
+            where('tipo', '==', tipoBusca),
+            where('status', '==', statusBusca),
+          );
+          const campos = statusBusca === 'Paga' ? ['dataPagamento', 'data'] : ['data'];
+          const snaps = await Promise.all(campos.map((campo) => lerComReserva(
+            query(todos, where(campo, '>=', inicio), where(campo, '<=', fim)),
+            todos,
+            `Relatório financeiro (${tipoBusca} ${statusBusca} por ${campo})`,
+          )));
+          const porId = new Map<string, QueryDocumentSnapshot<DocumentData>>();
+          snaps.forEach((snap) => snap.docs.forEach((d) => porId.set(d.id, d)));
+          return { docs: Array.from(porId.values()) };
+        };
         // Recebidos: os estornos (saidas pagas) abatem o total.
         const precisaEstornos = tipo === 'entrada' && status === 'Paga';
         const [snapshot, estornosSnap] = await Promise.all([

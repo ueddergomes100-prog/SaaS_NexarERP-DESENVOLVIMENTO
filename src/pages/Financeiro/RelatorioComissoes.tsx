@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DollarSign, Eye, FileText, Loader2, Search, User } from 'lucide-react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, query, where, Timestamp, type DocumentData, type Query, type QueryDocumentSnapshot } from 'firebase/firestore';
+import { lerComReserva } from '../../services/consultaComReserva';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { fromCents } from '../../utils/financeDomain';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import {
@@ -47,7 +48,10 @@ const RelatorioComissoes: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      if (!tenantId || !currentUser) {
+      const inicio = dateInputToUtcStart(startDate);
+      const fim = dateInputToUtcEnd(endDate);
+      // Sem as duas datas o relatorio nao mostra nada (filtrarComissoes): nao le.
+      if (!tenantId || !currentUser || !inicio || !fim) {
         setLoading(false);
         return;
       }
@@ -55,10 +59,32 @@ const RelatorioComissoes: React.FC = () => {
       setError('');
       try {
         const tenantQuery = (name: string) => query(collection(db, name), where('tenantId', '==', tenantId));
+        // So' o periodo, pela mesma data do relatorio (otimizacao de leituras,
+        // 2026-10-14 -- antes lia TODAS as vendas e OS): comissao.geradaEm
+        // (texto ISO) e, sem ela, createdAt da venda / updatedAt ou createdAt
+        // da OS. As consultas sao juntadas por id; filtrarComissoes continua
+        // cortando (a reserva sem indice traz tudo).
+        const noPeriodo = async (nome: string, campos: Array<{ campo: string; tipo: 'iso' | 'timestamp' }>) => {
+          const todos: Query<DocumentData> = tenantQuery(nome);
+          const snaps = await Promise.all(campos.map(({ campo, tipo }) => lerComReserva(
+            tipo === 'iso'
+              ? query(todos, where(campo, '>=', inicio.toISOString()), where(campo, '<=', fim.toISOString()))
+              : query(todos, where(campo, '>=', Timestamp.fromDate(inicio)), where(campo, '<=', Timestamp.fromDate(fim))),
+            todos,
+            `Comissões (${nome} por ${campo})`,
+          )));
+          const porId = new Map<string, QueryDocumentSnapshot<DocumentData>>();
+          snaps.forEach((snap) => snap.docs.forEach((d) => porId.set(d.id, d)));
+          return { docs: Array.from(porId.values()) };
+        };
         const [usersSnap, salesSnap, serviceOrdersSnap] = await Promise.all([
           getDocs(tenantQuery('usuarios')),
-          getDocs(tenantQuery('pedidos_venda')),
-          getDocs(tenantQuery('ordens_de_servico')),
+          noPeriodo('pedidos_venda', [{ campo: 'comissao.geradaEm', tipo: 'iso' }, { campo: 'createdAt', tipo: 'timestamp' }]),
+          noPeriodo('ordens_de_servico', [
+            { campo: 'comissao.geradaEm', tipo: 'iso' },
+            { campo: 'updatedAt', tipo: 'timestamp' },
+            { campo: 'createdAt', tipo: 'timestamp' },
+          ]),
         ]);
         if (cancelled) return;
 
@@ -87,7 +113,7 @@ const RelatorioComissoes: React.FC = () => {
     };
     void load();
     return () => { cancelled = true; };
-  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
+  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId, startDate, endDate]);
 
   const filtro = useMemo<FiltroComissoes>(() => ({
     de: startDate,

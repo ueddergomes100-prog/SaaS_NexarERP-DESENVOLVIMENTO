@@ -452,7 +452,9 @@ const ConferenciaForm: React.FC = () => {
   useEffect(() => {
     if (!pedidoId || !tenantId || !ehTroca || isLoading || loadError || status !== 'em_conferencia') return undefined;
     return onSnapshot(doc(db, 'trocas', pedidoId), (snap) => {
-      const situacao = snap.exists() ? String(snap.data().status || '') : '';
+      // O status gravado e' 'Cancelada'/'Recusada'/'Entregue' (trocaDomain);
+      // comparar sem caixa -- com o valor cru a trava nunca disparava.
+      const situacao = snap.exists() ? String(snap.data().status || '').toLowerCase() : '';
       const motivo: Record<string, string> = {
         cancelada: 'Esta troca foi cancelada e saiu da expedição.',
         recusada: 'Esta troca foi recusada e saiu da expedição.',

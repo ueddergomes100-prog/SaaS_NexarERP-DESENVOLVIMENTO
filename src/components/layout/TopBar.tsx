@@ -13,6 +13,7 @@ import { productMatchesSearch, type SearchableProduct } from '../../utils/produc
 import PerfilModal from './PerfilModal';
 import './Layout.css';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { diasAteAData } from '../../utils/avisosSinoDomain';
 
 const TopBar: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, userNome } = useAuth();
@@ -78,18 +79,14 @@ const TopBar: React.FC = () => {
     const qLembretes = query(collection(db, 'lembretes'), where('tenantId', '==', tenantId), where('status', '==', 'Pendente'));
     const lembretesUnsub = onSnapshot(qLembretes, (snap) => {
       const temp: any[] = [];
-      const hoje = new Date();
-      hoje.setHours(0,0,0,0);
+      const hoje = getDateInputInTimeZone();
 
       snap.forEach(d => {
         const lembrete = d.data();
-        if (lembrete.dataPrevisao) {
-          const [y, m, day] = lembrete.dataPrevisao.split('-');
-          const prev = new Date(Number(y), Number(m) - 1, Number(day));
-          
-          const diffTime = prev.getTime() - hoje.getTime();
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          
+        // dataPrevisao e' Timestamp (o LembreteForm grava um Date) -- o
+        // .split('-') antigo quebrava aqui. Ver avisosSinoDomain.ts.
+        const diffDays = diasAteAData(lembrete.dataPrevisao, hoje);
+        if (diffDays !== null) {
           if (diffDays > 0 && diffDays <= diasNotificacao) {
             temp.push({
               id: d.id,
@@ -110,18 +107,12 @@ const TopBar: React.FC = () => {
     const qAgendamentos = query(collection(db, 'agendamentos'), where('tenantId', '==', tenantId), where('status', '==', 'Agendado'));
     const agendamentosUnsub = onSnapshot(qAgendamentos, (snap) => {
       const temp: any[] = [];
-      const hoje = new Date();
-      hoje.setHours(0,0,0,0);
+      const hoje = getDateInputInTimeZone();
 
       snap.forEach(d => {
         const ag = d.data();
-        if (ag.data) {
-          const [y, m, day] = ag.data.split('-');
-          const prev = new Date(Number(y), Number(m) - 1, Number(day));
-          
-          const diffTime = prev.getTime() - hoje.getTime();
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          
+        const diffDays = diasAteAData(ag.data, hoje);
+        if (diffDays !== null) {
           if (diffDays > 0 && diffDays <= diasNotificacao) {
             temp.push({
               id: d.id,

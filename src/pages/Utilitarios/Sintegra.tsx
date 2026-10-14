@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FileDown, AlertTriangle, Loader2, FileText } from 'lucide-react';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, Timestamp } from 'firebase/firestore';
+import { lerComReserva } from '../../services/consultaComReserva';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
@@ -67,7 +68,15 @@ const Sintegra: React.FC = () => {
       const inicioMs = new Date(`${dataInicial}T00:00:00`).getTime();
       const fimMs = new Date(`${dataFinal}T23:59:59`).getTime();
 
-      const notasSnap = await getDocs(query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId)));
+      // So' as notas criadas no mes, direto no banco (otimizacao de leituras,
+      // 2026-10-14 -- antes lia TODAS as notas da empresa). O filtro abaixo
+      // continua: a reserva (sem indice) traz todas.
+      const todasAsNotas = query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId));
+      const notasSnap = await lerComReserva(
+        query(todasAsNotas, where('createdAt', '>=', Timestamp.fromMillis(inicioMs)), where('createdAt', '<=', Timestamp.fromMillis(fimMs))),
+        todasAsNotas,
+        'SINTEGRA (notas do mês)',
+      );
       const notasDoPeriodo = notasSnap.docs
         .map((d) => ({ id: d.id, ...d.data() } as Record<string, any>))
         .filter((nota) => {

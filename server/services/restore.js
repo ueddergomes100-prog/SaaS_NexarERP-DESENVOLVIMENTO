@@ -6,6 +6,7 @@ const { downloadBackup } = require('./cloudStorage');
 const { getEncryptionKey, generateCompanyBackup } = require('./backup');
 const { decifrar } = require('./backupCripto');
 const { COLECOES_DA_EMPRESA, CAMPOS_DA_PLATAFORMA } = require('./backupColecoes');
+const { restaurarDatasDoBackup } = require('./backupDatas');
 
 const gunzip = promisify(zlib.gunzip);
 
@@ -123,8 +124,10 @@ async function clearCompanyData(companyId, colecoes) {
 /**
  * Restaura os dados importados no Firestore usando batches sequenciais.
  */
-async function writeRestoredData(companyId, backupData) {
+async function writeRestoredData(companyId, arquivo) {
   console.log(`[Restauração] Gravando novos dados restaurados para ${companyId}...`);
+  // Datas do arquivo (JSON) voltam a ser Timestamp -- ver backupDatas.js.
+  const backupData = restaurarDatasDoBackup(arquivo, admin.firestore.Timestamp);
 
   // 1. Grava configurações se existirem
   if (backupData['configuracoes']) {

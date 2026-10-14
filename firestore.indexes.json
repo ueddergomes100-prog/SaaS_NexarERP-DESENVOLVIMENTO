@@ -125,6 +125,23 @@
         { "fieldPath": "tenantId", "order": "ASCENDING" },
         { "fieldPath": "clienteNome", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "pedidos_venda",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "dataVenda", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "notas_fiscais",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "tipo", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

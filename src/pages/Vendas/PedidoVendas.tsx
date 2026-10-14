@@ -4,7 +4,9 @@ import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
 import { useNaoImpressasPrimeiro } from '../../hooks/useNaoImpressasPrimeiro';
 import { compararPorImpressao } from '../../utils/relatorioPreVendasDomain';
 import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, ChevronDown, Filter, Truck, CheckCircle2 } from 'lucide-react';
-import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp, Timestamp, type QuerySnapshot, type DocumentData } from 'firebase/firestore';
+import { assinarComReserva } from '../../services/consultaComReserva';
+import { diasDoPeriodoLista, PERIODO_LISTA_PADRAO, type PresetPeriodoLista } from '../../utils/periodoListaDomain';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs, TabActiveContext } from '../../contexts/TabsContext';
@@ -19,6 +21,7 @@ import {
   isPedidoAberto,
   STATUS_CANCELADA,
   STATUS_EM_ANALISE,
+  STATUS_PEDIDO_ABERTO,
   STATUS_PRE_VENDA,
 } from '../../utils/preVendaDomain';
 import {
@@ -101,7 +104,7 @@ const formatarDataEfetiva = (p: PedidoVendaData): string => {
  */
 const chaveVendedorFiltro = (nome: string): string => nome.trim().toLowerCase().replace(/\s+/g, ' ');
 
-type FiltroDataPreset = '' | 'hoje' | 'ontem' | '7dias' | 'mes' | 'personalizado';
+type FiltroDataPreset = PresetPeriodoLista;
 
 const ROTULO_PRESET_DATA: Record<Exclude<FiltroDataPreset, '' | 'personalizado'>, string> = {
   hoje: 'Hoje',
@@ -263,7 +266,16 @@ const PedidoVendas: React.FC = () => {
   const [filtroVendedor, setFiltroVendedor] = useState('');
   const [filtroFormaPagamento, setFiltroFormaPagamento] = useState('');
   const [filtroConferencia, setFiltroConferencia] = useState('');
-  const [filtroDataPreset, setFiltroDataPreset] = useState<FiltroDataPreset>('');
+  // Abre no mes atual (decisao do dono, 14/10): o periodo vai para a consulta.
+  const [filtroDataPreset, setFiltroDataPreset] = useState<FiltroDataPreset>(PERIODO_LISTA_PADRAO);
+  // A pessoa mexeu no filtro de Data? Nas abas de pedidos em ABERTO
+  // (Pre-vendas, Pendentes) o mes atual padrao NAO filtra: pre-venda de
+  // setembro ainda em aberto tem de continuar na fila (o susto do #0154).
+  const [periodoEscolhido, setPeriodoEscolhido] = useState(false);
+  const escolherPeriodo = (preset: FiltroDataPreset) => {
+    setFiltroDataPreset(preset);
+    setPeriodoEscolhido(true);
+  };
   const [filtroDataInicio, setFiltroDataInicio] = useState('');
   const [filtroDataFim, setFiltroDataFim] = useState('');
 
@@ -272,7 +284,8 @@ const PedidoVendas: React.FC = () => {
     setFiltroVendedor('');
     setFiltroFormaPagamento('');
     setFiltroConferencia('');
-    setFiltroDataPreset('');
+    setFiltroDataPreset(PERIODO_LISTA_PADRAO);
+    setPeriodoEscolhido(false);
     setFiltroDataInicio('');
     setFiltroDataFim('');
   }, [isTabActive]);
@@ -290,17 +303,33 @@ const PedidoVendas: React.FC = () => {
   // Estado para armazenar IDs dos cupons autorizados
   const [authorizedCupons, setAuthorizedCupons] = useState<Record<string, { spedyId: string; status: string }>>({});
 
-  useEffect(() => {
-    if (!currentUser || !tenantId) return;
+  // Periodo que vai para a CONSULTA (periodoListaDomain.ts). A lista abre no
+  // mes atual e o banco devolve so' esses dias -- antes era o historico
+  // inteiro da empresa a cada abertura. "Todas" (null) le tudo, como antes.
+  const periodoConsulta = diasDoPeriodoLista(filtroDataPreset, getDateInputInTimeZone(), filtroDataInicio, filtroDataFim);
+  const periodoDe = periodoConsulta?.de ?? '';
+  const periodoAte = periodoConsulta?.ate ?? '';
 
-    // Monitora notas fiscais do tipo NFC-e
-    const qNotas = query(
+  useEffect(() => {
+    // Sem controle fiscal o botao de cupom nem aparece: nao le nota nenhuma.
+    if (!currentUser || !tenantId || !controlaFiscal) {
+      setAuthorizedCupons({});
+      return undefined;
+    }
+
+    // Cupons (NFC-e) das vendas do periodo: o cupom nasce na venda ou depois
+    // dela, entao basta createdAt a partir do 1o dia do periodo.
+    const todasNfce = query(
       collection(db, 'notas_fiscais'),
       where('tenantId', '==', tenantId),
       where('tipo', '==', 'NFC-e')
     );
+    const inicioCupons = periodoDe ? dateInputToUtcStart(periodoDe) : null;
+    const qNotas = inicioCupons
+      ? query(todasNfce, where('createdAt', '>=', Timestamp.fromDate(inicioCupons)))
+      : todasNfce;
 
-    const unsubscribeNotas = onSnapshot(qNotas, (snapshot) => {
+    const unsubscribeNotas = assinarComReserva(qNotas, todasNfce, 'Pedidos de Venda (cupons)', (snapshot) => {
       const cupons: Record<string, { spedyId: string; status: string }> = {};
       snapshot.forEach(d => {
         const data = d.data();
@@ -315,7 +344,7 @@ const PedidoVendas: React.FC = () => {
     });
 
     return () => unsubscribeNotas();
-  }, [currentUser, tenantId]);
+  }, [currentUser, tenantId, controlaFiscal, periodoDe]);
 
   useEffect(() => {
     if (!currentUser || !tenantId) return;
@@ -329,27 +358,62 @@ const PedidoVendas: React.FC = () => {
       .catch((err) => console.error('Erro ao verificar configuração de conferência de mercadoria:', err));
   }, [currentUser, tenantId]);
 
+  // Duas consultas: (1) pedidos em ABERTO (pre-venda e pendente do agente)
+  // por status, de qualquer data -- pendente nunca some por periodo; (2) os do
+  // PERIODO por dataVenda, a mesma data que a tela mostra e filtra (ver
+  // dataEfetivaPedido). Pedido antigo sem dataVenda so' aparece em "Todas".
+  // Sem o indice (tenantId, dataVenda) publicado, a (2) cai na colecao
+  // inteira e o filtro de data da tela segura o resultado.
   useEffect(() => {
-    if (!currentUser || !tenantId) return;
+    if (!currentUser || !tenantId) return undefined;
+    setLoading(true);
 
-    const q = query(
-      collection(db, 'pedidos_venda'),
-      where('tenantId', '==', tenantId)
-    );
+    const base = collection(db, 'pedidos_venda');
+    const todos = query(base, where('tenantId', '==', tenantId));
+    const lerPedidos = (snapshot: QuerySnapshot<DocumentData>) => snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as PedidoVendaData));
+    let abertos: PedidoVendaData[] = [];
+    let doPeriodo: PedidoVendaData[] = [];
+    let abertosChegaram = !periodoDe; // em "Todas" a consulta do periodo ja' traz os abertos
+    let periodoChegou = false;
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const p: PedidoVendaData[] = [];
-      snapshot.forEach(doc => p.push({ id: doc.id, ...doc.data() } as PedidoVendaData));
+    const publicar = () => {
+      const porId = new Map<string, PedidoVendaData>();
+      [...doPeriodo, ...abertos].forEach((pedido) => porId.set(pedido.id, pedido));
+      const p = Array.from(porId.values());
       p.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       // Filtra no cliente, e nao com um where(vendedorId) na query, porque
       // venda antiga pode ter so usuarioResponsavelId/criadoPor -- um where
       // num campo so sumiria com pedido que e' do proprio usuario.
       setPedidos(filtrarVendasVisiveis(p, vendasVisiveisDeUsuarioId));
-      setLoading(false);
+      if (abertosChegaram && periodoChegou) setLoading(false);
+    };
+
+    const pararAbertos = periodoDe
+      ? onSnapshot(query(base, where('tenantId', '==', tenantId), where('status', 'in', [...STATUS_PEDIDO_ABERTO])), (snapshot) => {
+        abertos = lerPedidos(snapshot);
+        abertosChegaram = true;
+        publicar();
+      }, (erro) => {
+        console.error('Pedidos de Venda (em aberto):', erro);
+        abertosChegaram = true;
+        publicar();
+      })
+      : () => {};
+
+    const doPeriodoQuery = periodoDe
+      ? query(base, where('tenantId', '==', tenantId), where('dataVenda', '>=', periodoDe), where('dataVenda', '<=', periodoAte))
+      : todos;
+    const pararPeriodo = assinarComReserva(doPeriodoQuery, todos, 'Pedidos de Venda', (snapshot) => {
+      doPeriodo = lerPedidos(snapshot);
+      periodoChegou = true;
+      publicar();
     });
 
-    return () => unsubscribe();
-  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
+    return () => {
+      pararAbertos();
+      pararPeriodo();
+    };
+  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId, periodoDe, periodoAte]);
 
   // Pedido "Em Analise" so e gravado por integracao externa (agente de
   // WhatsApp) -- nenhuma tela deste sistema grava esse status (ver
@@ -485,11 +549,15 @@ const PedidoVendas: React.FC = () => {
       ? ROTULO_PRESET_DATA[filtroDataPreset]
       : '';
 
+  const abaDePedidosEmAberto = activeTab === 'PreVendas' || activeTab === 'Pendentes';
+  const filtroDataValeNestaAba = !abaDePedidosEmAberto || periodoEscolhido;
+  const periodoAplicado = filtroDataValeNestaAba ? periodoDataFiltro : null;
+
   const filteredPedidos = pedidosDoContexto.filter(p => {
     if (filtroVendedor && chaveVendedorFiltro(p.vendedorNome || '') !== chaveVendedorFiltro(filtroVendedor)) return false;
     if (filtroFormaPagamento && p.formaPagamento !== filtroFormaPagamento) return false;
     if (filtroConferencia && p.statusConferencia !== filtroConferencia) return false;
-    if (periodoDataFiltro && !isWithinDateRange(dataEfetivaPedido(p), periodoDataFiltro.inicio, periodoDataFiltro.fim)) return false;
+    if (periodoAplicado && !isWithinDateRange(dataEfetivaPedido(p), periodoAplicado.inicio, periodoAplicado.fim)) return false;
     return true;
   }).sort((a, b) => (
     (activeTab === 'PreVendas' && naoImpressasPrimeiro ? compararPorImpressao({ impressa: foiImpresso(a) }, { impressa: foiImpresso(b) }) : 0)
@@ -500,14 +568,15 @@ const PedidoVendas: React.FC = () => {
     filtroVendedor && { rotulo: 'Vendedor', valor: filtroVendedor, limpar: () => setFiltroVendedor('') },
     filtroFormaPagamento && { rotulo: 'Forma', valor: filtroFormaPagamento, limpar: () => setFiltroFormaPagamento('') },
     filtroConferencia && { rotulo: 'Conferência', valor: CONFERENCIA_STATUS_LABELS[filtroConferencia] || filtroConferencia, limpar: () => setFiltroConferencia('') },
-    filtroDataPreset && { rotulo: 'Data', valor: rotuloPeriodoFiltro, limpar: () => { setFiltroDataPreset(''); setFiltroDataInicio(''); setFiltroDataFim(''); } },
+    filtroDataPreset && filtroDataValeNestaAba && { rotulo: 'Data', valor: rotuloPeriodoFiltro, limpar: () => { escolherPeriodo(''); setFiltroDataInicio(''); setFiltroDataFim(''); } },
   ].filter((f): f is { rotulo: string; valor: string; limpar: () => void } => Boolean(f));
 
   const limparFiltrosDeColuna = () => {
     setFiltroVendedor('');
     setFiltroFormaPagamento('');
     setFiltroConferencia('');
-    setFiltroDataPreset('');
+    setFiltroDataPreset(PERIODO_LISTA_PADRAO);
+    setPeriodoEscolhido(false);
     setFiltroDataInicio('');
     setFiltroDataFim('');
   };
@@ -746,16 +815,16 @@ const PedidoVendas: React.FC = () => {
                         <button
                           type="button"
                           style={itemOpcaoStyle(filtroDataPreset === '')}
-                          onClick={() => { setFiltroDataPreset(''); setFiltroDataInicio(''); setFiltroDataFim(''); }}
+                          onClick={() => { escolherPeriodo(''); setFiltroDataInicio(''); setFiltroDataFim(''); }}
                         >
-                          Todas
+                          Todas (histórico inteiro)
                         </button>
                         {(Object.keys(ROTULO_PRESET_DATA) as Array<keyof typeof ROTULO_PRESET_DATA>).map((preset) => (
                           <button
                             key={preset}
                             type="button"
                             style={itemOpcaoStyle(filtroDataPreset === preset)}
-                            onClick={() => setFiltroDataPreset(preset)}
+                            onClick={() => escolherPeriodo(preset)}
                           >
                             {ROTULO_PRESET_DATA[preset]}
                           </button>
@@ -763,7 +832,7 @@ const PedidoVendas: React.FC = () => {
                         <button
                           type="button"
                           style={itemOpcaoStyle(filtroDataPreset === 'personalizado')}
-                          onClick={() => setFiltroDataPreset('personalizado')}
+                          onClick={() => escolherPeriodo('personalizado')}
                         >
                           Período personalizado
                         </button>

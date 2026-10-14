@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { trocaService } from '../../services/trocaService';
 import {
@@ -30,7 +31,25 @@ const formatarData = (millis: number) => (millis ? new Date(millis).toLocaleDate
 const VendedorTrocas: React.FC = () => {
   const navigate = useNavigate();
   const { tenantId, currentUser } = useAuth();
-  const { items, loading } = useTenantCollection<TrocaDoFirestore & { id: string }>('trocas', tenantId);
+  // So' as trocas DESTE vendedor, direto no banco (otimizacao de leituras,
+  // 2026-10-14) -- antes escutava todas as trocas da empresa e filtrava aqui.
+  const [items, setItems] = useState<Array<TrocaDoFirestore & { id: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    if (!tenantId || !currentUser) {
+      setLoading(false);
+      return undefined;
+    }
+    setLoading(true);
+    const q = query(collection(db, 'trocas'), where('tenantId', '==', tenantId), where('vendedorId', '==', currentUser.uid));
+    return onSnapshot(q, (snap) => {
+      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as TrocaDoFirestore & { id: string })));
+      setLoading(false);
+    }, (erro) => {
+      console.error('Erro ao carregar as trocas do vendedor:', erro);
+      setLoading(false);
+    });
+  }, [tenantId, currentUser]);
   const [aberta, setAberta] = useState<string | null>(null);
   const [cancelando, setCancelando] = useState<string | null>(null);
 

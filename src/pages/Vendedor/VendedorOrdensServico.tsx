@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Search, Plus } from 'lucide-react';
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where, Timestamp, type DocumentData, type QueryDocumentSnapshot } from 'firebase/firestore';
+import { lerComReserva } from '../../services/consultaComReserva';
+import { addDaysToDateInput, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { DEFAULT_MOSTRAR_VALOR_LISTA_OS, parseMostrarValorListaOS } from '../../utils/osListaValorDomain';
@@ -42,6 +44,9 @@ interface OsResumo {
 
 const LIMITE_SEM_BUSCA = 30;
 
+/** "Todas" carrega as abertas de qualquer data + as criadas nestes ultimos dias. */
+const DIAS_OS_RECENTES = 90;
+
 const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 const normalizar = normalizeSearchText;
@@ -59,14 +64,38 @@ const VendedorOrdensServico: React.FC = () => {
   const [busca, setBusca] = useState('');
   const [mostrarValor, setMostrarValor] = useState(DEFAULT_MOSTRAR_VALOR_LISTA_OS);
 
+  // Leitura enxuta (otimizacao de leituras, 2026-10-14). Antes: TODAS as OS
+  // da empresa a cada abertura. Agora as abertas (de qualquer data -- "Minhas"
+  // sai delas) + as criadas nos ultimos 90 dias. "Buscar em todo o
+  // historico" le todas, quando a pessoa pede.
+  const [historicoCompleto, setHistoricoCompleto] = useState(false);
   useEffect(() => {
     if (!tenantId) return;
     let cancelado = false;
+    setCarregando(true);
 
-    getDocs(query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId)))
-      .then((snap) => {
+    const todas = query(collection(db, 'ordens_de_servico'), where('tenantId', '==', tenantId));
+    const limite = dateInputToUtcStart(addDaysToDateInput(getDateInputInTimeZone(), -DIAS_OS_RECENTES));
+    const ler = async (): Promise<QueryDocumentSnapshot<DocumentData>[]> => {
+      if (historicoCompleto || !limite) return (await getDocs(todas)).docs;
+      const [abertas, recentes] = await Promise.all([
+        lerComReserva(query(todas, where('status', 'not-in', ['Finalizada', 'Cancelada'])), todas, 'App: OS em aberto'),
+        lerComReserva(query(todas, where('createdAt', '>=', Timestamp.fromDate(limite))), todas, 'App: OS dos últimos 90 dias'),
+      ]);
+      const porId = new Map<string, QueryDocumentSnapshot<DocumentData>>();
+      [...abertas.docs, ...recentes.docs].forEach((d) => porId.set(d.id, d));
+      // Mesmo corte das consultas enxutas, para a reserva (sem indice) mostrar o mesmo.
+      return Array.from(porId.values()).filter((d) => {
+        const dados = d.data();
+        const criada = dados.createdAt?.toDate ? dados.createdAt.toDate() as Date : null;
+        return !osEncerrada(dados.status) || Boolean(criada && criada >= limite);
+      });
+    };
+
+    ler()
+      .then((docs) => {
         if (cancelado) return;
-        const lista = snap.docs.map((d) => {
+        const lista = docs.map((d) => {
           const data = d.data();
           return {
             id: d.id,
@@ -100,7 +129,7 @@ const VendedorOrdensServico: React.FC = () => {
       .catch(() => {});
 
     return () => { cancelado = true; };
-  }, [tenantId, modo]);
+  }, [tenantId, modo, historicoCompleto]);
 
   const minhas = useMemo(() => ordens.filter((os) => os.mecanicoId === currentUser?.uid && !osEncerrada(os.status)), [ordens, currentUser]);
   const filtradas = useMemo(() => {
@@ -166,13 +195,25 @@ const VendedorOrdensServico: React.FC = () => {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {aba === 'todas' && busca.trim() && !historicoCompleto && !carregando && (
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            Buscando nas OS em aberto e nas dos últimos {DIAS_OS_RECENTES} dias.
+            <button
+              type="button"
+              onClick={() => setHistoricoCompleto(true)}
+              style={{ height: '34px', padding: '0 12px', borderRadius: '10px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}
+            >
+              Buscar em todo o histórico
+            </button>
+          </div>
+        )}
         {carregando ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>Carregando...</div>
         ) : erro ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>{erro}</div>
         ) : filtradas.length === 0 ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
-            {busca.trim() ? 'Nenhuma ordem de serviço encontrada.' : aba === 'minhas' ? 'Nenhuma OS sua em aberto. Toque em "Nova OS" para abrir uma no campo.' : 'Nenhuma ordem de serviço cadastrada.'}
+            {busca.trim() ? 'Nenhuma ordem de serviço encontrada.' : aba === 'minhas' ? 'Nenhuma OS sua em aberto. Toque em "Nova OS" para abrir uma no campo.' : historicoCompleto ? 'Nenhuma ordem de serviço cadastrada.' : `Nenhuma OS em aberto nem dos últimos ${DIAS_OS_RECENTES} dias.`}
           </div>
         ) : (
           <>

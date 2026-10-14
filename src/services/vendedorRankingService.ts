@@ -1,4 +1,5 @@
-import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
+import { collection, getCountFromServer, getDocs, limit, orderBy, query, Timestamp, where, type Query } from 'firebase/firestore';
+import { dateInputToUtcStart, getDateInputInTimeZone } from '../utils/dateTime';
 import { db } from './firebase';
 import { isPedidoCancelado } from '../utils/preVendaDomain';
 
@@ -76,10 +77,32 @@ const ehHoje = (value: unknown): boolean => {
 };
 
 /** Quantos pedidos (pre-venda) e orcamentos ESTE vendedor gravou hoje --
- *  pro resumo do dia na Home. Janela recente + filtro no cliente, no
- *  mesmo espirito das outras consultas deste arquivo (evita exigir um
- *  indice composto novo so' pra este numero). */
+ *  pro resumo do dia na Home.
+ *
+ *  Contagem no servidor (otimizacao de leituras, 2026-10-14): exata e custa
+ *  1 leitura. A versao anterior olhava os ultimos 50 documentos da EMPRESA e
+ *  filtrava o vendedor aqui -- com mais de 50 lancamentos no dia, a conta
+ *  saia errada. Sem os indices (tenantId, vendedorId|criadoPor, createdAt)
+ *  publicados, cai na janela antiga (contarHojeNaJanela). */
 export const buscarResumoHojeDoVendedor = async (
+  tenantId: string,
+  vendedorId: string,
+): Promise<{ pedidos: number; orcamentos: number }> => {
+  const inicioHoje = dateInputToUtcStart(getDateInputInTimeZone());
+  if (inicioHoje) {
+    const desde = Timestamp.fromDate(inicioHoje);
+    const contar = (q: Query) => getCountFromServer(q).then((s) => s.data().count).catch(() => null);
+    const [pedidos, orcamentos] = await Promise.all([
+      contar(query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where('vendedorId', '==', vendedorId), where('createdAt', '>=', desde))),
+      contar(query(collection(db, 'orcamentos'), where('tenantId', '==', tenantId), where('criadoPor', '==', vendedorId), where('createdAt', '>=', desde))),
+    ]);
+    if (pedidos !== null && orcamentos !== null) return { pedidos, orcamentos };
+  }
+  return contarHojeNaJanela(tenantId, vendedorId);
+};
+
+/** Reserva do resumo do dia: ultimos 50 documentos da empresa, filtrados aqui. */
+const contarHojeNaJanela = async (
   tenantId: string,
   vendedorId: string,
 ): Promise<{ pedidos: number; orcamentos: number }> => {

@@ -416,7 +416,7 @@ export const BaixaEmLoteModal: React.FC<{
                 {etapa === 'enviando' ? (
                   <span className="lote-progresso"><Loader2 size={18} className="lote-girando" aria-hidden="true" /> Registrando as baixas...</span>
                 ) : (
-                  <>{textos.confirmar(itens.length)} · <span className="lote-numero">{reais(resumo.totalCentavos)}</span></>
+                  <>{textos.confirmar(itens.length)}<span className="lote-cta-total"> · <span className="lote-numero">{reais(resumo.totalCentavos)}</span></span></>
                 )}
               </button>
             </div>

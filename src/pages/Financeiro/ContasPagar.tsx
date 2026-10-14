@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
+import React, { useEffect, useMemo, useState } from 'react';
+import { collection, query, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
-import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import {
@@ -36,6 +36,11 @@ import {
   type SituacaoTitulo,
 } from '../../utils/filtroListaDomain';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import { BaixaEmLoteModal, BarraDeSelecaoLote, CaixaDeSelecao, type ItemDoLote } from '../../components/finance/BaixaEmLote';
+import { estadoDaSelecao, LIMITE_BAIXA_EM_LOTE, marcarNaSelecao, podeEntrarNoLote } from '../../utils/baixaEmLoteDomain';
+import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
+import { toCents } from '../../utils/financeDomain';
 import './Financeiro.css';
 
 interface TransacaoData extends TituloParaEstorno {
@@ -84,8 +89,6 @@ interface GrupoDespesa {
 
 const ContasPagar: React.FC = () => {
   const { openTab } = useTabs();
-  const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
-  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -111,6 +114,36 @@ const ContasPagar: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const podeEstornar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.estornar'));
 
+  // Leitura enxuta (otimizacao de leituras, 2026-10-14 -- useTitulosFinanceiros):
+  // em aberto de qualquer data (soma o Total Pendente e o aviso de vencidas) +
+  // pagas de hoje; o historico de pagas so' quando a lista mostra pagas, no
+  // periodo do atalho ("Qualquer data" = tudo, escolha explicita; personalizado
+  // vazio = mes atual). Antes eram todas as saidas desde sempre.
+  const listaTemPagas = situacaoTitulo === 'pagas' || situacaoTitulo === 'todas';
+  const hojeLeitura = getDateInputInTimeZone();
+  const intervaloLeitura = atalhoVencimento === 'personalizado'
+    ? { de: periodoDe, ate: periodoAte }
+    : intervaloDoAtalhoVencimento(atalhoVencimento, hojeLeitura);
+  const historicoDePagas: HistoricoDePagas = !listaTemPagas
+    ? null
+    : atalhoVencimento === 'todos'
+      ? 'todo'
+      : (intervaloLeitura.de || intervaloLeitura.ate ? intervaloLeitura : { de: `${hojeLeitura.slice(0, 7)}-01`, ate: hojeLeitura });
+  const { titulos: titulosLidos, carregando: loading } = useTitulosFinanceiros<TransacaoData>({
+    tenantId,
+    tipo: 'saida',
+    historico: historicoDePagas,
+  });
+  // Ordenar por vencimento (mais proximos primeiro).
+  const transacoes = useMemo(
+    () => [...titulosLidos].sort((a, b) => (a.data || '').localeCompare(b.data || '')),
+    [titulosLidos],
+  );
+
+  // Baixa em lote (2026-10-14): contas marcadas e o borderô congelado ao abrir.
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [itensDoLote, setItensDoLote] = useState<ItemDoLote[] | null>(null);
+
   /**
    * FORNECEDOR DO CADASTRO NO LANCAMENTO MANUAL (pedido do dono, 2026-09-21).
    *
@@ -123,7 +156,7 @@ const ContasPagar: React.FC = () => {
    * um faria a pessoa cadastrar "COPASA" como fornecedor so' pra conseguir
    * salvar a conta de agua.
    */
-  const { items: fornecedores } = useTenantCollection<{ id: string; nome?: string; codigo?: string; ativo?: boolean }>('fornecedores', tenantId);
+  const { items: fornecedores } = useTenantCollection<{ id: string; nome?: string; codigo?: string; ativo?: boolean }>('fornecedores', tenantId, { enabled: isModalOpen });
   const fornecedoresAtivos = fornecedores.filter((f) => f.ativo !== false);
   const [buscaFornecedor, setBuscaFornecedor] = useState('');
 
@@ -133,11 +166,11 @@ const ContasPagar: React.FC = () => {
    * banco, o numero e a data de compensacao. O cheque so' sai do banco quando a
    * compensacao e' confirmada em Financeiro > Cheques > Emitidos.
    */
-  const { items: bancosCadastrados } = useTenantCollection<{ id: string; nome?: string; ativo?: boolean }>('bancos', tenantId);
+  const { items: bancosCadastrados } = useTenantCollection<{ id: string; nome?: string; ativo?: boolean }>('bancos', tenantId, { enabled: isModalOpen });
   const bancosParaCheque = bancosCadastrados.filter((b) => b.ativo !== false).map((b) => ({ id: b.id, nome: String(b.nome || '') }));
   // Despesa de VEICULO da frota (2026-09-25): opcional; alimenta o relatorio de Custo por Veiculo.
-  const { items: frotaCadastrada } = useTenantCollection<VeiculoDaFrota>('frota', tenantId);
-  const { items: motoristasCadastrados } = useTenantCollection<{ id: string; nome?: string; ativo?: boolean }>('motoristas', tenantId);
+  const { items: frotaCadastrada } = useTenantCollection<VeiculoDaFrota>('frota', tenantId, { enabled: isModalOpen });
+  const { items: motoristasCadastrados } = useTenantCollection<{ id: string; nome?: string; ativo?: boolean }>('motoristas', tenantId, { enabled: isModalOpen });
   const veiculosAtivos = frotaCadastrada.filter((v) => v.ativo !== false);
   const motoristasAtivos = motoristasCadastrados.filter((m) => m.ativo !== false);
   const [veiculoDaDespesa, setVeiculoDaDespesa] = useState('');
@@ -160,38 +193,12 @@ const ContasPagar: React.FC = () => {
     status: 'Pendente' as 'Paga' | 'Pendente'
   });
 
+  // Plano de contas das configuracoes (categorias da despesa).
   useEffect(() => {
-    if (!currentUser) return;
-    
-    // Escutar TODAS as transacoes de saída para poder calcular os pagamentos de hoje
-    const q = query(
-      collection(db, 'transacoes'), 
-      where('tenantId', '==', tenantId),
-      where('tipo', '==', 'saida')
-    );
-
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const data: TransacaoData[] = [];
-      querySnapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as TransacaoData);
-      });
-      data.sort((a, b) => {
-        const dateA = a.data || '';
-        const dateB = b.data || '';
-        return dateA.localeCompare(dateB); // Ordenar por vencimento (mais próximos primeiro)
-      });
-      setTransacoes(data);
-      setLoading(false);
-    }, (error) => {
-      console.error("Erro ao buscar contas a pagar:", error);
-      setLoading(false);
-    });
-
-    // Buscar Plano de Contas das configurações
+    if (!currentUser || !tenantId) return;
     const fetchConfig = async () => {
       try {
-        const configRef = doc(db, 'configuracoes', tenantId || '');
-        const configSnap = await getDoc(configRef);
+        const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
         if (configSnap.exists()) {
           const data = configSnap.data();
           if (data.planoContasDespesas) {
@@ -202,11 +209,8 @@ const ContasPagar: React.FC = () => {
         console.error("Erro ao buscar plano de contas", err);
       }
     };
-    
     fetchConfig();
-
-    return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser, tenantId]);
 
   const FORMAS_PAGAMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Boleto', 'Outros'];
 
@@ -662,6 +666,50 @@ const ContasPagar: React.FC = () => {
     })
     .sort((a, b) => String(a.data || '9999-12-31').localeCompare(String(b.data || '9999-12-31')));
 
+  // ---- Baixa em lote: so' conta em aberto e sem cheque (baixaEmLoteDomain).
+  const elegiveis = new Map(titulosFiltrados.filter((t) => podeEntrarNoLote(t, 'saida')).map((t) => [t.id, t]));
+  const idsElegiveisDe = (lista: TransacaoData[]) => lista.filter((t) => elegiveis.has(t.id)).map((t) => t.id);
+  const idsElegiveisVisiveis = agrupar
+    ? gruposPorFornecedor.flatMap((g) => idsElegiveisDe(g.transacoes))
+    : idsElegiveisDe(titulosPorVencimento);
+  const selecaoValida = [...selecionados].filter((id) => elegiveis.has(id));
+  const marcar = (ids: string[], marcarIds: boolean) => {
+    const { selecao, deFora } = marcarNaSelecao(selecionados, ids, marcarIds);
+    setSelecionados(selecao);
+    if (deFora > 0) {
+      showWarning(`Até ${LIMITE_BAIXA_EM_LOTE} contas por vez`, `${deFora} ${deFora === 1 ? 'conta ficou' : 'contas ficaram'} de fora. Dê baixa nestas e selecione o resto depois.`);
+    }
+  };
+  const centavosDoTitulo = (t: TransacaoData) => toCents(Number(t.valor || 0));
+  const totalSelecionadoCentavos = selecaoValida.reduce((soma, id) => soma + centavosDoTitulo(elegiveis.get(id) as TransacaoData), 0);
+  const abrirBaixaEmLote = () => {
+    // O borderô congela ao abrir: as contas pagas saem da lista ao vivo, mas o
+    // resultado de cada uma continua na janela.
+    setItensDoLote(selecaoValida.map((id) => {
+      const t = elegiveis.get(id) as TransacaoData;
+      return {
+        id: t.id,
+        nome: t.fornecedorNome?.trim() || t.categoria?.trim() || 'Sem fornecedor',
+        descricao: t.descricao,
+        vencimento: t.data || '',
+        valorCentavos: centavosDoTitulo(t),
+        formaPrevista: t.formaPagamento,
+      };
+    }));
+  };
+  const fecharBaixaEmLote = (baixados: string[]) => {
+    setItensDoLote(null);
+    if (baixados.length > 0) setSelecionados((atual) => marcarNaSelecao(atual, baixados, false).selecao);
+  };
+  const caixaDoTitulo = (t: TransacaoData) => (elegiveis.has(t.id) ? (
+    <CaixaDeSelecao
+      estado={selecionados.has(t.id) ? 'todos' : 'nenhum'}
+      rotulo={`Selecionar ${t.descricao}`}
+      onAlternar={(marcarConta) => marcar([t.id], marcarConta)}
+    />
+  ) : null);
+  const classeDaLinha = (t: TransacaoData) => (selecionados.has(t.id) && elegiveis.has(t.id) ? 'lote-linha-marcada' : undefined);
+
   const toggleGrupoExpandido = (chave: string) => {
     setGruposExpandidos((current) => {
       const next = new Set(current);
@@ -673,12 +721,12 @@ const ContasPagar: React.FC = () => {
 
   return (
     <div className="financeiro-page" style={{ padding: '24px' }}>
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px', alignItems: 'center' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
         <div>
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>Contas a Pagar</h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Gestão de custos, boletos e despesas agendadas</p>
         </div>
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
             <Clock size={24} color="#ef4444" />
             <div>
@@ -697,14 +745,11 @@ const ContasPagar: React.FC = () => {
               </div>
             </div>
           </div>
-          <button
-            className="btn-secondary"
-            onClick={() => openTab('/financeiro/contas-pagar/importar', 'Importar Contas a Pagar')}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <Upload size={18} />
-            Importar títulos
-          </button>
+          <MenuMaisOpcoes
+            itens={[
+              { texto: 'Importar títulos', Icone: Upload, onClick: () => openTab('/financeiro/contas-pagar/importar', 'Importar Contas a Pagar') },
+            ]}
+          />
           <button className="btn-primary" onClick={handleOpenModal} style={{ backgroundColor: '#ef4444', borderColor: '#ef4444', boxShadow: '0 0 15px rgba(239, 68, 68, 0.4)' }}>
             <Plus size={18} style={{ marginRight: 8 }} />
             Lançar Despesa
@@ -804,7 +849,7 @@ const ContasPagar: React.FC = () => {
         )}
       </PainelFiltros>
 
-      <div className="card" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+      <div className="card lote-tom-saida" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
         <div className="table-wrapper">
           {!agrupar ? (
             /* LISTA POR VENCIMENTO -- o modo padrao. Todos os fornecedores
@@ -812,6 +857,14 @@ const ContasPagar: React.FC = () => {
             <table className="data-table financeiro-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <th style={{ padding: '8px 0 8px 8px', width: '44px' }}>
+                  <CaixaDeSelecao
+                    estado={estadoDaSelecao(selecionados, idsElegiveisVisiveis)}
+                    rotulo="Selecionar todas as contas em aberto da lista"
+                    desabilitada={idsElegiveisVisiveis.length === 0}
+                    onAlternar={(marcarTodos) => marcar(idsElegiveisVisiveis, marcarTodos)}
+                  />
+                  </th>
                   <th style={{ padding: '16px' }}>Vencimento</th>
                   <th style={{ padding: '16px' }}>Fornecedor</th>
                   <th style={{ padding: '16px' }}>Descrição</th>
@@ -822,10 +875,10 @@ const ContasPagar: React.FC = () => {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando contas a pagar...</td></tr>
+                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>Carregando contas a pagar...</td></tr>
                 ) : titulosPorVencimento.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                       <CheckCircle size={48} color="#10b981" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
                       <div>
                         {buscaGrupo.trim()
@@ -849,7 +902,8 @@ const ContasPagar: React.FC = () => {
                   const diasAtraso = t.data && t.status === 'Pendente' ? (differenceInCalendarDays(t.data, hojeStr) ?? 0) : 0;
                   const venceHoje = t.data === hojeStr && t.status === 'Pendente';
                   return (
-                    <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                    <tr key={t.id} className={classeDaLinha(t)} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '4px 0 4px 8px' }}>{caixaDoTitulo(t)}</td>
                       <td style={{ padding: '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: diasAtraso > 0 ? '#ef4444' : venceHoje ? '#f59e0b' : 'var(--text-secondary)', fontWeight: diasAtraso > 0 || venceHoje ? 700 : 400 }}>
                           <Calendar size={15} />
@@ -882,7 +936,15 @@ const ContasPagar: React.FC = () => {
           <table className="data-table financeiro-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <th style={{ padding: '16px', width: '32px' }}></th>
+                <th style={{ padding: '8px 0 8px 8px', width: '44px' }}>
+                  <CaixaDeSelecao
+                    estado={estadoDaSelecao(selecionados, idsElegiveisVisiveis)}
+                    rotulo="Selecionar todas as contas em aberto da lista"
+                    desabilitada={idsElegiveisVisiveis.length === 0}
+                    onAlternar={(marcarTodos) => marcar(idsElegiveisVisiveis, marcarTodos)}
+                  />
+                </th>
+                <th style={{ padding: '16px 0', width: '24px' }}></th>
                 <th style={{ padding: '16px' }}>Fornecedor / Categoria</th>
                 <th style={{ padding: '16px', textAlign: 'center' }}>{rotuloQuantidade}</th>
                 <th style={{ padding: '16px' }}>Vencimento mais antigo</th>
@@ -892,11 +954,11 @@ const ContasPagar: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>Carregando contas a pagar...</td>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando contas a pagar...</td>
                 </tr>
               ) : gruposPorFornecedor.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     <CheckCircle size={48} color="#10b981" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
                     <div>{buscaGrupo.trim() || filtrosAtivos > 0 ? 'Nenhum título encontrado com esses filtros.' : 'Tudo em dia! Nenhuma conta pendente para pagamento.'}</div>
                   </td>
@@ -905,13 +967,25 @@ const ContasPagar: React.FC = () => {
                 gruposPorFornecedor.map((grupo) => {
                   const expandido = gruposExpandidos.has(grupo.chave);
                   const emAtraso = grupo.diasAtrasoMax > 0;
+                  const idsDoGrupo = idsElegiveisDe(grupo.transacoes);
+                  const estadoDoGrupo = estadoDaSelecao(selecionados, idsDoGrupo);
                   return (
                     <React.Fragment key={grupo.chave}>
                       <tr
                         onClick={() => toggleGrupoExpandido(grupo.chave)}
+                        className={estadoDoGrupo === 'todos' ? 'lote-linha-marcada' : undefined}
                         style={{ borderBottom: expandido ? 'none' : '1px solid var(--border-color)', cursor: 'pointer', backgroundColor: expandido ? 'var(--bg-tertiary)' : 'transparent' }}
                       >
-                        <td style={{ padding: '16px 0 16px 16px', color: 'var(--text-muted)' }}>
+                        <td style={{ padding: '8px 0 8px 8px' }}>
+                          {idsDoGrupo.length > 0 && (
+                            <CaixaDeSelecao
+                              estado={estadoDoGrupo}
+                              rotulo={`Selecionar as contas em aberto de ${grupo.titulo}`}
+                              onAlternar={(marcarGrupo) => marcar(idsDoGrupo, marcarGrupo)}
+                            />
+                          )}
+                        </td>
+                        <td style={{ padding: '16px 0', color: 'var(--text-muted)' }}>
                           {expandido ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                         </td>
                         <td style={{ padding: '16px', fontWeight: 600 }}>
@@ -939,10 +1013,11 @@ const ContasPagar: React.FC = () => {
                       </tr>
                       {expandido && (
                         <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                          <td colSpan={5} style={{ padding: '0 16px 16px 48px', backgroundColor: 'var(--bg-tertiary)' }}>
+                          <td colSpan={6} style={{ padding: '0 16px 16px 48px', backgroundColor: 'var(--bg-tertiary)' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                               <thead>
                                 <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                  <th style={{ padding: '10px 0', width: '44px' }}><span className="lote-so-leitor">Selecionar</span></th>
                                   <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Vencimento</th>
                                   <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Descrição</th>
                                   <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Categoria</th>
@@ -952,7 +1027,8 @@ const ContasPagar: React.FC = () => {
                               </thead>
                               <tbody>
                                 {grupo.transacoes.map((t) => (
-                                  <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                  <tr key={t.id} className={classeDaLinha(t)} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                    <td style={{ padding: '4px 0' }}>{caixaDoTitulo(t)}</td>
                                     <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <Calendar size={14} />
@@ -987,6 +1063,17 @@ const ContasPagar: React.FC = () => {
           )}
         </div>
       </div>
+
+      <BarraDeSelecaoLote
+        tipo="saida"
+        quantidade={selecaoValida.length}
+        totalCentavos={totalSelecionadoCentavos}
+        onLimpar={() => setSelecionados(new Set())}
+        onDarBaixa={abrirBaixaEmLote}
+      />
+      {itensDoLote && tenantId && (
+        <BaixaEmLoteModal tipo="saida" itens={itensDoLote} tenantId={tenantId} onFechar={fecharBaixaEmLote} />
+      )}
 
       {/* Modal de Novo Lançamento */}
       {isModalOpen && (

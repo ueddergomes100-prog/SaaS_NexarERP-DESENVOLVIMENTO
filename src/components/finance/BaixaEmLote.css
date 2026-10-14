@@ -313,12 +313,15 @@ body.light-theme .lote-campo input[type='date'] { color-scheme: light; }
   border-bottom: 1px solid var(--border-color);
 }
 .lote-bordero td {
+  /* as tabelas do sistema herdam nowrap; aqui o nome tem de quebrar linha */
+  white-space: normal;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-primary);
   vertical-align: top;
 }
 .lote-bordero .lote-direita { text-align: right; }
+.lote-bordero .lote-numero { white-space: nowrap; }
 .lote-bordero .lote-seq { color: var(--text-muted); width: 36px; }
 .lote-bordero .lote-nome { font-weight: 600; }
 .lote-bordero .lote-descricao { display: block; font-size: 12px; color: var(--text-muted); font-weight: 400; margin-top: 2px; }
@@ -388,11 +391,29 @@ body.light-theme .lote-campo input[type='date'] { color-scheme: light; }
 }
 @keyframes lote-gira { to { transform: rotate(360deg); } }
 
+/* Filhos de grid/flex nao podem crescer pela largura minima da tabela. */
+.lote-corpo > *,
+.lote-bordero,
+.lote-bordero-folha { min-width: 0; }
+.lote-bordero .lote-nome,
+.lote-bordero .lote-descricao { overflow-wrap: anywhere; }
+
 @media (max-width: 760px) {
+  .lote-fundo { padding: 8px; align-items: stretch; }
+  .lote-janela { max-height: calc(100vh - 16px); }
   .lote-corpo { grid-template-columns: 1fr; overflow-y: auto; }
-  .lote-formulario { border-right: none; border-bottom: 1px solid var(--border-color); overflow: visible; }
+  .lote-formulario { border-right: none; border-bottom: 1px solid var(--border-color); overflow: visible; padding: 16px; }
+  /* No celular a janela inteira rola: o borderô deixa de ter rolagem propria. */
+  .lote-bordero { display: block; padding: 16px 16px 0; }
   .lote-bordero-folha { overflow: visible; }
   .lote-bordero .lote-col-vencimento { display: none; }
+  .lote-bordero th,
+  .lote-bordero td { padding: 8px; }
+  .lote-bordero-total { gap: 16px; }
+  .lote-rodape { padding: 12px 16px; }
+  .lote-rodape .lote-barra-acoes,
+  .lote-rodape > .lote-botao-principal { width: 100%; }
+  .lote-cta-total { display: none; }
   .lote-barra { bottom: 8px; }
   .lote-barra-acoes { width: 100%; }
   .lote-barra-acoes .lote-botao-principal { flex: 1; }

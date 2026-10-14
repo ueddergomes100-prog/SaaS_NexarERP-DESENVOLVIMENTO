@@ -43,10 +43,13 @@ export const useTitulosFinanceiros = <T extends TituloLido>(args: {
   historico: HistoricoDePagas;
   /** Em aberto de qualquer data (padrão: sim). */
   abertas?: boolean;
+  /** Só as abertas destas formas de pagamento (ex.: cartões, na tela Banco). */
+  formasDasAbertas?: string[];
   /** Pagas hoje (padrão: sim). */
   pagasHoje?: boolean;
 }): { titulos: T[]; carregando: boolean } => {
-  const { tenantId, tipo, historico, abertas = true, pagasHoje = true } = args;
+  const { tenantId, tipo, historico, abertas = true, pagasHoje = true, formasDasAbertas } = args;
+  const chaveFormas = (formasDasAbertas || []).join('|');
   const [titulos, setTitulos] = useState<T[]>([]);
   const [carregando, setCarregando] = useState(true);
 
@@ -96,7 +99,12 @@ export const useTitulosFinanceiros = <T extends TituloLido>(args: {
       parar.push(assinarComReserva(consulta, doTipo, `Títulos (${rotulo}, ${nome})`, receber(nome), falhar(nome)));
     };
 
-    if (abertas) escutar('abertas', query(doTipo, where('status', '==', 'Pendente')));
+    if (abertas) {
+      const formas = chaveFormas ? chaveFormas.split('|') : [];
+      escutar('abertas', formas.length > 0
+        ? query(doTipo, where('status', '==', 'Pendente'), where('formaPagamento', 'in', formas))
+        : query(doTipo, where('status', '==', 'Pendente')));
+    }
     if (pagasHoje) escutar('pagasHoje', query(doTipo, where('status', '==', 'Paga'), where('dataPagamento', '==', hoje)));
 
     if (chaveHistorico === 'todo') {
@@ -118,7 +126,7 @@ export const useTitulosFinanceiros = <T extends TituloLido>(args: {
     }
 
     return () => parar.forEach((fn) => fn());
-  }, [tenantId, tipo, chaveHistorico, abertas, pagasHoje]);
+  }, [tenantId, tipo, chaveHistorico, abertas, pagasHoje, chaveFormas]);
 
   return { titulos, carregando };
 };

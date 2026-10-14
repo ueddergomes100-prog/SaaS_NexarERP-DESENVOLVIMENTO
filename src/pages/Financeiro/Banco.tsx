@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, where } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import React, { useMemo, useState } from 'react';
+import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
 import { conciliarCartaoNoBanco } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
@@ -10,7 +9,7 @@ import {
   transactionMovesPhysicalCash,
   transactionNetAmount,
 } from '../../utils/financeDomain';
-import { dateInputToUtcStart } from '../../utils/dateTime';
+import { addDaysToDateInput, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import './Financeiro.css';
 
@@ -72,8 +71,6 @@ const isCardMethod = (formaPagamento?: string) => (
 );
 
 const Banco: React.FC = () => {
-  const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [diasFiltro, setDiasFiltro] = useState<number>(30);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -81,23 +78,24 @@ const Banco: React.FC = () => {
   const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
   const bancosAtivos = bancos.filter((b) => b.ativo);
 
-  useEffect(() => {
-    if (!currentUser) return;
-    const q = query(collection(db, 'transacoes'), where('tenantId', '==', tenantId));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const data: TransacaoData[] = [];
-      querySnapshot.forEach((docSnap) => {
-        data.push({ id: docSnap.id, ...docSnap.data() } as TransacaoData);
-      });
-      data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setTransacoes(data);
-      setLoading(false);
-    }, (error) => {
-      console.error('Erro ao buscar transações do Banco:', error);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [currentUser, tenantId]);
+  // Leitura enxuta (otimizacao de leituras, 2026-10-14): cartoes PENDENTES de
+  // qualquer data (a conciliar) + extrato PAGO nos ultimos N dias ("Todo o
+  // periodo" le tudo). Antes: TODAS as transacoes da empresa.
+  const hojeLeitura = getDateInputInTimeZone();
+  const historicoDoExtrato: HistoricoDePagas = diasFiltro === 0
+    ? 'todo'
+    : { de: addDaysToDateInput(hojeLeitura, -diasFiltro), ate: '' };
+  const { titulos: titulosLidos, carregando: loading } = useTitulosFinanceiros<TransacaoData>({
+    tenantId,
+    historico: historicoDoExtrato,
+    formasDasAbertas: ['Cartão de Crédito', 'Cartão de Débito'],
+    pagasHoje: false,
+  });
+  const transacoes = useMemo(
+    () => [...titulosLidos].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)),
+    [titulosLidos],
+  );
+
 
   const confirmarRecebimentoCartao = async (t: TransacaoData) => {
     if (!tenantId || !currentUser || processingId) return;

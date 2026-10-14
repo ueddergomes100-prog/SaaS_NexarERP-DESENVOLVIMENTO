@@ -40,6 +40,7 @@ import {
   type FirestoreError,
   type QuerySnapshot,
 } from 'firebase/firestore';
+import { assinarComReserva } from '../../services/consultaComReserva';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { TabActiveContext, useTabs } from '../../contexts/TabsContext';
@@ -224,15 +225,9 @@ const assinarColecaoDoPeriodo = (
   const base = collection(db, nome);
   const completa = query(base, where('tenantId', '==', tenantId));
   const limitada = query(base, where('tenantId', '==', tenantId), where('createdAt', '>=', Timestamp.fromDate(inicio)));
-  let cancelar = onSnapshot(limitada, aoReceber, (erro) => {
-    if (erro.code === 'failed-precondition') {
-      console.warn(`Dashboard: índice (tenantId, createdAt) de ${nome} ainda não publicado neste projeto; lendo a coleção inteira.`);
-      cancelar = onSnapshot(completa, aoReceber, aoFalhar);
-      return;
-    }
-    aoFalhar(erro);
-  });
-  return () => cancelar();
+  // Mesmo utilitario das outras listas (reserva ligada fora do callback de
+  // erro do SDK -- ver services/consultaComReserva.ts).
+  return assinarComReserva(limitada, completa, `Dashboard (${nome})`, aoReceber, aoFalhar);
 };
 
 const periodBucket = (date: Date, period: DashboardPeriod) => {

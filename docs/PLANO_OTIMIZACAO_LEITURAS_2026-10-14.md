@@ -115,8 +115,8 @@ O padrão de referência é o Dashboard (`Dashboard.tsx:217-236`,
 | Boletos `Boletos.tsx:120` | todo boleto | abertos por status; **retorno bancário passa a consultar `nossoNumero in` ANTES do corte** |
 | Cheques `Cheques.tsx:88` | todo cheque | pendentes; compensados por período |
 | Faturamento/DRE `Faturamento.tsx:32` | toda `transacoes` | `Paga` + ano |
-| NF-e `NFE.tsx:1232` (+ `:1162` redundante) | todas as notas | período + cursor; escuta só das pendentes; cartões por agregação; **buscas em memória viram consulta antes do corte** |
-| NF-e `NFE.tsx:460,498,510` | pedidos/OS finalizados e cancelados inteiros | sob demanda ao abrir o modal |
+| NF-e `NFE.tsx:1232` (+ `:1162` redundante) | todas as notas | **Feito 14/10 (`0c88b12`):** período (padrão mês atual) + escutas das em transmissão e rejeitadas de qualquer data; cupom do pedido e devoluções consultados no banco; releitura após ação removida |
+| NF-e `NFE.tsx:460,498,510` | pedidos/OS finalizados e cancelados inteiros | **Feito 14/10 (`3b1ad49`):** finalizados dos últimos 90 dias por `dataVenda`/`dataSaida`; pedido antigo pelo id (link do pedido); cancelados só os citados pelas notas da tela |
 | Notas de entrada `NotasFiscaisEntradaList.tsx:101` | todas, com XML dentro | período por `dataEmissao`; XML fora do documento |
 | Orçamentos `Orcamentos.tsx:57` | tudo, relido após cada "Recusar" | período + pendentes por status; atualizar item local |
 | Devoluções, Minhas Vendas, Pré-vendas, Expedição, Notas Avulsas, Lotes, Ajustes, Produção, Transferências, Trocas, Condicionais, Romaneios, Rotas, Agenda, Lembretes, Caixas do PDV, Custo por Veículo, Extrato bancário | só `tenantId` | aba padrão por status; histórico por período/limit |
@@ -182,9 +182,11 @@ e o índice (critical, dataHora) da limpeza de logs.
    antigo; pedido da integração externa pode não ter `createdAt`; `dataPagamento`
    não é gravado quando o título nasce pago; transferências só têm `enviadoEm`;
    romaneio em montagem pode estar sem `dataSaida`. **Empresa restaurada de
-   backup:** `restore.js:189` regrava `createdAt` como mapa `{_seconds,_nanoseconds}`
-   — some de todo `where`/`orderBy` por data (já acontece no Dashboard). Antes do
-   corte: levantar no dev os documentos sem o campo e corrigir na origem.
+   backup:** `restore.js:189` regravava `createdAt` como mapa `{_seconds,_nanoseconds}`
+   — some de todo `where`/`orderBy` por data (já acontece no Dashboard).
+   **Corrigido na origem em 14/10 (`46a55dc`, `server/services/backupDatas.js`).**
+   Falta conferir em produção se alguma empresa já foi restaurada
+   (`restauracoes_historico`) e, se sim, converter os documentos dela.
 2. **Pendente antigo não pode sumir** (OS em andamento, título vencido, cheque,
    pré-venda, condicional, lote a vencer) → status, nunca período.
 3. **Totais mudam de significado** ("Total a Receber", cartões da NF-e, rodapé de

@@ -4,7 +4,9 @@ import {
   FileText, Plus, Search, Edit2,
   CheckCircle, XCircle, Wrench, Share2, Printer, ShoppingCart
 } from 'lucide-react';
-import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, getDoc, runTransaction } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, getDoc, runTransaction, Timestamp, type DocumentData, type QuerySnapshot } from 'firebase/firestore';
+import { assinarComReserva } from '../../services/consultaComReserva';
+import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -32,6 +34,9 @@ interface Orcamento {
   geradoId?: string;
 }
 
+/** Orcamento esperando o cliente: aparece sempre, de qualquer data. */
+const STATUS_ORCAMENTO_EM_ABERTO = ['Pendente', 'Aprovado'];
+
 const Orcamentos: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
@@ -50,27 +55,56 @@ const Orcamentos: React.FC = () => {
   /** Linha destacada por um clique simples. Abrir exige duplo clique (ou Enter). */
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const fetchOrcamentos = async () => {
-    if (!tenantId) return;
-    setIsLoading(true);
-    try {
-      const q = query(collection(db, 'orcamentos'), where('tenantId', '==', tenantId));
-      const querySnapshot = await getDocs(q);
-      const data: Orcamento[] = [];
-      querySnapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as Orcamento);
-      });
-      setOrcamentos(data.sort((a, b) => b.numeroOrcamento.localeCompare(a.numeroOrcamento)));
-    } catch (error) {
-      console.error("Erro ao buscar orçamentos:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Leitura enxuta (otimizacao de leituras, 2026-10-14). Antes: TODOS os
+  // orcamentos da empresa, relidos depois de cada "Recusar". Agora duas
+  // escutas ao vivo, juntadas por id:
+  //  - os EM ABERTO (Pendente/Aprovado), de qualquer data -- orcamento
+  //    esperando o cliente nunca some por periodo;
+  //  - os emitidos no periodo do filtro "Emissao" (vazio = mes atual, decisao
+  //    do dono), de qualquer status.
+  // Sem o indice (tenantId, createdAt) publicado, a segunda cai na colecao
+  // inteira e o mesmo corte e' feito aqui.
+  const hojeLeitura = getDateInputInTimeZone();
+  const periodoNoMesPadrao = !periodoDe && !periodoAte;
+  const leituraDe = periodoNoMesPadrao ? `${hojeLeitura.slice(0, 7)}-01` : periodoDe;
+  const leituraAte = periodoNoMesPadrao ? hojeLeitura : periodoAte;
 
   useEffect(() => {
-    fetchOrcamentos();
-  }, [tenantId]);
+    if (!tenantId) return undefined;
+    setIsLoading(true);
+    const todos = query(collection(db, 'orcamentos'), where('tenantId', '==', tenantId));
+    const inicio = leituraDe ? dateInputToUtcStart(leituraDe) : null;
+    const fim = leituraAte ? dateInputToUtcEnd(leituraAte) : null;
+    const doPeriodo = query(
+      todos,
+      ...(inicio ? [where('createdAt', '>=', Timestamp.fromDate(inicio))] : []),
+      ...(fim ? [where('createdAt', '<=', Timestamp.fromDate(fim))] : []),
+    );
+    const partes = new Map<string, Orcamento[]>();
+    const publicar = () => {
+      const porId = new Map<string, Orcamento>();
+      partes.forEach((lista) => lista.forEach((orcamento) => porId.set(orcamento.id, orcamento)));
+      setOrcamentos(Array.from(porId.values()).sort((a, b) => String(b.numeroOrcamento || '').localeCompare(String(a.numeroOrcamento || ''))));
+      if (partes.size >= 2) setIsLoading(false);
+    };
+    const receber = (nome: string, doPeriodoEscolhido = false) => (snap: QuerySnapshot<DocumentData>) => {
+      partes.set(nome, snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Orcamento))
+        .filter((orcamento) => !doPeriodoEscolhido || dentroDoPeriodo(orcamento.createdAt, leituraDe, leituraAte)));
+      publicar();
+    };
+    const falhar = (nome: string) => (erro: unknown) => {
+      console.error('Erro ao buscar orçamentos:', erro);
+      if (!partes.has(nome)) partes.set(nome, []);
+      publicar();
+    };
+    const pararAbertos = onSnapshot(query(todos, where('status', 'in', STATUS_ORCAMENTO_EM_ABERTO)), receber('abertos'), falhar('abertos'));
+    const pararPeriodo = assinarComReserva(doPeriodo, todos, 'Orçamentos (período)', receber('periodo', true), falhar('periodo'));
+    return () => {
+      pararAbertos();
+      pararPeriodo();
+    };
+  }, [tenantId, leituraDe, leituraAte]);
 
   const handleRecusar = async (orcamento: Orcamento) => {
     if (orcamento.status === 'Recusado') {
@@ -191,7 +225,6 @@ const Orcamentos: React.FC = () => {
           // ignore audit log error
         }
         showSuccess(cancelarOsJunto ? 'Orçamento recusado e OS cancelada!' : 'Orçamento recusado!');
-        fetchOrcamentos();
       } catch (error) {
         showError('Erro', 'Não foi possível atualizar o orçamento.');
       }
@@ -270,6 +303,11 @@ const Orcamentos: React.FC = () => {
           </CampoFiltro>
           <CampoPeriodo rotulo="Emissão" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
         </PainelFiltros>
+        {periodoNoMesPadrao && (
+          <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Pendentes e aprovados de qualquer data; os demais, emitidos este mês. Para outro período, use Filtros › Emissão.
+          </p>
+        )}
 
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>

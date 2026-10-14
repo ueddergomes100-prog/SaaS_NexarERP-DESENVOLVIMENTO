@@ -21,6 +21,9 @@ import { getDateInputInTimeZone } from '../utils/dateTime';
  * As consultas de igualdade não precisam de índice composto. As de período
  * usam (tenantId, tipo, status, dataPagamento|data); sem o índice publicado,
  * caem na consulta antiga (todas do tipo) e o filtro da tela segura.
+ *
+ * O Caixa usa sem `tipo` (entradas e saídas), sem as abertas e sem as pagas
+ * de hoje: só o histórico de pagas do período (índices sem `tipo`).
  */
 
 export type HistoricoDePagas = null | 'todo' | { de: string; ate: string };
@@ -35,10 +38,15 @@ const lerDocumentos = <T extends TituloLido>(snapshot: QuerySnapshot<DocumentDat
 
 export const useTitulosFinanceiros = <T extends TituloLido>(args: {
   tenantId: string | null;
-  tipo: 'entrada' | 'saida';
+  /** Sem tipo = entradas e saídas. */
+  tipo?: 'entrada' | 'saida';
   historico: HistoricoDePagas;
+  /** Em aberto de qualquer data (padrão: sim). */
+  abertas?: boolean;
+  /** Pagas hoje (padrão: sim). */
+  pagasHoje?: boolean;
 }): { titulos: T[]; carregando: boolean } => {
-  const { tenantId, tipo, historico } = args;
+  const { tenantId, tipo, historico, abertas = true, pagasHoje = true } = args;
   const [titulos, setTitulos] = useState<T[]>([]);
   const [carregando, setCarregando] = useState(true);
 
@@ -54,7 +62,10 @@ export const useTitulosFinanceiros = <T extends TituloLido>(args: {
     setCarregando(true);
     const hoje = getDateInputInTimeZone();
     const base = collection(db, 'transacoes');
-    const doTipo = query(base, where('tenantId', '==', tenantId), where('tipo', '==', tipo));
+    const doTipo = tipo
+      ? query(base, where('tenantId', '==', tenantId), where('tipo', '==', tipo))
+      : query(base, where('tenantId', '==', tenantId));
+    const rotulo = tipo || 'entrada e saída';
     const partes = new Map<string, T[]>();
     const esperadas = new Set<string>();
     const chegaram = new Set<string>();
@@ -71,7 +82,7 @@ export const useTitulosFinanceiros = <T extends TituloLido>(args: {
       publicar();
     };
     const falhar = (nome: string) => (erro: unknown) => {
-      console.error(`Títulos (${tipo}, ${nome}):`, erro);
+      console.error(`Títulos (${rotulo}, ${nome}):`, erro);
       chegaram.add(nome);
       publicar();
     };
@@ -82,11 +93,11 @@ export const useTitulosFinanceiros = <T extends TituloLido>(args: {
     };
     const escutarComReserva = (nome: string, consulta: Query<DocumentData>) => {
       esperadas.add(nome);
-      parar.push(assinarComReserva(consulta, doTipo, `Títulos (${tipo}, ${nome})`, receber(nome), falhar(nome)));
+      parar.push(assinarComReserva(consulta, doTipo, `Títulos (${rotulo}, ${nome})`, receber(nome), falhar(nome)));
     };
 
-    escutar('abertas', query(doTipo, where('status', '==', 'Pendente')));
-    escutar('pagasHoje', query(doTipo, where('status', '==', 'Paga'), where('dataPagamento', '==', hoje)));
+    if (abertas) escutar('abertas', query(doTipo, where('status', '==', 'Pendente')));
+    if (pagasHoje) escutar('pagasHoje', query(doTipo, where('status', '==', 'Paga'), where('dataPagamento', '==', hoje)));
 
     if (chaveHistorico === 'todo') {
       escutar('pagas', query(doTipo, where('status', '==', 'Paga')));
@@ -101,8 +112,13 @@ export const useTitulosFinanceiros = <T extends TituloLido>(args: {
       escutarComReserva('pagasPorVencimento', query(pagas, ...entre('data')));
     }
 
+    if (esperadas.size === 0) {
+      setTitulos([]);
+      setCarregando(false);
+    }
+
     return () => parar.forEach((fn) => fn());
-  }, [tenantId, tipo, chaveHistorico]);
+  }, [tenantId, tipo, chaveHistorico, abertas, pagasHoje]);
 
   return { titulos, carregando };
 };

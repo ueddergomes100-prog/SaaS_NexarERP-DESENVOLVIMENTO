@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowUpCircle, ArrowDownCircle, Search, DollarSign, Eye, EyeOff, Calendar, X, Loader2, CheckCircle, RotateCcw } from 'lucide-react';
-import { collection, query, onSnapshot, where, addDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { fromCents, toCents, transactionMovesPhysicalCash, transactionNetAmount } from '../../utils/financeDomain';
-import { dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
+import { addDaysToDateInput, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { estornarBaixaComConfirmacao, planejarEstornoPorTipo } from '../../services/baixaFinanceiraService';
 import type { TituloParaEstorno } from '../../utils/baixaFinanceiraDomain';
@@ -48,13 +49,30 @@ const transactionDate = (transaction: TransacaoData) => {
 };
 
 const Caixa: React.FC = () => {
-  const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showSaldo, setShowSaldo] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [diasFiltro, setDiasFiltro] = useState<number>(30); // Padrão 30 dias
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
-  
+
+  // Leitura enxuta (otimizacao de leituras, 2026-10-14): o caixa so' mostra
+  // o que foi PAGO nos ultimos N dias, entao o banco devolve so' isso (por
+  // data de pagamento e, sem ela, pela data). "Todo o periodo" le tudo, como
+  // antes. Antes: TODAS as transacoes da empresa, de qualquer tipo e status.
+  const hojeLeitura = getDateInputInTimeZone();
+  const historicoDoCaixa: HistoricoDePagas = diasFiltro === 0
+    ? 'todo'
+    : { de: addDaysToDateInput(hojeLeitura, -diasFiltro), ate: '' };
+  const { titulos: titulosLidos, carregando: loading } = useTitulosFinanceiros<TransacaoData>({
+    tenantId,
+    historico: historicoDoCaixa,
+    abertas: false,
+    pagasHoje: false,
+  });
+  const transacoes = useMemo(
+    () => [...titulosLidos].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)),
+    [titulosLidos],
+  );
+
   const podeEstornar = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('financeiro.estornar'));
 
   // Modal states
@@ -74,33 +92,12 @@ const Caixa: React.FC = () => {
     status: 'Paga' as 'Paga' | 'Pendente'
   });
 
+  // Plano de contas das configuracoes (categorias de receita e despesa).
   useEffect(() => {
-    if (!currentUser) return;
-    
-    // Escutar transacoes
-    const q = query(collection(db, 'transacoes'), where('tenantId', '==', tenantId));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const data: TransacaoData[] = [];
-      querySnapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as TransacaoData);
-      });
-      data.sort((a, b) => {
-        const dateA = a.createdAt?.seconds || 0;
-        const dateB = b.createdAt?.seconds || 0;
-        return dateB - dateA;
-      });
-      setTransacoes(data);
-      setLoading(false);
-    }, (error) => {
-      console.error("Erro ao buscar transações:", error);
-      setLoading(false);
-    });
-
-    // Buscar Plano de Contas das configurações
+    if (!currentUser || !tenantId) return;
     const fetchConfig = async () => {
       try {
-        const configRef = doc(db, 'configuracoes', tenantId || '');
-        const configSnap = await getDoc(configRef);
+        const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
         if (configSnap.exists()) {
           const data = configSnap.data();
           if (data.planoContasReceitas) {
@@ -114,10 +111,7 @@ const Caixa: React.FC = () => {
         console.error("Erro ao buscar plano de contas", err);
       }
     };
-    
     fetchConfig();
-
-    return () => unsubscribe();
   }, [currentUser, tenantId]);
 
   const isWithinSelectedDays = (transaction: TransacaoData) => {

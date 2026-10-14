@@ -45,6 +45,7 @@ import { ratearValorPorPesos } from '../../utils/notaAvulsaDomain';
 import EmissaoLoteModal, { type PedidoParaLote, type ResultadoItemLote } from './EmissaoLoteModal';
 import { duplicatasDaNota } from '../../utils/duplicatasNfeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { intervaloConsultaPendentes } from '../../utils/consultaPendentesDomain';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -1278,14 +1279,28 @@ const NFE: React.FC = () => {
   // recarregar a pagina (o onSnapshot acima so pega mudanca que ja
   // aconteceu no Firestore, nao consulta a Spedy sozinho). So fica ativo
   // com nota pendente na tela -- sem nenhuma, nao bate na API a toa.
+  // O intervalo desacelera conforme a nota pendente mais recente envelhece
+  // (15 s -> 1 min -> 5 min, consultaPendentesDomain.ts): nota travada nao
+  // fica sendo consultada a cada 15 s para sempre.
   useEffect(() => {
     if (!config?.spedyEnabled || !config?.spedyApiKey) return;
     const pending = invoices.filter(n => ['enqueued', 'processing', 'created'].includes(n.status));
     if (pending.length === 0) return;
-    const interval = setInterval(() => {
-      syncPendingInvoices(pending);
-    }, 15000);
-    return () => clearInterval(interval);
+    let cancelado = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const agendar = () => {
+      const intervalo = intervaloConsultaPendentes(pending.map((n) => n.data), Date.now());
+      if (cancelado || intervalo === null) return;
+      timer = setTimeout(async () => {
+        await syncPendingInvoices(pending);
+        agendar();
+      }, intervalo);
+    };
+    agendar();
+    return () => {
+      cancelado = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [invoices, config, syncPendingInvoices]);
 
   const handleManualSyncAll = async () => {

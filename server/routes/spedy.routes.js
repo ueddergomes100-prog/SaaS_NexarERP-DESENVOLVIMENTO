@@ -166,13 +166,24 @@ router.get('/requisitos', async (req, res) => {
 
     // Maior numero JA AUTORIZADO por aqui, por tipo -- referencia pra avisar
     // quando a numeracao da Spedy ficou zerada ou atras (risco de duplicidade).
+    // So' a maior (1 leitura), em vez de todas as notas autorizadas da empresa
+    // antes de cada emissao (otimizacao de leituras, 2026-10-14). `number > 0`
+    // fica so' com os numericos (a Spedy devolve inteiro). Sem o indice
+    // (tenantId, tipo, status, number DESC) publicado, cai na consulta antiga.
     const ultimoAutorizado = async (tipo) => {
       try {
-        const snap = await db.collection('notas_fiscais')
+        const autorizadas = db.collection('notas_fiscais')
           .where('tenantId', '==', tenantId)
           .where('tipo', '==', tipo)
-          .where('status', '==', 'authorized')
-          .get();
+          .where('status', '==', 'authorized');
+        let snap;
+        try {
+          snap = await autorizadas.where('number', '>', 0).orderBy('number', 'desc').limit(1).get();
+        } catch (erro) {
+          if (erro.code !== 9) throw erro; // 9 = FAILED_PRECONDITION (indice ausente)
+          console.warn(`[Spedy Requisitos] indice (tenantId, tipo, status, number) ausente; lendo todas as ${tipo} autorizadas.`);
+          snap = await autorizadas.get();
+        }
         return snap.docs.reduce((maior, d) => Math.max(maior, Number(d.data().number) || 0), 0) || null;
       } catch (erro) {
         console.error(`[Spedy Requisitos] falha ao ler a ultima ${tipo} autorizada:`, erro.message);

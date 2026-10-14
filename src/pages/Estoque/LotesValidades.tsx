@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, type DocumentData, type QuerySnapshot } from 'firebase/firestore';
+import { assinarComReserva } from '../../services/consultaComReserva';
+import AvisoHistoricoDoPeriodo from '../../components/common/AvisoHistoricoDoPeriodo';
 import { useNavigate } from 'react-router-dom';
 import { CalendarClock, FileText, Search, SlidersHorizontal } from 'lucide-react';
 import { db } from '../../services/firebase';
@@ -52,25 +54,39 @@ const LotesValidades: React.FC = () => {
   const [busca, setBusca] = useState('');
   const [previewAberto, setPreviewAberto] = useState(false);
 
+  // So' os lotes COM SALDO (otimizacao de leituras, 2026-10-14): lote zerado
+  // e' historico e se acumula a cada venda. Na aba Todos, "Ver tambem os
+  // zerados" le todos. Sem o indice (tenantId, quantidade) publicado, cai na
+  // colecao inteira e o mesmo corte e' feito aqui.
+  const [verZerados, setVerZerados] = useState(false);
   useEffect(() => {
     if (!tenantId) return undefined;
-    const pararLotes = onSnapshot(query(collection(db, 'estoque_lotes'), where('tenantId', '==', tenantId)), (snap) => {
+    const daEmpresa = query(collection(db, 'estoque_lotes'), where('tenantId', '==', tenantId));
+    const receberLotes = (snap: QuerySnapshot<DocumentData>) => {
       setLotesBrutos(snap.docs.map((d) => {
         const x = d.data();
         return { id: d.id, produtoId: String(x.produtoId || ''), lote: String(x.lote || ''), validade: x.validade ? String(x.validade) : null, quantidade: Number(x.quantidade || 0) };
-      }));
+      }).filter((l) => verZerados || l.quantidade > 0));
       setCarregando(false);
-    }, (erro) => {
+    };
+    const falharLotes = (erro: unknown) => {
       console.error('Erro ao buscar lotes:', erro);
       setSemAcesso(true);
       setCarregando(false);
-    });
-    const pararProdutos = onSnapshot(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)), (snap) => {
+    };
+    const pararLotes = verZerados
+      ? onSnapshot(daEmpresa, receberLotes, falharLotes)
+      : assinarComReserva(query(daEmpresa, where('quantidade', '>', 0)), daEmpresa, 'Lotes e validades (com saldo)', receberLotes, falharLotes);
+    return () => pararLotes();
+  }, [tenantId, verZerados]);
+
+  useEffect(() => {
+    if (!tenantId) return undefined;
+    return onSnapshot(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)), (snap) => {
       const mapa: Record<string, { nome: string; codigo: string }> = {};
       snap.forEach((d) => { mapa[d.id] = { nome: String(d.data().nome || ''), codigo: String(d.data().codigo || '') }; });
       setProdutos(mapa);
     }, (erro) => console.error('Erro ao buscar produtos dos lotes:', erro));
-    return () => { pararLotes(); pararProdutos(); };
   }, [tenantId]);
 
   const lotes = useMemo<LoteDoProduto[]>(() => lotesBrutos.map((l) => ({
@@ -141,6 +157,17 @@ const LotesValidades: React.FC = () => {
           <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input type="text" placeholder="Buscar por produto, código ou lote..." value={busca} onChange={(e) => setBusca(e.target.value)} style={campoStyle} />
         </div>
+
+        {aba === 'todos' && (
+          <AvisoHistoricoDoPeriodo
+            todoPeriodo={verZerados}
+            onAlternar={() => setVerZerados((atual) => !atual)}
+            textoRecente="Lotes com saldo."
+            textoTodo="Todos os lotes, inclusive os zerados."
+            botaoTodo="Ver também os zerados"
+            botaoRecente="Ver só os com saldo"
+          />
+        )}
 
         {semAcesso && (
           <div role="note" style={{ padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.5)', fontSize: '13px', marginBottom: '16px' }}>

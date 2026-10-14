@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Search, Plus } from 'lucide-react';
-import { collection, query, onSnapshot, where } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
+import AvisoHistoricoDoPeriodo from '../../components/common/AvisoHistoricoDoPeriodo';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms } from '../../utils/textSearch';
@@ -40,36 +41,31 @@ const STATUS_COLORS: Record<StatusOrdem, string> = {
 
 const STATUS_FILTER_ORDER: StatusOrdem[] = ['criada', 'em_producao', 'pausada', 'finalizada', 'cancelada', 'estornada'];
 
+/** Ordem que ainda esta' andando: aparece sempre, de qualquer data. */
+const STATUS_ORDEM_PENDENTE: StatusOrdem[] = ['criada', 'em_producao', 'pausada'];
+
 const OrdensProducaoList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
   const { openTab } = useTabs();
-  const [ordens, setOrdens] = useState<OrdemProducaoData[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusOrdem | 'todas'>('todas');
 
   const { currentUser, tenantId } = useAuth();
 
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const q = query(collection(db, 'ordens_producao'), where('tenantId', '==', tenantId));
-
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const data: OrdemProducaoData[] = [];
-      querySnapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as OrdemProducaoData);
-      });
-      data.sort((a, b) => b.numero.localeCompare(a.numero));
-      setOrdens(data);
-      setLoading(false);
-    }, (error) => {
-      console.error("Erro ao buscar ordens de produção:", error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [currentUser, tenantId]);
+  // Criadas, em producao e pausadas de qualquer data; finalizadas,
+  // canceladas e estornadas, deste mes -- ou de todo o periodo quando a
+  // pessoa pede (otimizacao de leituras, 2026-10-14; ver usePendentesEPeriodo).
+  const [todoPeriodo, setTodoPeriodo] = useState(false);
+  const inicioDoMes = `${getDateInputInTimeZone().slice(0, 7)}-01`;
+  const { items, loading } = usePendentesEPeriodo<OrdemProducaoData>('ordens_producao', tenantId, {
+    statusPendentes: STATUS_ORDEM_PENDENTE,
+    campoData: 'createdAt',
+    tipoData: 'timestamp',
+    de: todoPeriodo ? '' : inicioDoMes,
+    ate: '',
+    enabled: Boolean(currentUser),
+  });
+  const ordens = useMemo(() => [...items].sort((a, b) => String(b.numero || '').localeCompare(String(a.numero || ''))), [items]);
 
   const filteredOrdens = ordens.filter(ordem => {
     if (statusFilter !== 'todas' && ordem.status !== statusFilter) return false;
@@ -126,6 +122,17 @@ const OrdensProducaoList: React.FC = () => {
           </button>
         ))}
       </div>
+      {(statusFilter === 'todas' || !STATUS_ORDEM_PENDENTE.includes(statusFilter)) && (
+        <div style={{ marginTop: '-20px' }}>
+          <AvisoHistoricoDoPeriodo
+            todoPeriodo={todoPeriodo}
+            onAlternar={() => setTodoPeriodo((atual) => !atual)}
+            textoRecente="Criadas, em produção e pausadas de qualquer data; finalizadas, canceladas e estornadas, só as deste mês."
+            textoTodo="Ordens de todo o período."
+            botaoRecente="Ver só as deste mês"
+          />
+        </div>
+      )}
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
         <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>

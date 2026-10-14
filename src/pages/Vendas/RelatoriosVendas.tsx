@@ -82,8 +82,8 @@ const inputStyle: React.CSSProperties = {
 
 const RelatoriosVendas: React.FC = () => {
   const navigate = useNavigate();
-  const { data, loading, error } = useDadosRelatorioVendas();
   const [filters, setFilters] = useState<Filters>(initialFilters);
+  const { data, loading, error } = useDadosRelatorioVendas({ de: filters.startDate, ate: filters.endDate });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [sortBy, setSortBy] = useState<'date' | 'number' | 'customer' | 'seller' | 'value' | 'status'>('date');

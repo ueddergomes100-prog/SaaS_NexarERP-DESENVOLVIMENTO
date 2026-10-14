@@ -33,7 +33,7 @@ const PrintRelatorioVendas: React.FC = () => {
   const inicio = params.get('inicio') || '';
   const fim = params.get('fim') || '';
 
-  const { data, loading, error } = useDadosRelatorioVendas();
+  const { data, loading, error } = useDadosRelatorioVendas({ de: inicio, ate: fim });
 
   const vendas = useMemo(() => {
     const start = dateInputToUtcStart(inicio);

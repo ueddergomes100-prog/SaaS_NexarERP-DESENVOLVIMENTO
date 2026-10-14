@@ -17,7 +17,7 @@
  */
 import { auth } from './firebase';
 import { showError, showSuccess } from '../utils/alerts';
-import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
+import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../utils/fetchComTimeout';
 import { fromCents, transactionNetAmount } from '../utils/financeDomain';
 import {
   dataBrasileira,
@@ -44,6 +44,7 @@ export class BaixaFinanceiraError extends Error {
 
 type RotaFinanceiro =
   | '/baixa'
+  | '/baixa-lote'
   | '/estorno'
   | '/cartao/conciliar'
   | '/cheque/compensar'
@@ -52,7 +53,7 @@ type RotaFinanceiro =
   | '/banco/lancamento'
   | '/banco/transferencia';
 
-const chamarFinanceiro = async <T>(caminho: RotaFinanceiro, corpo: Record<string, unknown>): Promise<T> => {
+const chamarFinanceiro = async <T>(caminho: RotaFinanceiro, corpo: Record<string, unknown>, timeoutMs: number = TEMPO_LIMITE.padrao): Promise<T> => {
   if (!API_URL) {
     throw new BaixaFinanceiraError('Esta operação precisa do servidor da empresa, que não está configurado neste ambiente. Avise o suporte.', 0);
   }
@@ -65,7 +66,7 @@ const chamarFinanceiro = async <T>(caminho: RotaFinanceiro, corpo: Record<string
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(corpo),
-    });
+    }, timeoutMs);
   } catch (erro) {
     // Sem resposta nao da' para saber se gravou: a mensagem manda conferir a lista
     // antes de repetir (o servidor recusa baixar de novo um titulo ja' pago).
@@ -132,6 +133,43 @@ export const registrarBaixa = async (pedido: PedidoDeBaixa): Promise<void> => {
     ...(pedido.acrescimoCentavos && pedido.acrescimoCentavos > 0 ? { acrescimoCentavos: pedido.acrescimoCentavos } : {}),
     tenantId: pedido.tenantId,
   });
+};
+
+/** Resultado de cada conta da baixa em lote. */
+export interface ResultadoBaixaEmLote {
+  transacaoId: string;
+  ok: boolean;
+  /** Motivo em portugues quando `ok` e' false. */
+  erro?: string;
+}
+
+/**
+ * Baixa em lote (2026-10-14): a mesma forma, data e banco para todas as
+ * contas; juros e multa por conta (so' Receber). O servidor faz, conta por
+ * conta, a mesma baixa de registrarBaixa -- uma que falha nao desfaz as
+ * outras, e a resposta traz o resultado de cada uma. Erro do lote inteiro
+ * (sem permissao, dado invalido, rede) sobe como BaixaFinanceiraError.
+ */
+export const registrarBaixaEmLote = async (pedido: {
+  tipo: TipoLancamento;
+  formaPagamento: string;
+  dataPagamento: string;
+  bancoId?: string;
+  tenantId: string;
+  titulos: Array<{ transacaoId: string; acrescimoCentavos?: number }>;
+}): Promise<ResultadoBaixaEmLote[]> => {
+  const resposta = await chamarFinanceiro<{ ok: boolean; resultados: ResultadoBaixaEmLote[] }>('/baixa-lote', {
+    tipo: pedido.tipo,
+    formaPagamento: pedido.formaPagamento,
+    dataPagamento: pedido.dataPagamento,
+    ...(pedido.bancoId ? { bancoId: pedido.bancoId } : {}),
+    tenantId: pedido.tenantId,
+    titulos: pedido.titulos.map((titulo) => ({
+      transacaoId: titulo.transacaoId,
+      ...(titulo.acrescimoCentavos && titulo.acrescimoCentavos > 0 ? { acrescimoCentavos: titulo.acrescimoCentavos } : {}),
+    })),
+  }, TEMPO_LIMITE.baixaEmLote);
+  return Array.isArray(resposta.resultados) ? resposta.resultados : [];
 };
 
 /**

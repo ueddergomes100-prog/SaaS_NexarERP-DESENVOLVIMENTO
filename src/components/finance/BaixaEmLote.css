@@ -1,0 +1,404 @@
+/*
+ * BAIXA EM LOTE (Contas a Pagar / Contas a Receber, 2026-10-14).
+ *
+ * Cores e medidas so' dos tokens do sistema (index.css), nos dois temas. O tom
+ * da tela vem por classe: --lote-tom e' verde no Receber (dinheiro entrando) e
+ * vermelho no Pagar (saindo), as mesmas cores que cada tela ja' usa.
+ * Assinatura: o "borderô" -- a lista de titulos apresentados para baixa, como
+ * o financeiro conhece do banco -- com a borda picotada no topo e numeros
+ * tabulares, para os valores alinharem na casa dos centavos.
+ */
+
+.lote-tom-entrada { --lote-tom: var(--status-green); --lote-tom-suave: rgba(16, 185, 129, 0.12); }
+.lote-tom-saida { --lote-tom: var(--status-red); --lote-tom-suave: rgba(239, 68, 68, 0.12); }
+
+.lote-numero {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Caixa de selecao (linha, grupo, cabecalho)
+   --------------------------------------------------------------------------- */
+.lote-caixa {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--lote-tom, var(--accent-purple));
+  vertical-align: middle;
+}
+.lote-caixa:focus-visible {
+  outline: 2px solid var(--brand-ring);
+  outline-offset: 2px;
+}
+/* Area de toque de 44px em volta da caixa, sem crescer a linha da tabela. */
+.lote-caixa-alvo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 36px;
+  cursor: pointer;
+}
+.lote-linha-marcada > td {
+  background-color: var(--lote-tom-suave, var(--brand-softer));
+}
+
+/* ---------------------------------------------------------------------------
+   Barra de selecao (fixa embaixo enquanto houver conta marcada)
+   --------------------------------------------------------------------------- */
+.lote-barra {
+  position: sticky;
+  bottom: 16px;
+  z-index: 20;
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 16px 12px 20px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-left: 4px solid var(--lote-tom);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  animation: lote-barra-entra 160ms ease-out;
+}
+@keyframes lote-barra-entra {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.lote-barra-resumo {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.lote-barra-resumo strong {
+  color: var(--text-primary);
+  font-size: 15px;
+}
+.lote-barra-total {
+  color: var(--lote-tom);
+  font-size: 18px;
+  font-weight: 800;
+}
+.lote-barra-acoes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lote-botao {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 120ms ease, background-color 120ms ease;
+}
+.lote-botao:focus-visible {
+  outline: 2px solid var(--brand-ring);
+  outline-offset: 2px;
+}
+.lote-botao:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.lote-botao-principal {
+  background-color: var(--lote-tom);
+  border: 1px solid var(--lote-tom);
+  color: #fff;
+}
+.lote-botao-principal:not(:disabled):hover { filter: brightness(1.08); }
+.lote-botao-discreto {
+  background-color: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+.lote-botao-discreto:not(:disabled):hover { background-color: var(--bg-tertiary); color: var(--text-primary); }
+
+/* ---------------------------------------------------------------------------
+   Janela da baixa em lote
+   --------------------------------------------------------------------------- */
+.lote-fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background-color: rgba(8, 3, 18, 0.72);
+  backdrop-filter: blur(3px);
+}
+.lote-janela {
+  width: 100%;
+  max-width: 980px;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-top: 4px solid var(--lote-tom);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.lote-cabecalho {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--border-color);
+}
+.lote-sobretitulo {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lote-tom);
+}
+.lote-titulo {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+.lote-fechar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.lote-fechar:hover { background-color: var(--bg-tertiary); color: var(--text-primary); }
+.lote-fechar:focus-visible { outline: 2px solid var(--brand-ring); }
+
+.lote-corpo {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) 1fr;
+  gap: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.lote-formulario {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 22px;
+  border-right: 1px solid var(--border-color);
+  overflow-y: auto;
+}
+.lote-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lote-campo label,
+.lote-campo .lote-rotulo {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.lote-campo select,
+.lote-campo input[type='date'] {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color-scheme: dark;
+}
+body.light-theme .lote-campo select,
+body.light-theme .lote-campo input[type='date'] { color-scheme: light; }
+.lote-campo select:focus-visible,
+.lote-campo input:focus-visible {
+  outline: 2px solid var(--brand-ring);
+  border-color: var(--accent-purple);
+}
+.lote-campo[data-erro='true'] select,
+.lote-campo[data-erro='true'] input { border-color: var(--status-red); }
+.lote-ajuda {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.lote-erro-campo {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--status-red);
+}
+.lote-opcao {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-tertiary);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.lote-opcao strong { color: var(--text-primary); }
+.lote-aviso-fora {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-color);
+}
+
+/* O borderô */
+.lote-bordero {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 18px 22px 0;
+  background-color: var(--bg-soft);
+}
+.lote-bordero-folha {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  /* borda picotada, como o canhoto do borderô */
+  background-image: radial-gradient(circle at 6px 0, var(--bg-soft) 4px, transparent 4.5px);
+  background-size: 12px 8px;
+  background-repeat: repeat-x;
+  padding-top: 8px;
+}
+.lote-bordero table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.lote-bordero th {
+  position: sticky;
+  top: 0;
+  background-color: var(--bg-secondary);
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-color);
+}
+.lote-bordero td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  vertical-align: top;
+}
+.lote-bordero .lote-direita { text-align: right; }
+.lote-bordero .lote-seq { color: var(--text-muted); width: 36px; }
+.lote-bordero .lote-nome { font-weight: 600; }
+.lote-bordero .lote-descricao { display: block; font-size: 12px; color: var(--text-muted); font-weight: 400; margin-top: 2px; }
+.lote-bordero .lote-atraso { color: var(--status-red); font-weight: 700; }
+.lote-bordero .lote-juros { color: var(--status-yellow); }
+.lote-resultado-ok { color: var(--status-green); font-weight: 700; }
+.lote-resultado-falha { color: var(--status-red); font-weight: 700; }
+.lote-resultado-motivo { display: block; font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-top: 2px; }
+
+.lote-bordero-total {
+  display: flex;
+  justify-content: flex-end;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  margin: 0 0 18px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-top: 2px solid var(--text-primary);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.lote-bordero-total strong {
+  display: block;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+.lote-bordero-total .lote-total-geral strong { color: var(--lote-tom); font-size: 20px; }
+
+.lote-rodape {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 22px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+}
+.lote-alerta {
+  flex: 1 1 260px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--status-red);
+}
+.lote-progresso {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.lote-botao-principal .lote-progresso { color: inherit; }
+.lote-girando { animation: lote-gira 0.9s linear infinite; }
+/* So' para leitor de tela (legenda do borderô). */
+.lote-so-leitor {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@keyframes lote-gira { to { transform: rotate(360deg); } }
+
+@media (max-width: 760px) {
+  .lote-corpo { grid-template-columns: 1fr; overflow-y: auto; }
+  .lote-formulario { border-right: none; border-bottom: 1px solid var(--border-color); overflow: visible; }
+  .lote-bordero-folha { overflow: visible; }
+  .lote-bordero .lote-col-vencimento { display: none; }
+  .lote-barra { bottom: 8px; }
+  .lote-barra-acoes { width: 100%; }
+  .lote-barra-acoes .lote-botao-principal { flex: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lote-barra { animation: none; }
+  .lote-girando { animation: none; }
+}

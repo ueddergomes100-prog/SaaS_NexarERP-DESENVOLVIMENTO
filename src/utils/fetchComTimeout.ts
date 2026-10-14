@@ -17,6 +17,8 @@ export const TEMPO_LIMITE = {
   emissaoNota: 120_000,
   /** PDF/XML de nota, certificado: arquivo maior, mas ainda pequeno. */
   arquivo: 90_000,
+  /** Baixa em lote: ate' 50 contas, uma transacao por conta, em sequencia. */
+  baixaEmLote: 120_000,
   /** Gerar/baixar/restaurar backup: a empresa inteira. */
   backup: 300_000,
 } as const;

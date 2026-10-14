@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, query, onSnapshot, where, doc, getDoc, getDocs, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { collection, query, where, doc, getDoc, getDocs, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText } from 'lucide-react';
 import {
   applyPaymentReceipt,
@@ -44,6 +44,10 @@ import {
   type SituacaoTitulo,
 } from '../../utils/filtroListaDomain';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import { BaixaEmLoteModal, BarraDeSelecaoLote, CaixaDeSelecao, type ItemDoLote } from '../../components/finance/BaixaEmLote';
+import { estadoDaSelecao, LIMITE_BAIXA_EM_LOTE, marcarNaSelecao, podeEntrarNoLote } from '../../utils/baixaEmLoteDomain';
+import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
 import './Financeiro.css';
 
 interface TransacaoData extends TituloParaEstorno {
@@ -88,8 +92,6 @@ const dataReferenciaTransacao = (t: TransacaoData) => transactionDueDateInput(t)
 
 const ContasReceber: React.FC = () => {
   const { openTab } = useTabs();
-  const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
-  const [loading, setLoading] = useState(true);
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId, userRole, userPermissions, isOwner } = useAuth();
   const podeEstornar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.estornar'));
   
@@ -106,6 +108,33 @@ const ContasReceber: React.FC = () => {
   const [situacaoTitulo, setSituacaoTitulo] = useState<SituacaoTitulo>(SITUACAO_TITULO_PADRAO);
   const [periodoDe, setPeriodoDe] = useState('');
   const [periodoAte, setPeriodoAte] = useState('');
+
+  // Leitura enxuta (otimizacao de leituras, 2026-10-14 -- useTitulosFinanceiros):
+  // em aberto de qualquer data + recebidas de hoje; o historico de recebidas so'
+  // quando a lista mostra recebidas, pelo periodo do filtro ou, vazio, o mes
+  // atual (decisao do dono). Antes eram todas as entradas desde sempre.
+  const listaTemRecebidas = situacaoTitulo === 'pagas' || situacaoTitulo === 'todas';
+  const hojeLeitura = getDateInputInTimeZone();
+  const historicoDeRecebidas: HistoricoDePagas = !listaTemRecebidas
+    ? null
+    : (periodoDe || periodoAte ? { de: periodoDe, ate: periodoAte } : { de: `${hojeLeitura.slice(0, 7)}-01`, ate: hojeLeitura });
+  const { titulos: titulosLidos, carregando: loading } = useTitulosFinanceiros<TransacaoData>({
+    tenantId,
+    tipo: 'entrada',
+    historico: historicoDeRecebidas,
+  });
+  const transacoes = useMemo(() => {
+    const data = [...titulosLidos];
+    data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    // Visibilidade de vendas: some so o que veio de venda de OUTRO
+    // vendedor. Recebimento de OS, credito e lancamento manual continuam
+    // na lista -- ver src/utils/visibilidadeVendasDomain.ts.
+    return filtrarLancamentosVisiveis(data, vendasVisiveisDeUsuarioId);
+  }, [titulosLidos, vendasVisiveisDeUsuarioId]);
+
+  // Baixa em lote (2026-10-14): contas marcadas e o borderô congelado ao abrir.
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [itensDoLote, setItensDoLote] = useState<ItemDoLote[] | null>(null);
   // Parametros de venda da filial (fase A, 2026-10-07): juros e multa sugeridos na baixa em atraso.
   const [parametrosVenda, setParametrosVenda] = useState<ParametrosVenda>(PARAMETROS_VENDA_PADRAO);
   // O documento inteiro fica guardado para o recibo de pagamento (fase D): empresa, mensagem padrao e regra de emissao.
@@ -199,39 +228,6 @@ const ContasReceber: React.FC = () => {
       tenantId,
     });
   };
-
-  useEffect(() => {
-    if (!currentUser) return;
-    
-    // Escutar TODAS as transacoes de entrada para poder calcular o recebido de hoje
-    const q = query(
-      collection(db, 'transacoes'), 
-      where('tenantId', '==', tenantId),
-      where('tipo', '==', 'entrada')
-    );
-
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const data: TransacaoData[] = [];
-      querySnapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as TransacaoData);
-      });
-      data.sort((a, b) => {
-        const dateA = a.createdAt?.seconds || 0;
-        const dateB = b.createdAt?.seconds || 0;
-        return dateB - dateA;
-      });
-      // Visibilidade de vendas: some so o que veio de venda de OUTRO
-      // vendedor. Recebimento de OS, credito e lancamento manual continuam
-      // na lista -- ver src/utils/visibilidadeVendasDomain.ts.
-      setTransacoes(filtrarLancamentosVisiveis(data, vendasVisiveisDeUsuarioId));
-      setLoading(false);
-    }, (error) => {
-      console.error("Erro ao buscar contas a receber:", error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
   /**
    * Baixa em cheque NÃO pode confirmar na hora, diferente de
@@ -686,6 +682,41 @@ const ContasReceber: React.FC = () => {
       .sort((a, b) => b.totalPendente - a.totalPendente);
   })();
 
+  // ---- Baixa em lote: so' conta em aberto, sem cheque nem cartao (baixaEmLoteDomain).
+  const elegiveis = new Map(titulosFiltrados.filter((t) => podeEntrarNoLote(t, 'entrada')).map((t) => [t.id, t]));
+  const idsElegiveisDoGrupo = (grupo: GrupoCliente) => grupo.transacoes.filter((t) => elegiveis.has(t.id)).map((t) => t.id);
+  const idsElegiveisVisiveis = gruposPorCliente.flatMap(idsElegiveisDoGrupo);
+  const selecaoValida = [...selecionados].filter((id) => elegiveis.has(id));
+  const marcar = (ids: string[], marcarIds: boolean) => {
+    const { selecao, deFora } = marcarNaSelecao(selecionados, ids, marcarIds);
+    setSelecionados(selecao);
+    if (deFora > 0) {
+      showWarning(`Até ${LIMITE_BAIXA_EM_LOTE} contas por vez`, `${deFora} ${deFora === 1 ? 'conta ficou' : 'contas ficaram'} de fora. Dê baixa nestas e selecione o resto depois.`);
+    }
+  };
+  const montarItemDoLote = (t: TransacaoData): ItemDoLote => {
+    const sugestao = acrescimoPorAtraso(parametrosVenda, transactionNetCents(t), t.dataVencimento, hojeStr);
+    return {
+      id: t.id,
+      nome: t.clienteNome?.trim() || 'Cliente não identificado',
+      descricao: t.descricao,
+      vencimento: dataReferenciaTransacao(t) || t.data || '',
+      valorCentavos: transactionNetCents(t),
+      formaPrevista: t.formaPagamento,
+      acrescimoSugeridoCentavos: sugestao?.totalCentavos || 0,
+    };
+  };
+  const totalSelecionadoCentavos = selecaoValida.reduce((soma, id) => soma + transactionNetCents(elegiveis.get(id) as TransacaoData), 0);
+  const abrirBaixaEmLote = () => {
+    // O borderô congela ao abrir: as contas baixadas saem da lista ao vivo,
+    // mas o resultado de cada uma continua na janela.
+    setItensDoLote(selecaoValida.map((id) => montarItemDoLote(elegiveis.get(id) as TransacaoData)));
+  };
+  const fecharBaixaEmLote = (baixados: string[]) => {
+    setItensDoLote(null);
+    if (baixados.length > 0) setSelecionados((atual) => marcarNaSelecao(atual, baixados, false).selecao);
+  };
+
   const toggleClienteExpandido = (chave: string) => {
     setClientesExpandidos((current) => {
       const next = new Set(current);
@@ -714,15 +745,12 @@ const ContasReceber: React.FC = () => {
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700 }}>Contas a Receber</h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Clientes com débito em aberto (Boleto, a Prazo) — cartão fica na tela Banco</p>
         </div>
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-          <button
-            className="btn-secondary"
-            onClick={() => openTab('/financeiro/contas-receber/importar', 'Importar Contas a Receber')}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <Upload size={18} />
-            Importar títulos
-          </button>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <MenuMaisOpcoes
+            itens={[
+              { texto: 'Importar títulos', Icone: Upload, onClick: () => openTab('/financeiro/contas-receber/importar', 'Importar Contas a Receber') },
+            ]}
+          />
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
             <Clock size={24} color="#10b981" />
             <div>
@@ -773,13 +801,26 @@ const ContasReceber: React.FC = () => {
           onChangeAte={setPeriodoAte}
         />
       </PainelFiltros>
+      {listaTemRecebidas && !periodoDe && !periodoAte && (
+        <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+          Recebidas deste mês. Para outro período, use Filtros › Recebido em.
+        </p>
+      )}
 
-      <div className="card" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+      <div className="card lote-tom-entrada" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
         <div className="table-wrapper">
           <table className="data-table financeiro-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <th style={{ padding: '16px', width: '32px' }}></th>
+                <th style={{ padding: '8px 0 8px 8px', width: '44px' }}>
+                  <CaixaDeSelecao
+                    estado={estadoDaSelecao(selecionados, idsElegiveisVisiveis)}
+                    rotulo="Selecionar todas as contas em aberto da lista"
+                    desabilitada={idsElegiveisVisiveis.length === 0}
+                    onAlternar={(marcarTodos) => marcar(idsElegiveisVisiveis, marcarTodos)}
+                  />
+                </th>
+                <th style={{ padding: '16px 0', width: '24px' }}></th>
                 <th style={{ padding: '16px' }}>Cliente</th>
                 <th style={{ padding: '16px', textAlign: 'center' }}>{rotuloQuantidade}</th>
                 <th style={{ padding: '16px' }}>Vencimento mais antigo</th>
@@ -790,11 +831,11 @@ const ContasReceber: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando contas a receber...</td>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>Carregando contas a receber...</td>
                 </tr>
               ) : gruposPorCliente.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     <CheckCircle size={48} color="#10b981" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
                     <div>{buscaCliente.trim() || filtrosAtivos > 0 ? 'Nenhum título encontrado com esses filtros.' : 'Nenhuma conta pendente para conciliação no momento.'}</div>
                   </td>
@@ -803,13 +844,25 @@ const ContasReceber: React.FC = () => {
                 gruposPorCliente.map((grupo) => {
                   const expandido = clientesExpandidos.has(grupo.chave);
                   const emAtraso = grupo.diasAtrasoMax > 0;
+                  const idsDoGrupo = idsElegiveisDoGrupo(grupo);
+                  const estadoDoGrupo = estadoDaSelecao(selecionados, idsDoGrupo);
                   return (
                     <React.Fragment key={grupo.chave}>
                       <tr
                         onClick={() => toggleClienteExpandido(grupo.chave)}
+                        className={estadoDoGrupo === 'todos' ? 'lote-linha-marcada' : undefined}
                         style={{ borderBottom: expandido ? 'none' : '1px solid var(--border-color)', cursor: 'pointer', backgroundColor: expandido ? 'var(--bg-tertiary)' : 'transparent' }}
                       >
-                        <td style={{ padding: '16px 0 16px 16px', color: 'var(--text-muted)' }}>
+                        <td style={{ padding: '8px 0 8px 8px' }}>
+                          {idsDoGrupo.length > 0 && (
+                            <CaixaDeSelecao
+                              estado={estadoDoGrupo}
+                              rotulo={`Selecionar as contas em aberto de ${grupo.clienteNome}`}
+                              onAlternar={(marcarGrupo) => marcar(idsDoGrupo, marcarGrupo)}
+                            />
+                          )}
+                        </td>
+                        <td style={{ padding: '16px 0', color: 'var(--text-muted)' }}>
                           {expandido ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                         </td>
                         <td style={{ padding: '16px', fontWeight: 600 }}>
@@ -846,10 +899,11 @@ const ContasReceber: React.FC = () => {
                       </tr>
                       {expandido && (
                         <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                          <td colSpan={6} style={{ padding: '0 16px 16px 48px', backgroundColor: 'var(--bg-tertiary)' }}>
+                          <td colSpan={7} style={{ padding: '0 16px 16px 48px', backgroundColor: 'var(--bg-tertiary)' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                               <thead>
                                 <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                  <th style={{ padding: '10px 0', width: '44px' }}><span className="lote-so-leitor">Selecionar</span></th>
                                   <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Data</th>
                                   <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Descrição / O.S</th>
                                   <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Forma de Pgto.</th>
@@ -859,7 +913,16 @@ const ContasReceber: React.FC = () => {
                               </thead>
                               <tbody>
                                 {grupo.transacoes.map((t) => (
-                                  <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                  <tr key={t.id} className={selecionados.has(t.id) && elegiveis.has(t.id) ? 'lote-linha-marcada' : undefined} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                    <td style={{ padding: '4px 0' }}>
+                                      {elegiveis.has(t.id) && (
+                                        <CaixaDeSelecao
+                                          estado={selecionados.has(t.id) ? 'todos' : 'nenhum'}
+                                          rotulo={`Selecionar ${t.descricao}`}
+                                          onAlternar={(marcarConta) => marcar([t.id], marcarConta)}
+                                        />
+                                      )}
+                                    </td>
                                     <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{t.data ? t.data.split('-').reverse().join('/') : new Date(t.createdAt?.seconds * 1000).toLocaleDateString('pt-BR')}</td>
                                     <td style={{ padding: '10px 8px', fontWeight: 500 }}>{t.descricao}</td>
                                     <td style={{ padding: '10px 8px' }}>
@@ -930,6 +993,17 @@ const ContasReceber: React.FC = () => {
           </table>
         </div>
       </div>
+
+      <BarraDeSelecaoLote
+        tipo="entrada"
+        quantidade={selecaoValida.length}
+        totalCentavos={totalSelecionadoCentavos}
+        onLimpar={() => setSelecionados(new Set())}
+        onDarBaixa={abrirBaixaEmLote}
+      />
+      {itensDoLote && tenantId && (
+        <BaixaEmLoteModal tipo="entrada" itens={itensDoLote} tenantId={tenantId} onFechar={fecharBaixaEmLote} />
+      )}
 
       {/* Modal de Conciliação com Crédito */}
       {modalConciliacao.ativo && modalConciliacao.transacao && (

@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import VendedorHeader from './VendedorHeader';
 import { differenceInCalendarDays, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
+import { transactionDueDateInput } from '../../utils/financeDomain';
 
 /**
  * So consulta -- ver o que esta pendente/vencido e o valor, sem marcar como
@@ -30,8 +31,10 @@ const VendedorContasPagar: React.FC = () => {
   const [contas, setContas] = useState<Conta[]>([]);
   const [carregando, setCarregando] = useState(true);
 
+  const podeVer = userPermissions.includes('financeiro.pagar');
+
   useEffect(() => {
-    if (!tenantId) return;
+    if (!tenantId || !podeVer) return;
     let cancelado = false;
     setCarregando(true);
 
@@ -39,6 +42,10 @@ const VendedorContasPagar: React.FC = () => {
       collection(db, 'transacoes'),
       where('tenantId', '==', tenantId),
       where('tipo', '==', 'saida'),
+      // So' o que esta em aberto: o banco devolve os pendentes em vez do
+      // historico inteiro (antes um titulo pago aparecia como pendente,
+      // porque o filtro procurava o status 'Recebida', que nao existe).
+      where('status', '==', 'Pendente'),
     )).then((snap) => {
       if (cancelado) return;
       const lista: Conta[] = snap.docs
@@ -47,22 +54,21 @@ const VendedorContasPagar: React.FC = () => {
           return {
             id: docSnap.id,
             descricao: data.descricao || '',
-            vencimento: data.data || '',
+            vencimento: transactionDueDateInput(data),
             valor: Number(data.valor || 0),
             status: data.status || 'Pendente',
             fornecedorNome: data.fornecedorNome || '',
           };
         })
-        .filter((conta) => conta.status !== 'Cancelada' && conta.status !== 'Paga')
         .sort((a, b) => a.vencimento.localeCompare(b.vencimento));
       setContas(lista);
       setCarregando(false);
     }).catch(() => setCarregando(false));
 
     return () => { cancelado = true; };
-  }, [tenantId]);
+  }, [tenantId, podeVer]);
 
-  if (!userPermissions.includes('financeiro.pagar')) {
+  if (!podeVer) {
     return <Navigate to="/vendedor" replace />;
   }
 

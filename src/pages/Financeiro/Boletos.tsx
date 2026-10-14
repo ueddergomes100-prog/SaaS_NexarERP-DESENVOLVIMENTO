@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { collection, deleteField, doc, getDoc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
+import { collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, where, type DocumentData } from 'firebase/firestore';
+import { assinarComReserva } from '../../services/consultaComReserva';
 import { Barcode, Download, FileUp, Loader2, Printer, Receipt, Search } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { baixarBoletoPeloRetorno } from '../../services/baixaFinanceiraService';
@@ -92,6 +93,25 @@ const ROTULO_ABA: Record<Aba, string> = {
   vencidos: 'Vencidos',
 };
 
+/** Documento de `transacoes` -> título da tela (também usado pelo retorno do banco). */
+const paraTituloBoleto = (id: string, data: DocumentData): TituloBoleto => ({
+  id,
+  descricao: data.descricao || '',
+  clienteId: data.clienteId ?? null,
+  clienteNome: data.clienteNome || '',
+  valorCentavos: Number(data.valorCentavos ?? toCents(data.valor)),
+  status: data.status || 'Pendente',
+  dataVencimento: data.dataVencimento || data.dataPrevistaRecebimento || '',
+  dataPrevistaRecebimento: data.dataPrevistaRecebimento || '',
+  bancoId: data.bancoId || '',
+  bancoNome: data.bancoNome || '',
+  pedidoId: data.pedidoId || '',
+  osId: data.osId || '',
+  paymentIndex: data.paymentIndex,
+  boleto: data.boleto || undefined,
+  faturadoEm: data.createdAt?.toDate ? getDateInputInTimeZone(data.createdAt.toDate()) : '',
+} as TituloBoleto);
+
 const Boletos: React.FC = () => {
   const { tenantId, currentUser, userRole, isOwner, userPermissions } = useAuth();
   const podeAcessar = hasModuleAccess({
@@ -115,9 +135,17 @@ const Boletos: React.FC = () => {
   const inputRetornoRef = useRef<HTMLInputElement>(null);
   const [pdfBoleto, setPdfBoleto] = useState<{ blob: Blob; nome: string } | null>(null);
 
+  // Leitura enxuta (otimizacao de leituras, 2026-10-14). Antes: TODOS os
+  // boletos da empresa desde sempre. Agora: os em aberto de qualquer data
+  // (abas Aguardando, Emitidos, Em remessa, Vencidos) + os PAGOS no mes atual
+  // (decisao do dono), ou de todo o periodo quando a pessoa pede na aba Pagos.
+  // O retorno do banco procura no banco o boleto que nao estiver na tela.
+  const [pagosDeTodoPeriodo, setPagosDeTodoPeriodo] = useState(false);
+  const inicioDoMes = `${getDateInputInTimeZone().slice(0, 7)}-01`;
   useEffect(() => {
     if (!tenantId || !podeAcessar) { setLoading(false); return undefined; }
-    const q = query(
+    setLoading(true);
+    const boletosDaEmpresa = query(
       collection(db, 'transacoes'),
       where('tenantId', '==', tenantId),
       where('formaPagamento', '==', 'Boleto'),
@@ -127,36 +155,40 @@ const Boletos: React.FC = () => {
       // fornecedor e' so' um dado informativo da despesa; ele e' pago, nunca emitido por aqui.
       where('tipo', '==', 'entrada'),
     );
-    const unsubscribe = onSnapshot(q, (snap) => {
-      const dados = snap.docs.map((d) => {
-        const data = d.data() as any;
-        return {
-          id: d.id,
-          descricao: data.descricao || '',
-          clienteId: data.clienteId ?? null,
-          clienteNome: data.clienteNome || '',
-          valorCentavos: Number(data.valorCentavos ?? toCents(data.valor)),
-          status: data.status || 'Pendente',
-          dataVencimento: data.dataVencimento || data.dataPrevistaRecebimento || '',
-          dataPrevistaRecebimento: data.dataPrevistaRecebimento || '',
-          bancoId: data.bancoId || '',
-          bancoNome: data.bancoNome || '',
-          pedidoId: data.pedidoId || '',
-          osId: data.osId || '',
-          paymentIndex: data.paymentIndex,
-          boleto: data.boleto || undefined,
-          faturadoEm: data.createdAt?.toDate ? getDateInputInTimeZone(data.createdAt.toDate()) : '',
-        } as TituloBoleto;
-      });
-      setTitulos(dados);
-      setLoading(false);
-    }, (erro) => {
+    let abertos: TituloBoleto[] = [];
+    let pagos: TituloBoleto[] = [];
+    let chegaram = 0;
+    const publicar = () => {
+      const porId = new Map<string, TituloBoleto>();
+      [...pagos, ...abertos].forEach((titulo) => porId.set(titulo.id, titulo));
+      setTitulos(Array.from(porId.values()));
+      if (chegaram >= 2) setLoading(false);
+    };
+    const falhar = (erro: unknown) => {
       console.error('Erro ao carregar boletos:', erro);
       showError('Erro', 'Não foi possível carregar os boletos. Confira sua conexão e suas permissões.');
       setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [tenantId, podeAcessar]);
+    };
+    const pararAbertos = onSnapshot(query(boletosDaEmpresa, where('status', '==', 'Pendente')), (snap) => {
+      abertos = snap.docs.map((d) => paraTituloBoleto(d.id, d.data()));
+      chegaram += 1;
+      publicar();
+    }, falhar);
+    const todosPagos = query(boletosDaEmpresa, where('status', '==', 'Paga'));
+    const pagosEnxuta = pagosDeTodoPeriodo ? todosPagos : query(todosPagos, where('dataPagamento', '>=', inicioDoMes));
+    const pararPagos = assinarComReserva(pagosEnxuta, todosPagos, 'Boletos (pagos do mês)', (snap) => {
+      // Mesmo filtro da consulta enxuta, para a reserva (sem indice) mostrar o mesmo.
+      pagos = snap.docs
+        .filter((d) => pagosDeTodoPeriodo || String(d.data().dataPagamento || '') >= inicioDoMes)
+        .map((d) => paraTituloBoleto(d.id, d.data()));
+      chegaram += 1;
+      publicar();
+    }, falhar);
+    return () => {
+      pararAbertos();
+      pararPagos();
+    };
+  }, [tenantId, podeAcessar, pagosDeTodoPeriodo, inicioDoMes]);
 
   useEffect(() => {
     if (!tenantId || !podeAcessar) return undefined;
@@ -802,8 +834,23 @@ const Boletos: React.FC = () => {
       let baixados = 0;
       let naoEncontrados = 0;
       try {
+        // A tela carrega os em aberto e os pagos do mes: boleto pago ha' mais
+        // tempo (ou fora da lista por qualquer motivo) e' procurado no banco
+        // pelo nosso numero, para nao virar "nao encontrado" sem ser.
+        const naTela = new Set(titulos.map((t) => t.boleto?.nossoNumero).filter(Boolean));
+        const faltando = [...new Set(resumo.liquidados.map((l) => l.nossoNumero).filter((n) => n && !naTela.has(n)))];
+        const achados: TituloBoleto[] = [];
+        for (let i = 0; i < faltando.length; i += 30) {
+          const snap = await getDocs(query(
+            collection(db, 'transacoes'),
+            where('tenantId', '==', tenantId),
+            where('boleto.nossoNumero', 'in', faltando.slice(i, i + 30)),
+          ));
+          snap.docs.forEach((d) => achados.push(paraTituloBoleto(d.id, d.data())));
+        }
+        const candidatos = [...titulos, ...achados];
         for (const linha of resumo.liquidados) {
-          const titulo = titulos.find((t) => t.boleto?.nossoNumero === linha.nossoNumero);
+          const titulo = candidatos.find((t) => t.boleto?.nossoNumero === linha.nossoNumero);
           if (!titulo) { naoEncontrados += 1; continue; }
           if (titulo.status === 'Paga') continue;
           if (await darBaixaBoleto(titulo, linha.valorPagoCentavos || titulo.valorCentavos, linha.dataOcorrencia)) baixados += 1;
@@ -947,6 +994,19 @@ const Boletos: React.FC = () => {
         </div>
       </div>
 
+      {aba === 'pagos' && (
+        <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {pagosDeTodoPeriodo ? 'Pagos de todo o período.' : 'Pagos neste mês.'}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setPagosDeTodoPeriodo((atual) => !atual)}
+            style={{ padding: '4px 10px', fontSize: '12px' }}
+          >
+            {pagosDeTodoPeriodo ? 'Ver só os deste mês' : 'Ver pagos de todo o período'}
+          </button>
+        </p>
+      )}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: '48px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', color: 'var(--text-muted)' }}>

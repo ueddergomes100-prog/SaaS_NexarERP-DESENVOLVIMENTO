@@ -1,7 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { TrendingUp, FileText, PieChart, Calendar, Loader2 } from 'lucide-react';
-import { collection, query, onSnapshot, where } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import { useTitulosFinanceiros } from '../../hooks/useTitulosFinanceiros';
 import { useAuth } from '../../contexts/AuthContext';
 import { fromCents } from '../../utils/financeDomain';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
@@ -21,30 +20,20 @@ import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../compo
  */
 
 const Faturamento: React.FC = () => {
-  const [transacoes, setTransacoes] = useState<TransacaoFaturamento[]>([]);
-  const [loading, setLoading] = useState(true);
   const [anoFiltro, setAnoFiltro] = useState<number>(new Date().getFullYear());
   const [previewAberto, setPreviewAberto] = useState(false);
-  const { currentUser, tenantId } = useAuth();
+  const { tenantId } = useAuth();
 
-  useEffect(() => {
-    if (!currentUser) return;
-    const q = query(collection(db, 'transacoes'), where('tenantId', '==', tenantId));
-    
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const data: TransacaoFaturamento[] = [];
-      querySnapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as TransacaoFaturamento);
-      });
-      setTransacoes(data);
-      setLoading(false);
-    }, (error) => {
-      console.error("Erro ao buscar transações pro Faturamento:", error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [currentUser, tenantId]);
+  // Leitura enxuta (otimizacao de leituras, 2026-10-14): o faturamento so'
+  // conta lancamentos PAGOS do ano escolhido, entao o banco devolve so' esses
+  // (pela data do lancamento e pela de pagamento; o calculo continua usando
+  // anoDoLancamento). Antes: todas as transacoes da empresa desde sempre.
+  const { titulos: transacoes, carregando: loading } = useTitulosFinanceiros<TransacaoFaturamento>({
+    tenantId,
+    historico: { de: `${anoFiltro}-01-01`, ate: `${anoFiltro}-12-31` },
+    abertas: false,
+    pagasHoje: false,
+  });
 
   // Somente lancamentos pagos do ano selecionado; mesma conta do relatorio.
   const resumo = useMemo(() => calcularFaturamentoAnual(transacoes, anoFiltro), [transacoes, anoFiltro]);

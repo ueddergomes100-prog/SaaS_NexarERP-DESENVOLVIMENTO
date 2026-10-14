@@ -20,12 +20,12 @@ test('a chave guardada e a mesma de sempre (quem ja escolheu claro continua no c
   assert.equal(lerPreferenciaTema('xpto'), 'dark');
 });
 
-test('app Vendas abre claro quando ninguem escolheu; quem escolheu continua no que escolheu', () => {
+test('app Vendas e desktop abrem claro quando ninguem escolheu; quem escolheu continua no que escolheu', () => {
   assert.equal(preferenciaPadraoDoCaminho('/vendedor'), 'light');
   assert.equal(preferenciaPadraoDoCaminho('/vendedor/pedido/novo'), 'light');
   assert.equal(preferenciaPadraoDoCaminho('/vendedor.html'), 'light');
-  assert.equal(preferenciaPadraoDoCaminho('/dashboard'), 'dark');
-  assert.equal(preferenciaPadraoDoCaminho('/'), 'dark');
+  assert.equal(preferenciaPadraoDoCaminho('/dashboard'), 'light');
+  assert.equal(preferenciaPadraoDoCaminho('/'), 'light');
   assert.equal(lerPreferenciaTema(null, 'light'), 'light');
   assert.equal(lerPreferenciaTema('xpto', 'light'), 'light');
   assert.equal(lerPreferenciaTema('dark', 'light'), 'dark');

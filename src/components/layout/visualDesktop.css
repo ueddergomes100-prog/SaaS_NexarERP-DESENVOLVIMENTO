@@ -1,0 +1,415 @@
+/*
+ * VISUAL DO SISTEMA DESKTOP (14/10/2026) -- o mesmo desenho do app Vendas e do
+ * video de divulgacao: fundo lavanda claro, cartoes brancos flutuando com sombra
+ * suave, cabecalho de cada pagina em degrade violeta, icones em quadradinho
+ * lilas e o item ativo do menu em "pilula".
+ *
+ * Carregado SO pelo AppLayout (depois do Layout.css): o app Vendas (/vendedor),
+ * o PDV, o SuperAdmin e o login ficam de fora. Tudo mora dentro de
+ * .app-layout-wrapper -- as variaveis de cor (--bg-*, --text-*, --border-*,
+ * --radius-*, --shadow-*) sao redefinidas so' nesse escopo, e como as telas usam
+ * essas variaveis nos estilos inline (mais de 3 mil usos), elas mudam juntas sem
+ * editar tela por tela.
+ *
+ * Muitas telas tem o tamanho/cor do titulo escrito inline; por isso o cabecalho
+ * usa !important (inline so' perde para !important).
+ */
+
+/* ============================== tokens ============================== */
+.app-layout-wrapper {
+  --app-degrade: linear-gradient(135deg, #2b1057 0%, #4c1d95 55%, #7c3aed 100%);
+  --app-degrade-botao: linear-gradient(135deg, #7c3aed 0%, #6921df 100%);
+  --app-icone-fundo: rgba(124, 58, 237, 0.2);
+  --app-icone-cor: #c4b5fd;
+  --app-sombra-botao: 0 14px 26px -14px rgba(124, 58, 237, 0.85);
+
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 22px;
+  --radius-xl: 24px;
+
+  --bg-secondary: #160f26;
+  --bg-elevated: #1a1230;
+  --shadow-card: 0 22px 44px -26px rgba(0, 0, 0, 0.9), 0 3px 10px -4px rgba(0, 0, 0, 0.5);
+  --shadow-subtle: 0 16px 32px -20px rgba(0, 0, 0, 0.8);
+}
+
+body.light-theme .app-layout-wrapper {
+  --bg-primary: #f7f5fb;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1edf7;
+  --bg-elevated: #ffffff;
+  --bg-soft: #faf8fd;
+  --text-primary: #241c33;
+  --text-secondary: #4a4260;
+  --text-muted: #6e6680;
+  --border-color: #ebe5f2;
+  --border-strong: #ddd4ea;
+  --brand-ink: #6d28d9;
+  --app-icone-fundo: #efe8fc;
+  --app-icone-cor: #7c3aed;
+  --shadow-card: 0 22px 44px -28px rgba(43, 16, 87, 0.38), 0 4px 14px -8px rgba(43, 16, 87, 0.14);
+  --shadow-subtle: 0 16px 32px -22px rgba(43, 16, 87, 0.34);
+  --app-sombra-botao: 0 14px 26px -14px rgba(124, 58, 237, 0.7);
+}
+
+.app-layout-wrapper .app-container {
+  background: var(--bg-primary);
+}
+
+/* ============================== menu lateral ============================== */
+.app-layout-wrapper { --sidebar-width: 272px; }
+.app-layout-wrapper .nexus-sidebar {
+  --nexus-bg: #120a20;
+  --nexus-rail-bg: #0d0717;
+  box-shadow: 10px 0 34px -30px rgba(0, 0, 0, 0.9);
+}
+body.light-theme .app-layout-wrapper .nexus-sidebar {
+  --nexus-bg: #ffffff;
+  --nexus-rail-bg: #ffffff;
+  --nexus-surface: #f7f4fb;
+  --nexus-hover: #f4f0fa;
+  --nexus-guide: #e6dff1;
+  box-shadow: 10px 0 34px -30px rgba(43, 16, 87, 0.45);
+}
+
+.app-layout-wrapper .nexus-sidebar-header { padding: 18px 16px 14px; border-bottom: 0; }
+.app-layout-wrapper .nexus-brand-mark { height: 32px; }
+.app-layout-wrapper .nexus-sidebar-search {
+  height: 40px;
+  margin-top: 16px;
+  padding: 0 12px;
+  border-radius: 12px;
+}
+.app-layout-wrapper .nexus-sidebar-search input { font-size: 13.5px; }
+.app-layout-wrapper .nexus-new-action {
+  height: 42px;
+  border-radius: 13px;
+  background: var(--app-degrade-botao);
+  box-shadow: var(--app-sombra-botao);
+  font-size: 14px;
+  font-weight: 700;
+}
+.app-layout-wrapper .nexus-new-action:hover { background: var(--app-degrade-botao); filter: brightness(1.06); }
+.app-layout-wrapper .nexus-new-action-menu { border-radius: 16px; padding: 6px; box-shadow: var(--shadow-card); }
+.app-layout-wrapper .nexus-new-action-menu button { height: 38px; border-radius: 10px; font-size: 13.5px; }
+
+.app-layout-wrapper .nexus-sidebar-nav { padding: 6px 14px 10px; }
+.app-layout-wrapper .nexus-nav-group { margin-bottom: 3px; }
+
+/* grupo: icone num quadradinho lilas; aberto/ativo vira a "pilula" do app */
+.app-layout-wrapper .nexus-nav-group-trigger {
+  height: 44px;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
+  gap: 12px;
+  padding: 0 8px 0 6px;
+  border-radius: 14px;
+}
+.app-layout-wrapper .nexus-nav-group-trigger svg:first-child {
+  width: 32px;
+  height: 32px;
+  padding: 8px;
+  border-radius: 10px;
+  color: var(--nexus-text-muted);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.app-layout-wrapper .nexus-nav-group-label { font-size: 14.5px; }
+.app-layout-wrapper .nexus-nav-group-trigger:hover svg:first-child { background: var(--app-icone-fundo); color: var(--app-icone-cor); }
+.app-layout-wrapper .nexus-nav-group-trigger.active {
+  background: var(--app-icone-fundo);
+  color: var(--app-icone-cor);
+}
+body.light-theme .app-layout-wrapper .nexus-nav-group-trigger.active { color: #6d28d9; }
+.app-layout-wrapper .nexus-nav-group-trigger.active svg:first-child {
+  background: #7c3aed;
+  color: #fff;
+  box-shadow: 0 8px 16px -8px rgba(124, 58, 237, 0.85);
+}
+.app-layout-wrapper .nexus-nav-group-trigger.active .nexus-chevron { color: currentColor; }
+
+/* itens do grupo aberto */
+.app-layout-wrapper .nexus-nav-items { margin-left: 22px; border-left-color: var(--nexus-guide); }
+.app-layout-wrapper .nexus-nav-items-inner { gap: 2px; padding-left: 12px; }
+.app-layout-wrapper .nexus-nav-items.open .nexus-nav-items-inner { padding-top: 4px; padding-bottom: 6px; }
+.app-layout-wrapper .nexus-nav-link {
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 13.5px;
+}
+.app-layout-wrapper .nexus-nav-link.active {
+  background: var(--app-icone-fundo);
+  color: var(--app-icone-cor);
+  font-weight: 700;
+}
+body.light-theme .app-layout-wrapper .nexus-nav-link.active { color: #6d28d9; }
+.app-layout-wrapper .nexus-nav-link.active svg { color: currentColor; }
+.app-layout-wrapper .nexus-nav-link.active::before { left: -13px; top: 9px; bottom: 9px; width: 3px; background: #7c3aed; }
+
+/* menu recolhido (trilha) */
+.app-layout-wrapper .nexus-rail-item { width: 40px; height: 40px; border-radius: 12px; }
+.app-layout-wrapper .nexus-rail-item.active { background: #7c3aed; color: #fff; box-shadow: 0 8px 16px -8px rgba(124, 58, 237, 0.85); }
+
+/* usuario no rodape */
+.app-layout-wrapper .nexus-sidebar-footer { padding: 10px 14px 16px; border-top: 0; }
+.app-layout-wrapper .nexus-user-card {
+  height: 60px;
+  padding: 0 12px;
+  border-radius: 18px;
+  border: 1px solid var(--nexus-border);
+}
+.app-layout-wrapper .nexus-user-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #7c3aed, #4c1d95);
+  font-size: 13px;
+}
+.app-layout-wrapper .nexus-user-meta strong { font-size: 13.5px; }
+.app-layout-wrapper .nexus-user-meta span { font-size: 12px; }
+.app-layout-wrapper .nexus-user-card button { width: 32px; height: 32px; border-radius: 10px; }
+
+/* ============================== topo e abas ============================== */
+.app-layout-wrapper .topbar {
+  height: 76px;
+  background-color: var(--bg-primary);
+  border-bottom: 0;
+  padding: 0 32px;
+}
+.app-layout-wrapper .search-input {
+  height: 46px;
+  border-radius: 14px;
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+  box-shadow: 0 10px 24px -20px rgba(43, 16, 87, 0.5);
+}
+.app-layout-wrapper .search-input:focus { box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.14); }
+.app-layout-wrapper .action-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background-color: var(--bg-secondary);
+  box-shadow: 0 10px 24px -20px rgba(43, 16, 87, 0.5);
+}
+.app-layout-wrapper .tenant-switcher { border-radius: 14px; }
+.app-layout-wrapper .profile-menu { padding: 5px 10px 5px 6px; border-radius: 16px; }
+.app-layout-wrapper .profile-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #7c3aed, #4c1d95);
+  color: #fff;
+}
+.app-layout-wrapper .badge { background-color: #fb7185; }
+
+.app-layout-wrapper .tab-bar {
+  height: 50px;
+  gap: 8px;
+  padding: 0 32px 6px;
+  background-color: var(--bg-primary);
+  border-bottom: 0;
+}
+.app-layout-wrapper .tab-bar-item {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.app-layout-wrapper .tab-bar-item.active {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--brand-ink);
+  box-shadow: var(--shadow-subtle);
+}
+.app-layout-wrapper .tab-bar-item.active .tab-bar-label { font-weight: 700; }
+
+.app-layout-wrapper .page-content { padding: 8px 32px 32px; }
+
+/* ============================== cabecalho de pagina ============================== */
+/* O topo de toda pagina (.page-header, o topo do Dashboard e o primeiro bloco da
+   pagina que tem o <h1>) vira o bloco em degrade do app, com texto branco. */
+.app-layout-wrapper .page-content .page-header,
+.app-layout-wrapper .page-content .dashboard-topline,
+.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child),
+.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--app-degrade) !important;
+  border: 0 !important;
+  border-radius: 24px !important;
+  padding: 26px 30px !important;
+  color: #fff;
+  box-shadow: 0 26px 44px -30px rgba(76, 29, 149, 0.9);
+  /* com muitos botoes/caixas de valor, eles descem de linha em vez de espremer o titulo */
+  flex-wrap: wrap !important;
+  row-gap: 16px !important;
+}
+.app-layout-wrapper .page-content .page-header > :first-child,
+.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) > :first-child {
+  flex: 1 1 320px;
+  min-width: 260px;
+}
+/* brilho no canto, como no app */
+.app-layout-wrapper .page-content .page-header::before,
+.app-layout-wrapper .page-content .dashboard-topline::before,
+.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child)::before,
+.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child)::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  right: -80px;
+  top: -140px;
+  width: 380px;
+  height: 380px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(196, 167, 252, 0.4), rgba(196, 167, 252, 0) 66%);
+  pointer-events: none;
+}
+
+/* textos do cabecalho */
+.app-layout-wrapper .page-content .page-header :is(h1, h2, .page-title),
+.app-layout-wrapper .page-content .dashboard-topline :is(h1, h2, .page-title),
+.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) :is(h1, h2),
+.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) :is(h1, h2) {
+  color: #fff !important;
+  font-size: 28px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.02em !important;
+}
+.app-layout-wrapper .page-content .page-header :is(h1, h2) svg,
+.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) h1 svg,
+.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) h1 svg {
+  color: #fff !important;
+  stroke: #fff !important;
+}
+.app-layout-wrapper .page-content .page-header :is(p, .page-subtitle),
+.app-layout-wrapper .page-content .dashboard-topline :is(p, .page-subtitle, .dashboard-eyebrow),
+.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) > div > p,
+.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) > p {
+  color: rgba(255, 255, 255, 0.82) !important;
+}
+
+/* botoes do cabecalho: o principal em branco; os demais em "vidro" */
+.app-layout-wrapper .page-content :is(.page-header, .dashboard-topline) .btn-primary,
+.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) .btn-primary,
+.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) .btn-primary {
+  background: #fff !important;
+  color: #5b21b6 !important;
+  font-weight: 800;
+  box-shadow: 0 14px 30px -14px rgba(20, 6, 45, 0.6) !important;
+}
+.app-layout-wrapper .page-content :is(.page-header, .dashboard-topline) :is(.btn-secondary, .icon-btn, .back-btn, .filter-btn),
+.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) :is(.btn-secondary, .icon-btn, .back-btn, .filter-btn),
+.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) :is(.btn-secondary, .icon-btn, .back-btn, .filter-btn) {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border: 1px solid rgba(255, 255, 255, 0.26) !important;
+  color: #fff !important;
+}
+.app-layout-wrapper .page-content :is(.page-header, .dashboard-topline) :is(.btn-secondary, .icon-btn, .back-btn, .filter-btn) svg {
+  color: #fff;
+}
+/* relogio do Dashboard dentro do cabecalho */
+.app-layout-wrapper .dashboard-model-two .dashboard-topline .dashboard-clock {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.26);
+  color: #fff;
+}
+.app-layout-wrapper .dashboard-model-two .dashboard-topline .dashboard-clock :is(span, strong, svg) { color: #fff; }
+
+/* ============================== cartoes, botoes, campos, tabelas ============================== */
+.app-layout-wrapper .card {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  border-color: var(--border-color);
+}
+
+.app-layout-wrapper .btn-primary {
+  background: var(--app-degrade-botao);
+  border-radius: 13px;
+  padding: 12px 20px;
+  font-weight: 700;
+  box-shadow: var(--app-sombra-botao);
+}
+.app-layout-wrapper .btn-primary:hover { background: var(--app-degrade-botao); filter: brightness(1.07); box-shadow: var(--app-sombra-botao); }
+.app-layout-wrapper .btn-secondary {
+  border-radius: 13px;
+  padding: 12px 18px;
+  font-weight: 600;
+  background-color: var(--bg-secondary);
+  box-shadow: 0 10px 22px -20px rgba(43, 16, 87, 0.6);
+}
+.app-layout-wrapper .icon-btn { border-radius: 11px; }
+
+.app-layout-wrapper .input-group input,
+.app-layout-wrapper .input-group select,
+.app-layout-wrapper .input-group textarea {
+  border-radius: 13px;
+}
+.app-layout-wrapper .input-group input:focus,
+.app-layout-wrapper .input-group select:focus,
+.app-layout-wrapper .input-group textarea:focus {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.14);
+}
+.app-layout-wrapper .search-box input { border-radius: 13px; }
+
+.app-layout-wrapper .data-table th {
+  background-color: transparent;
+  font-size: 11.5px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.app-layout-wrapper .data-table td { padding-top: 15px; padding-bottom: 15px; }
+body.light-theme .app-layout-wrapper .data-table tbody tr:hover,
+body.light-theme .app-layout-wrapper .clickable-row:hover {
+  background-color: #faf7fe !important;
+}
+
+.app-layout-wrapper .status-badge { border: 0; padding: 6px 12px; font-weight: 700; }
+.app-layout-wrapper .stat-icon { border-radius: 50%; }
+.app-layout-wrapper .stat-card:hover { transform: none; }
+
+/* ============================== Dashboard ============================== */
+/* O Dashboard tinha uma paleta propria (cinza-azulado, #161b27); agora segue a do sistema. */
+.app-layout-wrapper .dashboard-model-two {
+  --dashboard-bg: var(--bg-primary);
+  --dashboard-surface: var(--bg-secondary);
+  --dashboard-surface-strong: var(--bg-secondary);
+  --dashboard-surface-hover: var(--bg-tertiary);
+  --dashboard-border: var(--border-color);
+  --dashboard-border-strong: var(--border-strong);
+  --dashboard-muted: var(--text-muted);
+  --dashboard-text: var(--text-primary);
+}
+.app-layout-wrapper .dashboard-model-two .card {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+/* ============================== impressao ============================== */
+@media print {
+  .app-layout-wrapper .page-content .page-header,
+  .app-layout-wrapper .page-content .dashboard-topline,
+  .app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child),
+  .app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) {
+    background: none !important;
+    box-shadow: none !important;
+    color: #000 !important;
+    padding: 0 !important;
+  }
+  .app-layout-wrapper .page-header :is(h1, h2, p, .page-title, .page-subtitle) { color: #000 !important; }
+}
+
+/* ============================== janelas de alerta (SweetAlert) ============================== */
+/* Ficam fora do .app-layout-wrapper (vao direto no <body>): regra sem escopo. */
+.swal2-popup {
+  border-radius: 24px !important;
+  box-shadow: 0 30px 60px -30px rgba(43, 16, 87, 0.55) !important;
+}
+.swal2-popup .swal2-actions button {
+  border-radius: 13px !important;
+  font-weight: 700 !important;
+  padding: 11px 22px !important;
+}

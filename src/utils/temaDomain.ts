@@ -36,13 +36,16 @@ export const lerPreferenciaTema = (valor: unknown, padrao: PreferenciaTema = 'da
 );
 
 /**
- * Padrao de cada lugar quando a pessoa nunca escolheu (nada guardado): o sistema
- * desktop abre escuro; o app Vendas (/vendedor) abre CLARO desde 14/10/2026, com o
- * design novo do app. Quem ja escolheu um tema continua nele.
+ * Padrao quando a pessoa nunca escolheu (nada guardado): CLARO em todo lugar.
+ * O app Vendas (/vendedor) passou a abrir claro em 14/10/2026 com o design novo
+ * do app, e o sistema desktop no mesmo dia, com o mesmo design. Quem ja escolheu
+ * um tema (escuro, claro ou automatico) continua nele. O caminho fica no
+ * parametro para o dia em que algum lugar precisar de outro padrao.
  */
-export const preferenciaPadraoDoCaminho = (caminho: string): PreferenciaTema => (
-  /^\/vendedor/.test(caminho) ? 'light' : 'dark'
-);
+export const preferenciaPadraoDoCaminho = (caminho: string): PreferenciaTema => {
+  void caminho;
+  return 'light';
+};
 
 /** Qual tema vale na tela agora. */
 export const temaEfetivo = (preferencia: PreferenciaTema, aparelhoEscuro: boolean): TemaEfetivo => (

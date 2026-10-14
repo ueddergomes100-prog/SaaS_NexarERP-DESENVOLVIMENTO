@@ -10,6 +10,8 @@ import TopBar from './TopBar';
 import TabBar from './TabBar';
 import { TabPanesArea } from './TabPane';
 import './Layout.css';
+// Design novo do desktop (14/10/2026): vem DEPOIS do Layout.css para vencer na cascata.
+import './visualDesktop.css';
 
 const AppLayout: React.FC = () => {
   const [globalAlert, setGlobalAlert] = useState<{message: string} | null>(null);

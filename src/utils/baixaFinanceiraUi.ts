@@ -118,7 +118,7 @@ export const pedirMotivoEstorno = async (args: { titulo: string; texto: string }
     html: `<div style="text-align:left;font-size:14px;color:#d4d4d8;">${escaparHtml(args.texto)}</div>`,
     input: 'textarea',
     inputLabel: 'Motivo do estorno',
-    inputPlaceholder: 'Ex.: baixa feita na data errada',
+    inputPlaceholder: 'Escreva por que está estornando',
     showCancelButton: true,
     confirmButtonColor: '#f59e0b',
     confirmButtonText: 'Sim, estornar',

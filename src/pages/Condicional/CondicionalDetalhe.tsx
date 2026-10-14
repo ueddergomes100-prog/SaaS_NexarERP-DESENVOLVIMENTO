@@ -158,7 +158,7 @@ const CondicionalDetalhe: React.FC = () => {
       html: '<div style="text-align:left;font-size:14px">Use quando a saída foi lançada por engano. A reserva de tudo que ainda está com o cliente é liberada. Para registrar o que o cliente devolveu, use "Registrar devolução" ou "Fechar".</div>',
       input: 'text',
       inputLabel: 'Motivo do cancelamento',
-      inputPlaceholder: 'Ex.: lançado no cliente errado',
+      inputPlaceholder: 'Escreva por que está cancelando',
       showCancelButton: true,
       confirmButtonText: 'Sim, cancelar',
       cancelButtonText: 'Voltar',

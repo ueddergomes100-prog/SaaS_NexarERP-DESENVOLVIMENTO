@@ -475,7 +475,7 @@ const SuperAdmin: React.FC = () => {
       title: 'Aviso Global',
       input: 'textarea',
       inputLabel: 'Mensagem (Deixe em branco para remover o aviso atual)',
-      inputPlaceholder: 'Ex: O sistema passará por manutenção no domingo às 02h...',
+      inputPlaceholder: 'Escreva o aviso que todas as empresas vão ver',
       showCancelButton: true,
       confirmButtonColor: '#f59e0b',
       confirmButtonText: 'Publicar',

@@ -5,14 +5,15 @@ import { proximaPreferenciaTema, tituloDoBotaoDeTema } from '../../utils/temaDom
 import FilialSeletor from './FilialSeletor';
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
-import { collection, query, where, onSnapshot, doc, getDocs, limit } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDocs, limit, Timestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
 import { productMatchesSearch, type SearchableProduct } from '../../utils/productSearch';
 import PerfilModal from './PerfilModal';
 import './Layout.css';
-import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
+import { assinarComReserva } from '../../services/consultaComReserva';
 import { diasAteAData } from '../../utils/avisosSinoDomain';
 
 const TopBar: React.FC = () => {
@@ -43,19 +44,25 @@ const TopBar: React.FC = () => {
   const { preferencia: temaPreferido, aparelhoEscuro, escolher: escolherTema } = usePreferenciaTema();
   const toggleTheme = () => escolherTema(proximaPreferenciaTema(temaPreferido));
 
+  // Avisos do sino (otimizacao de leituras, 2026-10-14). Cada fonte tem a
+  // SUA escuta, ja' limitada no banco ao que o sino mostra. Antes eram todos
+  // os pendentes de sempre (lembretes, agendamentos, contas a pagar) num
+  // efeito que dependia do array de permissoes -- recriado a cada sinal de
+  // sessao de 30 s --, entao tudo era relido do servidor a cada 30 s.
+  const diasNotificacao = Math.max(1, Math.round(Number(configData?.diasNotificacaoLembrete) || 15));
+  const hasContasPagarAccess = isPlatformAdmin || isTenantManagerRole(userRole) || userPermissions.includes('financeiro.pagar');
+  const [avisosLembretes, setAvisosLembretes] = useState<any[]>([]);
+  const [avisosAgendamentos, setAvisosAgendamentos] = useState<any[]>([]);
+  const [avisosContasPagar, setAvisosContasPagar] = useState<any[]>([]);
+
+  useEffect(() => {
+    const notifs = [...avisosLembretes, ...avisosAgendamentos, ...avisosContasPagar];
+    notifs.sort((a, b) => a.diasRestantes - b.diasRestantes);
+    setNotifications(notifs);
+  }, [avisosLembretes, avisosAgendamentos, avisosContasPagar]);
+
   useEffect(() => {
     if (!currentUser || !tenantId) return;
-
-    let diasNotificacao = 15;
-    let currentLembretes: any[] = [];
-    let currentAgendamentos: any[] = [];
-    let currentContasPagar: any[] = [];
-
-    const updateNotifs = () => {
-      const notifs = [...currentLembretes, ...currentAgendamentos, ...currentContasPagar];
-      notifs.sort((a, b) => a.diasRestantes - b.diasRestantes);
-      setNotifications(notifs);
-    };
 
     let userUnsub = () => {};
     if (!isTenantManagerRole(userRole) && !isPlatformAdmin) {
@@ -68,107 +75,124 @@ const TopBar: React.FC = () => {
 
     const configUnsub = onSnapshot(doc(db, 'configuracoes', tenantId), (docSnap) => {
       if (docSnap.exists()) {
-        const data = docSnap.data();
-        setConfigData(data);
-        diasNotificacao = Number(data.diasNotificacaoLembrete || 15);
-        updateNotifs();
+        setConfigData(docSnap.data());
       }
     });
-    
-    // Listen to Lembretes (Alertas de Retorno)
-    const qLembretes = query(collection(db, 'lembretes'), where('tenantId', '==', tenantId), where('status', '==', 'Pendente'));
-    const lembretesUnsub = onSnapshot(qLembretes, (snap) => {
-      const temp: any[] = [];
-      const hoje = getDateInputInTimeZone();
-
-      snap.forEach(d => {
-        const lembrete = d.data();
-        // dataPrevisao e' Timestamp (o LembreteForm grava um Date) -- o
-        // .split('-') antigo quebrava aqui. Ver avisosSinoDomain.ts.
-        const diffDays = diasAteAData(lembrete.dataPrevisao, hoje);
-        if (diffDays !== null) {
-          if (diffDays > 0 && diffDays <= diasNotificacao) {
-            temp.push({
-              id: d.id,
-              tipoLogico: 'lembrete',
-              labelTipo: 'Lembrete de Retorno',
-              ...lembrete,
-              diasRestantes: diffDays
-            });
-          }
-        }
-      });
-      
-      currentLembretes = temp;
-      updateNotifs();
-    });
-
-    // Listen to Agendamentos
-    const qAgendamentos = query(collection(db, 'agendamentos'), where('tenantId', '==', tenantId), where('status', '==', 'Agendado'));
-    const agendamentosUnsub = onSnapshot(qAgendamentos, (snap) => {
-      const temp: any[] = [];
-      const hoje = getDateInputInTimeZone();
-
-      snap.forEach(d => {
-        const ag = d.data();
-        const diffDays = diasAteAData(ag.data, hoje);
-        if (diffDays !== null) {
-          if (diffDays > 0 && diffDays <= diasNotificacao) {
-            temp.push({
-              id: d.id,
-              tipoLogico: 'agendamento',
-              labelTipo: 'Agendamento Marcado',
-              veiculo: ag.veiculo,
-              clienteNome: ag.clienteNome,
-              diasRestantes: diffDays
-            });
-          }
-        }
-      });
-      
-      currentAgendamentos = temp;
-      updateNotifs();
-    });
-
-    let contasPagarUnsub = () => {};
-    const hasContasPagarAccess = isPlatformAdmin || isTenantManagerRole(userRole) || userPermissions?.includes('financeiro.pagar');
-    
-    if (hasContasPagarAccess) {
-      const qContasPagar = query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('tipo', '==', 'saida'), where('status', '==', 'Pendente'));
-      contasPagarUnsub = onSnapshot(qContasPagar, (snap) => {
-        const temp: any[] = [];
-        const hojeStr = getDateInputInTimeZone();
-        
-        const dismissedStr = localStorage.getItem(`nexus_dismissed_notifs_${currentUser.uid}`);
-        const dismissed = dismissedStr ? JSON.parse(dismissedStr) : [];
-        
-        snap.forEach(d => {
-          const t = d.data();
-          if (t.data === hojeStr && !dismissed.includes(d.id)) {
-            temp.push({
-              id: d.id,
-              tipoLogico: 'conta_pagar',
-              labelTipo: 'Conta a Pagar Hoje',
-              veiculo: t.descricao || 'Despesa',
-              clienteNome: t.categoria || 'Financeiro',
-              diasRestantes: 0
-            });
-          }
-        });
-        
-        currentContasPagar = temp;
-        updateNotifs();
-      });
-    }
 
     return () => {
       configUnsub();
-      lembretesUnsub();
-      agendamentosUnsub();
-      contasPagarUnsub();
       userUnsub();
     };
-  }, [currentUser, tenantId, userRole, userPermissions, isPlatformAdmin]);
+  }, [currentUser, tenantId, userRole, isPlatformAdmin]);
+
+  // Lembretes de retorno: pendentes com previsao de amanha ate' daqui a N dias.
+  useEffect(() => {
+    if (!currentUser || !tenantId) {
+      setAvisosLembretes([]);
+      return undefined;
+    }
+    const hoje = getDateInputInTimeZone();
+    const base = collection(db, 'lembretes');
+    const reserva = query(base, where('tenantId', '==', tenantId), where('status', '==', 'Pendente'));
+    const enxuta = query(
+      base,
+      where('tenantId', '==', tenantId),
+      where('status', '==', 'Pendente'),
+      where('dataPrevisao', '>=', Timestamp.fromDate(dateInputToUtcStart(addDaysToDateInput(hoje, 1)) ?? new Date())),
+      where('dataPrevisao', '<=', Timestamp.fromDate(dateInputToUtcEnd(addDaysToDateInput(hoje, diasNotificacao)) ?? new Date())),
+    );
+    return assinarComReserva(enxuta, reserva, 'Sino (lembretes)', (snap) => {
+      const temp: any[] = [];
+      snap.forEach(d => {
+        const lembrete = d.data();
+        // dataPrevisao e' Timestamp (o LembreteForm grava um Date). Ver avisosSinoDomain.ts.
+        const diffDays = diasAteAData(lembrete.dataPrevisao, hoje);
+        if (diffDays !== null && diffDays > 0 && diffDays <= diasNotificacao) {
+          temp.push({
+            id: d.id,
+            tipoLogico: 'lembrete',
+            labelTipo: 'Lembrete de Retorno',
+            ...lembrete,
+            diasRestantes: diffDays
+          });
+        }
+      });
+      setAvisosLembretes(temp);
+    });
+  }, [currentUser, tenantId, diasNotificacao]);
+
+  // Agendamentos marcados de amanha ate' daqui a N dias (`data` e' texto AAAA-MM-DD).
+  useEffect(() => {
+    if (!currentUser || !tenantId) {
+      setAvisosAgendamentos([]);
+      return undefined;
+    }
+    const hoje = getDateInputInTimeZone();
+    const base = collection(db, 'agendamentos');
+    const reserva = query(base, where('tenantId', '==', tenantId), where('status', '==', 'Agendado'));
+    const enxuta = query(
+      base,
+      where('tenantId', '==', tenantId),
+      where('status', '==', 'Agendado'),
+      where('data', '>=', addDaysToDateInput(hoje, 1)),
+      where('data', '<=', addDaysToDateInput(hoje, diasNotificacao)),
+    );
+    return assinarComReserva(enxuta, reserva, 'Sino (agendamentos)', (snap) => {
+      const temp: any[] = [];
+      snap.forEach(d => {
+        const ag = d.data();
+        const diffDays = diasAteAData(ag.data, hoje);
+        if (diffDays !== null && diffDays > 0 && diffDays <= diasNotificacao) {
+          temp.push({
+            id: d.id,
+            tipoLogico: 'agendamento',
+            labelTipo: 'Agendamento Marcado',
+            veiculo: ag.veiculo,
+            clienteNome: ag.clienteNome,
+            diasRestantes: diffDays
+          });
+        }
+      });
+      setAvisosAgendamentos(temp);
+    });
+  }, [currentUser, tenantId, diasNotificacao]);
+
+  // Contas a pagar que vencem HOJE. So' igualdades: o Firestore responde sem
+  // indice composto. A pagina recarrega na virada do dia (VerificadorDataDoSistema).
+  useEffect(() => {
+    if (!currentUser || !tenantId || !hasContasPagarAccess) {
+      setAvisosContasPagar([]);
+      return undefined;
+    }
+    const hojeStr = getDateInputInTimeZone();
+    const qContasPagar = query(
+      collection(db, 'transacoes'),
+      where('tenantId', '==', tenantId),
+      where('tipo', '==', 'saida'),
+      where('status', '==', 'Pendente'),
+      where('data', '==', hojeStr),
+    );
+    return onSnapshot(qContasPagar, (snap) => {
+      const temp: any[] = [];
+      const dismissedStr = localStorage.getItem(`nexus_dismissed_notifs_${currentUser.uid}`);
+      const dismissed = dismissedStr ? JSON.parse(dismissedStr) : [];
+
+      snap.forEach(d => {
+        const t = d.data();
+        if (t.data === hojeStr && !dismissed.includes(d.id)) {
+          temp.push({
+            id: d.id,
+            tipoLogico: 'conta_pagar',
+            labelTipo: 'Conta a Pagar Hoje',
+            veiculo: t.descricao || 'Despesa',
+            clienteNome: t.categoria || 'Financeiro',
+            diasRestantes: 0
+          });
+        }
+      });
+      setAvisosContasPagar(temp);
+    }, (erro) => console.error('Sino (contas a pagar):', erro));
+  }, [currentUser, tenantId, hasContasPagarAccess]);
 
   // Handle clicking outside to close dropdowns
   useEffect(() => {
@@ -207,6 +231,7 @@ const TopBar: React.FC = () => {
     
     // Update UI immediately
     setNotifications(prev => prev.filter(n => n.id !== id));
+    setAvisosContasPagar(prev => prev.filter(n => n.id !== id));
   };
 
   useEffect(() => {

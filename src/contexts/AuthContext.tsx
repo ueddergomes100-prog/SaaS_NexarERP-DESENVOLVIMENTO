@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { getIdTokenResult, onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, doc, getDoc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
+import { collection, doc, getDoc, limit, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import Swal from 'sweetalert2';
 import { auth, db } from '../services/firebase';
 import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from '../utils/session';
@@ -25,7 +25,6 @@ import {
   DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
   parseExigirIdentificacaoVendedor,
 } from '../utils/vendedorPinDomain';
-import { isRegistroDeVendedor } from '../utils/vendedorCadastroDomain';
 import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../utils/fiscalDomain';
 import { DEFAULT_HABILITAR_TELA_PRECIFICACAO } from '../utils/precificacaoDomain';
 import {
@@ -156,6 +155,23 @@ const getTokenRole = async (user: User): Promise<UserRole | null> => {
   }
 };
 
+// Mesmo conteudo -> devolve a MESMA lista (mesma referencia). O perfil
+// (usuarios/{uid}) muda a cada 30 s por causa do sinal de sessao; recriar o
+// array a cada disparo fazia todo efeito que depende de permissoes (TopBar,
+// Sidebar...) desfazer e refazer as escutas, relendo colecoes inteiras do
+// servidor a cada 30 s (otimizacao de leituras, 2026-10-14).
+const manterSeIgual = <T,>(nova: T[]) => (atual: T[]): T[] => (
+  atual.length === nova.length && atual.every((valor, indice) => valor === nova[indice]) ? atual : nova
+);
+
+// O plano (modulos bloqueados, limite de filiais) vem do documento do DONO.
+// Antes era relido a cada disparo do perfil (a cada 30 s para quem nao e' o
+// dono); agora vale por 5 min -- mudanca de plano chega em ate' 5 min.
+const VALIDADE_PLANO_DO_DONO_MS = 5 * 60 * 1000;
+// Mesma ideia para a lista de empresas do admin da plataforma (le os usuarios
+// de TODAS as empresas).
+const VALIDADE_EMPRESAS_DA_PLATAFORMA_MS = 5 * 60 * 1000;
+
 const toStringArray = (value: unknown): string[] => {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 };
@@ -214,6 +230,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userNome, setUserNome] = useState('');
   const [loading, setLoading] = useState(true);
   const sessionCloseTokenRef = useRef('');
+  const planoDoDonoRef = useRef<{ homeTenant: string; lidoEmMs: number; bloqueados: string[]; limite: number } | null>(null);
+  const empresasDaPlataformaRef = useRef<{ uid: string; lidoEmMs: number; opcoes: TenantOption[] } | null>(null);
 
   const setActiveTenantId = useCallback((nextTenantId: string): boolean => {
     const nextTenant = tenantOptions.find(option => option.id === nextTenantId) || null;
@@ -257,22 +275,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSelectedTenant(null);
         setAcessoAppMobile(false);
         setUserNome('');
+        planoDoDonoRef.current = null;
+        empresasDaPlataformaRef.current = null;
         clearStoredSessionId();
       };
 
       const applyPlatformAdminState = async (user: User, role: UserRole) => {
-        const options = await loadTenantOptions();
+        const guardadas = empresasDaPlataformaRef.current;
+        let options: TenantOption[];
+        if (guardadas && guardadas.uid === user.uid && Date.now() - guardadas.lidoEmMs < VALIDADE_EMPRESAS_DA_PLATAFORMA_MS) {
+          options = guardadas.opcoes;
+        } else {
+          options = await loadTenantOptions();
+          empresasDaPlataformaRef.current = { uid: user.uid, lidoEmMs: Date.now(), opcoes: options };
+        }
         const storedTenantId = localStorage.getItem(activeTenantStorageKey(user.uid));
         const activeTenant = options.find(option => option.id === storedTenantId) || null;
 
         setUserRole(role);
-        setUserPermissions([]);
+        setUserPermissions(manterSeIgual<string>([]));
         setNivelAcesso('gerente');
-        setTenantOptions(options);
+        setTenantOptions(manterSeIgual(options));
         setSelectedTenant(activeTenant);
         setTenantId(activeTenant?.id || null);
         setHomeTenantId(null);
-        setBlockedModules([]);
+        setBlockedModules(manterSeIgual<string>([]));
         setIsOwner(false);
         setLoading(false);
       };
@@ -403,25 +430,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               finalBlockedModules = toStringArray(data.modulosBloqueados);
               limiteFiliaisDoPlano = lerLimiteFiliais(data.limiteFiliais);
             } else {
-              try {
-                const ownerDoc = await getDoc(doc(db, 'usuarios', homeTenant));
-                if (ownerDoc.exists()) {
-                  finalBlockedModules = toStringArray(ownerDoc.data().modulosBloqueados);
-                  limiteFiliaisDoPlano = lerLimiteFiliais(ownerDoc.data().limiteFiliais);
+              const guardado = planoDoDonoRef.current?.homeTenant === homeTenant ? planoDoDonoRef.current : null;
+              if (guardado && Date.now() - guardado.lidoEmMs < VALIDADE_PLANO_DO_DONO_MS) {
+                finalBlockedModules = guardado.bloqueados;
+                limiteFiliaisDoPlano = guardado.limite;
+              } else {
+                try {
+                  const ownerDoc = await getDoc(doc(db, 'usuarios', homeTenant));
+                  if (ownerDoc.exists()) {
+                    finalBlockedModules = toStringArray(ownerDoc.data().modulosBloqueados);
+                    limiteFiliaisDoPlano = lerLimiteFiliais(ownerDoc.data().limiteFiliais);
+                  }
+                  planoDoDonoRef.current = { homeTenant, lidoEmMs: Date.now(), bloqueados: finalBlockedModules, limite: limiteFiliaisDoPlano };
+                } catch (error) {
+                  console.error('Erro ao buscar modulos bloqueados do dono:', error);
+                  // Falha de rede nao libera modulo: fica o ultimo plano lido.
+                  if (guardado) {
+                    finalBlockedModules = guardado.bloqueados;
+                    limiteFiliaisDoPlano = guardado.limite;
+                  }
                 }
-              } catch (error) {
-                console.error('Erro ao buscar modulos bloqueados do dono:', error);
               }
             }
 
             setUserRole(finalRole);
-            setUserPermissions(finalPermissions);
+            setUserPermissions(manterSeIgual(finalPermissions));
             setNivelAcesso(parseNivelAcesso(data.nivelAcesso));
-            setTenantOptions([]);
+            setTenantOptions(manterSeIgual<TenantOption>([]));
             setSelectedTenant(null);
             setTenantId(finalTenant);
             setHomeTenantId(homeTenant);
-            setBlockedModules(finalBlockedModules);
+            setBlockedModules(manterSeIgual(finalBlockedModules));
             setLimiteFiliais(limiteFiliaisDoPlano);
             // Dono = quem abriu a conta (a casa dele e' o uid), em qualquer filial.
             setIsOwner(user.uid === homeTenant);
@@ -641,9 +680,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Existe vendedor sem login cadastrado? Decide so a visibilidade do menu
-  // "Cadastros Auxiliares > Vendedores". Reaproveita a lista de pessoas da
-  // empresa, que e' curta -- e filtra o tipo aqui, sem where() novo, pra nao
-  // exigir indice composto.
+  // "Cadastros Auxiliares > Vendedores". Consulta SO' os registros de
+  // vendedor (tipoRegistro 'vendedor', ver vendedorCadastroDomain), com
+  // limit(1): eles nao tem login, entao nunca recebem o sinal de sessao.
+  // Antes escutava todos os usuarios da empresa, e cada sinal de 30 s de
+  // cada pessoa logada virava uma leitura em cada tela aberta (2026-10-14).
+  // So' igualdades: nao precisa de indice composto.
   useEffect(() => {
     if (!tenantId) {
       setTemVendedorCadastrado(false);
@@ -651,8 +693,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const unsubscribe = onSnapshot(
-      query(collection(db, 'usuarios'), where('tenantId', '==', tenantId)),
-      (snap) => setTemVendedorCadastrado(snap.docs.some((documento) => isRegistroDeVendedor(documento.data()))),
+      query(collection(db, 'usuarios'), where('tenantId', '==', tenantId), where('tipoRegistro', '==', 'vendedor'), limit(1)),
+      (snap) => setTemVendedorCadastrado(!snap.empty),
       (error) => {
         // Falha de leitura nao esconde o menu: sumir com o cadastro por
         // causa de uma queda de rede vale um chamado de suporte.

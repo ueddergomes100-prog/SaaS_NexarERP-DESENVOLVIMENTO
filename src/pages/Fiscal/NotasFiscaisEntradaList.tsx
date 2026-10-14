@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Barcode, FileDown, FileText, History, Loader2, Package, Printer, Search, Trash2, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { collection, doc, documentId, onSnapshot, query, where, getDocs, runTransaction, serverTimestamp, type Timestamp } from 'firebase/firestore';
+import { collection, doc, documentId, query, where, getDocs, runTransaction, serverTimestamp, Timestamp, type DocumentData, type Query } from 'firebase/firestore';
+import { assinarComReserva } from '../../services/consultaComReserva';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { NexusSwal, showError, showSuccess, escaparHtml } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
-import { formatDateInputPtBr } from '../../utils/dateTime';
+import { dateInputToUtcStart, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import {
   findTituloBloqueandoExclusao,
   findItemSemEstoqueParaReverter,
@@ -96,12 +97,37 @@ const NotasFiscaisEntradaList: React.FC = () => {
   const [carregandoTitulos, setCarregandoTitulos] = useState(false);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
 
+  // Leitura enxuta (otimizacao de leituras, 2026-10-14). Antes: TODAS as
+  // notas de entrada da empresa, cada uma com o XML dentro. Agora:
+  //  - sem filtro de emissao: as LANCADAS este mes (createdAt) -- a nota
+  //    recem-lancada aparece mesmo se foi emitida no mes passado;
+  //  - com o filtro "Emissao": as emitidas no periodo (dataEmissao).
+  // Sem o indice publicado, cai na colecao inteira e o mesmo corte e' feito aqui.
+  const lancadasNoMes = !periodoDe && !periodoAte;
+  const inicioDoMes = `${getDateInputInTimeZone().slice(0, 7)}-01`;
   useEffect(() => {
-    if (!tenantId) return;
-    const q = query(collection(db, 'notas_fiscais_entrada'), where('tenantId', '==', tenantId));
-    const unsubscribe = onSnapshot(q, (snap) => {
-      const data: NotaFiscalEntradaDoc[] = [];
-      snap.forEach((d) => data.push({ id: d.id, ...d.data() } as NotaFiscalEntradaDoc));
+    if (!tenantId) return undefined;
+    setLoading(true);
+    const todas = query(collection(db, 'notas_fiscais_entrada'), where('tenantId', '==', tenantId));
+    let enxuta: Query<DocumentData> = todas;
+    let noCorte: (dados: DocumentData) => boolean = () => true;
+    const inicio = lancadasNoMes ? dateInputToUtcStart(inicioDoMes) : null;
+    if (inicio) {
+      enxuta = query(todas, where('createdAt', '>=', Timestamp.fromDate(inicio)));
+      noCorte = (dados) => Boolean(dados.createdAt?.toDate && dados.createdAt.toDate() >= inicio);
+    } else if (!lancadasNoMes) {
+      enxuta = query(
+        todas,
+        ...(periodoDe ? [where('dataEmissao', '>=', periodoDe)] : []),
+        ...(periodoAte ? [where('dataEmissao', '<=', periodoAte)] : []),
+      );
+      noCorte = (dados) => dentroDoPeriodo(dados.dataEmissao, periodoDe, periodoAte);
+    }
+    const rotulo = lancadasNoMes ? 'Notas de entrada (lançadas no mês)' : 'Notas de entrada (emissão)';
+    return assinarComReserva(enxuta, todas, rotulo, (snap) => {
+      const data = snap.docs
+        .filter((d) => noCorte(d.data()))
+        .map((d) => ({ id: d.id, ...d.data() } as NotaFiscalEntradaDoc));
       data.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
       setNotas(data);
       setLoading(false);
@@ -109,8 +135,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
       console.error('Erro ao buscar notas de entrada:', error);
       setLoading(false);
     });
-    return () => unsubscribe();
-  }, [tenantId]);
+  }, [tenantId, lancadasNoMes, inicioDoMes, periodoDe, periodoAte]);
 
   const notasFiltradas = useMemo(() => {
     const termo = searchTerm.trim().toLowerCase();
@@ -416,6 +441,11 @@ const NotasFiscaisEntradaList: React.FC = () => {
           </CampoFiltro>
           <CampoPeriodo rotulo="Emissão" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
         </PainelFiltros>
+        {lancadasNoMes && (
+          <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Notas lançadas este mês. Para outro período, use Filtros › Emissão.
+          </p>
+        )}
 
         <div className="table-wrapper">
           <table className="data-table">
@@ -438,7 +468,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
               ) : notasFiltradas.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ padding: '8px' }}>
-                    <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhuma nota de entrada importada ainda.'} compacto />
+                    <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : (lancadasNoMes ? 'Nenhuma nota de entrada lançada este mês.' : 'Nenhuma nota de entrada emitida neste período.')} compacto />
                   </td>
                 </tr>
               ) : (

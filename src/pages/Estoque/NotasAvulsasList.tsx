@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Barcode, Eye, PackagePlus, Plus, RotateCcw, Search } from 'lucide-react';
-import { collection, doc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
+import { collection, doc, getDocs, query, runTransaction, serverTimestamp, Timestamp, where } from 'firebase/firestore';
+import { assinarComReserva } from '../../services/consultaComReserva';
+import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -44,12 +46,29 @@ const NotasAvulsasList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
   const [notaAberta, setNotaAberta] = useState<NotaAvulsaData | null>(null);
 
+  // Leitura enxuta (otimizacao de leituras, 2026-10-14). Antes: TODAS as
+  // notas avulsas da empresa. Agora as lancadas no periodo do filtro
+  // (vazio = mes atual, decisao do dono). Sem o indice (tenantId, createdAt)
+  // publicado, cai na colecao inteira e o mesmo corte e' feito aqui.
+  const hojeLeitura = getDateInputInTimeZone();
+  const periodoNoMesPadrao = !periodoDe && !periodoAte;
+  const leituraDe = periodoNoMesPadrao ? `${hojeLeitura.slice(0, 7)}-01` : periodoDe;
+  const leituraAte = periodoNoMesPadrao ? hojeLeitura : periodoAte;
   useEffect(() => {
-    if (!tenantId) return;
-    const q = query(collection(db, 'notas_avulsas'), where('tenantId', '==', tenantId));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const lista: NotaAvulsaData[] = [];
-      snapshot.forEach((docSnap) => lista.push({ id: docSnap.id, ...docSnap.data() } as NotaAvulsaData));
+    if (!tenantId) return undefined;
+    setLoading(true);
+    const todas = query(collection(db, 'notas_avulsas'), where('tenantId', '==', tenantId));
+    const inicio = leituraDe ? dateInputToUtcStart(leituraDe) : null;
+    const fim = leituraAte ? dateInputToUtcEnd(leituraAte) : null;
+    const doPeriodo = query(
+      todas,
+      ...(inicio ? [where('createdAt', '>=', Timestamp.fromDate(inicio))] : []),
+      ...(fim ? [where('createdAt', '<=', Timestamp.fromDate(fim))] : []),
+    );
+    return assinarComReserva(doPeriodo, todas, 'Notas avulsas (período)', (snapshot) => {
+      const lista = snapshot.docs
+        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as NotaAvulsaData))
+        .filter((nota) => dentroDoPeriodo(nota.createdAt, leituraDe, leituraAte));
       lista.sort((a, b) => Number(b.numero) - Number(a.numero));
       setNotas(lista);
       setLoading(false);
@@ -57,8 +76,7 @@ const NotasAvulsasList: React.FC = () => {
       console.error('Erro ao carregar notas avulsas:', error);
       setLoading(false);
     });
-    return () => unsubscribe();
-  }, [tenantId]);
+  }, [tenantId, leituraDe, leituraAte]);
 
   const termo = searchTerm.trim().toLowerCase();
   const statusExistentes = Array.from(new Set(notas.map((n) => n.status).filter(Boolean))).sort();
@@ -266,6 +284,11 @@ const NotasAvulsasList: React.FC = () => {
         </CampoFiltro>
         <CampoPeriodo rotulo="Emissão" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
       </PainelFiltros>
+      {periodoNoMesPadrao && (
+        <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+          Notas lançadas este mês. Para outro período, use Filtros › Emissão.
+        </p>
+      )}
 
 
         <div style={{ overflowX: 'auto' }}>
@@ -289,7 +312,7 @@ const NotasAvulsasList: React.FC = () => {
                 <tr>
                   <td colSpan={8} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <PackagePlus size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-                    <p>Nenhuma nota avulsa lançada ainda.</p>
+                    <p>{periodoNoMesPadrao ? 'Nenhuma nota avulsa lançada este mês.' : 'Nenhuma nota avulsa lançada neste período.'}</p>
                   </td>
                 </tr>
               ) : (

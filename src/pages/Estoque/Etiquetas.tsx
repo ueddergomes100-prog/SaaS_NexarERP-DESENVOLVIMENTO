@@ -8,6 +8,7 @@ import { showError, showSuccess, showWarning } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { resolveUnidadeMedidaProduto, temUnidadeMedidaCadastrada, avisoUnidadeMedidaAusente } from '../../utils/unidadeMedidaDomain';
 import { formatDateInputPtBr } from '../../utils/dateTime';
+import { DIAS_NOTAS_PARA_IMPORTAR, lerNotasAtivasParaImportar } from '../../services/notasParaImportar';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import EtiquetaLabel, { type ProdutoEtiquetaDados } from '../../components/estoque/EtiquetaLabel';
 import {
@@ -76,6 +77,8 @@ const Etiquetas: React.FC = () => {
   const [modalImportacao, setModalImportacao] = useState<null | 'avulsa' | 'fiscal'>(null);
   const [notasParaImportar, setNotasParaImportar] = useState<NotaParaImportar[]>([]);
   const [carregandoNotas, setCarregandoNotas] = useState(false);
+  /** false = so' as lancadas nos ultimos 90 dias (ver notasParaImportar.ts). */
+  const [notasDeTodasAsDatas, setNotasDeTodasAsDatas] = useState(false);
 
   const [modelo, setModelo] = useState<ModeloEtiqueta>(MODELO_ETIQUETA_PADRAO);
   const [painelModeloAberto, setPainelModeloAberto] = useState(false);
@@ -263,14 +266,15 @@ const Etiquetas: React.FC = () => {
     setSelecionados(new Set());
   };
 
-  const abrirImportacao = async (origem: 'avulsa' | 'fiscal') => {
+  const abrirImportacao = async (origem: 'avulsa' | 'fiscal', todasAsDatas = false) => {
     if (!tenantId) return;
     setModalImportacao(origem);
+    setNotasDeTodasAsDatas(todasAsDatas);
     setCarregandoNotas(true);
     try {
       if (origem === 'avulsa') {
-        const snap = await getDocs(query(collection(db, 'notas_avulsas'), where('tenantId', '==', tenantId)));
-        const lista = snap.docs
+        const docs = await lerNotasAtivasParaImportar('notas_avulsas', tenantId, todasAsDatas);
+        const lista = docs
           .filter((d) => d.data().status === 'ativa')
           .map((d) => {
             const data = d.data();
@@ -288,8 +292,8 @@ const Etiquetas: React.FC = () => {
           .sort((a, b) => b.titulo.localeCompare(a.titulo, 'pt-BR', { numeric: true }));
         setNotasParaImportar(lista);
       } else {
-        const snap = await getDocs(query(collection(db, 'notas_fiscais_entrada'), where('tenantId', '==', tenantId)));
-        const lista = snap.docs
+        const docs = await lerNotasAtivasParaImportar('notas_fiscais_entrada', tenantId, todasAsDatas);
+        const lista = docs
           .filter((d) => d.data().status === 'ativa')
           .map((d) => {
             const data = d.data();
@@ -663,6 +667,14 @@ const Etiquetas: React.FC = () => {
                     <Check size={18} color="var(--accent-purple)" />
                   </button>
                 ))
+              )}
+              {!carregandoNotas && !notasDeTodasAsDatas && modalImportacao && (
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '8px 0 0', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  Mostrando as notas lançadas nos últimos {DIAS_NOTAS_PARA_IMPORTAR} dias.
+                  <button type="button" className="btn-secondary" onClick={() => void abrirImportacao(modalImportacao, true)} style={{ padding: '4px 10px', fontSize: '12px' }}>
+                    Ver notas mais antigas
+                  </button>
+                </p>
               )}
             </div>
           </div>

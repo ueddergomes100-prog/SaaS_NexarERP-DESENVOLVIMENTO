@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, X, User, Car, Clock, Wrench } from 'lucide-react';
 import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { assinarComReserva } from '../../services/consultaComReserva';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
@@ -60,9 +61,9 @@ const Agenda: React.FC = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Busca Clientes e Agendamentos
+  // Busca Clientes e Veiculos (catalogos do formulario)
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !tenantId) return undefined;
 
     // Buscar Clientes
     const qClientes = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
@@ -80,20 +81,27 @@ const Agenda: React.FC = () => {
       setVeiculosDisponiveis(vData);
     });
 
-    // Buscar Agendamentos
-    const qAgendamentos = query(collection(db, 'agendamentos'), where('tenantId', '==', tenantId));
-    const unsubscribeAgendamentos = onSnapshot(qAgendamentos, (snap) => {
-      const agData: Agendamento[] = [];
-      snap.forEach(doc => agData.push({ id: doc.id, ...doc.data() } as Agendamento));
-      setAgendamentos(agData);
-    });
-
     return () => {
       unsubscribeClientes();
       unsubscribeVeiculos();
-      unsubscribeAgendamentos();
     };
-  }, [currentUser]);
+  }, [currentUser, tenantId]);
+
+  // Agendamentos do MES exibido (otimizacao de leituras, 2026-10-14). Antes:
+  // todos os agendamentos da empresa, e o calendario descartava os dos outros
+  // meses. `data` e' AAAA-MM-DD; sem o indice (tenantId, data) publicado, cai
+  // na colecao inteira e o calendario segura o resultado.
+  const mesExibido = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+  useEffect(() => {
+    if (!currentUser || !tenantId) return undefined;
+    const daEmpresa = query(collection(db, 'agendamentos'), where('tenantId', '==', tenantId));
+    const doMes = query(daEmpresa, where('data', '>=', `${mesExibido}-01`), where('data', '<=', `${mesExibido}-31`));
+    return assinarComReserva(doMes, daEmpresa, 'Agenda (mês exibido)', (snap) => {
+      const agData: Agendamento[] = [];
+      snap.forEach(doc => agData.push({ id: doc.id, ...doc.data() } as Agendamento));
+      setAgendamentos(agData);
+    }, (erro) => console.error('Erro ao carregar os agendamentos:', erro));
+  }, [currentUser, tenantId, mesExibido]);
 
   const diasSemana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
   const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();

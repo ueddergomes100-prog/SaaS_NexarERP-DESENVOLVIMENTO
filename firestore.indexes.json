@@ -314,6 +314,14 @@
         { "fieldPath": "statusConferencia", "order": "ASCENDING" },
         { "fieldPath": "conferidoEm", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "agendamentos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "data", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

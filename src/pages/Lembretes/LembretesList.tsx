@@ -56,9 +56,18 @@ const LembretesList: React.FC = () => {
 
   const { currentUser, tenantId } = useAuth();
 
+  // Leitura enxuta (otimizacao de leituras, 2026-10-14). Antes: TODOS os
+  // lembretes da empresa. Agora os PENDENTES, de qualquer data -- lembrete
+  // atrasado nunca some --, e os cancelados so' quando o filtro pede.
+  const verCancelados = situacaoFiltro === 'cancelado';
   useEffect(() => {
-    if (!currentUser) return;
-    const q = query(collection(db, 'lembretes'), where('tenantId', '==', tenantId));
+    if (!currentUser || !tenantId) return undefined;
+    setLoading(true);
+    const q = query(
+      collection(db, 'lembretes'),
+      where('tenantId', '==', tenantId),
+      where('status', '==', verCancelados ? 'Cancelado' : 'Pendente'),
+    );
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const data: LembreteData[] = [];
@@ -72,10 +81,13 @@ const LembretesList: React.FC = () => {
       });
       setLembretes(data);
       setLoading(false);
+    }, (erro) => {
+      console.error('Erro ao carregar os lembretes:', erro);
+      setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser, tenantId, verCancelados]);
 
   const formatWhatsAppMessage = (lembrete: LembreteData) => {
     return encodeURIComponent(
@@ -186,6 +198,11 @@ const LembretesList: React.FC = () => {
           </CampoFiltro>
           <CampoPeriodo rotulo="Previsão" de={periodoDe} ate={periodoAte} onChangeDe={setPeriodoDe} onChangeAte={setPeriodoAte} />
         </PainelFiltros>
+        {!verCancelados && (
+          <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Lembretes pendentes. Os cancelados ficam em Filtros › Situação › Cancelados.
+          </p>
+        )}
 
         <div className="table-wrapper">
           <table className="data-table">

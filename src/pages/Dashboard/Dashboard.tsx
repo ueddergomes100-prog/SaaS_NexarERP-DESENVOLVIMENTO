@@ -4,6 +4,7 @@ import {
   Activity,
   AlertTriangle,
   ChevronDown,
+  ClipboardList,
   Clock,
   DollarSign,
   Eye,
@@ -11,9 +12,12 @@ import {
   FileText,
   MoreVertical,
   Package,
+  PackageX,
   Plus,
   ShoppingCart,
-  Users
+  Users,
+  Wallet,
+  Wrench
 } from 'lucide-react';
 import {
   Area,
@@ -29,6 +33,8 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
+import AvatarIniciais from '../../components/common/AvatarIniciais';
+import { tomDoContador, tomDoStatusPedido, type TomChip } from '../../utils/chipStatusDomain';
 import {
   collection,
   doc,
@@ -54,7 +60,7 @@ import {
   isWithinDateRange,
   type DashboardPeriod,
 } from '../../utils/dateTime';
-import { contaComoFaturamento } from '../../utils/preVendaDomain';
+import { contaComoFaturamento, isPedidoAberto } from '../../utils/preVendaDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { isRevenueReversal, transactionDueDateInput, transactionNetAmount } from '../../utils/financeDomain';
 import { calcularProgressoMeta, faltaParaMeta, parseMetaFaturamentoMensal } from '../../utils/metaFaturamentoDomain';
@@ -129,13 +135,31 @@ interface EstoqueData {
 
 const currencyFormatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const numberFormatter = new Intl.NumberFormat('pt-BR');
+const dataHoraCurta = new Intl.DateTimeFormat('pt-BR', {
+  day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: DEFAULT_TIME_ZONE,
+});
+
+/** Paleta do design novo (14/10/2026): violeta, azul, ambar, verde, rosa. */
+const CORES_FORMAS_PAGAMENTO = ['#7c3aed', '#3b82f6', '#f59e0b', '#10b981', '#ec4899'];
+const LINHAS_ULTIMOS_PEDIDOS = 6;
+
+/** "DESENVOLVIMENTO" ou "maria clara" viram "Desenvolvimento" e "Maria" na saudacao. */
+const primeiroNomeDe = (nome?: string | null): string => {
+  const primeiro = String(nome || '').trim().split(/\s+/)[0] || '';
+  return primeiro ? primeiro[0].toUpperCase() + primeiro.slice(1).toLowerCase() : '';
+};
+
+const saudacaoDaHora = (hora: number): string => (
+  hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite'
+);
 
 const compactCurrency = (value: number) => {
   const absValue = Math.abs(value);
   const sign = value < 0 ? '-' : '';
 
-  if (absValue >= 1000000) return `${sign}R$ ${(absValue / 1000000).toFixed(1)} mi`;
-  if (absValue >= 1000) return `${sign}R$ ${(absValue / 1000).toFixed(1)} mil`;
+  // virgula decimal (pt-BR): "R$ 1,5 mil", nunca "R$ 1.5 mil"
+  if (absValue >= 1000000) return `${sign}R$ ${(absValue / 1000000).toFixed(1).replace('.', ',')} mi`;
+  if (absValue >= 1000) return `${sign}R$ ${(absValue / 1000).toFixed(1).replace('.', ',')} mil`;
   return `${sign}R$ ${absValue.toFixed(0)}`;
 };
 
@@ -268,10 +292,11 @@ const Dashboard: React.FC = () => {
   /** Meta de faturamento do mes (Configuracoes). 0 = empresa nao trabalha
    * com meta -- o anel mostra o indicador de pipeline no lugar. */
   const [metaFaturamentoMensal, setMetaFaturamentoMensal] = useState(0);
+  const [nomeEmpresaConfig, setNomeEmpresaConfig] = useState('');
   const topActionMenuRef = useRef<HTMLDivElement>(null);
   const quickActionMenuRef = useRef<HTMLDivElement>(null);
 
-  const { currentUser, userPermissions, tenantId, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
+  const { currentUser, userPermissions, tenantId, isOwner, vendasVisiveisDeUsuarioId, userNome, selectedTenant } = useAuth();
   const isTabActive = useContext(TabActiveContext);
   const hasFinancialAccess = isOwner || userPermissions?.includes('dashboard.valores');
 
@@ -408,7 +433,11 @@ const Dashboard: React.FC = () => {
     if (hasFinancialAccess) {
       unsubscribes.push(onSnapshot(
         doc(db, 'configuracoes', tenantId),
-        (snap) => setMetaFaturamentoMensal(parseMetaFaturamentoMensal(snap.data()?.metaFaturamentoMensal)),
+        (snap) => {
+          setMetaFaturamentoMensal(parseMetaFaturamentoMensal(snap.data()?.metaFaturamentoMensal));
+          // Mesmo documento: o nome da empresa vai no subtitulo da saudacao.
+          setNomeEmpresaConfig(String(snap.data()?.nomeOficina || '').trim());
+        },
         (error) => console.error('Erro ao carregar a meta de faturamento:', error),
       ));
 
@@ -693,7 +722,7 @@ const Dashboard: React.FC = () => {
     const contagemStatus: Record<string, { value: number; color: string }> = {};
     metrics.osAtivas.forEach((os) => {
       if (!contagemStatus[os.status]) {
-        contagemStatus[os.status] = { value: 0, color: os.statusColor || '#37d7ff' };
+        contagemStatus[os.status] = { value: 0, color: os.statusColor || '#7c3aed' };
       }
       contagemStatus[os.status].value += 1;
     });
@@ -717,11 +746,14 @@ const Dashboard: React.FC = () => {
         const name = t.formaPagamento || 'Não informada';
         map[name] = (map[name] || 0) + transactionNetAmount(t);
       });
-    return Object.entries(map).map(([name, value], index) => ({
-      name,
-      value,
-      color: ['#37d7ff', '#ff4fb3', '#9f7aea', '#2ee6a6', '#ffb84d'][index % 5]
-    }));
+    // A forma que mais recebeu vem primeiro e fica com o violeta, como nas previas.
+    return Object.entries(map)
+      .sort(([, a], [, b]) => b - a)
+      .map(([name, value], index) => ({
+        name,
+        value,
+        color: CORES_FORMAS_PAGAMENTO[index % CORES_FORMAS_PAGAMENTO.length]
+      }));
   }, [selectedPeriodRange, transacoes]);
 
   const maskedMoney = 'R$ •••••';
@@ -769,34 +801,77 @@ const Dashboard: React.FC = () => {
   const restanteMeta = faltaParaMeta(faturamentoMesCalendario, metaFaturamentoMensal);
   const metaBatida = progressoMeta !== null && progressoMeta >= 100;
 
-  const kpiCards = [
+  // ---------- design novo (14/10/2026): o topo e os blocos das previas aprovadas ----------
+  const saudacao = saudacaoDaHora(getZonedParts(currentDate, DEFAULT_TIME_ZONE).hour);
+  const primeiroNome = primeiroNomeDe(userNome);
+  const nomeEmpresa = String(selectedTenant?.nomeOficina || '').trim() || nomeEmpresaConfig;
+  const periodoComMaiuscula = selectedPeriodLabel[0].toUpperCase() + selectedPeriodLabel.slice(1);
+  const pedidosEmAberto = pedidos.filter((pedido) => isPedidoAberto(pedido.status)).length;
+  const valorVencidoReceber = metrics.contasReceberVencidas.reduce((soma, t) => soma + transactionNetAmount(t), 0);
+  const ultimosPedidos = pedidos.slice(0, LINHAS_ULTIMOS_PEDIDOS);
+  const totalRecebidoFormas = paymentData.reduce((soma, forma) => soma + forma.value, 0);
+
+  type CartaoIndicador = {
+    rotulo: string;
+    valor: string;
+    icone: typeof Activity;
+    chip: string;
+    tom: TomChip;
+    texto: string;
+  };
+  const cartoesIndicadores: CartaoIndicador[] = [
+    hasFinancialAccess
+      ? {
+        rotulo: `Receita ${selectedPeriodLabel}`,
+        valor: formatMoney(metrics.faturamentoMes),
+        icone: DollarSign,
+        chip: progressoMeta !== null ? `${progressoMeta}% da meta` : `${formatMoney(metrics.faturamentoHoje)} hoje`,
+        tom: progressoMeta !== null && metaBatida ? 'verde' : 'violeta',
+        texto: progressoMeta !== null ? 'do mês' : 'já descontadas as taxas',
+      }
+      : {
+        rotulo: 'Clientes atendidos',
+        valor: formatNumber(metrics.clientesUnicosMes),
+        icone: Users,
+        chip: `${approvalRate}% conversão`,
+        tom: 'violeta',
+        texto: 'dos orçamentos',
+      },
     {
-      title: 'OS ativas',
-      value: formatNumber(metrics.osAtivas.length),
-      meta: `${formatNumber(metrics.osParadas.length)} paradas há 3+ dias`,
-      icon: Activity,
-      tone: 'cyan',
-      chartType: 'line',
-      dataKey: 'os'
+      rotulo: `Pedidos ${selectedPeriodLabel}`,
+      valor: formatNumber(metrics.vendasMes.length),
+      icone: ShoppingCart,
+      chip: `${formatNumber(pedidosEmAberto)} em aberto`,
+      tom: tomDoContador(pedidosEmAberto, 'azul'),
+      texto: `${formatNumber(metrics.vendasHoje.length)} faturados hoje`,
     },
+    hasFinancialAccess
+      ? {
+        rotulo: `A receber ${selectedPeriodLabel}`,
+        valor: formatMoney(metrics.valorContasReceberPeriodo),
+        icone: Wallet,
+        chip: metrics.contasReceberVencidas.length
+          ? `${formatNumber(metrics.contasReceberVencidas.length)} vencidos`
+          : 'Nada vencido',
+        tom: metrics.contasReceberVencidas.length ? 'verm' : 'verde',
+        texto: metrics.contasReceberVencidas.length ? formatMoney(valorVencidoReceber) : 'em dia',
+      }
+      : {
+        rotulo: `Orçamentos ${selectedPeriodLabel}`,
+        valor: formatNumber(metrics.orcamentosMes.length),
+        icone: FileText,
+        chip: `${formatNumber(metrics.orcamentosConvertidos)} convertidos`,
+        tom: tomDoContador(metrics.orcamentosConvertidos, 'verde'),
+        texto: `${approvalRate}% de aprovação`,
+      },
     {
-      title: hasFinancialAccess ? 'Receita líquida do período' : 'Pedidos do período',
-      value: hasFinancialAccess ? formatMoney(metrics.faturamentoMes) : formatNumber(metrics.vendasMes.length),
-      meta: hasFinancialAccess ? `${formatMoney(metrics.faturamentoHoje)} hoje` : `${formatNumber(metrics.vendasHoje.length)} hoje`,
-      icon: hasFinancialAccess ? DollarSign : ShoppingCart,
-      tone: 'magenta',
-      chartType: 'bar',
-      dataKey: hasFinancialAccess ? 'receita' : 'pedidos'
+      rotulo: 'OS em andamento',
+      valor: formatNumber(metrics.osAtivas.length),
+      icone: Wrench,
+      chip: metrics.osParadas.length ? `${formatNumber(metrics.osParadas.length)} paradas` : 'Nenhuma parada',
+      tom: metrics.osParadas.length ? 'ambar' : 'verde',
+      texto: `${formatNumber(metrics.osFinalizadasMes.length)} finalizadas`,
     },
-    {
-      title: 'Clientes atendidos',
-      value: formatNumber(metrics.clientesUnicosMes),
-      meta: `${approvalRate}% conversão`,
-      icon: Users,
-      tone: 'violet',
-      chartType: 'line',
-      dataKey: 'finalizadas'
-    }
   ];
 
   const quickMetrics = [
@@ -835,8 +910,8 @@ const Dashboard: React.FC = () => {
   ];
 
   const healthItems = [
-    { label: 'Conclusão de OS', value: `${osCompletionRate}%`, progress: osCompletionRate, color: '#37d7ff', hint: '' },
-    { label: 'Orçamentos aprovados', value: `${approvalRate}%`, progress: approvalRate, color: '#ff4fb3', hint: '' },
+    { label: 'Conclusão de OS', value: `${osCompletionRate}%`, progress: osCompletionRate, color: '#7c3aed', hint: '' },
+    { label: 'Orçamentos aprovados', value: `${approvalRate}%`, progress: approvalRate, color: '#3b82f6', hint: '' },
     // Com meta cadastrada, o anel vira a meta do mes. O valor pode passar
     // de 100% (bateu e superou); a barra e' que fica limitada a 100.
     progressoMeta !== null
@@ -844,7 +919,7 @@ const Dashboard: React.FC = () => {
         label: 'Meta do mês',
         value: `${progressoMeta}%`,
         progress: clampPercentage(progressoMeta),
-        color: metaBatida ? '#2ee6a6' : '#9f7aea',
+        color: metaBatida ? '#10b981' : '#f59e0b',
         hint: metaBatida
           ? `Meta de ${formatMoney(metaFaturamentoMensal)} batida`
           : `Faltam ${formatMoney(restanteMeta)} de ${formatMoney(metaFaturamentoMensal)}`,
@@ -853,42 +928,60 @@ const Dashboard: React.FC = () => {
         label: hasFinancialAccess ? 'Receita já realizada vs. em aberto' : 'Ritmo operacional',
         value: `${pipelineRealizadoRate}%`,
         progress: pipelineRealizadoRate,
-        color: '#9f7aea',
+        color: '#f59e0b',
         hint: '',
       }
   ];
 
+  // Fila operacional: o que pede acao agora, com a quantidade num chip (zerado fica cinza).
+  const orcamentosParaConverter = Math.max(metrics.orcamentosMes.length - metrics.orcamentosConvertidos, 0);
   const criticalTasks = [
     {
-      title: 'Contas a receber vencidas',
-      detail: `${formatNumber(metrics.contasReceberVencidas.length)} pendências financeiras`,
-      icon: AlertTriangle,
-      route: '/financeiro/contas-receber',
-      tone: 'warning',
-      visible: hasFinancialAccess
-    },
-    {
-      title: 'Estoque em atenção',
-      detail: `${formatNumber(metrics.itensEstoqueBaixo.length)} itens abaixo do mínimo`,
-      icon: Package,
-      route: '/estoque',
-      tone: 'cyan',
+      title: 'Pré-vendas em aberto',
+      count: pedidosEmAberto,
+      icon: ClipboardList,
+      route: '/pre-vendas',
+      tone: 'violeta' as TomChip,
       visible: true
     },
     {
-      title: 'OS paradas',
-      detail: `${formatNumber(metrics.osParadas.length)} ordens ativas há 3 dias ou mais`,
+      title: 'Contas a receber vencidas',
+      count: metrics.contasReceberVencidas.length,
+      icon: AlertTriangle,
+      route: '/financeiro/contas-receber',
+      tone: 'verm' as TomChip,
+      visible: hasFinancialAccess
+    },
+    {
+      title: 'Estoque abaixo do mínimo',
+      count: metrics.itensEstoqueBaixo.length,
+      icon: Package,
+      route: '/estoque',
+      tone: 'ambar' as TomChip,
+      visible: true
+    },
+    {
+      title: 'Produtos esgotados',
+      count: metrics.itensEsgotados.length,
+      icon: PackageX,
+      route: '/estoque',
+      tone: 'verm' as TomChip,
+      visible: true
+    },
+    {
+      title: 'OS paradas há 3+ dias',
+      count: metrics.osParadas.length,
       icon: Clock,
       route: '/os',
-      tone: 'magenta',
+      tone: 'ambar' as TomChip,
       visible: true
     },
     {
       title: 'Orçamentos para converter',
-      detail: `${formatNumber(Math.max(metrics.orcamentosMes.length - metrics.orcamentosConvertidos, 0))} oportunidades ${selectedPeriodLabel}`,
+      count: orcamentosParaConverter,
       icon: FileText,
       route: '/orcamentos',
-      tone: 'violet',
+      tone: 'azul' as TomChip,
       visible: true
     }
   ].filter((item) => item.visible);
@@ -950,17 +1043,13 @@ const Dashboard: React.FC = () => {
       )}
       <header className="dashboard-topline">
         <div>
-          <span className="dashboard-eyebrow">Painel / Gestão em tempo real</span>
-          <h1 className="page-title">Dashboard Principal</h1>
-          <p className="page-subtitle">Receita, OS e agenda em uma visão executiva para operação diária.</p>
+          <h1 className="page-title">{primeiroNome ? `${saudacao}, ${primeiroNome}` : saudacao}</h1>
+          <p className="page-subtitle">{[nomeEmpresa, formattedDate].filter(Boolean).join(' · ')}</p>
         </div>
 
         <div className="dashboard-actions">
           <div className="dashboard-clock">
-            <div>
-              <span>{formattedDate}</span>
-              <strong>{formattedTime}</strong>
-            </div>
+            <strong>{formattedTime}</strong>
             <Clock size={18} />
           </div>
           <button
@@ -974,218 +1063,261 @@ const Dashboard: React.FC = () => {
         </div>
       </header>
 
-      <section className="dashboard-hero-grid">
-        <article className="card dashboard-performance-card">
-          <div className="dashboard-card-heading">
-            <div>
-              <span className="dashboard-eyebrow">Gestão em tempo real</span>
-              <h2>Receita, OS e agenda</h2>
-            </div>
-            <div className="dashboard-segmented">
-              <button className={dashboardPeriod === 'hoje' ? 'active' : ''} onClick={() => selectDashboardPeriod('hoje')}>Hoje</button>
-              <button className={dashboardPeriod === 'semana' ? 'active' : ''} onClick={() => selectDashboardPeriod('semana')}>Semana</button>
-              <button className={dashboardPeriod === 'mes' ? 'active' : ''} onClick={() => selectDashboardPeriod('mes')}>Mês</button>
-            </div>
-          </div>
-
-          <div className="dashboard-performance-summary">
-            <div>
-              <strong>{mainMetricValue}</strong>
-              <span>{mainMetricCaption}</span>
-            </div>
-            <div>
-              <strong>{formatNumber(metrics.osAtivas.length)}</strong>
-              <span>OS em andamento</span>
-            </div>
-            <div>
-              <strong>{formatNumber(metrics.vendasMes.length)}</strong>
-              <span>Pedidos {selectedPeriodLabel}</span>
-            </div>
-          </div>
-
-          <div
-            className="dashboard-performance-chart"
-            style={{
-              filter: hideData && hasFinancialAccess ? 'blur(7px)' : 'none',
-              pointerEvents: hideData && hasFinancialAccess ? 'none' : 'auto',
-              userSelect: hideData && hasFinancialAccess ? 'none' : 'auto'
-            }}
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={performanceData} margin={{ top: 18, right: 18, left: 4, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="dashboardCyanArea" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#37d7ff" stopOpacity={0.28} />
-                    <stop offset="100%" stopColor="#37d7ff" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
-                <XAxis
-                  dataKey="name"
-                  stroke="#7f8aa4"
-                  tick={{ fill: '#7f8aa4', fontSize: 11, fontWeight: 700 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  yAxisId="value"
-                  stroke="#7f8aa4"
-                  tick={{ fill: '#7f8aa4', fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={hasFinancialAccess ? 72 : 34}
-                  tickFormatter={(value) => hasFinancialAccess ? compactCurrency(Number(value)) : numberFormatter.format(Number(value))}
-                />
-                <YAxis yAxisId="volume" orientation="right" hide />
-                <Tooltip
-                  formatter={(value, name) => {
-                    const numericValue = Number(value || 0);
-                    if (hideData && name === 'Receita') return maskedMoney;
-                    return name === 'Receita' ? currencyFormatter.format(numericValue) : numberFormatter.format(numericValue);
-                  }}
-                  contentStyle={{
-                    backgroundColor: '#111722',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: 8,
-                    color: '#f5f7fb'
-                  }}
-                  itemStyle={{ color: '#f5f7fb' }}
-                  labelStyle={{ color: '#98a2b7' }}
-                />
-                <Area
-                  yAxisId="value"
-                  type="monotone"
-                  dataKey={mainMetricKey}
-                  name={mainMetricLabel}
-                  stroke="#37d7ff"
-                  strokeWidth={4}
-                  fill="url(#dashboardCyanArea)"
-                  dot={false}
-                  activeDot={{ r: 6, strokeWidth: 2, fill: '#0c1018' }}
-                />
-                <Line
-                  yAxisId="volume"
-                  type="monotone"
-                  dataKey="finalizadas"
-                  name="OS finalizadas"
-                  stroke="#ff4fb3"
-                  strokeWidth={3}
-                  dot={false}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </article>
-
-        <aside className="dashboard-side-stack">
-          <div className="card dashboard-quick-card">
-            <div className="dashboard-card-heading compact">
-              <div>
-                <span className="dashboard-eyebrow">Resumo rápido</span>
-                <h2>Hoje</h2>
-              </div>
-            </div>
-            <div className="dashboard-quick-grid">
-              {quickMetrics.map((item) => (
-                <div key={item.label}>
-                  <strong>{item.value}</strong>
-                  <span>{item.label}</span>
-                </div>
-              ))}
-            </div>
-            {renderNewActionMenu('quick', 'dashboard-cta')}
-          </div>
-
-          <div className="card dashboard-health-card">
-            <span className="dashboard-eyebrow">Saúde da operação</span>
-            <div className="dashboard-health-list">
-              {healthItems.map((item) => (
-                <div key={item.label} className="dashboard-health-item">
-                  <span
-                    className="dashboard-ring"
-                    style={{
-                      '--progress': `${item.progress}%`,
-                      '--ring-color': item.color
-                    } as React.CSSProperties}
-                  />
-                  <div>
-                    <strong>{item.value}</strong>
-                    <span>{item.label}</span>
-                    {item.hint && (
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        {item.hint}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </aside>
-      </section>
-
-      <section className="dashboard-kpi-grid">
-        {kpiCards.map((card) => {
-          const Icon = card.icon;
+      <section className="dash-indicadores">
+        {cartoesIndicadores.map((cartao) => {
+          const Icone = cartao.icone;
           return (
-            <article key={card.title} className={`card dashboard-kpi-card ${card.tone}`}>
-              <div className="dashboard-kpi-top">
-                <div>
-                  <span>{card.title}</span>
-                  <strong>{card.value}</strong>
-                </div>
-                <div className="dashboard-kpi-icon">
-                  <Icon size={20} />
-                </div>
+            <article key={cartao.rotulo} className="card dash-indicador">
+              <div className="dash-indicador__topo">
+                <span className="hd-rotulo">{cartao.rotulo}</span>
+                <span className="hd-circ"><Icone /></span>
               </div>
-              <p>{card.meta}</p>
-              <div className="dashboard-mini-chart">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={performanceData.slice(-8)} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
-                    {card.chartType === 'bar' ? (
-                      <Bar dataKey={card.dataKey} fill="currentColor" radius={[5, 5, 0, 0]} maxBarSize={10} />
-                    ) : (
-                      <Line type="monotone" dataKey={card.dataKey} stroke="currentColor" strokeWidth={4} dot={false} />
-                    )}
-                  </ComposedChart>
-                </ResponsiveContainer>
+              <strong className="dash-indicador__valor">{cartao.valor}</strong>
+              <div className="dash-indicador__rodape">
+                <span className={`hd-chip ${cartao.tom}`}>{cartao.chip}</span>
+                <span>{cartao.texto}</span>
               </div>
             </article>
           );
         })}
       </section>
 
-      <section className="dashboard-bottom-grid">
-        <article className="card dashboard-task-card">
-          <div className="dashboard-card-heading compact">
+      <section className="dash-linha">
+        <article className="card dash-grafico">
+          <div className="dash-cab">
             <div>
-              <span className="dashboard-eyebrow">Tarefas críticas</span>
-              <h2>Fila operacional</h2>
+              <h3>{hasFinancialAccess ? `Receita ${selectedPeriodLabel}` : `Ordens de serviço ${selectedPeriodLabel}`}</h3>
+              <p>{mainMetricValue} · {mainMetricCaption.toLowerCase()}</p>
+            </div>
+            <div className="dash-chips" role="group" aria-label="Período do painel">
+              {([['hoje', 'Hoje'], ['semana', 'Semana'], ['mes', 'Mês']] as const).map(([periodo, rotulo]) => (
+                <button
+                  key={periodo}
+                  type="button"
+                  className={`hd-chip ${dashboardPeriod === periodo ? 'violeta' : ''}`}
+                  aria-pressed={dashboardPeriod === periodo}
+                  onClick={() => selectDashboardPeriod(periodo)}
+                >
+                  {rotulo}
+                </button>
+              ))}
             </div>
           </div>
-          <div className="dashboard-task-list">
+          <div
+            className="dash-grafico__area"
+            style={{
+              filter: hideData && hasFinancialAccess ? 'blur(7px)' : 'none',
+              pointerEvents: hideData && hasFinancialAccess ? 'none' : 'auto',
+              userSelect: hideData && hasFinancialAccess ? 'none' : 'auto'
+            }}
+          >
+            {performanceData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={performanceData} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="dashboardAreaVioleta" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="#7c3aed" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} strokeDasharray="4 6" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fontWeight: 600 }} />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11 }}
+                    width={hasFinancialAccess ? 72 : 34}
+                    tickFormatter={(value) => hasFinancialAccess ? compactCurrency(Number(value)) : numberFormatter.format(Number(value))}
+                  />
+                  <Tooltip
+                    formatter={(value) => {
+                      const numero = Number(value || 0);
+                      if (!hasFinancialAccess) return numberFormatter.format(numero);
+                      return hideData ? maskedMoney : currencyFormatter.format(numero);
+                    }}
+                    contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-card)' }}
+                    itemStyle={{ color: 'var(--text-primary)', fontWeight: 700 }}
+                    labelStyle={{ color: 'var(--text-muted)' }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey={mainMetricKey}
+                    name={mainMetricLabel}
+                    stroke="#7c3aed"
+                    strokeWidth={3.5}
+                    fill="url(#dashboardAreaVioleta)"
+                    dot={false}
+                    activeDot={{ r: 6, strokeWidth: 3, stroke: '#fff', fill: '#7c3aed' }}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="chart-empty">{loading ? 'Carregando dados...' : `Nada registrado ${selectedPeriodLabel} ainda.`}</div>
+            )}
+          </div>
+        </article>
+
+        <article className="card dash-fila">
+          <div className="dash-cab">
+            <h3>Fila operacional</h3>
+          </div>
+          <div className="dash-fila__lista">
             {criticalTasks.map((item) => {
               const Icon = item.icon;
               return (
-                <button key={item.title} className={`dashboard-task-item ${item.tone}`} onClick={() => navigate(item.route)}>
-                  <span className="dashboard-task-check">
-                    <Icon size={16} />
-                  </span>
-                  <span>
-                    <strong>{item.title}</strong>
-                    <small>{item.detail}</small>
-                  </span>
+                <button key={item.title} type="button" className="dash-fila__item" onClick={() => navigate(item.route)}>
+                  <span className="hd-quad"><Icon /></span>
+                  <span className="dash-fila__texto">{item.title}</span>
+                  <span className={`hd-chip ${tomDoContador(item.count, item.tone)}`}>{formatNumber(item.count)}</span>
                 </button>
               );
             })}
           </div>
         </article>
+      </section>
 
+      <section className="dash-linha">
+        <article className="card dash-pedidos">
+          <div className="dash-cab">
+            <h3>Últimos pedidos</h3>
+            <button type="button" className="hd-link" onClick={() => navigate('/pedidos-venda')}>Ver todos</button>
+          </div>
+          <div className="table-wrapper">
+            <table className="dash-tabela">
+              <thead>
+                <tr>
+                  <th>Nº</th>
+                  <th>Cliente</th>
+                  <th className="dash-tabela__vendedor">Vendedor</th>
+                  <th>Status</th>
+                  {hasFinancialAccess && <th className="dash-tabela__num">Total</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={hasFinancialAccess ? 5 : 4} className="dash-tabela__vazio">Carregando dados...</td></tr>
+                ) : ultimosPedidos.length === 0 ? (
+                  <tr><td colSpan={hasFinancialAccess ? 5 : 4} className="dash-tabela__vazio">Nenhum pedido de venda ainda.</td></tr>
+                ) : (
+                  ultimosPedidos.map((pedido) => {
+                    const quando = toDate(pedido.createdAt) || toDate(pedido.dataVenda);
+                    const titulo = pedido.numeroPedido ? `Pedido #${pedido.numeroPedido}` : 'Pedido';
+                    return (
+                      <tr
+                        key={pedido.id}
+                        className="clickable-row"
+                        onClick={() => openTab(`/pedidos-venda/visualizar/${pedido.id}`, titulo)}
+                        title={`Abrir ${titulo.toLowerCase()}`}
+                      >
+                        <td className="dash-tabela__numero">{pedido.numeroPedido ? `#${pedido.numeroPedido}` : '—'}</td>
+                        <td className="dash-tabela__cliente">
+                          <div className="hd-pessoa">
+                            <AvatarIniciais nome={pedido.clienteNome} />
+                            <div>
+                              <strong>{pedido.clienteNome || 'Cliente não informado'}</strong>
+                              {quando && <small>{dataHoraCurta.format(quando)}</small>}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="dash-tabela__mudo dash-tabela__vendedor">{pedido.vendedorNome || '—'}</td>
+                        <td><span className={`hd-chip ${tomDoStatusPedido(pedido.status)}`}>{pedido.status || 'Sem status'}</span></td>
+                        {hasFinancialAccess && (
+                          <td className="dash-tabela__num">{formatMoney(Number(pedido.valorTotal || 0))}</td>
+                        )}
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        {hasFinancialAccess ? (
+          <article className="card dash-rosca">
+            <div className="dash-cab">
+              <h3>Formas de pagamento</h3>
+              <span className="hd-rotulo">{periodoComMaiuscula}</span>
+            </div>
+            {paymentData.length > 0 ? (
+              <div className="dash-rosca__corpo">
+                <div className="dash-rosca__grafico">
+                  <ResponsiveContainer width="100%" height="100%">
+                    {/* Sem animacao: o relogio re-renderiza o painel a cada segundo e a
+                        rosca recomecava do zero, ficando so' com uma lasca desenhada. */}
+                    <PieChart>
+                      <Pie data={paymentData} innerRadius={56} outerRadius={78} paddingAngle={2} dataKey="value" stroke="none" startAngle={90} endAngle={-270} isAnimationActive={false}>
+                        {paymentData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="dash-rosca__centro">
+                    <strong>{hideData ? maskedMoney : compactCurrency(totalRecebidoFormas)}</strong>
+                    <span>recebido</span>
+                  </div>
+                </div>
+                <ul className="dash-rosca__legenda">
+                  {paymentData.map((item) => (
+                    <li key={item.name}>
+                      <span className="dash-rosca__cor" style={{ backgroundColor: item.color }} />
+                      <span className="dash-rosca__nome">{item.name}</span>
+                      <strong>{totalRecebidoFormas > 0 ? `${Math.round((item.value / totalRecebidoFormas) * 100)}%` : '—'}</strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="chart-empty dash-rosca__vazio">Nenhum recebimento {selectedPeriodLabel}.</div>
+            )}
+          </article>
+        ) : (
+          <article className="card dash-rosca">
+            <div className="dash-cab">
+              <h3>Status de OS</h3>
+              <button type="button" className="hd-link" onClick={() => navigate('/os')}>Ver OS</button>
+            </div>
+            {osStatusData.length > 0 ? (
+              <div className="dash-rosca__corpo">
+                <div className="dash-rosca__grafico">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={osStatusData} innerRadius={56} outerRadius={78} paddingAngle={2} dataKey="value" stroke="none" startAngle={90} endAngle={-270} isAnimationActive={false}>
+                        {osStatusData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="dash-rosca__centro">
+                    <strong>{formatNumber(metrics.osAtivas.length)}</strong>
+                    <span>em andamento</span>
+                  </div>
+                </div>
+                <ul className="dash-rosca__legenda">
+                  {osStatusData.map((item) => (
+                    <li key={item.name}>
+                      <span className="dash-rosca__cor" style={{ backgroundColor: item.color }} />
+                      <span className="dash-rosca__nome">{item.name}</span>
+                      <strong>{formatNumber(item.value)}</strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="chart-empty dash-rosca__vazio">Nenhuma OS em andamento.</div>
+            )}
+          </article>
+        )}
+      </section>
+
+      <section className="dashboard-detail-grid">
         <article className="card dashboard-pipeline-card">
           <div className="dashboard-card-heading compact">
             <div>
               <span className="dashboard-eyebrow">Ordens recentes</span>
-              <h2>Pipeline</h2>
+              <h2>Ordens de serviço</h2>
             </div>
             <div className="dashboard-pipeline-tabs">
               <button
@@ -1226,7 +1358,7 @@ const Dashboard: React.FC = () => {
                   </tr>
                 ) : (
                   tableRows.map((vehicle) => {
-                    const color = vehicle.statusColor || '#37d7ff';
+                    const color = vehicle.statusColor || '#7c3aed';
                     return (
                       <tr key={vehicle.id}>
                         <td className="font-medium">{vehicle.placa || '-'}</td>
@@ -1251,9 +1383,53 @@ const Dashboard: React.FC = () => {
             </table>
           </div>
         </article>
-      </section>
 
-      <section className="dashboard-detail-grid">
+        <aside className="dashboard-side-stack">
+          <div className="card dashboard-quick-card">
+            <div className="dashboard-card-heading compact">
+              <div>
+                <span className="dashboard-eyebrow">Resumo rápido</span>
+                <h2>{periodoComMaiuscula}</h2>
+              </div>
+            </div>
+            <div className="dashboard-quick-grid">
+              {quickMetrics.map((item) => (
+                <div key={item.label}>
+                  <strong>{item.value}</strong>
+                  <span>{item.label}</span>
+                </div>
+              ))}
+            </div>
+            {renderNewActionMenu('quick', 'dashboard-cta')}
+          </div>
+
+          <div className="card dashboard-health-card">
+            <span className="dashboard-eyebrow">Saúde da operação</span>
+            <div className="dashboard-health-list">
+              {healthItems.map((item) => (
+                <div key={item.label} className="dashboard-health-item">
+                  <span
+                    className="dashboard-ring"
+                    style={{
+                      '--progress': `${item.progress}%`,
+                      '--ring-color': item.color
+                    } as React.CSSProperties}
+                  />
+                  <div>
+                    <strong>{item.value}</strong>
+                    <span>{item.label}</span>
+                    {item.hint && (
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {item.hint}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
+
         {hasFinancialAccess && (
           <article className="card chart-container">
             <div className="dashboard-card-heading compact">
@@ -1289,99 +1465,58 @@ const Dashboard: React.FC = () => {
             >
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={cashFlowData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }} barGap={8}>
-                  <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
-                  <XAxis dataKey="name" stroke="#7f8aa4" tick={{ fill: '#7f8aa4', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis stroke="#7f8aa4" tick={{ fill: '#7f8aa4', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(value) => compactCurrency(Number(value))} width={68} />
+                  <CartesianGrid vertical={false} strokeDasharray="4 6" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(value) => compactCurrency(Number(value))} width={68} />
                   <Tooltip
                     formatter={(value) => hideData ? maskedMoney : currencyFormatter.format(Number(value || 0))}
-                    contentStyle={{ backgroundColor: '#111722', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
-                    itemStyle={{ color: '#f5f7fb' }}
+                    contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-card)' }}
+                    itemStyle={{ color: 'var(--text-primary)', fontWeight: 700 }}
                   />
-                  <Bar dataKey="entradas" fill="#37d7ff" radius={[5, 5, 0, 0]} name="Receitas" maxBarSize={32} />
-                  <Bar dataKey="saidas" fill="#ff4fb3" radius={[5, 5, 0, 0]} name="Despesas" maxBarSize={32} />
-                  <Line type="monotone" dataKey="saldo" stroke="#9f7aea" strokeWidth={3} dot={false} name="Saldo" />
+                  <Bar dataKey="entradas" fill="#10b981" radius={[5, 5, 0, 0]} name="Receitas" maxBarSize={32} />
+                  <Bar dataKey="saidas" fill="#f87171" radius={[5, 5, 0, 0]} name="Despesas" maxBarSize={32} />
+                  <Line type="monotone" dataKey="saldo" stroke="#7c3aed" strokeWidth={3} dot={false} name="Saldo" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           </article>
         )}
 
-        <article className="card chart-container">
-          <div className="dashboard-card-heading compact">
-            <div>
-              <span className="dashboard-eyebrow">Distribuição</span>
-              <h2>Status de OS</h2>
-            </div>
-            <button className="icon-btn" onClick={() => navigate('/os')} title="Abrir OS">
-              <MoreVertical size={18} />
-            </button>
-          </div>
-          <div className="chart-wrapper pie-wrapper">
-            {osStatusData.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={osStatusData} innerRadius={58} outerRadius={88} paddingAngle={5} dataKey="value" stroke="none">
-                      {osStatusData.map((entry) => (
-                        <Cell key={entry.name} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip contentStyle={{ backgroundColor: '#111722', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="pie-legend">
-                  {osStatusData.map((item) => (
-                    <div key={item.name} className="legend-item">
-                      <span className="legend-color" style={{ backgroundColor: item.color }} />
-                      <span>{item.name} ({item.value})</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="chart-empty">Nenhuma OS ativa no momento.</div>
-            )}
-          </div>
-        </article>
-
         {hasFinancialAccess && (
-          <article className="card dashboard-insights">
+          <article className="card chart-container">
             <div className="dashboard-card-heading compact">
               <div>
-                <span className="dashboard-eyebrow">Recebimentos</span>
-                <h2>Formas de pagamento</h2>
+                <span className="dashboard-eyebrow">Distribuição</span>
+                <h2>Status de OS</h2>
               </div>
-              <button className="icon-btn" onClick={() => navigate('/financeiro/faturamento')} title="Abrir faturamento">
+              <button className="icon-btn" onClick={() => navigate('/os')} title="Abrir OS">
                 <MoreVertical size={18} />
               </button>
             </div>
             <div className="chart-wrapper pie-wrapper">
-              {paymentData.length > 0 ? (
+              {osStatusData.length > 0 ? (
                 <>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={paymentData} innerRadius={58} outerRadius={88} paddingAngle={4} dataKey="value" stroke="none">
-                        {paymentData.map((entry) => (
+                      <Pie data={osStatusData} innerRadius={58} outerRadius={88} paddingAngle={5} dataKey="value" stroke="none" isAnimationActive={false}>
+                        {osStatusData.map((entry) => (
                           <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip
-                        formatter={(value) => hideData ? maskedMoney : currencyFormatter.format(Number(value || 0))}
-                        contentStyle={{ backgroundColor: '#111722', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
-                      />
+                      <Tooltip contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-card)' }} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="pie-legend">
-                    {paymentData.map((item) => (
+                    {osStatusData.map((item) => (
                       <div key={item.name} className="legend-item">
                         <span className="legend-color" style={{ backgroundColor: item.color }} />
-                        <span>{item.name}</span>
+                        <span>{item.name} ({item.value})</span>
                       </div>
                     ))}
                   </div>
                 </>
               ) : (
-                <div className="chart-empty">Nenhuma receita paga no período.</div>
+                <div className="chart-empty">Nenhuma OS ativa no momento.</div>
               )}
             </div>
           </article>
@@ -1408,6 +1543,11 @@ const Dashboard: React.FC = () => {
                 <div>
                   <span>Orçamentos pendentes no período</span>
                   <strong>{formatMoney(metrics.valorOrcamentosPendentes)}</strong>
+                </div>
+                {/* Era um cartao de indicador ate 14/10/2026; segue a' vista aqui. */}
+                <div>
+                  <span>Clientes atendidos ({approvalRate}% conversão)</span>
+                  <strong>{formatNumber(metrics.clientesUnicosMes)}</strong>
                 </div>
               </>
             ) : (

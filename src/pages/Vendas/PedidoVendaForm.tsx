@@ -22,6 +22,8 @@ import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
 import TabelaItensVenda, { type TabelaItensVendaHandle } from './TabelaItensVenda';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
+import AvatarIniciais from '../../components/common/AvatarIniciais';
+import { formatarDocumento } from '../../utils/documentoValidacao';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import {
   avisoFaturarSemConferencia,
@@ -177,7 +179,11 @@ import { motivoPedidoNaoEmiteNota } from '../../utils/notaFiscalVisibilidadeDoma
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 import './LancamentoItens.css';
 
-interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; descontoPadraoPercentual?: number | null; }
+interface ClienteBasico {
+  id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; descontoPadraoPercentual?: number | null;
+  /** So' para o cartao do cliente escolhido (design de 14/10/2026). */
+  documento?: string; cidade?: string; estado?: string; celular?: string;
+}
 interface VendedorBasico { id: string; nome: string; email?: string; }
 interface Banco { id: string; nome: string; ativo: boolean; }
 interface BandeiraCartao {
@@ -778,6 +784,19 @@ const PedidoVendaForm: React.FC = () => {
     () => clientesDisponiveis.find((c) => c.id === clienteIdSelecionado)?.codigo || '',
     [clientesDisponiveis, clienteIdSelecionado],
   );
+  // Cartao do cliente escolhido (design de 14/10/2026): nome em destaque e a
+  // linha de documento, cidade e telefone, como nas previas aprovadas.
+  const clienteEscolhido = useMemo(
+    () => (clienteIdSelecionado ? clientesDisponiveis.find((c) => c.id === clienteIdSelecionado) || null : null),
+    [clientesDisponiveis, clienteIdSelecionado],
+  );
+  const detalheClienteEscolhido = clienteEscolhido
+    ? [
+      clienteEscolhido.documento ? formatarDocumento(String(clienteEscolhido.documento)) : '',
+      [clienteEscolhido.cidade, clienteEscolhido.estado].map((parte) => String(parte || '').trim()).filter(Boolean).join('/'),
+      String(clienteEscolhido.telefone || clienteEscolhido.celular || '').trim(),
+    ].filter(Boolean).join(' · ')
+    : '';
   const { items: bancosDisponiveis } = useTenantCollection<Banco>('bancos', tenantId);
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeirasCartao);
   const [pagamentoCartaoSimplificadoAtivo, setPagamentoCartaoSimplificadoAtivo] = useState(false);
@@ -4470,7 +4489,7 @@ const PedidoVendaForm: React.FC = () => {
             <h1 className="page-title">
               {isViewing
                 ? `${isPreVendaAberta ? 'Pré-venda' : 'Pedido de Venda'} #${numeroPedido}`
-                : 'Frente de Caixa (PDV)'}
+                : 'Novo pedido de venda'}
             </h1>
             <p className="page-subtitle">
               {isViewing
@@ -4481,7 +4500,7 @@ const PedidoVendaForm: React.FC = () => {
                     : isPendingFromAgent
                       ? (canEditPendingOrder ? 'Pedido pendente — edite e finalize a venda' : 'Pedido pendente de confirmação (fora de uma integração externa)')
                       : 'Detalhes do Pedido e Impressão')
-                : 'Ponto de venda rápido para itens e produtos'}
+                : 'Escolha o cliente, lance os itens e defina o pagamento'}
             </p>
             {/* Numero da NF-e da venda sempre a' vista (2026-09-30). Autorizada: clica e abre o PDF. */}
             {isViewing && situacaoNfeVinculada && (
@@ -4871,10 +4890,10 @@ const PedidoVendaForm: React.FC = () => {
         />
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '24px', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 400px', gap: '22px', alignItems: 'start' }}>
 
         {/* Lado Esquerdo: Carrinho e Busca */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px', minWidth: 0 }}>
 
           {/* Seção Cliente */}
           <div className="card form-section" style={{ padding: '24px' }}>
@@ -4882,6 +4901,18 @@ const PedidoVendaForm: React.FC = () => {
               <User size={20} className="section-icon" />
               <h3>Dados do Cliente</h3>
             </div>
+            {clienteEscolhido && (
+              <div className="pedido-cliente-escolhido">
+                <AvatarIniciais nome={clienteEscolhido.nome} className="hd-avatar--grande" />
+                <div className="pedido-cliente-escolhido__texto">
+                  <strong>{clienteEscolhido.nome}</strong>
+                  {detalheClienteEscolhido && <small>{detalheClienteEscolhido}</small>}
+                </div>
+                {Number(clienteEscolhido.descontoPadraoPercentual || 0) > 0 && (
+                  <span className="hd-chip verde">Desconto de {clienteEscolhido.descontoPadraoPercentual}% no cadastro</span>
+                )}
+              </div>
+            )}
             <div className="input-group" style={{ position: 'relative' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
                 Nome do Cliente ou Consumidor Final *
@@ -5172,18 +5203,18 @@ const PedidoVendaForm: React.FC = () => {
         </div>
 
         {/* Lado Direito: Resumo e Pagamento */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
 
           <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '24px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>Resumo da Venda</h3>
+            <h3 className="hd-rotulo" style={{ marginBottom: '16px' }}>Resumo da Venda</h3>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: 'var(--text-secondary)', alignItems: 'center' }}>
               <span>Total Itens:</span>
-              <span>R$ {valorTotalItens.toFixed(2)}</span>
+              <span>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalItens)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: '#ef4444', alignItems: 'center' }}>
               <span>Descontos:</span>
-              <span>- R$ {valorTotalDescontos.toFixed(2)}</span>
+              <span>- {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalDescontos)}</span>
             </div>
 
             {(!isViewing || canEditPendingOrder) && (
@@ -5251,9 +5282,9 @@ const PedidoVendaForm: React.FC = () => {
                 )}
               </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px', paddingTop: '16px', borderTop: '1px dashed var(--border-color)', fontSize: '24px', fontWeight: 800, color: '#10b981' }}>
-              <span>TOTAL:</span>
-              <span>R$ {valorTotalPedido.toFixed(2)}</span>
+            <div className="pedido-total">
+              <span className="hd-rotulo">Total</span>
+              <span className="pedido-total__valor">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalPedido)}</span>
             </div>
           </div>
 
@@ -5353,20 +5384,19 @@ const PedidoVendaForm: React.FC = () => {
 
           {((!isViewing && canCriarPreVenda) || (isPreVendaAberta && canEditarPreVenda)) && (
             <button
-              className="btn-secondary"
               onClick={handleGravarPreVenda}
               disabled={isLoading}
-              style={{ width: '100%', padding: '14px', fontSize: '15px', fontWeight: 700, marginBottom: '12px', color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}
+              className="btn-secondary pedido-botao-pre-venda"
             >
               <Save size={20} />
-              {isPreVendaAberta ? 'SALVAR PRÉ-VENDA' : 'GRAVAR PRÉ-VENDA'}
+              {isPreVendaAberta ? 'Salvar pré-venda' : 'Gravar pré-venda'}
             </button>
           )}
 
           {((!isViewing && !esconderFinalizarEmPedidoNovo) || (isPendingFromAgent && canEditPendingOrder) || (isPreVendaAberta && canFinalizarPreVenda)) && (
-            <button className="btn-primary" onClick={handleFinalizarVenda} disabled={isLoading} style={{ width: '100%', padding: '16px', fontSize: '16px', fontWeight: 700, backgroundColor: '#10b981', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}>
-              <ShoppingCart size={24} />
-              FINALIZAR VENDA
+            <button className="btn-primary pedido-botao-final" onClick={handleFinalizarVenda} disabled={isLoading}>
+              <ShoppingCart size={22} />
+              Finalizar venda
             </button>
           )}
 

@@ -169,83 +169,128 @@ body.light-theme .app-layout-wrapper .nexus-nav-link.active { color: #6d28d9; }
 .app-layout-wrapper .nexus-user-meta span { font-size: 12px; }
 .app-layout-wrapper .nexus-user-card button { width: 32px; height: 32px; border-radius: 10px; }
 
-/* ============================== topo e abas ============================== */
+/* ============================== faixa violeta do topo ============================== */
+/*
+ * Como nas previas: uma faixa violeta de ponta a ponta atras da barra do topo,
+ * das abas e do titulo da pagina, terminando ~64px abaixo do titulo -- os
+ * primeiros cartoes sobem por cima dela. Tres pecas com o MESMO degrade
+ * horizontal (sem emenda visivel): .topbar, .tab-bar e o fundo do .page-content
+ * (que rola junto com a pagina: background-attachment local). A altura da parte
+ * do .page-content vem de --faixa-altura, medida em useFaixaDoTopo.ts.
+ */
+.app-layout-wrapper {
+  --app-faixa: linear-gradient(90deg, #2b1057 0%, #4c1d95 50%, #7c3aed 100%);
+}
+.app-layout-wrapper .main-content { background: var(--bg-primary); }
+
 .app-layout-wrapper .topbar {
   height: 76px;
-  background-color: var(--bg-primary);
+  background: var(--app-faixa);
   border-bottom: 0;
   padding: 0 32px;
 }
 .app-layout-wrapper .search-input {
   height: 46px;
   border-radius: 14px;
-  background-color: var(--bg-secondary);
-  border-color: var(--border-color);
-  box-shadow: 0 10px 24px -20px rgba(43, 16, 87, 0.5);
+  background-color: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #fff;
 }
-.app-layout-wrapper .search-input:focus { box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.14); }
-.app-layout-wrapper .action-btn {
+.app-layout-wrapper .search-input::placeholder { color: rgba(255, 255, 255, 0.72); }
+.app-layout-wrapper .search-input:focus { background-color: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.5); box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12); }
+.app-layout-wrapper .topbar .search-icon { color: rgba(255, 255, 255, 0.8); z-index: 1; }
+.app-layout-wrapper .topbar :is(.action-btn, .mobile-menu-btn),
+body.light-theme .app-layout-wrapper .topbar :is(.action-btn, .mobile-menu-btn) {
   width: 44px;
   height: 44px;
   border-radius: 14px;
-  background-color: var(--bg-secondary);
-  box-shadow: 0 10px 24px -20px rgba(43, 16, 87, 0.5);
+  background-color: rgba(255, 255, 255, 0.14) !important;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: #fff !important;
 }
-.app-layout-wrapper .tenant-switcher { border-radius: 14px; }
-.app-layout-wrapper .profile-menu { padding: 5px 10px 5px 6px; border-radius: 16px; }
-.app-layout-wrapper .profile-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #7c3aed, #4c1d95);
+.app-layout-wrapper .topbar :is(.action-btn, .mobile-menu-btn):hover { background-color: rgba(255, 255, 255, 0.24) !important; }
+.app-layout-wrapper .tenant-switcher { border-radius: 14px; background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.24); }
+.app-layout-wrapper .tenant-switcher span { color: rgba(255, 255, 255, 0.8); }
+.app-layout-wrapper .topbar :is(.filial-seletor__botao, .filial-seletor--fixo) {
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.24);
   color: #fff;
 }
-.app-layout-wrapper .badge { background-color: #fb7185; }
+.app-layout-wrapper .topbar .filial-seletor__botao:hover,
+.app-layout-wrapper .topbar .filial-seletor__botao[aria-expanded='true'] { background: rgba(255, 255, 255, 0.24); border-color: rgba(255, 255, 255, 0.5); }
+.app-layout-wrapper .topbar :is(.filial-seletor__rotulo, .filial-seletor__nome, .filial-seletor__seta, .filial-seletor__botao svg, .filial-seletor--fixo svg) { color: rgba(255, 255, 255, 0.86); }
+.app-layout-wrapper .topbar .profile-menu,
+body.light-theme .app-layout-wrapper .topbar .profile-menu { padding: 5px 10px 5px 6px; border-radius: 16px; background: transparent !important; }
+.app-layout-wrapper .topbar .profile-menu:hover,
+body.light-theme .app-layout-wrapper .topbar .profile-menu:hover { background: rgba(255, 255, 255, 0.14) !important; border-color: transparent; }
+.app-layout-wrapper .topbar .profile-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+.app-layout-wrapper .topbar .profile-name,
+body.light-theme .app-layout-wrapper .topbar .profile-name { color: #fff !important; }
+.app-layout-wrapper .topbar .profile-role { color: rgba(255, 255, 255, 0.72); }
+.app-layout-wrapper .topbar .profile-menu > svg { color: rgba(255, 255, 255, 0.8); }
+.app-layout-wrapper .badge { background-color: #fb7185; box-shadow: 0 0 0 2px #5b21b6; }
 
 .app-layout-wrapper .tab-bar {
   height: 50px;
   gap: 8px;
-  padding: 0 32px 6px;
-  background-color: var(--bg-primary);
+  padding: 0 32px 8px;
+  background: var(--app-faixa);
   border-bottom: 0;
 }
 .app-layout-wrapper .tab-bar-item {
-  height: 36px;
+  height: 34px;
   padding: 0 14px;
   border-radius: 12px;
   font-weight: 600;
+  color: rgba(255, 255, 255, 0.76);
+  border-color: transparent;
 }
-.app-layout-wrapper .tab-bar-item.active {
-  background-color: var(--bg-secondary);
-  border-color: var(--border-color);
-  color: var(--brand-ink);
-  box-shadow: var(--shadow-subtle);
+.app-layout-wrapper .tab-bar-item:hover,
+body.light-theme .app-layout-wrapper .tab-bar-item:hover { background-color: rgba(255, 255, 255, 0.14) !important; color: #fff !important; }
+.app-layout-wrapper .tab-bar-item.active,
+body.light-theme .app-layout-wrapper .tab-bar-item.active {
+  background-color: #fff !important;
+  border-color: transparent;
+  color: #5b21b6 !important;
+  box-shadow: 0 10px 22px -12px rgba(20, 6, 45, 0.7);
 }
 .app-layout-wrapper .tab-bar-item.active .tab-bar-label { font-weight: 700; }
+.app-layout-wrapper .tab-bar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.25); }
 
-.app-layout-wrapper .page-content { padding: 8px 32px 32px; }
+.app-layout-wrapper .page-content {
+  padding: 10px 32px 32px;
+  background-image: var(--app-faixa);
+  background-repeat: no-repeat;
+  background-size: 100% var(--faixa-altura, 0px);
+  background-attachment: local;
+}
 
 /* ============================== cabecalho de pagina ============================== */
 /* O topo de toda pagina (.page-header, o topo do Dashboard e o primeiro bloco da
-   pagina que tem o <h1>) vira o bloco em degrade do app, com texto branco. */
+   pagina que tem o <h1>) fica SOLTO em cima da faixa violeta, com texto branco. */
 .app-layout-wrapper .page-content .page-header,
 .app-layout-wrapper .page-content .dashboard-topline,
 .app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child),
 .app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) {
-  /* SEM overflow:hidden: o "Mais opcoes" e o "Nova acao" abrem um menu de dentro
-     do cabecalho, e ele precisa passar da borda. O brilho do canto e' uma camada
-     do proprio fundo (nao um elemento a parte que precisasse ser cortado), e o
-     z-index poe o cabecalho -- e os menus dele -- por cima dos cartoes de baixo. */
+  /* z-index: o "Mais opcoes" e o "Nova acao" abrem menu de dentro do cabecalho,
+     e ele tem de passar por cima dos cartoes que sobem na faixa. */
   position: relative;
   z-index: 20;
-  background:
-    radial-gradient(circle at 96% -30%, rgba(196, 167, 252, 0.42) 0, rgba(196, 167, 252, 0) 360px),
-    var(--app-degrade) !important;
+  background: transparent !important;
   border: 0 !important;
-  border-radius: 24px !important;
-  padding: 26px 30px !important;
+  border-radius: 0 !important;
+  padding: 14px 0 6px !important;
+  box-shadow: none !important;
   color: #fff;
-  box-shadow: 0 26px 44px -30px rgba(76, 29, 149, 0.9);
   /* com muitos botoes/caixas de valor, eles descem de linha em vez de espremer o titulo */
   flex-wrap: wrap !important;
   row-gap: 16px !important;
@@ -261,9 +306,10 @@ body.light-theme .app-layout-wrapper .nexus-nav-link.active { color: #6d28d9; }
 .app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) :is(h1, h2),
 .app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) :is(h1, h2) {
   color: #fff !important;
-  font-size: 28px !important;
+  font-size: 32px !important;
   font-weight: 800 !important;
-  letter-spacing: -0.02em !important;
+  letter-spacing: -0.025em !important;
+  line-height: 1.15 !important;
 }
 .app-layout-wrapper .page-content .page-header :is(h1, h2) svg,
 .app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) h1 svg,
@@ -277,6 +323,14 @@ body.light-theme .app-layout-wrapper .nexus-nav-link.active { color: #6d28d9; }
 .app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) > div > p,
 .app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) > p {
   color: var(--text-secondary) !important;
+}
+/* subtitulo logo abaixo do titulo: respiro e tamanho das previas (muitas telas gravam margin 0 inline) */
+.app-layout-wrapper .page-content :is(.page-header, .dashboard-topline) :is(h1, h2, .page-title) + :is(p, .page-subtitle),
+.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) > div > h1 + p,
+.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) > h1 + p {
+  margin-top: 6px !important;
+  font-size: 15px !important;
+  font-weight: 500;
 }
 
 /*
@@ -323,24 +377,24 @@ body.light-theme .app-layout-wrapper .nexus-nav-link.active { color: #6d28d9; }
   --accent-purple: var(--orig-accent-purple);
   --brand-ink: var(--orig-brand-ink);
 }
-/* cor fixa escrita na tela (texto e icone), fora das caixas brancas */
+/* cor fixa escrita na tela (texto e icone), fora das caixas brancas e dos botoes (botao do cabecalho e' sempre branco/vidro) */
 .app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child:has(> div > h1:first-child))
-  :is([style*=' color: rgb(16, 185, 129)'], [style^='color: rgb(16, 185, 129)'], svg[stroke='#10b981']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *) {
+  :is([style*=' color: rgb(16, 185, 129)'], [style^='color: rgb(16, 185, 129)'], svg[stroke='#10b981']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *, :is(.btn-primary, .btn-secondary), :is(.btn-primary, .btn-secondary) *) {
   color: #6ee7b7 !important;
   stroke: #6ee7b7;
 }
 .app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child:has(> div > h1:first-child))
-  :is([style*=' color: rgb(239, 68, 68)'], [style^='color: rgb(239, 68, 68)'], svg[stroke='#ef4444']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *) {
+  :is([style*=' color: rgb(239, 68, 68)'], [style^='color: rgb(239, 68, 68)'], svg[stroke='#ef4444']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *, :is(.btn-primary, .btn-secondary), :is(.btn-primary, .btn-secondary) *) {
   color: #fca5a5 !important;
   stroke: #fca5a5;
 }
 .app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child:has(> div > h1:first-child))
-  :is([style*=' color: rgb(245, 158, 11)'], [style^='color: rgb(245, 158, 11)'], svg[stroke='#f59e0b']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *) {
+  :is([style*=' color: rgb(245, 158, 11)'], [style^='color: rgb(245, 158, 11)'], svg[stroke='#f59e0b']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *, :is(.btn-primary, .btn-secondary), :is(.btn-primary, .btn-secondary) *) {
   color: #fcd34d !important;
   stroke: #fcd34d;
 }
 .app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child:has(> div > h1:first-child))
-  :is([style*=' color: rgb(139, 92, 246)'], [style^='color: rgb(139, 92, 246)'], [style*=' color: rgb(124, 58, 237)'], [style^='color: rgb(124, 58, 237)'], [style*=' color: rgb(59, 130, 246)'], [style^='color: rgb(59, 130, 246)'], svg[stroke='#8b5cf6'], svg[stroke='#7c3aed'], svg[stroke='#3b82f6']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *) {
+  :is([style*=' color: rgb(139, 92, 246)'], [style^='color: rgb(139, 92, 246)'], [style*=' color: rgb(124, 58, 237)'], [style^='color: rgb(124, 58, 237)'], [style*=' color: rgb(59, 130, 246)'], [style^='color: rgb(59, 130, 246)'], svg[stroke='#8b5cf6'], svg[stroke='#7c3aed'], svg[stroke='#3b82f6']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *, :is(.btn-primary, .btn-secondary), :is(.btn-primary, .btn-secondary) *) {
   color: #ffffff !important;
   stroke: #ffffff;
 }
@@ -425,6 +479,224 @@ body.light-theme .app-layout-wrapper .clickable-row:hover {
 .app-layout-wrapper .stat-icon { border-radius: 50%; }
 .app-layout-wrapper .stat-card:hover { transform: none; }
 
+/* Bloco so' de leitura (Configuracoes fora do modo de edicao): apaga o CONTEUDO dos
+   cartoes, nunca o cartao -- cartao transparente deixa ver a faixa violeta por baixo. */
+.app-layout-wrapper .bloco-somente-leitura > * > * {
+  opacity: 0.5;
+  filter: grayscale(0.6);
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+/* ============================== pecas do desenho (chip, rotulo, icone, avatar) ============================== */
+/* As mesmas das previas aprovadas; usadas pelo Dashboard, Pedidos de Venda e Pedido. */
+.app-layout-wrapper {
+  --hd-verde-f: rgba(16, 185, 129, 0.16); --hd-verde: #34d399;
+  --hd-ambar-f: rgba(245, 158, 11, 0.16); --hd-ambar: #fbbf24;
+  --hd-verm-f: rgba(239, 68, 68, 0.16); --hd-verm: #f87171;
+  --hd-azul-f: rgba(59, 130, 246, 0.18); --hd-azul: #93c5fd;
+  --hd-violeta-f: rgba(124, 58, 237, 0.22); --hd-violeta: #ddd0fb;
+  --hd-cinza-f: rgba(183, 147, 242, 0.1); --hd-cinza: #8e85a6;
+  --hd-destaque: #c4b5fd;
+}
+body.light-theme .app-layout-wrapper {
+  --hd-verde-f: #dcfce7; --hd-verde: #15803d;
+  --hd-ambar-f: #fef3c7; --hd-ambar: #b45309;
+  --hd-verm-f: #fee2e2; --hd-verm: #b91c1c;
+  --hd-azul-f: #dbeafe; --hd-azul: #1d4ed8;
+  --hd-violeta-f: #efe8fc; --hd-violeta: #6d28d9;
+  --hd-cinza-f: #f1eef5; --hd-cinza: #6e6680;
+  --hd-destaque: #4c1d95;
+}
+.app-layout-wrapper .hd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: var(--hd-cinza-f);
+  color: var(--hd-cinza);
+}
+.app-layout-wrapper .hd-chip svg { width: 14px; height: 14px; flex: none; }
+.app-layout-wrapper .hd-chip.verde { background: var(--hd-verde-f); color: var(--hd-verde); }
+.app-layout-wrapper .hd-chip.ambar { background: var(--hd-ambar-f); color: var(--hd-ambar); }
+.app-layout-wrapper .hd-chip.verm { background: var(--hd-verm-f); color: var(--hd-verm); }
+.app-layout-wrapper .hd-chip.azul { background: var(--hd-azul-f); color: var(--hd-azul); }
+.app-layout-wrapper .hd-chip.violeta { background: var(--hd-violeta-f); color: var(--hd-violeta); }
+.app-layout-wrapper .hd-chip--grande { height: 38px; padding: 0 16px; font-size: 13.5px; }
+.app-layout-wrapper .hd-chip--mini { height: 22px; padding: 0 9px; font-size: 11px; }
+/* chip que e' botao (filtro de status, periodo) */
+.app-layout-wrapper button.hd-chip { cursor: pointer; font-family: inherit; transition: filter 0.15s ease; }
+.app-layout-wrapper button.hd-chip:hover { filter: brightness(0.97); }
+.app-layout-wrapper button.hd-chip:focus-visible { outline: 2px solid #7c3aed; outline-offset: 2px; }
+
+.app-layout-wrapper .hd-rotulo {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.app-layout-wrapper .hd-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--hd-violeta);
+  cursor: pointer;
+}
+.app-layout-wrapper .hd-link:hover { text-decoration: underline; }
+.app-layout-wrapper :is(.hd-circ, .hd-quad) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  background: var(--app-icone-fundo);
+  color: var(--app-icone-cor);
+}
+.app-layout-wrapper .hd-circ { width: 50px; height: 50px; border-radius: 50%; }
+.app-layout-wrapper .hd-circ svg { width: 24px; height: 24px; }
+.app-layout-wrapper .hd-quad { width: 42px; height: 42px; border-radius: 13px; }
+.app-layout-wrapper .hd-quad svg { width: 21px; height: 21px; }
+.app-layout-wrapper .hd-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+/* cor do avatar: corDoAvatar() em utils/avatarDomain.ts escolhe o indice pelo nome */
+.app-layout-wrapper .hd-avatar.cor-0 { background: rgba(124, 58, 237, 0.24); color: #ddd0fb; }
+.app-layout-wrapper .hd-avatar.cor-1 { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
+.app-layout-wrapper .hd-avatar.cor-2 { background: rgba(245, 158, 11, 0.2); color: #fcd34d; }
+.app-layout-wrapper .hd-avatar.cor-3 { background: rgba(59, 130, 246, 0.22); color: #bfdbfe; }
+.app-layout-wrapper .hd-avatar.cor-4 { background: rgba(236, 72, 153, 0.2); color: #f9a8d4; }
+.app-layout-wrapper .hd-avatar.cor-5 { background: rgba(14, 165, 233, 0.2); color: #7dd3fc; }
+body.light-theme .app-layout-wrapper .hd-avatar.cor-0 { background: #ede4ff; color: #6d28d9; }
+body.light-theme .app-layout-wrapper .hd-avatar.cor-1 { background: #dcfce7; color: #15803d; }
+body.light-theme .app-layout-wrapper .hd-avatar.cor-2 { background: #fef3c7; color: #b45309; }
+body.light-theme .app-layout-wrapper .hd-avatar.cor-3 { background: #dbeafe; color: #1d4ed8; }
+body.light-theme .app-layout-wrapper .hd-avatar.cor-4 { background: #fce7f3; color: #be185d; }
+body.light-theme .app-layout-wrapper .hd-avatar.cor-5 { background: #e0f2fe; color: #0369a1; }
+/* tabela das listas no desenho novo (Pedidos de Venda): cabecalho em rotulo, linhas soltas */
+.app-layout-wrapper .hd-tabela { width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; }
+.app-layout-wrapper .hd-tabela th {
+  padding: 0 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.app-layout-wrapper .hd-tabela td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 14px;
+  vertical-align: middle;
+}
+.app-layout-wrapper .hd-tabela tbody tr:last-child td { border-bottom: 0; }
+.app-layout-wrapper .hd-tabela tbody tr:hover td { background: var(--bg-tertiary); }
+.app-layout-wrapper .hd-tabela .hd-tabela__mudo { max-width: 140px; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+/* o cliente fica com a sobra da largura e corta com "...": as outras colunas nunca saem da tela */
+.app-layout-wrapper .hd-tabela .hd-tabela__cliente { width: 100%; min-width: 180px; max-width: 0; }
+.app-layout-wrapper .hd-tabela .hd-tabela__cliente .hd-pessoa > :last-child { min-width: 0; }
+.app-layout-wrapper .hd-tabela input[type='checkbox'] { width: 16px; height: 16px; accent-color: #7c3aed; }
+.app-layout-wrapper .hd-tabela .icon-btn { width: 34px; height: 34px; }
+.app-layout-wrapper .hd-avatar.hd-avatar--grande { width: 58px; height: 58px; border-radius: 18px; font-size: 18px; }
+
+/* ============================== formularios (Pedido, OS, Orcamento, cadastros) ============================== */
+/* titulo de secao: icone no quadradinho lilas, sem a linha embaixo (como nas previas) */
+.app-layout-wrapper .section-header { gap: 12px; border-bottom: 0; padding-bottom: 0; margin-bottom: 16px; }
+.app-layout-wrapper .section-header .section-icon {
+  box-sizing: content-box;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 10px;
+  border-radius: 13px;
+  background: var(--app-icone-fundo);
+  color: var(--app-icone-cor);
+}
+.app-layout-wrapper .section-header h3 { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
+
+/* Pedido de Venda: o cliente escolhido em destaque, o total grande e o botao final */
+.app-layout-wrapper .pedido-cliente-escolhido {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 18px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  background: var(--bg-soft, var(--bg-tertiary));
+}
+.app-layout-wrapper .pedido-cliente-escolhido__texto { flex: 1 1 220px; min-width: 0; }
+.app-layout-wrapper .pedido-cliente-escolhido__texto strong { display: block; color: var(--text-primary); font-size: 19px; font-weight: 800; }
+.app-layout-wrapper .pedido-cliente-escolhido__texto small { display: block; margin-top: 4px; color: var(--text-muted); font-size: 13.5px; font-weight: 500; }
+.app-layout-wrapper .pedido-total {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-color);
+}
+.app-layout-wrapper .pedido-total__valor {
+  color: var(--hd-destaque);
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  white-space: nowrap;
+}
+.app-layout-wrapper .btn-primary.pedido-botao-final {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 58px;
+  border-radius: 18px;
+  font-size: 17px;
+  font-weight: 800;
+  box-shadow: 0 18px 34px -16px rgba(124, 58, 237, 0.85);
+}
+.app-layout-wrapper .btn-secondary.pedido-botao-pre-venda {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 50px;
+  margin-bottom: 12px;
+  border-color: transparent;
+  border-radius: 16px;
+  background: var(--hd-violeta-f);
+  color: var(--hd-violeta);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* nome + linha de baixo (documento, cidade, data) numa celula de tabela */
+.app-layout-wrapper .hd-pessoa { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.app-layout-wrapper .hd-pessoa strong { display: block; font-weight: 700; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-layout-wrapper .hd-pessoa small { display: block; margin-top: 2px; font-size: 12.5px; font-weight: 500; color: var(--text-muted); }
+
 /* ============================== Dashboard ============================== */
 /* O Dashboard tinha uma paleta propria (cinza-azulado, #161b27); agora segue a do sistema. */
 .app-layout-wrapper .dashboard-model-two {
@@ -445,6 +717,7 @@ body.light-theme .app-layout-wrapper .clickable-row:hover {
 
 /* ============================== impressao ============================== */
 @media print {
+  .app-layout-wrapper .page-content { background: none !important; }
   .app-layout-wrapper .page-content .page-header,
   .app-layout-wrapper .page-content .dashboard-topline,
   .app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child),

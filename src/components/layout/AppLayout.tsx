@@ -9,6 +9,7 @@ import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import TabBar from './TabBar';
 import { TabPanesArea } from './TabPane';
+import { useFaixaDoTopo } from './useFaixaDoTopo';
 import './Layout.css';
 // Design novo do desktop (14/10/2026): vem DEPOIS do Layout.css para vencer na cascata.
 import './visualDesktop.css';
@@ -19,6 +20,7 @@ const AppLayout: React.FC = () => {
   const { tenantOptions, setActiveTenantId, needsTenantSelection } = useAuth();
 
   useGlobalEscapeKey();
+  useFaixaDoTopo();
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'system_alerts', 'global'), (snap) => {

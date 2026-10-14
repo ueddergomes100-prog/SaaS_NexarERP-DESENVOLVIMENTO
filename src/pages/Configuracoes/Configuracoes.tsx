@@ -1375,7 +1375,9 @@ const Configuracoes: React.FC = () => {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px', maxWidth: '800px', opacity: isEditingMode ? 1 : 0.4, filter: isEditingMode ? 'none' : 'grayscale(60%) blur(1px)', transition: 'all 0.4s ease', pointerEvents: isEditingMode ? 'auto' : 'none' }}>
+      {/* Fora do modo de edicao o CONTEUDO dos cartoes fica apagado (bloco-somente-leitura,
+          visualDesktop.css); o cartao continua opaco para nao deixar ver a faixa violeta por baixo. */}
+      <div className={isEditingMode ? undefined : 'bloco-somente-leitura'} style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px', maxWidth: '800px', pointerEvents: isEditingMode ? 'auto' : 'none' }}>
         {/* Dados da Empresa */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div

@@ -912,3 +912,322 @@ body.light-theme .dashboard-model-two {
     grid-template-columns: 1fr;
   }
 }
+
+/* =====================================================================
+ * DESIGN NOVO (14/10/2026) -- os blocos das previas aprovadas pelo dono:
+ * 4 indicadores, grafico de receita + fila operacional, ultimos pedidos +
+ * formas de pagamento. Pecas comuns (.hd-chip, .hd-circ, .hd-quad,
+ * .hd-avatar, .hd-rotulo) moram em components/layout/visualDesktop.css.
+ * ===================================================================== */
+.dashboard-model-two { gap: 22px; }
+
+.dashboard-model-two .dashboard-clock { min-height: 44px; border-radius: 14px; }
+
+.dash-indicadores {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.dashboard-model-two .card.dash-indicador {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 22px;
+  min-width: 0;
+  /* o valor encolhe com o cartao (cqi) em vez de quebrar "R$ 60.695,5 / 0" em duas linhas */
+  container-type: inline-size;
+}
+
+.dash-indicador__topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dash-indicador__valor {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: clamp(20px, 10cqi, 30px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-indicador__rodape {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.dash-linha {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 430px;
+  gap: 22px;
+  align-items: stretch;
+}
+
+.dash-cab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.dash-cab h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.dash-cab p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.dash-chips {
+  display: flex;
+  gap: 8px;
+}
+
+.dash-grafico {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dash-grafico__area {
+  flex: 1;
+  min-height: 240px;
+  margin-top: 16px;
+  transition: filter 0.2s ease;
+}
+
+/* recharts: grade e eixos nas cores do tema (o atributo do SVG perde para o CSS) */
+.dashboard-model-two .recharts-cartesian-grid line { stroke: var(--border-color); }
+.dashboard-model-two .recharts-cartesian-axis-tick-value { fill: var(--text-muted); }
+
+.dash-fila__lista {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 14px;
+}
+
+.dash-fila__item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.dash-fila__item:hover { background: var(--bg-tertiary); }
+.dash-fila__item:focus-visible { outline: 2px solid #7c3aed; outline-offset: 1px; }
+
+.dash-fila__texto {
+  flex: 1;
+  min-width: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.dash-pedidos { min-width: 0; }
+
+.dash-tabela {
+  width: 100%;
+  margin-top: 14px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.dash-tabela th {
+  padding: 0 14px 12px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dash-tabela td {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 14px;
+  vertical-align: middle;
+}
+
+/* o cliente fica com a sobra da largura e corta com "..." -- assim Status e Total nunca somem */
+.dash-tabela .dash-tabela__cliente { width: 100%; max-width: 0; }
+.dash-tabela .dash-tabela__cliente .hd-pessoa > div { min-width: 0; }
+.dash-tabela .dash-tabela__cliente small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-tabela tbody tr { cursor: pointer; }
+.dash-tabela tbody tr:hover td { background: var(--bg-tertiary); }
+.dash-tabela .dash-tabela__numero { color: var(--text-muted); font-weight: 700; white-space: nowrap; }
+.dash-tabela .dash-tabela__mudo { max-width: 140px; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.dash-tabela .dash-tabela__num { font-weight: 800; text-align: right; white-space: nowrap; }
+.dash-tabela .dash-tabela__vazio { padding: 28px 14px; color: var(--text-muted); text-align: center; cursor: default; }
+.dash-tabela tbody tr:has(.dash-tabela__vazio) { cursor: default; }
+.dash-tabela tbody tr:has(.dash-tabela__vazio):hover td { background: transparent; }
+
+.dash-rosca { min-width: 0; }
+
+.dash-rosca__corpo {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding-top: 18px;
+}
+
+.dash-rosca__grafico {
+  position: relative;
+  flex: none;
+  width: 160px;
+  height: 160px;
+}
+
+.dash-rosca__centro {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.dash-rosca__centro strong {
+  color: var(--text-primary);
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.dash-rosca__centro span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dash-rosca__legenda {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dash-rosca__legenda li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.dash-rosca__cor {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 4px;
+}
+
+.dash-rosca__nome {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-rosca__legenda strong { color: var(--text-primary); font-weight: 800; }
+.dash-rosca__vazio { min-height: 180px; }
+
+/* Blocos de baixo (Ordens de servico, Resumo, Saude, Movimentacao, Indicadores):
+   mesmo titulo, rotulo e chips dos blocos de cima. */
+.dashboard-model-two .card .dashboard-eyebrow {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.dashboard-model-two .dashboard-card-heading h2,
+.dashboard-model-two .dashboard-card-heading.compact h2 {
+  margin-top: 4px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.dashboard-model-two .dashboard-pipeline-tabs { gap: 8px; }
+.dashboard-model-two .dashboard-pipeline-tabs button {
+  min-height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--hd-cinza-f);
+  color: var(--hd-cinza);
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: none;
+  box-shadow: none;
+}
+.dashboard-model-two .dashboard-pipeline-tabs button.active { background: var(--hd-violeta-f); color: var(--hd-violeta); box-shadow: none; }
+.dashboard-model-two .dashboard-pipeline-tabs button.active.success { background: var(--hd-verde-f); color: var(--hd-verde); box-shadow: none; }
+.dashboard-model-two .data-table th,
+.dashboard-model-two .data-table td { padding-left: 8px; padding-right: 8px; }
+.dashboard-model-two .data-table th { font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; }
+.dashboard-model-two :is(.dashboard-quick-grid > div, .cash-flow-summary > div) {
+  border-color: var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-tertiary);
+}
+.dashboard-model-two .dashboard-quick-grid strong { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.dashboard-model-two :is(.dashboard-quick-grid span, .cash-flow-summary span, .dashboard-health-item span:last-child) { font-weight: 600; }
+.dashboard-model-two .dashboard-ring::after { background: var(--bg-secondary); }
+
+@media (max-width: 1500px) {
+  .dash-linha { grid-template-columns: minmax(0, 1fr) 380px; }
+  /* sem espaco para 5 colunas: o vendedor sai, o cliente fica legivel */
+  .dash-tabela .dash-tabela__vendedor { display: none; }
+}
+
+@media (max-width: 1280px) {
+  .dash-indicadores { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 1180px) {
+  .dash-linha { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 680px) {
+  .dash-indicadores { grid-template-columns: 1fr; }
+  .dash-rosca__corpo { flex-direction: column; align-items: stretch; }
+  .dash-rosca__grafico { align-self: center; }
+}

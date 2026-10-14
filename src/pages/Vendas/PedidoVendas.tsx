@@ -29,6 +29,8 @@ import {
   parseExigirIdentificacaoVendedor,
 } from '../../utils/vendedorPinDomain';
 import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
+import { tomDoStatusPedido, type TomChip } from '../../utils/chipStatusDomain';
+import AvatarIniciais from '../../components/common/AvatarIniciais';
 import {
   addDaysToDateInput,
   dateInputToUtcEnd,
@@ -219,11 +221,12 @@ const CONFERENCIA_STATUS_LABELS: Record<string, string> = {
   conferido: 'Conferido',
   divergente: 'Divergente',
 };
-const CONFERENCIA_STATUS_COLORS: Record<string, string> = {
-  aguardando: '#f59e0b',
-  em_conferencia: '#3b82f6',
-  conferido: '#10b981',
-  divergente: '#ef4444',
+/** Cor do chip da conferencia (.hd-chip, visualDesktop.css). */
+const CONFERENCIA_STATUS_TOM: Record<string, TomChip> = {
+  aguardando: 'ambar',
+  em_conferencia: 'azul',
+  conferido: 'verde',
+  divergente: 'verm',
 };
 
 const PedidoVendas: React.FC = () => {
@@ -476,22 +479,23 @@ const PedidoVendas: React.FC = () => {
   // texto, ANTES dos filtros de coluna -- e' desta lista que as opcoes dos
   // dropdowns (Vendedor, Forma de Pagamento, Conferencia) sao derivadas, pra
   // nunca oferecer uma opcao que nao existe nesta aba.
-  const pedidosDoContexto = pedidos.filter(p => {
-    // "Ativos / Faturados" = so o que virou venda de verdade. Pedido em
-    // aberto (pre-venda do balcao ou pendente do agente) tem aba propria --
-    // misturar os dois faria a aba principal mostrar como venda algo que
-    // ainda nao faturou.
-    const matchStatus = activeTab === 'Ativos'
+  // "Ativos / Faturados" = so o que virou venda de verdade. Pedido em
+  // aberto (pre-venda do balcao ou pendente do agente) tem aba propria --
+  // misturar os dois faria a aba principal mostrar como venda algo que
+  // ainda nao faturou.
+  const pertenceAAba = (p: PedidoVendaData, aba: string) => (
+    aba === 'Ativos'
       ? contaComoFaturamento(p.status)
-      : activeTab === 'PreVendas'
+      : aba === 'PreVendas'
         ? p.status === STATUS_PRE_VENDA
-        : activeTab === 'Pendentes'
+        : aba === 'Pendentes'
           ? p.status === STATUS_EM_ANALISE
-          : p.status === STATUS_CANCELADA;
-    if (!matchStatus) return false;
-    if (!searchTerm) return true;
-    return p.clienteNome?.toLowerCase().includes(searchTerm.toLowerCase()) || p.numeroPedido?.includes(searchTerm);
-  });
+          : p.status === STATUS_CANCELADA
+  );
+  const casaComBusca = (p: PedidoVendaData) => (
+    !searchTerm || p.clienteNome?.toLowerCase().includes(searchTerm.toLowerCase()) || p.numeroPedido?.includes(searchTerm)
+  );
+  const pedidosDoContexto = pedidos.filter(p => pertenceAAba(p, activeTab) && casaComBusca(p));
 
   // Um vendedor so' aparece uma vez, mesmo com grafias diferentes entre
   // pedidos antigos e novos -- `pedidosDoContexto` ja vem do mais recente
@@ -641,18 +645,48 @@ const PedidoVendas: React.FC = () => {
     }
   };
 
+  // ---------- design novo (14/10/2026): busca + abas com contagem, tabela e rodape de totais ----------
+  const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+  // Contagem de cada aba com a MESMA regra da lista (busca e periodo), sem os
+  // filtros de coluna -- esses so' valem na aba aberta, que mostra o numero exato.
+  const contagemDaAba = (aba: string) => {
+    if (aba === activeTab) return filteredPedidos.length;
+    const emAberto = aba === 'PreVendas' || aba === 'Pendentes';
+    const periodo = !emAberto || periodoEscolhido ? periodoDataFiltro : null;
+    return pedidos.filter((p) => (
+      pertenceAAba(p, aba)
+      && casaComBusca(p)
+      && (!periodo || isWithinDateRange(dataEfetivaPedido(p), periodo.inicio, periodo.fim))
+    )).length;
+  };
+  const abasDaLista = [
+    { id: 'Ativos', rotulo: 'Ativos / Faturados' },
+    ...(trabalhaComPreVenda ? [{ id: 'PreVendas', rotulo: 'Pré-vendas' }] : []),
+    ...(agenteDigitalAtivo ? [{ id: 'Pendentes', rotulo: 'Pendentes' }] : []),
+    { id: 'Cancelados', rotulo: 'Cancelados' },
+  ];
+  const somaDe = (filtro: (p: PedidoVendaData) => boolean) => filteredPedidos.filter(filtro).reduce((soma, p) => soma + (p.valorTotal || 0), 0);
+  const totalFaturado = somaDe((p) => contaComoFaturamento(p.status));
+  const totalEmAberto = somaDe((p) => isPedidoAberto(p.status));
+  const totalCancelado = somaDe((p) => p.status === STATUS_CANCELADA);
+  const rotuloPeriodoTopo = filtroDataValeNestaAba && rotuloPeriodoFiltro ? rotuloPeriodoFiltro : 'Todo o período';
+  const quantidadeColunas = conferenciaMercadoriaAtiva ? 11 : 10;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div>
-          <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <ShoppingCart size={28} color="var(--accent-purple)" />
+          <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '4px' }}>
             Pedidos de Venda
           </h1>
-          <p style={{ color: 'var(--text-muted)' }}>Gerenciamento de vendas diretas e PDV</p>
+          <p style={{ color: 'var(--text-muted)' }}>
+            {loading
+              ? 'Carregando pedidos...'
+              : `${rotuloPeriodoTopo} · ${filteredPedidos.length} ${filteredPedidos.length === 1 ? 'pedido' : 'pedidos'} · ${moeda.format(totalFiltrado)}`}
+          </p>
         </div>
         <button className="btn-primary" onClick={() => openTab('/pedidos-venda/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Plus size={20} /> Nova Venda (PDV)
+          <Plus size={20} /> Novo pedido
         </button>
       </div>
 
@@ -673,49 +707,34 @@ const PedidoVendas: React.FC = () => {
           </button>
         </div>
       ) : (
-      <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-
-        <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
-          <div className="search-bar" style={{ flex: 1, position: 'relative' }}>
-            <Search size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+      <>
+      <div className="card" style={{ padding: '18px 20px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '14px' }}>
+          <div className="search-bar" style={{ flex: '1 1 300px', maxWidth: '420px', position: 'relative' }}>
+            <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--app-icone-cor, var(--text-muted))' }} />
             <input
               type="text"
-              placeholder="Buscar por cliente ou número do pedido..."
+              placeholder="Buscar por cliente ou número do pedido"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ width: '100%', padding: '12px 16px 12px 48px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+              style={{ width: '100%', height: '46px', padding: '0 16px 0 42px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '14px', color: 'var(--text-primary)' }}
             />
           </div>
-          <div style={{ display: 'flex', backgroundColor: 'var(--bg-tertiary)', padding: '4px', borderRadius: 'var(--radius-md)' }}>
-            <button
-              onClick={() => setActiveTab('Ativos')}
-              style={{ padding: '8px 16px', backgroundColor: activeTab === 'Ativos' ? 'var(--accent-purple)' : 'transparent', color: activeTab === 'Ativos' ? 'white' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
-            >
-              Ativos / Faturados
-            </button>
-            {trabalhaComPreVenda && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }} role="tablist" aria-label="Situação dos pedidos">
+            {abasDaLista.map((aba) => (
               <button
-                onClick={() => setActiveTab('PreVendas')}
-                style={{ padding: '8px 16px', backgroundColor: activeTab === 'PreVendas' ? 'rgba(245, 158, 11, 0.2)' : 'transparent', color: activeTab === 'PreVendas' ? '#f59e0b' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
+                key={aba.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === aba.id}
+                className={`hd-chip hd-chip--grande ${activeTab === aba.id ? 'violeta' : ''}`}
+                onClick={() => setActiveTab(aba.id)}
               >
-                Pré-vendas
+                {aba.rotulo}{loading ? '' : ` · ${contagemDaAba(aba.id)}`}
               </button>
-            )}
-            {agenteDigitalAtivo && (
-              <button
-                onClick={() => setActiveTab('Pendentes')}
-                style={{ padding: '8px 16px', backgroundColor: activeTab === 'Pendentes' ? 'rgba(245, 158, 11, 0.2)' : 'transparent', color: activeTab === 'Pendentes' ? '#f59e0b' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
-              >
-                Pendentes
-              </button>
-            )}
-            <button
-              onClick={() => setActiveTab('Cancelados')}
-              style={{ padding: '8px 16px', backgroundColor: activeTab === 'Cancelados' ? 'rgba(239, 68, 68, 0.2)' : 'transparent', color: activeTab === 'Cancelados' ? '#ef4444' : 'var(--text-muted)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 }}
-            >
-              Cancelados
-            </button>
+            ))}
           </div>
+          <div style={{ flex: 1 }} />
           {selectedIds.size === 1 && (
             <button
               onClick={() => setShowItemPreview((atual) => !atual)}
@@ -739,25 +758,22 @@ const PedidoVendas: React.FC = () => {
         </div>
 
         {filtrosDeColunaAtivos.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginBottom: '16px', fontSize: '13px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '14px', fontSize: '13px' }}>
             <Filter size={14} color="var(--text-muted)" />
             {filtrosDeColunaAtivos.map((f) => (
-              <span
-                key={f.rotulo}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', padding: '4px 10px', borderRadius: '999px', color: 'var(--text-muted)' }}
-              >
-                {f.rotulo}: <strong style={{ color: 'var(--text-primary)' }}>{f.valor}</strong>
+              <span key={f.rotulo} className="hd-chip violeta">
+                {f.rotulo}: <strong>{f.valor}</strong>
                 <button
                   type="button"
                   onClick={f.limpar}
                   title={`Remover filtro de ${f.rotulo}`}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'inline-flex', lineHeight: 0 }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, display: 'inline-flex', lineHeight: 0 }}
                 >
                   <XCircle size={14} />
                 </button>
               </span>
             ))}
-            <button type="button" onClick={limparFiltrosDeColuna} style={{ background: 'none', border: 'none', color: 'var(--accent-purple)', cursor: 'pointer', fontWeight: 600, fontSize: '13px' }}>
+            <button type="button" className="hd-link" onClick={limparFiltrosDeColuna}>
               Limpar filtros
             </button>
           </div>
@@ -767,7 +783,7 @@ const PedidoVendas: React.FC = () => {
           const pedidoPreview = filteredPedidos.find((p) => selectedIds.has(p.id));
           if (!pedidoPreview) return null;
           return (
-            <div style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '16px', marginBottom: '24px' }}>
+            <div style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '16px', marginTop: '14px' }}>
               <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600 }}>
                 Itens do pedido #{pedidoPreview.numeroPedido}
               </p>
@@ -786,12 +802,14 @@ const PedidoVendas: React.FC = () => {
             </div>
           );
         })()}
+      </div>
 
+      <div className="card" style={{ padding: '16px 14px 6px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <table className="hd-tabela">
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '13px', textTransform: 'uppercase' }}>
-                <th style={{ padding: '16px', width: '1%' }}>
+              <tr>
+                <th style={{ width: '1%' }}>
                   <input
                     type="checkbox"
                     checked={allVisibleSelected}
@@ -801,13 +819,13 @@ const PedidoVendas: React.FC = () => {
                     aria-label="Selecionar todos os pedidos visíveis"
                   />
                 </th>
-                <th style={{ padding: '16px' }}>
+                <th>
                   <button type="button" onClick={inverterOrdemNumero} title="Inverter a ordem pelo número"
                     style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', font: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                     Nº Pedido {ordemNumero === 'asc' ? '▲' : '▼'}
                   </button>
                 </th>
-                <th style={{ padding: '16px' }}>
+                <th>
                   Data
                   <FiltroColuna ativo={Boolean(filtroDataPreset)}>
                     {() => (
@@ -856,8 +874,8 @@ const PedidoVendas: React.FC = () => {
                     )}
                   </FiltroColuna>
                 </th>
-                <th style={{ padding: '16px' }}>Cliente</th>
-                <th style={{ padding: '16px' }}>
+                <th>Cliente</th>
+                <th>
                   Vendedor
                   <FiltroColuna ativo={Boolean(filtroVendedor)}>
                     {(fechar) => (
@@ -870,8 +888,8 @@ const PedidoVendas: React.FC = () => {
                     )}
                   </FiltroColuna>
                 </th>
-                <th style={{ padding: '16px' }}>
-                  Forma Pgto
+                <th>
+                  Pagamento
                   <FiltroColuna ativo={Boolean(filtroFormaPagamento)}>
                     {(fechar) => (
                       <OpcoesFiltro
@@ -883,9 +901,9 @@ const PedidoVendas: React.FC = () => {
                     )}
                   </FiltroColuna>
                 </th>
-                <th style={{ padding: '16px' }}>Status</th>
+                <th>Status</th>
                 {conferenciaMercadoriaAtiva && (
-                  <th style={{ padding: '16px' }}>
+                  <th>
                     Conferência
                     <FiltroColuna ativo={Boolean(filtroConferencia)}>
                       {(fechar) => (
@@ -900,7 +918,7 @@ const PedidoVendas: React.FC = () => {
                     </FiltroColuna>
                   </th>
                 )}
-                <th style={{ padding: '16px', textAlign: 'center' }} title={activeTab === 'PreVendas' ? undefined : 'Já foi impresso (Recibo/Pré-venda)?'}>
+                <th style={{ textAlign: 'center' }} title={activeTab === 'PreVendas' ? undefined : 'Já foi impresso (Recibo/Pré-venda)?'}>
                   {activeTab === 'PreVendas' ? (
                     <button
                       type="button"
@@ -913,18 +931,18 @@ const PedidoVendas: React.FC = () => {
                     </button>
                   ) : 'Imp.'}
                 </th>
-                <th style={{ padding: '16px', textAlign: 'right' }}>Total (R$)</th>
-                <th style={{ padding: '16px', textAlign: 'center' }}>Ações</th>
+                <th style={{ textAlign: 'right' }}>Total</th>
+                <th style={{ textAlign: 'center' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={conferenciaMercadoriaAtiva ? 11 : 10} style={{ textAlign: 'center', padding: '40px' }}>Carregando pedidos...</td>
+                  <td colSpan={quantidadeColunas} style={{ textAlign: 'center', padding: '40px' }}>Carregando pedidos...</td>
                 </tr>
               ) : filteredPedidos.length === 0 ? (
                 <tr>
-                  <td colSpan={conferenciaMercadoriaAtiva ? 11 : 10} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={quantidadeColunas} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <ShoppingCart size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>Nenhum pedido de venda encontrado.</p>
                   </td>
@@ -947,9 +965,9 @@ const PedidoVendas: React.FC = () => {
                     }}
                     tabIndex={0}
                     title="Clique para selecionar, duplo clique para visualizar"
-                    style={{ borderBottom: '1px solid var(--border-color)', opacity: p.status === 'Cancelada' ? 0.6 : 1 }}
+                    style={{ opacity: p.status === 'Cancelada' ? 0.6 : 1 }}
                   >
-                    <td style={{ padding: '16px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                    <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selectedIds.has(p.id)}
@@ -957,33 +975,23 @@ const PedidoVendas: React.FC = () => {
                         aria-label={`Selecionar pedido ${p.numeroPedido}`}
                       />
                     </td>
-                    <td style={{ padding: '16px', fontWeight: 600 }}>#{p.numeroPedido}</td>
-                    <td style={{ padding: '16px' }}>{formatarDataEfetiva(p)}</td>
-                    <td style={{ padding: '16px' }}>{p.clienteNome}</td>
-                    <td style={{ padding: '16px' }}>{p.vendedorNome || '-'}</td>
-                    <td style={{ padding: '16px' }}>
-                      <span style={{ backgroundColor: 'var(--bg-tertiary)', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>
-                        {p.formaPagamento}
-                      </span>
+                    <td style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>#{p.numeroPedido}</td>
+                    <td className="hd-tabela__mudo">{formatarDataEfetiva(p)}</td>
+                    <td className="hd-tabela__cliente">
+                      <div className="hd-pessoa">
+                        <AvatarIniciais nome={p.clienteNome} />
+                        <strong>{p.clienteNome || 'Cliente não informado'}</strong>
+                      </div>
                     </td>
-                    <td style={{ padding: '16px' }}>
-                      <span style={{
-                        // Amarelo = em aberto (pre-venda ou pendente do
-                        // agente), verde = faturado, vermelho = cancelado.
-                        backgroundColor: p.status === 'Cancelada' ? 'rgba(239,68,68,0.2)' : isPedidoAberto(p.status) ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)',
-                        color: p.status === 'Cancelada' ? '#ef4444' : isPedidoAberto(p.status) ? '#f59e0b' : '#10b981',
-                        padding: '4px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600
-                      }}>
-                        {p.status}
-                      </span>
+                    <td className="hd-tabela__mudo">{p.vendedorNome || '—'}</td>
+                    <td className="hd-tabela__mudo">{p.formaPagamento || '—'}</td>
+                    <td>
+                      <span className={`hd-chip ${tomDoStatusPedido(p.status)}`}>{p.status}</span>
                       {rotuloNotaFiscalPedido(p.comNotaFiscal) && (
-                        <div style={{ marginTop: '4px' }}>
+                        <div style={{ marginTop: '6px' }}>
                           <span
                             title="Marcado pelo vendedor no aplicativo"
-                            style={{
-                              display: 'inline-block', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap',
-                              backgroundColor: rotuloNotaFiscalPedido(p.comNotaFiscal)?.tom === 'com' ? 'rgba(16,185,129,0.18)' : 'rgba(148,163,184,0.18)', color: rotuloNotaFiscalPedido(p.comNotaFiscal)?.tom === 'com' ? '#10b981' : 'var(--text-muted)',
-                            }}
+                            className={`hd-chip hd-chip--mini ${rotuloNotaFiscalPedido(p.comNotaFiscal)?.tom === 'com' ? 'verde' : ''}`}
                           >
                             {rotuloNotaFiscalPedido(p.comNotaFiscal)?.texto}
                           </span>
@@ -991,65 +999,63 @@ const PedidoVendas: React.FC = () => {
                       )}
                     </td>
                     {conferenciaMercadoriaAtiva && (
-                      <td style={{ padding: '16px' }}>
+                      <td>
                         {p.statusConferencia ? (
-                          <span style={{
-                            backgroundColor: `${CONFERENCIA_STATUS_COLORS[p.statusConferencia] || '#6b7280'}20`,
-                            color: CONFERENCIA_STATUS_COLORS[p.statusConferencia] || '#6b7280',
-                            padding: '4px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600
-                          }}>
+                          <span className={`hd-chip ${CONFERENCIA_STATUS_TOM[p.statusConferencia] || ''}`}>
                             {CONFERENCIA_STATUS_LABELS[p.statusConferencia] || p.statusConferencia}
                           </span>
                         ) : (
-                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>—</span>
+                          <span className="hd-tabela__mudo">—</span>
                         )}
                       </td>
                     )}
                     <td
-                      style={{ padding: '16px', textAlign: 'center' }}
+                      style={{ textAlign: 'center' }}
                       title={p.impresso && p.minutaImpressa ? 'Recibo e minuta já impressos' : p.impresso ? 'Recibo já impresso' : p.minutaImpressa ? 'Minuta já impressa' : 'Ainda não impresso'}
                     >
                       {(p.impresso || p.minutaImpressa) ? <CheckCircle2 size={18} color="#10b981" style={{ display: 'inline-block' }} /> : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                     </td>
-                    <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700 }}>
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valorTotal)}
+                    <td style={{ textAlign: 'right', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                      {moeda.format(p.valorTotal)}
                     </td>
-                    <td style={{ padding: '16px', display: 'flex', justifyContent: 'center', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => openTab(`/pedidos-venda/visualizar/${p.id}`)} className="icon-btn" title="Visualizar Pedido" style={{ color: '#3b82f6' }}>
-                        <FileText size={18} />
-                      </button>
-                      {controlaFiscal && authorizedCupons[p.id] && authorizedCupons[p.id].status === 'authorized' ? (
-                        <button
-                          onClick={() => {
-                            // O cupom abre num PDF fora do sistema: marca como impresso
-                            // ao abrir, senao esse caminho nunca acenderia o "Imp.".
-                            updateDoc(doc(db, 'pedidos_venda', p.id), { impresso: true, impressoEm: serverTimestamp() })
-                              .catch((err) => console.error('Erro ao marcar cupom como impresso:', err));
-                            const cupom = authorizedCupons[p.id];
-                            spedyService.openFiscalFile(cupom.spedyId, 'consumer', 'pdf')
-                              .catch(err => showError('Erro ao abrir cupom fiscal', (err as Error).message));
-                          }}
-                          className="icon-btn"
-                          title="Imprimir Cupom Fiscal (NFC-e)"
-                          style={{ color: '#8b5cf6' }}
-                        >
-                          <Printer size={18} />
+                    <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
+                        <button onClick={() => openTab(`/pedidos-venda/visualizar/${p.id}`)} className="icon-btn" title="Visualizar Pedido" style={{ color: '#3b82f6' }}>
+                          <FileText size={18} />
                         </button>
-                      ) : (
-                        <button onClick={() => navigate(`/pedidos-venda/print/${p.id}`)} className="icon-btn" title="Imprimir Recibo" style={{ color: '#10b981' }}>
-                          <Printer size={18} />
-                        </button>
-                      )}
-                      {(p.status === 'Finalizada' || p.status === 'Pré-venda') && (
-                        <button onClick={() => navigate(`/operacoes/expedicao/minuta/${p.id}`)} className="icon-btn" title="Imprimir Minuta de Entrega" style={{ color: '#3b82f6' }}>
-                          <Truck size={18} />
-                        </button>
-                      )}
-                      {p.status === 'Em Análise' && canEditPendenteVenda && (
-                        <button onClick={() => handleRecusar(p)} className="icon-btn" title="Recusar Pedido Pendente" style={{ color: '#ef4444' }}>
-                          <XCircle size={18} />
-                        </button>
-                      )}
+                        {controlaFiscal && authorizedCupons[p.id] && authorizedCupons[p.id].status === 'authorized' ? (
+                          <button
+                            onClick={() => {
+                              // O cupom abre num PDF fora do sistema: marca como impresso
+                              // ao abrir, senao esse caminho nunca acenderia o "Imp.".
+                              updateDoc(doc(db, 'pedidos_venda', p.id), { impresso: true, impressoEm: serverTimestamp() })
+                                .catch((err) => console.error('Erro ao marcar cupom como impresso:', err));
+                              const cupom = authorizedCupons[p.id];
+                              spedyService.openFiscalFile(cupom.spedyId, 'consumer', 'pdf')
+                                .catch(err => showError('Erro ao abrir cupom fiscal', (err as Error).message));
+                            }}
+                            className="icon-btn"
+                            title="Imprimir Cupom Fiscal (NFC-e)"
+                            style={{ color: '#8b5cf6' }}
+                          >
+                            <Printer size={18} />
+                          </button>
+                        ) : (
+                          <button onClick={() => navigate(`/pedidos-venda/print/${p.id}`)} className="icon-btn" title="Imprimir Recibo" style={{ color: '#10b981' }}>
+                            <Printer size={18} />
+                          </button>
+                        )}
+                        {(p.status === 'Finalizada' || p.status === 'Pré-venda') && (
+                          <button onClick={() => navigate(`/operacoes/expedicao/minuta/${p.id}`)} className="icon-btn" title="Imprimir Minuta de Entrega" style={{ color: '#3b82f6' }}>
+                            <Truck size={18} />
+                          </button>
+                        )}
+                        {p.status === 'Em Análise' && canEditPendenteVenda && (
+                          <button onClick={() => handleRecusar(p)} className="icon-btn" title="Recusar Pedido Pendente" style={{ color: '#ef4444' }}>
+                            <XCircle size={18} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -1057,17 +1063,23 @@ const PedidoVendas: React.FC = () => {
             </tbody>
           </table>
         </div>
-
-        {!loading && filteredPedidos.length > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', padding: '16px 16px 0', fontSize: '14px', color: 'var(--text-muted)' }}>
-            <span>{filteredPedidos.length} {filteredPedidos.length === 1 ? 'pedido' : 'pedidos'}</span>
-            <span>·</span>
-            <strong style={{ color: 'var(--text-primary)' }}>
-              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalFiltrado)}
-            </strong>
-          </div>
-        )}
       </div>
+
+      {!loading && filteredPedidos.length > 0 && (
+        <div className="card" style={{ padding: '14px 20px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px 16px' }}>
+          <span style={{ fontSize: '14px', color: 'var(--text-muted)', fontWeight: 500 }}>
+            Mostrando <strong style={{ color: 'var(--text-primary)' }}>{filteredPedidos.length}</strong> {filteredPedidos.length === 1 ? 'pedido' : 'pedidos'}
+          </span>
+          {totalFaturado > 0 && <span className="hd-chip verde">Faturado: {moeda.format(totalFaturado)}</span>}
+          {totalEmAberto > 0 && <span className="hd-chip azul">Em aberto: {moeda.format(totalEmAberto)}</span>}
+          {totalCancelado > 0 && <span className="hd-chip">Cancelado: {moeda.format(totalCancelado)}</span>}
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: '14px', color: 'var(--text-muted)', fontWeight: 600 }}>
+            Total <strong style={{ marginLeft: '6px', fontSize: '17px', color: 'var(--text-primary)', fontWeight: 800 }}>{moeda.format(totalFiltrado)}</strong>
+          </span>
+        </div>
+      )}
+      </>
       )}
     </div>
   );

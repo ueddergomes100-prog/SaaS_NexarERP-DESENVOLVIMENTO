@@ -232,10 +232,15 @@ body.light-theme .app-layout-wrapper .nexus-nav-link.active { color: #6d28d9; }
 .app-layout-wrapper .page-content .dashboard-topline,
 .app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child),
 .app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) {
+  /* SEM overflow:hidden: o "Mais opcoes" e o "Nova acao" abrem um menu de dentro
+     do cabecalho, e ele precisa passar da borda. O brilho do canto e' uma camada
+     do proprio fundo (nao um elemento a parte que precisasse ser cortado), e o
+     z-index poe o cabecalho -- e os menus dele -- por cima dos cartoes de baixo. */
   position: relative;
-  overflow: hidden;
-  isolation: isolate;
-  background: var(--app-degrade) !important;
+  z-index: 20;
+  background:
+    radial-gradient(circle at 96% -30%, rgba(196, 167, 252, 0.42) 0, rgba(196, 167, 252, 0) 360px),
+    var(--app-degrade) !important;
   border: 0 !important;
   border-radius: 24px !important;
   padding: 26px 30px !important;
@@ -250,23 +255,6 @@ body.light-theme .app-layout-wrapper .nexus-nav-link.active { color: #6d28d9; }
   flex: 1 1 320px;
   min-width: 260px;
 }
-/* brilho no canto, como no app */
-.app-layout-wrapper .page-content .page-header::before,
-.app-layout-wrapper .page-content .dashboard-topline::before,
-.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child)::before,
-.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child)::before {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  right: -80px;
-  top: -140px;
-  width: 380px;
-  height: 380px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(196, 167, 252, 0.4), rgba(196, 167, 252, 0) 66%);
-  pointer-events: none;
-}
-
 /* textos do cabecalho */
 .app-layout-wrapper .page-content .page-header :is(h1, h2, .page-title),
 .app-layout-wrapper .page-content .dashboard-topline :is(h1, h2, .page-title),
@@ -283,11 +271,78 @@ body.light-theme .app-layout-wrapper .nexus-nav-link.active { color: #6d28d9; }
   color: #fff !important;
   stroke: #fff !important;
 }
+/* var(--text-secondary): claro no violeta, escuro de volta dentro das caixas brancas (abaixo) */
 .app-layout-wrapper .page-content .page-header :is(p, .page-subtitle),
 .app-layout-wrapper .page-content .dashboard-topline :is(p, .page-subtitle, .dashboard-eyebrow),
 .app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) > div > p,
 .app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) > p {
-  color: rgba(255, 255, 255, 0.82) !important;
+  color: var(--text-secondary) !important;
+}
+
+/*
+ * O QUE MAIS MORA DENTRO DO CABECALHO. Algumas telas poem ali caixinhas de valor
+ * ("Recebido hoje", "Total a compensar"), o banco escolhido, um campo de busca.
+ * Elas pintam o texto com as variaveis do tema (cinza/escuro) ou com cor fixa
+ * (#10b981, #8b5cf6...), que some no violeta. Dentro do cabecalho:
+ *  - as variaveis de texto e de status viram tons claros;
+ *  - caixas com fundo proprio do tema (branco), campos e menus voltam ao normal;
+ *  - cor fixa de status/violeta escrita direto na tela vira o tom claro equivalente.
+ * As "--orig-*" guardam o valor normal do tema para o "voltar ao normal".
+ */
+.app-layout-wrapper {
+  --orig-text-primary: var(--text-primary);
+  --orig-text-secondary: var(--text-secondary);
+  --orig-text-muted: var(--text-muted);
+  --orig-status-green: var(--status-green);
+  --orig-status-red: var(--status-red);
+  --orig-status-yellow: var(--status-yellow);
+  --orig-status-blue: var(--status-blue);
+  --orig-accent-purple: var(--accent-purple);
+  --orig-brand-ink: var(--brand-ink);
+}
+.app-layout-wrapper :is(.page-content .page-header, .page-content .dashboard-topline, .page-transition > div > div:first-child:has(> div > h1:first-child), .page-transition > div > div:first-child:has(> h1:first-child)) {
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.84);
+  --text-muted: rgba(255, 255, 255, 0.72);
+  --status-green: #6ee7b7;
+  --status-red: #fca5a5;
+  --status-yellow: #fcd34d;
+  --status-blue: #bfdbfe;
+  --accent-purple: #e9d5ff;
+  --brand-ink: #ffffff;
+}
+.app-layout-wrapper :is(.page-content .page-header, .page-content .dashboard-topline, .page-transition > div > div:first-child:has(> div > h1:first-child), .page-transition > div > div:first-child:has(> h1:first-child))
+  :is([style*="background-color: var(--bg-"], [style*="background: var(--bg-"], [role='menu'], .card, .dashboard-action-menu, input, select, textarea, .search-box, .client-autocomplete, .product-autocomplete) {
+  --text-primary: var(--orig-text-primary);
+  --text-secondary: var(--orig-text-secondary);
+  --text-muted: var(--orig-text-muted);
+  --status-green: var(--orig-status-green);
+  --status-red: var(--orig-status-red);
+  --status-yellow: var(--orig-status-yellow);
+  --status-blue: var(--orig-status-blue);
+  --accent-purple: var(--orig-accent-purple);
+  --brand-ink: var(--orig-brand-ink);
+}
+/* cor fixa escrita na tela (texto e icone), fora das caixas brancas */
+.app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child:has(> div > h1:first-child))
+  :is([style*=' color: rgb(16, 185, 129)'], [style^='color: rgb(16, 185, 129)'], svg[stroke='#10b981']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *) {
+  color: #6ee7b7 !important;
+  stroke: #6ee7b7;
+}
+.app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child:has(> div > h1:first-child))
+  :is([style*=' color: rgb(239, 68, 68)'], [style^='color: rgb(239, 68, 68)'], svg[stroke='#ef4444']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *) {
+  color: #fca5a5 !important;
+  stroke: #fca5a5;
+}
+.app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child:has(> div > h1:first-child))
+  :is([style*=' color: rgb(245, 158, 11)'], [style^='color: rgb(245, 158, 11)'], svg[stroke='#f59e0b']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *) {
+  color: #fcd34d !important;
+  stroke: #fcd34d;
+}
+.app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child:has(> div > h1:first-child))
+  :is([style*=' color: rgb(139, 92, 246)'], [style^='color: rgb(139, 92, 246)'], [style*=' color: rgb(124, 58, 237)'], [style^='color: rgb(124, 58, 237)'], [style*=' color: rgb(59, 130, 246)'], [style^='color: rgb(59, 130, 246)'], svg[stroke='#8b5cf6'], svg[stroke='#7c3aed'], svg[stroke='#3b82f6']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *) {
+  color: #ffffff !important;
+  stroke: #ffffff;
 }
 
 /* botoes do cabecalho: o principal em branco; os demais em "vidro" */

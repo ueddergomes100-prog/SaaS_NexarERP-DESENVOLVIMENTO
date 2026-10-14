@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildSintegraFile,
+  montarProdutosSintegra,
   type SintegraEmpresa, type SintegraNota, type SintegraProduto, type SintegraPeriodo,
 } from '../src/utils/sintegraDomain';
 
@@ -129,4 +130,17 @@ test('Registro 90 totaliza a contagem de cada tipo de registro presente', () => 
   const totalRegistro90DoTipo50 = registros90.find((l) => l.slice(30, 32) === '50');
   assert.ok(totalRegistro90DoTipo50);
   assert.equal(totalRegistro90DoTipo50!.slice(32, 40), '00000001');
+});
+
+test('Registro 75: produto casa pelo codigo interno da nota (e pelo id quando nao tem codigo)', () => {
+  const produtos = montarProdutosSintegra(['7', 'docSemCodigo', 'naoExiste', '7'], [
+    { id: 'docComCodigo', codigo: 7, nome: 'RAÇÃO', ncm: '23091000', unidadeMedidaSigla: 'KG', aliquotaIcms: '18' },
+    { id: 'docSemCodigo', nome: 'AVULSO', ncm: '00000000' },
+    { id: 'outro', codigo: '8', nome: 'NAO VENDIDO' },
+  ]);
+  assert.deepEqual(produtos.map((p) => p.codigo), ['7', 'docSemCodigo'], 'um por codigo da nota, sem repetir');
+  assert.equal(produtos[0].descricao, 'RAÇÃO');
+  assert.equal(produtos[0].unidade, 'KG');
+  assert.equal(produtos[0].aliquotaIcms, 18);
+  assert.equal(produtos[1].unidade, 'UN');
 });

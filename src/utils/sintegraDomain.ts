@@ -63,6 +63,52 @@ export interface SintegraProduto {
   reducaoBaseIcms?: number;
 }
 
+/** Produto do estoque como vem do Firestore (id do documento + campos usados no Registro 75). */
+export interface ProdutoEstoqueSintegra {
+  id: string;
+  codigo?: string | number | null;
+  ncm?: string | null;
+  nome?: string | null;
+  unidadeMedidaSigla?: string | null;
+  aliquotaIcms?: number | string | null;
+  aliquotaIpi?: number | string | null;
+  reducaoBaseIcms?: number | string | null;
+}
+
+/**
+ * Registro 75 (um por código de produto usado nas notas). O item da nota leva o
+ * CÓDIGO INTERNO do produto (NF-e: codigoProduto; NFC-e: produto.codigo), e o id
+ * do documento só quando o produto não tem código. Casar só pelo id deixava fora
+ * do 75 todo produto com código (2026-10-14). O código do 75 é o mesmo da nota.
+ */
+export const montarProdutosSintegra = (
+  codigosDasNotas: Iterable<string>,
+  produtos: ProdutoEstoqueSintegra[],
+): SintegraProduto[] => {
+  const porId = new Map<string, ProdutoEstoqueSintegra>();
+  const porCodigo = new Map<string, ProdutoEstoqueSintegra>();
+  produtos.forEach((p) => {
+    porId.set(p.id, p);
+    const codigo = String(p.codigo ?? '').trim();
+    if (codigo && !porCodigo.has(codigo)) porCodigo.set(codigo, p);
+  });
+  const resultado: SintegraProduto[] = [];
+  new Set(codigosDasNotas).forEach((codigo) => {
+    const p = porCodigo.get(codigo) || porId.get(codigo);
+    if (!p) return;
+    resultado.push({
+      codigo,
+      ncm: p.ncm || '',
+      descricao: p.nome || '',
+      unidade: p.unidadeMedidaSigla || 'UN',
+      aliquotaIcms: Number(p.aliquotaIcms || 0),
+      aliquotaIpi: Number(p.aliquotaIpi || 0),
+      reducaoBaseIcms: Number(p.reducaoBaseIcms || 0),
+    });
+  });
+  return resultado;
+};
+
 export interface SintegraPeriodo {
   dataInicial: string; // YYYY-MM-DD
   dataFinal: string; // YYYY-MM-DD

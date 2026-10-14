@@ -6,7 +6,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
 import {
   buildSintegraFile,
-  type SintegraEmpresa, type SintegraNota, type SintegraNotaItem, type SintegraProduto,
+  montarProdutosSintegra,
+  type ProdutoEstoqueSintegra, type SintegraEmpresa, type SintegraNota, type SintegraNotaItem, type SintegraProduto,
 } from '../../utils/sintegraDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 
@@ -128,20 +129,10 @@ const Sintegra: React.FC = () => {
 
       const codigosProdutos = new Set(notasSintegra.flatMap((nota) => nota.itens.map((item) => item.codigo)));
       const estoqueSnap = await getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)));
-      const produtosSintegra: SintegraProduto[] = estoqueSnap.docs
-        .filter((d) => codigosProdutos.has(d.id))
-        .map((d) => {
-          const p = d.data();
-          return {
-            codigo: d.id,
-            ncm: p.ncm || '',
-            descricao: p.nome || '',
-            unidade: p.unidadeMedidaSigla || 'UN',
-            aliquotaIcms: Number(p.aliquotaIcms || 0),
-            aliquotaIpi: Number(p.aliquotaIpi || 0),
-            reducaoBaseIcms: Number(p.reducaoBaseIcms || 0),
-          };
-        });
+      const produtosSintegra: SintegraProduto[] = montarProdutosSintegra(
+        codigosProdutos,
+        estoqueSnap.docs.map((d) => ({ id: d.id, ...d.data() } as ProdutoEstoqueSintegra)),
+      );
 
       const arquivo = buildSintegraFile(empresa, notasSintegra, produtosSintegra, { dataInicial, dataFinal });
 

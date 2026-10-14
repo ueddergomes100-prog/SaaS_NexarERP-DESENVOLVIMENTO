@@ -370,6 +370,30 @@
         { "fieldPath": "tenantId", "order": "ASCENDING" },
         { "fieldPath": "quantidade", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "transferencias",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transferencias",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "enviadoEm", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "caixas_pdv",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "fechadoEm", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

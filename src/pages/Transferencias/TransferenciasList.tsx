@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeftRight, ArrowRight, Eye, Plus } from 'lucide-react';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, Timestamp, type DocumentData, type QuerySnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { assinarComReserva } from '../../services/consultaComReserva';
+import { dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
+import AvisoHistoricoDoPeriodo from '../../components/common/AvisoHistoricoDoPeriodo';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import EstadoVazio from '../../components/common/EstadoVazio';
@@ -23,16 +26,49 @@ const TransferenciasList: React.FC = () => {
   const [carregando, setCarregando] = useState(true);
   const [aba, setAba] = useState<Aba>('receber');
 
+  // Em transito de qualquer data + as enviadas neste mes -- ou de todo o
+  // periodo quando a pessoa pede (otimizacao de leituras, 2026-10-14; antes:
+  // todas as transferencias das filiais). Sem o indice (tenantIds,
+  // enviadoEm) publicado, cai em todas e o mesmo corte e' feito aqui.
+  const [todoPeriodo, setTodoPeriodo] = useState(false);
+  const inicioDoMes = `${getDateInputInTimeZone().slice(0, 7)}-01`;
   useEffect(() => {
     if (!tenantId) return undefined;
-    const q = query(collection(db, 'transferencias'), where('tenantIds', 'array-contains', tenantId));
-    return onSnapshot(q, (snap) => {
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as TransferenciaDoc));
+    setCarregando(true);
+    const daFilial = query(collection(db, 'transferencias'), where('tenantIds', 'array-contains', tenantId));
+    const inicio = todoPeriodo ? null : dateInputToUtcStart(inicioDoMes);
+    const partes = new Map<string, TransferenciaDoc[]>();
+    const publicar = () => {
+      const porId = new Map<string, TransferenciaDoc>();
+      partes.forEach((docs) => docs.forEach((t) => porId.set(t.id, t)));
+      const docs = Array.from(porId.values());
       docs.sort((a, b) => (b.enviadoEm?.toDate?.()?.getTime() ?? 0) - (a.enviadoEm?.toDate?.()?.getTime() ?? 0));
       setLista(docs);
-      setCarregando(false);
-    }, () => setCarregando(false));
-  }, [tenantId]);
+      if (partes.size >= 2) setCarregando(false);
+    };
+    // Mesmos cortes das consultas enxutas, para a reserva (sem indice) mostrar o mesmo.
+    const receber = (nome: string) => (snap: QuerySnapshot<DocumentData>) => {
+      partes.set(nome, snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as TransferenciaDoc))
+        .filter((t) => (nome === 'emTransito'
+          ? t.status === 'em_transito'
+          : !inicio || (t.enviadoEm?.toDate?.() ?? new Date(0)) >= inicio)));
+      publicar();
+    };
+    const falhar = (nome: string) => (erro: unknown) => {
+      console.error('Erro ao carregar as transferências:', erro);
+      if (!partes.has(nome)) partes.set(nome, []);
+      publicar();
+    };
+    const parar = [
+      // array-contains + igualdade exige indice composto: pela reserva, nunca escuta crua.
+      assinarComReserva(query(daFilial, where('status', '==', 'em_transito')), daFilial, 'Transferências (em trânsito)', receber('emTransito'), falhar('emTransito')),
+      inicio
+        ? assinarComReserva(query(daFilial, where('enviadoEm', '>=', Timestamp.fromDate(inicio))), daFilial, 'Transferências (enviadas no mês)', receber('periodo'), falhar('periodo'))
+        : onSnapshot(daFilial, receber('periodo'), falhar('periodo')),
+    ];
+    return () => parar.forEach((fn) => fn());
+  }, [tenantId, todoPeriodo, inicioDoMes]);
 
   const filtradas = useMemo(() => lista.filter((t) => {
     if (aba === 'receber') return t.status === 'em_transito' && t.tenantDestino === tenantId;
@@ -103,6 +139,15 @@ const TransferenciasList: React.FC = () => {
             </button>
           ))}
         </div>
+        {(aba === 'concluidas' || aba === 'todas') && (
+          <AvisoHistoricoDoPeriodo
+            todoPeriodo={todoPeriodo}
+            onAlternar={() => setTodoPeriodo((atual) => !atual)}
+            textoRecente="Em trânsito de qualquer data; as demais, só as enviadas neste mês."
+            textoTodo="Transferências de todo o período."
+            botaoRecente="Ver só as deste mês"
+          />
+        )}
 
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>

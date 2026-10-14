@@ -8,7 +8,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import { fromCents } from '../../utils/financeDomain';
-import { isPedidoAberto, type OrigemPedido } from '../../utils/preVendaDomain';
+import { isPedidoAberto, STATUS_PEDIDO_ABERTO, type OrigemPedido } from '../../utils/preVendaDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
@@ -86,7 +86,9 @@ const RelatorioPreVendas: React.FC = () => {
       setError('');
       try {
         const [pedidosSnap, usuariosSnap] = await Promise.all([
-          getDocs(query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId))),
+          // So' os em aberto, direto no banco (otimizacao de leituras,
+          // 2026-10-14) -- antes lia TODOS os pedidos da empresa e filtrava aqui.
+          getDocs(query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where('status', 'in', [...STATUS_PEDIDO_ABERTO]))),
           getDocs(query(collection(db, 'usuarios'), where('tenantId', '==', tenantId))),
         ]);
         if (cancelado) return;

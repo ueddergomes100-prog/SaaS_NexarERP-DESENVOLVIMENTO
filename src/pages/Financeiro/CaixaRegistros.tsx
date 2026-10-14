@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
+import React, { useMemo, useState } from 'react';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
+import { addDaysToDateInput, getDateInputInTimeZone } from '../../utils/dateTime';
 import { useAuth } from '../../contexts/AuthContext';
 import { Wallet, Clock, History, Calendar, ChevronDown, ChevronUp, Banknote } from 'lucide-react';
 import { fromCents } from '../../utils/financeDomain';
@@ -60,30 +62,27 @@ const formatDateTime = (value: any): string => {
 
 const CaixaRegistros: React.FC = () => {
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
-  const [sessoes, setSessoes] = useState<CaixaSessaoData[]>([]);
-  const [loading, setLoading] = useState(true);
   const [diasFiltro, setDiasFiltro] = useState<number>(30);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [vendasPorSessao, setVendasPorSessao] = useState<Record<string, VendaVinculada[]>>({});
   const [loadingVendas, setLoadingVendas] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!currentUser) return;
-    const q = query(collection(db, 'caixas_pdv'), where('tenantId', '==', tenantId));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const data: CaixaSessaoData[] = [];
-      querySnapshot.forEach((docSnap) => {
-        data.push({ id: docSnap.id, ...docSnap.data() } as CaixaSessaoData);
-      });
-      data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setSessoes(data);
-      setLoading(false);
-    }, (error) => {
-      console.error('Erro ao buscar caixas do PDV:', error);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [currentUser, tenantId]);
+  // Caixas abertos de qualquer data + os fechados nos ultimos N dias do
+  // filtro (0 = todos), direto no banco (otimizacao de leituras, 2026-10-14)
+  // -- antes lia todas as sessoes de caixa da empresa e filtrava aqui.
+  const fechadosDesde = diasFiltro > 0 ? addDaysToDateInput(getDateInputInTimeZone(), -diasFiltro) : '';
+  const { items: sessoesLidas, loading } = usePendentesEPeriodo<CaixaSessaoData>('caixas_pdv', tenantId, {
+    statusPendentes: ['aberto'],
+    campoData: 'fechadoEm',
+    tipoData: 'timestamp',
+    de: fechadosDesde,
+    ate: '',
+    enabled: Boolean(currentUser),
+  });
+  const sessoes = useMemo(
+    () => [...sessoesLidas].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)),
+    [sessoesLidas],
+  );
 
   const caixasAbertos = useMemo(() => sessoes.filter((s) => s.status === 'aberto'), [sessoes]);
 

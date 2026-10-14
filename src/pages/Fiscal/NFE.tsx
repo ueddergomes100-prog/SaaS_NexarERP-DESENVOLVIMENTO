@@ -265,11 +265,14 @@ const paraPedidoVenda = (id: string, dData: DocumentData): PedidoVenda => ({
 /**
  * Pedidos e OS oferecidos para importar e para o lote: os finalizados dos
  * últimos 90 dias (otimização de leituras, 2026-10-14 — antes, TODOS os
- * finalizados da empresa a cada abertura). Pedido mais antigo chega pelo
- * botão "Emitir NF-e" do próprio pedido, lido pelo id.
+ * finalizados da empresa a cada abertura). Conta a data que a pessoa vê:
+ * `dataVenda` do pedido (a mesma da lista de Pedidos de Venda) e `dataSaida`
+ * da OS (gravada ao finalizar). Pedido mais antigo chega pelo botão "Emitir
+ * NF-e" do próprio pedido, lido pelo id.
  */
 const DIAS_PEDIDOS_PARA_NOTA = 90;
-const inicioDosPedidosParaNota = () => dateInputToUtcStart(addDaysToDateInput(getDateInputInTimeZone(), -DIAS_PEDIDOS_PARA_NOTA));
+const primeiroDiaDosPedidosParaNota = () => addDaysToDateInput(getDateInputInTimeZone(), -DIAS_PEDIDOS_PARA_NOTA);
+const inicioDosPedidosParaNota = () => dateInputToUtcStart(primeiroDiaDosPedidosParaNota());
 
 const NFE: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
@@ -533,15 +536,17 @@ const NFE: React.FC = () => {
           where('tenantId', '==', tenantId),
           where('status', '==', 'Finalizada')
         );
-        const inicioPedidos = inicioDosPedidosParaNota();
         const qPedSnap = await lerComReserva(
-          inicioPedidos ? query(finalizados, where('createdAt', '>=', Timestamp.fromDate(inicioPedidos))) : finalizados,
+          query(finalizados, where('dataVenda', '>=', primeiroDiaDosPedidosParaNota())),
           finalizados,
           'Notas fiscais (pedidos para importar)',
         );
         const pedidosList: PedidoVenda[] = [];
+        const primeiroDia = primeiroDiaDosPedidosParaNota();
         qPedSnap.forEach(d => {
           const dData = d.data();
+          // Mesmo corte da consulta enxuta, para a reserva (sem indice) mostrar o mesmo.
+          if (String(dData.dataVenda || '') < primeiroDia) return;
           // Visibilidade de vendas: quem so ve as proprias vendas tambem so
           // pode importar as proprias pra nota -- a lista de pedidos aqui
           // mostra cliente e valor de cada venda.
@@ -563,15 +568,15 @@ const NFE: React.FC = () => {
           where('tenantId', '==', tenantId),
           where('status', '==', 'Finalizada')
         );
-        const inicioOs = inicioDosPedidosParaNota();
         const qOsSnap = await lerComReserva(
-          inicioOs ? query(osFinalizadas, where('createdAt', '>=', Timestamp.fromDate(inicioOs))) : osFinalizadas,
+          query(osFinalizadas, where('dataSaida', '>=', primeiroDiaDosPedidosParaNota())),
           osFinalizadas,
           'Notas fiscais (OS para importar)',
         );
         const osList: OrdemServicoParaImportar[] = [];
         qOsSnap.forEach(d => {
           const dData = d.data();
+          if (String(dData.dataSaida || '') < primeiroDia) return;
           osList.push({
             id: d.id,
             numeroOS: dData.numeroOS || '',

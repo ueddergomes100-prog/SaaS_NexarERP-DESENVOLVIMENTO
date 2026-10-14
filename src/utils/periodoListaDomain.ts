@@ -60,3 +60,33 @@ export const diasDoPeriodoLista = (
       return { de: inicioDoMes, ate: hoje };
   }
 };
+
+/** Período da lista de notas fiscais (tela NF-e). Abre no mês atual. */
+export type PeriodoNotas = 'mes' | 'mesPassado' | '90dias' | 'tudo';
+
+export const PERIODO_NOTAS_PADRAO: PeriodoNotas = 'mes';
+
+export const ROTULO_PERIODO_NOTAS: Record<PeriodoNotas, string> = {
+  mes: 'Este mês',
+  mesPassado: 'Mês passado',
+  '90dias': 'Últimos 90 dias',
+  tudo: 'Todo o período',
+};
+
+/** Dias (inclusive) do período da lista de notas; null = todo o período. */
+export const janelaDoPeriodoNotas = (periodo: PeriodoNotas, hoje: string): DiasDoPeriodo | null => {
+  const inicioDoMes = `${hoje.slice(0, 7)}-01`;
+  switch (periodo) {
+    case 'tudo':
+      return null;
+    case 'mesPassado': {
+      const fimDoMesPassado = addDaysToDateInput(inicioDoMes, -1);
+      return { de: `${fimDoMesPassado.slice(0, 7)}-01`, ate: fimDoMesPassado };
+    }
+    case '90dias':
+      return { de: addDaysToDateInput(hoje, -89), ate: hoje };
+    case 'mes':
+    default:
+      return { de: inicioDoMes, ate: hoje };
+  }
+};

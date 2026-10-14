@@ -7,7 +7,9 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { informacoesComplementaresComMensagem, mensagemDoDocumento } from '../../utils/mensagensPadraoDomain';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
-import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp, limit, Timestamp, documentId, type DocumentData, type QuerySnapshot } from 'firebase/firestore';
+import { assinarComReserva, lerComReserva } from '../../services/consultaComReserva';
+import { janelaDoPeriodoNotas, PERIODO_NOTAS_PADRAO, ROTULO_PERIODO_NOTAS, type PeriodoNotas } from '../../utils/periodoListaDomain';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { spedyService } from '../../services/spedyService';
@@ -44,7 +46,7 @@ import type { PaymentRecord } from '../../utils/financeDomain';
 import { ratearValorPorPesos } from '../../utils/notaAvulsaDomain';
 import EmissaoLoteModal, { type PedidoParaLote, type ResultadoItemLote } from './EmissaoLoteModal';
 import { duplicatasDaNota } from '../../utils/duplicatasNfeDomain';
-import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { intervaloConsultaPendentes } from '../../utils/consultaPendentesDomain';
 
 interface FiscalConfig {
@@ -213,6 +215,62 @@ interface OrdemServicoParaImportar {
   servicos: OsServicoParaFatura[];
 }
 
+/** Documento de `notas_fiscais` -> nota da lista (usado pelas escutas e leituras desta tela). */
+const paraNotaLocal = (id: string, data: DocumentData): LocalInvoice => {
+  let dateStr = '';
+  if (data.data) {
+    const dt = data.data.toDate ? data.data.toDate() : new Date(data.data);
+    dateStr = dt.toLocaleDateString('pt-BR');
+  }
+  return {
+    id,
+    spedyId: data.spedyId || '',
+    number: data.number || null,
+    tipo: data.tipo || 'NFS-e',
+    clienteNome: data.clienteNome || '',
+    valor: data.valor || 0,
+    data: dateStr,
+    status: data.status || 'enqueued',
+    processingMessage: data.processingMessage || null,
+    processingCode: data.processingCode || null,
+    accessKey: data.accessKey || null,
+    pedidoId: data.pedidoId || null,
+    clienteId: data.clienteId || null,
+    emailEnvio: data.emailEnvio || null,
+    tentativaEmissao: data.tentativaEmissao || null,
+    integrationId: data.integrationId || null,
+    cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : [],
+    finalidade: data.finalidade || null,
+    devolucaoId: data.devolucaoId || null,
+    pedidoOrigemId: data.pedidoOrigemId || null,
+    transferenciaId: data.transferenciaId || null,
+    numeroTransferencia: data.numeroTransferencia || null
+  };
+};
+
+/** Pedido finalizado -> opção de importação (só os campos usados). */
+const paraPedidoVenda = (id: string, dData: DocumentData): PedidoVenda => ({
+  id,
+  numeroPedido: dData.numeroPedido || '',
+  clienteId: dData.clienteId || '',
+  clienteNome: dData.clienteNome || '',
+  valorTotal: dData.valorTotal || 0,
+  itens: dData.itens || [],
+  formaPagamento: dData.formaPagamento || '',
+  createdAt: dData.createdAt,
+  descontoGeralCentavos: Number(dData.descontoGeral?.valorAplicadoCentavos || 0),
+  pagamentos: Array.isArray(dData.pagamentos) ? dData.pagamentos : [],
+});
+
+/**
+ * Pedidos e OS oferecidos para importar e para o lote: os finalizados dos
+ * últimos 90 dias (otimização de leituras, 2026-10-14 — antes, TODOS os
+ * finalizados da empresa a cada abertura). Pedido mais antigo chega pelo
+ * botão "Emitir NF-e" do próprio pedido, lido pelo id.
+ */
+const DIAS_PEDIDOS_PARA_NOTA = 90;
+const inicioDosPedidosParaNota = () => dateInputToUtcStart(addDaysToDateInput(getDateInputInTimeZone(), -DIAS_PEDIDOS_PARA_NOTA));
+
 const NFE: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
 
@@ -243,6 +301,9 @@ const NFE: React.FC = () => {
   const [pdfAberto, setPdfAberto] = useState<{ titulo: string; nome: string; blob: Blob } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTab, setSelectedTab] = useState<'Todas' | 'NFC-e' | 'NF-e' | 'NFS-e'>('Todas');
+  // Abre no mes atual (decisao do dono, 14/10); as em transmissao e as
+  // rejeitadas aparecem sempre, de qualquer data.
+  const [periodoNotas, setPeriodoNotas] = useState<PeriodoNotas>(PERIODO_NOTAS_PADRAO);
   const [page, setPage] = useState(1);
   /** Ordem da lista pelo numero da nota (pedido do dono, 2026-09-30: crescente). Clique no titulo inverte. */
   const [ordemNumero, setOrdemNumero] = useState<'asc' | 'desc'>(() => {
@@ -280,17 +341,25 @@ const NFE: React.FC = () => {
   // visivel. Ver src/utils/visibilidadeVendasDomain.ts.
   // Pedidos cancelados: as notas que nao chegaram a valer, ligadas a eles,
   // saem da lista. Ver src/utils/notaFiscalVisibilidadeDomain.ts.
-  const [pedidosCanceladosIds, setPedidosCanceladosIds] = useState<Set<string>>(new Set());
+  //
+  // pedidosVenda traz so' os finalizados dos ultimos 90 dias (otimizacao de
+  // leituras, 2026-10-14). Os pedidos das notas que ficam fora dela (mais
+  // antigos, cancelados) sao lidos pelo id -- so' os que as notas da tela
+  // citam, em vez de todos os cancelados da empresa.
+  const [pedidosForaDaLista, setPedidosForaDaLista] = useState<Map<string, { status: string; visivel: boolean }>>(new Map());
+  const pedidosCanceladosIds = useMemo(() => new Set(
+    Array.from(pedidosForaDaLista.entries()).filter(([, pedido]) => pedido.status === 'Cancelada').map(([id]) => id),
+  ), [pedidosForaDaLista]);
   const [mostrarCanceladas, setMostrarCanceladas] = useState(false);
   const invoices = useMemo(() => {
     const pedidosVisiveis = new Set(pedidosVenda.map((pedido) => pedido.id));
     return allInvoices
       .filter((note) => {
         const pedidoDaNota = note.pedidoId || note.pedidoOrigemId; // devolucao aponta pro pedido da venda original
-        return !vendasVisiveisDeUsuarioId || !pedidoDaNota || pedidosVisiveis.has(pedidoDaNota);
+        return !vendasVisiveisDeUsuarioId || !pedidoDaNota || pedidosVisiveis.has(pedidoDaNota) || Boolean(pedidosForaDaLista.get(pedidoDaNota)?.visivel);
       })
       .filter((note) => notaDeveAparecer(note, pedidosCanceladosIds, mostrarCanceladas));
-  }, [allInvoices, pedidosVenda, vendasVisiveisDeUsuarioId, pedidosCanceladosIds, mostrarCanceladas]);
+  }, [allInvoices, pedidosVenda, vendasVisiveisDeUsuarioId, pedidosForaDaLista, pedidosCanceladosIds, mostrarCanceladas]);
   const [importedPedidoItens, setImportedPedidoItens] = useState<PedidoVendaItem[]>([]);
   const [importedPedidoId, setImportedPedidoId] = useState<string>('');
   /** Pagamentos do pedido importado -- usado so' pra montar as duplicatas (parcelas) da nota
@@ -459,12 +528,17 @@ const NFE: React.FC = () => {
 
         // 3. Busca lista de pedidos de venda finalizados
         const pedidosRef = collection(db, 'pedidos_venda');
-        const qPed = query(
+        const finalizados = query(
           pedidosRef,
           where('tenantId', '==', tenantId),
           where('status', '==', 'Finalizada')
         );
-        const qPedSnap = await getDocs(qPed);
+        const inicioPedidos = inicioDosPedidosParaNota();
+        const qPedSnap = await lerComReserva(
+          inicioPedidos ? query(finalizados, where('createdAt', '>=', Timestamp.fromDate(inicioPedidos))) : finalizados,
+          finalizados,
+          'Notas fiscais (pedidos para importar)',
+        );
         const pedidosList: PedidoVenda[] = [];
         qPedSnap.forEach(d => {
           const dData = d.data();
@@ -472,18 +546,7 @@ const NFE: React.FC = () => {
           // pode importar as proprias pra nota -- a lista de pedidos aqui
           // mostra cliente e valor de cada venda.
           if (vendasVisiveisDeUsuarioId && !isVendaDoUsuario(dData, vendasVisiveisDeUsuarioId)) return;
-          pedidosList.push({
-            id: d.id,
-            numeroPedido: dData.numeroPedido || '',
-            clienteId: dData.clienteId || '',
-            clienteNome: dData.clienteNome || '',
-            valorTotal: dData.valorTotal || 0,
-            itens: dData.itens || [],
-            formaPagamento: dData.formaPagamento || '',
-            createdAt: dData.createdAt,
-            descontoGeralCentavos: Number(dData.descontoGeral?.valorAplicadoCentavos || 0),
-            pagamentos: Array.isArray(dData.pagamentos) ? dData.pagamentos : [],
-          });
+          pedidosList.push(paraPedidoVenda(d.id, dData));
         });
         pedidosList.sort((a, b) => {
           const numA = Number(a.numeroPedido) || 0;
@@ -492,29 +555,20 @@ const NFE: React.FC = () => {
         });
         setPedidosVenda(pedidosList);
 
-        // Pedidos/pre-vendas cancelados: so' os ids, pra esconder as notas
-        // que ficaram penduradas neles. Falha aqui nao derruba a tela -- as
-        // notas apenas continuam aparecendo.
-        try {
-          const cancelados = await getDocs(query(
-            pedidosRef,
-            where('tenantId', '==', tenantId),
-            where('status', '==', 'Cancelada'),
-          ));
-          setPedidosCanceladosIds(new Set(cancelados.docs.map((d) => d.id)));
-        } catch (erroCancelados) {
-          console.error('Erro ao buscar pedidos cancelados (notas ligadas a eles continuam visiveis):', erroCancelados);
-        }
-
         // 4. Busca lista de Ordens de Servico finalizadas, pra importar
         // como NFS-e -- so os campos usados, nunca `pecas`.
         const osRef = collection(db, 'ordens_de_servico');
-        const qOs = query(
+        const osFinalizadas = query(
           osRef,
           where('tenantId', '==', tenantId),
           where('status', '==', 'Finalizada')
         );
-        const qOsSnap = await getDocs(qOs);
+        const inicioOs = inicioDosPedidosParaNota();
+        const qOsSnap = await lerComReserva(
+          inicioOs ? query(osFinalizadas, where('createdAt', '>=', Timestamp.fromDate(inicioOs))) : osFinalizadas,
+          osFinalizadas,
+          'Notas fiscais (OS para importar)',
+        );
         const osList: OrdemServicoParaImportar[] = [];
         qOsSnap.forEach(d => {
           const dData = d.data();
@@ -827,8 +881,17 @@ const NFE: React.FC = () => {
     }
     const descItens = pedido.itens.map((it: PedidoVendaItem) => `${it.quantidade}x ${it.nome}`).join(', ');
 
-    // Procura cupom fiscal (NFC-e) associado a este pedido que esteja autorizado
-    const cupom = invoices.find(inv => inv.pedidoId === pedido.id && inv.tipo === 'NFC-e' && inv.status === 'authorized');
+    // Cupom fiscal (NFC-e) autorizado deste pedido -- conferido no BANCO: a
+    // lista da tela traz so' o periodo escolhido (otimizacao de leituras, 2026-10-14).
+    const cupomSnap = tenantId ? await getDocs(query(
+      collection(db, 'notas_fiscais'),
+      where('tenantId', '==', tenantId),
+      where('pedidoId', '==', pedido.id),
+      where('tipo', '==', 'NFC-e'),
+      where('status', '==', 'authorized'),
+      limit(1),
+    )) : null;
+    const cupom = cupomSnap && !cupomSnap.empty ? paraNotaLocal(cupomSnap.docs[0].id, cupomSnap.docs[0].data()) : undefined;
 
     // UF da empresa vem da cidade resolvida em Configuracoes ->
     // Nota Fiscal (Spedy) (nfseCidadeEstado, mesmo campo usado pra
@@ -888,7 +951,7 @@ const NFE: React.FC = () => {
     };
   };
 
-  const handleSelectPedido = async (pedidoId: string) => {
+  const handleSelectPedido = async (pedidoId: string, pedidoLidoPeloId?: PedidoVenda) => {
     setImportedPedidoId(pedidoId);
     // Mutuamente exclusivo com a importação de OS -- importar um pedido
     // sempre desfaz uma OS importada antes.
@@ -919,7 +982,7 @@ const NFE: React.FC = () => {
       return;
     }
 
-    const pedido = pedidosVenda.find(p => p.id === pedidoId);
+    const pedido = pedidoLidoPeloId || pedidosVenda.find(p => p.id === pedidoId);
     if (!pedido) return;
 
     try {
@@ -977,7 +1040,8 @@ const NFE: React.FC = () => {
     const pedidoDaUrl = searchParams.get('pedido');
     if (!pedidoDaUrl) return;
     if (pedidoImportadoPelaUrlRef.current === pedidoDaUrl) return;
-    if (pedidosVenda.length === 0) return;
+    // Espera a lista de pedidos carregar (pode vir vazia: so' os ultimos 90 dias).
+    if (isConfigLoading) return;
 
     pedidoImportadoPelaUrlRef.current = pedidoDaUrl;
     // Limpa o parametro: recarregar a pagina depois nao pode reimportar o
@@ -994,7 +1058,18 @@ const NFE: React.FC = () => {
           const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', pedidoDaUrl));
           if (pedidoSnap.exists() && pedidoSnap.data().tenantId === tenantId) {
             const motivo = motivoPedidoNaoEmiteNota(pedidoSnap.data().status);
-            if (motivo) mensagem = motivo;
+            if (motivo) {
+              mensagem = motivo;
+            } else if (!vendasVisiveisDeUsuarioId || isVendaDoUsuario(pedidoSnap.data(), vendasVisiveisDeUsuarioId)) {
+              // Finalizado e mais antigo que a lista (90 dias): entra pelo id.
+              const pedidoAntigo = paraPedidoVenda(pedidoSnap.id, pedidoSnap.data());
+              setPedidosVenda((atuais) => (atuais.some((p) => p.id === pedidoAntigo.id) ? atuais : [pedidoAntigo, ...atuais]));
+              setFormData((prev) => ({ ...prev, tipo: 'NF-e' }));
+              setIsModalOpen(true);
+              setActiveModalTab('cliente');
+              void handleSelectPedido(pedidoAntigo.id, pedidoAntigo);
+              return;
+            }
           }
         } catch (erroPedido) {
           console.error('Erro ao conferir o status do pedido para emitir nota:', erroPedido);
@@ -1014,7 +1089,7 @@ const NFE: React.FC = () => {
     // o efeito rodar de novo a toa (o ref ja' protege, mas a intencao aqui
     // e' reagir a URL + lista de pedidos, nada mais).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, pedidosVenda]);
+  }, [searchParams, pedidosVenda, isConfigLoading]);
 
   // Importa uma Ordem de Servico finalizada como NFS-e -- so os
   // `servicos[]` da OS entram na nota, `pecas[]` nunca e lido aqui (se a
@@ -1155,123 +1230,123 @@ const NFE: React.FC = () => {
     setSyncing(false);
   }, [config]);
 
-  // Carrega e sincroniza notas locais
+  // As escutas abaixo mantem a lista ao vivo. Depois de uma acao (e ao abrir
+  // a tela) so' falta consultar a Spedy pelas notas em transmissao -- antes
+  // esta funcao relia TODAS as notas da empresa a cada acao.
+  const invoicesRef = useRef<LocalInvoice[]>([]);
+  useEffect(() => { invoicesRef.current = allInvoices; }, [allInvoices]);
   const loadLocalInvoices = useCallback(async (autoSync = true) => {
-    if (!tenantId) return;
+    if (!autoSync || !config?.spedyEnabled || !config?.spedyApiKey) return;
+    const pending = invoicesRef.current.filter(n => ['enqueued', 'processing', 'created'].includes(n.status));
+    if (pending.length > 0) {
+      syncPendingInvoices(pending);
+    }
+  }, [config, syncPendingInvoices]);
+
+  // Ao abrir a tela: assim que as notas em transmissao chegarem, consulta a Spedy uma vez.
+  const [pendentesCarregadas, setPendentesCarregadas] = useState(false);
+  const sincronizouAoAbrirRef = useRef(false);
+  useEffect(() => {
+    if (sincronizouAoAbrirRef.current || !pendentesCarregadas) return;
+    if (!config?.spedyEnabled || !config?.spedyApiKey) return;
+    sincronizouAoAbrirRef.current = true;
+    void loadLocalInvoices();
+  }, [config, pendentesCarregadas, loadLocalInvoices]);
+
+  // Lista ao vivo (otimizacao de leituras, 2026-10-14). Antes: TODAS as notas
+  // da empresa. Agora tres escutas, juntadas por id:
+  //  - as do PERIODO escolhido (createdAt; padrao: este mes) -- a lista e o total emitido;
+  //  - as em transmissao, de qualquer data -- consulta automatica a Spedy;
+  //  - as rejeitadas/denegadas, de qualquer data -- o reenvio reaproveita a
+  //    mesma nota (nao pula numeracao).
+  // So' atualiza a lista; a consulta a Spedy fica no abrir e nas acoes.
+  const janelaNotas = janelaDoPeriodoNotas(periodoNotas, getDateInputInTimeZone());
+  const notasDe = janelaNotas?.de ?? '';
+  const notasAte = janelaNotas?.ate ?? '';
+  useEffect(() => {
+    if (!tenantId) return undefined;
     setLoading(true);
-    try {
-      const q = query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId));
-      const qSnap = await getDocs(q);
-      const list: LocalInvoice[] = [];
-      qSnap.forEach(d => {
-        const data = d.data();
-        let dateStr = '';
-        if (data.data) {
-          const dt = data.data.toDate ? data.data.toDate() : new Date(data.data);
-          dateStr = dt.toLocaleDateString('pt-BR');
-        }
-        list.push({
-          id: d.id,
-          spedyId: data.spedyId || '',
-          number: data.number || null,
-          tipo: data.tipo || 'NFS-e',
-          clienteNome: data.clienteNome || '',
-          valor: data.valor || 0,
-          data: dateStr,
-          status: data.status || 'enqueued',
-          processingMessage: data.processingMessage || null,
-          processingCode: data.processingCode || null,
-          accessKey: data.accessKey || null,
-          pedidoId: data.pedidoId || null,
-          clienteId: data.clienteId || null,
-          emailEnvio: data.emailEnvio || null,
-          tentativaEmissao: data.tentativaEmissao || null,
-          integrationId: data.integrationId || null,
-          cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : [],
-          finalidade: data.finalidade || null,
-          devolucaoId: data.devolucaoId || null,
-          pedidoOrigemId: data.pedidoOrigemId || null,
-          transferenciaId: data.transferenciaId || null,
-          numeroTransferencia: data.numeroTransferencia || null
-        });
-      });
-
-      // Ordenar localmente por data de criacao decrescente
+    const todas = query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId));
+    const inicio = notasDe ? dateInputToUtcStart(notasDe) : null;
+    const fim = notasAte ? dateInputToUtcEnd(notasAte) : null;
+    const noPeriodo = (data: DocumentData) => {
+      if (!inicio) return true;
+      const criada = data.createdAt?.toDate ? data.createdAt.toDate() as Date : null;
+      return Boolean(criada && criada >= inicio && (!fim || criada <= fim));
+    };
+    const partes = new Map<string, LocalInvoice[]>();
+    const chegaram = new Set<string>();
+    const publicar = () => {
+      const porId = new Map<string, LocalInvoice>();
+      partes.forEach((lista) => lista.forEach((nota) => porId.set(nota.id, nota)));
+      const list = Array.from(porId.values());
       list.sort((a, b) => b.id.localeCompare(a.id));
       setInvoices(list);
+      if (chegaram.size >= 3) setLoading(false);
+    };
+    const receber = (nome: string, filtrar = false) => (qSnap: QuerySnapshot<DocumentData>) => {
+      // A reserva (sem indice) traz tudo: o filtro do periodo segura o mesmo resultado.
+      partes.set(nome, qSnap.docs.filter((d) => !filtrar || noPeriodo(d.data())).map((d) => paraNotaLocal(d.id, d.data())));
+      chegaram.add(nome);
+      publicar();
+      if (nome === 'emTransmissao') setPendentesCarregadas(true);
+    };
+    const falhar = (nome: string) => (err: unknown) => {
+      console.error(`Erro ao observar notas fiscais (${nome}):`, err);
+      chegaram.add(nome);
+      publicar();
+    };
+    const doPeriodo = inicio
+      ? query(todas, where('createdAt', '>=', Timestamp.fromDate(inicio)), ...(fim ? [where('createdAt', '<=', Timestamp.fromDate(fim))] : []))
+      : todas;
+    const parar = [
+      inicio
+        ? assinarComReserva(doPeriodo, todas, 'Notas fiscais (período)', receber('periodo', true), falhar('periodo'))
+        : onSnapshot(todas, receber('periodo'), falhar('periodo')),
+      onSnapshot(query(todas, where('status', 'in', ['enqueued', 'processing', 'created'])), receber('emTransmissao'), falhar('emTransmissao')),
+      onSnapshot(query(todas, where('status', 'in', ['rejected', 'denied'])), receber('rejeitadas'), falhar('rejeitadas')),
+    ];
+    return () => parar.forEach((fn) => fn());
+  }, [tenantId, notasDe, notasAte]);
 
-      // Sincronizar automaticamente notas pendentes
-      if (autoSync && config?.spedyEnabled && config?.spedyApiKey) {
-        const pending = list.filter(n => ['enqueued', 'processing', 'created'].includes(n.status));
-        if (pending.length > 0) {
-          syncPendingInvoices(pending);
-        }
+  // Pedidos das notas da tela que nao estao em pedidosVenda: status (pedido
+  // cancelado esconde a nota que nao chegou a valer) e, para quem so' ve as
+  // proprias vendas, se a venda e' dele. Lidos pelo id, uma vez cada. Falha
+  // aqui nao derruba a tela -- as notas apenas continuam aparecendo.
+  const pedidosConsultadosRef = useRef(new Set<string>());
+  useEffect(() => {
+    pedidosConsultadosRef.current = new Set();
+    setPedidosForaDaLista(new Map());
+  }, [tenantId, vendasVisiveisDeUsuarioId]);
+  useEffect(() => {
+    if (!tenantId || isConfigLoading) return;
+    const naLista = new Set(pedidosVenda.map((pedido) => pedido.id));
+    const faltando = Array.from(new Set(
+      allInvoices.map((nota) => nota.pedidoId || nota.pedidoOrigemId || '').filter(Boolean),
+    )).filter((id) => !naLista.has(id) && !pedidosConsultadosRef.current.has(id));
+    if (faltando.length === 0) return;
+    faltando.forEach((id) => pedidosConsultadosRef.current.add(id));
+    void (async () => {
+      const achados = new Map<string, { status: string; visivel: boolean }>();
+      for (let i = 0; i < faltando.length; i += 30) {
+        const snap = await getDocs(query(
+          collection(db, 'pedidos_venda'),
+          where('tenantId', '==', tenantId),
+          where(documentId(), 'in', faltando.slice(i, i + 30)),
+        ));
+        snap.docs.forEach((d) => achados.set(d.id, {
+          status: String(d.data().status || ''),
+          visivel: !vendasVisiveisDeUsuarioId || isVendaDoUsuario(d.data(), vendasVisiveisDeUsuarioId),
+        }));
       }
-    } catch (err) {
-      console.error("Erro ao buscar notas no Firestore:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [tenantId, config, syncPendingInvoices]);
-
-  useEffect(() => {
-    if (config?.spedyEnabled && config?.spedyApiKey) {
-      const timer = setTimeout(() => {
-        loadLocalInvoices();
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-  }, [config, loadLocalInvoices]);
-
-  // Mantem a lista sincronizada ao vivo -- sem isso, uma nota criada em
-  // outra aba (ex: venda com emissao automatica de NFC-e) so aparecia
-  // aqui depois de fechar e reabrir esta aba. So atualiza a lista, nao
-  // dispara sincronizacao com a Spedy (isso continua so no mount/acoes,
-  // via loadLocalInvoices, pra nao bater na API a cada mudanca alheia).
-  useEffect(() => {
-    if (!tenantId) return;
-    const q = query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId));
-    const unsubscribe = onSnapshot(q, (qSnap) => {
-      const list: LocalInvoice[] = [];
-      qSnap.forEach(d => {
-        const data = d.data();
-        let dateStr = '';
-        if (data.data) {
-          const dt = data.data.toDate ? data.data.toDate() : new Date(data.data);
-          dateStr = dt.toLocaleDateString('pt-BR');
-        }
-        list.push({
-          id: d.id,
-          spedyId: data.spedyId || '',
-          number: data.number || null,
-          tipo: data.tipo || 'NFS-e',
-          clienteNome: data.clienteNome || '',
-          valor: data.valor || 0,
-          data: dateStr,
-          status: data.status || 'enqueued',
-          processingMessage: data.processingMessage || null,
-          processingCode: data.processingCode || null,
-          accessKey: data.accessKey || null,
-          pedidoId: data.pedidoId || null,
-          clienteId: data.clienteId || null,
-          emailEnvio: data.emailEnvio || null,
-          tentativaEmissao: data.tentativaEmissao || null,
-          integrationId: data.integrationId || null,
-          cartasCorrecao: Array.isArray(data.cartasCorrecao) ? data.cartasCorrecao as CartaEnviada[] : [],
-          finalidade: data.finalidade || null,
-          devolucaoId: data.devolucaoId || null,
-          pedidoOrigemId: data.pedidoOrigemId || null,
-          transferenciaId: data.transferenciaId || null,
-          numeroTransferencia: data.numeroTransferencia || null
-        });
+      if (achados.size === 0) return;
+      setPedidosForaDaLista((atual) => {
+        const novo = new Map(atual);
+        achados.forEach((pedido, id) => novo.set(id, pedido));
+        return novo;
       });
-      list.sort((a, b) => b.id.localeCompare(a.id));
-      setInvoices(list);
-    }, (err) => {
-      console.error('Erro ao observar notas fiscais em tempo real:', err);
-    });
-    return () => unsubscribe();
-  }, [tenantId]);
+    })().catch((erro) => console.error('Erro ao ler os pedidos das notas (notas ligadas a pedidos cancelados continuam visiveis):', erro));
+  }, [tenantId, isConfigLoading, allInvoices, pedidosVenda, vendasVisiveisDeUsuarioId]);
 
   // Consulta a Spedy sozinho enquanto existir nota "processando" -- antes
   // disso, o unico jeito de saber que uma nota saiu de processamento pra
@@ -1509,8 +1584,12 @@ const NFE: React.FC = () => {
     if (!note.pedidoId || !tenantId) return;
     try {
       const snap = await getDocs(query(collection(db, 'devolucoes_venda'), where('tenantId', '==', tenantId), where('pedidoVendaId', '==', note.pedidoId)));
+      // Notas de devolucao deste pedido, conferidas no BANCO: a lista da tela
+      // traz so' o periodo escolhido e a devolucao pode ser de outro mes.
+      const notasDevolucao = await getDocs(query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId), where('pedidoOrigemId', '==', note.pedidoId)));
       const comNotaValendo = new Set(
-        allInvoices
+        notasDevolucao.docs
+          .map((d) => paraNotaLocal(d.id, d.data()))
           .filter((n) => n.finalidade === 'devolucao' && !['rejected', 'denied', 'canceled'].includes(n.status))
           .map((n) => n.devolucaoId),
       );
@@ -2247,11 +2326,27 @@ const NFE: React.FC = () => {
   );
 
   /** Pedidos finalizados que ainda nao tem nota (NF-e ou cupom) autorizada ou na fila. */
+  // Lote: os pedidos sao dos ultimos 90 dias, entao as notas deles tambem --
+  // lidas ao abrir o lote (a lista da tela traz so' o periodo escolhido). A
+  // emissao continua conferindo no banco se o pedido ja' tem NF-e.
+  const [notasDoLote, setNotasDoLote] = useState<LocalInvoice[]>([]);
+  useEffect(() => {
+    if (!loteAberto || !tenantId) return undefined;
+    let cancelado = false;
+    const todas = query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId));
+    const inicio = inicioDosPedidosParaNota();
+    void lerComReserva(inicio ? query(todas, where('createdAt', '>=', Timestamp.fromDate(inicio))) : todas, todas, 'Notas fiscais (lote)')
+      .then((snap) => { if (!cancelado) setNotasDoLote(snap.docs.map((d) => paraNotaLocal(d.id, d.data()))); })
+      .catch((erro) => console.error('Erro ao ler as notas para o lote:', erro));
+    return () => { cancelado = true; };
+  }, [loteAberto, tenantId]);
+
   const pedidosParaLote = useMemo<PedidoParaLote[]>(() => {
-    const ativos = new Set(allInvoices
+    const notasConhecidas = [...notasDoLote, ...allInvoices];
+    const ativos = new Set(notasConhecidas
       .filter((n) => n.pedidoId && n.finalidade !== 'devolucao' && ['authorized', 'enqueued', 'processing', 'created'].includes(n.status))
       .map((n) => n.pedidoId as string));
-    const rejeitadas = new Set(allInvoices
+    const rejeitadas = new Set(notasConhecidas
       .filter((n) => n.pedidoId && n.tipo === 'NF-e' && (n.status === 'rejected' || n.status === 'denied'))
       .map((n) => n.pedidoId as string));
     const dataDe = (v: unknown): string => {
@@ -2271,7 +2366,7 @@ const NFE: React.FC = () => {
         data: dataDe(p.createdAt),
         temRejeitada: rejeitadas.has(p.id),
       }));
-  }, [allInvoices, pedidosVenda, codigoClientePorId]);
+  }, [allInvoices, notasDoLote, pedidosVenda, codigoClientePorId]);
 
   /** Status da Spedy -> linha do lote; null = ainda sem resposta da SEFAZ. */
   const resultadoDoStatusLote = (nota: SpedyInvoice): ResultadoItemLote | null => {
@@ -2772,6 +2867,20 @@ const NFE: React.FC = () => {
               </button>
             ))}
           </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Período
+            <select
+              value={periodoNotas}
+              onChange={(e) => { setPeriodoNotas(e.target.value as PeriodoNotas); setPage(1); }}
+              title="Notas em transmissão e rejeitadas aparecem sempre, de qualquer data"
+              style={{ padding: '6px 10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: '13px' }}
+            >
+              {(Object.keys(ROTULO_PERIODO_NOTAS) as PeriodoNotas[]).map((chave) => (
+                <option key={chave} value={chave}>{ROTULO_PERIODO_NOTAS[chave]}</option>
+              ))}
+            </select>
+          </label>
 
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-muted)', cursor: 'pointer' }}>
             <input

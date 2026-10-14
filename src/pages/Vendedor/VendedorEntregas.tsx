@@ -111,8 +111,8 @@ const VendedorEntregas: React.FC = () => {
               type="button"
               onClick={() => navigate(`/vendedor/entregas/${rota.id}`, comOrigem('/vendedor/entregas'))}
               style={{
-                display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: '14px',
-                backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', textAlign: 'left', cursor: 'pointer', width: '100%',
+                display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: 'var(--app-raio-linha)',
+                backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', textAlign: 'left', cursor: 'pointer', width: '100%',
               }}
             >
               <div style={{ width: '42px', height: '42px', borderRadius: '12px', backgroundColor: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>

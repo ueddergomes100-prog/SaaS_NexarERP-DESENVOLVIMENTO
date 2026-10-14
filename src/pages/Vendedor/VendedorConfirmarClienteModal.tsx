@@ -87,7 +87,7 @@ const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps
         aria-labelledby="confirmar-cliente-titulo"
         onClick={(evento) => evento.stopPropagation()}
         style={{
-          width: '100%', maxWidth: '480px', maxHeight: '88vh', overflowY: 'auto', backgroundColor: 'var(--bg-elevated)',
+          width: '100%', maxWidth: '480px', maxHeight: '88vh', overflowY: 'auto', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)',
           borderTopLeftRadius: '22px', borderTopRightRadius: '22px', border: '1px solid var(--border-color)',
           padding: '22px 20px calc(20px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: '16px',
         }}

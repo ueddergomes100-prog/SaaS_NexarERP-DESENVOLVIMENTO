@@ -136,7 +136,7 @@ const VendedorNovaTroca: React.FC = () => {
         </div>
 
         {clienteSelecionado ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{clienteComCodigo(clienteSelecionado)}</div>
             </div>
@@ -176,8 +176,8 @@ const VendedorNovaTroca: React.FC = () => {
             maxLength={OBSERVACAO_PEDIDO_MAX}
             rows={3}
             style={{
-              width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border-color)', fontSize: '16px',
-              backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'none',
+              width: '100%', padding: '12px 14px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)', fontSize: '16px',
+              backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'none',
             }}
           />
           <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', textAlign: 'right' }}>{observacao.length}/{OBSERVACAO_PEDIDO_MAX}</div>

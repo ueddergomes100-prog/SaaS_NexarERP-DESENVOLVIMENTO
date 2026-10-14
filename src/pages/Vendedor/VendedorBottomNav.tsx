@@ -22,6 +22,11 @@ const ITENS: ItemDaBarra[] = [
   { path: '/vendedor/perfil', label: 'Perfil', Icon: UserCircle, match: (p: string) => p.startsWith('/vendedor/perfil') },
 ];
 
+/*
+ * Barra de baixo (vendedorVisual.css, .app-nav). A cor da barra vai ate' a borda
+ * real do celular: a margem da barra de gestos (env safe-area-inset-bottom) mora
+ * no padding dela, nao no shell -- senao sobrava uma faixa de outra cor embaixo.
+ */
 const VendedorBottomNav: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -30,35 +35,23 @@ const VendedorBottomNav: React.FC = () => {
   const itens = ITENS.filter((item) => item.so !== 'os' || podeOs);
 
   return (
-    <div
-      style={{
-        minHeight: '72px', flexShrink: 0, borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-around',
-        // A cor da navbar precisa ir ate a borda real do celular -- se a
-        // margem da barra de gestos ficasse no shell (fundo primario), em
-        // vez de aqui, sobrava uma faixa de outra cor embaixo da barra.
-        paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
-      }}
-    >
+    <nav className="app-nav">
       {itens.map(({ path, label, Icon, match }) => {
         const ativo = match(location.pathname);
         return (
           <button
             key={path}
             type="button"
+            className="app-nav__item"
             aria-current={ativo ? 'page' : undefined}
             onClick={() => navigate(path)}
-            style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', background: 'none', border: 'none',
-              cursor: 'pointer', color: ativo ? 'var(--brand-400)' : 'var(--text-muted)',
-            }}
           >
-            <Icon size={22} />
-            <span style={{ fontSize: '10.5px', fontWeight: ativo ? 700 : 600 }}>{label}</span>
+            <span className="app-nav__pilula"><Icon size={21} strokeWidth={ativo ? 2.3 : 2} /></span>
+            <span>{label}</span>
           </button>
         );
       })}
-    </div>
+    </nav>
   );
 };
 

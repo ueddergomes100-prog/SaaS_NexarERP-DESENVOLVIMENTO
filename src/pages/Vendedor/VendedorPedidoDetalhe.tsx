@@ -55,7 +55,7 @@ const ROTULO_CONFERENCIA: Record<string, string> = {
 const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 const cardStyle: React.CSSProperties = {
-  padding: '14px 16px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+  padding: '14px 16px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)',
 };
 
 const tituloSecao: React.CSSProperties = {

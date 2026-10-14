@@ -216,7 +216,7 @@ const VendedorNovoCliente: React.FC = () => {
                 onClick={() => void buscarCnpj()}
                 disabled={buscandoCnpj}
                 aria-label="Buscar dados do CNPJ na Receita Federal"
-                style={{ width: '48px', height: '48px', borderRadius: '14px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-elevated)', color: 'var(--brand-400)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
+                style={{ width: '48px', height: '48px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--brand-400)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
               >
                 {buscandoCnpj ? <Loader2 size={18} className="spin-icon" /> : <Search size={18} />}
               </button>

@@ -30,9 +30,18 @@ export const DESCRICAO_TEMA: Record<PreferenciaTema, string> = {
   auto: 'Segue o tema do aparelho e troca sozinho.',
 };
 
-/** O que esta' guardado pode ser lixo (versao antiga, edicao a mao): cai no escuro. */
-export const lerPreferenciaTema = (valor: unknown): PreferenciaTema => (
-  valor === 'light' || valor === 'auto' ? valor : 'dark'
+/** O que esta' guardado pode ser lixo (versao antiga, edicao a mao): cai no padrao de quem le. */
+export const lerPreferenciaTema = (valor: unknown, padrao: PreferenciaTema = 'dark'): PreferenciaTema => (
+  valor === 'light' || valor === 'auto' || valor === 'dark' ? valor : padrao
+);
+
+/**
+ * Padrao de cada lugar quando a pessoa nunca escolheu (nada guardado): o sistema
+ * desktop abre escuro; o app Vendas (/vendedor) abre CLARO desde 14/10/2026, com o
+ * design novo do app. Quem ja escolheu um tema continua nele.
+ */
+export const preferenciaPadraoDoCaminho = (caminho: string): PreferenciaTema => (
+  /^\/vendedor/.test(caminho) ? 'light' : 'dark'
 );
 
 /** Qual tema vale na tela agora. */

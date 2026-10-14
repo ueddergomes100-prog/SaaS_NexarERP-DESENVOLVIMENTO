@@ -30,8 +30,8 @@ import './vendedorMobile.css';
  */
 
 const passoStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px', borderRadius: '14px',
-  backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+  display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px', borderRadius: 'var(--app-raio-linha)',
+  backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)',
 };
 
 const VendedorInstalar: React.FC = () => {
@@ -88,8 +88,8 @@ const VendedorInstalar: React.FC = () => {
         type="button"
         onClick={() => navigate('/vendedor')}
         style={{
-          marginTop: 'auto', height: '52px', borderRadius: '14px', border: '1px solid var(--border-color)',
-          backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: '15.5px', fontWeight: 700,
+          marginTop: 'auto', height: '52px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)',
+          backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-primary)', fontSize: '15.5px', fontWeight: 700,
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer',
         }}
       >

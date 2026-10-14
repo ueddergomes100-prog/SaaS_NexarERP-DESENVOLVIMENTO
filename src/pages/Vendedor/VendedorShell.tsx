@@ -23,6 +23,7 @@ import VendedorOsAtender from './VendedorOsAtender';
 import VendedorFaixaOffline from './VendedorFaixaOffline';
 import VendedorOsImprimir from './VendedorOsImprimir';
 import './vendedorMobile.css';
+import './vendedorVisual.css';
 import { PERMISSAO_BALANCO } from './vendedorPermissoes';
 import VendedorNovoCliente from './VendedorNovoCliente';
 import VendedorNovaTroca from './VendedorNovaTroca';

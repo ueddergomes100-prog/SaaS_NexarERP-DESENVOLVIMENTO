@@ -75,7 +75,7 @@ const VendedorConsultarPreco: React.FC = () => {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px' }}>
         {selecionado ? (
-          <div style={{ borderRadius: '18px', padding: '24px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ borderRadius: '18px', padding: '24px', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>{selecionado.nome}</div>
             {selecionado.codigo && (
               <div style={{ fontSize: '13.5px', color: 'var(--text-muted)' }}>Código {selecionado.codigo}</div>
@@ -121,7 +121,7 @@ const VendedorConsultarPreco: React.FC = () => {
             {maisVendidos.map((produto) => (
               <div
                 key={produto.id}
-                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)' }}
               >
                 <button
                   type="button"

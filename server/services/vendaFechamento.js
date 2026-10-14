@@ -193,8 +193,23 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     .reduce((soma, p) => soma + p.valorCentavos, 0);
   let idsDosCreditos = [];
   if (creditoUsadoCentavos > 0) {
-    if (!pedido.clienteId) throw new ErroVenda(400, 'Crédito de devolução só pode ser usado com o cliente cadastrado escolhido.');
-    const snap = await db.collection('creditos_cliente').where('tenantId', '==', tenantId).where('clienteId', '==', pedido.clienteId).get();
+    // O credito e' gravado pelo NOME do cliente (DevolucaoVendaModal nao grava
+    // clienteId), e e' por ele que o Pedido de Venda e o Contas a Receber o
+    // procuram. Procurar por clienteId nunca achava nada: venda com credito era
+    // recusada. O nome vem do CADASTRO do cliente da venda, nao do que a tela
+    // mandou -- senao daria para gastar o credito de outro cliente trocando o nome.
+    const semCliente = 'Crédito de devolução só pode ser usado com o cliente cadastrado escolhido.';
+    if (!pedido.clienteId) throw new ErroVenda(400, semCliente);
+    const clienteSnap = await db.collection('clientes').doc(pedido.clienteId).get();
+    const nomeDoCadastro = clienteSnap.exists && clienteSnap.data().tenantId === tenantId
+      ? String(clienteSnap.data().nome || '').trim().toUpperCase()
+      : '';
+    if (!nomeDoCadastro) throw new ErroVenda(400, semCliente);
+    const snap = await db.collection('creditos_cliente')
+      .where('tenantId', '==', tenantId)
+      .where('clienteNome', '==', nomeDoCadastro)
+      .where('status', 'in', ['disponivel', 'usado_parcial'])
+      .get();
     idsDosCreditos = snap.docs.map((d) => d.id);
   }
 

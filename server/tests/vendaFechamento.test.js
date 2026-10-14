@@ -187,3 +187,31 @@ test('vendedor de outra empresa nao fecha venda aqui', async () => {
     /não pertence à empresa ativa/,
   );
 });
+
+test('credito de devolucao: acha o credito pelo nome do CADASTRO do cliente e baixa o saldo', async () => {
+  // O credito e' gravado pela devolucao so' com clienteNome (sem clienteId).
+  const creditos = {
+    'creditos_cliente/devolucao_d1': { tenantId: 'loja', clienteNome: 'MARIA', status: 'disponivel', saldoDisponivel: 15, valorOriginal: 15 },
+    'creditos_cliente/devolucao_d2': { tenantId: 'loja', clienteNome: 'JOAO', status: 'disponivel', saldoDisponivel: 50, valorOriginal: 50 },
+    'creditos_cliente/devolucao_d3': { tenantId: 'loja', clienteNome: 'MARIA', status: 'esgotado', saldoDisponivel: 0, valorOriginal: 30 },
+  };
+  const fake = criarBancoFalso(base(creditos), { consultas: true });
+  const pagamentos = [pagamento({ forma: 'Crédito de Devolução', valor: '10' }), pagamento({ id: 'pg2', valor: '10' })];
+  await carregar(fake.db).finalizarVenda({ user: VENDEDOR, tenantId: 'loja', corpo: corpo({ pagamentos }) });
+  const usado = fake.ler('creditos_cliente/devolucao_d1');
+  assert.equal(usado.saldoDisponivelCentavos, 500, 'R$ 15,00 - R$ 10,00');
+  assert.equal(usado.status, 'usado_parcial');
+  assert.equal(fake.ler('creditos_cliente/devolucao_d2').saldoDisponivel, 50, 'credito de outro cliente fica intacto');
+});
+
+test('credito de devolucao: trocar o nome na tela nao gasta o credito de outro cliente', async () => {
+  const fake = criarBancoFalso(base({
+    'creditos_cliente/devolucao_d2': { tenantId: 'loja', clienteNome: 'JOAO', status: 'disponivel', saldoDisponivel: 50, valorOriginal: 50 },
+  }), { consultas: true });
+  const pagamentos = [pagamento({ forma: 'Crédito de Devolução', valor: '20' })];
+  await assert.rejects(
+    () => carregar(fake.db).finalizarVenda({ user: VENDEDOR, tenantId: 'loja', corpo: corpo({ clienteNome: 'JOAO', pagamentos }) }),
+    (erro) => erro.status === 409,
+  );
+  assert.equal(fake.ler('creditos_cliente/devolucao_d2').saldoDisponivel, 50);
+});

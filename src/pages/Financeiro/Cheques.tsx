@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, where } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import React, { useMemo, useState } from 'react';
+import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
 import { compensarChequeRecebido, compensarChequeEmitido } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
@@ -68,8 +67,6 @@ interface Banco extends TenantCollectionItem {
 const DIAS_AVISO_VENCIMENTO = 3;
 
 const Cheques: React.FC = () => {
-  const [transacoes, setTransacoes] = useState<TransacaoData[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [situacaoCheque, setSituacaoCheque] = useState<SituacaoTitulo>(SITUACAO_TITULO_PADRAO);
@@ -83,27 +80,25 @@ const Cheques: React.FC = () => {
   const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
   const bancosAtivos = bancos.filter((b) => b.ativo);
 
-  useEffect(() => {
-    if (!currentUser) return;
-    const q = query(
-      collection(db, 'transacoes'),
-      where('tenantId', '==', tenantId),
-      where('formaPagamento', '==', 'Cheque'),
-    );
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const data: TransacaoData[] = [];
-      querySnapshot.forEach((docSnap) => {
-        data.push({ id: docSnap.id, ...docSnap.data() } as TransacaoData);
-      });
-      data.sort((a, b) => (a.dataPrevistaRecebimento || a.data || '').localeCompare(b.dataPrevistaRecebimento || b.data || ''));
-      setTransacoes(data);
-      setLoading(false);
-    }, (error) => {
-      console.error('Erro ao buscar cheques:', error);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [currentUser, tenantId]);
+  // Leitura enxuta (otimizacao de leituras, 2026-10-14): cheques a compensar
+  // de qualquer data (soma o total e o aviso de vencimento) + o historico de
+  // compensados so' quando a lista mostra compensados, pelo periodo do filtro
+  // ou, vazio, o mes atual. Antes: todos os cheques da empresa desde sempre.
+  const listaTemCompensados = situacaoCheque === 'pagas' || situacaoCheque === 'todas';
+  const hojeLeitura = getDateInputInTimeZone();
+  const historicoDeCompensados: HistoricoDePagas = !listaTemCompensados
+    ? null
+    : (periodoDe || periodoAte ? { de: periodoDe, ate: periodoAte } : { de: `${hojeLeitura.slice(0, 7)}-01`, ate: hojeLeitura });
+  const { titulos: titulosLidos, carregando: loading } = useTitulosFinanceiros<TransacaoData>({
+    tenantId,
+    formaPagamento: 'Cheque',
+    historico: historicoDeCompensados,
+    pagasHoje: false,
+  });
+  const transacoes = useMemo(
+    () => [...titulosLidos].sort((a, b) => (a.dataPrevistaRecebimento || a.data || '').localeCompare(b.dataPrevistaRecebimento || b.data || '')),
+    [titulosLidos],
+  );
 
   const confirmarCompensacao = async (t: TransacaoData) => {
     if (!tenantId || !currentUser || processingId) return;

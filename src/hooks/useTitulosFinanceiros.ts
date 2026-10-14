@@ -40,6 +40,8 @@ export const useTitulosFinanceiros = <T extends TituloLido>(args: {
   tenantId: string | null;
   /** Sem tipo = entradas e saídas. */
   tipo?: 'entrada' | 'saida';
+  /** Só desta forma de pagamento, em todas as consultas (ex.: 'Cheque'). */
+  formaPagamento?: string;
   historico: HistoricoDePagas;
   /** Em aberto de qualquer data (padrão: sim). */
   abertas?: boolean;
@@ -48,7 +50,7 @@ export const useTitulosFinanceiros = <T extends TituloLido>(args: {
   /** Pagas hoje (padrão: sim). */
   pagasHoje?: boolean;
 }): { titulos: T[]; carregando: boolean } => {
-  const { tenantId, tipo, historico, abertas = true, pagasHoje = true, formasDasAbertas } = args;
+  const { tenantId, tipo, formaPagamento, historico, abertas = true, pagasHoje = true, formasDasAbertas } = args;
   const chaveFormas = (formasDasAbertas || []).join('|');
   const [titulos, setTitulos] = useState<T[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -65,10 +67,13 @@ export const useTitulosFinanceiros = <T extends TituloLido>(args: {
     setCarregando(true);
     const hoje = getDateInputInTimeZone();
     const base = collection(db, 'transacoes');
-    const doTipo = tipo
-      ? query(base, where('tenantId', '==', tenantId), where('tipo', '==', tipo))
-      : query(base, where('tenantId', '==', tenantId));
-    const rotulo = tipo || 'entrada e saída';
+    const doTipo = query(
+      base,
+      where('tenantId', '==', tenantId),
+      ...(formaPagamento ? [where('formaPagamento', '==', formaPagamento)] : []),
+      ...(tipo ? [where('tipo', '==', tipo)] : []),
+    );
+    const rotulo = [formaPagamento, tipo || 'entrada e saída'].filter(Boolean).join(', ');
     const partes = new Map<string, T[]>();
     const esperadas = new Set<string>();
     const chegaram = new Set<string>();
@@ -126,7 +131,7 @@ export const useTitulosFinanceiros = <T extends TituloLido>(args: {
     }
 
     return () => parar.forEach((fn) => fn());
-  }, [tenantId, tipo, chaveHistorico, abertas, pagasHoje, chaveFormas]);
+  }, [tenantId, tipo, formaPagamento, chaveHistorico, abertas, pagasHoje, chaveFormas]);
 
   return { titulos, carregando };
 };

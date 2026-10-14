@@ -4,33 +4,30 @@ import { useNavigate } from 'react-router-dom';
 
 interface Props {
   titulo: string;
+  /** Linha menor embaixo do titulo (ex.: "Pre-venda #0154 · Boa Safra"). */
+  subtitulo?: string;
   aoVoltar?: () => void;
   acao?: React.ReactNode;
 }
 
-const VendedorHeader: React.FC<Props> = ({ titulo, aoVoltar, acao }) => {
+/** Cabecalho das telas internas do app: degrade violeta (vendedorVisual.css, .app-topo). */
+const VendedorHeader: React.FC<Props> = ({ titulo, subtitulo, aoVoltar, acao }) => {
   const navigate = useNavigate();
   return (
-    <div
-      style={{
-        padding: '18px 20px', display: 'flex', alignItems: 'center', gap: '14px',
-        borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)', flexShrink: 0,
-      }}
-    >
+    <div className="app-topo">
       <button
         type="button"
+        className="app-topo__voltar"
         onClick={aoVoltar || (() => navigate(-1))}
         aria-label="Voltar"
-        style={{
-          width: '38px', height: '38px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)',
-          border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'var(--text-primary)', cursor: 'pointer', flexShrink: 0,
-        }}
       >
-        <ChevronLeft size={19} />
+        <ChevronLeft size={20} />
       </button>
-      <div style={{ flex: 1, fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)' }}>{titulo}</div>
-      {acao}
+      <div className="app-topo__textos">
+        <div className="app-topo__titulo">{titulo}</div>
+        {subtitulo && <div className="app-topo__sub">{subtitulo}</div>}
+      </div>
+      {acao && <div className="app-topo__acao">{acao}</div>}
     </div>
   );
 };

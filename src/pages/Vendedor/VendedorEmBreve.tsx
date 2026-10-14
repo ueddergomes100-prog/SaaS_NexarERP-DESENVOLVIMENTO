@@ -22,7 +22,7 @@ const VendedorEmBreve: React.FC<Props> = ({ titulo, descricao, Icon = Hourglass 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', padding: '32px', textAlign: 'center' }}>
         <div
           style={{
-            width: '64px', height: '64px', borderRadius: '18px', backgroundColor: 'var(--bg-elevated)',
+            width: '64px', height: '64px', borderRadius: '18px', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)',
             border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
         >

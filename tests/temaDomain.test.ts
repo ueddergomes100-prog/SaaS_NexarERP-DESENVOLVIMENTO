@@ -5,6 +5,7 @@ import {
   PREFERENCIAS_TEMA,
   ROTULO_TEMA,
   lerPreferenciaTema,
+  preferenciaPadraoDoCaminho,
   proximaPreferenciaTema,
   temaEfetivo,
   tituloDoBotaoDeTema,
@@ -17,6 +18,18 @@ test('a chave guardada e a mesma de sempre (quem ja escolheu claro continua no c
   assert.equal(lerPreferenciaTema('dark'), 'dark');
   assert.equal(lerPreferenciaTema(null), 'dark');
   assert.equal(lerPreferenciaTema('xpto'), 'dark');
+});
+
+test('app Vendas abre claro quando ninguem escolheu; quem escolheu continua no que escolheu', () => {
+  assert.equal(preferenciaPadraoDoCaminho('/vendedor'), 'light');
+  assert.equal(preferenciaPadraoDoCaminho('/vendedor/pedido/novo'), 'light');
+  assert.equal(preferenciaPadraoDoCaminho('/vendedor.html'), 'light');
+  assert.equal(preferenciaPadraoDoCaminho('/dashboard'), 'dark');
+  assert.equal(preferenciaPadraoDoCaminho('/'), 'dark');
+  assert.equal(lerPreferenciaTema(null, 'light'), 'light');
+  assert.equal(lerPreferenciaTema('xpto', 'light'), 'light');
+  assert.equal(lerPreferenciaTema('dark', 'light'), 'dark');
+  assert.equal(lerPreferenciaTema('auto', 'light'), 'auto');
 });
 
 test('automatico segue o aparelho; os outros ignoram o aparelho', () => {

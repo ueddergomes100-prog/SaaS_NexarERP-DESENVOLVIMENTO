@@ -1,0 +1,280 @@
+/*
+ * VISUAL DO APP VENDAS (14/10/2026) -- o mesmo desenho do video de divulgacao
+ * do Hennder: cabecalho em degrade violeta, cartoes brancos flutuando com sombra
+ * suave, atalhos com icone em circulo lilas, barra de baixo com o item ativo em
+ * "pilula". Vale para o app inteiro (vendedor, tecnico e motorista).
+ *
+ * Tudo aqui mora DENTRO de .vendedor-app: as variaveis de cor do sistema
+ * (--bg-*, --text-*, --border-*) sao redefinidas so' nesse escopo, entao as
+ * telas do app -- que ja' usam essas variaveis nos estilos inline -- trocam de
+ * cara sem que o sistema desktop mude nada.
+ *
+ * O app abre no tema CLARO quando a pessoa nunca escolheu (utils/temaDomain.ts);
+ * o escuro continua no Perfil, com o mesmo desenho.
+ */
+
+/* ---------- tokens: escuro (o .vendedor-app sem body.light-theme) ---------- */
+.vendedor-app {
+  --app-degrade: linear-gradient(135deg, #2b1057 0%, #4c1d95 55%, #7c3aed 100%);
+  --app-degrade-faixa: linear-gradient(90deg, #2b1057 0%, #4c1d95 55%, #7c3aed 100%);
+  --app-degrade-botao: linear-gradient(135deg, #7c3aed 0%, #6921df 100%);
+  --app-raio: 22px;
+  --app-raio-linha: 18px;
+  --app-sombra: 0 16px 34px -20px rgba(4, 1, 10, 0.85), 0 2px 8px -2px rgba(4, 1, 10, 0.45);
+  --app-sombra-botao: 0 16px 30px -14px rgba(124, 58, 237, 0.75);
+  --app-icone-fundo: rgba(124, 58, 237, 0.22);
+  --app-icone-cor: #c4b5fd;
+  --app-ambar-fundo: rgba(245, 158, 11, 0.16);
+  --app-ambar-borda: rgba(245, 158, 11, 0.45);
+  --app-ambar-cor: #fbbf24;
+  font-family: 'Inter', sans-serif;
+}
+
+/* ---------- tokens: claro (o padrao do app) ---------- */
+body.light-theme .vendedor-app {
+  --bg-primary: #f7f5fb;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1edf7;
+  --bg-elevated: #ffffff;
+  --bg-soft: #faf8fd;
+  --text-primary: #241c33;
+  --text-secondary: #4a4260;
+  --text-muted: #6e6680;
+  --border-color: #ebe5f2;
+  --border-strong: #d9d0e8;
+  /* icones e textos "da marca" nas telas usam --brand-400, que no fundo branco
+     ficava claro demais (2.7:1): aqui dentro ele vira a violeta da logo. */
+  --brand-400: #7c3aed;
+  --app-sombra: 0 18px 36px -24px rgba(43, 16, 87, 0.34), 0 4px 12px -8px rgba(43, 16, 87, 0.14);
+  --app-sombra-botao: 0 16px 28px -14px rgba(124, 58, 237, 0.65);
+  --app-icone-fundo: #efe8fc;
+  --app-icone-cor: #7c3aed;
+  --app-ambar-fundo: #fef6e7;
+  --app-ambar-borda: #f8d48a;
+  --app-ambar-cor: #b45309;
+}
+
+/* A faixa do relogio/notch (safe-area do topo) com a mesma cor do cabecalho. */
+.vendedor-app.vendedor-safe-area {
+  background-image: var(--app-degrade-faixa);
+  background-size: 100% env(safe-area-inset-top);
+  background-repeat: no-repeat;
+}
+
+/* ---------- cabecalho das telas internas (VendedorHeader) ---------- */
+.app-topo {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px 20px;
+  background: var(--app-degrade);
+  color: #fff;
+}
+.app-topo__voltar {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.app-topo__textos { flex: 1; min-width: 0; }
+.app-topo__titulo {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-topo__sub {
+  margin-top: 3px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.78);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-topo__acao { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+/* Botoes que as telas poem no canto do cabecalho: vidro branco sobre o violeta. */
+.app-topo__acao button {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border: 1px solid rgba(255, 255, 255, 0.28) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+.app-topo__acao button svg { color: #fff; stroke: currentColor; }
+
+/* ---------- tela inicial ---------- */
+.app-heroi {
+  position: relative;
+  padding: 18px 22px 74px;
+  background: var(--app-degrade);
+  color: #fff;
+  overflow: hidden;
+}
+/* brilho suave no canto, como no video */
+.app-heroi::before {
+  content: '';
+  position: absolute;
+  right: -90px;
+  top: -110px;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(196, 167, 252, 0.45), rgba(196, 167, 252, 0) 68%);
+  pointer-events: none;
+}
+.app-heroi__linha { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.app-heroi__marca { display: block; height: 24px; width: auto; filter: brightness(0) invert(1); }
+.app-heroi__ola { position: relative; margin-top: 24px; font-size: 28px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+.app-heroi__sub { position: relative; margin-top: 6px; font-size: 14px; font-weight: 500; color: rgba(255, 255, 255, 0.8); }
+.app-vidro {
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.app-inicio__corpo { position: relative; margin-top: -52px; padding: 0 18px 26px; display: flex; flex-direction: column; gap: 22px; }
+
+/* ---------- pecas comuns ---------- */
+.app-cartao {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--app-raio);
+  box-shadow: var(--app-sombra);
+}
+.app-secao {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding-left: 4px;
+}
+.app-icone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--app-icone-fundo);
+  color: var(--app-icone-cor);
+}
+
+/* Atalho da tela inicial (o "tile" do video): icone em circulo em cima, nome embaixo. */
+.app-atalho {
+  min-height: 128px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  text-align: left;
+  cursor: pointer;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  box-shadow: var(--app-sombra);
+  color: var(--text-primary);
+  transition: transform 0.12s ease;
+}
+.app-atalho:active { transform: scale(0.97); }
+.app-atalho .app-icone { width: 52px; height: 52px; }
+.app-atalho__rotulo { font-size: 16px; font-weight: 700; line-height: 1.25; color: var(--text-primary); }
+.app-atalho__detalhe { display: block; margin-top: 3px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
+.app-atalho--principal {
+  background: var(--app-degrade-botao);
+  border-color: transparent;
+  box-shadow: var(--app-sombra-botao);
+}
+.app-atalho--principal .app-icone { background: rgba(255, 255, 255, 0.18); color: #fff; }
+.app-atalho--principal .app-atalho__rotulo { color: #fff; }
+.app-atalho--ambar .app-icone { background: var(--app-ambar-fundo); color: var(--app-ambar-cor); }
+
+/* Aviso clicavel (rascunhos pendentes, instalar o app). */
+.app-aviso {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--app-raio-linha);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--app-sombra);
+}
+.app-aviso .app-icone { width: 44px; height: 44px; border-radius: 14px; }
+.app-aviso--ambar { background: var(--app-ambar-fundo); border-color: var(--app-ambar-borda); box-shadow: none; }
+.app-aviso--ambar .app-icone { background: rgba(245, 158, 11, 0.18); color: var(--app-ambar-cor); }
+.app-aviso__texto { flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.4; color: var(--text-secondary); }
+.app-aviso__texto strong { display: block; font-size: 14.5px; color: var(--text-primary); }
+
+/* Linha de lista com icone quadrado (ultimos pedidos etc.). */
+.app-linha {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--app-raio-linha);
+  box-shadow: var(--app-sombra);
+}
+.app-linha .app-icone { width: 46px; height: 46px; border-radius: 14px; }
+
+/* ---------- barra de baixo ---------- */
+.app-nav {
+  flex-shrink: 0;
+  min-height: 74px;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 8px 6px calc(10px + env(safe-area-inset-bottom));
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  box-shadow: 0 -14px 30px -24px rgba(43, 16, 87, 0.45);
+}
+.app-nav__item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.app-nav__pilula {
+  width: 56px;
+  height: 32px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease;
+}
+.app-nav__item[aria-current='page'] { color: var(--app-icone-cor); font-weight: 700; }
+.app-nav__item[aria-current='page'] .app-nav__pilula { background: var(--app-icone-fundo); }

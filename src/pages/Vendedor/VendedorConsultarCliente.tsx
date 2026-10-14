@@ -170,7 +170,7 @@ const VendedorConsultarCliente: React.FC = () => {
             {clientesFrequentes.map((cliente) => (
               <div
                 key={cliente.id}
-                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)' }}
               >
                 <button
                   type="button"
@@ -203,7 +203,7 @@ const VendedorConsultarCliente: React.FC = () => {
           </div>
         ) : (
           <>
-            <div style={{ borderRadius: '18px', padding: '20px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ borderRadius: '18px', padding: '20px', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{clienteComCodigo(selecionado)}</div>
 
               <div style={{ height: '1px', backgroundColor: 'var(--border-color)' }} />
@@ -265,7 +265,7 @@ const VendedorConsultarCliente: React.FC = () => {
                 historico.map((item) => (
                   <div
                     key={`${item.tipo}-${item.id}`}
-                    style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: '14px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)' }}
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: '14.5px', fontWeight: 600, color: 'var(--text-primary)' }}>

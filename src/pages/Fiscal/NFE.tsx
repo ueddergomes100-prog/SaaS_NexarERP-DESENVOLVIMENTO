@@ -48,6 +48,7 @@ import EmissaoLoteModal, { type PedidoParaLote, type ResultadoItemLote } from '.
 import { duplicatasDaNota } from '../../utils/duplicatasNfeDomain';
 import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { intervaloConsultaPendentes } from '../../utils/consultaPendentesDomain';
+import { LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -1336,11 +1337,12 @@ const NFE: React.FC = () => {
     faltando.forEach((id) => pedidosConsultadosRef.current.add(id));
     void (async () => {
       const achados = new Map<string, { status: string; visivel: boolean }>();
-      for (let i = 0; i < faltando.length; i += 30) {
+      // Por id, lotes de 10: acima de ~17 ids a consulta volta "sem permissao" (firestoreLimites.ts).
+      for (let i = 0; i < faltando.length; i += LOTE_IN_POR_ID) {
         const snap = await getDocs(query(
           collection(db, 'pedidos_venda'),
           where('tenantId', '==', tenantId),
-          where(documentId(), 'in', faltando.slice(i, i + 30)),
+          where(documentId(), 'in', faltando.slice(i, i + LOTE_IN_POR_ID)),
         ));
         snap.docs.forEach((d) => achados.set(d.id, {
           status: String(d.data().status || ''),

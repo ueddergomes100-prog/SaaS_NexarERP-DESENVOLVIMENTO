@@ -2,12 +2,17 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import './styles/impressaoMaiuscula.css'
+import './styles/seletor.css'
+import './styles/seletorDeData.css'
 import App from './App.tsx'
 import { registerServiceWorker } from './registerServiceWorker'
 import { iniciarTema } from './utils/tema'
+import { iniciarSeletorDeData } from './utils/seletorDeDataUi'
 
 // Tema (escuro/claro/automatico) vale para o sistema e para o app Vendas.
 iniciarTema()
+// Calendario do Hennder em todo <input type="date"> (no computador).
+iniciarSeletorDeData()
 
 const PRELOAD_RELOAD_KEY = 'nexus_preload_reload_attempted';
 const PRELOAD_RELOAD_WINDOW_MS = 60000;

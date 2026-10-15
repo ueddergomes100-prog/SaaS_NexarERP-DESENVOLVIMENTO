@@ -1,0 +1,108 @@
+/*
+ * SELETORES (<select>) DO SISTEMA INTEIRO (pedido do dono, 15/10/2026:
+ * "melhora o design dessas caixas de selecao em todo sistema").
+ *
+ * A lista aberta de um <select> e' desenhada pelo navegador: cinza, quadrada,
+ * sem espaco. O Chrome (135+, e o app Vendas roda nele) deixa estilizar tudo
+ * com `appearance: base-select`: aqui a lista vira um cartao do Hennder --
+ * cantos arredondados, sombra, opcoes com folga, destaque violeta na escolhida
+ * e no mouse, seta que gira ao abrir. Navegador sem suporte continua com o
+ * seletor nativo de sempre (o @supports cuida disso).
+ *
+ * So' visual: nenhum <select> mudou de comportamento. A caixa alta continua
+ * (regra do index.css, decisao do cliente de 2026-08-31). Lista com varias
+ * linhas visiveis (`multiple`/`size`) fica de fora -- nao abre em lista.
+ */
+
+@supports (appearance: base-select) {
+  select:not([multiple]):not([size]) {
+    appearance: base-select;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  select:not([multiple]):not([size]):disabled {
+    cursor: not-allowed;
+  }
+
+  /* A seta: na cor do texto apagado, gira quando a lista esta' aberta. */
+  select:not([multiple]):not([size])::picker-icon {
+    color: var(--text-muted);
+    transition: rotate 0.18s ease;
+  }
+  select:not([multiple]):not([size]):open::picker-icon {
+    rotate: 180deg;
+    color: var(--brand-ink);
+  }
+
+  /* A lista aberta: cartao com borda, cantos e sombra do sistema. */
+  select:not([multiple]):not([size])::picker(select) {
+    appearance: base-select;
+    margin-block: 6px;
+    padding: 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background-color: var(--bg-secondary);
+    box-shadow: var(--shadow-card);
+    max-block-size: min(360px, 60vh);
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  select:not([multiple]):not([size]) option {
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    line-height: 1.35;
+    color: var(--text-primary);
+    background-color: transparent;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+  }
+  select:not([multiple]):not([size]) option + option {
+    margin-top: 2px;
+  }
+  /* O check do navegador sai: a escolhida ja' fica destacada em violeta. */
+  select:not([multiple]):not([size]) option::checkmark {
+    display: none;
+  }
+  select:not([multiple]):not([size]) option:hover,
+  select:not([multiple]):not([size]) option:focus-visible {
+    background-color: var(--brand-soft);
+    color: var(--text-primary);
+    outline: none;
+  }
+  select:not([multiple]):not([size]) option:checked {
+    background-color: var(--brand-600);
+    color: var(--brand-contrast);
+    font-weight: 600;
+  }
+  select:not([multiple]):not([size]) option:checked:hover {
+    background-color: var(--brand-700);
+  }
+  select:not([multiple]):not([size]) option:disabled {
+    color: var(--text-muted);
+    cursor: not-allowed;
+    background-color: transparent;
+  }
+  /* "Selecione..." (opcao vazia) aparece apagada na lista e nunca destacada:
+     ainda nao ha' escolha, entao nada fica violeta. */
+  select:not([multiple]):not([size]) option[value=''],
+  select:not([multiple]):not([size]) option[value='']:checked {
+    color: var(--text-muted);
+    background-color: transparent;
+    font-weight: 500;
+  }
+  select:not([multiple]):not([size]) option[value='']:hover {
+    background-color: var(--brand-softer);
+  }
+
+  select:not([multiple]):not([size]) optgroup {
+    padding: 6px 6px 2px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+  }
+}

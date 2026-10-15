@@ -1,0 +1,215 @@
+/*
+ * CAMPO DE DATA E CALENDARIO DO SISTEMA INTEIRO (pedido do dono, 15/10/2026,
+ * junto com as caixas de selecao). O comportamento esta' em
+ * src/utils/seletorDeDataUi.ts; aqui so' o desenho.
+ */
+
+/* O icone do campo: o calendario do Hennder, na cor do tema (o do navegador
+   era preto no escuro e cinza no claro). */
+input[type='date']::-webkit-calendar-picker-indicator {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin-inline-start: 6px;
+  background-image: none;
+  background-color: var(--text-muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2v4M16 2v4'/%3E%3Crect width='18' height='18' x='3' y='4' rx='2'/%3E%3Cpath d='M3 10h18'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2v4M16 2v4'/%3E%3Crect width='18' height='18' x='3' y='4' rx='2'/%3E%3Cpath d='M3 10h18'/%3E%3C/svg%3E") center / contain no-repeat;
+  opacity: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+input[type='date']:hover::-webkit-calendar-picker-indicator,
+input[type='date'][data-calendario-aberto]::-webkit-calendar-picker-indicator {
+  background-color: var(--brand-ink);
+}
+input[type='date']:disabled::-webkit-calendar-picker-indicator {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---- O calendario ---- */
+.hd-calendario {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  z-index: 100000; /* navegador sem "popover": acima das janelas de alerta */
+  width: 292px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background-color: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-card);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.2;
+  text-transform: none;
+  user-select: none;
+  overflow: visible;
+  animation: hd-cal-entrar 0.14s ease-out;
+}
+@keyframes hd-cal-entrar {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hd-calendario { animation: none; }
+}
+
+.hd-calendario button {
+  font-family: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.hd-calendario button:disabled {
+  cursor: not-allowed;
+}
+
+.hd-cal-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.hd-calendario .hd-cal-titulo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.hd-calendario button.hd-cal-titulo:hover {
+  background-color: var(--brand-soft);
+  color: var(--brand-ink);
+}
+.hd-cal-titulo svg {
+  color: var(--text-muted);
+}
+.hd-cal-setas {
+  display: flex;
+  gap: 2px;
+}
+.hd-cal-setas button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: var(--text-secondary);
+}
+.hd-cal-setas button:hover {
+  background-color: var(--brand-soft);
+  color: var(--brand-ink);
+}
+
+.hd-cal-semana,
+.hd-cal-dias {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.hd-cal-semana {
+  margin-bottom: 4px;
+}
+.hd-cal-semana span {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+
+.hd-calendario .hd-cal-dia,
+.hd-calendario .hd-cal-celula {
+  height: 34px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.hd-cal-grade3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 4px 0;
+}
+.hd-calendario .hd-cal-celula {
+  height: 46px;
+  text-transform: capitalize;
+}
+.hd-calendario .hd-cal-dia.fora,
+.hd-calendario .hd-cal-celula.fora {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+.hd-calendario .hd-cal-dia:hover:not(:disabled),
+.hd-calendario .hd-cal-celula:hover:not(:disabled) {
+  background-color: var(--brand-soft);
+  color: var(--brand-ink);
+  opacity: 1;
+}
+.hd-calendario .hd-cal-dia.hoje,
+.hd-calendario .hd-cal-celula.hoje {
+  box-shadow: inset 0 0 0 1.5px var(--brand-ink);
+  color: var(--brand-ink);
+  font-weight: 700;
+  opacity: 1;
+}
+.hd-calendario .hd-cal-dia.escolhido,
+.hd-calendario .hd-cal-celula.escolhido,
+.hd-calendario .hd-cal-dia.escolhido:hover,
+.hd-calendario .hd-cal-celula.escolhido:hover {
+  background-color: var(--brand-600);
+  color: var(--brand-contrast);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.35);
+  font-weight: 700;
+  opacity: 1;
+}
+.hd-calendario .hd-cal-dia:disabled,
+.hd-calendario .hd-cal-celula:disabled {
+  opacity: 0.3;
+  box-shadow: none;
+}
+
+.hd-cal-rodape {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+.hd-calendario .hd-cal-limpar,
+.hd-calendario .hd-cal-hoje {
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.hd-calendario .hd-cal-limpar {
+  color: var(--text-secondary);
+}
+.hd-calendario .hd-cal-limpar:hover {
+  background-color: var(--brand-softer);
+  color: var(--status-red);
+}
+.hd-calendario .hd-cal-hoje {
+  color: var(--brand-ink);
+}
+.hd-calendario .hd-cal-hoje:hover:not(:disabled) {
+  background-color: var(--brand-soft);
+}
+.hd-calendario .hd-cal-hoje:disabled {
+  opacity: 0.4;
+}

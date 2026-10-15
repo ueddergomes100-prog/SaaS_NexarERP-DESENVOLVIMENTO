@@ -265,9 +265,13 @@ select option {
   text-transform: uppercase;
 }
 
-select option {
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
+/* Lista nativa (navegador sem `appearance: base-select`); com suporte, quem
+   desenha a lista e' src/styles/seletor.css. */
+@supports not (appearance: base-select) {
+  select option {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+  }
 }
 
 input:-webkit-autofill,
@@ -487,9 +491,11 @@ body.light-theme textarea:disabled {
   padding: 12px !important;
 }
 
-.swal2-select option {
-  background-color: var(--bg-secondary) !important;
-  color: var(--text-primary) !important;
+@supports not (appearance: base-select) {
+  .swal2-select option {
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+  }
 }
 
 /* SweetAlert2 (NexusSwal) tem que ficar SEMPRE por cima de qualquer modal

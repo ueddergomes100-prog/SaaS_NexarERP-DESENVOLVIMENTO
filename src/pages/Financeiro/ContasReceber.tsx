@@ -1139,12 +1139,14 @@ const ContasReceber: React.FC = () => {
                         </td>
                         <td style={{ padding: '16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
 {grupo.transacoes.some((t) => t.status === 'Pendente') && (
+                          /* So' o icone, igual ao da parcela (pedido do dono, 15/10/2026). */
                           <button
                             onClick={() => handleCobrarClienteWhatsApp(grupo)}
-                            style={{ backgroundColor: '#25D366', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
-                            title="Cobrar via WhatsApp"
+                            style={{ backgroundColor: 'transparent', border: '1px solid #25D366', color: '#25D366', cursor: 'pointer', borderRadius: '6px', width: '30px', height: '30px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
+                            title="Cobrar pelo WhatsApp"
+                            aria-label={`Cobrar ${grupo.clienteNome} pelo WhatsApp`}
                           >
-                            <MessageCircle size={14} /> Cobrar
+                            <MessageCircle size={15} />
                           </button>
                           )}
                         </td>

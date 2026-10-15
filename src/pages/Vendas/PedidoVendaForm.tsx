@@ -1323,8 +1323,10 @@ const PedidoVendaForm: React.FC = () => {
   // e ficam de fora de proposito. Em modo visualizacao (isViewing) todo
   // campo fica desabilitado, entao isso nunca muda e isDirty fica falso
   // sozinho, sem precisar de um caso especial aqui.
-  const buildDirtySnapshot = () => JSON.stringify({
-    clienteNome, formaPagamento, dataVenda, itens, orcamentoId, vendedorId, frete, encargos, paymentDrafts, observacaoPedido,
+  /** `sobrepor`: valores que acabaram de ir para o setState e ainda nao chegaram aqui (mesma renderizacao). */
+  const buildDirtySnapshot = (sobrepor: { dataVenda?: string; paymentDrafts?: typeof paymentDrafts } = {}) => JSON.stringify({
+    clienteNome, formaPagamento, dataVenda: sobrepor.dataVenda ?? dataVenda, itens, orcamentoId, vendedorId, frete, encargos,
+    paymentDrafts: sobrepor.paymentDrafts ?? paymentDrafts, observacaoPedido,
   });
   const initialSnapshotRef = useRef<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
@@ -3007,10 +3009,9 @@ const PedidoVendaForm: React.FC = () => {
       const diaDoFaturamento = getDateInputInTimeZone();
       pagamentosParaFechar = reancorarVencimentosNoFaturamento(paymentDrafts, dataVenda, diaDoFaturamento);
       dataVendaParaGravar = diaDoFaturamento;
-      if (dataVenda !== diaDoFaturamento) {
-        setDataVenda(diaDoFaturamento);
-        setPaymentDrafts(pagamentosParaFechar);
-      }
+      // A tela so' troca a data e os vencimentos DEPOIS de gravar (ver
+      // saveSucceeded): se a venda for recusada (limite de credito, estoque...),
+      // a pre-venda fica como estava e "Salvar Pre-venda" nao muda a data dela.
     } else {
       dataVendaParaGravar = await resolverDataVendaParaGravar();
     }
@@ -3552,7 +3553,14 @@ const PedidoVendaForm: React.FC = () => {
       // Operacao concluida: a proxima venda pede identificacao de novo.
       esquecerVendedorIdentificado();
       saveSucceeded = true;
-      initialSnapshotRef.current = buildDirtySnapshot();
+      // Pre-venda faturada em outro dia: agora, com a venda gravada, a tela
+      // mostra a data do faturamento e os vencimentos que foram gravados.
+      const faturouEmOutroDia = (isPreVendaAberta || isPendingFromAgent) && dataVenda !== dataVendaParaGravar;
+      if (faturouEmOutroDia) {
+        setDataVenda(dataVendaParaGravar);
+        setPaymentDrafts(pagamentosParaFechar);
+      }
+      initialSnapshotRef.current = buildDirtySnapshot(faturouEmOutroDia ? { dataVenda: dataVendaParaGravar, paymentDrafts: pagamentosParaFechar } : {});
       setIsDirty(false);
 
       // Venda fechada em boleto: oferece emitir na hora. Dizer "nao" nao

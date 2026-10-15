@@ -23,6 +23,7 @@ import { formatarChave } from '../../utils/danfePdf';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import { emLotes, LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
 
 interface NotaFiscalEntradaDoc {
   id: string;
@@ -161,15 +162,16 @@ const NotasFiscaisEntradaList: React.FC = () => {
 
     setCarregandoTitulos(true);
     try {
-      // 'in' do Firestore aceita ate 30 valores -- numero de duplicatas de
-      // uma unica nota nunca chega perto disso na pratica.
-      const q = query(collection(db, 'transacoes'), where(documentId(), 'in', nota.titulosPagarIds.slice(0, 30)));
-      const snap = await getDocs(q);
+      // Por id, lotes de 10: acima de ~17 ids a consulta volta "sem permissao"
+      // (firestoreLimites.ts) -- nota com muitas duplicatas nao carregava os titulos.
       const data: TituloPagar[] = [];
-      snap.forEach((d) => {
-        const t = d.data();
-        data.push({ id: d.id, descricao: t.descricao || '', data: t.data || '', valor: Number(t.valor || 0), status: t.status || '' });
-      });
+      for (const lote of emLotes(nota.titulosPagarIds, LOTE_IN_POR_ID)) {
+        const snap = await getDocs(query(collection(db, 'transacoes'), where(documentId(), 'in', lote)));
+        snap.forEach((d) => {
+          const t = d.data();
+          data.push({ id: d.id, descricao: t.descricao || '', data: t.data || '', valor: Number(t.valor || 0), status: t.status || '' });
+        });
+      }
       data.sort((a, b) => a.data.localeCompare(b.data));
       setTitulos(data);
     } catch (error) {

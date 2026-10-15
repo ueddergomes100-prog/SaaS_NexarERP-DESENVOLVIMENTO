@@ -13,6 +13,7 @@ import { db } from './firebase';
 import { reserveTenantSequence } from '../utils/firestoreAtomic';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../utils/documentMetadata';
 import { addDaysToDateInput } from '../utils/dateTime';
+import { LOTE_IN_POR_CAMPO, LOTE_IN_POR_ID } from '../utils/firestoreLimites';
 import { CATEGORIA_DESPESA_ROTA, descricaoDaDespesaNoFinanceiro, type DespesaRota } from '../utils/rotaDomain';
 import {
   acertoParaGravar,
@@ -48,7 +49,10 @@ import {
 
 export const COLECAO_ROMANEIOS = 'romaneios';
 const COLECAO_TRAVAS = 'romaneio_pedidos';
-const LOTE_IN = 30;
+// Por campo (data, pedidoId) o Firestore aceita 30; POR ID so' 10 -- acima de ~17
+// ids as regras passam do limite e a busca voltava "sem permissao" (15/10/2026,
+// ver firestoreLimites.ts).
+const LOTE_IN = LOTE_IN_POR_CAMPO;
 
 type SituacaoTrava = 'em_romaneio' | 'entregue' | 'liberado';
 
@@ -103,12 +107,14 @@ export const carregarPedidosParaRomaneio = async (
   const clientes = new Map<string, Record<string, unknown>>();
   const notas = new Map<string, { numero: unknown; tipo: string }>();
 
-  for (const lote of pedacos(ids)) {
+  for (const lote of pedacos(ids, LOTE_IN_POR_ID)) {
     const snap = await getDocs(query(collection(db, COLECAO_TRAVAS), where('tenantId', '==', tenantId), where(documentId(), 'in', lote)));
     snap.forEach((d) => {
       const t = d.data();
       travas.set(d.id, { romaneioId: String(t.romaneioId || ''), situacao: t.situacao as SituacaoTrava, titulo: String(t.romaneioTitulo || 'outra rota') });
     });
+  }
+  for (const lote of pedacos(ids)) {
     const snapNotas = await getDocs(query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId), where('pedidoId', 'in', lote)));
     snapNotas.forEach((d) => {
       const n = d.data();
@@ -120,7 +126,7 @@ export const carregarPedidosParaRomaneio = async (
   }
 
   const clienteIds = [...new Set(pedidos.map((p) => String(p.clienteId || '')).filter(Boolean))];
-  for (const lote of pedacos(clienteIds)) {
+  for (const lote of pedacos(clienteIds, LOTE_IN_POR_ID)) {
     const snap = await getDocs(query(collection(db, 'clientes'), where('tenantId', '==', tenantId), where(documentId(), 'in', lote)));
     snap.forEach((d) => clientes.set(d.id, d.data()));
   }

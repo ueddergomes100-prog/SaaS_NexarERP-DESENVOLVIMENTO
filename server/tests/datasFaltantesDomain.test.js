@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { Timestamp } = require('@google-cloud/firestore');
-const { decidirDataVenda, decidirDataDoLancamento } = require('../domain/datasFaltantesDomain');
+const { decidirDataVenda, decidirDataDoLancamento } = require('../utils/datasFaltantesDomain');
 
 // 13/09 as 23h30 em Sao Paulo = 14/09 02h30 UTC: o dia certo e' 13/09.
 const criadoTarde = Timestamp.fromDate(new Date('2026-09-14T02:30:00Z'));

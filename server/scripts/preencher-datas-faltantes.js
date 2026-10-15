@@ -1,7 +1,7 @@
 /**
  * Preenche as datas que as telas usam para o periodo e que faltam em
  * documentos antigos (decisao do dono, 2026-10-14). Regras em
- * server/domain/datasFaltantesDomain.js:
+ * server/utils/datasFaltantesDomain.js:
  *  - pedidos_venda sem `dataVenda`          -> dia em que o pedido foi criado;
  *  - transacoes PAGAS sem `dataPagamento` e sem `data` -> dataPagamento = dia da criacao.
  * Lancamento pendente sem vencimento so' e' listado (nao se inventa vencimento).
@@ -16,7 +16,7 @@
  * para o --desfazer saber exatamente o que voltar.
  */
 const { admin, db } = require('../config/firebase');
-const { decidirDataVenda, decidirDataDoLancamento } = require('../domain/datasFaltantesDomain');
+const { decidirDataVenda, decidirDataDoLancamento } = require('../utils/datasFaltantesDomain');
 
 const ESCRITAS_POR_LOTE = 400;
 const marca = (campo) => `${campo}PreenchidaPorMigracao`;

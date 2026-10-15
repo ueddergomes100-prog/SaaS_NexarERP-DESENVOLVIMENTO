@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
 import { useNaoImpressasPrimeiro } from '../../hooks/useNaoImpressasPrimeiro';
 import { compararPorImpressao } from '../../utils/relatorioPreVendasDomain';
-import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, ChevronDown, Filter, Truck, CheckCircle2 } from 'lucide-react';
+import { foiImpresso, OPCOES_FILTRO_IMPRESSAO, passaNoFiltroDeImpressao, rotuloDoFiltroDeImpressao, type FiltroImpressao } from '../../utils/impressaoListaDomain';
+import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, Filter, Truck, CheckCircle2 } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp, Timestamp, type QuerySnapshot, type DocumentData } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { diasDoPeriodoLista, PERIODO_LISTA_PADRAO, type PresetPeriodoLista } from '../../utils/periodoListaDomain';
@@ -31,6 +32,7 @@ import {
 import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 import { tomDoStatusPedido, type TomChip } from '../../utils/chipStatusDomain';
 import AvatarIniciais from '../../components/common/AvatarIniciais';
+import { FiltroColuna, itemOpcaoStyle, OpcoesFiltro } from '../../components/common/FiltroColuna';
 import {
   addDaysToDateInput,
   dateInputToUtcEnd,
@@ -115,102 +117,6 @@ const ROTULO_PRESET_DATA: Record<Exclude<FiltroDataPreset, '' | 'personalizado'>
   mes: 'Este mês',
 };
 
-/**
- * Pequeno dropdown de filtro por coluna, estilo planilha: seta no
- * cabecalho, painel com as opcoes por baixo. Fecha ao clicar fora.
- */
-const FiltroColuna: React.FC<{ ativo: boolean; children: (fechar: () => void) => React.ReactNode }> = ({ ativo, children }) => {
-  const [aberto, setAberto] = useState(false);
-  const containerRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!aberto) return undefined;
-    const aoClicarFora = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) setAberto(false);
-    };
-    document.addEventListener('mousedown', aoClicarFora);
-    return () => document.removeEventListener('mousedown', aoClicarFora);
-  }, [aberto]);
-
-  return (
-    <span ref={containerRef} style={{ position: 'relative', display: 'inline-block', marginLeft: '4px', verticalAlign: 'middle' }}>
-      <button
-        type="button"
-        onClick={(event) => { event.stopPropagation(); setAberto((atual) => !atual); }}
-        title="Filtrar"
-        aria-label="Filtrar por esta coluna"
-        style={{
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          padding: '2px',
-          display: 'inline-flex',
-          color: ativo ? 'var(--accent-purple)' : 'var(--text-muted)',
-        }}
-      >
-        <ChevronDown size={14} />
-      </button>
-      {aberto && (
-        <div
-          onClick={(event) => event.stopPropagation()}
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            marginTop: '4px',
-            zIndex: 30,
-            backgroundColor: 'var(--bg-tertiary)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-md)',
-            padding: '8px',
-            minWidth: '200px',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
-            textTransform: 'none',
-            fontWeight: 400,
-            fontSize: '13px',
-          }}
-        >
-          {children(() => setAberto(false))}
-        </div>
-      )}
-    </span>
-  );
-};
-
-const itemOpcaoStyle = (selecionado: boolean): React.CSSProperties => ({
-  display: 'block',
-  width: '100%',
-  textAlign: 'left',
-  padding: '6px 8px',
-  borderRadius: 'var(--radius-sm)',
-  border: 'none',
-  cursor: 'pointer',
-  backgroundColor: selecionado ? 'var(--accent-purple)' : 'transparent',
-  color: selecionado ? 'white' : 'var(--text-primary)',
-  fontWeight: selecionado ? 600 : 400,
-});
-
-/** Lista simples de opcoes com "Todos" pra limpar -- usada por Vendedor,
- * Forma de Pagamento e Conferencia, que sao filtros de igualdade exata. */
-const OpcoesFiltro: React.FC<{
-  opcoes: string[];
-  valorSelecionado: string;
-  onSelecionar: (valor: string, fechar: () => void) => void;
-  fechar: () => void;
-  rotuloTodos?: string;
-  formatarRotulo?: (valor: string) => string;
-}> = ({ opcoes, valorSelecionado, onSelecionar, fechar, rotuloTodos = 'Todos', formatarRotulo }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '240px', overflowY: 'auto' }}>
-    <button type="button" style={itemOpcaoStyle(valorSelecionado === '')} onClick={() => onSelecionar('', fechar)}>
-      {rotuloTodos}
-    </button>
-    {opcoes.map((opcao) => (
-      <button key={opcao} type="button" style={itemOpcaoStyle(valorSelecionado === opcao)} onClick={() => onSelecionar(opcao, fechar)}>
-        {formatarRotulo ? formatarRotulo(opcao) : opcao}
-      </button>
-    ))}
-  </div>
-);
 
 // Modulo 12 (Conferencia de mercadoria) -- rotulos/cores da coluna opcional.
 // Fatia 1/4 so grava 'aguardando'; os demais estados existem desde ja pra
@@ -246,9 +152,13 @@ const PedidoVendas: React.FC = () => {
   // Aba Pre-vendas: o que ainda nao saiu no papel fica no topo (pedido do dono,
   // 2026-10-13); o cabecalho "Imp." alterna. "Impresso" aqui e' o mesmo que
   // acende o check da coluna: recibo/pre-venda OU minuta.
-  const [naoImpressasPrimeiro, alternarNaoImpressas] = useNaoImpressasPrimeiro('pedidos.naoImpressasPrimeiro');
-  const foiImpresso = (p: { impresso?: boolean; minutaImpressa?: boolean }) => p.impresso === true || p.minutaImpressa === true;
+  const [naoImpressasPrimeiroPreVendas, alternarNaoImpressasPreVendas] = useNaoImpressasPrimeiro('pedidos.naoImpressasPrimeiro');
+  // Nas outras abas (15/10/2026, pedido do cliente) a ordenacao tambem existe,
+  // mas comeca desligada para nao mudar a ordem por numero de quem ja' usa.
+  const [naoImpressasPrimeiroOutras, alternarNaoImpressasOutras] = useNaoImpressasPrimeiro('pedidos.outrasAbas.naoImpressasPrimeiro', false);
   const [activeTab, setActiveTab] = useState('Ativos');
+  const naoImpressasPrimeiro = activeTab === 'PreVendas' ? naoImpressasPrimeiroPreVendas : naoImpressasPrimeiroOutras;
+  const alternarNaoImpressas = activeTab === 'PreVendas' ? alternarNaoImpressasPreVendas : alternarNaoImpressasOutras;
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   /** Linha destacada por um clique simples (distinta de selectedIds, que sao
    * os checkboxes de impressao em lote). Abrir exige duplo clique ou Enter. */
@@ -269,6 +179,8 @@ const PedidoVendas: React.FC = () => {
   const [filtroVendedor, setFiltroVendedor] = useState('');
   const [filtroFormaPagamento, setFiltroFormaPagamento] = useState('');
   const [filtroConferencia, setFiltroConferencia] = useState('');
+  // Coluna Imp.: Todos / Impressos / Nao impressos (pedido do cliente de 15/10/2026).
+  const [filtroImpressao, setFiltroImpressao] = useState<FiltroImpressao>('');
   // Abre no mes atual (decisao do dono, 14/10): o periodo vai para a consulta.
   const [filtroDataPreset, setFiltroDataPreset] = useState<FiltroDataPreset>(PERIODO_LISTA_PADRAO);
   // A pessoa mexeu no filtro de Data? Nas abas de pedidos em ABERTO
@@ -287,6 +199,7 @@ const PedidoVendas: React.FC = () => {
     setFiltroVendedor('');
     setFiltroFormaPagamento('');
     setFiltroConferencia('');
+    setFiltroImpressao('');
     setFiltroDataPreset(PERIODO_LISTA_PADRAO);
     setPeriodoEscolhido(false);
     setFiltroDataInicio('');
@@ -561,10 +474,11 @@ const PedidoVendas: React.FC = () => {
     if (filtroVendedor && chaveVendedorFiltro(p.vendedorNome || '') !== chaveVendedorFiltro(filtroVendedor)) return false;
     if (filtroFormaPagamento && p.formaPagamento !== filtroFormaPagamento) return false;
     if (filtroConferencia && p.statusConferencia !== filtroConferencia) return false;
+    if (!passaNoFiltroDeImpressao(foiImpresso(p), filtroImpressao)) return false;
     if (periodoAplicado && !isWithinDateRange(dataEfetivaPedido(p), periodoAplicado.inicio, periodoAplicado.fim)) return false;
     return true;
   }).sort((a, b) => (
-    (activeTab === 'PreVendas' && naoImpressasPrimeiro ? compararPorImpressao({ impressa: foiImpresso(a) }, { impressa: foiImpresso(b) }) : 0)
+    (naoImpressasPrimeiro ? compararPorImpressao({ impressa: foiImpresso(a) }, { impressa: foiImpresso(b) }) : 0)
     || compararPorNumero(a.numeroPedido, b.numeroPedido, ordemNumero)
   ));
 
@@ -572,6 +486,7 @@ const PedidoVendas: React.FC = () => {
     filtroVendedor && { rotulo: 'Vendedor', valor: filtroVendedor, limpar: () => setFiltroVendedor('') },
     filtroFormaPagamento && { rotulo: 'Forma', valor: filtroFormaPagamento, limpar: () => setFiltroFormaPagamento('') },
     filtroConferencia && { rotulo: 'Conferência', valor: CONFERENCIA_STATUS_LABELS[filtroConferencia] || filtroConferencia, limpar: () => setFiltroConferencia('') },
+    filtroImpressao && { rotulo: 'Imp.', valor: rotuloDoFiltroDeImpressao(filtroImpressao), limpar: () => setFiltroImpressao('') },
     filtroDataPreset && filtroDataValeNestaAba && { rotulo: 'Data', valor: rotuloPeriodoFiltro, limpar: () => { escolherPeriodo(''); setFiltroDataInicio(''); setFiltroDataFim(''); } },
   ].filter((f): f is { rotulo: string; valor: string; limpar: () => void } => Boolean(f));
 
@@ -579,6 +494,7 @@ const PedidoVendas: React.FC = () => {
     setFiltroVendedor('');
     setFiltroFormaPagamento('');
     setFiltroConferencia('');
+    setFiltroImpressao('');
     setFiltroDataPreset(PERIODO_LISTA_PADRAO);
     setPeriodoEscolhido(false);
     setFiltroDataInicio('');
@@ -918,18 +834,27 @@ const PedidoVendas: React.FC = () => {
                     </FiltroColuna>
                   </th>
                 )}
-                <th style={{ textAlign: 'center' }} title={activeTab === 'PreVendas' ? undefined : 'Já foi impresso (Recibo/Pré-venda)?'}>
-                  {activeTab === 'PreVendas' ? (
-                    <button
-                      type="button"
-                      onClick={alternarNaoImpressas}
-                      aria-pressed={naoImpressasPrimeiro}
-                      title={naoImpressasPrimeiro ? 'Não impressas no topo. Clique para ordenar só pelo número.' : 'Clique para trazer as não impressas para o topo.'}
-                      style={{ background: 'none', border: 'none', padding: 0, color: naoImpressasPrimeiro ? '#f59e0b' : 'inherit', font: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      Imp. {naoImpressasPrimeiro ? '▲' : '▼'}
-                    </button>
-                  ) : 'Imp.'}
+                <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }} title="Já foi impresso (recibo/pré-venda ou minuta)?">
+                  <button
+                    type="button"
+                    onClick={alternarNaoImpressas}
+                    aria-pressed={naoImpressasPrimeiro}
+                    title={naoImpressasPrimeiro ? 'Não impressos no topo. Clique para ordenar só pelo número.' : 'Clique para trazer os não impressos para o topo.'}
+                    style={{ background: 'none', border: 'none', padding: 0, color: naoImpressasPrimeiro ? '#f59e0b' : 'inherit', font: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    Imp. {naoImpressasPrimeiro ? '▲' : '▼'}
+                  </button>
+                  <FiltroColuna ativo={Boolean(filtroImpressao)}>
+                    {(fechar) => (
+                      <OpcoesFiltro
+                        opcoes={OPCOES_FILTRO_IMPRESSAO}
+                        valorSelecionado={filtroImpressao}
+                        fechar={fechar}
+                        formatarRotulo={rotuloDoFiltroDeImpressao}
+                        onSelecionar={(valor, fecharPainel) => { setFiltroImpressao(valor as FiltroImpressao); fecharPainel(); }}
+                      />
+                    )}
+                  </FiltroColuna>
                 </th>
                 <th style={{ textAlign: 'right' }}>Total</th>
                 <th style={{ textAlign: 'center' }}>Ações</th>

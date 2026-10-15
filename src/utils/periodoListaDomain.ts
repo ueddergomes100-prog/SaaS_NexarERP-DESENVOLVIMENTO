@@ -61,24 +61,55 @@ export const diasDoPeriodoLista = (
   }
 };
 
-/** Período da lista de notas fiscais (tela NF-e). Abre no mês atual. */
-export type PeriodoNotas = 'mes' | 'mesPassado' | '90dias' | 'tudo';
+/**
+ * Período da lista de notas fiscais (tela NF-e). Abre no mês atual.
+ * Hoje, Esta semana e Data personalizada: pedido do cliente de 15/10/2026
+ * ("notas emitidas no dia, na semana, data personalizada").
+ */
+export type PeriodoNotas = 'hoje' | 'semana' | 'mes' | 'mesPassado' | '90dias' | 'tudo' | 'personalizado';
 
 export const PERIODO_NOTAS_PADRAO: PeriodoNotas = 'mes';
 
+/** A ordem das chaves é a ordem do menu. */
 export const ROTULO_PERIODO_NOTAS: Record<PeriodoNotas, string> = {
+  hoje: 'Hoje',
+  semana: 'Esta semana',
   mes: 'Este mês',
   mesPassado: 'Mês passado',
   '90dias': 'Últimos 90 dias',
   tudo: 'Todo o período',
+  personalizado: 'Data personalizada',
 };
 
-/** Dias (inclusive) do período da lista de notas; null = todo o período. */
-export const janelaDoPeriodoNotas = (periodo: PeriodoNotas, hoje: string): DiasDoPeriodo | null => {
+/** Segunda-feira da semana do dia (AAAA-MM-DD): a semana vai de segunda a domingo. */
+export const segundaDaSemana = (dia: string): string => {
+  const data = parseDateInput(dia);
+  if (!data) return dia;
+  const diaDaSemana = new Date(`${dia}T12:00:00Z`).getUTCDay(); // 0 = domingo
+  return addDaysToDateInput(dia, -((diaDaSemana + 6) % 7));
+};
+
+/**
+ * Dias (inclusive) do período da lista de notas; null = todo o período.
+ * "Data personalizada" segue a mesma regra das outras listas: com uma das
+ * datas em branco fica no mês atual; datas invertidas são trocadas.
+ */
+export const janelaDoPeriodoNotas = (
+  periodo: PeriodoNotas,
+  hoje: string,
+  inicioPersonalizado = '',
+  fimPersonalizado = '',
+): DiasDoPeriodo | null => {
   const inicioDoMes = `${hoje.slice(0, 7)}-01`;
   switch (periodo) {
     case 'tudo':
       return null;
+    case 'hoje':
+      return { de: hoje, ate: hoje };
+    case 'semana':
+      return { de: segundaDaSemana(hoje), ate: hoje };
+    case 'personalizado':
+      return diasDoPeriodoLista('personalizado', hoje, inicioPersonalizado, fimPersonalizado);
     case 'mesPassado': {
       const fimDoMesPassado = addDaysToDateInput(inicioDoMes, -1);
       return { de: `${fimDoMesPassado.slice(0, 7)}-01`, ate: fimDoMesPassado };

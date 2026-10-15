@@ -241,6 +241,45 @@ router.post('/solicitar', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Minuta impressa (15/10/2026): a lista de Trocas ganhou a coluna "Imp." como a
+// dos pedidos. A tela de impressao avisa aqui (uma troca ou o lote); so' a
+// PRIMEIRA impressao grava a data. Nao mexe em status nem em estoque.
+// ---------------------------------------------------------------------------
+
+const LIMITE_MINUTAS_POR_VEZ = 100;
+
+router.post('/minuta-impressa', async (req, res) => {
+  try {
+    const user = req.user;
+    if (!temPermissao(user, 'vendas.troca_gerenciar') && !temPermissao(user, 'operacoes.expedicao')) {
+      throw new ErroTroca(403, 'Seu usuário não tem permissão para imprimir a minuta da troca. Peça ao administrador para liberar "Trocas: gerenciar" no seu cadastro.');
+    }
+    const ids = Array.isArray(req.body?.ids)
+      ? [...new Set(req.body.ids.filter((id) => typeof id === 'string' && id.trim()).map((id) => id.trim()))]
+      : [];
+    if (ids.length === 0) throw new ErroTroca(400, 'Nenhuma troca informada.');
+    if (ids.length > LIMITE_MINUTAS_POR_VEZ) throw new ErroTroca(400, `Marque no máximo ${LIMITE_MINUTAS_POR_VEZ} trocas por vez.`);
+
+    const snaps = await db.getAll(...ids.map((id) => db.collection('trocas').doc(id)));
+    const lote = db.batch();
+    let marcadas = 0;
+    snaps.forEach((snap) => {
+      if (!snap.exists) return;
+      const troca = snap.data();
+      // Troca de outra empresa nunca e' tocada (o tenant sai do token).
+      if (troca.tenantId !== user.tenantId) return;
+      if (troca.minutaImpressa === true) return;
+      lote.update(snap.ref, { minutaImpressa: true, minutaImpressaEm: TIMESTAMP() });
+      marcadas += 1;
+    });
+    if (marcadas > 0) await lote.commit();
+    return res.json({ ok: true, marcadas });
+  } catch (erro) {
+    return responderErro(res, erro, 'minuta impressa');
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Loja: aprovar, recusar, cancelar, entregar
 // ---------------------------------------------------------------------------
 

@@ -9,6 +9,7 @@ import { usePrintAndClose } from '../../hooks/usePrintAndClose';
 import MinutaPrintDocument from '../Expedicao/MinutaPrintDocument';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from '../Vendas/pedidoPrintLoteConstants';
 import { montarMinutaDeTroca, nomeDoUsuarioLogado, type MinutaTrocaMontada } from './minutaTrocaLoader';
+import { avisarMinutaDeTrocaImpressa } from '../../services/trocaService';
 import '../OS/OsPrint.css';
 import '../Vendas/PedidoPrintLote.css'; // .print-batch-item (quebra de pagina por minuta)
 
@@ -97,7 +98,7 @@ const TrocaMinutaPrintLote: React.FC = () => {
           {truncated ? ` (limite de ${PEDIDO_PRINT_LOTE_SAFETY_LIMIT} por vez aplicado)` : ''}
           {naoEncontradas > 0 ? ` — ${naoEncontradas} não encontrada(s)` : ''}
         </span>
-        <button className="btn-primary" onClick={dispararImpressao}>
+        <button className="btn-primary" onClick={() => { avisarMinutaDeTrocaImpressa(minutas.map((m) => String(m.trocaData.id || ''))); dispararImpressao(); }}>
           <Printer size={18} style={{ marginRight: 8 }} />
           Imprimir {minutas.length > 1 ? 'Todas' : 'Minuta'}
         </button>

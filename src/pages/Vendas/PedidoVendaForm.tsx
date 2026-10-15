@@ -23,6 +23,7 @@ import ProductSearchModal from '../../components/common/ProductSearchModal';
 import TabelaItensVenda, { type TabelaItensVendaHandle } from './TabelaItensVenda';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import AvatarIniciais from '../../components/common/AvatarIniciais';
+import { numeroDaNota } from '../../utils/nomeArquivoDomain';
 import { formatarDocumento } from '../../utils/documentoValidacao';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import {
@@ -4057,7 +4058,7 @@ const PedidoVendaForm: React.FC = () => {
         .find((n) => ['NF-e', 'NFC-e'].includes(n.tipo) && n.finalidade !== 'devolucao'
           && ['authorized', 'enqueued', 'processing', 'created'].includes(String(n.status)));
       if (notaValida) {
-        const numero = notaValida.number ? ` nº ${String(notaValida.number).padStart(6, '0')}` : '';
+        const numero = notaValida.number ? ` nº ${numeroDaNota(notaValida.number)}` : '';
         showError(
           'Esta venda tem nota fiscal válida',
           notaValida.status === 'authorized'
@@ -4464,7 +4465,7 @@ const PedidoVendaForm: React.FC = () => {
   /** Rotulo da NF-e vinculada: numero sempre visivel, com a situacao. */
   const situacaoNfeVinculada = (() => {
     if (!nfeVinculada) return null;
-    const numero = nfeVinculada.number ? String(nfeVinculada.number).padStart(6, '0') : '';
+    const numero = numeroDaNota(nfeVinculada.number);
     const st = nfeVinculada.status;
     if (st === 'authorized') return { texto: `NF-e nº ${numero}`, detalhe: 'Autorizada', cor: '#10b981' };
     if (['enqueued', 'processing', 'created'].includes(st)) return { texto: numero ? `NF-e nº ${numero}` : 'NF-e', detalhe: 'Aguardando a SEFAZ', cor: '#f59e0b' };

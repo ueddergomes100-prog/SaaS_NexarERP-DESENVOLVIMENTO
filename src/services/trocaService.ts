@@ -109,4 +109,16 @@ export const trocaService = {
   ),
   /** Loja: confirma a entrega e baixa o estoque (uma vez). `lotes` = índice do item -> id do lote (produto com lote). */
   entregar: (id: string, lotes?: Record<number, string>) => chamar<{ ok: boolean; custoTotalCentavos: number }>(`/${id}/entregar`, { lotes: lotes || {} }),
+  /** Minuta impressa (coluna Imp. da lista, 15/10/2026). So' a primeira impressao grava a data. */
+  marcarMinutaImpressa: (ids: string[]) => chamar<{ ok: boolean; marcadas: number }>('/minuta-impressa', { ids }),
+};
+
+/**
+ * Avisa o servidor que a minuta saiu no papel. Nunca atrapalha a impressao:
+ * sem rede ou sem permissao, a minuta imprime igual e so' a coluna Imp. nao acende.
+ */
+export const avisarMinutaDeTrocaImpressa = (ids: string[]): void => {
+  const validos = ids.filter(Boolean);
+  if (validos.length === 0) return;
+  trocaService.marcarMinutaImpressa(validos).catch((erro) => console.warn('Minuta de troca: nao foi possivel marcar como impressa.', erro));
 };

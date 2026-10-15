@@ -79,6 +79,8 @@ export interface Troca {
   custoTotalCentavos?: number;
   /** Fila de conferencia da expedicao (so' quando a empresa liga a conferencia). */
   statusConferencia?: 'aguardando' | 'em_conferencia' | 'conferido' | 'divergente';
+  /** A minuta ja' saiu no papel (gravado pelo servidor, POST /api/trocas/minuta-impressa, 15/10/2026). */
+  minutaImpressa?: boolean;
   conferidoPorNome?: string;
   createdAtMillis: number;
   tenantId: string;

@@ -36,7 +36,7 @@ import { escolherIntegrationIdDoReenvio, rejeicaoPrendeConfiguracaoNaNota } from
 import { resolverInscricaoEstadualDestinatario } from '../../utils/destinatarioFiscalDomain';
 import EmissaoProgressoModal from '../../components/common/EmissaoProgressoModal';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
-import { nomeArquivoDocumento } from '../../utils/nomeArquivoDomain';
+import { nomeArquivoDocumento, numeroDaNota } from '../../utils/nomeArquivoDomain';
 import CartaCorrecaoModal from '../../components/common/CartaCorrecaoModal';
 import DevolucaoNfeModal from '../../components/common/DevolucaoNfeModal';
 import { motivoQueImpedeCartaNaTela, notaAceitaCartaCorrecao, type CartaEnviada } from '../../utils/cartaCorrecaoDomain';
@@ -307,6 +307,9 @@ const NFE: React.FC = () => {
   // Abre no mes atual (decisao do dono, 14/10); as em transmissao e as
   // rejeitadas aparecem sempre, de qualquer data.
   const [periodoNotas, setPeriodoNotas] = useState<PeriodoNotas>(PERIODO_NOTAS_PADRAO);
+  // "Data personalizada" (pedido de 15/10/2026): em branco, a lista fica no mes atual.
+  const [notasInicioPersonalizado, setNotasInicioPersonalizado] = useState('');
+  const [notasFimPersonalizado, setNotasFimPersonalizado] = useState('');
   const [page, setPage] = useState(1);
   /** Ordem da lista pelo numero da nota (pedido do dono, 2026-09-30: crescente). Clique no titulo inverte. */
   const [ordemNumero, setOrdemNumero] = useState<'asc' | 'desc'>(() => {
@@ -1265,7 +1268,7 @@ const NFE: React.FC = () => {
   //  - as rejeitadas/denegadas, de qualquer data -- o reenvio reaproveita a
   //    mesma nota (nao pula numeracao).
   // So' atualiza a lista; a consulta a Spedy fica no abrir e nas acoes.
-  const janelaNotas = janelaDoPeriodoNotas(periodoNotas, getDateInputInTimeZone());
+  const janelaNotas = janelaDoPeriodoNotas(periodoNotas, getDateInputInTimeZone(), notasInicioPersonalizado, notasFimPersonalizado);
   const notasDe = janelaNotas?.de ?? '';
   const notasAte = janelaNotas?.ate ?? '';
   useEffect(() => {
@@ -1565,7 +1568,7 @@ const NFE: React.FC = () => {
     }
     const numeroFinal = telLimpado.length <= 11 ? `55${telLimpado}` : telLimpado;
     const valorFormatado = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(note.valor);
-    const mensagem = encodeURIComponent(`Olá, ${note.clienteNome}! Sua nota fiscal ${note.tipo} nº ${note.number ? String(note.number).padStart(6, '0') : ''}, no valor de ${valorFormatado}, foi emitida com sucesso.`);
+    const mensagem = encodeURIComponent(`Olá, ${note.clienteNome}! Sua nota fiscal ${note.tipo} nº ${numeroDaNota(note.number)}, no valor de ${valorFormatado}, foi emitida com sucesso.`);
     window.open(`https://wa.me/${numeroFinal}?text=${mensagem}`, '_blank');
   };
 
@@ -2887,6 +2890,26 @@ const NFE: React.FC = () => {
             </select>
           </label>
 
+          {periodoNotas === 'personalizado' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-muted)' }}>
+              <input
+                type="date"
+                aria-label="Primeiro dia do período"
+                value={notasInicioPersonalizado}
+                onChange={(e) => { setNotasInicioPersonalizado(e.target.value); setPage(1); }}
+                style={{ padding: '6px 10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: '13px' }}
+              />
+              até
+              <input
+                type="date"
+                aria-label="Último dia do período"
+                value={notasFimPersonalizado}
+                onChange={(e) => { setNotasFimPersonalizado(e.target.value); setPage(1); }}
+                style={{ padding: '6px 10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: '13px' }}
+              />
+            </div>
+          )}
+
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-muted)', cursor: 'pointer' }}>
             <input
               type="checkbox"
@@ -2947,7 +2970,7 @@ const NFE: React.FC = () => {
                 pagedInvoices.map((note) => (
                   <tr key={note.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '14px' }}>
                     <td style={{ padding: '16px', fontWeight: 600 }}>
-                      {note.number ? String(note.number).padStart(6, '0') : (
+                      {note.number ? numeroDaNota(note.number) : (
                         <span style={{ fontStyle: 'italic', opacity: 0.6, fontSize: '12px' }}>Aguardando...</span>
                       )}
                     </td>

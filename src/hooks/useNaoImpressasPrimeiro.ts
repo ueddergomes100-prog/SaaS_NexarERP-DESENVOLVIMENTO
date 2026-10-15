@@ -7,9 +7,9 @@ import { lerNaoImpressasPrimeiro } from '../utils/relatorioPreVendasDomain';
  * o botao alterna e a tela lembra a escolha (so' preferencia deste
  * navegador, como useOrdemNumero).
  */
-export const useNaoImpressasPrimeiro = (chave: string): [boolean, () => void] => {
+export const useNaoImpressasPrimeiro = (chave: string, padrao = true): [boolean, () => void] => {
   const [ligado, setLigado] = useState<boolean>(() => {
-    try { return lerNaoImpressasPrimeiro(localStorage.getItem(chave)); } catch { return true; }
+    try { return lerNaoImpressasPrimeiro(localStorage.getItem(chave), padrao); } catch { return padrao; }
   });
   const alternar = () => {
     const novo = !ligado;

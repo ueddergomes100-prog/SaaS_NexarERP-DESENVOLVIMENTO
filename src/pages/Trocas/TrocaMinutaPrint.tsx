@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { DEFAULT_MINUTA_MOSTRAR_LOCAL, DEFAULT_MINUTA_MOSTRAR_MARCA } from '../../utils/conferenciaDomain';
 import MinutaPrintDocument from '../Expedicao/MinutaPrintDocument';
 import { montarMinutaDeTroca, nomeDoUsuarioLogado, type MinutaTrocaMontada } from './minutaTrocaLoader';
+import { avisarMinutaDeTrocaImpressa } from '../../services/trocaService';
 import '../OS/OsPrint.css';
 
 /**
@@ -69,7 +70,7 @@ const TrocaMinutaPrint: React.FC = () => {
           <ArrowLeft size={18} style={{ marginRight: 8 }} />
           Voltar
         </button>
-        <button className="btn-primary" onClick={() => window.print()}>
+        <button className="btn-primary" onClick={() => { avisarMinutaDeTrocaImpressa(id ? [id] : []); window.print(); }}>
           <Printer size={18} style={{ marginRight: 8 }} />
           Imprimir Minuta de Troca
         </button>

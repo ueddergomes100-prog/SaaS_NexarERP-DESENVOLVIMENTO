@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, Eye, Plus, Printer, Repeat, Search } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Eye, Plus, Printer, Repeat, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -11,6 +11,10 @@ import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from '../Vendas/pedidoPrintLoteConstan
 import { showWarning } from '../../utils/alerts';
 import { COR_CONFERENCIA, ROTULO_CONFERENCIA } from '../../utils/conferenciaDomain';
 import { ESTILO_STATUS_TROCA, STATUS_TROCA_ORDEM, totalDeItens, type StatusTroca, type Troca } from '../../utils/trocaDomain';
+import { useNaoImpressasPrimeiro } from '../../hooks/useNaoImpressasPrimeiro';
+import { compararPorImpressao } from '../../utils/relatorioPreVendasDomain';
+import { foiImpresso, OPCOES_FILTRO_IMPRESSAO, passaNoFiltroDeImpressao, rotuloDoFiltroDeImpressao, type FiltroImpressao } from '../../utils/impressaoListaDomain';
+import { FiltroColuna, OpcoesFiltro } from '../../components/common/FiltroColuna';
 
 /**
  * Lista das TROCAS de mercadoria (reposicao sem cobranca pedida pelo app do
@@ -49,6 +53,10 @@ const TrocasList: React.FC = () => {
   const [aba, setAba] = useState<StatusTroca | 'todas'>('Solicitada');
   const [busca, setBusca] = useState('');
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
+  // Coluna Imp. (15/10/2026): troca e' fila de separacao como a pre-venda, entao
+  // a minuta ainda nao impressa sobe para o topo por padrao (o cabecalho alterna).
+  const [naoImpressasPrimeiro, alternarNaoImpressas] = useNaoImpressasPrimeiro('trocas.naoImpressasPrimeiro');
+  const [filtroImpressao, setFiltroImpressao] = useState<FiltroImpressao>('');
 
   const contagem = useMemo(() => {
     const c: Record<string, number> = { todas: items.length };
@@ -64,8 +72,12 @@ const TrocasList: React.FC = () => {
         || String(t.numeroTroca || '').includes(termo)
         || String(t.clienteNome || '').toLowerCase().includes(termo)
         || String(t.vendedorNome || '').toLowerCase().includes(termo))
-      .sort((a, b) => dataDaTrocaMillis(b) - dataDaTrocaMillis(a))
-  ), [items, aba, termo]);
+      .filter((t) => passaNoFiltroDeImpressao(foiImpresso(t), filtroImpressao))
+      .sort((a, b) => (
+        (naoImpressasPrimeiro ? compararPorImpressao({ impressa: foiImpresso(a) }, { impressa: foiImpresso(b) }) : 0)
+        || dataDaTrocaMillis(b) - dataDaTrocaMillis(a)
+      ))
+  ), [items, aba, termo, filtroImpressao, naoImpressasPrimeiro]);
 
   // Selecao para imprimir varias minutas de uma vez. So' conta o que esta na
   // lista agora: trocar de aba ou buscar nao deixa selecao escondida.
@@ -184,15 +196,38 @@ const TrocasList: React.FC = () => {
                 <th style={{ padding: '14px' }}>Vendedor</th>
                 <th style={{ padding: '14px' }}>Itens</th>
                 <th style={{ padding: '14px' }}>Situação</th>
+                <th style={{ padding: '14px', textAlign: 'center', whiteSpace: 'nowrap' }} title="A minuta da troca já foi impressa?">
+                  <button
+                    type="button"
+                    onClick={alternarNaoImpressas}
+                    aria-pressed={naoImpressasPrimeiro}
+                    title={naoImpressasPrimeiro ? 'Não impressas no topo. Clique para ordenar só pela data.' : 'Clique para trazer as não impressas para o topo.'}
+                    style={{ background: 'none', border: 'none', padding: 0, color: naoImpressasPrimeiro ? '#f59e0b' : 'inherit', font: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    Imp. {naoImpressasPrimeiro ? '▲' : '▼'}
+                  </button>
+                  <FiltroColuna ativo={Boolean(filtroImpressao)}>
+                    {(fechar) => (
+                      <OpcoesFiltro
+                        opcoes={OPCOES_FILTRO_IMPRESSAO}
+                        valorSelecionado={filtroImpressao}
+                        fechar={fechar}
+                        rotuloTodos="Todas"
+                        formatarRotulo={(valor) => rotuloDoFiltroDeImpressao(valor).replace('Impressos', 'Impressas').replace('Não impressos', 'Não impressas')}
+                        onSelecionar={(valor, fecharPainel) => { setFiltroImpressao(valor as FiltroImpressao); fecharPainel(); }}
+                      />
+                    )}
+                  </FiltroColuna>
+                </th>
                 <th style={{ padding: '14px', textAlign: 'center' }}>Ação</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px' }}>Carregando trocas...</td></tr>
+                <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px' }}>Carregando trocas...</td></tr>
               ) : filtradas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={9} style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <Repeat size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>{items.length === 0 && todoPeriodo ? 'Nenhuma troca ainda. Elas chegam quando o vendedor envia pelo aplicativo.' : 'Nenhuma troca nesta situação.'}</p>
                   </td>
@@ -234,6 +269,9 @@ const TrocasList: React.FC = () => {
                           <AlertTriangle size={16} />
                         </span>
                       )}
+                    </td>
+                    <td style={{ padding: '14px', textAlign: 'center' }} title={foiImpresso(troca) ? 'Minuta já impressa' : 'Minuta ainda não impressa'}>
+                      {foiImpresso(troca) ? <CheckCircle2 size={18} color="#10b981" style={{ display: 'inline-block' }} /> : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                     </td>
                     <td {...semAbrirLinha} style={{ padding: '14px', textAlign: 'center' }}>
                       <button className="icon-btn" title="Abrir a troca" onClick={() => abrir(troca)} style={{ color: '#3b82f6' }}>

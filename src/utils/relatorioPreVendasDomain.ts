@@ -91,8 +91,14 @@ export const compararPorImpressao = (a: Pick<PreVendaDoRelatorio, 'impressa'>, b
 
 export const CHAVE_NAO_IMPRESSAS_PRIMEIRO = 'preVendas.naoImpressasPrimeiro';
 
-/** Guardado como texto no localStorage; ausente = ligado (padrao do dono). */
-export const lerNaoImpressasPrimeiro = (valor: unknown): boolean => valor !== 'false';
+/**
+ * Guardado como texto no localStorage. Ausente = o padrao da lista: ligado nas
+ * pre-vendas (padrao do dono); nas outras abas de pedidos (15/10/2026) comeca
+ * desligado, para nao mudar a ordem por numero que o cliente ja' usa.
+ */
+export const lerNaoImpressasPrimeiro = (valor: unknown, padrao = true): boolean => (
+  valor === 'true' ? true : valor === 'false' ? false : padrao
+);
 
 export const textoDaImpressao = (linha: Pick<PreVendaDoRelatorio, 'impressa' | 'impressaEm'>): string => {
   if (!linha.impressa) return 'Não impressa';

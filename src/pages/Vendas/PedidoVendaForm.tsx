@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
-import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown, FileText, Plus } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown, FileText, Plus, Pencil } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -24,6 +24,8 @@ import TabelaItensVenda, { type TabelaItensVendaHandle } from './TabelaItensVend
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import AvatarIniciais from '../../components/common/AvatarIniciais';
 import { numeroDaNota } from '../../utils/nomeArquivoDomain';
+import { reancorarVencimentosNoFaturamento } from '../../utils/faturamentoPreVendaDomain';
+import { centavosDoValorDigitado, descontoParaOTotalDigitado } from '../../utils/totalDigitadoDomain';
 import { formatarDocumento } from '../../utils/documentoValidacao';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import {
@@ -465,6 +467,10 @@ const PedidoVendaForm: React.FC = () => {
   const [documentosFiscais, setDocumentosFiscais] = useState<{ emiteNFe?: unknown; emiteNFCe?: unknown; emiteNFSe?: unknown }>({});
   const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [descontoGeralInput, setDescontoGeralInput] = useState<DescontoInputValue>({ tipo: 'valor', valor: '' });
+  // Total digitado (pedido do cliente, 15/10/2026): o valor combinado com o
+  // cliente vira desconto geral em R$ -- ver totalDigitadoDomain.ts.
+  const [editandoTotal, setEditandoTotal] = useState(false);
+  const [totalDigitadoTexto, setTotalDigitadoTexto] = useState('');
   /**
    * DESCONTO PADRAO DO CLIENTE (2026-09-21).
    *
@@ -2007,6 +2013,21 @@ const PedidoVendaForm: React.FC = () => {
   const valorTotalDescontos = valorTotalDescontosItens + descontoGeral;
   const valorTotalPedido = Math.max(0, valorTotalItens - valorTotalDescontos + Number(frete || 0) + Number(encargos || 0));
   const valorTotalPedidoCentavos = toCents(valorTotalPedido);
+
+  /** Aplica o total digitado: a diferenca para o total sem desconto vira o desconto geral, em reais. */
+  const aplicarTotalDigitado = () => {
+    const resultado = descontoParaOTotalDigitado({
+      subtotalCents: subtotalAposDescontosItensCents,
+      acrescimosCents: toCents(Number(frete || 0)) + toCents(Number(encargos || 0)),
+      totalDigitadoCents: centavosDoValorDigitado(totalDigitadoTexto),
+    });
+    if (!resultado.ok) {
+      showWarning('Total não aplicado', resultado.erro);
+      return;
+    }
+    setDescontoGeralInput({ tipo: 'valor', valor: (resultado.descontoCents / 100).toFixed(2) });
+    setEditandoTotal(false);
+  };
   // Ate o percentual do cadastro do cliente, o desconto passa direto: e'
   // autorizacao que o dono ja deu. Acima disso vale o limite da tela, com o
   // modo de sempre (avisar/bloquear/senha). Ver checarLimiteComCliente.
@@ -2971,12 +2992,28 @@ const PedidoVendaForm: React.FC = () => {
     // Resolvido aqui, e nao so' na hora de gravar, porque a data da venda e'
     // a base dos vencimentos e das previsoes de recebimento calculados logo
     // abaixo -- data velha contamina o financeiro junto com o relatorio.
-    const dataVendaParaGravar = await resolverDataVendaParaGravar();
+    //
+    // Pre-venda (ou pedido do agente) faturada: vale SEMPRE o dia do
+    // faturamento, sem perguntar, e os vencimentos do boleto e do a prazo andam
+    // junto (decisao do dono de 15/10/2026 -- ver faturamentoPreVendaDomain.ts).
+    let dataVendaParaGravar: string | null;
+    let pagamentosParaFechar = paymentDrafts;
+    if (isPreVendaAberta || isPendingFromAgent) {
+      const diaDoFaturamento = getDateInputInTimeZone();
+      pagamentosParaFechar = reancorarVencimentosNoFaturamento(paymentDrafts, dataVenda, diaDoFaturamento);
+      dataVendaParaGravar = diaDoFaturamento;
+      if (dataVenda !== diaDoFaturamento) {
+        setDataVenda(diaDoFaturamento);
+        setPaymentDrafts(pagamentosParaFechar);
+      }
+    } else {
+      dataVendaParaGravar = await resolverDataVendaParaGravar();
+    }
     if (!dataVendaParaGravar) return false;
 
     let paymentRecords: PaymentRecord[];
     try {
-      paymentRecords = normalizePayments(valorTotalPedidoCentavos, paymentDrafts, {
+      paymentRecords = normalizePayments(valorTotalPedidoCentavos, pagamentosParaFechar, {
         saleDate: dataVendaParaGravar,
         maxCreditInstallments: financeConfig.maxCreditInstallments || undefined,
         creditFeePercentByInstallment: financeConfig.creditFeePercentByInstallment,
@@ -3149,7 +3186,7 @@ const PedidoVendaForm: React.FC = () => {
           },
           frete: Number(frete || 0),
           encargos: Number(encargos || 0),
-          pagamentos: paymentDrafts,
+          pagamentos: pagamentosParaFechar,
           ...(orcamentoId ? { orcamentoId } : {}),
         });
         newPedidoId = resposta.pedidoId;
@@ -5285,8 +5322,46 @@ const PedidoVendaForm: React.FC = () => {
             </div>
             <div className="pedido-total">
               <span className="hd-rotulo">Total</span>
-              <span className="pedido-total__valor">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalPedido)}</span>
+              {editandoTotal ? (
+                <span className="pedido-total__editor">
+                  <span aria-hidden="true">R$</span>
+                  <input
+                    autoFocus
+                    type="text"
+                    inputMode="decimal"
+                    aria-label="Total combinado com o cliente"
+                    value={totalDigitadoTexto}
+                    onChange={(event) => setTotalDigitadoTexto(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') { event.preventDefault(); aplicarTotalDigitado(); }
+                      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setEditandoTotal(false); }
+                    }}
+                  />
+                  <button type="button" className="btn-primary" onClick={aplicarTotalDigitado}>Aplicar</button>
+                  <button type="button" className="btn-secondary" onClick={() => setEditandoTotal(false)}>Cancelar</button>
+                </span>
+              ) : (!isViewing || canEditPendingOrder) && itens.length > 0 ? (
+                <button
+                  type="button"
+                  className="pedido-total__valor pedido-total__valor--editavel"
+                  title="Clique para digitar o total combinado com o cliente. A diferença vira desconto."
+                  onClick={() => {
+                    setTotalDigitadoTexto((valorTotalPedidoCentavos / 100).toFixed(2).replace('.', ','));
+                    setEditandoTotal(true);
+                  }}
+                >
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalPedido)}
+                  <Pencil size={16} aria-hidden="true" />
+                </button>
+              ) : (
+                <span className="pedido-total__valor">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalPedido)}</span>
+              )}
             </div>
+            {editandoTotal && (
+              <p className="pedido-total__ajuda">
+                Digite o total combinado com o cliente. A diferença vai para o desconto geral e passa pelo mesmo limite de desconto.
+              </p>
+            )}
           </div>
 
           <div className="card" style={{ display: 'none', padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>

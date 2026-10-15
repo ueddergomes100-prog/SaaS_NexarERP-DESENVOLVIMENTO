@@ -664,6 +664,38 @@ body.light-theme .app-layout-wrapper .hd-avatar.cor-5 { background: #e0f2fe; col
   line-height: 1;
   white-space: nowrap;
 }
+/* total clicavel: digita o valor combinado e a diferenca vira desconto (15/10/2026) */
+.app-layout-wrapper .pedido-total__valor--editavel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px;
+  border: 1px dashed transparent;
+  border-radius: 12px;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.app-layout-wrapper .pedido-total__valor--editavel svg { width: 16px; height: 16px; opacity: 0.45; }
+.app-layout-wrapper .pedido-total__valor--editavel:hover { border-color: var(--border-strong, var(--border-color)); }
+.app-layout-wrapper .pedido-total__valor--editavel:hover svg { opacity: 1; }
+.app-layout-wrapper .pedido-total__editor { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.app-layout-wrapper .pedido-total__editor > span { color: var(--text-muted); font-weight: 700; }
+.app-layout-wrapper .pedido-total__editor input {
+  width: 130px;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #7c3aed;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  color: var(--hd-destaque);
+  font-size: 20px;
+  font-weight: 800;
+  text-align: right;
+  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.14);
+}
+.app-layout-wrapper .pedido-total__editor button { height: 42px; padding: 0 14px; }
+.app-layout-wrapper .pedido-total__ajuda { margin: 10px 0 0; color: var(--text-muted); font-size: 12.5px; line-height: 1.45; }
 .app-layout-wrapper .btn-primary.pedido-botao-final {
   display: flex;
   align-items: center;

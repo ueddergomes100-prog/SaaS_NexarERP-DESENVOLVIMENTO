@@ -97,7 +97,8 @@ export interface PdvTotals {
   volumeCount: number;
 }
 
-export type SaleDiscountMode = 'valor' | 'percentual';
+/** 'total' (15/10/2026): digita o total combinado e o desconto sai da diferenca. */
+export type SaleDiscountMode = 'valor' | 'percentual' | 'total';
 
 export interface CaixaSangria {
   id: string;

@@ -15,6 +15,14 @@ const {
 } = require('../services/baixaFinanceira');
 const { validarPedidoDeAlteracaoDeValor, alterarValorDoTitulo } = require('../services/alteracaoValorTitulo');
 const { PERMISSAO_ALTERAR_VALOR } = require('../domain/alteracaoValorTituloDomain');
+const { gerarBoletoDaParcela, voltarParcelaAPrazo } = require('../services/boletoDeAPrazo');
+const {
+  validarPedidoDeRenegociacao,
+  criarRenegociacao,
+  validarPedidoDeDesfazer,
+  desfazerRenegociacao,
+} = require('../services/renegociacao');
+const { PERMISSAO_RENEGOCIAR } = require('../domain/renegociacaoDomain');
 const {
   conciliarCartao,
   compensarChequeRecebido,
@@ -185,6 +193,61 @@ router.post('/alterar-valor', async (req, res) => {
   }
 });
 
+const SEM_PERMISSAO_RENEGOCIAR = 'Você não tem permissão para renegociar documentos. Peça a um responsável liberar "Financeiro: Renegociar Documentos" no seu usuário.';
+
+/**
+ * POST /api/financeiro/renegociar
+ *   { transacaoIds: [...], parcelas: [{ valorCentavos, vencimento }], formaPagamento, motivo, tenantId? }
+ *
+ * Renegociacao (15/10/2026): parcelas em aberto de um cliente viram
+ * "Renegociada" e nascem as parcelas novas. Ver services/renegociacao.js.
+ */
+router.post('/renegociar', async (req, res) => {
+  try {
+    const hoje = hojeNoBrasil();
+    const { erro, pedido } = validarPedidoDeRenegociacao(req.body, hoje);
+    if (erro) return res.status(400).json({ error: erro });
+    if (!temPermissao(req.user, PERMISSAO_RENEGOCIAR)) return res.status(403).json({ error: SEM_PERMISSAO_RENEGOCIAR });
+
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const resumo = await criarRenegociacao({ user: req.user, tenantId, pedido, hoje });
+
+    registrarLog({ ...req.user, tenantId }, {
+      modulo: 'financeiro',
+      acao: 'criacao',
+      descricao: `Renegociação de ${resumo.quantidadeAntigas} parcela(s) de ${resumo.clienteNome}: ${reais(resumo.totalOrigemCentavos)} viraram ${reais(resumo.totalNovoCentavos)} em ${resumo.quantidadeNovas} parcela(s) (${pedido.formaPagamento}). Motivo: ${pedido.motivo}`,
+      registroId: resumo.renegociacaoId,
+      critico: true,
+    });
+    return res.json({ ok: true, renegociacaoId: resumo.renegociacaoId });
+  } catch (erro) {
+    return responderErro(res, erro, 'renegociar');
+  }
+});
+
+/** POST /api/financeiro/renegociacao/desfazer  { transacaoId (qualquer parcela nova), motivo, tenantId? } */
+router.post('/renegociacao/desfazer', async (req, res) => {
+  try {
+    const { erro, pedido } = validarPedidoDeDesfazer(req.body);
+    if (erro) return res.status(400).json({ error: erro });
+    if (!temPermissao(req.user, PERMISSAO_RENEGOCIAR)) return res.status(403).json({ error: SEM_PERMISSAO_RENEGOCIAR });
+
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const resumo = await desfazerRenegociacao({ user: req.user, tenantId, pedido });
+
+    registrarLog({ ...req.user, tenantId }, {
+      modulo: 'financeiro',
+      acao: 'edicao',
+      descricao: `Renegociação de ${resumo.clienteNome} desfeita: ${resumo.quantidadeNovas} parcela(s) nova(s) cancelada(s)${resumo.estornadas ? ` (${resumo.estornadas} recebida(s) estornada(s), ${reais(resumo.retiradoDoBancoCentavos)} saíram do banco)` : ''} e ${resumo.quantidadeAntigas} parcela(s) antiga(s) de volta em aberto. Motivo: ${pedido.motivo}`,
+      registroId: resumo.renegociacaoId,
+      critico: true,
+    });
+    return res.json({ ok: true, estornadas: resumo.estornadas });
+  } catch (erro) {
+    return responderErro(res, erro, 'desfazer a renegociação');
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Fatia 2: o resto das telas do Financeiro que mexiam no saldo do banco
 // (services/movimentoBanco.js). Cada rota exige a permissao da sua tela.
@@ -193,7 +256,7 @@ router.post('/alterar-valor', async (req, res) => {
 const MENSAGEM_SEM_PERMISSAO = {
   'financeiro.banco': 'Você não tem permissão para conciliar recebimentos no banco. Peça a um responsável liberar "Financeiro: Banco" no seu usuário.',
   'financeiro.cheques': 'Você não tem permissão para compensar cheques. Peça a um responsável liberar "Financeiro: Cheques" no seu usuário.',
-  'financeiro.boletos': 'Você não tem permissão para dar baixa em boletos. Peça a um responsável liberar "Financeiro: Boletos" no seu usuário.',
+  'financeiro.boletos': 'Você não tem permissão para mexer em boletos. Peça a um responsável liberar "Financeiro: Boletos (Emissão, Remessa e Retorno)" no seu usuário.',
   'cadastros.bancos': 'Você não tem permissão para lançar no banco. Peça a um responsável liberar "Cadastros: Bancos" no seu usuário.',
 };
 
@@ -235,6 +298,14 @@ router.post('/cheque-emitido/compensar', rotaDeMovimento('financeiro.cheques', '
 /** POST /api/financeiro/boleto/retorno  { transacaoId, valorPagoCentavos, dataPagamento? } -- um boleto por chamada */
 router.post('/boleto/retorno', rotaDeMovimento('financeiro.boletos', 'dar baixa no boleto', baixarBoletoPeloRetorno,
   (r, corpo) => (r.jaEstavaPago ? '' : `Boleto "${r.descricao}" baixado pelo arquivo de retorno: ${reais(Number(corpo.valorPagoCentavos))}.`)));
+
+/** POST /api/financeiro/gerar-boleto  { transacaoId } -- parcela "a prazo" passa a ser cobrada em boleto (15/10/2026) */
+router.post('/gerar-boleto', rotaDeMovimento('financeiro.boletos', 'gerar o boleto da parcela', gerarBoletoDaParcela,
+  (r) => `Parcela "${r.descricao}" passou de "a prazo" para boleto (aguardando emissão).`));
+
+/** POST /api/financeiro/voltar-a-prazo  { transacaoId } -- desfaz o "Gerar boleto" enquanto o boleto nao foi emitido */
+router.post('/voltar-a-prazo', rotaDeMovimento('financeiro.boletos', 'voltar a parcela para "a prazo"', voltarParcelaAPrazo,
+  (r) => `Parcela "${r.descricao}" voltou a ser "a prazo" (boleto não emitido).`));
 
 /** POST /api/financeiro/banco/lancamento  { bancoId, tipo, direcao, valorCentavos, descricao, data } */
 router.post('/banco/lancamento', rotaDeMovimento('cadastros.bancos', 'registrar o lançamento', lancarNoBanco,

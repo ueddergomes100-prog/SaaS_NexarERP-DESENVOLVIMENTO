@@ -31,6 +31,7 @@ const {
 } = require('../domain/financeDomain');
 const { montarBaixaManual, validarDataBaixa } = require('../domain/baixaFinanceiraDomain');
 const { centavosParaAOrigem } = require('../domain/alteracaoValorTituloDomain');
+const { recusarSeRenegociada, lerRenegociacaoDoTitulo, quitarOrigensSeRenegociacaoPaga } = require('./renegociacaoOrigem');
 const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const {
   ErroBaixa,
@@ -98,6 +99,7 @@ const creditarRecebimento = async ({ user, tenantId, transacaoId, bancoIdEscolhi
         : 'Este recebimento de cartão já foi conciliado (talvez por outra pessoa). Atualize a tela.');
     }
     if (dados.status === 'Cancelada') throw new ErroBaixa(400, 'Um título cancelado não pode ser conciliado.');
+    recusarSeRenegociada(dados);
 
     const forma = String(dados.formaPagamento || '');
     if (ehCheque && forma !== 'Cheque' && !dados.cheque) {
@@ -115,6 +117,7 @@ const creditarRecebimento = async ({ user, tenantId, transacaoId, bancoIdEscolhi
 
     const origem = await lerOrigem(tx, tenantId, dados, 'conciliado');
     const banco = await lerBanco(tx, tenantId, String(bancoId), 'O banco selecionado não foi encontrado. Atualize a tela e escolha de novo.');
+    const renegociacao = await lerRenegociacaoDoTitulo(tx, tenantId, transacaoId, dados);
 
     const valorCentavos = centavosDoTitulo(dados);
     const liquidoCentavos = transactionNetCents(dados);
@@ -146,6 +149,7 @@ const creditarRecebimento = async ({ user, tenantId, transacaoId, bancoIdEscolhi
       method: ehCheque ? 'Cheque' : forma,
       receivedAt: hoje,
     }, ehCheque ? 'Cheque compensado' : 'Recebimento de cartão conciliado no banco');
+    quitarOrigensSeRenegociacaoPaga(tx, user, renegociacao, hoje);
   });
 
   return resumo;
@@ -242,11 +246,14 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
       return;
     }
     if (dados.status === 'Cancelada') throw new ErroBaixa(400, `O boleto "${dados.descricao || transacaoId}" está cancelado e não pode receber baixa.`);
+    recusarSeRenegociada(dados);
     if (!dados.boleto) throw new ErroBaixa(400, `O título "${dados.descricao || transacaoId}" não é um boleto emitido pelo sistema.`);
 
     const banco = dados.bancoId
       ? await lerBanco(tx, tenantId, String(dados.bancoId), 'Banco do boleto não encontrado. Confira o cadastro de bancos.')
       : null;
+    // Boleto de parcela de renegociacao (15/10/2026): o ultimo pago quita as vendas/OS antigas.
+    const renegociacao = await lerRenegociacaoDoTitulo(tx, tenantId, transacaoId, dados);
     resumo.descricao = String(dados.descricao || '');
 
     tx.update(titulo.ref, {
@@ -266,6 +273,7 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
         ...buildDocumentUpdateMetadata(user.uid, agora(), `Boleto pago (retorno): "${resumo.descricao}"`),
       });
     }
+    quitarOrigensSeRenegociacaoPaga(tx, user, renegociacao, dataPagamento);
   });
 
   return resumo;

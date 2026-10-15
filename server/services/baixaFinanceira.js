@@ -40,6 +40,12 @@ const { centavosParaAOrigem } = require('../domain/alteracaoValorTituloDomain');
 const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const regras = require('./baixaFinanceiraRegras');
+const {
+  recusarSeRenegociada,
+  lerRenegociacaoDoTitulo,
+  quitarOrigensSeRenegociacaoPaga,
+  reabrirOrigensSeRenegociacaoEstavaPaga,
+} = require('./renegociacaoOrigem');
 
 const { ErroBaixa, camposDoResumoDePagamentos } = regras;
 
@@ -111,9 +117,12 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
         ? 'Uma conta cancelada não pode ser paga.'
         : 'Uma conta cancelada não pode ser recebida.');
     }
+    recusarSeRenegociada(dados);
 
     const origem = tipo === 'entrada' ? await lerOrigem(tx, tenantId, dados, 'recebido') : { ref: null, dados: null };
     const banco = bancoId ? await lerBanco(tx, tenantId, bancoId, 'O banco selecionado não foi encontrado. Atualize a tela e escolha de novo.') : null;
+    // Parcela nova de renegociacao (15/10/2026): a ultima recebida quita as vendas/OS antigas.
+    const renegociacao = tipo === 'entrada' ? await lerRenegociacaoDoTitulo(tx, tenantId, pedido.transacaoId, dados) : null;
     if (banco && banco.dados.ativo === false) {
       throw new ErroBaixa(400, `O banco "${banco.dados.nome || 'selecionado'}" está inativo. Escolha outro banco ou reative-o em Cadastros > Bancos.`);
     }
@@ -255,6 +264,7 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
         ...buildDocumentUpdateMetadata(user.uid, agora(), 'Recebimento confirmado em Contas a Receber'),
       });
     }
+    resumo.quitouRenegociacao = quitarOrigensSeRenegociacaoPaga(tx, user, renegociacao, dataPagamento);
   });
 
   return resumo;
@@ -281,6 +291,8 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
     }
 
     const origem = tipo === 'entrada' ? await lerOrigem(tx, tenantId, dados, 'estornado') : { ref: null, dados: null };
+    // Parcela nova de renegociacao ja' quitada: as vendas/OS antigas voltam a ficar pendentes.
+    const renegociacao = tipo === 'entrada' ? await lerRenegociacaoDoTitulo(tx, tenantId, pedido.transacaoId, dados) : null;
     const banco = plano.bancoId && plano.ajusteBancoCentavos !== 0
       ? await lerBanco(tx, tenantId, plano.bancoId, 'O banco desta baixa não foi encontrado, então o saldo não pode ser corrigido.')
       : null;
@@ -376,6 +388,7 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
         ...buildDocumentUpdateMetadata(user.uid, agora(), 'Recebimento estornado em Contas a Receber'),
       });
     }
+    reabrirOrigensSeRenegociacaoEstavaPaga(tx, user, renegociacao, motivo);
   });
 
   return resumo;
@@ -390,6 +403,7 @@ module.exports = {
   hojeNoBrasil,
   // Usados tambem por services/movimentoBanco.js (cartao, cheque, boleto, banco).
   agora,
+  apagar,
   lerTitulo,
   lerOrigem,
   lerBanco,

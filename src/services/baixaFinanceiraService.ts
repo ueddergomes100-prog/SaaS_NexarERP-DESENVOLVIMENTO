@@ -47,6 +47,10 @@ type RotaFinanceiro =
   | '/baixa-lote'
   | '/estorno'
   | '/alterar-valor'
+  | '/gerar-boleto'
+  | '/voltar-a-prazo'
+  | '/renegociar'
+  | '/renegociacao/desfazer'
   | '/cartao/conciliar'
   | '/cheque/compensar'
   | '/cheque-emitido/compensar'
@@ -203,6 +207,33 @@ export const executarEstorno = async (args: {
  */
 export const alterarValorDaParcela = (args: { transacaoId: string; novoValorCentavos: number; motivo: string; tenantId: string }) => (
   chamarFinanceiro<{ ok: boolean }>('/alterar-valor', { ...args })
+);
+
+/** Parcela "a prazo" passa a ser cobrada em boleto e vai para Boletos > Aguardando emissao (15/10/2026). */
+export const gerarBoletoDaParcela = (args: { transacaoId: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean }>('/gerar-boleto', { ...args })
+);
+
+/**
+ * Renegociacao (15/10/2026): parcelas em aberto de um cliente viram "Renegociada"
+ * e nascem as parcelas novas. O servidor confere tudo de novo e grava o log.
+ */
+export const renegociarParcelas = (args: {
+  transacaoIds: string[];
+  parcelas: Array<{ valorCentavos: number; vencimento: string }>;
+  formaPagamento: string;
+  motivo: string;
+  tenantId: string;
+}) => chamarFinanceiro<{ ok: boolean; renegociacaoId: string }>('/renegociar', { ...args });
+
+/** Desfaz a renegociacao a partir de qualquer parcela nova dela (estorna as ja' recebidas). */
+export const desfazerRenegociacaoDaParcela = (args: { transacaoId: string; motivo: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean; estornadas: number }>('/renegociacao/desfazer', { ...args })
+);
+
+/** Desfaz o "Gerar boleto" enquanto o boleto nao foi emitido. */
+export const voltarParcelaAPrazo = (args: { transacaoId: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean }>('/voltar-a-prazo', { ...args })
 );
 
 // ---------------------------------------------------------------------------

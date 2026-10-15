@@ -26,6 +26,7 @@ import AvatarIniciais from '../../components/common/AvatarIniciais';
 import { numeroDaNota } from '../../utils/nomeArquivoDomain';
 import { reancorarVencimentosNoFaturamento } from '../../utils/faturamentoPreVendaDomain';
 import { bloqueioParaRefazerParcelas, type TituloParaAlterarValor } from '../../utils/alteracaoValorTituloDomain';
+import { bloqueioPorParcelaRenegociada } from '../../utils/renegociacaoDomain';
 import { classificarNotasDaVenda, listaDeNotas, validarJustificativaCancelamento, type NotaDaVenda } from '../../utils/cancelamentoNotaVendaDomain';
 import { cancelarNotaDaVenda } from '../../services/cancelamentoNotaService';
 import { centavosDoValorDigitado, descontoParaOTotalDigitado } from '../../utils/totalDigitadoDomain';
@@ -4095,6 +4096,21 @@ const PedidoVendaForm: React.FC = () => {
       return;
     }
 
+    // Parcela renegociada (15/10/2026): conferido ANTES de cancelar a nota, para
+    // nunca cancelar a nota e depois descobrir que a venda nao pode ser cancelada.
+    try {
+      const snapTitulos = await getDocs(query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('pedidoId', '==', id)));
+      const bloqueioDeRenegociacao = bloqueioPorParcelaRenegociada(snapTitulos.docs.map((d) => d.data()), 'cancelar a venda');
+      if (bloqueioDeRenegociacao) {
+        showError('Venda com parcela renegociada', bloqueioDeRenegociacao);
+        return;
+      }
+    } catch (erroTitulos) {
+      console.error('Erro ao conferir as parcelas da venda antes de cancelar:', erroTitulos);
+      showError('Não foi possível conferir as parcelas da venda', 'O cancelamento não foi feito. Confira sua conexão e tente de novo.');
+      return;
+    }
+
     // Venda com NF-e/NFC-e VALIDA (2026-09-30; integrado em 15/10/2026). Para o
     // fisco a mercadoria saiu: a venda so' pode ser cancelada DEPOIS da nota.
     // Desde 15/10 o proprio "Cancelar venda" cancela a nota (com o motivo) e so'
@@ -4231,6 +4247,11 @@ const PedidoVendaForm: React.FC = () => {
         }
 
         const paymentSnapshots = await Promise.all(paymentRefs.map((paymentRef) => transaction.get(paymentRef)));
+        const bloqueioDeRenegociacao = bloqueioPorParcelaRenegociada(
+          paymentSnapshots.filter((snapshot) => snapshot.exists()).map((snapshot) => snapshot.data() as { status?: string; descricao?: string }),
+          'cancelar a venda',
+        );
+        if (bloqueioDeRenegociacao) throw new Error(bloqueioDeRenegociacao);
 
         await applyStockAdjustments(
           transaction,

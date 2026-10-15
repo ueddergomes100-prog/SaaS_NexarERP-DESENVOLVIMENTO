@@ -29,6 +29,7 @@ import {
 } from '../../utils/boletoEmissaoDomain';
 import { mensagensDoBoleto, montarRemessaSicoob, nomeArquivoRemessaSicoob, type TituloRemessaSicoob } from '../../utils/boletoRemessaSicoobDomain';
 import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
+import { camposAoVoltarAPrazo } from '../../utils/boletoDeAPrazoDomain';
 import '../OS/OS.css';
 
 /**
@@ -79,6 +80,8 @@ interface TituloBoleto {
   osId?: string;
   paymentIndex?: number;
   boleto?: BoletoDetails;
+  /** Era "Pagamento a Prazo" e virou boleto pelo Contas a Receber (boletoDeAPrazoDomain). */
+  boletoDeAPrazo?: boolean;
   /** Dia em que o titulo nasceu (faturamento da venda/OS), AAAA-MM-DD; vazio em lancamento antigo. */
   faturadoEm: string;
 }
@@ -109,6 +112,7 @@ const paraTituloBoleto = (id: string, data: DocumentData): TituloBoleto => ({
   osId: data.osId || '',
   paymentIndex: data.paymentIndex,
   boleto: data.boleto || undefined,
+  ...(data.boletoDeAPrazo === true ? { boletoDeAPrazo: true } : {}),
   faturadoEm: data.createdAt?.toDate ? getDateInputInTimeZone(data.createdAt.toDate()) : '',
 } as TituloBoleto);
 
@@ -433,8 +437,10 @@ const Boletos: React.FC = () => {
       title: 'Desfazer emissão deste boleto?',
       html: `<div style="text-align:left;font-size:14px">`
         + `Remove o nosso número, a linha digitável e o código de barras gravados neste título. `
-        + `Ele volta para "Aguardando emissão" e pode ser emitido de novo. Isso não desfaz nada que já `
-        + `tenha sido enviado ao banco.`
+        + (titulo.boletoDeAPrazo
+          ? `Esta parcela era "Pagamento a Prazo": ela volta a ser a prazo e sai da lista de boletos (para emitir de novo, use "Gerar boleto" no Contas a Receber). `
+          : `Ele volta para "Aguardando emissão" e pode ser emitido de novo. `)
+        + `Isso não desfaz nada que já tenha sido enviado ao banco.`
         + `</div>`,
       icon: 'warning',
       showCancelButton: true,
@@ -444,19 +450,26 @@ const Boletos: React.FC = () => {
     if (!confirmacao.isConfirmed) return;
 
     setProcessando(true);
+    let eraAPrazo = false;
     try {
       await runTransaction(db, async (transaction) => {
         const ref = doc(db, 'transacoes', titulo.id);
         const snap = await transaction.get(ref);
         if (!snap.exists()) throw new Error('Título não encontrado. Atualize a página.');
         if (snap.data().status === 'Paga') throw new Error('Este título já foi pago — não é possível desfazer a emissão.');
+        // Parcela que era "a prazo" e virou boleto pelo Contas a Receber (15/10/2026):
+        // desfazer a emissao devolve a forma "a prazo" (decisao do dono).
+        eraAPrazo = snap.data().boletoDeAPrazo === true;
         transaction.update(ref, {
           boleto: deleteField(),
+          ...(eraAPrazo ? { ...camposAoVoltarAPrazo(), boletoDeAPrazo: deleteField() } : {}),
           updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Emissão de boleto desfeita'),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), eraAPrazo ? 'Emissão de boleto desfeita; parcela voltou a ser "a prazo"' : 'Emissão de boleto desfeita'),
         });
       });
-      showSuccess('Emissão desfeita. O título voltou para "Aguardando emissão".');
+      showSuccess(eraAPrazo
+        ? 'Emissão desfeita. A parcela voltou a ser "Pagamento a Prazo" e saiu da lista de boletos.'
+        : 'Emissão desfeita. O título voltou para "Aguardando emissão".');
     } catch (erro: any) {
       console.error('Erro ao desfazer emissão do boleto:', erro);
       showError('Não foi possível desfazer', erro?.message || 'Tente novamente em instantes.');

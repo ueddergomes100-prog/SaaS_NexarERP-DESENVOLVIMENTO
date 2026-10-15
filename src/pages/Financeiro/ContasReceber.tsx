@@ -4,7 +4,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
-import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText, Edit } from 'lucide-react';
+import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText, Edit, Barcode } from 'lucide-react';
 import {
   applyPaymentReceipt,
   fromCents,
@@ -32,7 +32,17 @@ import { emitenteDaConfiguracao, montarRecibo, parseEmissaoDocumentos, parteDoCl
 import { gerarPdfRecibo } from '../../utils/documentosCobrancaPdf';
 import { mensagemDoDocumento, parseMensagensPadrao } from '../../utils/mensagensPadraoDomain';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
-import { alterarValorDaParcela, estornarBaixaComConfirmacao, registrarBaixa } from '../../services/baixaFinanceiraService';
+import { alterarValorDaParcela, desfazerRenegociacaoDaParcela, estornarBaixaComConfirmacao, gerarBoletoDaParcela, registrarBaixa, voltarParcelaAPrazo } from '../../services/baixaFinanceiraService';
+import RenegociacaoModal, { type ParcelaParaRenegociar } from '../../components/finance/RenegociacaoModal';
+import {
+  PERMISSAO_RENEGOCIAR,
+  STATUS_RENEGOCIADA,
+  ehParcelaDeRenegociacao,
+  validarMotivoRenegociacao,
+  validarTitulosParaRenegociar,
+  type RegistroRenegociacao,
+} from '../../utils/renegociacaoDomain';
+import { FORMA_A_PRAZO, bloqueioParaGerarBoleto, bloqueioParaVoltarAPrazo } from '../../utils/boletoDeAPrazoDomain';
 import {
   PERMISSAO_ALTERAR_VALOR,
   bloqueioParaAlterarValor,
@@ -87,6 +97,10 @@ interface TransacaoData extends TituloParaEstorno {
   criadoPor?: string;
   /** Valor da parcela alterado a mao (15/10/2026) -- ver alteracaoValorTituloDomain. */
   alteracaoValor?: Partial<AlteracaoValorRegistro> | null;
+  /** Era "Pagamento a Prazo" e virou boleto por "Gerar boleto" (boletoDeAPrazoDomain). */
+  boletoDeAPrazo?: boolean;
+  /** Parcela NOVA de uma renegociacao (renegociacaoDomain). */
+  renegociacao?: Partial<RegistroRenegociacao> | null;
 }
 
 interface GrupoCliente {
@@ -107,6 +121,9 @@ const ContasReceber: React.FC = () => {
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId, userRole, userPermissions, isOwner } = useAuth();
   const podeEstornar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.estornar'));
   const podeAlterarValor = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes(PERMISSAO_ALTERAR_VALOR));
+  const podeMexerEmBoleto = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.boletos'));
+  const podeRenegociar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes(PERMISSAO_RENEGOCIAR));
+  const [renegociando, setRenegociando] = useState<{ clienteNome: string; titulos: ParcelaParaRenegociar[] } | null>(null);
   
   const [modalConciliacao, setModalConciliacao] = useState<{ ativo: boolean, transacao: TransacaoData | null, creditos: any[], saldoTotal: number }>({
     ativo: false, transacao: null, creditos: [], saldoTotal: 0
@@ -267,6 +284,9 @@ const ContasReceber: React.FC = () => {
       if (transactionData.status === 'Cancelada') {
         throw new Error('Uma conta cancelada não pode ser recebida.');
       }
+      if (transactionData.status === STATUS_RENEGOCIADA) {
+        throw new Error('Esta parcela foi renegociada. Receba pelas parcelas da renegociação (ou desfaça a renegociação).');
+      }
 
       let sourceRef = null;
       let sourceSnap = null;
@@ -385,6 +405,12 @@ const ContasReceber: React.FC = () => {
   };
 
   const handleConciliar = async (t: TransacaoData) => {
+    // Parcela de renegociacao: o abatimento com credito grava pelo navegador e nao
+    // quitaria as vendas de origem quando a renegociacao fecha -- recebe pelo servidor.
+    if (ehParcelaDeRenegociacao(t)) {
+      await solicitarFormaRecebimento(t);
+      return;
+    }
     let saldoCredito = 0;
     const creditosAtivos: any[] = [];
     
@@ -653,6 +679,112 @@ const ContasReceber: React.FC = () => {
     }
   };
 
+  /**
+   * "Gerar boleto" (15/10/2026): a parcela "a prazo" passa a ser cobrada em
+   * boleto e vai para Financeiro > Boletos, aba "Aguardando emissao". A venda
+   * nao muda. Quem grava e confere de novo e' o servidor.
+   */
+  const handleGerarBoleto = async (t: TransacaoData) => {
+    if (!tenantId) return;
+    const bloqueio = bloqueioParaGerarBoleto({ ...t, tipo: t.tipo || 'entrada' });
+    if (bloqueio) {
+      showError('Não é possível gerar o boleto', bloqueio);
+      return;
+    }
+    const confirmacao = await NexusSwal.fire({
+      title: 'Cobrar esta parcela em boleto?',
+      html: `<div style="text-align:left;font-size:14px;">A parcela <strong>${escaparHtml(t.descricao)}</strong> deixa de ser "${FORMA_A_PRAZO}" e vai para <strong>Financeiro › Boletos</strong>, aba "Aguardando emissão", com o mesmo valor e vencimento. A venda não muda.</div>`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Gerar boleto',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirmacao.isConfirmed) return;
+    setIsProcessing(true);
+    try {
+      await gerarBoletoDaParcela({ transacaoId: t.id, tenantId });
+      const abrir = await NexusSwal.fire({
+        title: 'Pronto para emitir',
+        text: 'A parcela está em Financeiro › Boletos, aba "Aguardando emissão".',
+        icon: 'success',
+        showCancelButton: true,
+        confirmButtonText: 'Abrir Boletos',
+        cancelButtonText: 'Fechar',
+      });
+      if (abrir.isConfirmed) openTab('/financeiro/boletos', 'Boletos');
+    } catch (erro) {
+      console.error('Erro ao gerar o boleto da parcela:', erro);
+      showError('Não foi possível gerar o boleto', erro instanceof Error ? erro.message : 'Tente de novo em instantes.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleVoltarAPrazo = async (t: TransacaoData) => {
+    if (!tenantId) return;
+    const bloqueio = bloqueioParaVoltarAPrazo(t);
+    if (bloqueio) {
+      showError('Não é possível voltar a prazo', bloqueio);
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      await voltarParcelaAPrazo({ transacaoId: t.id, tenantId });
+      showSuccess(`A parcela voltou a ser "${FORMA_A_PRAZO}".`);
+    } catch (erro) {
+      console.error('Erro ao voltar a parcela para a prazo:', erro);
+      showError('Não foi possível voltar a prazo', erro instanceof Error ? erro.message : 'Tente de novo em instantes.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  /**
+   * Desfazer renegociacao (15/10/2026), a partir de qualquer parcela nova: as
+   * novas sao canceladas (as recebidas tem o recebimento estornado: o dinheiro
+   * sai do banco/caixa), as antigas voltam para em aberto. Tudo no servidor.
+   */
+  const handleDesfazerRenegociacao = async (t: TransacaoData) => {
+    if (!tenantId || !t.renegociacao) return;
+    const novas = Array.isArray(t.renegociacao.titulosNovos) ? t.renegociacao.titulosNovos.length : 0;
+    const antigas = Array.isArray(t.renegociacao.titulosOrigem) ? t.renegociacao.titulosOrigem.length : 0;
+    const resposta = await NexusSwal.fire({
+      title: 'Desfazer esta renegociação?',
+      html: `<div style="text-align:left;font-size:14px;">`
+        + `As <strong>${novas}</strong> parcela(s) nova(s) serão canceladas. As que já foram recebidas têm o recebimento estornado: o valor sai do banco/caixa, como no Estornar.<br/><br/>`
+        + `As <strong>${antigas}</strong> parcela(s) antiga(s) voltam para em aberto, com o valor de antes.</div>`,
+      icon: 'warning',
+      input: 'textarea',
+      inputLabel: 'Motivo',
+      inputPlaceholder: 'Escreva por que a renegociação está sendo desfeita',
+      showCancelButton: true,
+      confirmButtonText: 'Desfazer renegociação',
+      cancelButtonText: 'Manter',
+      confirmButtonColor: '#ef4444',
+      preConfirm: (motivo: string) => {
+        const erro = validarMotivoRenegociacao(motivo, 'desfazer');
+        if (erro) {
+          NexusSwal.showValidationMessage(erro);
+          return false;
+        }
+        return motivo.trim();
+      },
+    });
+    if (!resposta.isConfirmed) return;
+    setIsProcessing(true);
+    try {
+      const resultado = await desfazerRenegociacaoDaParcela({ transacaoId: t.id, motivo: String(resposta.value), tenantId });
+      showSuccess(resultado.estornadas > 0
+        ? `Renegociação desfeita. ${resultado.estornadas} recebimento(s) estornado(s) e as parcelas antigas voltaram para em aberto.`
+        : 'Renegociação desfeita. As parcelas antigas voltaram para em aberto.');
+    } catch (erro) {
+      console.error('Erro ao desfazer a renegociação:', erro);
+      showError('Não foi possível desfazer a renegociação', erro instanceof Error ? erro.message : 'Tente de novo em instantes.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const fecharModalConciliacao = () => {
     setModalConciliacao({ ativo: false, transacao: null, creditos: [], saldoTotal: 0 });
     setValorAbater(0);
@@ -769,6 +901,34 @@ const ContasReceber: React.FC = () => {
   const fecharBaixaEmLote = (baixados: string[]) => {
     setItensDoLote(null);
     if (baixados.length > 0) setSelecionados((atual) => marcarNaSelecao(atual, baixados, false).selecao);
+  };
+
+  // ---- Renegociacao (15/10/2026): as marcadas, de um cliente so', viram um documento novo.
+  const abrirRenegociacao = () => {
+    const marcadas = selecaoValida.map((id) => elegiveis.get(id) as TransacaoData);
+    const erro = validarTitulosParaRenegociar(marcadas.map((t) => ({ ...t, tipo: t.tipo || 'entrada' })));
+    if (erro) {
+      showError('Não é possível renegociar', erro);
+      return;
+    }
+    setRenegociando({
+      clienteNome: marcadas[0]?.clienteNome?.trim() || 'Cliente',
+      titulos: marcadas.map((t) => ({
+        id: t.id,
+        descricao: t.descricao,
+        vencimento: dataReferenciaTransacao(t) || t.data || '',
+        // O mesmo valor que o servidor renegocia (valor atual da parcela).
+        valorCentavos: Number(t.valorCentavos ?? toCents(t.valor)),
+      })),
+    });
+  };
+  const fecharRenegociacao = (renegociou: boolean) => {
+    const ids = renegociando?.titulos.map((t) => t.id) || [];
+    setRenegociando(null);
+    if (renegociou) {
+      setSelecionados((atual) => marcarNaSelecao(atual, ids, false).selecao);
+      showSuccess('Renegociação registrada. As parcelas novas já estão na lista do cliente.');
+    }
   };
 
   const toggleClienteExpandido = (chave: string) => {
@@ -978,7 +1138,17 @@ const ContasReceber: React.FC = () => {
                                       )}
                                     </td>
                                     <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{t.data ? t.data.split('-').reverse().join('/') : new Date(t.createdAt?.seconds * 1000).toLocaleDateString('pt-BR')}</td>
-                                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>{t.descricao}</td>
+                                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>
+                                      {t.descricao}
+                                      {ehParcelaDeRenegociacao(t) && (
+                                        <div
+                                          title={`Renegociou: ${(t.renegociacao?.titulosOrigem || []).map((o) => o.descricao).join('; ')}${t.renegociacao?.motivo ? `. Motivo: ${t.renegociacao.motivo}` : ''}`}
+                                          style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)', marginTop: '2px' }}
+                                        >
+                                          {(t.renegociacao?.titulosOrigem || []).length} parcela(s) antiga(s) renegociada(s)
+                                        </div>
+                                      )}
+                                    </td>
                                     <td style={{ padding: '10px 8px' }}>
                                       <span style={{ fontSize: '12px', backgroundColor: 'var(--bg-secondary)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
                                         {t.formaPagamento || 'Não informada'}
@@ -1021,9 +1191,19 @@ const ContasReceber: React.FC = () => {
                                               <FileText size={13} /> Recibo
                                             </button>
                                           )}
+                                          {podeRenegociar && ehParcelaDeRenegociacao(t) && (
+                                            <button
+                                              onClick={() => void handleDesfazerRenegociacao(t)}
+                                              disabled={isProcessing}
+                                              title="Cancela as parcelas novas (estornando as recebidas) e volta as parcelas antigas para em aberto"
+                                              style={{ backgroundColor: 'transparent', border: '1px solid #ef4444', color: '#ef4444', cursor: 'pointer', borderRadius: '4px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: isProcessing ? 0.6 : 1 }}
+                                            >
+                                              <Undo2 size={13} /> Desfazer renegociação
+                                            </button>
+                                          )}
                                         </div>
                                       ) : (
-                                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
                                         <button
                                           onClick={() => handleCobrarWhatsApp(t)}
                                           style={{ backgroundColor: '#25D366', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
@@ -1045,6 +1225,36 @@ const ContasReceber: React.FC = () => {
                                             style={{ backgroundColor: 'transparent', border: '1px solid #8b5cf6', color: '#8b5cf6', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: isProcessing ? 0.6 : 1 }}
                                           >
                                             <Edit size={13} /> Alterar valor
+                                          </button>
+                                        )}
+                                        {podeMexerEmBoleto && t.formaPagamento === FORMA_A_PRAZO && (
+                                          <button
+                                            onClick={() => void handleGerarBoleto(t)}
+                                            disabled={isProcessing}
+                                            title="Cobrar esta parcela em boleto: ela vai para Financeiro › Boletos para emitir. A venda não muda."
+                                            style={{ backgroundColor: 'transparent', border: '1px solid #0ea5e9', color: '#0ea5e9', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: isProcessing ? 0.6 : 1 }}
+                                          >
+                                            <Barcode size={13} /> Gerar boleto
+                                          </button>
+                                        )}
+                                        {podeMexerEmBoleto && t.boletoDeAPrazo && !t.boleto && (
+                                          <button
+                                            onClick={() => void handleVoltarAPrazo(t)}
+                                            disabled={isProcessing}
+                                            title={`O boleto ainda não foi emitido: volta a ser "${FORMA_A_PRAZO}".`}
+                                            style={{ backgroundColor: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: isProcessing ? 0.6 : 1 }}
+                                          >
+                                            <Undo2 size={13} /> Voltar a prazo
+                                          </button>
+                                        )}
+                                        {podeRenegociar && ehParcelaDeRenegociacao(t) && (
+                                          <button
+                                            onClick={() => void handleDesfazerRenegociacao(t)}
+                                            disabled={isProcessing}
+                                            title="Cancela as parcelas novas (estornando as recebidas) e volta as parcelas antigas para em aberto"
+                                            style={{ backgroundColor: 'transparent', border: '1px solid #ef4444', color: '#ef4444', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: isProcessing ? 0.6 : 1 }}
+                                          >
+                                            <Undo2 size={13} /> Desfazer renegociação
                                           </button>
                                         )}
                                       </div>
@@ -1072,7 +1282,15 @@ const ContasReceber: React.FC = () => {
         totalCentavos={totalSelecionadoCentavos}
         onLimpar={() => setSelecionados(new Set())}
         onDarBaixa={abrirBaixaEmLote}
+        acaoExtra={podeRenegociar ? {
+          texto: `Renegociar ${selecaoValida.length}`,
+          onClick: abrirRenegociacao,
+          titulo: 'Juntar as parcelas marcadas (de um cliente só) num documento novo, em 1 ou mais parcelas',
+        } : undefined}
       />
+      {renegociando && tenantId && (
+        <RenegociacaoModal clienteNome={renegociando.clienteNome} titulos={renegociando.titulos} tenantId={tenantId} onFechar={fecharRenegociacao} />
+      )}
       {itensDoLote && tenantId && (
         <BaixaEmLoteModal tipo="entrada" itens={itensDoLote} tenantId={tenantId} onFechar={fecharBaixaEmLote} />
       )}

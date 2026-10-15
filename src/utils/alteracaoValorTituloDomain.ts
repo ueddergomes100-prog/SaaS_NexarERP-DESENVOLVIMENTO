@@ -27,6 +27,7 @@
  * liquido pelo valor atual, o mesmo que o abatimento com credito ja' faz.
  */
 import { isCardPayment, pagamentoDoTitulo, toCents, type PaymentRecord } from './financeDomain';
+import { STATUS_RENEGOCIADA, bloqueioPorParcelaRenegociada } from './renegociacaoDomain';
 
 export const PERMISSAO_ALTERAR_VALOR = 'financeiro.alterar_valor_documento';
 export const MOTIVO_ALTERACAO_MINIMO = 5;
@@ -85,6 +86,9 @@ export const bloqueioParaAlterarValor = (titulo: TituloParaAlterarValor): string
   }
   if (titulo.status === 'Cancelada') {
     return 'Esta parcela está cancelada e não pode ter o valor alterado.';
+  }
+  if (titulo.status === STATUS_RENEGOCIADA) {
+    return 'Esta parcela foi renegociada. O valor a receber agora está nas parcelas da renegociação.';
   }
   if (titulo.status !== 'Pendente') {
     return 'Só parcelas em aberto podem ter o valor alterado. Atualize a tela e tente de novo.';
@@ -200,6 +204,8 @@ export const bloqueioParaRefazerParcelas = (
   titulos: Array<TituloParaAlterarValor & { descricao?: string }>,
   documento: 'venda' | 'OS',
 ): string => {
+  const renegociada = bloqueioPorParcelaRenegociada(titulos, `mexer nas parcelas desta ${documento}`);
+  if (renegociada) return renegociada;
   const alterado = titulos.find((t) => t.status !== 'Cancelada' && valorAlteradoAtivo(t));
   if (!alterado) return '';
   const nome = alterado.descricao ? ` "${alterado.descricao}"` : '';

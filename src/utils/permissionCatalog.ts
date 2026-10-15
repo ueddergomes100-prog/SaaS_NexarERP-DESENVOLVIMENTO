@@ -180,6 +180,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // 2026-10-15: parcela a receber com valor diferente da venda (nota cheia,
       // boleto com desconto). Conferida no servidor (rota /financeiro/alterar-valor).
       { id: 'financeiro.alterar_valor_documento', label: 'Financeiro: Alterar Valor de Documentos (parcelas a receber)', color: '#10b981' },
+      // 2026-10-15: juntar parcelas em aberto de um cliente num documento novo (e desfazer).
+      // Conferida no servidor (rotas /financeiro/renegociar e /renegociacao/desfazer).
+      { id: 'financeiro.renegociar', label: 'Financeiro: Renegociar Documentos (juntar parcelas a receber)', color: '#10b981' },
     ],
   },
   {

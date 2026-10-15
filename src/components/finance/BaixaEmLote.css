@@ -220,7 +220,10 @@
   color: var(--text-secondary);
 }
 .lote-campo select,
-.lote-campo input[type='date'] {
+.lote-campo input[type='date'],
+.lote-campo input[type='text'],
+.lote-campo input[type='number'],
+.lote-campo textarea {
   width: 100%;
   min-height: 42px;
   padding: 8px 12px;
@@ -234,8 +237,23 @@
 }
 body.light-theme .lote-campo select,
 body.light-theme .lote-campo input[type='date'] { color-scheme: light; }
+.lote-campo textarea { min-height: 72px; resize: vertical; }
+/* Renegociacao (15/10/2026): valor e vencimento editaveis na tabela das parcelas novas. */
+.lote-bordero-folha input {
+  min-height: 34px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+body.light-theme .lote-bordero-folha input { color-scheme: light; }
 .lote-campo select:focus-visible,
-.lote-campo input:focus-visible {
+.lote-campo input:focus-visible,
+.lote-campo textarea:focus-visible,
+.lote-bordero-folha input:focus-visible {
   outline: 2px solid var(--brand-ring);
   border-color: var(--accent-purple);
 }

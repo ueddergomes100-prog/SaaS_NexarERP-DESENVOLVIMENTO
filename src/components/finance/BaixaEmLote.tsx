@@ -63,7 +63,9 @@ export const BarraDeSelecaoLote: React.FC<{
   totalCentavos: number;
   onLimpar: () => void;
   onDarBaixa: () => void;
-}> = ({ tipo, quantidade, totalCentavos, onLimpar, onDarBaixa }) => {
+  /** Botao a mais (ex.: "Renegociar", no Contas a Receber). */
+  acaoExtra?: { texto: string; onClick: () => void; titulo?: string };
+}> = ({ tipo, quantidade, totalCentavos, onLimpar, onDarBaixa, acaoExtra }) => {
   if (quantidade === 0) return null;
   const contas = quantidade === 1 ? '1 conta selecionada' : `${quantidade} contas selecionadas`;
   return (
@@ -74,6 +76,11 @@ export const BarraDeSelecaoLote: React.FC<{
       </div>
       <div className="lote-barra-acoes">
         <button type="button" className="lote-botao lote-botao-discreto" onClick={onLimpar}>Limpar seleção</button>
+        {acaoExtra && (
+          <button type="button" className="lote-botao lote-botao-discreto" onClick={acaoExtra.onClick} title={acaoExtra.titulo}>
+            {acaoExtra.texto}
+          </button>
+        )}
         <button type="button" className="lote-botao lote-botao-principal" onClick={onDarBaixa}>
           <CheckCircle2 size={18} aria-hidden="true" />
           {tipo === 'entrada' ? `Receber ${quantidade}` : `Dar baixa em ${quantidade}`}

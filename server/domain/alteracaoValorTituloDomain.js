@@ -30,6 +30,7 @@ exports.bloqueioParaRefazerParcelas = exports.centavosParaAOrigem = exports.resu
  * liquido pelo valor atual, o mesmo que o abatimento com credito ja' faz.
  */
 const financeDomain_1 = require("./financeDomain");
+const renegociacaoDomain_1 = require("./renegociacaoDomain");
 exports.PERMISSAO_ALTERAR_VALOR = 'financeiro.alterar_valor_documento';
 exports.MOTIVO_ALTERACAO_MINIMO = 5;
 exports.MOTIVO_ALTERACAO_MAXIMO = 255;
@@ -52,6 +53,9 @@ const bloqueioParaAlterarValor = (titulo) => {
     }
     if (titulo.status === 'Cancelada') {
         return 'Esta parcela está cancelada e não pode ter o valor alterado.';
+    }
+    if (titulo.status === renegociacaoDomain_1.STATUS_RENEGOCIADA) {
+        return 'Esta parcela foi renegociada. O valor a receber agora está nas parcelas da renegociação.';
     }
     if (titulo.status !== 'Pendente') {
         return 'Só parcelas em aberto podem ter o valor alterado. Atualize a tela e tente de novo.';
@@ -154,6 +158,9 @@ exports.centavosParaAOrigem = centavosParaAOrigem;
  * salvar a OS de novo) apagariam o valor alterado. '' = pode refazer.
  */
 const bloqueioParaRefazerParcelas = (titulos, documento) => {
+    const renegociada = (0, renegociacaoDomain_1.bloqueioPorParcelaRenegociada)(titulos, `mexer nas parcelas desta ${documento}`);
+    if (renegociada)
+        return renegociada;
     const alterado = titulos.find((t) => t.status !== 'Cancelada' && (0, exports.valorAlteradoAtivo)(t));
     if (!alterado)
         return '';

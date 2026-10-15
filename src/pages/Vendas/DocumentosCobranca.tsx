@@ -103,11 +103,11 @@ const DocumentosCobranca: React.FC = () => {
           if (!snapClientes.empty) cadastroCliente = snapClientes.docs[0].data();
         }
 
-        // Parcelas: as transacoes de entrada da venda (juros/multa e cancelada fora), como no recibo impresso.
+        // Parcelas: as transacoes de entrada da venda (juros/multa, cancelada e renegociada fora), como no recibo impresso.
         const snapTransacoes = await getDocs(query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('pedidoId', '==', id)));
         const parcelasCarregadas = snapTransacoes.docs
           .map((docT) => docT.data())
-          .filter((t) => t.tipo !== 'saida' && t.status !== 'Cancelada' && !t.acrescimoDaTransacaoId)
+          .filter((t) => t.tipo !== 'saida' && t.status !== 'Cancelada' && t.status !== 'Renegociada' && !t.acrescimoDaTransacaoId)
           .sort((a, b) => (a.paymentIndex ?? 0) - (b.paymentIndex ?? 0))
           .map((t, index) => ({ numero: t.paymentIndex ?? (index + 1), dataVencimento: t.dataVencimento || '', valor: t.valor || 0 }));
         const parcelas = parcelasDoPedido(parcelasParaImpressao(parcelasCarregadas, pedido.pagamentos));

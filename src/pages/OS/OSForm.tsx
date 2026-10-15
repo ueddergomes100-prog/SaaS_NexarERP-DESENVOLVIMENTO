@@ -113,6 +113,7 @@ import './OS.css';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import { useModoOficina } from '../../hooks/useModoOficina';
 import { bloqueioParaRefazerParcelas, type TituloParaAlterarValor } from '../../utils/alteracaoValorTituloDomain';
+import { bloqueioPorParcelaRenegociada } from '../../utils/renegociacaoDomain';
 import { DESLOCAMENTO_VAZIO, aplicarDeslocamentoNosServicos, identificacaoCurta, kmDoDeslocamento, parseDeslocamento, temDeslocamento, validarIdentificacaoEquipamento, valorDeslocamentoCentavos, type Deslocamento } from '../../utils/oficinaDomain';
 import { AVISO_OS_EM_ATENDIMENTO_NO_CAMPO, CORES_STATUS_OS_CAMPO, STATUS_OS_AGUARDANDO_CONFERENCIA, STATUS_OS_EM_ATENDIMENTO, osEmAtendimentoNoCampo, type AssinaturaOS, type FotoOS } from '../../utils/osCampoDomain';
 
@@ -1338,12 +1339,15 @@ const OSForm: React.FC = () => {
         );
         // Parcela com valor alterado no Contas a Receber (15/10/2026): salvar a
         // OS refaz as parcelas e apagaria a alteracao. Cancelar a OS continua livre.
+        const titulosDaOs = paymentTransactionSnapshots.filter((snapshot) => snapshot.exists()).map((snapshot) => snapshot.data() as TituloParaAlterarValor & { descricao?: string });
         if (formData.status !== 'Cancelada') {
-          const bloqueioDeValorAlterado = bloqueioParaRefazerParcelas(
-            paymentTransactionSnapshots.filter((snapshot) => snapshot.exists()).map((snapshot) => snapshot.data() as TituloParaAlterarValor & { descricao?: string }),
-            'OS',
-          );
+          const bloqueioDeValorAlterado = bloqueioParaRefazerParcelas(titulosDaOs, 'OS');
           if (bloqueioDeValorAlterado) throw new Error(bloqueioDeValorAlterado);
+        } else {
+          // Renegociacao (15/10/2026): cancelar a OS com parcela renegociada deixaria a
+          // renegociacao cobrando uma divida cancelada.
+          const bloqueioDeRenegociacao = bloqueioPorParcelaRenegociada(titulosDaOs, 'cancelar a OS');
+          if (bloqueioDeRenegociacao) throw new Error(bloqueioDeRenegociacao);
         }
 
         const wasAlreadyFinalized = existingOsData?.status === 'Finalizada';

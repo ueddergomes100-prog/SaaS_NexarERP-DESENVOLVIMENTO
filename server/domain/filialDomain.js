@@ -16,7 +16,7 @@
  *    Decisao do dono (06/10): as permissoes valem iguais em todas as filiais.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.matrizAPartirDaConfiguracao = exports.filialParaGravar = exports.configuracaoInicialDaFilial = exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = exports.validarDadosDaFilial = exports.validarNomeECodigoDaFilial = exports.proximoCodigoDeFilial = exports.cnpjValido = exports.validarEdicaoDaFilial = exports.identidadeParaConfiguracao = exports.dadosDaFilialNaConfiguracao = exports.lerDadosDaFilial = exports.acharCodigoIbge = exports.normalizarNomeCidade = exports.filialAtivaParaGravar = exports.validarTrocaDeFilial = exports.filiaisDoUsuario = exports.podeUsarOutrasFiliais = exports.pertenceAoGrupo = exports.ehGestorDoGrupo = exports.filialAtivaDoUsuario = exports.rotuloFilial = exports.mensalidadeComFiliais = exports.erroLimiteDeFiliais = exports.filiaisCobradas = exports.lerPercentualFilial = exports.lerLimiteFiliais = exports.LIMITE_FILIAIS_PADRAO = exports.lerGrupo = exports.lerFilial = exports.UFS = exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = void 0;
+exports.matrizAPartirDaConfiguracao = exports.filialParaGravar = exports.configuracaoInicialDaFilial = exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = exports.validarDadosDaFilial = exports.validarNomeECodigoDaFilial = exports.proximoCodigoDeFilial = exports.cnpjValido = exports.validarEdicaoDaFilial = exports.identidadeParaConfiguracao = exports.dadosDaFilialNaConfiguracao = exports.lerDadosDaFilial = exports.acharCodigoIbge = exports.normalizarNomeCidade = exports.validarFilialPadrao = exports.filialDeEntrada = exports.filialAtivaParaGravar = exports.validarTrocaDeFilial = exports.filiaisDoUsuario = exports.podeUsarOutrasFiliais = exports.pertenceAoGrupo = exports.ehGestorDoGrupo = exports.filialAtivaDoUsuario = exports.rotuloFilial = exports.mensalidadeComFiliais = exports.erroLimiteDeFiliais = exports.filiaisCobradas = exports.lerPercentualFilial = exports.lerLimiteFiliais = exports.LIMITE_FILIAIS_PADRAO = exports.lerGrupo = exports.lerFilial = exports.UFS = exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = void 0;
 exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = 'filiais.utilizar';
 const texto = (valor) => (typeof valor === 'string' ? valor.trim() : '');
 const soDigitos = (valor) => String(valor ?? '').replace(/\D/g, '');
@@ -146,6 +146,39 @@ exports.validarTrocaDeFilial = validarTrocaDeFilial;
  */
 const filialAtivaParaGravar = (usuario, destino) => (destino === texto(usuario.tenantId) ? null : destino);
 exports.filialAtivaParaGravar = filialAtivaParaGravar;
+// ---------------------------------------------------------------------------
+// Filial padrao (15/10/2026, pedido do dono)
+// ---------------------------------------------------------------------------
+/**
+ * Filial em que o usuario comeca a cada login. Quem pode usar outras filiais
+ * entra na filial padrao (se ela continuar ativa no grupo); quem nao pode, ou
+ * nao tem padrao escolhida, entra sempre na filial em que foi cadastrado.
+ */
+const filialDeEntrada = (grupo, usuario) => {
+    const casa = texto(usuario.tenantId) || usuario.uid;
+    if (!grupo || !(0, exports.pertenceAoGrupo)(grupo, usuario))
+        return casa;
+    const padrao = texto(usuario.filialPadrao);
+    if (!padrao || padrao === casa || !(0, exports.podeUsarOutrasFiliais)(grupo, usuario))
+        return casa;
+    return grupo.filiais.some((f) => f.tenantId === padrao && f.ativa) ? padrao : casa;
+};
+exports.filialDeEntrada = filialDeEntrada;
+/** Mensagem quando a filial padrao escolhida nao serve; null = pode gravar. */
+const validarFilialPadrao = (grupo, usuario, destino) => {
+    if (!grupo || !(0, exports.pertenceAoGrupo)(grupo, usuario))
+        return 'Esse usuário não faz parte desta empresa.';
+    const filial = grupo.filiais.find((f) => f.tenantId === destino);
+    if (!filial)
+        return 'Escolha uma das filiais da empresa.';
+    if (!filial.ativa)
+        return `A filial ${(0, exports.rotuloFilial)(filial)} está inativa. Reative em Configurações → Filiais ou escolha outra.`;
+    if (destino !== texto(usuario.tenantId) && !(0, exports.podeUsarOutrasFiliais)(grupo, usuario)) {
+        return 'Para começar em outra filial, o usuário precisa da permissão "Utiliza outras filiais". Sem ela, ele entra sempre na filial em que foi cadastrado.';
+    }
+    return null;
+};
+exports.validarFilialPadrao = validarFilialPadrao;
 /** Nome de cidade sem acento, maiusculo e sem pontuacao, para casar com a lista do IBGE. */
 const normalizarNomeCidade = (nome) => texto(nome)
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')

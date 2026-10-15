@@ -29,6 +29,8 @@ import {
   type ActiveSessionInfo
 } from '../../utils/sessionInfo';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { entrarNaFilialPadrao } from '../../services/filialService';
+import { limparAbasSalvas } from '../../contexts/TabsContext';
 import { CNPJ_LEMBRADO_STORAGE_KEY, formatarCnpj } from '../../utils/loginIdentidadeDomain';
 import {
   onboardingService,
@@ -339,6 +341,19 @@ const AuthPage: React.FC = () => {
         setLoginError('Nao foi possivel registrar a sessao. Tente novamente.');
         setLoginLoading(false);
         return;
+        }
+      }
+
+      // Filial padrao (15/10/2026): cada login comeca na filial padrao do
+      // usuario (ou na de cadastro). Falha aqui nao impede o login: ele so'
+      // entra na ultima filial em que estava.
+      if (hasUserProfile && !isPlatformLogin) {
+        try {
+          const { mudou } = await entrarNaFilialPadrao();
+          // Abas abertas de outra filial nao voltam (mesmo cuidado do seletor Filial).
+          if (mudou) limparAbasSalvas();
+        } catch (erroFilial) {
+          console.warn('Não foi possível abrir a filial padrão no login:', erroFilial);
         }
       }
 

@@ -102,6 +102,14 @@ export const salvarConfiguracoesGerais = (valores: ConfiguracoesGerais & { tenan
   chamar<{ filiais: number; grupo: string | null; valores: ConfiguracoesGerais }>('POST', '/configuracoes-gerais', { ...valores })
 );
 
+/** Filial padrao (15/10/2026): no login, o servidor abre a filial padrao do usuario. */
+export const entrarNaFilialPadrao = () => chamar<{ mudou: boolean; filial: FilialDoGrupo | null }>('POST', '/entrar-na-padrao');
+
+/** Filial padrao de um usuario do grupo (so' dono/administrador). */
+export const definirFilialPadrao = (usuarioId: string, tenantId: string) => (
+  chamar<{ ok: true; filial: FilialDoGrupo }>('PUT', `/usuarios/${encodeURIComponent(usuarioId)}/filial-padrao`, { tenantId })
+);
+
 /** Fase 5: vendas do periodo, a receber e estoque de cada filial (so' dono/administrador). */
 export const consultarResumoDoGrupo = (inicio: string, fim: string) => (
   chamar<{ inicio: string; fim: string; filiais: ResumoDaFilial[]; total: Omit<ResumoDaFilial, 'tenantId' | 'codigo' | 'nome'> }>(

@@ -23,6 +23,8 @@ import {
 } from '../../utils/visibilidadeVendasDomain';
 import { checarLimiteAcessoMobile } from '../../utils/acessoMobileDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
+import { podeUsarOutrasFiliais, rotuloFilial } from '../../utils/filialDomain';
+import { definirFilialPadrao } from '../../services/filialService';
 
 interface PermissoesUsuarioModalProps {
   usuarioId: string;
@@ -58,6 +60,11 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
    *  quando o admin esta LIGANDO agora, nao quando so salva outra coisa
    *  de quem ja tinha acesso. Ver acessoMobileDomain.ts. */
   const [acessoAppMobileOriginal, setAcessoAppMobileOriginal] = useState(false);
+  // Filial padrao (15/10/2026): onde o usuario comeca a cada login.
+  const [casaDoUsuario, setCasaDoUsuario] = useState('');
+  const [papelDoUsuario, setPapelDoUsuario] = useState('');
+  const [filialPadrao, setFilialPadrao] = useState('');
+  const [filialPadraoOriginal, setFilialPadraoOriginal] = useState('');
 
   useEscapeLayer(true, onClose);
 
@@ -72,6 +79,13 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
         const acessoMobileAtual = snap.exists() && snap.data().acessoAppMobile === true;
         setAcessoAppMobile(acessoMobileAtual);
         setAcessoAppMobileOriginal(acessoMobileAtual);
+        const dados = snap.exists() ? snap.data() : {};
+        const casa = typeof dados.tenantId === 'string' && dados.tenantId ? dados.tenantId : usuarioId;
+        const padrao = typeof dados.filialPadrao === 'string' && dados.filialPadrao ? dados.filialPadrao : casa;
+        setCasaDoUsuario(casa);
+        setPapelDoUsuario(typeof dados.role === 'string' ? dados.role : '');
+        setFilialPadrao(padrao);
+        setFilialPadraoOriginal(padrao);
       } catch (err) {
         console.error('Erro ao carregar permissões do usuário:', err);
         showError('Erro', 'Não foi possível carregar as permissões deste usuário.');
@@ -107,6 +121,12 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
   );
   const estadoVisivel = estadoDaSelecao(permissoes, idsVisiveis);
 
+  // Sem "Utiliza outras filiais", a padrao e' sempre a filial de cadastro (acompanha a permissao marcada aqui).
+  const usaOutrasFiliais = podeUsarOutrasFiliais(grupo, { uid: usuarioId, role: papelDoUsuario, permissoes, tenantId: casaDoUsuario });
+  const filialPadraoEfetiva = usaOutrasFiliais ? filialPadrao : casaDoUsuario;
+  const filiaisParaPadrao = (grupo?.filiais ?? []).filter((f) => f.ativa || f.tenantId === filialPadraoEfetiva);
+  const filialDeCadastro = grupo?.filiais.find((f) => f.tenantId === casaDoUsuario);
+
   const handleSalvar = async () => {
     if (!currentUser) return;
 
@@ -128,6 +148,16 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
         ...(podeAlterarNivelEMobile ? { nivelAcesso, acessoAppMobile } : {}),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Permissões atualizadas'),
       });
+      // Filial padrao vai pelo servidor (so' ele grava, conferindo o grupo e a permissao).
+      if (grupo && podeAlterarNivelEMobile && casaDoUsuario && filialPadraoEfetiva !== filialPadraoOriginal) {
+        try {
+          await definirFilialPadrao(usuarioId, filialPadraoEfetiva);
+        } catch (erroFilial) {
+          showError('Permissões salvas, mas a filial padrão não', erroFilial instanceof Error ? erroFilial.message : 'Tente salvar de novo em instantes.');
+          onSaved?.(permissoes);
+          return;
+        }
+      }
       showSuccess('Permissões salvas!');
       onSaved?.(permissoes);
       onClose();
@@ -213,6 +243,34 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
               : 'Só um Administrador, Master ou o Dono pode liberar o acesso ao aplicativo mobile.'}
           </p>
         </div>
+
+        {grupo && (
+          <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <label htmlFor="filial-padrao-usuario" style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                Filial padrão
+              </label>
+              <select
+                id="filial-padrao-usuario"
+                value={filialPadraoEfetiva}
+                onChange={(e) => setFilialPadrao(e.target.value)}
+                disabled={isLoading || !podeAlterarNivelEMobile || !usaOutrasFiliais}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '13px', opacity: podeAlterarNivelEMobile && usaOutrasFiliais ? 1 : 0.6 }}
+              >
+                {filiaisParaPadrao.map((f) => (
+                  <option key={f.tenantId} value={f.tenantId}>{rotuloFilial(f)}</option>
+                ))}
+              </select>
+            </div>
+            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+              {!podeAlterarNivelEMobile
+                ? 'Só um Administrador, Master ou o Dono muda a filial padrão.'
+                : !usaOutrasFiliais
+                ? `Sem a permissão "Utiliza outras filiais", ele entra sempre na filial em que foi cadastrado${filialDeCadastro ? ` (${rotuloFilial(filialDeCadastro)})` : ''}.`
+                : 'Toda vez que ele entrar no sistema, começa nesta filial. Depois pode trocar pelo seletor Filial do topo.'}
+            </p>
+          </div>
+        )}
 
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>

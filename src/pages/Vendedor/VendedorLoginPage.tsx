@@ -5,6 +5,7 @@ import { browserLocalPersistence, setPersistence, signInWithCustomToken, signInW
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../services/firebase';
 import { loginVendedorMobile, VendedorMobileAuthError } from '../../services/vendedorMobileAuthService';
+import { entrarNaFilialPadrao } from '../../services/filialService';
 import { CNPJ_LEMBRADO_STORAGE_KEY, CODIGO_VENDEDOR_LEMBRADO_STORAGE_KEY, formatarCnpj, normalizarCnpj } from '../../utils/loginIdentidadeDomain';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
 import wordmarkLight from '../../assets/hennder-wordmark-light.webp';
@@ -102,6 +103,9 @@ const VendedorLoginPage: React.FC = () => {
       }
       await setPersistence(auth, browserLocalPersistence);
       await signInWithEmailAndPassword(auth, usernameDoc.data().email, senha);
+      // Filial padrao (15/10/2026): o app tambem comeca na filial padrao do
+      // usuario. Falha aqui nao impede o login (fica na ultima filial).
+      await entrarNaFilialPadrao().catch((erroFilial) => console.warn('Não foi possível abrir a filial padrão no login:', erroFilial));
       navigate('/vendedor', { replace: true });
     } catch {
       setErro('Usuário ou senha incorretos.');

@@ -12,7 +12,7 @@ import {
   proximoCodigoDeFilial,
   validarDadosDaFilial,
   validarNomeECodigoDaFilial,
-  validarTrocaDeFilial, mensalidadeComFiliais, erroLimiteDeFiliais, lerLimiteFiliais, lerPercentualFilial, acharCodigoIbge, identidadeParaConfiguracao, dadosDaFilialNaConfiguracao } from '../src/utils/filialDomain';
+  validarTrocaDeFilial, filialDeEntrada, validarFilialPadrao, mensalidadeComFiliais, erroLimiteDeFiliais, lerLimiteFiliais, lerPercentualFilial, acharCodigoIbge, identidadeParaConfiguracao, dadosDaFilialNaConfiguracao } from '../src/utils/filialDomain';
 
 const CNPJ_MATRIZ = '11222333000181';
 const CNPJ_FILIAL = '11222333000262';
@@ -152,4 +152,24 @@ test('limite de filiais do plano: matriz nao conta; 0 = nao liberado', () => {
   assert.equal(erroLimiteDeFiliais(grupo, 2), null, 'a inativa (30) nao conta');
   assert.equal(lerLimiteFiliais('3.7'), 3);
   assert.equal(lerLimiteFiliais(undefined), 0);
+});
+
+test('filial padrao: quem usa outras filiais entra na padrao; os demais, na de cadastro', () => {
+  const comPermissao = { uid: 'f2', role: 'Funcionario', tenantId: 'baixada', permissoes: [PERMISSAO_UTILIZA_OUTRAS_FILIAIS], filialPadrao: 'dono' };
+  assert.equal(filialDeEntrada(grupo, comPermissao), 'dono');
+  assert.equal(filialDeEntrada(grupo, { ...comPermissao, filialPadrao: '' }), 'baixada', 'sem padrao: a de cadastro');
+  assert.equal(filialDeEntrada(grupo, { ...comPermissao, permissoes: [] }), 'baixada', 'perdeu a permissao: volta a de cadastro');
+  assert.equal(filialDeEntrada(grupo, { ...comPermissao, filialPadrao: 'deposito' }), 'baixada', 'padrao inativa: a de cadastro');
+  assert.equal(filialDeEntrada(grupo, { uid: 'a1', role: 'Admin', tenantId: 'dono', filialPadrao: 'baixada' }), 'baixada', 'administrador usa outras filiais sem a permissao');
+  assert.equal(filialDeEntrada(null, { uid: 'u', tenantId: 'emp', filialPadrao: 'x' }), 'emp', 'empresa sem filiais');
+});
+
+test('filial padrao: o que da para gravar, com mensagem em portugues', () => {
+  const funcionario = { uid: 'f1', role: 'Funcionario', tenantId: 'baixada' };
+  assert.equal(validarFilialPadrao(grupo, funcionario, 'baixada'), null, 'a de cadastro sempre pode');
+  assert.match(validarFilialPadrao(grupo, funcionario, 'dono') ?? '', /Utiliza outras filiais/);
+  assert.equal(validarFilialPadrao(grupo, { ...funcionario, permissoes: [PERMISSAO_UTILIZA_OUTRAS_FILIAIS] }, 'dono'), null);
+  assert.match(validarFilialPadrao(grupo, { uid: 'a1', role: 'Admin', tenantId: 'dono' }, 'deposito') ?? '', /inativa/);
+  assert.match(validarFilialPadrao(grupo, { uid: 'a1', role: 'Admin', tenantId: 'dono' }, 'outra') ?? '', /Escolha uma das filiais/);
+  assert.match(validarFilialPadrao(grupo, { uid: 'x', role: 'Admin', tenantId: 'fora' }, 'dono') ?? '', /não faz parte/);
 });

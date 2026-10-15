@@ -2,7 +2,7 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const { rotuloFilial } = require('../domain/filialDomain');
-const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial, estoqueNasFiliais, saldoDoClienteNoGrupo, resumoDoGrupo } = require('../services/filiais');
+const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial, estoqueNasFiliais, saldoDoClienteNoGrupo, resumoDoGrupo, entrarNaFilialPadrao, definirFilialPadrao } = require('../services/filiais');
 const { ErroConfiguracoesGerais, salvarConfiguracoesGerais } = require('../services/configuracoesGerais');
 
 /**
@@ -16,6 +16,8 @@ const { ErroConfiguracoesGerais, salvarConfiguracoesGerais } = require('../servi
  *   GET  /api/filiais/clientes/:id/saldo  saldo em aberto do cliente no grupo
  *   GET  /api/filiais/resumo?inicio&fim    vendas, a receber e estoque por filial (fase 5)
  *   POST /api/filiais/configuracoes-gerais  regras que valem para todas as filiais (15/10/2026)
+ *   POST /api/filiais/entrar-na-padrao      no login: abre a filial padrao do usuario (15/10/2026)
+ *   PUT  /api/filiais/usuarios/:uid/filial-padrao  filial padrao de um usuario (dono/administrador)
  */
 const router = express.Router();
 router.use(authenticate);
@@ -63,6 +65,30 @@ router.post('/', async (req, res) => {
 });
 
 // Rotas fixas ANTES de '/:tenantId' (senao 'estoque' vira um tenantId).
+// Filial padrao (15/10/2026): cada login comeca na filial padrao do usuario.
+router.post('/entrar-na-padrao', async (req, res) => {
+  try {
+    return res.json(await entrarNaFilialPadrao({ user: req.user }));
+  } catch (erro) {
+    return responderErro(res, erro, 'abrir a filial padrão');
+  }
+});
+
+router.put('/usuarios/:uid/filial-padrao', async (req, res) => {
+  try {
+    const r = await definirFilialPadrao({ user: req.user, usuarioId: req.params.uid, destino: req.body?.tenantId });
+    registrarLog(req.user, {
+      modulo: 'filiais',
+      acao: 'edicao',
+      descricao: `Filial padrão de ${r.usuarioNome}: ${rotuloFilial(r.filial)}`,
+      registroId: String(req.params.uid),
+    });
+    return res.json({ ok: true, filial: r.filial });
+  } catch (erro) {
+    return responderErro(res, erro, 'gravar a filial padrão');
+  }
+});
+
 // Configuracoes Gerais (15/10/2026): o mesmo valor gravado em todas as filiais.
 router.post('/configuracoes-gerais', async (req, res) => {
   try {

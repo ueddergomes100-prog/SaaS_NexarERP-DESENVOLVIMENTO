@@ -340,4 +340,39 @@ const resumoDoGrupo = async ({ user, inicio, fim }) => {
   return { inicio, fim, filiais: linhas, total: resumo.totalDoGrupo(linhas) };
 };
 
-module.exports = { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial, estoqueNasFiliais, saldoDoClienteNoGrupo, resumoDoGrupo };
+/**
+ * Filial padrao (15/10/2026): a cada login o usuario comeca na filial padrao
+ * dele (quem pode usar outras filiais) ou na filial em que foi cadastrado.
+ * Chamado pela tela de login logo depois de registrar a sessao.
+ */
+const entrarNaFilialPadrao = async ({ user }) => db.runTransaction(async (tx) => {
+  const usuario = await lerUsuario(tx, user.uid);
+  const { grupo } = await lerGrupoDaCasa(tx, usuario.tenantId);
+  if (!grupo) return { mudou: false, filial: null };
+  const destino = dominio.filialDeEntrada(grupo, usuario);
+  const mudou = destino !== dominio.filialAtivaDoUsuario(usuario);
+  if (mudou) {
+    const valor = dominio.filialAtivaParaGravar(usuario, destino);
+    tx.update(db.collection('usuarios').doc(user.uid), { filialAtiva: valor === null ? apagar() : valor });
+  }
+  return { mudou, filial: grupo.filiais.find((f) => f.tenantId === destino) || null };
+});
+
+/** Grava a filial padrao de um usuario do grupo (so' dono/administrador). */
+const definirFilialPadrao = async ({ user, usuarioId, destino }) => db.runTransaction(async (tx) => {
+  const alvoId = typeof usuarioId === 'string' ? usuarioId.trim() : '';
+  const filialId = typeof destino === 'string' ? destino.trim() : '';
+  if (!alvoId || !filialId) throw new ErroFilial(400, 'Escolha o usuário e a filial padrão.');
+  const gestor = await lerUsuario(tx, user.uid);
+  const { grupo } = await lerGrupoDaCasa(tx, gestor.tenantId);
+  if (!grupo) throw new ErroFilial(404, 'Sua empresa não tem filiais cadastradas.');
+  exigirGestor(grupo, gestor, 'definir a filial padrão dos usuários');
+  const alvo = await lerUsuario(tx, alvoId);
+  const erro = dominio.validarFilialPadrao(grupo, alvo, filialId);
+  if (erro) throw new ErroFilial(400, erro);
+  // Igual a casa nao precisa ser gravada: sem padrao, ele ja' entra nela.
+  tx.update(db.collection('usuarios').doc(alvoId), { filialPadrao: filialId === alvo.tenantId ? apagar() : filialId });
+  return { filial: grupo.filiais.find((f) => f.tenantId === filialId), usuarioNome: String(alvo.nome || alvo.email || alvoId) };
+});
+
+module.exports = { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial, estoqueNasFiliais, saldoDoClienteNoGrupo, resumoDoGrupo, entrarNaFilialPadrao, definirFilialPadrao };

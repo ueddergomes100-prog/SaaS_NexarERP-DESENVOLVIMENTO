@@ -49,6 +49,8 @@ export interface UsuarioDaFilial {
   /** Filial "casa" do usuario. */
   tenantId?: string | null;
   filialAtiva?: string | null;
+  /** Filial em que o usuario comeca a cada login (15/10/2026); vazio = a casa. */
+  filialPadrao?: string | null;
 }
 
 const texto = (valor: unknown): string => (typeof valor === 'string' ? valor.trim() : '');
@@ -184,6 +186,35 @@ export const validarTrocaDeFilial = (grupo: GrupoEmpresarial | null, usuario: Us
 export const filialAtivaParaGravar = (usuario: UsuarioDaFilial, destino: string): string | null => (
   destino === texto(usuario.tenantId) ? null : destino
 );
+
+// ---------------------------------------------------------------------------
+// Filial padrao (15/10/2026, pedido do dono)
+// ---------------------------------------------------------------------------
+
+/**
+ * Filial em que o usuario comeca a cada login. Quem pode usar outras filiais
+ * entra na filial padrao (se ela continuar ativa no grupo); quem nao pode, ou
+ * nao tem padrao escolhida, entra sempre na filial em que foi cadastrado.
+ */
+export const filialDeEntrada = (grupo: GrupoEmpresarial | null, usuario: UsuarioDaFilial): string => {
+  const casa = texto(usuario.tenantId) || usuario.uid;
+  if (!grupo || !pertenceAoGrupo(grupo, usuario)) return casa;
+  const padrao = texto(usuario.filialPadrao);
+  if (!padrao || padrao === casa || !podeUsarOutrasFiliais(grupo, usuario)) return casa;
+  return grupo.filiais.some((f) => f.tenantId === padrao && f.ativa) ? padrao : casa;
+};
+
+/** Mensagem quando a filial padrao escolhida nao serve; null = pode gravar. */
+export const validarFilialPadrao = (grupo: GrupoEmpresarial | null, usuario: UsuarioDaFilial, destino: string): string | null => {
+  if (!grupo || !pertenceAoGrupo(grupo, usuario)) return 'Esse usuário não faz parte desta empresa.';
+  const filial = grupo.filiais.find((f) => f.tenantId === destino);
+  if (!filial) return 'Escolha uma das filiais da empresa.';
+  if (!filial.ativa) return `A filial ${rotuloFilial(filial)} está inativa. Reative em Configurações → Filiais ou escolha outra.`;
+  if (destino !== texto(usuario.tenantId) && !podeUsarOutrasFiliais(grupo, usuario)) {
+    return 'Para começar em outra filial, o usuário precisa da permissão "Utiliza outras filiais". Sem ela, ele entra sempre na filial em que foi cadastrado.';
+  }
+  return null;
+};
 
 // ---------------------------------------------------------------------------
 // Cadastro de filial

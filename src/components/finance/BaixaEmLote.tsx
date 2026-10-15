@@ -5,6 +5,15 @@ import { db } from '../../services/firebase';
 import { registrarBaixaEmLote, type ResultadoBaixaEmLote } from '../../services/baixaFinanceiraService';
 import { validarDataBaixa } from '../../utils/baixaFinanceiraDomain';
 import {
+  centavosDoCampo,
+  erroDosAjustes,
+  ROTULO_PERMISSAO_DESCONTO_NA_BAIXA,
+  SEM_AJUSTES,
+  textoDoCampo,
+  valorPagoDaBaixa,
+  type AjustesDaBaixa,
+} from '../../utils/ajustesDaBaixaDomain';
+import {
   baixaEmLoteExigeBanco,
   FORMAS_DA_BAIXA_EM_LOTE,
   resumoDoLote,
@@ -104,9 +113,28 @@ export interface ItemDoLote {
   valorCentavos: number;
   /** Forma prevista no título (para sugerir quando todas são iguais). */
   formaPrevista?: string;
-  /** Juros e multa sugeridos pelos parâmetros da filial (só Receber em atraso). */
-  acrescimoSugeridoCentavos?: number;
+  /** Juros e multa calculados pelos parâmetros da filial (Receber em atraso). */
+  jurosSugeridoCentavos?: number;
+  multaSugeridaCentavos?: number;
 }
+
+/** O que a pessoa digitou em cada conta (texto do campo, em reais). */
+interface CamposDaConta { juros: string; multa: string; desconto: string }
+
+const camposSugeridos = (item: ItemDoLote, cobrar: boolean): CamposDaConta => ({
+  juros: cobrar ? textoDoCampo(Math.max(0, item.jurosSugeridoCentavos || 0)) : '',
+  multa: cobrar ? textoDoCampo(Math.max(0, item.multaSugeridaCentavos || 0)) : '',
+  desconto: '',
+});
+
+/** Texto dos campos em centavos; null = algum valor digitado errado. */
+const ajustesDosCampos = (c: CamposDaConta | undefined): AjustesDaBaixa | null => {
+  if (!c) return SEM_AJUSTES;
+  const juros = centavosDoCampo(c.juros);
+  const multa = centavosDoCampo(c.multa);
+  const desconto = centavosDoCampo(c.desconto);
+  return juros === null || multa === null || desconto === null ? null : { jurosCentavos: juros, multaCentavos: multa, descontoCentavos: desconto };
+};
 
 const TEXTOS: Record<TipoDoLote, {
   sobretitulo: string;
@@ -149,9 +177,11 @@ export const BaixaEmLoteModal: React.FC<{
   tipo: TipoDoLote;
   itens: ItemDoLote[];
   tenantId: string;
+  /** Desconto por conta so' com a permissao propria (15/10/2026). */
+  podeDescontar: boolean;
   /** Fecha a janela; recebe os ids que foram baixados (vazio se cancelou). */
   onFechar: (idsBaixados: string[]) => void;
-}> = ({ tipo, itens, tenantId, onFechar }) => {
+}> = ({ tipo, itens, tenantId, podeDescontar, onFechar }) => {
   const textos = TEXTOS[tipo];
   const hoje = getDateInputInTimeZone();
   const formas = FORMAS_DA_BAIXA_EM_LOTE[tipo];
@@ -165,8 +195,20 @@ export const BaixaEmLoteModal: React.FC<{
   const [data, setData] = useState(hoje);
   const [bancoId, setBancoId] = useState('');
   const [bancos, setBancos] = useState<Array<{ id: string; nome: string }> | null>(null);
-  const temAcrescimo = tipo === 'entrada' && itens.some((i) => (i.acrescimoSugeridoCentavos || 0) > 0);
+  // Juros e multa calculados pela filial (Receber em atraso): a caixa liga/desliga o calculado.
+  const temSugestao = itens.some((i) => (i.jurosSugeridoCentavos || 0) + (i.multaSugeridaCentavos || 0) > 0);
   const [cobrarAcrescimo, setCobrarAcrescimo] = useState(true);
+  const [campos, setCampos] = useState<Record<string, CamposDaConta>>(() => Object.fromEntries(itens.map((i) => [i.id, camposSugeridos(i, true)])));
+  const mudarCampo = (id: string, campo: keyof CamposDaConta, valor: string) => {
+    setCampos((atual) => ({ ...atual, [id]: { ...(atual[id] || { juros: '', multa: '', desconto: '' }), [campo]: valor } }));
+  };
+  const alternarCobranca = (cobrar: boolean) => {
+    setCobrarAcrescimo(cobrar);
+    setCampos((atual) => Object.fromEntries(itens.map((i) => {
+      const sugerido = camposSugeridos(i, cobrar);
+      return [i.id, { ...(atual[i.id] || sugerido), juros: sugerido.juros, multa: sugerido.multa }];
+    })));
+  };
   const [erros, setErros] = useState<{ forma?: string; data?: string; banco?: string }>({});
   const [erroGeral, setErroGeral] = useState('');
   const [etapa, setEtapa] = useState<Etapa>('preencher');
@@ -175,7 +217,7 @@ export const BaixaEmLoteModal: React.FC<{
   const tituloId = `lote-titulo-${tipo}`;
 
   const precisaBanco = Boolean(forma) && baixaEmLoteExigeBanco(tipo, forma);
-  const resumo = resumoDoLote(itens, cobrarAcrescimo);
+  const resumo = resumoDoLote(itens.map((i) => ({ valorCentavos: i.valorCentavos, ajustes: ajustesDosCampos(campos[i.id]) || SEM_AJUSTES })));
   const baixados = useMemo(() => [...resultados.values()].filter((r) => r.ok).map((r) => r.transacaoId), [resultados]);
 
   useEffect(() => {
@@ -225,6 +267,20 @@ export const BaixaEmLoteModal: React.FC<{
     setErroGeral('');
     if (Object.keys(novosErros).length > 0) return;
 
+    // Juros, multa e desconto de cada conta: mesma regra da baixa individual.
+    const ajustesPorConta = new Map<string, AjustesDaBaixa>();
+    for (const item of itens) {
+      const ajustes = ajustesDosCampos(campos[item.id]);
+      const erroDaConta = ajustes === null
+        ? 'juros, multa ou desconto com valor digitado errado (use reais com vírgula, ex.: 12,50).'
+        : erroDosAjustes(item.valorCentavos, ajustes, { podeDescontar });
+      if (erroDaConta) {
+        setErroGeral(`${item.nome} (${reais(item.valorCentavos)}): ${erroDaConta}`);
+        return;
+      }
+      ajustesPorConta.set(item.id, ajustes as AjustesDaBaixa);
+    }
+
     setEtapa('enviando');
     try {
       const lista = await registrarBaixaEmLote({
@@ -233,12 +289,7 @@ export const BaixaEmLoteModal: React.FC<{
         dataPagamento: data,
         ...(precisaBanco ? { bancoId } : {}),
         tenantId,
-        titulos: itens.map((item) => ({
-          transacaoId: item.id,
-          ...(tipo === 'entrada' && cobrarAcrescimo && (item.acrescimoSugeridoCentavos || 0) > 0
-            ? { acrescimoCentavos: Math.round(item.acrescimoSugeridoCentavos || 0) }
-            : {}),
-        })),
+        titulos: itens.map((item) => ({ transacaoId: item.id, ajustes: ajustesPorConta.get(item.id) || SEM_AJUSTES })),
       });
       setResultados(new Map(lista.map((r) => [r.transacaoId, r])));
       setEtapa('resultado');
@@ -324,22 +375,27 @@ export const BaixaEmLoteModal: React.FC<{
               </div>
             )}
 
-            {temAcrescimo && (
+            {temSugestao && (
               <label className="lote-opcao">
                 <input
                   type="checkbox"
                   className="lote-caixa"
                   checked={cobrarAcrescimo}
                   disabled={bloqueado}
-                  onChange={(e) => setCobrarAcrescimo(e.target.checked)}
+                  onChange={(e) => alternarCobranca(e.target.checked)}
                 />
                 <span>
                   <strong>Cobrar juros e multa das atrasadas</strong>
                   <br />
-                  Calculado conta por conta pelos parâmetros da filial. Entra como lançamento "Juros e multa" junto de cada recebimento.
+                  Calculado conta por conta pelos parâmetros da filial; dá para mudar no borderô. Entra como lançamento "Juros e multa" junto de cada baixa.
                 </span>
               </label>
             )}
+
+            <p className="lote-ajuda">
+              Juros, multa e desconto são por conta, no borderô. A conta fica quitada pelo valor cheio; os ajustes entram como lançamentos próprios.
+              {!podeDescontar && ` Desconto: só com a permissão "${ROTULO_PERMISSAO_DESCONTO_NA_BAIXA}".`}
+            </p>
 
             <p className="lote-aviso-fora">{textos.foraDoLote}</p>
           </div>
@@ -354,7 +410,10 @@ export const BaixaEmLoteModal: React.FC<{
                     <th scope="col" className="lote-col-vencimento">Vencimento</th>
                     <th scope="col">{tipo === 'entrada' ? 'Cliente' : 'Fornecedor'}</th>
                     <th scope="col" className="lote-direita">Valor</th>
-                    {temAcrescimo && <th scope="col" className="lote-direita">Juros e multa</th>}
+                    <th scope="col" className="lote-direita">Juros</th>
+                    <th scope="col" className="lote-direita">Multa</th>
+                    <th scope="col" className="lote-direita">Desconto</th>
+                    <th scope="col" className="lote-direita">{tipo === 'entrada' ? 'Recebido' : 'Pago'}</th>
                     {etapa === 'resultado' && <th scope="col">Resultado</th>}
                   </tr>
                 </thead>
@@ -362,7 +421,21 @@ export const BaixaEmLoteModal: React.FC<{
                   {itens.map((item, indice) => {
                     const atraso = item.vencimento ? (differenceInCalendarDays(item.vencimento, hoje) ?? 0) : 0;
                     const resultado = resultados.get(item.id);
-                    const acrescimo = cobrarAcrescimo ? Math.max(0, item.acrescimoSugeridoCentavos || 0) : 0;
+                    const daConta = campos[item.id] || { juros: '', multa: '', desconto: '' };
+                    const ajustes = ajustesDosCampos(daConta);
+                    const campoDeValor = (campo: keyof CamposDaConta, rotulo: string, desabilitado = false) => (
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="lote-campo-valor"
+                        value={daConta[campo]}
+                        disabled={bloqueado || desabilitado}
+                        aria-label={`${rotulo} de ${item.nome}, em reais`}
+                        title={desabilitado ? `Precisa da permissão ${ROTULO_PERMISSAO_DESCONTO_NA_BAIXA}` : undefined}
+                        aria-invalid={centavosDoCampo(daConta[campo]) === null}
+                        onChange={(e) => mudarCampo(item.id, campo, e.target.value)}
+                      />
+                    );
                     return (
                       <tr key={item.id}>
                         <td className="lote-seq lote-numero">{indice + 1}</td>
@@ -375,9 +448,10 @@ export const BaixaEmLoteModal: React.FC<{
                           <span className="lote-descricao">{item.descricao}</span>
                         </td>
                         <td className="lote-direita lote-numero">{reais(item.valorCentavos)}</td>
-                        {temAcrescimo && (
-                          <td className="lote-direita lote-numero lote-juros">{acrescimo > 0 ? `+ ${reais(acrescimo)}` : '—'}</td>
-                        )}
+                        <td className="lote-direita">{campoDeValor('juros', 'Juros')}</td>
+                        <td className="lote-direita">{campoDeValor('multa', 'Multa')}</td>
+                        <td className="lote-direita">{campoDeValor('desconto', 'Desconto', !podeDescontar)}</td>
+                        <td className="lote-direita lote-numero">{ajustes ? reais(valorPagoDaBaixa(item.valorCentavos, ajustes)) : '—'}</td>
                         {etapa === 'resultado' && (
                           <td>
                             {resultado?.ok ? (
@@ -399,7 +473,8 @@ export const BaixaEmLoteModal: React.FC<{
             <div className="lote-bordero-total">
               <div>Contas<strong className="lote-numero">{resumo.quantidade}</strong></div>
               <div>Valor<strong className="lote-numero">{reais(resumo.valorCentavos)}</strong></div>
-              {temAcrescimo && <div>Juros e multa<strong className="lote-numero">{reais(resumo.acrescimoCentavos)}</strong></div>}
+              {resumo.acrescimoCentavos > 0 && <div>Juros e multa<strong className="lote-numero">{reais(resumo.acrescimoCentavos)}</strong></div>}
+              {resumo.descontoCentavos > 0 && <div>Desconto<strong className="lote-numero">− {reais(resumo.descontoCentavos)}</strong></div>}
               <div className="lote-total-geral">Total<strong className="lote-numero">{reais(resumo.totalCentavos)}</strong></div>
             </div>
           </div>

@@ -144,7 +144,8 @@
 }
 .lote-janela {
   width: 100%;
-  max-width: 980px;
+  /* 1180 (era 980) desde 15/10/2026: juros, multa e desconto por conta no borderô. */
+  max-width: 1180px;
   max-height: calc(100vh - 32px);
   display: flex;
   flex-direction: column;
@@ -345,6 +346,24 @@ body.light-theme .lote-bordero-folha input { color-scheme: light; }
 .lote-bordero .lote-descricao { display: block; font-size: 12px; color: var(--text-muted); font-weight: 400; margin-top: 2px; }
 .lote-bordero .lote-atraso { color: var(--status-red); font-weight: 700; }
 .lote-bordero .lote-juros { color: var(--status-yellow); }
+/* Juros, multa e desconto por conta (15/10/2026). */
+/* Tabela mais larga que a caixa: rola para o lado em vez de espremer o nome. */
+.lote-bordero-folha { overflow-x: auto; }
+.lote-bordero table { min-width: 820px; }
+.lote-bordero .lote-nome { display: block; min-width: 150px; }
+.lote-bordero .lote-campo-valor {
+  width: 76px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.lote-bordero .lote-campo-valor:disabled { opacity: 0.55; cursor: not-allowed; }
+.lote-bordero .lote-campo-valor[aria-invalid='true'] { border-color: var(--status-red, #ef4444); }
 .lote-resultado-ok { color: var(--status-green); font-weight: 700; }
 .lote-resultado-falha { color: var(--status-red); font-weight: 700; }
 .lote-resultado-motivo { display: block; font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-top: 2px; }

@@ -66,6 +66,8 @@ const MODULOS = [
   // Romaneio fechado: reabrir/cancelar e o Financeiro acompanhando (15/10/2026).
   'src/utils/rotaDomain.ts',
   'src/utils/romaneioDomain.ts',
+  // Juros, multa e desconto na baixa (15/10/2026): mesma regra na tela e no servidor.
+  'src/utils/ajustesDaBaixaDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

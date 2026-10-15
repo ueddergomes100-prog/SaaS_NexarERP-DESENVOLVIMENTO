@@ -88,7 +88,24 @@ const bloqueado = (bloqueio, mostrarBotao = true) => ({
 const ASPAS = (texto) => `"${texto}"`;
 exports.MENSAGEM_SO_PAGA = 'Só dá para estornar uma conta que já foi baixada.';
 /** Contas a Pagar: baixa = despesa marcada como paga (debita o banco, se houve). */
+/**
+ * Juros/multa e desconto gravados junto da baixa de outro titulo (15/10/2026):
+ * saem junto no estorno do titulo de origem. Estornar so' eles deixaria uma
+ * conta de juros ou de desconto que nunca existiu.
+ */
+const bloqueioDeLancamentoDaBaixa = (titulo) => {
+    if (titulo.acrescimoDaTransacaoId) {
+        return bloqueado('Este lançamento é de juros e multa de outra baixa e sai junto quando ela for estornada. Para desfazer, estorne a conta de origem.', false);
+    }
+    if (titulo.descontoDaTransacaoId) {
+        return bloqueado('Este lançamento é o desconto de outra baixa e sai junto quando ela for estornada. Para desfazer, estorne a conta de origem.', false);
+    }
+    return null;
+};
 const planejarEstornoPagar = (titulo) => {
+    const daBaixa = bloqueioDeLancamentoDaBaixa(titulo);
+    if (daBaixa)
+        return daBaixa;
     if (titulo.status !== 'Paga')
         return bloqueado(exports.MENSAGEM_SO_PAGA, false);
     const marca = titulo.baixaManual;
@@ -132,11 +149,11 @@ const planejarEstornoPagar = (titulo) => {
 exports.planejarEstornoPagar = planejarEstornoPagar;
 /** Contas a Receber: baixa = recebimento confirmado (credita o banco, se houve, e atualiza a venda/OS). */
 const planejarEstornoReceber = (titulo) => {
-    // Juros e multa de outro recebimento: saem junto no estorno do titulo de
-    // origem; estornar so' eles deixaria um 'a receber' de juros que nao existe.
-    if (titulo.acrescimoDaTransacaoId) {
-        return bloqueado('Este lançamento é de juros e multa de outro recebimento e sai junto quando ele for estornado. Para desfazer, estorne o recebimento de origem.', false);
-    }
+    // Juros e multa (ou desconto) de outro recebimento: saem junto no estorno do
+    // titulo de origem; estornar so' eles deixaria um 'a receber' que nao existe.
+    const daBaixa = bloqueioDeLancamentoDaBaixa(titulo);
+    if (daBaixa)
+        return daBaixa;
     if (titulo.status !== 'Paga')
         return bloqueado(exports.MENSAGEM_SO_PAGA, false);
     const forma = String(titulo.formaPagamento || '');

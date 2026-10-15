@@ -245,7 +245,8 @@ const desenharRecibo = (doc: jsPDF, r: ReciboDocumento, y: number, via: string) 
 
   let yy = y + 30;
   const pagador = `${r.pagador.nome}${r.pagador.documento ? `, CPF/CNPJ ${r.pagador.documento}` : ''}`;
-  const acrescimo = r.acrescimoCentavos > 0 ? `, já incluídos ${reaisFormatado(r.acrescimoCentavos)} de juros e multa por atraso` : '';
+  const acrescimo = (r.acrescimoCentavos > 0 ? `, já incluídos ${reaisFormatado(r.acrescimoCentavos)} de juros e multa por atraso` : '')
+    + (r.descontoCentavos > 0 ? `, com desconto de ${reaisFormatado(r.descontoCentavos)}` : '');
   const forma = r.formaPagamento ? `, em ${r.formaPagamento}` : '';
   yy = paragrafo(doc, `Recebi(emos) de ${pagador} a importância de ${r.valorExtenso} (${reaisFormatado(r.valorCentavos)}), referente a ${r.referente}${acrescimo}${forma}.`, x + 5, yy, w - 10, { tamanho: 10 });
   yy += 2;

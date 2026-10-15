@@ -12,6 +12,7 @@ const {
   validarDataBaixa,
   validarMotivoEstorno,
 } = require('../domain/baixaFinanceiraDomain');
+const { ajustesDoPedido, camposDosAjustes } = require('../domain/ajustesDaBaixaDomain');
 
 class ErroBaixa extends Error {
   constructor(status, message) {
@@ -67,17 +68,13 @@ const validarPedidoDeBaixa = (corpo, hoje) => {
     return { erro: tipo === 'saida' ? 'Escolha de qual banco saiu o pagamento.' : 'Escolha em qual banco caiu o recebimento.' };
   }
 
-  // Juros e multa (parametros de venda, fase A -- 2026-10-07): so' no Receber,
-  // inteiro em centavos, >= 0. O valor em si e' decisao de quem recebe (pode
-  // negociar); o servico ainda barra valor absurdo em relacao ao titulo.
-  let acrescimoCentavos = 0;
-  if (corpo.acrescimoCentavos !== undefined && corpo.acrescimoCentavos !== null && corpo.acrescimoCentavos !== 0) {
-    if (tipo !== 'entrada') return { erro: 'Juros e multa só se aplicam a recebimentos.' };
-    if (!Number.isInteger(corpo.acrescimoCentavos) || corpo.acrescimoCentavos < 0) {
-      return { erro: 'Juros e multa: informe um valor em reais maior ou igual a zero.' };
-    }
-    acrescimoCentavos = corpo.acrescimoCentavos;
-  }
+  // Juros, multa e desconto (15/10/2026, Receber E Pagar): inteiros em
+  // centavos, >= 0. O valor e' decisao de quem da' baixa (pode negociar); o
+  // servico ainda confere contra o titulo (ajustesDaBaixaDomain.erroDosAjustes)
+  // e a rota confere a permissao do desconto. `acrescimoCentavos` (tela antiga)
+  // ainda e' aceito e vale como juros.
+  const { erro: erroAjustes, ajustes } = ajustesDoPedido(corpo);
+  if (erroAjustes) return { erro: erroAjustes };
 
   return {
     pedido: {
@@ -86,7 +83,7 @@ const validarPedidoDeBaixa = (corpo, hoje) => {
       formaPagamento,
       dataPagamento: String(corpo.dataPagamento).trim(),
       ...(bancoId ? { bancoId } : {}),
-      ...(acrescimoCentavos > 0 ? { acrescimoCentavos } : {}),
+      ...camposDosAjustes(ajustes),
     },
   };
 };
@@ -100,7 +97,7 @@ const LIMITE_BAIXA_EM_LOTE = 50;
 
 /**
  * Confere o pedido de baixa EM LOTE: a mesma forma, data e banco para todas
- * as contas; juros e multa (so' Receber) por conta. Cada conta passa pela
+ * as contas; juros, multa e desconto por conta. Cada conta passa pela
  * MESMA validarPedidoDeBaixa da baixa individual -- o lote nao tem regra
  * propria. Qualquer problema recusa o lote inteiro antes de gravar nada.
  * Devolve `{ erro }` ou `{ pedidos }` (um pedido de baixa por conta).
@@ -121,6 +118,9 @@ const validarPedidoDeBaixaEmLote = (corpo, hoje) => {
       dataPagamento: corpo.dataPagamento,
       bancoId: corpo.bancoId,
       acrescimoCentavos: item?.acrescimoCentavos,
+      jurosCentavos: item?.jurosCentavos,
+      multaCentavos: item?.multaCentavos,
+      descontoCentavos: item?.descontoCentavos,
     }, hoje);
     if (erro) return { erro };
     if (vistos.has(pedido.transacaoId)) {

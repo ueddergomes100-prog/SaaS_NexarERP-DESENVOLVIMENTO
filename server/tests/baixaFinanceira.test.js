@@ -197,11 +197,13 @@ test('Receber com juros e multa: lancamento proprio, banco credita os dois, esto
     'bancos/b1': { tenantId: 'emp1', nome: 'Sicoob', ativo: true, saldoCentavos: 500000 },
   });
   const s = carregarServico(fake.db);
-  const valid = s.validarPedidoDeBaixa({ tipo: 'entrada', transacaoId: 't3', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', acrescimoCentavos: 350 }, HOJE);
+  const valid = s.validarPedidoDeBaixa({ tipo: 'entrada', transacaoId: 't3', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', jurosCentavos: 150, multaCentavos: 200 }, HOJE);
   assert.equal(valid.erro, undefined, valid.erro);
-  assert.equal(valid.pedido.acrescimoCentavos, 350);
-  assert.match(String(s.validarPedidoDeBaixa({ tipo: 'saida', transacaoId: 't3', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', acrescimoCentavos: 350 }, HOJE).erro), /só se aplicam a recebimentos/);
-  assert.match(String(s.validarPedidoDeBaixa({ tipo: 'entrada', transacaoId: 't3', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', acrescimoCentavos: 3.5 }, HOJE).erro), /maior ou igual a zero/);
+  assert.equal(valid.pedido.jurosCentavos, 150);
+  assert.equal(valid.pedido.multaCentavos, 200);
+  // Tela antiga (campo unico) continua aceita: vale como juros.
+  assert.equal(s.validarPedidoDeBaixa({ tipo: 'entrada', transacaoId: 't3', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', acrescimoCentavos: 350 }, HOJE).pedido.jurosCentavos, 350);
+  assert.match(String(s.validarPedidoDeBaixa({ tipo: 'entrada', transacaoId: 't3', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', multaCentavos: 3.5 }, HOJE).erro), /maior(es)? ou igua(l|is) a zero/);
 
   const resumo = await s.registrarBaixa({ user: USER, tenantId: 'emp1', pedido: valid.pedido });
   assert.equal(resumo.acrescimoCentavos, 350);
@@ -210,6 +212,8 @@ test('Receber com juros e multa: lancamento proprio, banco credita os dois, esto
   assert.equal(titulo.status, 'Paga');
   assert.equal(titulo.valorCentavos, 10000, 'o titulo continua valendo o que o cliente devia');
   assert.equal(titulo.baixaManual.acrescimoCentavos, 350);
+  assert.equal(titulo.baixaManual.jurosCentavos, 150);
+  assert.equal(titulo.baixaManual.multaCentavos, 200);
   const jurosId = titulo.baixaManual.acrescimoTransacaoId;
   const juros = fake.ler(`transacoes/${jurosId}`);
   assert.equal(juros.status, 'Paga');
@@ -221,10 +225,10 @@ test('Receber com juros e multa: lancamento proprio, banco credita os dois, esto
 
   // Acima do razoavel: barra antes de gravar.
   const fake2 = criarBancoFalso({ 'transacoes/t4': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'X', valor: 10, valorCentavos: 1000 } });
-  await assert.rejects(() => carregarServico(fake2.db).registrarBaixa({ user: USER, tenantId: 'emp1', pedido: { tipo: 'entrada', transacaoId: 't4', formaPagamento: 'Dinheiro', dataPagamento: HOJE, acrescimoCentavos: 500000 } }), /muito acima do título/);
+  await assert.rejects(() => carregarServico(fake2.db).registrarBaixa({ user: USER, tenantId: 'emp1', pedido: { tipo: 'entrada', transacaoId: 't4', formaPagamento: 'Dinheiro', dataPagamento: HOJE, jurosCentavos: 500000 } }), /muito acima do valor da conta/);
 
   // Estornar so' o lancamento de juros e' barrado: ele sai junto com o titulo.
-  await assert.rejects(() => s.registrarEstorno({ user: USER, tenantId: 'emp1', pedido: { tipo: 'entrada', transacaoId: jurosId, motivo: 'tentativa errada de estorno' } }), /estorne o recebimento de origem/);
+  await assert.rejects(() => s.registrarEstorno({ user: USER, tenantId: 'emp1', pedido: { tipo: 'entrada', transacaoId: jurosId, motivo: 'tentativa errada de estorno' } }), /estorne a conta de origem/);
   const estorno = s.validarPedidoDeEstorno({ tipo: 'entrada', transacaoId: 't3', motivo: 'recebi do cliente errado' }).pedido;
   const r = await s.registrarEstorno({ user: USER, tenantId: 'emp1', pedido: estorno });
   assert.equal(r.acrescimoCentavos, 350);
@@ -233,22 +237,81 @@ test('Receber com juros e multa: lancamento proprio, banco credita os dois, esto
   assert.equal(fake.ler(`transacoes/${jurosId}`).status, 'Cancelada');
 });
 
+const USER_DESCONTO = { ...USER, permissoes: ['financeiro.desconto_baixa'] };
+
+test('Receber com desconto: lancamento "Desconto concedido", banco recebe o liquido, estorno desfaz tudo', async () => {
+  const fake = criarBancoFalso({
+    'transacoes/t5': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'Parcela 1/1 - Venda 0102', valor: 100, valorCentavos: 10000, clienteId: 'c1', clienteNome: 'MARIA' },
+    'bancos/b1': { tenantId: 'emp1', nome: 'Sicoob', ativo: true, saldoCentavos: 500000 },
+  });
+  const s = carregarServico(fake.db);
+  const pedido = { tipo: 'entrada', transacaoId: 't5', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', jurosCentavos: 100, descontoCentavos: 1500 };
+
+  // Sem a permissao propria, nada e' gravado.
+  await assert.rejects(() => s.registrarBaixa({ user: USER, tenantId: 'emp1', pedido }), (e) => e.status === 403 && /dar desconto na baixa/.test(e.message));
+  assert.equal(fake.ler('transacoes/t5').status, 'Pendente');
+  // Desconto do valor inteiro nao e' baixa.
+  await assert.rejects(() => s.registrarBaixa({ user: USER_DESCONTO, tenantId: 'emp1', pedido: { ...pedido, descontoCentavos: 10000 } }), /cancele a conta/);
+
+  await s.registrarBaixa({ user: USER_DESCONTO, tenantId: 'emp1', pedido });
+  assert.equal(fake.ler('bancos/b1').saldoCentavos, 500000 + 10000 + 100 - 1500, 'banco recebe o liquido');
+  const titulo = fake.ler('transacoes/t5');
+  assert.equal(titulo.valorCentavos, 10000, 'o titulo fica quitado pelo valor cheio');
+  assert.equal(titulo.baixaManual.descontoCentavos, 1500);
+  const desconto = fake.ler(`transacoes/${titulo.baixaManual.descontoTransacaoId}`);
+  assert.deepEqual(
+    [desconto.tipo, desconto.status, desconto.categoria, desconto.valorCentavos, desconto.descontoDaTransacaoId, desconto.clienteNome],
+    ['saida', 'Paga', 'Descontos concedidos', 1500, 't5', 'MARIA'],
+  );
+  assert.equal(desconto.baixaManual.movimentoBancoCentavos, -1500);
+  assert.ok(!JSON.stringify(desconto).includes('undefined'));
+
+  await assert.rejects(() => s.registrarEstorno({ user: USER, tenantId: 'emp1', pedido: { tipo: 'saida', transacaoId: titulo.baixaManual.descontoTransacaoId, motivo: 'tentativa errada de estorno' } }), /desconto de outra baixa/);
+  await s.registrarEstorno({ user: USER, tenantId: 'emp1', pedido: { tipo: 'entrada', transacaoId: 't5', motivo: 'recebi do cliente errado' } });
+  assert.equal(fake.ler('bancos/b1').saldoCentavos, 500000, 'banco volta ao que era');
+  assert.equal(fake.ler(`transacoes/${titulo.baixaManual.descontoTransacaoId}`).status, 'Cancelada');
+  assert.equal(fake.ler(`transacoes/${titulo.baixaManual.acrescimoTransacaoId}`).status, 'Cancelada');
+});
+
+test('Pagar com juros, multa e desconto: "Juros e multa pagos" e "Desconto obtido", banco paga o liquido; estorno devolve', async () => {
+  const fake = criarBancoFalso({
+    'transacoes/p1': { tenantId: 'emp1', tipo: 'saida', status: 'Pendente', descricao: 'Boleto fornecedor', valor: 200, valorCentavos: 20000, fornecedorId: 'f1', fornecedorNome: 'DISTRIBUIDORA X' },
+    'bancos/b1': { tenantId: 'emp1', nome: 'Sicoob', ativo: true, saldoCentavos: 500000 },
+  });
+  const s = carregarServico(fake.db);
+  const { pedido } = s.validarPedidoDeBaixa({ tipo: 'saida', transacaoId: 'p1', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', jurosCentavos: 300, multaCentavos: 400, descontoCentavos: 1000 }, HOJE);
+  await s.registrarBaixa({ user: USER_DESCONTO, tenantId: 'emp1', pedido });
+  assert.equal(fake.ler('bancos/b1').saldoCentavos, 500000 - (20000 + 300 + 400 - 1000));
+  const titulo = fake.ler('transacoes/p1');
+  assert.equal(titulo.status, 'Paga');
+  const juros = fake.ler(`transacoes/${titulo.baixaManual.acrescimoTransacaoId}`);
+  assert.deepEqual([juros.tipo, juros.categoria, juros.valorCentavos, juros.jurosCentavos, juros.multaCentavos, juros.fornecedorNome], ['saida', 'Juros e multa pagos', 700, 300, 400, 'DISTRIBUIDORA X']);
+  const desconto = fake.ler(`transacoes/${titulo.baixaManual.descontoTransacaoId}`);
+  assert.deepEqual([desconto.tipo, desconto.categoria, desconto.valorCentavos], ['entrada', 'Descontos obtidos', 1000]);
+
+  await s.registrarEstorno({ user: USER, tenantId: 'emp1', pedido: { tipo: 'saida', transacaoId: 'p1', motivo: 'paguei a conta errada' } });
+  assert.equal(fake.ler('bancos/b1').saldoCentavos, 500000, 'banco volta ao que era');
+  assert.equal(fake.ler('transacoes/p1').status, 'Pendente');
+  assert.equal(fake.ler(`transacoes/${titulo.baixaManual.acrescimoTransacaoId}`).status, 'Cancelada');
+  assert.equal(fake.ler(`transacoes/${titulo.baixaManual.descontoTransacaoId}`).status, 'Cancelada');
+});
+
 // ---------------------------------------------------------------------------
 // Baixa em lote (2026-10-14): cada conta passa pela mesma validacao da individual
 // ---------------------------------------------------------------------------
 
 const lote = (extra = {}) => ({
   tipo: 'entrada', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1',
-  titulos: [{ transacaoId: 't1' }, { transacaoId: 't2', acrescimoCentavos: 350 }],
+  titulos: [{ transacaoId: 't1' }, { transacaoId: 't2', jurosCentavos: 150, multaCentavos: 200, descontoCentavos: 50 }],
   ...extra,
 });
 
-test('lote: vira um pedido de baixa por conta, com forma/data/banco comuns e juros por conta', () => {
+test('lote: vira um pedido de baixa por conta, com forma/data/banco comuns e juros, multa e desconto por conta', () => {
   const { erro, pedidos } = validarPedidoDeBaixaEmLote(lote(), HOJE);
   assert.equal(erro, undefined);
   assert.deepEqual(pedidos, [
     { tipo: 'entrada', transacaoId: 't1', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1' },
-    { tipo: 'entrada', transacaoId: 't2', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', acrescimoCentavos: 350 },
+    { tipo: 'entrada', transacaoId: 't2', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', jurosCentavos: 150, multaCentavos: 200, descontoCentavos: 50 },
   ]);
 });
 
@@ -259,14 +322,13 @@ test('lote: vazio, acima do limite ou com conta repetida recusam o lote inteiro'
   assert.match(validarPedidoDeBaixaEmLote(lote({ titulos: [{ transacaoId: 't1' }, { transacaoId: 't1' }] }), HOJE).erro, /duas vezes/);
 });
 
-test('lote: mesmas regras da baixa individual (banco, cheque, data futura, juros no Pagar)', () => {
+test('lote: mesmas regras da baixa individual (banco, cheque, data futura, valor invalido); Pagar aceita juros', () => {
   assert.equal(validarPedidoDeBaixaEmLote(lote({ bancoId: '' }), HOJE).erro, 'Escolha em qual banco caiu o recebimento.');
   assert.match(validarPedidoDeBaixaEmLote(lote({ formaPagamento: 'Cheque' }), HOJE).erro, /cheque fica aguardando/);
   assert.ok(validarPedidoDeBaixaEmLote(lote({ dataPagamento: '2026-10-06' }), HOJE).erro, 'data futura recusada');
-  assert.equal(
-    validarPedidoDeBaixaEmLote(lote({ tipo: 'saida', formaPagamento: 'Pix' }), HOJE).erro,
-    'Juros e multa só se aplicam a recebimentos.',
-  );
+  // Desde 15/10/2026 o Pagar tambem tem juros, multa e desconto.
+  assert.equal(validarPedidoDeBaixaEmLote(lote({ tipo: 'saida', formaPagamento: 'Pix' }), HOJE).erro, undefined);
+  assert.match(validarPedidoDeBaixaEmLote(lote({ titulos: [{ transacaoId: 't1', descontoCentavos: -5 }] }), HOJE).erro, /maiores ou iguais a zero/);
 });
 
 test('lote: Pagar em dinheiro nao leva banco em nenhuma conta', () => {

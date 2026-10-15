@@ -187,6 +187,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // 2026-10-15: juntar parcelas em aberto de um cliente num documento novo (e desfazer).
       // Conferida no servidor (rotas /financeiro/renegociar e /renegociacao/desfazer).
       { id: 'financeiro.renegociar', label: 'Financeiro: Renegociar Documentos (juntar parcelas a receber)', color: '#10b981' },
+      // 2026-10-15: desconto no "Dar Baixa" e na baixa em lote (Receber e Pagar). Conferida
+      // no servidor; mesmo texto de ROTULO_PERMISSAO_DESCONTO_NA_BAIXA (ajustesDaBaixaDomain.ts).
+      { id: 'financeiro.desconto_baixa', label: 'Financeiro: dar desconto na baixa (Contas a Receber e a Pagar)', color: '#10b981' },
     ],
   },
   {

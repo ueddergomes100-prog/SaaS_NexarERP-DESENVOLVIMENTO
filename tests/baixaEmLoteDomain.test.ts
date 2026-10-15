@@ -53,7 +53,9 @@ test('estado da caixa do grupo', () => {
 });
 
 test('resumo: valor, juros so quando cobrados, total', () => {
-  const itens = [{ valorCentavos: 10000, acrescimoSugeridoCentavos: 250 }, { valorCentavos: 5050 }];
-  assert.deepEqual(resumoDoLote(itens, true), { quantidade: 2, valorCentavos: 15050, acrescimoCentavos: 250, totalCentavos: 15300 });
-  assert.deepEqual(resumoDoLote(itens, false), { quantidade: 2, valorCentavos: 15050, acrescimoCentavos: 0, totalCentavos: 15050 });
+  const itens = [{ valorCentavos: 10000, ajustes: { jurosCentavos: 100, multaCentavos: 150, descontoCentavos: 0 } }, { valorCentavos: 5050 }];
+  assert.deepEqual(resumoDoLote(itens), { quantidade: 2, valorCentavos: 15050, acrescimoCentavos: 250, descontoCentavos: 0, totalCentavos: 15300 });
+  // Desconto (15/10/2026) sai do total.
+  const comDesconto = [...itens, { valorCentavos: 2000, ajustes: { jurosCentavos: 0, multaCentavos: 0, descontoCentavos: 500 } }];
+  assert.deepEqual(resumoDoLote(comDesconto), { quantidade: 3, valorCentavos: 17050, acrescimoCentavos: 250, descontoCentavos: 500, totalCentavos: 16800 });
 });

@@ -16,6 +16,7 @@
  * as mesmas que o servidor usa -- compiladas para server/domain/).
  */
 import { auth } from './firebase';
+import { camposDosAjustes, type AjustesDaBaixa } from '../utils/ajustesDaBaixaDomain';
 import { showError, showSuccess } from '../utils/alerts';
 import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../utils/fetchComTimeout';
 import { fromCents, transactionNetAmount } from '../utils/financeDomain';
@@ -115,8 +116,12 @@ export interface PedidoDeBaixa {
   /** yyyy-mm-dd: dia em que foi pago/recebido de verdade (pode ser antes de hoje). */
   dataPagamento: string;
   bancoId?: string;
-  /** Juros e multa cobrados junto (centavos), so' no Receber. O servidor grava como lancamento proprio. */
-  acrescimoCentavos?: number;
+  /**
+   * Juros, multa e desconto (15/10/2026, Receber e Pagar). O titulo fica
+   * quitado pelo valor cheio; o servidor grava juros/multa e desconto como
+   * lancamentos proprios (ver ajustesDaBaixaDomain.ts).
+   */
+  ajustes?: AjustesDaBaixa;
   /** Empresa aberta na tela (o admin da plataforma pode estar noutra). */
   tenantId: string;
 }
@@ -133,8 +138,8 @@ export const registrarBaixa = async (pedido: PedidoDeBaixa): Promise<void> => {
     formaPagamento: pedido.formaPagamento,
     dataPagamento: pedido.dataPagamento,
     ...(pedido.bancoId ? { bancoId: pedido.bancoId } : {}),
-    // Juros e multa (parametros de venda, fase A): so' vai quando ha' valor.
-    ...(pedido.acrescimoCentavos && pedido.acrescimoCentavos > 0 ? { acrescimoCentavos: pedido.acrescimoCentavos } : {}),
+    // Juros, multa e desconto: so' vai o que tem valor.
+    ...(pedido.ajustes ? camposDosAjustes(pedido.ajustes) : {}),
     tenantId: pedido.tenantId,
   });
 };
@@ -149,7 +154,7 @@ export interface ResultadoBaixaEmLote {
 
 /**
  * Baixa em lote (2026-10-14): a mesma forma, data e banco para todas as
- * contas; juros e multa por conta (so' Receber). O servidor faz, conta por
+ * contas; juros, multa e desconto por conta (Receber e Pagar, 15/10/2026). O servidor faz, conta por
  * conta, a mesma baixa de registrarBaixa -- uma que falha nao desfaz as
  * outras, e a resposta traz o resultado de cada uma. Erro do lote inteiro
  * (sem permissao, dado invalido, rede) sobe como BaixaFinanceiraError.
@@ -160,7 +165,7 @@ export const registrarBaixaEmLote = async (pedido: {
   dataPagamento: string;
   bancoId?: string;
   tenantId: string;
-  titulos: Array<{ transacaoId: string; acrescimoCentavos?: number }>;
+  titulos: Array<{ transacaoId: string; ajustes?: AjustesDaBaixa }>;
 }): Promise<ResultadoBaixaEmLote[]> => {
   const resposta = await chamarFinanceiro<{ ok: boolean; resultados: ResultadoBaixaEmLote[] }>('/baixa-lote', {
     tipo: pedido.tipo,
@@ -170,7 +175,7 @@ export const registrarBaixaEmLote = async (pedido: {
     tenantId: pedido.tenantId,
     titulos: pedido.titulos.map((titulo) => ({
       transacaoId: titulo.transacaoId,
-      ...(titulo.acrescimoCentavos && titulo.acrescimoCentavos > 0 ? { acrescimoCentavos: titulo.acrescimoCentavos } : {}),
+      ...(titulo.ajustes ? camposDosAjustes(titulo.ajustes) : {}),
     })),
   }, TEMPO_LIMITE.baixaEmLote);
   return Array.isArray(resposta.resultados) ? resposta.resultados : [];
@@ -314,10 +319,17 @@ export const estornarBaixaComConfirmacao = async (args: {
   const daVenda = tipo === 'entrada' && (titulo.pedidoId || titulo.osId)
     ? ' A venda (ou OS) de origem passa a mostrar esse valor como a receber.'
     : '';
+  // Juros/multa e desconto da baixa (15/10/2026) saem junto.
+  const marca = titulo.baixaManual;
+  const ajustes = [
+    Number(marca?.acrescimoCentavos) > 0 ? `juros e multa de R$ ${fromCents(Number(marca?.acrescimoCentavos)).toFixed(2)}` : '',
+    Number(marca?.descontoCentavos) > 0 ? `desconto de R$ ${fromCents(Number(marca?.descontoCentavos)).toFixed(2)}` : '',
+  ].filter(Boolean);
+  const dosAjustes = ajustes.length ? ` Os lançamentos de ${ajustes.join(' e ')} desta baixa são cancelados junto.` : '';
 
   const motivo = await pedirMotivoEstorno({
     titulo: tipo === 'saida' ? 'Estornar pagamento?' : 'Estornar recebimento?',
-    texto: `${tipo === 'saida' ? 'A conta' : 'O recebimento'} "${titulo.descricao}" de R$ ${valor.toFixed(2)}, ${quando} ${forma}, volta para Pendente.${daVenda}${noBanco} Depois é só dar baixa de novo com a data certa.`
+    texto: `${tipo === 'saida' ? 'A conta' : 'O recebimento'} "${titulo.descricao}" de R$ ${valor.toFixed(2)}, ${quando} ${forma}, volta para Pendente.${daVenda}${noBanco}${dosAjustes} Depois é só dar baixa de novo com a data certa.`
       .replace(/\s+,/g, ',').replace(/\s{2,}/g, ' '),
   });
   if (!motivo) return false;

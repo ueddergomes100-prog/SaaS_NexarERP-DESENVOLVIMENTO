@@ -23,6 +23,7 @@ const {
   desfazerRenegociacao,
 } = require('../services/renegociacao');
 const { PERMISSAO_RENEGOCIAR } = require('../domain/renegociacaoDomain');
+const { descricaoDosAjustes } = require('../domain/ajustesDaBaixaDomain');
 const {
   conciliarCartao,
   compensarChequeRecebido,
@@ -60,12 +61,16 @@ const semPermissaoDeBaixa = (tipo) => (tipo === 'saida'
   ? 'Você não tem permissão para dar baixa em contas a pagar. Peça a um responsável liberar "Financeiro: Contas a Pagar" no seu usuário.'
   : 'Você não tem permissão para dar baixa em contas a receber. Peça a um responsável liberar "Financeiro: Contas a Receber" no seu usuário.');
 
-const registrarLogDaBaixa = (user, tenantId, pedido, resumo, sufixo = '') => registrarLog({ ...user, tenantId }, {
-  modulo: 'financeiro',
-  acao: 'edicao',
-  descricao: `${pedido.tipo === 'saida' ? 'Pagamento' : 'Recebimento'} "${resumo.descricao}" de ${reais(resumo.valorCentavos)} baixado em ${pedido.dataPagamento.split('-').reverse().join('/')} (${pedido.formaPagamento}${resumo.bancoNome ? `, banco ${resumo.bancoNome}` : ''})${sufixo}.`,
-  registroId: pedido.transacaoId,
-});
+const registrarLogDaBaixa = (user, tenantId, pedido, resumo, sufixo = '') => {
+  // Juros, multa e desconto (15/10/2026) entram no texto do log.
+  const ajustes = resumo.ajustes ? descricaoDosAjustes(resumo.ajustes) : '';
+  registrarLog({ ...user, tenantId }, {
+    modulo: 'financeiro',
+    acao: 'edicao',
+    descricao: `${pedido.tipo === 'saida' ? 'Pagamento' : 'Recebimento'} "${resumo.descricao}" de ${reais(resumo.valorCentavos)} baixado em ${pedido.dataPagamento.split('-').reverse().join('/')} (${pedido.formaPagamento}${resumo.bancoNome ? `, banco ${resumo.bancoNome}` : ''})${ajustes ? `, com ${ajustes}` : ''}${sufixo}.`,
+    registroId: pedido.transacaoId,
+  });
+};
 
 /** POST /api/financeiro/baixa  { tipo, transacaoId, formaPagamento, dataPagamento, bancoId?, tenantId? } */
 router.post('/baixa', async (req, res) => {

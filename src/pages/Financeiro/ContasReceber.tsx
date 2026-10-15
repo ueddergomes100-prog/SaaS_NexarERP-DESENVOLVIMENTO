@@ -19,7 +19,8 @@ import {
   type PaymentMethod,
   type PaymentRecord, transactionNetCents } from '../../utils/financeDomain';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
-import { isPlatformAdminRole } from '../../utils/roles';
+import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
+import { PERMISSAO_DESCONTO_NA_BAIXA, SEM_AJUSTES, acrescimoDosAjustes, type AjustesDaBaixa } from '../../utils/ajustesDaBaixaDomain';
 import {
   dataBrasileira,
   planejarEstornoReceber,
@@ -27,7 +28,7 @@ import {
   type TituloParaEstorno,
 } from '../../utils/baixaFinanceiraDomain';
 import { pedirDadosBaixa } from '../../utils/baixaFinanceiraUi';
-import { PARAMETROS_VENDA_PADRAO, acrescimoPorAtraso, descricaoDoAcrescimo, parseParametrosVenda, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
+import { PARAMETROS_VENDA_PADRAO, acrescimoPorAtraso, descricaoDoAcrescimo, diasDeAtraso, parseParametrosVenda, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
 import { emitenteDaConfiguracao, montarRecibo, parseEmissaoDocumentos, parteDoCliente } from '../../utils/documentosCobrancaDomain';
 import { gerarPdfRecibo } from '../../utils/documentosCobrancaPdf';
 import { mensagemDoDocumento, parseMensagensPadrao } from '../../utils/mensagensPadraoDomain';
@@ -127,6 +128,8 @@ const ContasReceber: React.FC = () => {
   const { openTab } = useTabs();
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId, userRole, userPermissions, isOwner } = useAuth();
   const podeEstornar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.estornar'));
+  // Desconto na baixa (15/10/2026): permissao propria; dono e administrador ja' tem.
+  const podeDescontar = Boolean(hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole) || userPermissions?.includes(PERMISSAO_DESCONTO_NA_BAIXA));
   const podeAlterarValor = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes(PERMISSAO_ALTERAR_VALOR));
   const podeMexerEmBoleto = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.boletos'));
   const podeRenegociar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes(PERMISSAO_RENEGOCIAR));
@@ -197,7 +200,7 @@ const ContasReceber: React.FC = () => {
    * filial. Sempre disponivel pelo botao "Recibo" da conta recebida; ao dar
    * baixa, sai conforme a filial configurou (perguntar / sempre / nunca).
    */
-  const emitirRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number }) => {
+  const emitirRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number; descontoCentavos?: number }) => {
     try {
       let cadastroCliente: unknown = null;
       if (t.clienteId) {
@@ -213,6 +216,7 @@ const ContasReceber: React.FC = () => {
           dataPagamento: dados.dataPagamento || t.dataPagamento || getDateInputInTimeZone(),
         },
         acrescimoCentavos: dados.acrescimoCentavos,
+        descontoCentavos: dados.descontoCentavos,
         empresa: emitenteDaConfiguracao(configFilial),
         cliente: parteDoCliente(cadastroCliente, t.clienteNome || 'Cliente'),
         mensagem: mensagemDoDocumento(parseMensagensPadrao(configFilial.mensagensPadrao), 'recibo'),
@@ -224,13 +228,13 @@ const ContasReceber: React.FC = () => {
     }
   };
 
-  const oferecerRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number }) => {
+  const oferecerRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number; descontoCentavos?: number }) => {
     const modo = emissaoDocumentos.recibo.modo;
     if (modo === 'nunca') return;
     if (modo === 'perguntar') {
       const resposta = await NexusSwal.fire({
         title: 'Emitir recibo de pagamento?',
-        text: `Recibo de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((transactionNetCents(t) + (dados.acrescimoCentavos || 0)) / 100)} para ${t.clienteNome || 'o cliente'}.`,
+        text: `Recibo de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((transactionNetCents(t) + (dados.acrescimoCentavos || 0) - (dados.descontoCentavos || 0)) / 100)} para ${t.clienteNome || 'o cliente'}.`,
         icon: 'question',
         showCancelButton: true,
         confirmButtonText: 'Emitir recibo',
@@ -241,8 +245,11 @@ const ContasReceber: React.FC = () => {
     await emitirRecibo(t, dados);
   };
 
-  /** Juros/multa que entraram junto com a baixa, para o recibo manual repetir o valor recebido de fato. */
-  const acrescimoDaBaixa = (t: TransacaoData) => Math.max(0, Math.round(Number(t.baixaManual?.acrescimoCentavos) || 0));
+  /** Juros/multa e desconto da baixa, para o recibo manual repetir o valor recebido de fato. */
+  const ajustesDoRecibo = (t: TransacaoData) => ({
+    acrescimoCentavos: Math.max(0, Math.round(Number(t.baixaManual?.acrescimoCentavos) || 0)),
+    descontoCentavos: Math.max(0, Math.round(Number(t.baixaManual?.descontoCentavos) || 0)),
+  });
 
   /**
    * Baixa de Receber pelo servidor (services/baixaFinanceiraService): titulo,
@@ -253,7 +260,7 @@ const ContasReceber: React.FC = () => {
     formaPgto: PaymentMethod,
     bancoId?: string,
     dataRecebimento: string = getDateInputInTimeZone(),
-    acrescimoCentavos = 0,
+    ajustes: AjustesDaBaixa = SEM_AJUSTES,
   ) => {
     if (!tenantId || !currentUser) return;
     await registrarBaixa({
@@ -263,7 +270,7 @@ const ContasReceber: React.FC = () => {
       // Dia em que o dinheiro entrou de verdade (pode ser anterior a hoje).
       dataPagamento: dataRecebimento,
       ...(bancoId ? { bancoId } : {}),
-      ...(acrescimoCentavos > 0 ? { acrescimoCentavos } : {}),
+      ajustes,
       tenantId,
     });
   };
@@ -357,12 +364,21 @@ const ContasReceber: React.FC = () => {
       }
     }
     const formas = bancosComBoleto.length > 0 ? [...FORMAS_RECEBIMENTO, FORMA_BOLETO] : FORMAS_RECEBIMENTO;
-    // Titulo vencido com juros/multa configurados na filial: sugere o acrescimo (editavel).
+    // Titulo vencido com juros/multa configurados na filial: ja' vem preenchido (editavel).
     const sugestao = acrescimoPorAtraso(parametrosVenda, transactionNetCents(t), t.dataVencimento, getDateInputInTimeZone());
+    const semPercentuais = parametrosVenda.juros.aoMesPercentual <= 0 && parametrosVenda.juros.multaPercentual <= 0;
+    const vencido = diasDeAtraso(t.dataVencimento, getDateInputInTimeZone()) > 0;
     const dados = await pedirDadosBaixa({
       titulo: 'Confirmar Recebimento?',
       texto: `Valor líquido de R$ ${transactionNetAmount(t).toFixed(2)} referente a ${t.descricao}.`,
-      acrescimo: sugestao ? { centavos: sugestao.totalCentavos, detalhe: descricaoDoAcrescimo(sugestao) } : null,
+      valorCentavos: transactionNetCents(t),
+      rotuloTotal: 'Valor recebido',
+      sugestao: sugestao ? { jurosCentavos: sugestao.jurosCentavos, multaCentavos: sugestao.multaCentavos, detalhe: descricaoDoAcrescimo(sugestao) } : null,
+      podeDescontar,
+      formasSemAjuste: ['Cheque', FORMA_BOLETO],
+      dica: vencido && semPercentuais
+        ? 'Conta vencida. Para o sistema já calcular os juros e a multa, preencha as % em Configurações da filial › Parâmetros de venda › "Juros e multa do crediário em atraso".'
+        : undefined,
       formas,
       rotulosDasFormas: { [FORMA_BOLETO]: 'Boleto (emitir agora; a baixa vem pelo retorno do banco)' },
       formaInicial: t.formaPagamento && formas.includes(t.formaPagamento) ? t.formaPagamento : '',
@@ -417,12 +433,12 @@ const ContasReceber: React.FC = () => {
     }
 
     try {
-      await confirmarRecebimento(t, formaPgto, bancoId, dataRecebimento, dados.acrescimoCentavos);
+      await confirmarRecebimento(t, formaPgto, bancoId, dataRecebimento, dados.ajustes);
       const noDia = dataRecebimento === getDateInputInTimeZone() ? '' : ` com a data de ${dataBrasileira(dataRecebimento)}`;
       showSuccess(formaPgto === 'Dinheiro'
         ? `Recebimento confirmado e lançado no caixa físico${noDia}!`
         : `Recebimento confirmado no fluxo financeiro correspondente${noDia}!`);
-      await oferecerRecibo(t, { formaPagamento: formaPgto, dataPagamento: dataRecebimento, acrescimoCentavos: dados.acrescimoCentavos });
+      await oferecerRecibo(t, { formaPagamento: formaPgto, dataPagamento: dataRecebimento, acrescimoCentavos: acrescimoDosAjustes(dados.ajustes), descontoCentavos: dados.ajustes.descontoCentavos });
     } catch (error) {
       console.error('Erro ao confirmar recebimento:', error);
       showError('Erro', error instanceof Error ? error.message : 'Não foi possível aprovar a transação.');
@@ -847,7 +863,8 @@ const ContasReceber: React.FC = () => {
   const recebimentosHoje = transacoes.filter(t => t.status === 'Paga' && t.dataPagamento === hojeStr);
 
   const totalPendente = contasPendentes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
-  const totalRecebidoHoje = recebimentosHoje.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+  // Desconto dado na baixa (15/10/2026) e' lancamento de saida: sai daqui para o card mostrar o que entrou de fato.
+  const totalRecebidoHoje = recebimentosHoje.reduce((acc, curr) => acc + transactionNetAmount(curr) - (Number(curr.baixaManual?.descontoCentavos) || 0) / 100, 0);
 
   // O que aparece na lista: situacao (em aberto / vencidas / recebidas / todas)
   // e periodo. Cartao continua fora daqui (fica na tela Banco), seja qual for
@@ -927,7 +944,8 @@ const ContasReceber: React.FC = () => {
       vencimento: dataReferenciaTransacao(t) || t.data || '',
       valorCentavos: transactionNetCents(t),
       formaPrevista: t.formaPagamento,
-      acrescimoSugeridoCentavos: sugestao?.totalCentavos || 0,
+      jurosSugeridoCentavos: sugestao?.jurosCentavos || 0,
+      multaSugeridaCentavos: sugestao?.multaCentavos || 0,
     };
   };
   const totalSelecionadoCentavos = selecaoValida.reduce((soma, id) => soma + transactionNetCents(elegiveis.get(id) as TransacaoData), 0);
@@ -1223,7 +1241,7 @@ const ContasReceber: React.FC = () => {
                                           )}
                                           {!t.acrescimoDaTransacaoId && (
                                             <button
-                                              onClick={() => void emitirRecibo(t, { acrescimoCentavos: acrescimoDaBaixa(t) })}
+                                              onClick={() => void emitirRecibo(t, ajustesDoRecibo(t))}
                                               disabled={isProcessing}
                                               title="Recibo de pagamento desta conta, em PDF"
                                               style={{ backgroundColor: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6', cursor: 'pointer', borderRadius: '4px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: isProcessing ? 0.6 : 1 }}
@@ -1314,7 +1332,7 @@ const ContasReceber: React.FC = () => {
         <RenegociacaoModal clienteNome={renegociando.clienteNome} titulos={renegociando.titulos} tenantId={tenantId} onFechar={fecharRenegociacao} />
       )}
       {itensDoLote && tenantId && (
-        <BaixaEmLoteModal tipo="entrada" itens={itensDoLote} tenantId={tenantId} onFechar={fecharBaixaEmLote} />
+        <BaixaEmLoteModal tipo="entrada" itens={itensDoLote} tenantId={tenantId} podeDescontar={podeDescontar} onFechar={fecharBaixaEmLote} />
       )}
 
       {/* Modal de Conciliação com Crédito */}

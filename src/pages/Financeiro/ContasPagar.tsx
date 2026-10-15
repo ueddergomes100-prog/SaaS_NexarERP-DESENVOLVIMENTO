@@ -7,7 +7,8 @@ import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
-import { isPlatformAdminRole } from '../../utils/roles';
+import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
+import { PERMISSAO_DESCONTO_NA_BAIXA } from '../../utils/ajustesDaBaixaDomain';
 import {
   dataBrasileira,
   planejarEstornoPagar,
@@ -62,6 +63,8 @@ interface TransacaoData extends TituloParaEstorno {
   fornecedorNome?: string;
   /** Cheque emitido para pagar esta despesa (banco, numero, data de compensacao). */
   cheque?: { numeroCheque?: string; dataCompensacao?: string } | null;
+  /** Marca da baixa (servidor); desconto obtido na baixa (15/10/2026) e' lancamento de entrada a parte. */
+  baixaManual?: { descontoCentavos?: number } | null;
   /** Veiculo da frota (e motorista) a que a despesa pertence. */
   veiculoId?: string;
   veiculoNome?: string;
@@ -113,6 +116,8 @@ const ContasPagar: React.FC = () => {
   const [agrupar, setAgrupar] = useState(false);
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const podeEstornar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.estornar'));
+  // Desconto na baixa (15/10/2026): permissao propria; dono e administrador ja' tem.
+  const podeDescontar = Boolean(hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole) || userPermissions?.includes(PERMISSAO_DESCONTO_NA_BAIXA));
 
   // Leitura enxuta (otimizacao de leituras, 2026-10-14 -- useTitulosFinanceiros):
   // em aberto de qualquer data (soma o Total Pendente e o aviso de vencidas) +
@@ -218,6 +223,10 @@ const ContasPagar: React.FC = () => {
     const dados = await pedirDadosBaixa({
       titulo: 'Confirmar Pagamento?',
       texto: `Valor de R$ ${Number(t.valor).toFixed(2)} referente a ${t.descricao}.`,
+      // Juros, multa e desconto (15/10/2026): o que o fornecedor cobrou a mais ou deu de abatimento.
+      valorCentavos: toCents(Number(t.valor || 0)),
+      rotuloTotal: 'Valor pago',
+      podeDescontar,
       formas: FORMAS_PAGAMENTO,
       formaInicial: t.formaPagamento && FORMAS_PAGAMENTO.includes(t.formaPagamento) ? t.formaPagamento : '',
       rotuloForma: 'Como foi pago?',
@@ -265,6 +274,7 @@ const ContasPagar: React.FC = () => {
         formaPagamento: formaPgto,
         dataPagamento,
         ...(bancoId ? { bancoId } : {}),
+        ajustes: dados.ajustes,
         tenantId,
       });
       showSuccess(dataPagamento === getDateInputInTimeZone()
@@ -566,7 +576,8 @@ const ContasPagar: React.FC = () => {
   const pagamentosHoje = transacoes.filter(t => t.status === 'Paga' && t.dataPagamento === hojeStr);
 
   const totalPendente = contasPendentes.reduce((acc, curr) => acc + curr.valor, 0);
-  const totalPagoHoje = pagamentosHoje.reduce((acc, curr) => acc + curr.valor, 0);
+  // Desconto obtido na baixa (15/10/2026) e' lancamento de entrada: sai daqui para o card mostrar o que saiu de fato.
+  const totalPagoHoje = pagamentosHoje.reduce((acc, curr) => acc + curr.valor - (Number(curr.baixaManual?.descontoCentavos) || 0) / 100, 0);
 
   // O que aparece na lista: situacao (em aberto / vencidas / pagas / todas) e
   // periodo. Os cartoes do topo (Total Pendente, Pago Hoje) seguem o total
@@ -1072,7 +1083,7 @@ const ContasPagar: React.FC = () => {
         onDarBaixa={abrirBaixaEmLote}
       />
       {itensDoLote && tenantId && (
-        <BaixaEmLoteModal tipo="saida" itens={itensDoLote} tenantId={tenantId} onFechar={fecharBaixaEmLote} />
+        <BaixaEmLoteModal tipo="saida" itens={itensDoLote} tenantId={tenantId} podeDescontar={podeDescontar} onFechar={fecharBaixaEmLote} />
       )}
 
       {/* Modal de Novo Lançamento */}

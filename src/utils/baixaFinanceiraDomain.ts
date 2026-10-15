@@ -87,6 +87,12 @@ export interface BaixaManualRegistro {
   /** Juros e multa recebidos junto (fase A, 2026-10-07): gravados pelo servidor em services/baixaFinanceira.js. */
   acrescimoCentavos?: number;
   acrescimoTransacaoId?: string;
+  /** Juros e multa separados (15/10/2026); a soma e' acrescimoCentavos. Tambem no Pagar. */
+  jurosCentavos?: number;
+  multaCentavos?: number;
+  /** Desconto dado/obtido na baixa (15/10/2026): lancamento proprio, ver ajustesDaBaixaDomain.ts. */
+  descontoCentavos?: number;
+  descontoTransacaoId?: string;
 }
 
 export const montarBaixaManual = (args: {
@@ -127,6 +133,8 @@ export interface TituloParaEstorno {
   idempotencyKey?: string;
   /** Lancamento de juros e multa gravado junto da baixa de OUTRO titulo (parametros de venda, fase A). */
   acrescimoDaTransacaoId?: string | null;
+  /** Lancamento de desconto gravado junto da baixa de OUTRO titulo (15/10/2026). */
+  descontoDaTransacaoId?: string | null;
 }
 
 export interface PlanoEstorno {
@@ -163,7 +171,24 @@ const ASPAS = (texto: string) => `"${texto}"`;
 export const MENSAGEM_SO_PAGA = 'Só dá para estornar uma conta que já foi baixada.';
 
 /** Contas a Pagar: baixa = despesa marcada como paga (debita o banco, se houve). */
+/**
+ * Juros/multa e desconto gravados junto da baixa de outro titulo (15/10/2026):
+ * saem junto no estorno do titulo de origem. Estornar so' eles deixaria uma
+ * conta de juros ou de desconto que nunca existiu.
+ */
+const bloqueioDeLancamentoDaBaixa = (titulo: TituloParaEstorno): PlanoEstorno | null => {
+  if (titulo.acrescimoDaTransacaoId) {
+    return bloqueado('Este lançamento é de juros e multa de outra baixa e sai junto quando ela for estornada. Para desfazer, estorne a conta de origem.', false);
+  }
+  if (titulo.descontoDaTransacaoId) {
+    return bloqueado('Este lançamento é o desconto de outra baixa e sai junto quando ela for estornada. Para desfazer, estorne a conta de origem.', false);
+  }
+  return null;
+};
+
 export const planejarEstornoPagar = (titulo: TituloParaEstorno): PlanoEstorno => {
+  const daBaixa = bloqueioDeLancamentoDaBaixa(titulo);
+  if (daBaixa) return daBaixa;
   if (titulo.status !== 'Paga') return bloqueado(MENSAGEM_SO_PAGA, false);
 
   const marca = titulo.baixaManual;
@@ -220,11 +245,10 @@ export const planejarEstornoPagar = (titulo: TituloParaEstorno): PlanoEstorno =>
 
 /** Contas a Receber: baixa = recebimento confirmado (credita o banco, se houve, e atualiza a venda/OS). */
 export const planejarEstornoReceber = (titulo: TituloParaEstorno): PlanoEstorno => {
-  // Juros e multa de outro recebimento: saem junto no estorno do titulo de
-  // origem; estornar so' eles deixaria um 'a receber' de juros que nao existe.
-  if (titulo.acrescimoDaTransacaoId) {
-    return bloqueado('Este lançamento é de juros e multa de outro recebimento e sai junto quando ele for estornado. Para desfazer, estorne o recebimento de origem.', false);
-  }
+  // Juros e multa (ou desconto) de outro recebimento: saem junto no estorno do
+  // titulo de origem; estornar so' eles deixaria um 'a receber' que nao existe.
+  const daBaixa = bloqueioDeLancamentoDaBaixa(titulo);
+  if (daBaixa) return daBaixa;
   if (titulo.status !== 'Paga') return bloqueado(MENSAGEM_SO_PAGA, false);
 
   const forma = String(titulo.formaPagamento || '');

@@ -323,19 +323,23 @@ export interface ReciboDocumento {
   /** AAAA-MM-DD */
   data: string;
   acrescimoCentavos: number;
+  /** Desconto dado na baixa (15/10/2026): o recibo diz o valor recebido de fato. */
+  descontoCentavos: number;
   mensagem: string;
 }
 
 export const montarRecibo = (a: {
   titulo: { id?: string; descricao?: string; valorCentavos?: number; valor?: number; formaPagamento?: string; dataPagamento?: string; numeroPedido?: string };
   acrescimoCentavos?: number;
+  descontoCentavos?: number;
   empresa: ParteDocumento;
   cliente: ParteDocumento;
   mensagem?: string;
 }): ReciboDocumento => {
   const principal = Number(a.titulo.valorCentavos ?? Math.round(Number(a.titulo.valor || 0) * 100)) || 0;
   const acrescimo = Math.max(0, Math.round(Number(a.acrescimoCentavos) || 0));
-  const total = principal + acrescimo;
+  const desconto = Math.min(principal, Math.max(0, Math.round(Number(a.descontoCentavos) || 0)));
+  const total = principal + acrescimo - desconto;
   return {
     numero: texto(a.titulo.id).slice(-6).toUpperCase(),
     valorCentavos: total,
@@ -346,6 +350,7 @@ export const montarRecibo = (a: {
     formaPagamento: texto(a.titulo.formaPagamento),
     data: texto(a.titulo.dataPagamento).slice(0, 10),
     acrescimoCentavos: acrescimo,
+    descontoCentavos: desconto,
     mensagem: texto(a.mensagem),
   };
 };

@@ -93,4 +93,8 @@ test('recibo: valor = titulo + juros/multa, extenso, numero curto do titulo', ()
   assert.equal(r.numero, 'AYLFJX');
   assert.equal(r.acrescimoCentavos, 64);
   assert.equal(r.referente, 'Venda Direta #0044 - Pagamento a Prazo');
+  // Desconto na baixa (15/10/2026): o recibo mostra o valor recebido de fato.
+  const comDesconto = montarRecibo({ titulo: { id: 'x', descricao: 'Parcela', valorCentavos: 10000 }, acrescimoCentavos: 300, descontoCentavos: 1000, empresa, cliente });
+  assert.equal(comDesconto.valorCentavos, 9300);
+  assert.equal(comDesconto.descontoCentavos, 1000);
 });

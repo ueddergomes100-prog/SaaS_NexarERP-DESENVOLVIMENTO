@@ -255,5 +255,12 @@ test('receber: lançamento de juros e multa de outro título não estorna sozinh
   const plano = planejarEstornoReceber({ status: 'Paga', formaPagamento: 'Pix', valorCentavos: 64, acrescimoDaTransacaoId: 't3', baixaManual: { origem: 'contas_receber', formaPagamento: 'Pix', dataPagamento: '2026-10-07', valorCentavos: 64 } });
   assert.equal(plano.permitido, false);
   assert.equal(plano.mostrarBotao, false);
-  assert.match(plano.bloqueio, /estorne o recebimento de origem/);
+  assert.match(plano.bloqueio, /estorne a conta de origem/);
+});
+
+test('desconto e juros da baixa (15/10/2026): no Pagar e no Receber, so\' saem junto com a conta de origem', () => {
+  const desconto = { status: 'Paga', formaPagamento: 'Pix', valorCentavos: 500, descontoDaTransacaoId: 't9', baixaManual: { origem: 'contas_receber' as const, formaPagamento: 'Pix', dataPagamento: '2026-10-15', valorCentavos: 500 } };
+  assert.match(planejarEstornoPagar(desconto).bloqueio, /desconto de outra baixa/);
+  assert.match(planejarEstornoReceber(desconto).bloqueio, /desconto de outra baixa/);
+  assert.equal(planejarEstornoPagar({ ...desconto, descontoDaTransacaoId: null, acrescimoDaTransacaoId: 't9' }).mostrarBotao, false);
 });

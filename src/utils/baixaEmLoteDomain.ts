@@ -1,4 +1,5 @@
 import { isCardPayment, paymentRequiresBankAccount, type PaymentMethod } from './financeDomain';
+import { acrescimoDosAjustes, SEM_AJUSTES, type AjustesDaBaixa } from './ajustesDaBaixaDomain';
 
 /**
  * BAIXA EM LOTE (Contas a Pagar / Contas a Receber, 2026-10-14) — regras puras.
@@ -84,21 +85,23 @@ export const estadoDaSelecao = (selecao: ReadonlySet<string>, ids: readonly stri
 
 export interface ItemDoResumo {
   valorCentavos: number;
-  /** Juros e multa sugeridos (só Receber em atraso). */
-  acrescimoSugeridoCentavos?: number;
+  /** Juros, multa e desconto desta conta (15/10/2026). */
+  ajustes?: AjustesDaBaixa;
 }
 
 export interface ResumoDoLote {
   quantidade: number;
   valorCentavos: number;
+  /** Juros + multa. */
   acrescimoCentavos: number;
+  descontoCentavos: number;
+  /** Valor + juros + multa - desconto: o que entra/sai de fato. */
   totalCentavos: number;
 }
 
-export const resumoDoLote = (itens: readonly ItemDoResumo[], cobrarAcrescimo: boolean): ResumoDoLote => {
+export const resumoDoLote = (itens: readonly ItemDoResumo[]): ResumoDoLote => {
   const valorCentavos = itens.reduce((soma, item) => soma + Math.round(item.valorCentavos || 0), 0);
-  const acrescimoCentavos = cobrarAcrescimo
-    ? itens.reduce((soma, item) => soma + Math.max(0, Math.round(item.acrescimoSugeridoCentavos || 0)), 0)
-    : 0;
-  return { quantidade: itens.length, valorCentavos, acrescimoCentavos, totalCentavos: valorCentavos + acrescimoCentavos };
+  const acrescimoCentavos = itens.reduce((soma, item) => soma + acrescimoDosAjustes(item.ajustes || SEM_AJUSTES), 0);
+  const descontoCentavos = itens.reduce((soma, item) => soma + Math.max(0, Math.round(item.ajustes?.descontoCentavos || 0)), 0);
+  return { quantidade: itens.length, valorCentavos, acrescimoCentavos, descontoCentavos, totalCentavos: valorCentavos + acrescimoCentavos - descontoCentavos };
 };

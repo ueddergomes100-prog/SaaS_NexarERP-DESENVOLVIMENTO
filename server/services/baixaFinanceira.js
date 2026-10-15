@@ -36,6 +36,7 @@ const {
   planejarEstornoPagar,
   planejarEstornoReceber,
 } = require('../domain/baixaFinanceiraDomain');
+const { centavosParaAOrigem } = require('../domain/alteracaoValorTituloDomain');
 const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const regras = require('./baixaFinanceiraRegras');
@@ -236,7 +237,14 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
       const atualizados = applyPaymentReceipt(pagamentos, {
         transactionId: pedido.transacaoId,
         paymentIndex: dados.paymentIndex,
-        amountCents: valorCentavos,
+        // Parcela com valor alterado (boleto com desconto): quita o pagamento inteiro da venda.
+        amountCents: centavosParaAOrigem(pagamentos, {
+          transactionId: pedido.transacaoId,
+          paymentIndex: dados.paymentIndex,
+          titulo: dados,
+          recebidoCentavos: valorCentavos,
+          tituloQuitado: true,
+        }),
         method: formaPagamento,
         receiptId: pedido.transacaoId,
         receivedAt: dataPagamento,

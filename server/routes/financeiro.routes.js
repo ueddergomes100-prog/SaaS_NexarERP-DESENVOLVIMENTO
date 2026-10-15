@@ -13,6 +13,8 @@ const {
   registrarEstorno,
   hojeNoBrasil,
 } = require('../services/baixaFinanceira');
+const { validarPedidoDeAlteracaoDeValor, alterarValorDoTitulo } = require('../services/alteracaoValorTitulo');
+const { PERMISSAO_ALTERAR_VALOR } = require('../domain/alteracaoValorTituloDomain');
 const {
   conciliarCartao,
   compensarChequeRecebido,
@@ -146,6 +148,40 @@ router.post('/estorno', async (req, res) => {
     return res.json({ ok: true, ajusteBancoCentavos: resumo.ajusteBancoCentavos });
   } catch (erro) {
     return responderErro(res, erro, 'estornar');
+  }
+});
+
+/**
+ * POST /api/financeiro/alterar-valor  { transacaoId, novoValorCentavos, motivo, tenantId? }
+ *
+ * Valor de UMA parcela a receber (15/10/2026): nota com o valor da venda,
+ * boleto com desconto. Muda so' o titulo; a venda/OS fica como esta'. Ver
+ * services/alteracaoValorTitulo.js.
+ */
+router.post('/alterar-valor', async (req, res) => {
+  try {
+    const { erro, pedido } = validarPedidoDeAlteracaoDeValor(req.body);
+    if (erro) return res.status(400).json({ error: erro });
+
+    if (!temPermissao(req.user, PERMISSAO_ALTERAR_VALOR)) {
+      return res.status(403).json({
+        error: 'Você não tem permissão para alterar o valor de parcelas. Peça a um responsável liberar "Financeiro: Alterar Valor de Documentos" no seu usuário.',
+      });
+    }
+
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const resumo = await alterarValorDoTitulo({ user: req.user, tenantId, pedido });
+
+    registrarLog({ ...req.user, tenantId }, {
+      modulo: 'financeiro',
+      acao: 'edicao',
+      descricao: `Valor da parcela "${resumo.descricao}" alterado de ${reais(resumo.deCentavos)} para ${reais(resumo.paraCentavos)}. Motivo: ${pedido.motivo}`,
+      registroId: pedido.transacaoId,
+      critico: true,
+    });
+    return res.json({ ok: true });
+  } catch (erro) {
+    return responderErro(res, erro, 'alterar o valor da parcela');
   }
 });
 

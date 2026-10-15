@@ -25,6 +25,7 @@ import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import AvatarIniciais from '../../components/common/AvatarIniciais';
 import { numeroDaNota } from '../../utils/nomeArquivoDomain';
 import { reancorarVencimentosNoFaturamento } from '../../utils/faturamentoPreVendaDomain';
+import { bloqueioParaRefazerParcelas, type TituloParaAlterarValor } from '../../utils/alteracaoValorTituloDomain';
 import { classificarNotasDaVenda, listaDeNotas, validarJustificativaCancelamento, type NotaDaVenda } from '../../utils/cancelamentoNotaVendaDomain';
 import { cancelarNotaDaVenda } from '../../services/cancelamentoNotaService';
 import { centavosDoValorDigitado, descontoParaOTotalDigitado } from '../../utils/totalDigitadoDomain';
@@ -2795,6 +2796,13 @@ const PedidoVendaForm: React.FC = () => {
         if (jaEstornada) {
           throw new Error('Esta venda já tem lançamento estornado. Use Estorno ou Devolução em vez de alterar o pagamento.');
         }
+        // Parcela com valor alterado no Contas a Receber (15/10/2026): refazer
+        // as parcelas apagaria a alteracao sem ninguem perceber.
+        const bloqueioDeValorAlterado = bloqueioParaRefazerParcelas(
+          snapshotsAntigos.filter((snapshot) => snapshot.exists()).map((snapshot) => snapshot.data() as TituloParaAlterarValor & { descricao?: string }),
+          'venda',
+        );
+        if (bloqueioDeValorAlterado) throw new Error(bloqueioDeValorAlterado);
 
         // Delta por banco: tira o que a composicao ANTIGA creditou e poe o
         // que a NOVA credita. Bancos que aparecem so de um lado entram com
@@ -4085,7 +4093,7 @@ const PedidoVendaForm: React.FC = () => {
     // segue com a nota CONFIRMADA cancelada na SEFAZ -- ver
     // cancelamentoNotaVendaDomain.ts. Conferido no banco na hora do clique
     // (outra tela pode ter emitido). Mercadoria que saiu e voltou = Devolucao.
-    let notasParaCancelar: NotaDaVenda[] = [];
+    let notasParaCancelar: NotaDaVenda[];
     try {
       const snapNotas = await getDocs(query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId), where('pedidoId', '==', id)));
       const { autorizadas, emTransmissao } = classificarNotasDaVenda(snapNotas.docs.map((d) => ({ id: d.id, ...d.data() })));

@@ -177,6 +177,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'financeiro.faturamento', label: 'Financeiro: Faturamento', color: '#10b981' },
       { id: 'financeiro.comissoes', label: 'Financeiro: Comissões', color: '#10b981' },
       { id: 'financeiro.estornar', label: 'Financeiro: Estornar Pagamento/Recebimento', color: '#10b981' },
+      // 2026-10-15: parcela a receber com valor diferente da venda (nota cheia,
+      // boleto com desconto). Conferida no servidor (rota /financeiro/alterar-valor).
+      { id: 'financeiro.alterar_valor_documento', label: 'Financeiro: Alterar Valor de Documentos (parcelas a receber)', color: '#10b981' },
     ],
   },
   {

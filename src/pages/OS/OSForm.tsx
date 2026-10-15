@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X, History, Truck, Camera } from 'lucide-react';
-import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showSuccess, showError, showWarning } from '../../utils/alerts';
@@ -112,6 +112,7 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import './OS.css';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import { useModoOficina } from '../../hooks/useModoOficina';
+import { bloqueioParaRefazerParcelas, type TituloParaAlterarValor } from '../../utils/alteracaoValorTituloDomain';
 import { DESLOCAMENTO_VAZIO, aplicarDeslocamentoNosServicos, identificacaoCurta, kmDoDeslocamento, parseDeslocamento, temDeslocamento, validarIdentificacaoEquipamento, valorDeslocamentoCentavos, type Deslocamento } from '../../utils/oficinaDomain';
 import { AVISO_OS_EM_ATENDIMENTO_NO_CAMPO, CORES_STATUS_OS_CAMPO, STATUS_OS_AGUARDANDO_CONFERENCIA, STATUS_OS_EM_ATENDIMENTO, osEmAtendimentoNoCampo, type AssinaturaOS, type FotoOS } from '../../utils/osCampoDomain';
 
@@ -1335,6 +1336,15 @@ const OSForm: React.FC = () => {
         const paymentTransactionById = new Map(
           paymentTransactionSnapshots.map((snapshot) => [snapshot.id, snapshot]),
         );
+        // Parcela com valor alterado no Contas a Receber (15/10/2026): salvar a
+        // OS refaz as parcelas e apagaria a alteracao. Cancelar a OS continua livre.
+        if (formData.status !== 'Cancelada') {
+          const bloqueioDeValorAlterado = bloqueioParaRefazerParcelas(
+            paymentTransactionSnapshots.filter((snapshot) => snapshot.exists()).map((snapshot) => snapshot.data() as TituloParaAlterarValor & { descricao?: string }),
+            'OS',
+          );
+          if (bloqueioDeValorAlterado) throw new Error(bloqueioDeValorAlterado);
+        }
 
         const wasAlreadyFinalized = existingOsData?.status === 'Finalizada';
         const bankCreditsByBanco = formData.status === 'Finalizada' && !wasAlreadyFinalized
@@ -1587,6 +1597,8 @@ const OSForm: React.FC = () => {
               usuarioResponsavelId: currentUser.uid,
               mecanicoId: formData.mecanicoId,
               tenantId,
+              // Alteracao de valor antiga (ja' desfeita ou de parcela cancelada) nao vale para a parcela refeita.
+              ...(existingPaymentSnapshot?.exists() && existingPaymentSnapshot.data()?.alteracaoValor ? { alteracaoValor: deleteField() } : {}),
               ...(existingPaymentSnapshot?.exists()
                 ? { updatedAt: serverTimestamp(), ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()) }
                 : { createdAt: serverTimestamp(), ...buildDocumentMetadata(currentUser.uid, serverTimestamp()) }),

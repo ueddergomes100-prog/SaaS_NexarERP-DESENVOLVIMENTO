@@ -46,6 +46,7 @@ type RotaFinanceiro =
   | '/baixa'
   | '/baixa-lote'
   | '/estorno'
+  | '/alterar-valor'
   | '/cartao/conciliar'
   | '/cheque/compensar'
   | '/cheque-emitido/compensar'
@@ -194,6 +195,15 @@ export const executarEstorno = async (args: {
     tenantId: args.tenantId,
   });
 };
+
+/**
+ * Valor de UMA parcela a receber (15/10/2026): nota com o valor da venda,
+ * boleto com desconto. O servidor confere permissao, boleto e venda/OS e
+ * grava o motivo; a venda/OS nao muda.
+ */
+export const alterarValorDaParcela = (args: { transacaoId: string; novoValorCentavos: number; motivo: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean }>('/alterar-valor', { ...args })
+);
 
 // ---------------------------------------------------------------------------
 // Fatia 2 (2026-10-05): as outras telas do Financeiro que mexiam no saldo do

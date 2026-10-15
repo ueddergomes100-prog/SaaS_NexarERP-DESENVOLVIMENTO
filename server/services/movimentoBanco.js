@@ -30,6 +30,7 @@ const {
   validateBankTransfer,
 } = require('../domain/financeDomain');
 const { montarBaixaManual, validarDataBaixa } = require('../domain/baixaFinanceiraDomain');
+const { centavosParaAOrigem } = require('../domain/alteracaoValorTituloDomain');
 const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const {
   ErroBaixa,
@@ -64,6 +65,14 @@ const registrarRecebimentoNaOrigem = (tx, user, origem, transacaoId, dados, rece
     paymentIndex: dados.paymentIndex,
     receiptId: transacaoId,
     ...recebimento,
+    // O titulo sai daqui quitado: com valor alterado, quita o pagamento inteiro da venda.
+    amountCents: centavosParaAOrigem(pagamentos, {
+      transactionId: transacaoId,
+      paymentIndex: dados.paymentIndex,
+      titulo: dados,
+      recebidoCentavos: recebimento.amountCents,
+      tituloQuitado: true,
+    }),
   });
   tx.update(origem.ref, {
     ...camposDoResumoDePagamentos(atualizados),

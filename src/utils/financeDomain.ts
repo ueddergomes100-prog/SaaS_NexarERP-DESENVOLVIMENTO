@@ -1092,6 +1092,28 @@ export const tagPaymentAsChequeAwaitingClearance = (
   } : payment));
 };
 
+/** Posicao, na venda/OS, do pagamento ligado a um titulo (o mesmo que a baixa quita). */
+const indiceDoPagamentoDoTitulo = (
+  payments: PaymentRecord[],
+  args: { transactionId: string; paymentIndex?: number },
+) => payments.findIndex((payment) => (
+  payment.transactionId === args.transactionId ||
+  (
+    args.paymentIndex !== undefined &&
+    payment.indice === args.paymentIndex &&
+    payment.status !== 'confirmado'
+  )
+));
+
+/** Pagamento da venda/OS ligado a um titulo, ou undefined quando nao acha. */
+export const pagamentoDoTitulo = (
+  payments: PaymentRecord[],
+  args: { transactionId: string; paymentIndex?: number },
+): PaymentRecord | undefined => {
+  const indice = indiceDoPagamentoDoTitulo(payments, args);
+  return indice < 0 ? undefined : payments[indice];
+};
+
 export const applyPaymentReceipt = (
   payments: PaymentRecord[],
   args: {
@@ -1107,14 +1129,7 @@ export const applyPaymentReceipt = (
     throw new Error('O valor recebido deve ser maior que zero.');
   }
 
-  const targetIndex = payments.findIndex((payment) => (
-    payment.transactionId === args.transactionId ||
-    (
-      args.paymentIndex !== undefined &&
-      payment.indice === args.paymentIndex &&
-      payment.status !== 'confirmado'
-    )
-  ));
+  const targetIndex = indiceDoPagamentoDoTitulo(payments, args);
   if (targetIndex < 0) {
     throw new Error('O pagamento vinculado à conta a receber não foi encontrado na venda.');
   }

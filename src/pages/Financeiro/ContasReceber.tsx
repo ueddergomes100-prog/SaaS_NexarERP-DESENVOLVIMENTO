@@ -4,7 +4,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
-import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText } from 'lucide-react';
+import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText, Edit } from 'lucide-react';
 import {
   applyPaymentReceipt,
   fromCents,
@@ -32,7 +32,17 @@ import { emitenteDaConfiguracao, montarRecibo, parseEmissaoDocumentos, parteDoCl
 import { gerarPdfRecibo } from '../../utils/documentosCobrancaPdf';
 import { mensagemDoDocumento, parseMensagensPadrao } from '../../utils/mensagensPadraoDomain';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
-import { estornarBaixaComConfirmacao, registrarBaixa } from '../../services/baixaFinanceiraService';
+import { alterarValorDaParcela, estornarBaixaComConfirmacao, registrarBaixa } from '../../services/baixaFinanceiraService';
+import {
+  PERMISSAO_ALTERAR_VALOR,
+  bloqueioParaAlterarValor,
+  centavosAtuaisDoTitulo,
+  centavosParaAOrigem,
+  resumoDaAlteracaoValor,
+  valorAlteradoAtivo,
+  type AlteracaoValorRegistro,
+} from '../../utils/alteracaoValorTituloDomain';
+import { pedirNovoValorDaParcela } from '../../utils/alteracaoValorTituloUi';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
 import ChequeCaptureModal from '../../components/finance/ChequeCaptureModal';
@@ -75,6 +85,8 @@ interface TransacaoData extends TituloParaEstorno {
   vendedorId?: string;
   usuarioResponsavelId?: string;
   criadoPor?: string;
+  /** Valor da parcela alterado a mao (15/10/2026) -- ver alteracaoValorTituloDomain. */
+  alteracaoValor?: Partial<AlteracaoValorRegistro> | null;
 }
 
 interface GrupoCliente {
@@ -94,6 +106,7 @@ const ContasReceber: React.FC = () => {
   const { openTab } = useTabs();
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId, userRole, userPermissions, isOwner } = useAuth();
   const podeEstornar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.estornar'));
+  const podeAlterarValor = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes(PERMISSAO_ALTERAR_VALOR));
   
   const [modalConciliacao, setModalConciliacao] = useState<{ ativo: boolean, transacao: TransacaoData | null, creditos: any[], saldoTotal: number }>({
     ativo: false, transacao: null, creditos: [], saldoTotal: 0
@@ -544,7 +557,14 @@ const ContasReceber: React.FC = () => {
           const updatedPayments = applyPaymentReceipt(payments, {
             transactionId: t.id,
             paymentIndex: transactionData.paymentIndex,
-            amountCents: creditCents,
+            // Parcela com valor alterado: a venda so' fecha junto com a parcela, e por inteiro.
+            amountCents: centavosParaAOrigem(payments, {
+              transactionId: t.id,
+              paymentIndex: transactionData.paymentIndex,
+              titulo: transactionData,
+              recebidoCentavos: creditCents,
+              tituloQuitado: remainingCents === 0,
+            }),
             method: 'Crédito de Devolução',
             receiptId: receiptTransactionId,
             receivedAt: paymentDate,
@@ -594,6 +614,40 @@ const ContasReceber: React.FC = () => {
         tenantId,
         usuario: currentUser ? { uid: currentUser.uid, email: currentUser.email } : null,
       });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  /**
+   * Alterar o valor de UMA parcela em aberto (15/10/2026): nota com o valor da
+   * venda, boleto com desconto. Quem grava e confere de novo e' o servidor.
+   */
+  const handleAlterarValor = async (t: TransacaoData) => {
+    if (!tenantId || !currentUser) return;
+    if (!podeAlterarValor) {
+      showError('Sem permissão', 'Você não tem permissão para alterar o valor de parcelas. Peça a um responsável liberar "Financeiro: Alterar Valor de Documentos" no seu usuário.');
+      return;
+    }
+    const bloqueio = bloqueioParaAlterarValor({ ...t, tipo: t.tipo || 'entrada' });
+    if (bloqueio) {
+      showError('Não é possível alterar o valor', bloqueio);
+      return;
+    }
+    const dados = await pedirNovoValorDaParcela({
+      descricao: t.descricao,
+      atualCentavos: centavosAtuaisDoTitulo(t),
+      temOrigem: Boolean(t.pedidoId || t.osId),
+      alteracaoAnterior: t.alteracaoValor,
+    });
+    if (!dados) return;
+    setIsProcessing(true);
+    try {
+      await alterarValorDaParcela({ transacaoId: t.id, novoValorCentavos: dados.novoCentavos, motivo: dados.motivo, tenantId });
+      showSuccess(`Valor da parcela alterado para ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dados.novoCentavos / 100)}.`);
+    } catch (erro) {
+      console.error('Erro ao alterar o valor da parcela:', erro);
+      showError('Não foi possível alterar o valor', erro instanceof Error ? erro.message : 'Tente de novo em instantes.');
     } finally {
       setIsProcessing(false);
     }
@@ -932,6 +986,14 @@ const ContasReceber: React.FC = () => {
                                     </td>
                                     <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#10b981' }}>
                                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t))}
+                                      {valorAlteradoAtivo(t) && (
+                                        <div
+                                          title={resumoDaAlteracaoValor(t.alteracaoValor)}
+                                          style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)', marginTop: '2px' }}
+                                        >
+                                          valor alterado
+                                        </div>
+                                      )}
                                     </td>
                                     <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                                       {t.status === 'Paga' ? (
@@ -975,6 +1037,16 @@ const ContasReceber: React.FC = () => {
                                         >
                                           <CheckCircle size={14} /> Dar Baixa
                                         </button>
+                                        {podeAlterarValor && (
+                                          <button
+                                            onClick={() => void handleAlterarValor(t)}
+                                            disabled={isProcessing}
+                                            title="Alterar o valor desta parcela (ex.: boleto com desconto). A venda e a nota não mudam."
+                                            style={{ backgroundColor: 'transparent', border: '1px solid #8b5cf6', color: '#8b5cf6', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: isProcessing ? 0.6 : 1 }}
+                                          >
+                                            <Edit size={13} /> Alterar valor
+                                          </button>
+                                        )}
                                       </div>
                                       )}
                                     </td>

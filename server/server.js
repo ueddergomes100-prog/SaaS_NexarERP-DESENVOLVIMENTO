@@ -35,6 +35,7 @@ const condicionaisRoutes = require('./routes/condicionais.routes');
 const filiaisRoutes = require('./routes/filiais.routes');
 const transferenciasRoutes = require('./routes/transferencias.routes');
 const numeracaoRoutes = require('./routes/numeracao.routes');
+const travasRoutes = require('./routes/travas.routes');
 const vendasRoutes = require('./routes/vendas.routes');
 const manutencaoRoutes = require('./routes/manutencao.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
@@ -198,6 +199,8 @@ app.use('/api/condicionais', condicionaisRoutes);
 app.use('/api/filiais', filiaisRoutes);
 app.use('/api/transferencias', transferenciasRoutes);
 app.use('/api/numeracao', numeracaoRoutes);
+// Trava de edicao (15/10/2026): um documento aberto por vez, no computador e no celular.
+app.use('/api/travas', travasRoutes);
 // Item 8, fatia 3 (2026-10-13): fechamento da venda pelo servidor (chave por empresa).
 app.use('/api/vendas', vendasRoutes);
 // Manutencao do banco pelo Painel da Plataforma (2026-10-15): tarefas de uma vez so'

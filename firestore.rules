@@ -660,6 +660,14 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
+    // Trava de edicao (15/10/2026): um documento aberto por vez. So' o
+    // servidor grava (server/services/travasEdicao.js); as telas da empresa
+    // so' leem, para pintar de cinza o que outra pessoa esta editando.
+    match /travas_edicao/{travaId} {
+      allow read: if resource == null || canAccessTenant(resource.data.tenantId);
+      allow write: if false;
+    }
+
     // Configuracao de plataforma, nao de tenant -- hoje so guarda a chave
     // mestra da conta Spedy (usada pra cadastrar empresa+certificado de
     // cada cliente novo). So o SuperAdmin/NexarAdmin le e escreve; o

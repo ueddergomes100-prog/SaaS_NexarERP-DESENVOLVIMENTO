@@ -61,6 +61,8 @@ const MODULOS = [
   'src/utils/renegociacaoDomain.ts',
   // Configuracoes Gerais x da filial (15/10/2026): campos que valem para o grupo inteiro.
   'src/utils/configuracoesGeraisDomain.ts',
+  // Trava de edicao (15/10/2026): um documento aberto por vez.
+  'src/utils/travaEdicaoDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

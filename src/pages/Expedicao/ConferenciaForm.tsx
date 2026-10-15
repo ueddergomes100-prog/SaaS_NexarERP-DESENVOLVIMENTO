@@ -24,6 +24,8 @@ import {
 import { normalizeEmbalagens } from '../../utils/embalagemDomain';
 import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 import { trocaService, TrocaError } from '../../services/trocaService';
+import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
+import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 
 interface HistoricoEntry {
   de: string;
@@ -141,6 +143,11 @@ const ConferenciaForm: React.FC = () => {
   const pedidoId = trocaId || pedidoIdDaRota;
   const navigate = useNavigate();
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
+  // Trava de edicao (15/10/2026): uma pessoa por conferencia, no computador ou no celular.
+  // A vez e' pega ANTES de abrir: quem chega depois nao reabre nem mexe no que o outro esta conferindo.
+  const trava = useTravaDeEdicao({ tipo: 'conferencia', registroId: pedidoId, ativa: true });
+  const podeLiberarTrava = usePodeLiberarTrava();
+  const travaLiberada = trava.situacao === 'minha' || trava.situacao === 'sem_servidor';
 
   const [isLoading, setIsLoading] = useState(true);
   const [isClosing, setIsClosing] = useState(false);
@@ -214,7 +221,7 @@ const ConferenciaForm: React.FC = () => {
 
   useEffect(() => {
     const abrirConferencia = async () => {
-      if (!pedidoId || !tenantId || !currentUser) return;
+      if (!pedidoId || !tenantId || !currentUser || !travaLiberada) return;
       setIsLoading(true);
       setLoadError(null);
       try {
@@ -390,7 +397,7 @@ const ConferenciaForm: React.FC = () => {
     };
     abrirConferencia();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pedidoId, tenantId, currentUser]);
+  }, [pedidoId, tenantId, currentUser, travaLiberada]);
 
   const gravarProgresso = useCallback((itensParaGravar: ConferenciaItem[], observacaoParaGravar: string) => {
     if (!pedidoId || !currentUser) return;
@@ -662,6 +669,18 @@ const ConferenciaForm: React.FC = () => {
       setIsClosing(false);
     }
   };
+
+  if (trava.situacao === 'de_outro') {
+    return (
+      <TravaDeEdicaoAviso
+        rotulo="a conferência"
+        mensagem={trava.mensagem}
+        onVoltar={() => navigate('/operacoes/expedicao')}
+        onTentarDeNovo={trava.tentarDeNovo}
+        onLiberar={podeLiberarTrava ? trava.liberarEAbrir : undefined}
+      />
+    );
+  }
 
   if (isLoading) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Abrindo conferência...</div>;

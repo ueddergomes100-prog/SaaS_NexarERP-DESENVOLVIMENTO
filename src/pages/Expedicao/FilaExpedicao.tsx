@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Printer, Truck, ClipboardCheck } from 'lucide-react';
+import { Search, Printer, Truck, ClipboardCheck, Lock } from 'lucide-react';
 import { collection, query, onSnapshot, where, Timestamp, type DocumentData, type QueryDocumentSnapshot } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -9,6 +9,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import type { StatusConferencia } from '../../utils/conferenciaDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
+import { useTravasAtivas } from '../../hooks/useTravaDeEdicao';
+import { descreverTrava, mensagemDeBloqueio, type TravaDeEdicao } from '../../utils/travaEdicaoDomain';
+import { NexusSwal } from '../../utils/alerts';
 
 interface PedidoExpedicaoData {
   id: string;
@@ -104,6 +107,11 @@ const FilaExpedicao: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
   const navigate = useNavigate();
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
+  // Trava de edicao (15/10/2026): conferencia aberta por outra pessoa fica cinza e nao abre.
+  const travas = useTravasAtivas('conferencia');
+  const avisarEmEdicao = (trava: TravaDeEdicao) => {
+    void NexusSwal.fire({ title: 'Em edição por outra pessoa', text: mensagemDeBloqueio('conferencia', trava), icon: 'info', confirmButtonText: 'Entendi' });
+  };
   const [pedidos, setPedidos] = useState<PedidoExpedicaoData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -296,8 +304,10 @@ const FilaExpedicao: React.FC = () => {
                   const ehTroca = p.tipo === 'troca';
                   const caminhoConferencia = ehTroca ? `/operacoes/conferencia/troca/${p.id}` : `/operacoes/conferencia/${p.id}`;
                   const caminhoMinuta = ehTroca ? `/vendas/trocas/${p.id}/minuta` : `/operacoes/expedicao/minuta/${p.id}`;
+                  const travaDaLinha = travas.get(p.id);
+                  const abrirConferencia = () => (travaDaLinha ? avisarEmEdicao(travaDaLinha) : navigate(caminhoConferencia));
                   return (
-                  <tr key={`${p.tipo || 'pedido'}-${p.id}`} {...linha(`${p.tipo || 'pedido'}-${p.id}`, () => navigate(caminhoConferencia))}>
+                  <tr key={`${p.tipo || 'pedido'}-${p.id}`} {...linha(`${p.tipo || 'pedido'}-${p.id}`, abrirConferencia)} style={travaDaLinha ? { opacity: 0.55 } : undefined} title={travaDaLinha ? descreverTrava(travaDaLinha) : undefined}>
                     <td className="font-medium">
                       #{p.numeroPedido}
                       {ehTroca && <span style={{ marginLeft: '8px', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, color: '#fff', backgroundColor: '#8b5cf6' }}>TROCA</span>}
@@ -308,15 +318,20 @@ const FilaExpedicao: React.FC = () => {
                       <span style={{ padding: '4px 10px', borderRadius: '14px', fontSize: '12px', fontWeight: 700, color: '#fff', backgroundColor: STATUS_COLORS[p.statusConferencia] }}>
                         {STATUS_LABELS[p.statusConferencia]}
                       </span>
+                      {travaDaLinha && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                          <Lock size={13} /> {descreverTrava(travaDaLinha)}
+                        </div>
+                      )}
                     </td>
                     <td {...semAbrirLinha} style={{ textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '8px' }}>
                       <button
-                        onClick={() => navigate(caminhoConferencia)}
+                        onClick={abrirConferencia}
                         className="icon-btn"
-                        title={p.statusConferencia === 'aguardando' ? 'Abrir Conferência' : 'Continuar/Reabrir Conferência'}
-                        style={{ color: '#3b82f6' }}
+                        title={travaDaLinha ? descreverTrava(travaDaLinha) : p.statusConferencia === 'aguardando' ? 'Abrir Conferência' : 'Continuar/Reabrir Conferência'}
+                        style={{ color: travaDaLinha ? 'var(--text-muted)' : '#3b82f6' }}
                       >
-                        <ClipboardCheck size={18} />
+                        {travaDaLinha ? <Lock size={18} /> : <ClipboardCheck size={18} />}
                       </button>
                       <button
                         onClick={() => navigate(caminhoMinuta)}

@@ -68,6 +68,7 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
       if (!dados.has(`${caminho}/${id}`)) throw new Error(`documento ${caminho}/${id} nao existe`);
       aplicar(`${caminho}/${id}`, campos, false);
     },
+    delete: async () => { dados.delete(`${caminho}/${id}`); },
   });
   const db = {
     collection: (colecao) => colecaoEm(colecao),
@@ -78,9 +79,13 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
         getAll: async (...refs) => Promise.all(refs.map((r) => tx.get(r))),
         update: (r, campos) => escritas.push([r, campos, false]),
         set: (r, campos, opcoes) => escritas.push([r, campos, !opcoes?.merge]),
+        delete: (r) => escritas.push([r, null, 'apagar']),
       };
       const resultado = await fn(tx);
-      for (const [r, campos, substitui] of escritas) aplicar(r.chave, campos, substitui);
+      for (const [r, campos, substitui] of escritas) {
+        if (substitui === 'apagar') dados.delete(r.chave);
+        else aplicar(r.chave, campos, substitui);
+      }
       return resultado;
     },
   };

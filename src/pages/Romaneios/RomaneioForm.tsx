@@ -9,6 +9,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { FiltroColuna, OpcoesFiltro, OpcoesFiltroMultiplo, opcoesDaColuna } from '../../components/common/FiltroColuna';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
@@ -657,6 +658,16 @@ const AdicionarPedidosModal: React.FC<{
   const [busca, setBusca] = useState('');
   const [comNota, setComNota] = useState<'todos' | 'com' | 'sem'>('todos');
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  // Filtros por coluna (15/10/2026, pedido do dono): varios valores de uma vez; vazio = todos.
+  const [filtroDatas, setFiltroDatas] = useState<string[]>([]);
+  const [filtroPedidos, setFiltroPedidos] = useState<string[]>([]);
+  const [filtroClientes, setFiltroClientes] = useState<string[]>([]);
+  const [filtroCidades, setFiltroCidades] = useState<string[]>([]);
+  const [filtroVendedores, setFiltroVendedores] = useState<string[]>([]);
+  const filtrosDeColuna = filtroDatas.length + filtroPedidos.length + filtroClientes.length + filtroCidades.length + filtroVendedores.length;
+  const limparFiltrosDeColuna = () => {
+    setFiltroDatas([]); setFiltroPedidos([]); setFiltroClientes([]); setFiltroCidades([]); setFiltroVendedores([]);
+  };
 
   const buscar = async () => {
     if (!de || !ate || de > ate) { showError('Período inválido', 'Informe a data inicial e a final, com a inicial antes da final.'); return; }
@@ -677,11 +688,25 @@ const AdicionarPedidosModal: React.FC<{
   useEffect(() => { void buscar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const termo = busca.trim().toLowerCase();
+  const semValor = (texto: string) => texto || '—';
   const visiveis = (lista || []).filter((p) => (
     (comNota === 'todos' || (comNota === 'com' ? Boolean(p.notaNumero) : !p.notaNumero))
     && (!termo || p.numeroPedido.includes(termo) || p.notaNumero.includes(termo) || p.clienteNome.toLowerCase().includes(termo)
       || p.cidade.toLowerCase().includes(termo) || p.vendedorNome.toLowerCase().includes(termo))
+    && (filtroDatas.length === 0 || filtroDatas.includes(p.dataVenda))
+    && (filtroPedidos.length === 0 || filtroPedidos.includes(p.numeroPedido))
+    && (filtroClientes.length === 0 || filtroClientes.includes(semValor(p.clienteNome)))
+    && (filtroCidades.length === 0 || filtroCidades.includes(semValor(p.cidade)))
+    && (filtroVendedores.length === 0 || filtroVendedores.includes(semValor(p.vendedorNome)))
   ));
+  // Opcoes de cada coluna: tudo o que veio na busca, com quantos pedidos tem.
+  const todos = lista || [];
+  const opcoesDatas = opcoesDaColuna(todos, (p) => p.dataVenda, { rotuloDe: dataBr, ordenar: (a, b) => b.localeCompare(a) });
+  const opcoesPedidos = opcoesDaColuna(todos, (p) => p.numeroPedido, { ordenar: (a, b) => b.localeCompare(a, 'pt-BR', { numeric: true }) });
+  const rotuloVazio = (vazio: string) => (valor: string) => (valor === '—' ? vazio : valor);
+  const opcoesClientes = opcoesDaColuna(todos, (p) => semValor(p.clienteNome), { rotuloDe: rotuloVazio('Sem cliente') });
+  const opcoesCidades = opcoesDaColuna(todos, (p) => semValor(p.cidade), { rotuloDe: rotuloVazio('Sem cidade') });
+  const opcoesVendedores = opcoesDaColuna(todos, (p) => semValor(p.vendedorNome), { rotuloDe: rotuloVazio('Sem vendedor') });
   const livres = visiveis.filter((p) => !p.emOutraRota);
   const todosMarcados = livres.length > 0 && livres.every((p) => marcados.has(p.pedidoId));
 
@@ -729,12 +754,51 @@ const AdicionarPedidosModal: React.FC<{
                 <th style={{ padding: '10px 8px', width: '36px' }}>
                   <input type="checkbox" aria-label="Marcar todos" checked={todosMarcados} onChange={(e) => setMarcados(e.target.checked ? new Set(livres.map((p) => p.pedidoId)) : new Set())} />
                 </th>
-                <th style={{ padding: '10px 8px' }}>Venda</th>
-                <th style={{ padding: '10px 8px' }}>Pedido</th>
-                <th style={{ padding: '10px 8px' }}>N/F</th>
-                <th style={{ padding: '10px 8px' }}>Cliente</th>
-                <th style={{ padding: '10px 8px' }}>Cidade</th>
-                <th style={{ padding: '10px 8px' }}>Vendedor</th>
+                <th style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
+                  Venda
+                  <FiltroColuna ativo={filtroDatas.length > 0}>
+                    {() => <OpcoesFiltroMultiplo opcoes={opcoesDatas} selecionados={filtroDatas} onMudar={setFiltroDatas} rotuloTodos="Todas as datas" />}
+                  </FiltroColuna>
+                </th>
+                <th style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
+                  Pedido
+                  <FiltroColuna ativo={filtroPedidos.length > 0}>
+                    {() => <OpcoesFiltroMultiplo opcoes={opcoesPedidos} selecionados={filtroPedidos} onMudar={setFiltroPedidos} />}
+                  </FiltroColuna>
+                </th>
+                <th style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
+                  N/F
+                  <FiltroColuna ativo={comNota !== 'todos'}>
+                    {(fechar) => (
+                      <OpcoesFiltro
+                        opcoes={['com', 'sem']}
+                        valorSelecionado={comNota === 'todos' ? '' : comNota}
+                        fechar={fechar}
+                        rotuloTodos="Com e sem nota"
+                        formatarRotulo={(valor) => (valor === 'com' ? 'Só com nota' : 'Só sem nota (S/N)')}
+                        onSelecionar={(valor, fecharPainel) => { setComNota((valor || 'todos') as typeof comNota); fecharPainel(); }}
+                      />
+                    )}
+                  </FiltroColuna>
+                </th>
+                <th style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
+                  Cliente
+                  <FiltroColuna ativo={filtroClientes.length > 0}>
+                    {() => <OpcoesFiltroMultiplo opcoes={opcoesClientes} selecionados={filtroClientes} onMudar={setFiltroClientes} />}
+                  </FiltroColuna>
+                </th>
+                <th style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
+                  Cidade
+                  <FiltroColuna ativo={filtroCidades.length > 0}>
+                    {() => <OpcoesFiltroMultiplo opcoes={opcoesCidades} selecionados={filtroCidades} onMudar={setFiltroCidades} rotuloTodos="Todas as cidades" />}
+                  </FiltroColuna>
+                </th>
+                <th style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
+                  Vendedor
+                  <FiltroColuna ativo={filtroVendedores.length > 0}>
+                    {() => <OpcoesFiltroMultiplo opcoes={opcoesVendedores} selecionados={filtroVendedores} onMudar={setFiltroVendedores} />}
+                  </FiltroColuna>
+                </th>
                 <th style={{ padding: '10px 8px', textAlign: 'right' }}>Total</th>
               </tr>
             </thead>
@@ -742,7 +806,7 @@ const AdicionarPedidosModal: React.FC<{
               {buscando || lista === null ? (
                 <tr><td colSpan={8} style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>Buscando pedidos faturados...</td></tr>
               ) : visiveis.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum pedido faturado nesse período{busca || comNota !== 'todos' ? ' com esses filtros' : ''}.</td></tr>
+                <tr><td colSpan={8} style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum pedido faturado nesse período{busca || comNota !== 'todos' || filtrosDeColuna > 0 ? ' com esses filtros' : ''}.</td></tr>
               ) : visiveis.map((p) => (
                 <tr key={p.pedidoId} onClick={() => !p.emOutraRota && alternar(p.pedidoId)} style={{ borderTop: '1px solid var(--border-color)', cursor: p.emOutraRota ? 'not-allowed' : 'pointer', opacity: p.emOutraRota ? 0.45 : 1 }}>
                   <td style={{ padding: '8px' }}>
@@ -765,8 +829,13 @@ const AdicionarPedidosModal: React.FC<{
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+          <span style={{ fontSize: '13px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             {marcados.size} marcado(s) · {moeda((lista || []).filter((p) => marcados.has(p.pedidoId)).reduce((t, p) => t + p.valorTotalCentavos, 0))}
+            {filtrosDeColuna > 0 && (
+              <button type="button" onClick={limparFiltrosDeColuna} style={{ background: 'none', border: 'none', color: 'var(--accent-purple)', cursor: 'pointer', fontSize: '13px', fontWeight: 600, padding: 0 }}>
+                Limpar filtros das colunas ({visiveis.length} de {todos.length})
+              </button>
+            )}
           </span>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button type="button" className="btn-secondary" onClick={onFechar}>Fechar</button>

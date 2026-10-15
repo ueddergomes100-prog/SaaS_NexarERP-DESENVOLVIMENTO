@@ -17,7 +17,7 @@
  * Cada campo preenchido ganha a marca `<campo>PreenchidaPorMigracao: true`,
  * para o --desfazer saber exatamente o que voltar.
  */
-const { admin, db } = require('../config/firebase');
+const { admin, db, projectId } = require('../config/firebase');
 const { preencherDatasFaltantes } = require('../services/datasFaltantes');
 
 const argumento = (nome) => {
@@ -39,7 +39,7 @@ const main = async () => {
     console.error('Firestore Admin nao foi inicializado. Confira as credenciais do ambiente (FIREBASE_SERVICE_ACCOUNT_BASE64).');
     process.exit(1);
   }
-  const projeto = admin.app().options.projectId || '(projeto nao identificado)';
+  const projeto = projectId || admin.app().options.projectId || '(projeto nao identificado)';
   console.log(`Projeto: ${projeto} | ${tenantId ? `empresa ${tenantId}` : 'todas as empresas'} | ${aplicar ? 'GRAVANDO' : 'so mostrando (use --aplicar para gravar)'}${desfazer ? ' | DESFAZER' : ''}`);
 
   const resultado = await preencherDatasFaltantes({

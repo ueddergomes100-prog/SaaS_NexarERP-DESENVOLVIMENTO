@@ -47,7 +47,9 @@ const SuperAdminManutencao: React.FC = () => {
   const [resultado, setResultado] = useState<ResultadoDatasFaltantes | null>(null);
 
   const totalAlterados = resultado ? resultado.colecoes.reduce((soma, c) => soma + c.alterados, 0) : 0;
-  const simulacaoComTrabalho = resultado?.modo === 'simular' && totalAlterados > 0;
+  // Sem saber em qual banco vai gravar, nao grava: o ambiente e' a confirmacao principal.
+  const ambienteIdentificado = Boolean(resultado?.projeto);
+  const simulacaoComTrabalho = resultado?.modo === 'simular' && totalAlterados > 0 && ambienteIdentificado;
 
   const rodar = async (modo: ModoDatasFaltantes) => {
     if (modo === 'aplicar') {
@@ -171,6 +173,11 @@ const SuperAdminManutencao: React.FC = () => {
                 <ListaDetalhe titulo="Pendentes sem vencimento (corrigir o vencimento no título)" total={colecao.totalPendentesSemVencimento} itens={colecao.pendentesSemVencimento} />
               </div>
             ))}
+            {!ambienteIdentificado && (
+              <p style={{ margin: 0, fontSize: '14px', color: '#ef4444', fontWeight: 600 }}>
+                O servidor não informou em qual banco está ligado, então o Aplicar fica bloqueado. Avise o suporte.
+              </p>
+            )}
             {resultado.modo === 'simular' && totalAlterados === 0 && (
               <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary)' }}>Nada a preencher: todos já têm a data.</p>
             )}

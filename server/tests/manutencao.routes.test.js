@@ -14,9 +14,12 @@ const substituir = (modulo, exportado) => {
   const caminho = require.resolve(path.join(base, modulo));
   require.cache[caminho] = { id: caminho, filename: caminho, loaded: true, exports: exportado };
 };
+// Como na producao: entrando pela conta de servico, admin.app().options.projectId
+// vem vazio e o projeto so' existe no que config/firebase exporta.
 substituir('config/firebase', {
   db: {},
-  admin: { app: () => ({ options: { projectId: 'projeto-teste' } }), firestore: { FieldValue: { delete: () => 'APAGAR' } } },
+  projectId: 'projeto-teste',
+  admin: { app: () => ({ options: {} }), firestore: { FieldValue: { delete: () => 'APAGAR' } } },
 });
 substituir('middleware/auth', {
   // O teste diz quem e' o usuario pelo cabecalho; a rota so' le req.user.

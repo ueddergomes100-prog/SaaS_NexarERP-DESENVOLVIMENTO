@@ -95,6 +95,10 @@ const lerContaDeServico = () => {
 };
 
 let app;
+// Projeto em que o SDK foi iniciado. No caminho da conta de servico ele fica so'
+// dentro da credencial (admin.app().options.projectId vem vazio): quem precisa
+// mostrar o ambiente (Manutencao do banco, script de datas) le daqui.
+let projetoEmUso = null;
 try {
   if (process.env.NODE_ENV === 'production' && !process.env.FIREBASE_PROJECT_ID) {
     throw new Error('FIREBASE_PROJECT_ID deve ser configurado em producao.');
@@ -105,6 +109,7 @@ try {
     || process.env.FIREBASE_PROJECT_ID
     || 'sistema-nexus-dev';
   const storageBucket = process.env.FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`;
+  projetoEmUso = projectId;
 
   if (contaDeServico) {
     if (!contaDeServico.privateKey.includes('BEGIN PRIVATE KEY')) {
@@ -153,4 +158,6 @@ if (db) {
   }
 }
 
-module.exports = { admin, db, storage, auth, normalizarChavePrivada };
+const projectId = isInitialized ? projetoEmUso : null;
+
+module.exports = { admin, db, storage, auth, projectId, normalizarChavePrivada };

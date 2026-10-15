@@ -1,5 +1,5 @@
 const express = require('express');
-const { admin, db } = require('../config/firebase');
+const { admin, db, projectId } = require('../config/firebase');
 const { authenticate } = require('../middleware/auth');
 const { limitadorPorChave, MINUTO_MS } = require('../middleware/rateLimit');
 const { preencherDatasFaltantes } = require('../services/datasFaltantes');
@@ -51,7 +51,10 @@ router.post('/datas-faltantes', limite, async (req, res) => {
   }
 
   emAndamento = true;
-  const projeto = admin.app().options.projectId || null;
+  // O projeto em que o SDK foi iniciado (config/firebase): a tela mostra o
+  // ambiente antes de gravar. admin.app().options.projectId vem vazio quando o
+  // SDK entra pela conta de servico -- era o caso da producao (15/10/2026).
+  const projeto = projectId || admin.app().options.projectId || null;
   try {
     const resultado = await preencherDatasFaltantes({
       db,

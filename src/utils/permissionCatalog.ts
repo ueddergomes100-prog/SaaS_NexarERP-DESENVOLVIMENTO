@@ -159,6 +159,10 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // motorista (a loja), nao faz sentido separar.
       { id: 'operacoes.rotas', label: 'Rotas: Motoristas e Despesas de Viagem', color: '#14b8a6' },
       { id: 'operacoes.romaneios', label: 'Romaneio de Entrega: montar rota, registrar entregas e acerto', color: '#14b8a6' },
+      // 15/10/2026: rota ja' fechada volta a "Em rota" ou e' cancelada desfazendo tudo
+      // (pedidos livres, despesas lancadas canceladas). Mesmo texto de
+      // ROTULO_PERMISSAO_ROMANEIO_ENCERRADO (romaneioDomain.ts).
+      { id: 'operacoes.romaneios_reabrir', label: 'Romaneio de Entrega: reabrir e cancelar depois de fechado', color: '#14b8a6' },
       // App do motorista (2026-10-08): so' registra entregue/nao entregue, recebido e canhoto
       // nas rotas em andamento. NAO da' acesso a tela de romaneio do sistema.
       { id: 'operacoes.entregas_app', label: 'Entregas no app (motorista): registrar entregue/não entregue, recebido e foto do canhoto', color: '#14b8a6' },

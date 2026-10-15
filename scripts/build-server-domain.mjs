@@ -63,6 +63,9 @@ const MODULOS = [
   'src/utils/configuracoesGeraisDomain.ts',
   // Trava de edicao (15/10/2026): um documento aberto por vez.
   'src/utils/travaEdicaoDomain.ts',
+  // Romaneio fechado: reabrir/cancelar e o Financeiro acompanhando (15/10/2026).
+  'src/utils/rotaDomain.ts',
+  'src/utils/romaneioDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

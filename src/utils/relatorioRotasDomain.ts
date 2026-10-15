@@ -24,6 +24,8 @@ export interface RotaDoRelatorio {
   despesas?: DespesaRota[];
   total?: number;
   totalCentavos?: number;
+  /** Romaneio cancelado ou despesas retiradas do acerto (15/10/2026): a rota sai da lista e das contas. */
+  cancelada?: boolean;
 }
 
 export interface FiltroRotas {
@@ -38,6 +40,7 @@ export interface FiltroRotas {
 export const filtrarRotas = <T extends RotaDoRelatorio>(rotas: T[], filtro: FiltroRotas): T[] => {
   const termo = filtro.busca.trim().toLowerCase();
   return rotas
+    .filter((r) => !r.cancelada)
     .filter((r) => !filtro.motoristaId || r.motoristaId === filtro.motoristaId)
     .filter((r) => dentroDoPeriodo(r.data || '', filtro.de, filtro.ate))
     .filter((r) => !termo

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 import {
-  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, CheckCircle, ClipboardList, Loader2, Plus, Printer, Save,
+  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, CheckCircle, ClipboardList, History, Loader2, Plus, Printer, RotateCcw, Save,
   Send, Settings2, Trash2, Truck, X, XCircle,
 } from 'lucide-react';
 import { db } from '../../services/firebase';
@@ -10,7 +10,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { FiltroColuna, OpcoesFiltro, OpcoesFiltroMultiplo, opcoesDaColuna } from '../../components/common/FiltroColuna';
-import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
+import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
 import { addDaysToDateInput, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -21,6 +21,7 @@ import {
   fecharRomaneio,
   lerRomaneio,
   liberarRomaneio,
+  reabrirRomaneio,
   registrarEntrega,
   salvarDadosEmRota,
   salvarRomaneioEmMontagem,
@@ -28,9 +29,16 @@ import {
   type RegistroDeEntrega,
 } from '../../services/romaneioService';
 import {
+  cancelamentoDesfazEntregas,
+  erroDoMotivo,
   erroParaCancelar,
   erroParaFechar,
   erroParaLiberar,
+  erroParaReabrir,
+  PERMISSAO_ROMANEIO_ENCERRADO,
+  ROTULO_ACAO_HISTORICO,
+  ROTULO_PERMISSAO_ROMANEIO_ENCERRADO,
+  textoDoPlano,
   FORMAS_RECEBIDAS_NA_ENTREGA,
   centavosDoTexto,
   diferencaDoRecebido,
@@ -68,6 +76,10 @@ import {
 
 const moeda = (centavos: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((centavos || 0) / 100);
 const dataBr = (data: string) => (data ? data.slice(0, 10).split('-').reverse().join('/') : '');
+const dataHoraBr = (iso: string) => {
+  const data = new Date(iso);
+  return Number.isNaN(data.getTime()) ? '' : data.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+};
 const kmDoTexto = (texto: string): number | null => {
   const limpo = texto.replace(/\D/g, '');
   return limpo ? Number(limpo) : null;
@@ -109,8 +121,10 @@ interface MotoristaBasico { id: string; nome?: string; ativo?: boolean }
 const RomaneioForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { currentUser, tenantId, userRole, isOwner, userNome } = useAuth();
+  const { currentUser, tenantId, userRole, isOwner, userNome, userPermissions } = useAuth();
   const podeConfigurar = hasTenantFullAccess(userRole, isOwner);
+  // Reabrir/cancelar rota ja' fechada (15/10/2026): permissao propria; dono e administrador ja' tem.
+  const podeMexerEncerrado = podeConfigurar || Boolean(userPermissions?.includes(PERMISSAO_ROMANEIO_ENCERRADO));
   const { items: motoristas } = useTenantCollection<MotoristaBasico>('motoristas', tenantId);
   const { items: frota } = useTenantCollection<VeiculoDaFrota & { id: string }>('frota', tenantId);
 
@@ -158,7 +172,7 @@ const RomaneioForm: React.FC = () => {
       }
       setRomaneio((atual) => (atual.status === 'montagem' && lido.status === 'montagem'
         ? atual
-        : { ...atual, status: lido.status, numero: lido.numero, entregas: lido.entregas }));
+        : { ...atual, status: lido.status, numero: lido.numero, entregas: lido.entregas, historico: lido.historico, despesasRotaId: lido.despesasRotaId }));
     }, (erro) => {
       console.error('Erro ao abrir o romaneio:', erro);
       showError('Erro ao abrir', mensagemDoErro(erro, 'Não foi possível carregar este romaneio. Tente de novo.'));
@@ -174,6 +188,10 @@ const RomaneioForm: React.FC = () => {
   const emMontagem = romaneio.status === 'montagem';
   const emRota = romaneio.status === 'em_rota';
   const encerrado = romaneio.status === 'fechado' || romaneio.status === 'cancelado';
+  // Rota reaberta que ja' tinha despesas lancadas: elas acompanham o novo fechamento.
+  const despesasJaLancadas = Boolean(romaneio.despesasRotaId);
+  const podeCancelar = Boolean(id) && romaneio.status !== 'cancelado'
+    && (cancelamentoDesfazEntregas(romaneio) ? podeMexerEncerrado : !encerrado);
   const titulo = id ? tituloDoRomaneio(romaneio.numero, romaneio.nome) : `Novo romaneio${romaneio.nome ? ` — ${romaneio.nome.toUpperCase()}` : ''}`;
 
   const mudar = (mudanca: Partial<Romaneio>) => setRomaneio((atual) => ({ ...atual, ...mudanca }));
@@ -263,7 +281,9 @@ const RomaneioForm: React.FC = () => {
         `Entregues: <strong>${resumoFinal.entregues}</strong> · Não entregues: <strong>${resumoFinal.naoEntregues}</strong> (voltam a ficar livres para outra rota).`,
         `Saldo a prestar pelo motorista: <strong>${moeda(resumoFinal.saldoAPrestarCentavos)}</strong>.`,
         ...(resumoFinal.comDiferenca > 0 ? [`<strong>${resumoFinal.comDiferenca}</strong> entrega(s) com valor recebido diferente do pedido — confira a justificativa de cada uma antes de fechar.`] : []),
-        lancarDespesas && despesas > 0 ? `${despesas} despesa(s) serão lançadas como pagas em "DESPESAS DE ROTA".` : 'Nenhuma despesa será lançada no financeiro.',
+        despesasJaLancadas
+          ? 'As despesas já lançadas no financeiro acompanham este acerto: valor alterado é corrigido, despesa nova é lançada e a que saiu do acerto é cancelada.'
+          : lancarDespesas && despesas > 0 ? `${despesas} despesa(s) serão lançadas como pagas em "DESPESAS DE ROTA".` : 'Nenhuma despesa será lançada no financeiro.',
         'A baixa dos títulos dos clientes continua em Contas a Receber.',
       ].join('<br/><br/>'),
       showCancelButton: true,
@@ -272,30 +292,102 @@ const RomaneioForm: React.FC = () => {
     });
     if (!confirma.isConfirmed || !id) return;
     await executar('Fechando', async () => {
-      const r = await fecharRomaneio({ tenantId: tenantId!, uid: currentUser!.uid, id, romaneio: paraFechar, lancarDespesas });
+      const r = await fecharRomaneio({ id, romaneio: paraFechar, lancarDespesas });
       setRomaneio((atual) => ({ ...atual, status: 'fechado', acerto: paraFechar.acerto.filter((l) => l.valorCentavos > 0) }));
-      showSuccess(r.despesasLancadas > 0 ? `Acerto fechado. ${r.despesasLancadas} despesa(s) lançada(s) no financeiro.` : 'Acerto fechado.');
+      const financeiro = textoDoPlano(r.contagem);
+      showSuccess(financeiro ? `Acerto fechado. Financeiro: ${financeiro}.` : 'Acerto fechado.');
     }, 'Não foi possível fechar o acerto. Tente de novo.');
   };
 
+  /** Pede o motivo (vai para o historico da rota e para o log). null = desistiu. */
+  const pedirMotivo = async (titulo: string, html: string, confirmar: string): Promise<string | null> => {
+    const r = await NexusSwal.fire({
+      icon: 'warning',
+      title: titulo,
+      html,
+      input: 'textarea',
+      inputLabel: 'Motivo (obrigatório)',
+      inputPlaceholder: 'Escreva por que, para ficar no histórico',
+      showCancelButton: true,
+      confirmButtonText: confirmar,
+      cancelButtonText: 'Voltar',
+      confirmButtonColor: '#ef4444',
+      preConfirm: (motivo: string) => {
+        const erro = erroDoMotivo(motivo);
+        if (erro) { NexusSwal.showValidationMessage(erro); return false; }
+        return String(motivo).trim();
+      },
+    });
+    return r.isConfirmed ? String(r.value) : null;
+  };
+
   const cancelar = async () => {
-    const erro = erroParaCancelar(romaneio);
+    const erro = erroParaCancelar(romaneio, { podeDesfazer: podeMexerEncerrado });
     if (erro) { showError('Não dá para cancelar', erro); return; }
     if (!id) { navigate('/operacoes/romaneios'); return; }
-    const confirma = await NexusSwal.fire({
-      icon: 'warning',
-      title: 'Cancelar este romaneio?',
-      text: 'Os pedidos voltam a ficar livres para outra rota. O romaneio continua na lista, como cancelado.',
-      showCancelButton: true,
-      confirmButtonText: 'Cancelar romaneio',
-      cancelButtonText: 'Voltar',
-    });
-    if (!confirma.isConfirmed) return;
+    let motivo = '';
+    if (cancelamentoDesfazEntregas(romaneio)) {
+      // Rota fechada ou com entrega: desfaz tudo (decisao do dono, 15/10/2026).
+      const lido = await pedirMotivo(
+        'Cancelar e desfazer esta rota?',
+        [
+          'Todos os pedidos desta rota voltam a ficar livres para outra rota, <strong>inclusive os já entregues</strong>.',
+          despesasJaLancadas ? 'As despesas desta rota lançadas no financeiro são <strong>canceladas</strong>.' : '',
+          'O que o motorista recebeu continua só registrado: a baixa dos títulos é sempre em Contas a Receber.',
+          'O romaneio continua na lista, como cancelado, com o motivo no histórico.',
+        ].filter(Boolean).join('<br/><br/>'),
+        'Cancelar romaneio',
+      );
+      if (lido === null) return;
+      motivo = lido;
+    } else {
+      const confirma = await NexusSwal.fire({
+        icon: 'warning',
+        title: 'Cancelar este romaneio?',
+        text: 'Os pedidos voltam a ficar livres para outra rota. O romaneio continua na lista, como cancelado.',
+        showCancelButton: true,
+        confirmButtonText: 'Cancelar romaneio',
+        cancelButtonText: 'Voltar',
+      });
+      if (!confirma.isConfirmed) return;
+    }
     await executar('Cancelando', async () => {
-      await cancelarRomaneio(tenantId!, currentUser!.uid, id);
+      const r = await cancelarRomaneio(id, motivo);
       setRomaneio((atual) => ({ ...atual, status: 'cancelado' }));
-      showSuccess('Romaneio cancelado.');
+      showSuccess(r.despesasCanceladas > 0 ? `Romaneio cancelado. ${r.despesasCanceladas} despesa(s) cancelada(s) no financeiro.` : 'Romaneio cancelado.');
     }, 'Não foi possível cancelar. Tente de novo.');
+  };
+
+  /** Rota fechada volta inteira para "Em rota" (pedido do cliente, 15/10/2026). */
+  const reabrir = async () => {
+    const erro = erroParaReabrir(romaneio);
+    if (erro) { showError('Não dá para reabrir', erro); return; }
+    if (!id) return;
+    const motivo = await pedirMotivo(
+      'Reabrir esta rota?',
+      [
+        'A rota volta para <strong>Em rota</strong>: dá para corrigir o acerto, o KM e as entregas, e depois fechar de novo.',
+        despesasJaLancadas
+          ? 'As despesas já lançadas no financeiro acompanham o novo fechamento: valor alterado é corrigido, despesa nova é lançada e a que sair do acerto é cancelada.'
+          : 'Ao fechar de novo, você escolhe se lança as despesas no financeiro.',
+        'Pedido não entregue que já saiu em outra rota fica fora desta.',
+      ].join('<br/><br/>'),
+      'Reabrir',
+    );
+    if (motivo === null) return;
+    await executar('Reabrindo', async () => {
+      const r = await reabrirRomaneio(id, motivo);
+      setRomaneio((atual) => ({
+        ...atual,
+        status: 'em_rota',
+        entregas: atual.entregas.filter((e) => !r.saem.some((s) => s.pedidoId === e.pedidoId)),
+      }));
+      if (r.saem.length > 0) {
+        showWarning(`Rota reaberta. Ficaram de fora (já estão em outra rota): ${r.saem.map((s) => `#${s.numeroPedido} na ${s.outraRota}`).join(', ')}.`);
+      } else {
+        showSuccess('Rota reaberta. Corrija o que precisar e feche o acerto de novo.');
+      }
+    }, 'Não foi possível reabrir o romaneio. Tente de novo.');
   };
 
   const tirarPedido = (pedidoId: string) => mudar({ entregas: romaneio.entregas.filter((e) => e.pedidoId !== pedidoId) });
@@ -350,6 +442,7 @@ const RomaneioForm: React.FC = () => {
               {emMontagem && 'Escolha o motorista e os pedidos faturados, ponha na ordem de entrega e libere a rota.'}
               {emRota && 'Rota na rua: registre cada entrega e, na volta, preencha o retorno e feche o acerto.'}
               {romaneio.status === 'fechado' && 'Acerto fechado. Os pedidos não entregues voltaram a ficar livres para outra rota.'}
+              {romaneio.status === 'fechado' && podeMexerEncerrado && ' Esqueceu algo? Use "Reabrir".'}
               {romaneio.status === 'cancelado' && 'Romaneio cancelado. Os pedidos voltaram a ficar livres.'}
             </p>
           </div>
@@ -357,7 +450,8 @@ const RomaneioForm: React.FC = () => {
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           {podeConfigurar && !encerrado && botao('Configurar', <Settings2 size={17} />, () => setConfigAberta(true))}
           {botao('Imprimir', <Printer size={17} />, () => setImprimindo(true))}
-          {!encerrado && (romaneio.entregas.every((e) => e.status === 'pendente')) && id && botao('Cancelar', <Trash2 size={17} />, () => void cancelar(), false, '#ef4444')}
+          {podeCancelar && botao('Cancelar', <Trash2 size={17} />, () => void cancelar(), false, '#ef4444')}
+          {romaneio.status === 'fechado' && podeMexerEncerrado && botao('Reabrir', <RotateCcw size={17} />, () => void reabrir(), true)}
           {!encerrado && botao('Salvar', <Save size={17} />, () => void salvar())}
           {emMontagem && botao('Liberar para entrega', <Send size={17} />, () => void liberar(), true)}
           {emRota && botao('Fechar acerto', <CheckCircle size={17} />, () => void fechar(), true)}
@@ -580,7 +674,16 @@ const RomaneioForm: React.FC = () => {
               <input value={romaneio.observacaoAcerto} onChange={(e) => mudar({ observacaoAcerto: e.target.value })} placeholder="Opcional: o que ficou pendente no acerto" style={estiloCampo} />
             </label>
 
-            {emRota && (
+            {emRota && despesasJaLancadas && (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginTop: '16px', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+                <CheckCircle size={17} color="#10b981" style={{ flexShrink: 0, marginTop: '1px' }} />
+                <span>
+                  As despesas desta rota já estão lançadas no financeiro e acompanham o acerto ao fechar de novo:
+                  valor alterado é corrigido, despesa nova é lançada e a que sair do acerto é cancelada.
+                </span>
+              </div>
+            )}
+            {emRota && !despesasJaLancadas && (
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginTop: '16px', fontSize: '13.5px', color: 'var(--text-secondary)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={lancarDespesas} onChange={(e) => setLancarDespesas(e.target.checked)} style={{ marginTop: '3px' }} />
                 <span>
@@ -597,6 +700,28 @@ const RomaneioForm: React.FC = () => {
             )}
           </div>
         </fieldset>
+      )}
+
+      {(romaneio.historico || []).length > 0 && (
+        <div className="card" style={estiloCartao}>
+          <h3 style={{ margin: '0 0 12px 0', fontSize: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <History size={17} color="var(--accent-purple)" /> Histórico
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {[...(romaneio.historico || [])].reverse().map((evento, i) => (
+              <div key={`${evento.emIso}-${i}`} style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 700, color: evento.acao === 'fechado' ? '#10b981' : evento.acao === 'reaberto' ? '#f59e0b' : '#ef4444' }}>{ROTULO_ACAO_HISTORICO[evento.acao]}</span>
+                <span>{dataHoraBr(evento.emIso)} · {evento.usuarioNome}</span>
+                {evento.motivo && <span style={{ color: 'var(--text-primary)' }}>— {evento.motivo}</span>}
+              </div>
+            ))}
+          </div>
+          {!podeMexerEncerrado && romaneio.status === 'fechado' && (
+            <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Para reabrir ou cancelar uma rota fechada, é preciso a permissão "{ROTULO_PERMISSAO_ROMANEIO_ENCERRADO}".
+            </div>
+          )}
+        </div>
       )}
 
       {adicionarAberto && tenantId && (

@@ -45,6 +45,11 @@ test('filtros da tela: motorista, período, busca e data mais recente primeiro',
   assert.deepEqual(filtrarRotas(rotas, { ...semFiltro, busca: 'delivery' }).map((r) => r.id), ['r2']);
 });
 
+test('rota cancelada (romaneio cancelado ou despesas retiradas do acerto) sai da lista e das contas', () => {
+  const comCancelada = [...rotas, { id: 'r5', motoristaId: 'm1', data: '2026-09-20', totalCentavos: 18000, cancelada: true }];
+  assert.deepEqual(filtrarRotas(comCancelada, semFiltro).map((r) => r.id), ['r3', 'r2', 'r1', 'r4']);
+});
+
 test('total da rota em centavos, inclusive rota antiga só com total em reais', () => {
   assert.equal(totalDaRotaDoRelatorioCentavos(rotas[0]), 23550);
   assert.equal(totalDaRotaDoRelatorioCentavos(rotas[2]), 12010);

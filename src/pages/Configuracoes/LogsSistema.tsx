@@ -286,6 +286,7 @@ const LogsSistema: React.FC = () => {
               <option value="vendas">Vendas e Orçamentos</option>
               <option value="estoque">Estoque de Peças</option>
               <option value="financeiro">Financeiro / Caixa</option>
+              <option value="romaneios">Romaneio de Entrega</option>
               <option value="logs">Painel de Logs</option>
             </select>
           </div>
@@ -314,6 +315,8 @@ const LogsSistema: React.FC = () => {
               <option value="edicao">Edição (Editar)</option>
               <option value="exclusao">Exclusão (Apagar)</option>
               <option value="cancelamento">Cancelamento</option>
+              <option value="fechamento">Fechamento (acerto)</option>
+              <option value="reabertura">Reabertura</option>
               <option value="devolucao">Devolução</option>
               <option value="acesso_negado">Acesso Negado</option>
               <option value="senha_incorreta">Senha Incorreta</option>

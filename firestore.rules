@@ -462,6 +462,22 @@ service cloud.firestore {
         (!alteraSituacao() && (!cadastroInativo(collectionName) || soMovimentaSaldo(collectionName)));
     }
 
+    // Romaneio FECHADO ou CANCELADO (15/10/2026): so' o servidor mexe --
+    // fechar o acerto, reabrir e cancelar passam por
+    // server/routes/romaneios.routes.js (permissao propria, motivo, log, e as
+    // despesas lancadas no Financeiro acompanhando). A tela grava a rota em
+    // montagem ou em andamento e nunca muda a situacao para fechado/cancelado.
+    function romaneioAbertoNaTela(collectionName) {
+      return collectionName != 'romaneios' || (
+        resource.data.get('status', 'montagem') in ['montagem', 'em_rota'] &&
+        request.resource.data.get('status', 'montagem') in ['montagem', 'em_rota']
+      );
+    }
+
+    function romaneioNasceEmMontagem(collectionName) {
+      return collectionName != 'romaneios' || request.resource.data.get('status', 'montagem') == 'montagem';
+    }
+
     // Filiais (2026-10-06): cadastro de cliente e de produto e' do GRUPO
     // (copias espelhadas pelo servidor, ver src/utils/cadastroGrupoDomain.ts).
     // Cliente/produto nascido em OUTRA filial: sem "Utiliza outras filiais"
@@ -932,7 +948,7 @@ service cloud.firestore {
         'entregas',
         'caixas_pdv',
         'notas_avulsas'
-      ] && canCreateTenantDocument() && canWriteTenantCollection(collectionName);
+      ] && canCreateTenantDocument() && romaneioNasceEmMontagem(collectionName) && canWriteTenantCollection(collectionName);
 
       allow update: if collectionName in [
         'clientes',
@@ -980,7 +996,7 @@ service cloud.firestore {
         'entregas',
         'caixas_pdv',
         'notas_avulsas'
-      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && entradaDeTransferenciaIntacta(collectionName) && (
+      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && entradaDeTransferenciaIntacta(collectionName) && romaneioAbertoNaTela(collectionName) && (
         // Os movimentos de SALDO vem PRIMEIRO de proposito (2026-09-29): sao
         // as escritas mais comuns (toda venda mexe em estoque e banco) e as
         // mais baratas de conferir. O Firestore para de avaliar a regra depois

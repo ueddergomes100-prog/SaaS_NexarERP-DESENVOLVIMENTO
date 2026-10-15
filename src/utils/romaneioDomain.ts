@@ -14,13 +14,18 @@
  *   fechado   -> acerto feito na volta. Pedido nao entregue fica livre pra
  *                outra rota. A BAIXA dos titulos continua em Contas a Receber
  *                (decisao do dono): o acerto registra e imprime, nao baixa.
- *   cancelado -> desistiu da rota antes de qualquer entrega.
+ *   cancelado -> desistiu da rota antes de qualquer entrega -- ou, com a
+ *                permissao propria, desfez uma rota ja' fechada (15/10/2026).
+ *
+ * Rota fechada pode ser REABERTA (volta a "em rota") e fechada de novo; as
+ * despesas lancadas acompanham. Ver "ROMANEIO JA' FECHADO" no fim do arquivo.
  *
  * "Rota 01, 02, 03" e' so' nomenclatura: numero sequencial + nome livre.
  *
  * Regra pura: sem tela, sem Firestore.
  */
 import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './relatorioPdfDomain';
+import type { DespesaRota } from './rotaDomain';
 
 export type StatusRomaneio = 'montagem' | 'em_rota' | 'fechado' | 'cancelado';
 export type StatusEntrega = 'pendente' | 'entregue' | 'nao_entregue';
@@ -156,6 +161,10 @@ export interface Romaneio {
   entregas: EntregaRomaneio[];
   acerto: LancamentoAcerto[];
   observacaoAcerto: string;
+  /** Rota de despesas (`rotas/{id}`) criada pelo fechamento, quando as despesas foram lancadas. */
+  despesasRotaId?: string;
+  /** Fechou, reabriu, cancelou: quem, quando e por que (15/10/2026). */
+  historico?: EventoDoRomaneio[];
 }
 
 // ---------------------------------------------------------------------------
@@ -494,11 +503,29 @@ export const erroParaFechar = (romaneio: Pick<Romaneio, 'status' | 'entregas' | 
   return null;
 };
 
-/** Cancelar so' antes de qualquer entrega registrada -- depois disso, o caminho e' fechar. */
-export const erroParaCancelar = (romaneio: Pick<Romaneio, 'status' | 'entregas'>): string | null => {
-  if (romaneio.status === 'fechado' || romaneio.status === 'cancelado') return 'Este romaneio já foi encerrado.';
-  if (romaneio.entregas.some((e) => e.status !== 'pendente')) {
-    return 'Esta rota já tem entrega registrada e não pode mais ser cancelada. Feche o acerto marcando o que não foi entregue.';
+/** Permissao propria para mexer em rota ja' fechada (15/10/2026). Dono e administrador ja' tem. */
+export const PERMISSAO_ROMANEIO_ENCERRADO = 'operacoes.romaneios_reabrir';
+export const ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = 'Romaneio de Entrega: reabrir e cancelar depois de fechado';
+
+/** Cancelar rota fechada ou com entrega ja' registrada DESFAZ o que aconteceu: pede a permissao propria e motivo. */
+export const cancelamentoDesfazEntregas = (romaneio: Pick<Romaneio, 'status' | 'entregas'>): boolean => (
+  romaneio.status === 'fechado' || romaneio.entregas.some((e) => e.status !== 'pendente')
+);
+
+/**
+ * Sem a permissao propria, cancelar so' antes de qualquer entrega registrada
+ * -- depois disso, o caminho e' fechar. Com ela (15/10/2026), cancela tambem a
+ * rota fechada ou com entrega, desfazendo tudo.
+ */
+export const erroParaCancelar = (
+  romaneio: Pick<Romaneio, 'status' | 'entregas'>,
+  opcoes: { podeDesfazer?: boolean } = {},
+): string | null => {
+  if (romaneio.status === 'cancelado') return 'Este romaneio já foi cancelado.';
+  if (cancelamentoDesfazEntregas(romaneio) && !opcoes.podeDesfazer) {
+    return romaneio.status === 'fechado'
+      ? `Este romaneio já foi fechado. Para cancelar, é preciso a permissão "${ROTULO_PERMISSAO_ROMANEIO_ENCERRADO}". Peça ao administrador.`
+      : 'Esta rota já tem entrega registrada e não pode mais ser cancelada. Feche o acerto marcando o que não foi entregue.';
   }
   return null;
 };
@@ -576,6 +603,7 @@ export const erroDoAcerto = (acerto: LancamentoAcerto[]): string | null => {
   return negativo ? `O valor de "${negativo.tipo}" está negativo. Confira o que foi digitado.` : null;
 };
 
+/** Linhas com valor, limpas, sem campo a mais (o Firestore recusa `undefined`). */
 export const acertoParaGravar = (acerto: LancamentoAcerto[]): LancamentoAcerto[] => acerto
   .filter((l) => (Number(l.valorCentavos) || 0) > 0)
   .map((l) => ({ tipo: l.tipo, natureza: l.natureza, descricao: limpar(l.descricao), valorCentavos: Math.round(Number(l.valorCentavos)) }));
@@ -809,4 +837,302 @@ export const montarDocumentoRelatorioRomaneios = (
       },
     ],
   };
+};
+
+// ---------------------------------------------------------------------------
+// LEITURA DO DOCUMENTO (servidor e tela leem igual)
+// ---------------------------------------------------------------------------
+
+const numeroOuNulo = (valor: unknown): number | null => (
+  valor !== null && valor !== undefined && valor !== '' && Number.isFinite(Number(valor)) ? Number(valor) : null
+);
+
+/** Romaneio lido do Firestore, com todo campo completo (documento parcial nao quebra a tela). */
+export const romaneioDoDocumento = (dados: Record<string, unknown>): Romaneio => ({
+  numero: Number(dados.numero) || 0,
+  nome: String(dados.nome || ''),
+  status: (['montagem', 'em_rota', 'fechado', 'cancelado'].includes(String(dados.status)) ? dados.status : 'montagem') as Romaneio['status'],
+  dataSaida: String(dados.dataSaida || ''),
+  horarioSaida: String(dados.horarioSaida || ''),
+  motoristaId: String(dados.motoristaId || ''),
+  motoristaNome: String(dados.motoristaNome || ''),
+  veiculoId: String(dados.veiculoId || ''),
+  veiculoDescricao: String(dados.veiculoDescricao || ''),
+  veiculoPlaca: String(dados.veiculoPlaca || ''),
+  kmSaida: numeroOuNulo(dados.kmSaida),
+  kmChegada: numeroOuNulo(dados.kmChegada),
+  horarioChegada: String(dados.horarioChegada || ''),
+  observacao: String(dados.observacao || ''),
+  // O que o app do motorista gravou em `registros.{pedidoId}` vale sobre a lista ("REGISTROS DO APP").
+  entregas: aplicarRegistros(
+    Array.isArray(dados.entregas) ? (dados.entregas as Array<Partial<EntregaRomaneio> & { pedidoId: string }>).filter((e) => e?.pedidoId).map(normalizarEntrega) : [],
+    dados.registros,
+  ),
+  acerto: Array.isArray(dados.acerto) ? (dados.acerto as LancamentoAcerto[]) : [],
+  observacaoAcerto: String(dados.observacaoAcerto || ''),
+  despesasRotaId: String(dados.despesasRotaId || ''),
+  historico: parseHistorico(dados.historico),
+});
+
+/** Campos que a tela edita, sem nada `undefined` (o Firestore recusa). */
+export const camposEditaveisDaRota = (r: Romaneio) => ({
+  nome: r.nome.trim().toUpperCase(),
+  dataSaida: r.dataSaida,
+  horarioSaida: r.horarioSaida,
+  motoristaId: r.motoristaId,
+  motoristaNome: r.motoristaNome,
+  veiculoId: r.veiculoId,
+  veiculoDescricao: r.veiculoDescricao,
+  veiculoPlaca: r.veiculoPlaca,
+  kmSaida: r.kmSaida,
+  observacao: r.observacao.trim(),
+});
+
+// ---------------------------------------------------------------------------
+// ROMANEIO JA' FECHADO: REABRIR E CANCELAR (15/10/2026, pedido do cliente)
+// ---------------------------------------------------------------------------
+//
+// O cliente esqueceu de lancar as despesas do motorista e a rota ja' estava
+// fechada. Decisoes do dono (15/10/2026):
+//   - REABRIR volta a rota inteira para "Em rota" (acerto, KM, entregas). O
+//     pedido nao entregue que nesse meio-tempo entrou em outra rota fica de
+//     fora: agora quem manda nele e' a outra rota.
+//   - O FINANCEIRO ACOMPANHA: ao fechar de novo, despesa nova vira lancamento
+//     pago, valor alterado corrige o lancamento e despesa que saiu do acerto
+//     cancela o lancamento. Nada e' apagado.
+//   - CANCELAR (mesmo fechado ou com entrega registrada) desfaz tudo: os
+//     pedidos ficam livres e os lancamentos de despesa sao cancelados.
+//   - Permissao propria (PERMISSAO_ROMANEIO_ENCERRADO); motivo obrigatorio;
+//     tudo vai para o log e para o historico do romaneio.
+// Quem grava e' o SERVIDOR (server/services/romaneios.js): as firestore.rules
+// nao deixam a tela mexer em romaneio fechado ou cancelado.
+
+export const TAMANHO_MINIMO_MOTIVO_ROMANEIO = 10;
+
+export const erroDoMotivo = (motivo: unknown): string | null => (
+  limpar(motivo).length < TAMANHO_MINIMO_MOTIVO_ROMANEIO
+    ? `Escreva o motivo com pelo menos ${TAMANHO_MINIMO_MOTIVO_ROMANEIO} letras. Ele fica no histórico do romaneio.`
+    : null
+);
+
+export const erroParaReabrir = (romaneio: Pick<Romaneio, 'status'>): string | null => {
+  if (romaneio.status === 'cancelado') return 'Romaneio cancelado não volta. Monte uma rota nova com os pedidos.';
+  if (romaneio.status !== 'fechado') return 'Só dá para reabrir um romaneio com o acerto fechado.';
+  return null;
+};
+
+// --- Historico na propria rota -------------------------------------------
+
+export type AcaoDoHistorico = 'fechado' | 'reaberto' | 'cancelado';
+
+export interface EventoDoRomaneio {
+  acao: AcaoDoHistorico;
+  /** Vazio no fechamento comum. */
+  motivo: string;
+  usuarioNome: string;
+  /** ISO (data e hora). */
+  emIso: string;
+}
+
+export const ROTULO_ACAO_HISTORICO: Record<AcaoDoHistorico, string> = {
+  fechado: 'Acerto fechado',
+  reaberto: 'Reaberto',
+  cancelado: 'Cancelado',
+};
+
+export const parseHistorico = (raw: unknown): EventoDoRomaneio[] => (
+  Array.isArray(raw)
+    ? raw
+      .filter((e) => e && typeof e === 'object' && ['fechado', 'reaberto', 'cancelado'].includes(String((e as EventoDoRomaneio).acao)))
+      .map((e) => ({
+        acao: (e as EventoDoRomaneio).acao,
+        motivo: limpar((e as EventoDoRomaneio).motivo),
+        usuarioNome: limpar((e as EventoDoRomaneio).usuarioNome),
+        emIso: String((e as EventoDoRomaneio).emIso || ''),
+      }))
+    : []
+);
+
+export const eventoDoHistorico = (acao: AcaoDoHistorico, usuarioNome: string, agoraIso: string, motivo = ''): EventoDoRomaneio => ({
+  acao,
+  motivo: limpar(motivo),
+  usuarioNome: limpar(usuarioNome) || 'Usuário',
+  emIso: agoraIso,
+});
+
+// --- Travas dos pedidos ----------------------------------------------------
+
+export interface TravaDoPedido {
+  romaneioId?: string;
+  romaneioTitulo?: string;
+  situacao?: string;
+}
+
+/** A trava esta' livre, nao existe ou e' desta rota: so' nesses casos esta rota mexe nela. */
+export const travaLivreOuDestaRota = (romaneioId: string, trava: TravaDoPedido | null | undefined): boolean => (
+  !trava || !trava.romaneioId || trava.romaneioId === romaneioId || trava.situacao === 'liberado'
+);
+
+/** Reabrir: quem continua na rota e quem ja' saiu em outra (fica de fora, com o nome da outra rota). */
+export const planoDeReabertura = (
+  romaneioId: string,
+  entregas: EntregaRomaneio[],
+  travas: Record<string, TravaDoPedido | null | undefined>,
+): { ficam: EntregaRomaneio[]; saem: Array<{ entrega: EntregaRomaneio; outraRota: string }> } => {
+  const ficam: EntregaRomaneio[] = [];
+  const saem: Array<{ entrega: EntregaRomaneio; outraRota: string }> = [];
+  entregas.forEach((entrega) => {
+    const trava = travas[entrega.pedidoId];
+    if (travaLivreOuDestaRota(romaneioId, trava)) ficam.push(entrega);
+    else saem.push({ entrega, outraRota: limpar(trava?.romaneioTitulo) || 'outra rota' });
+  });
+  return { ficam, saem };
+};
+
+// --- Despesas lancadas no Financeiro ----------------------------------------
+
+/** Despesas do acerto como o Financeiro grava (mesmo desenho da tela Rotas e Despesas). */
+export const despesasDoAcerto = (acerto: LancamentoAcerto[]): DespesaRota[] => acertoParaGravar(acerto)
+  .filter((l) => l.natureza === 'despesa')
+  .map((l) => ({ tipo: l.tipo, descricao: l.descricao, valor: l.valorCentavos / 100, comprovante: '' }));
+
+const centavosDaDespesa = (despesa: Pick<DespesaRota, 'valor'>): number => Math.round((Number(despesa.valor) || 0) * 100);
+
+/** Chave de cada despesa: o tipo sem acento; tipo repetido ganha "#2", "#3"... */
+const chavesDasDespesas = (despesas: Array<Pick<DespesaRota, 'tipo'>>): string[] => {
+  const vistos = new Map<string, number>();
+  return despesas.map((d) => {
+    const base = semAcento(limpar(d.tipo));
+    const vezes = (vistos.get(base) || 0) + 1;
+    vistos.set(base, vezes);
+    return vezes > 1 ? `${base}#${vezes}` : base;
+  });
+};
+
+export interface DespesaJaLancada {
+  despesa: DespesaRota;
+  transacaoId: string;
+  /** false = o lancamento sumiu ou ja' foi cancelado no Financeiro. */
+  ativa: boolean;
+}
+
+/** Pares despesa x lancamento gravados na rota de despesas (`despesas[i]` <-> `transacaoIds[i]`). */
+export const despesasJaLancadas = (
+  rota: { despesas?: unknown; transacaoIds?: unknown } | null | undefined,
+  ativa: (transacaoId: string) => boolean,
+): DespesaJaLancada[] => {
+  const despesas = Array.isArray(rota?.despesas) ? (rota!.despesas as DespesaRota[]) : [];
+  const ids = Array.isArray(rota?.transacaoIds) ? (rota!.transacaoIds as unknown[]).map((x) => String(x || '')) : [];
+  return despesas
+    .map((despesa, i) => ({ despesa, transacaoId: ids[i] || '' }))
+    .filter((par) => par.transacaoId)
+    .map((par) => ({ ...par, ativa: ativa(par.transacaoId) }));
+};
+
+export interface PlanoDeDespesas {
+  /** Na ordem do acerto. `transacaoId` vazio = lancamento novo. */
+  linhas: Array<{ despesa: DespesaRota; transacaoId: string; alterada: boolean }>;
+  /** Lancamentos cuja despesa saiu do acerto: viram "Cancelada" (nada e' apagado). */
+  cancelar: string[];
+}
+
+/**
+ * "O financeiro acompanha a edicao": compara o acerto com o que ja' foi
+ * lancado. Mesma despesa (pelo tipo) e lancamento ativo = atualiza; despesa
+ * nova (ou cujo lancamento foi cancelado no Financeiro) = lanca de novo;
+ * lancamento sem despesa correspondente = cancela.
+ */
+export const planoDeDespesas = (desejadas: DespesaRota[], lancadas: DespesaJaLancada[]): PlanoDeDespesas => {
+  const chavesNovas = chavesDasDespesas(desejadas);
+  const ativas = lancadas.filter((l) => l.ativa);
+  const chavesAtivas = chavesDasDespesas(ativas.map((l) => l.despesa));
+  const usadas = new Set<number>();
+  const linhas = desejadas.map((despesa, i) => {
+    const j = chavesAtivas.findIndex((chave, k) => chave === chavesNovas[i] && !usadas.has(k));
+    if (j < 0) return { despesa, transacaoId: '', alterada: false };
+    usadas.add(j);
+    const antiga = ativas[j].despesa;
+    const alterada = centavosDaDespesa(antiga) !== centavosDaDespesa(despesa) || limpar(antiga.descricao) !== limpar(despesa.descricao);
+    return { despesa, transacaoId: ativas[j].transacaoId, alterada };
+  });
+  return { linhas, cancelar: ativas.filter((_, k) => !usadas.has(k)).map((l) => l.transacaoId) };
+};
+
+export const contagemDoPlano = (plano: PlanoDeDespesas): { novas: number; alteradas: number; canceladas: number } => ({
+  novas: plano.linhas.filter((l) => !l.transacaoId).length,
+  alteradas: plano.linhas.filter((l) => l.transacaoId && l.alterada).length,
+  canceladas: plano.cancelar.length,
+});
+
+/** Frase do resultado para a tela ("2 despesa(s) lançada(s), 1 corrigida"). Vazio = nada mudou no Financeiro. */
+export const textoDoPlano = (contagem: { novas: number; alteradas: number; canceladas: number }): string => [
+  contagem.novas ? `${contagem.novas} despesa(s) lançada(s)` : '',
+  contagem.alteradas ? `${contagem.alteradas} corrigida(s)` : '',
+  contagem.canceladas ? `${contagem.canceladas} cancelada(s)` : '',
+].filter(Boolean).join(', ');
+
+// --- O que mudou entre o fechamento anterior e o novo (log) -----------------
+
+export interface FotoDoFechamento {
+  dataSaida: string;
+  motoristaNome: string;
+  veiculoDescricao: string;
+  kmSaida: number | null;
+  kmChegada: number | null;
+  horarioChegada: string;
+  observacaoAcerto: string;
+  acerto: LancamentoAcerto[];
+  entregas: Array<{ pedidoId: string; numeroPedido: string; status: StatusEntrega; recebidoCentavos: number }>;
+}
+
+/** Guardada ao reabrir: no novo fechamento, o log diz exatamente o que mudou. */
+export const fotoDoFechamento = (r: Romaneio): FotoDoFechamento => ({
+  dataSaida: r.dataSaida,
+  motoristaNome: r.motoristaNome,
+  veiculoDescricao: r.veiculoDescricao,
+  kmSaida: r.kmSaida,
+  kmChegada: r.kmChegada,
+  horarioChegada: r.horarioChegada,
+  observacaoAcerto: r.observacaoAcerto,
+  acerto: acertoParaGravar(r.acerto),
+  entregas: r.entregas.map((e) => ({ pedidoId: e.pedidoId, numeroPedido: e.numeroPedido, status: e.status, recebidoCentavos: Number(e.recebidoCentavos) || 0 })),
+});
+
+export interface AlteracaoDoRomaneio {
+  campo: string;
+  valorAnterior: string;
+  valorNovo: string;
+}
+
+const textoDoKm = (km: number | null): string => (km === null ? '—' : new Intl.NumberFormat('pt-BR').format(km));
+
+/** Lista "campo: antes -> depois" em portugues, pronta para o log de auditoria. */
+export const alteracoesDesdeOFechamento = (antes: FotoDoFechamento, depois: Romaneio): AlteracaoDoRomaneio[] => {
+  const lista: AlteracaoDoRomaneio[] = [];
+  const comparar = (campo: string, a: string, b: string) => { if (a !== b) lista.push({ campo, valorAnterior: a || '—', valorNovo: b || '—' }); };
+  comparar('Data de saída', dataBr(antes.dataSaida), dataBr(depois.dataSaida));
+  comparar('Motorista', antes.motoristaNome, depois.motoristaNome);
+  comparar('Veículo', antes.veiculoDescricao, depois.veiculoDescricao);
+  comparar('KM de saída', textoDoKm(antes.kmSaida), textoDoKm(depois.kmSaida));
+  comparar('KM de chegada', textoDoKm(antes.kmChegada), textoDoKm(depois.kmChegada));
+  comparar('Horário de chegada', antes.horarioChegada, depois.horarioChegada);
+  comparar('Observação do acerto', limpar(antes.observacaoAcerto), limpar(depois.observacaoAcerto));
+
+  const linhaDoAcerto = (l: LancamentoAcerto | undefined) => (l ? `${moeda(l.valorCentavos)}${limpar(l.descricao) ? ` (${limpar(l.descricao)})` : ''}` : '');
+  const novas = acertoParaGravar(depois.acerto);
+  const tipos = [...new Set([...antes.acerto, ...novas].map((l) => l.tipo))];
+  tipos.forEach((tipo) => {
+    const a = antes.acerto.find((l) => semAcento(l.tipo) === semAcento(tipo));
+    const b = novas.find((l) => semAcento(l.tipo) === semAcento(tipo));
+    comparar(`Acerto: ${tipo}`, linhaDoAcerto(a), linhaDoAcerto(b));
+  });
+
+  const situacao = (e: { status: StatusEntrega; recebidoCentavos: number } | undefined) => (
+    e ? `${ROTULO_STATUS_ENTREGA[e.status]}${e.recebidoCentavos ? `, recebido ${moeda(e.recebidoCentavos)}` : ''}` : 'Fora da rota'
+  );
+  antes.entregas.forEach((a) => {
+    const b = depois.entregas.find((e) => e.pedidoId === a.pedidoId);
+    comparar(`Pedido #${a.numeroPedido}`, situacao(a), situacao(b ? { status: b.status, recebidoCentavos: Number(b.recebidoCentavos) || 0 } : undefined));
+  });
+  return lista;
 };

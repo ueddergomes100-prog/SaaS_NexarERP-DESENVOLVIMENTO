@@ -1,0 +1,811 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = exports.resumoDoRomaneio = exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.erroDoPedidoParaRomaneio = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.ROTULO_NATUREZA_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
+exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = void 0;
+exports.ROTULO_STATUS_ROMANEIO = {
+    montagem: 'Em montagem',
+    em_rota: 'Em rota',
+    fechado: 'Fechado',
+    cancelado: 'Cancelado',
+};
+exports.ROTULO_STATUS_ENTREGA = {
+    pendente: 'Falta entregar',
+    entregue: 'Entregue',
+    nao_entregue: 'Não entregue',
+};
+/** Romaneio que ainda "segura" os pedidos (nao podem entrar em outra rota). */
+exports.STATUS_ROMANEIO_ATIVO = ['montagem', 'em_rota'];
+exports.ROTULO_NATUREZA_ACERTO = {
+    adiantamento: 'Adiantamento (a loja deu ao motorista)',
+    despesa: 'Despesa (o motorista pagou)',
+    informativo: 'Só informação (não entra na conta)',
+};
+/** As linhas da planilha do cliente, na mesma ordem. A empresa pode trocar. */
+exports.TIPOS_ACERTO_PADRAO = [
+    { nome: 'VALE/ADIANTAMENTO', natureza: 'adiantamento' },
+    { nome: 'PEDIDOS', natureza: 'informativo' },
+    { nome: 'COMBUSTÍVEL', natureza: 'despesa' },
+    { nome: 'HOTEL', natureza: 'despesa' },
+    { nome: 'DIÁRIA', natureza: 'despesa' },
+    { nome: 'PENDÊNCIAS', natureza: 'informativo' },
+    { nome: 'DEVOLUÇÃO', natureza: 'informativo' },
+    { nome: 'PEDÁGIO', natureza: 'despesa' },
+];
+exports.MOTIVOS_NAO_ENTREGA_PADRAO = [
+    'CLIENTE AUSENTE / FECHADO',
+    'CLIENTE RECUSOU',
+    'ENDEREÇO NÃO ENCONTRADO',
+    'SEM PAGAMENTO',
+    'MERCADORIA AVARIADA',
+    'FORA DO HORÁRIO DE RECEBIMENTO',
+    'OUTRO',
+];
+exports.FORMAS_RECEBIDAS_NA_ENTREGA = ['Dinheiro', 'Cheque', 'Pix', 'Cartão', 'Boleto'];
+/** "1.234,56" -> 123456. Aceita ponto ou virgula; texto vazio ou invalido = 0. */
+const centavosDoTexto = (texto) => {
+    const n = Number(String(texto ?? '').split('.').join('').replace(',', '.'));
+    return Number.isFinite(n) ? Math.max(0, Math.round(n * 100)) : 0;
+};
+exports.centavosDoTexto = centavosDoTexto;
+/** 123456 -> "1234,56"; zero vira vazio (campo em branco). */
+const textoDosCentavos = (centavos) => (centavos ? (centavos / 100).toFixed(2).replace('.', ',') : '');
+exports.textoDosCentavos = textoDosCentavos;
+// ---------------------------------------------------------------------------
+// TEXTO
+// ---------------------------------------------------------------------------
+const limpar = (texto) => String(texto ?? '').replace(/\s+/g, ' ').trim();
+/** "Rota 04 DANIELA" -- numero com 2 digitos, como a loja ja' escreve. */
+const tituloDoRomaneio = (numero, nome) => {
+    const n = Number.isFinite(numero) && numero > 0 ? String(Math.floor(numero)).padStart(2, '0') : '--';
+    const complemento = limpar(nome).toUpperCase();
+    return `Rota ${n}${complemento ? ` ${complemento}` : ''}`;
+};
+exports.tituloDoRomaneio = tituloDoRomaneio;
+/** Nome de tipo/motivo cadastrado pela empresa: caixa alta, aparado, ate 40 letras. */
+const normalizarNomeCadastro = (texto) => limpar(texto).toUpperCase().slice(0, 40);
+exports.normalizarNomeCadastro = normalizarNomeCadastro;
+const semAcento = (texto) => texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+/** Lista de configuracao lida do Firestore: so' texto valido, sem repetir; vazia = padrao. */
+const parseMotivosNaoEntrega = (raw) => {
+    if (!Array.isArray(raw))
+        return [...exports.MOTIVOS_NAO_ENTREGA_PADRAO];
+    const vistos = new Set();
+    const lista = raw.map(exports.normalizarNomeCadastro).filter((nome) => {
+        if (!nome || vistos.has(semAcento(nome)))
+            return false;
+        vistos.add(semAcento(nome));
+        return true;
+    });
+    return lista.length > 0 ? lista : [...exports.MOTIVOS_NAO_ENTREGA_PADRAO];
+};
+exports.parseMotivosNaoEntrega = parseMotivosNaoEntrega;
+const parseTiposAcerto = (raw) => {
+    if (!Array.isArray(raw))
+        return exports.TIPOS_ACERTO_PADRAO.map((t) => ({ ...t }));
+    const vistos = new Set();
+    const lista = [];
+    raw.forEach((item) => {
+        const nome = (0, exports.normalizarNomeCadastro)(item?.nome);
+        const natureza = item?.natureza;
+        if (!nome || vistos.has(semAcento(nome)))
+            return;
+        if (natureza !== 'adiantamento' && natureza !== 'despesa' && natureza !== 'informativo')
+            return;
+        vistos.add(semAcento(nome));
+        lista.push({ nome, natureza });
+    });
+    return lista.length > 0 ? lista : exports.TIPOS_ACERTO_PADRAO.map((t) => ({ ...t }));
+};
+exports.parseTiposAcerto = parseTiposAcerto;
+const centavosDe = (centavos, reais) => {
+    const c = Number(centavos);
+    if (Number.isFinite(c))
+        return Math.round(c);
+    const r = Number(reais);
+    return Number.isFinite(r) ? Math.round(r * 100) : 0;
+};
+/**
+ * So' pedido FATURADO entra na rota (decisao do dono): pre-venda nao tem
+ * mercadoria separada pra sair, e cancelado nao sai. Erro em portugues ou null.
+ */
+const erroDoPedidoParaRomaneio = (pedido) => {
+    const numero = limpar(pedido.numeroPedido) || '?';
+    const status = limpar(pedido.status);
+    if (status === 'Finalizada')
+        return null;
+    if (status === 'Cancelada')
+        return `O pedido #${numero} está cancelado e não pode sair para entrega.`;
+    return `O pedido #${numero} ainda não foi faturado (situação: ${status || 'sem situação'}). Fature o pedido antes de colocá-lo na rota.`;
+};
+exports.erroDoPedidoParaRomaneio = erroDoPedidoParaRomaneio;
+const enderecoDoCliente = (cliente) => {
+    if (!cliente)
+        return '';
+    const rua = [limpar(cliente.endereco), limpar(cliente.numero)].filter(Boolean).join(', ');
+    return [rua, limpar(cliente.bairro)].filter(Boolean).join(' - ').toUpperCase();
+};
+exports.enderecoDoCliente = enderecoDoCliente;
+/** Monta a linha da entrega a partir do pedido. Nenhum campo fica `undefined` (Firestore recusa). */
+const montarEntregaDoPedido = (pedido, cliente, nota) => ({
+    pedidoId: pedido.id,
+    numeroPedido: limpar(pedido.numeroPedido),
+    dataVenda: limpar(pedido.dataVenda),
+    notaNumero: nota?.numero ? limpar(nota.numero) : '',
+    notaTipo: nota?.numero ? limpar(nota.tipo) : '',
+    clienteId: limpar(pedido.clienteId),
+    clienteCodigo: limpar(cliente?.codigo),
+    clienteNome: limpar(pedido.clienteNome || cliente?.nome).toUpperCase(),
+    endereco: (0, exports.enderecoDoCliente)(cliente),
+    cidade: [limpar(cliente?.cidade), limpar(cliente?.estado)].filter(Boolean).join('/').toUpperCase(),
+    telefone: limpar(cliente?.celular || cliente?.telefone),
+    vendedorNome: limpar(pedido.vendedorNome).toUpperCase(),
+    formaPagamento: limpar(pedido.formaPagamento),
+    valorTotalCentavos: centavosDe(pedido.valorTotalCentavos, pedido.valorTotal),
+    valorDescontoCentavos: centavosDe(pedido.valorTotalDescontosCentavos, pedido.valorTotalDescontos),
+    status: 'pendente',
+    recebedorNome: '',
+    recebedorDocumento: '',
+    canhotoCaminho: '',
+    justificativaValor: '',
+    registradoVia: '',
+    registradoEm: '',
+    registradoPor: '',
+    motivo: '',
+    recebidoCentavos: 0,
+    recebidoForma: '',
+    observacao: '',
+    canhotoUrl: '',
+});
+exports.montarEntregaDoPedido = montarEntregaDoPedido;
+/** Le uma entrega gravada, completando campo que falte (documento antigo/parcial). */
+const normalizarEntrega = (raw) => {
+    const base = (0, exports.montarEntregaDoPedido)({ id: raw.pedidoId }, null, null);
+    const status = raw.status === 'entregue' || raw.status === 'nao_entregue' ? raw.status : 'pendente';
+    return {
+        ...base,
+        ...Object.fromEntries(Object.entries(raw).filter(([, valor]) => valor !== undefined && valor !== null)),
+        status,
+        valorTotalCentavos: Number(raw.valorTotalCentavos) || 0,
+        valorDescontoCentavos: Number(raw.valorDescontoCentavos) || 0,
+        recebidoCentavos: Number(raw.recebidoCentavos) || 0,
+    };
+};
+exports.normalizarEntrega = normalizarEntrega;
+// ---------------------------------------------------------------------------
+// ORDEM DAS ENTREGAS
+// ---------------------------------------------------------------------------
+/** Move a entrega uma posicao pra cima (-1) ou pra baixo (+1). Fora do limite: lista igual. */
+const moverEntrega = (entregas, indice, direcao) => {
+    const destino = indice + direcao;
+    if (indice < 0 || indice >= entregas.length || destino < 0 || destino >= entregas.length)
+        return entregas;
+    const nova = [...entregas];
+    [nova[indice], nova[destino]] = [nova[destino], nova[indice]];
+    return nova;
+};
+exports.moverEntrega = moverEntrega;
+/** Ordena pela cidade e, dentro dela, pelo cliente -- ponto de partida pra montar a rota. */
+const ordenarPorCidade = (entregas) => ([...entregas].sort((a, b) => (a.cidade.localeCompare(b.cidade, 'pt-BR') || a.clienteNome.localeCompare(b.clienteNome, 'pt-BR'))));
+exports.ordenarPorCidade = ordenarPorCidade;
+// ---------------------------------------------------------------------------
+// TRANSICOES
+// ---------------------------------------------------------------------------
+/** O que falta pra liberar a rota pro motorista (em portugues), ou null. */
+const erroParaLiberar = (romaneio) => {
+    if (romaneio.status !== 'montagem')
+        return 'Só um romaneio em montagem pode ser liberado.';
+    if (!romaneio.motoristaId)
+        return 'Escolha o motorista antes de liberar a rota.';
+    if (!romaneio.dataSaida)
+        return 'Informe a data de saída antes de liberar a rota.';
+    if (romaneio.entregas.length === 0)
+        return 'Coloque pelo menos um pedido na rota antes de liberar.';
+    return null;
+};
+exports.erroParaLiberar = erroParaLiberar;
+/**
+ * Diferenca entre o que o motorista recebeu e o valor do pedido, em centavos
+ * (positivo = recebeu a mais). Zero quando nada foi recebido: "nao recebi"
+ * e' o normal do pedido a prazo e nao pede explicacao.
+ */
+const diferencaDoRecebido = (registro) => {
+    const recebido = Number(registro.recebidoCentavos) || 0;
+    const total = Number(registro.valorTotalCentavos) || 0;
+    if (recebido <= 0 || total <= 0)
+        return 0;
+    return recebido - total;
+};
+exports.diferencaDoRecebido = diferencaDoRecebido;
+const precisaJustificarValor = (registro) => (registro.status !== 'pendente' && (0, exports.diferencaDoRecebido)(registro) !== 0);
+exports.precisaJustificarValor = precisaJustificarValor;
+exports.TAMANHO_MINIMO_JUSTIFICATIVA = 5;
+/** "+R$ 10,00" / "−R$ 10,00" para a tela e a impressao. */
+const textoDaDiferenca = (centavos) => (centavos === 0 ? '' : `${centavos > 0 ? '+' : '−'}${moeda(Math.abs(centavos))}`);
+exports.textoDaDiferenca = textoDaDiferenca;
+/** Pode registrar uma entrega/tentativa? */
+const erroDoRegistroDeEntrega = (registro) => {
+    if (registro.status === 'entregue' && !limpar(registro.recebedorNome)) {
+        return 'Informe o nome de quem recebeu a mercadoria.';
+    }
+    if (registro.status === 'nao_entregue' && !limpar(registro.motivo)) {
+        return 'Escolha o motivo de a entrega não ter sido feita.';
+    }
+    const recebido = Number(registro.recebidoCentavos) || 0;
+    if (recebido < 0)
+        return 'O valor recebido não pode ser negativo.';
+    if (recebido > 0 && !limpar(registro.recebidoForma))
+        return 'Informe como o motorista recebeu (dinheiro, cheque...).';
+    if ((0, exports.precisaJustificarValor)(registro) && limpar(registro.justificativaValor).length < exports.TAMANHO_MINIMO_JUSTIFICATIVA) {
+        const diferenca = (0, exports.diferencaDoRecebido)(registro);
+        return `O valor recebido (${moeda(recebido)}) é ${diferenca > 0 ? 'maior' : 'menor'} que o valor do pedido (${moeda(Number(registro.valorTotalCentavos) || 0)}). Explique o motivo (pagamento parcial, abatimento de outra nota...) para o administrativo.`;
+    }
+    return null;
+};
+exports.erroDoRegistroDeEntrega = erroDoRegistroDeEntrega;
+// ---------------------------------------------------------------------------
+// REGISTROS DO APP DO MOTORISTA (2026-10-08)
+// ---------------------------------------------------------------------------
+//
+// O motorista registra a entrega sem sinal. Regravar a lista `entregas`
+// inteira de um celular que ficou horas offline atropelaria o que a loja fez
+// nesse meio-tempo. Por isso o app grava cada registro num mapa a parte,
+// `registros.{pedidoId}`, campo a campo (update com caminho pontilhado): dois
+// aparelhos mexendo em pedidos diferentes nunca se sobrescrevem, e a loja
+// (registrarEntrega) grava nos DOIS lugares. Na leitura, o que esta' no mapa
+// vale sobre a lista.
+/** O que o app grava por pedido -- subconjunto da entrega. */
+exports.CAMPOS_DO_REGISTRO = [
+    'status', 'recebedorNome', 'recebedorDocumento', 'motivo', 'recebidoCentavos', 'recebidoForma',
+    'observacao', 'justificativaValor', 'registradoEm', 'registradoPor', 'registradoVia', 'canhotoUrl', 'canhotoCaminho',
+];
+/** Mapa `registros` do documento aplicado sobre a lista de entregas. */
+const aplicarRegistros = (entregas, registros) => {
+    if (!registros || typeof registros !== 'object')
+        return entregas;
+    const mapa = registros;
+    return entregas.map((entrega) => {
+        const registro = mapa[entrega.pedidoId];
+        if (!registro || typeof registro !== 'object')
+            return entrega;
+        const limpo = Object.fromEntries(exports.CAMPOS_DO_REGISTRO.filter((campo) => registro[campo] !== undefined && registro[campo] !== null).map((campo) => [campo, registro[campo]]));
+        return (0, exports.normalizarEntrega)({ ...entrega, ...limpo, pedidoId: entrega.pedidoId });
+    });
+};
+exports.aplicarRegistros = aplicarRegistros;
+/** O registro que vai para `registros.{pedidoId}` -- sem undefined, sempre completo. */
+const registroParaGravar = (entrega, r, quem) => {
+    const pendente = r.status === 'pendente';
+    const recebido = pendente ? 0 : Math.max(0, Math.round(Number(r.recebidoCentavos) || 0));
+    return {
+        status: r.status,
+        recebedorNome: r.status === 'entregue' ? limpar(r.recebedorNome).toUpperCase() : '',
+        recebedorDocumento: r.status === 'entregue' ? limpar(r.recebedorDocumento) : '',
+        motivo: r.status === 'nao_entregue' ? limpar(r.motivo) : '',
+        recebidoCentavos: recebido,
+        recebidoForma: recebido > 0 ? limpar(r.recebidoForma) : '',
+        observacao: limpar(r.observacao),
+        justificativaValor: pendente ? '' : limpar(r.justificativaValor),
+        registradoEm: pendente ? '' : quem.agoraIso,
+        registradoPor: pendente ? '' : quem.nome,
+        registradoVia: pendente ? '' : quem.via,
+        canhotoUrl: limpar(entrega.canhotoUrl),
+        canhotoCaminho: limpar(entrega.canhotoCaminho),
+    };
+};
+exports.registroParaGravar = registroParaGravar;
+/** Campo a campo (`registros.{pedidoId}.status`...): e' o que deixa dois aparelhos gravarem sem se atropelar. */
+const caminhosDoRegistro = (pedidoId, registro) => (Object.fromEntries(exports.CAMPOS_DO_REGISTRO.map((campo) => [`registros.${pedidoId}.${campo}`, registro[campo]])));
+exports.caminhosDoRegistro = caminhosDoRegistro;
+/** Entregas que faltam e as ja' resolvidas, na ordem da rota -- as duas abas do app. */
+const separarEntregas = (entregas) => ({
+    faltam: entregas.filter((e) => e.status === 'pendente'),
+    feitas: entregas.filter((e) => e.status !== 'pendente'),
+});
+exports.separarEntregas = separarEntregas;
+/** Link do Google Maps para o endereco da entrega (abre o app de mapas no celular). */
+const linkDoMapa = (entrega) => {
+    const partes = [limpar(entrega.endereco), limpar(entrega.cidade)].filter(Boolean);
+    return partes.length ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(partes.join(', '))}` : '';
+};
+exports.linkDoMapa = linkDoMapa;
+/** O que impede fechar o acerto, ou null. Toda entrega precisa ter desfecho. */
+const erroParaFechar = (romaneio) => {
+    if (romaneio.status !== 'em_rota')
+        return 'Só uma rota que já saiu pode ter o acerto fechado.';
+    const pendentes = romaneio.entregas.filter((e) => e.status === 'pendente');
+    if (pendentes.length > 0) {
+        const lista = pendentes.slice(0, 5).map((e) => `#${e.numeroPedido}`).join(', ');
+        return `Ainda falta dizer o que aconteceu com ${pendentes.length} entrega(s) (${lista}${pendentes.length > 5 ? '...' : ''}). Marque cada uma como entregue ou não entregue.`;
+    }
+    if (romaneio.kmSaida !== null && romaneio.kmChegada !== null && romaneio.kmChegada < romaneio.kmSaida) {
+        return 'O KM de chegada está menor que o de saída. Confira o que foi digitado.';
+    }
+    return null;
+};
+exports.erroParaFechar = erroParaFechar;
+/** Permissao propria para mexer em rota ja' fechada (15/10/2026). Dono e administrador ja' tem. */
+exports.PERMISSAO_ROMANEIO_ENCERRADO = 'operacoes.romaneios_reabrir';
+exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = 'Romaneio de Entrega: reabrir e cancelar depois de fechado';
+/** Cancelar rota fechada ou com entrega ja' registrada DESFAZ o que aconteceu: pede a permissao propria e motivo. */
+const cancelamentoDesfazEntregas = (romaneio) => (romaneio.status === 'fechado' || romaneio.entregas.some((e) => e.status !== 'pendente'));
+exports.cancelamentoDesfazEntregas = cancelamentoDesfazEntregas;
+/**
+ * Sem a permissao propria, cancelar so' antes de qualquer entrega registrada
+ * -- depois disso, o caminho e' fechar. Com ela (15/10/2026), cancela tambem a
+ * rota fechada ou com entrega, desfazendo tudo.
+ */
+const erroParaCancelar = (romaneio, opcoes = {}) => {
+    if (romaneio.status === 'cancelado')
+        return 'Este romaneio já foi cancelado.';
+    if ((0, exports.cancelamentoDesfazEntregas)(romaneio) && !opcoes.podeDesfazer) {
+        return romaneio.status === 'fechado'
+            ? `Este romaneio já foi fechado. Para cancelar, é preciso a permissão "${exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO}". Peça ao administrador.`
+            : 'Esta rota já tem entrega registrada e não pode mais ser cancelada. Feche o acerto marcando o que não foi entregue.';
+    }
+    return null;
+};
+exports.erroParaCancelar = erroParaCancelar;
+/**
+ * Situacao da "trava" de cada pedido depois de fechar/cancelar: entregue fica
+ * preso a esta rota; o resto volta a ficar livre pra outra.
+ */
+const situacaoDoPedidoAoEncerrar = (entrega, cancelando) => (!cancelando && entrega.status === 'entregue' ? 'entregue' : 'liberado');
+exports.situacaoDoPedidoAoEncerrar = situacaoDoPedidoAoEncerrar;
+const resumoDoRomaneio = (romaneio) => {
+    const soma = (lista, campo) => lista.reduce((t, e) => t + (Number(e[campo]) || 0), 0);
+    const entregues = romaneio.entregas.filter((e) => e.status === 'entregue');
+    const naoEntregues = romaneio.entregas.filter((e) => e.status === 'nao_entregue');
+    const porForma = new Map();
+    romaneio.entregas.forEach((e) => {
+        if (e.recebidoCentavos > 0)
+            porForma.set(e.recebidoForma || 'Não informada', (porForma.get(e.recebidoForma || 'Não informada') || 0) + e.recebidoCentavos);
+    });
+    const recebido = soma(romaneio.entregas, 'recebidoCentavos');
+    const comDiferenca = romaneio.entregas.filter((e) => (0, exports.precisaJustificarValor)(e)).length;
+    const porNatureza = (natureza) => romaneio.acerto
+        .filter((l) => l.natureza === natureza)
+        .reduce((t, l) => t + (Number(l.valorCentavos) || 0), 0);
+    const adiantamento = porNatureza('adiantamento');
+    const despesas = porNatureza('despesa');
+    const kmRodados = romaneio.kmSaida !== null && romaneio.kmChegada !== null && romaneio.kmChegada >= romaneio.kmSaida
+        ? romaneio.kmChegada - romaneio.kmSaida
+        : null;
+    return {
+        totalEntregas: romaneio.entregas.length,
+        entregues: entregues.length,
+        naoEntregues: naoEntregues.length,
+        pendentes: romaneio.entregas.length - entregues.length - naoEntregues.length,
+        comDiferenca,
+        valorTotalCentavos: soma(romaneio.entregas, 'valorTotalCentavos'),
+        valorEntregueCentavos: soma(entregues, 'valorTotalCentavos'),
+        valorNaoEntregueCentavos: soma(naoEntregues, 'valorTotalCentavos'),
+        recebidoCentavos: recebido,
+        recebidoPorForma: [...porForma.entries()].map(([forma, centavos]) => ({ forma, centavos })),
+        kmRodados,
+        adiantamentoCentavos: adiantamento,
+        despesasCentavos: despesas,
+        saldoAPrestarCentavos: recebido + adiantamento - despesas,
+    };
+};
+exports.resumoDoRomaneio = resumoDoRomaneio;
+/** Linhas do acerto que valem gravar: valor positivo. Valor negativo e' erro de digitacao. */
+const erroDoAcerto = (acerto) => {
+    const negativo = acerto.find((l) => (Number(l.valorCentavos) || 0) < 0);
+    return negativo ? `O valor de "${negativo.tipo}" está negativo. Confira o que foi digitado.` : null;
+};
+exports.erroDoAcerto = erroDoAcerto;
+/** Linhas com valor, limpas, sem campo a mais (o Firestore recusa `undefined`). */
+const acertoParaGravar = (acerto) => acerto
+    .filter((l) => (Number(l.valorCentavos) || 0) > 0)
+    .map((l) => ({ tipo: l.tipo, natureza: l.natureza, descricao: limpar(l.descricao), valorCentavos: Math.round(Number(l.valorCentavos)) }));
+exports.acertoParaGravar = acertoParaGravar;
+/** Uma linha por tipo configurado, com o valor ja' lancado (se houver). */
+const linhasDoAcerto = (tipos, gravado) => {
+    const linhas = tipos.map((t) => {
+        const existente = gravado.find((l) => semAcento(l.tipo) === semAcento(t.nome));
+        return existente ? { ...existente, natureza: existente.natureza } : { tipo: t.nome, natureza: t.natureza, descricao: '', valorCentavos: 0 };
+    });
+    // Tipo que saiu da configuracao mas tem valor gravado continua aparecendo.
+    gravado.forEach((l) => {
+        if (!linhas.some((x) => semAcento(x.tipo) === semAcento(l.tipo)))
+            linhas.push({ ...l });
+    });
+    return linhas;
+};
+exports.linhasDoAcerto = linhasDoAcerto;
+// ---------------------------------------------------------------------------
+// PDF DO ROMANEIO E RELATORIO
+// ---------------------------------------------------------------------------
+const dataBr = (data) => (data && /^\d{4}-\d{2}-\d{2}/.test(data) ? data.slice(0, 10).split('-').reverse().join('/') : '');
+const moeda = (centavos) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((centavos || 0) / 100);
+const kmTexto = (km) => (km === null ? '______' : new Intl.NumberFormat('pt-BR').format(km));
+/**
+ * O romaneio impresso: o mesmo desenho da planilha da loja. Cabecalho com
+ * motorista/veiculo/saida, a lista de pedidos na ordem de entrega e o quadro
+ * do acerto. Campo em branco sai com linha pra preencher a mao.
+ */
+const montarDocumentoRomaneio = (romaneio) => {
+    const resumo = (0, exports.resumoDoRomaneio)(romaneio);
+    const colunas = [
+        { id: 'ordem', titulo: 'Nº', tipo: 'inteiro', largura: 8, total: 'nenhum', valor: (e) => e.ordem },
+        { id: 'nf', titulo: 'N/F', tipo: 'texto', largura: 14, valor: (e) => e.notaNumero || 'S/N' },
+        { id: 'pedido', titulo: 'Pedido', tipo: 'texto', largura: 14, valor: (e) => e.numeroPedido },
+        { id: 'codigo', titulo: 'Cód.', tipo: 'texto', largura: 12, valor: (e) => e.clienteCodigo },
+        { id: 'cliente', titulo: 'Cliente', tipo: 'texto', largura: 50, valor: (e) => e.clienteNome },
+        { id: 'endereco', titulo: 'Endereço', tipo: 'texto', largura: 50, padrao: false, valor: (e) => e.endereco },
+        { id: 'cidade', titulo: 'Cidade', tipo: 'texto', largura: 26, valor: (e) => e.cidade },
+        { id: 'telefone', titulo: 'Telefone', tipo: 'texto', largura: 24, padrao: false, valor: (e) => e.telefone },
+        { id: 'vendedor', titulo: 'Vendedor', tipo: 'texto', largura: 24, valor: (e) => e.vendedorNome },
+        { id: 'pagamento', titulo: 'Pagamento', tipo: 'texto', largura: 24, padrao: false, valor: (e) => e.formaPagamento },
+        { id: 'desconto', titulo: 'Vr Desc.', tipo: 'moeda', valor: (e) => e.valorDescontoCentavos },
+        { id: 'total', titulo: 'Vr Total', tipo: 'moeda', valor: (e) => e.valorTotalCentavos },
+        { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 22, padrao: romaneio.status === 'fechado', valor: (e) => exports.ROTULO_STATUS_ENTREGA[e.status] },
+        { id: 'recebedor', titulo: 'Recebido por', tipo: 'texto', largura: 34, padrao: romaneio.status === 'fechado', valor: (e) => (e.status === 'nao_entregue' ? e.motivo : e.recebedorNome) },
+        { id: 'recebido', titulo: 'Recebido (R$)', tipo: 'moeda', padrao: romaneio.status === 'fechado', valor: (e) => e.recebidoCentavos },
+        { id: 'diferenca', titulo: 'Diferença no valor', tipo: 'texto', largura: 40, padrao: resumo.comDiferenca > 0, valor: (e) => ((0, exports.precisaJustificarValor)(e) ? `${(0, exports.textoDaDiferenca)((0, exports.diferencaDoRecebido)(e))}: ${e.justificativaValor}` : '') },
+        { id: 'assinatura', titulo: 'Assinatura', tipo: 'texto', largura: 34, padrao: false, valor: () => '' },
+    ];
+    const linhasAcerto = [
+        ...romaneio.acerto.map((l) => ({ item: l.descricao ? `${l.tipo} — ${l.descricao}` : l.tipo, valor: moeda(l.valorCentavos) })),
+    ];
+    if (romaneio.status === 'fechado' || romaneio.acerto.length > 0) {
+        linhasAcerto.push({ item: 'Recebido nas entregas', valor: moeda(resumo.recebidoCentavos) }, { item: 'Total de despesas', valor: moeda(resumo.despesasCentavos) }, { item: 'Saldo a prestar (recebido + vale − despesas)', valor: moeda(resumo.saldoAPrestarCentavos) });
+    }
+    else {
+        // Romaneio que vai sair: o quadro vai em branco pra preencher a mao, como na planilha.
+        exports.TIPOS_ACERTO_PADRAO.forEach((t) => linhasAcerto.push({ item: t.nome, valor: '' }));
+        linhasAcerto.push({ item: 'TOTAL', valor: '' }, { item: 'TOTAL DESPESAS', valor: '' });
+    }
+    const colunasAcerto = [
+        { id: 'item', titulo: 'Acerto', tipo: 'texto', largura: 90, valor: (l) => l.item },
+        { id: 'valor', titulo: 'Valor', tipo: 'texto', largura: 40, valor: (l) => l.valor },
+    ];
+    return {
+        titulo: `${(0, exports.tituloDoRomaneio)(romaneio.numero, romaneio.nome)} — ${dataBr(romaneio.dataSaida) || 'sem data'}`,
+        periodo: `Situação: ${exports.ROTULO_STATUS_ROMANEIO[romaneio.status]}`,
+        filtros: romaneio.observacao ? [`Observação: ${romaneio.observacao}`] : [],
+        indicadores: [
+            { rotulo: 'Motorista', valor: romaneio.motoristaNome || '______________' },
+            { rotulo: 'Veículo', valor: romaneio.veiculoDescricao || romaneio.veiculoPlaca || '______________' },
+            { rotulo: 'Saída', valor: `${dataBr(romaneio.dataSaida) || '__/__/____'} ${romaneio.horarioSaida || ''}`.trim() },
+            { rotulo: 'KM de saída', valor: kmTexto(romaneio.kmSaida) },
+            { rotulo: 'KM de chegada', valor: kmTexto(romaneio.kmChegada) },
+            { rotulo: 'KM rodados', valor: resumo.kmRodados === null ? '______' : kmTexto(resumo.kmRodados) },
+            { rotulo: 'Pedidos', valor: String(resumo.totalEntregas) },
+            { rotulo: 'Valor total', valor: moeda(resumo.valorTotalCentavos) },
+        ],
+        secoes: [
+            {
+                id: 'entregas',
+                titulo: 'Pedidos da rota (na ordem de entrega)',
+                colunas,
+                linhas: romaneio.entregas.map((e, i) => ({ ...e, ordem: i + 1 })),
+                unidade: ['pedido', 'pedidos'],
+                mensagemVazia: 'Nenhum pedido nesta rota.',
+            },
+            {
+                id: 'acerto',
+                titulo: 'Acerto da viagem',
+                colunas: colunasAcerto,
+                linhas: linhasAcerto,
+                opcional: true,
+                padrao: true,
+                rotuloTotal: '',
+            },
+        ],
+    };
+};
+exports.montarDocumentoRomaneio = montarDocumentoRomaneio;
+/** Relatorio do periodo: as rotas, as entregas e os nao entregues por motivo. */
+const montarDocumentoRelatorioRomaneios = (romaneios, filtro, rotuloMotorista) => {
+    const doPeriodo = romaneios.filter((r) => (r.status !== 'cancelado'
+        && (!filtro.de || r.dataSaida >= filtro.de)
+        && (!filtro.ate || r.dataSaida <= filtro.ate)
+        && (!filtro.motoristaId || r.motoristaId === filtro.motoristaId))).sort((a, b) => a.dataSaida.localeCompare(b.dataSaida) || a.numero - b.numero);
+    const rotas = doPeriodo.map((r) => ({ ...r, resumo: (0, exports.resumoDoRomaneio)(r) }));
+    const entregas = doPeriodo.flatMap((r) => r.entregas.map((e) => ({
+        ...e, rota: (0, exports.tituloDoRomaneio)(r.numero, r.nome), dataSaida: r.dataSaida, motoristaNome: r.motoristaNome,
+    })));
+    const naoEntregues = entregas.filter((e) => e.status === 'nao_entregue');
+    const porMotivo = new Map();
+    naoEntregues.forEach((e) => {
+        const chave = e.motivo || 'SEM MOTIVO';
+        const atual = porMotivo.get(chave) || { motivo: chave, quantidade: 0, centavos: 0 };
+        atual.quantidade += 1;
+        atual.centavos += e.valorTotalCentavos;
+        porMotivo.set(chave, atual);
+    });
+    const totalKm = rotas.reduce((t, r) => t + (r.resumo.kmRodados || 0), 0);
+    const totalEntregue = rotas.reduce((t, r) => t + r.resumo.entregues, 0);
+    const totalPedidos = rotas.reduce((t, r) => t + r.resumo.totalEntregas, 0);
+    const filtros = [];
+    if (rotuloMotorista)
+        filtros.push(`Motorista: ${rotuloMotorista}`);
+    return {
+        titulo: 'Romaneios de Entrega',
+        periodo: `Saída de ${dataBr(filtro.de) || '—'} a ${dataBr(filtro.ate) || '—'}`,
+        filtros,
+        indicadores: [
+            { rotulo: 'Rotas', valor: String(rotas.length) },
+            { rotulo: 'Pedidos', valor: String(totalPedidos) },
+            { rotulo: 'Entregues', valor: String(totalEntregue) },
+            { rotulo: 'Não entregues', valor: String(naoEntregues.length) },
+            { rotulo: 'KM rodados', valor: new Intl.NumberFormat('pt-BR').format(totalKm) },
+            { rotulo: 'Despesas', valor: moeda(rotas.reduce((t, r) => t + r.resumo.despesasCentavos, 0)) },
+        ],
+        secoes: [
+            {
+                id: 'rotas',
+                titulo: 'Rotas do período',
+                unidade: ['rota', 'rotas'],
+                mensagemVazia: 'Nenhuma rota no período.',
+                linhas: rotas,
+                colunas: [
+                    { id: 'rota', titulo: 'Rota', tipo: 'texto', largura: 40, valor: (r) => (0, exports.tituloDoRomaneio)(r.numero, r.nome) },
+                    { id: 'saida', titulo: 'Saída', tipo: 'texto', largura: 20, valor: (r) => dataBr(r.dataSaida) },
+                    { id: 'motorista', titulo: 'Motorista', tipo: 'texto', largura: 30, valor: (r) => r.motoristaNome },
+                    { id: 'veiculo', titulo: 'Veículo', tipo: 'texto', largura: 30, padrao: false, valor: (r) => r.veiculoDescricao },
+                    { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 20, valor: (r) => exports.ROTULO_STATUS_ROMANEIO[r.status] },
+                    { id: 'pedidos', titulo: 'Pedidos', tipo: 'inteiro', valor: (r) => r.resumo.totalEntregas },
+                    { id: 'entregues', titulo: 'Entregues', tipo: 'inteiro', valor: (r) => r.resumo.entregues },
+                    { id: 'naoentregues', titulo: 'Não entr.', tipo: 'inteiro', valor: (r) => r.resumo.naoEntregues },
+                    { id: 'km', titulo: 'KM', tipo: 'inteiro', valor: (r) => r.resumo.kmRodados || 0 },
+                    { id: 'valor', titulo: 'Valor', tipo: 'moeda', valor: (r) => r.resumo.valorTotalCentavos },
+                    { id: 'recebido', titulo: 'Recebido', tipo: 'moeda', padrao: false, valor: (r) => r.resumo.recebidoCentavos },
+                    { id: 'despesas', titulo: 'Despesas', tipo: 'moeda', valor: (r) => r.resumo.despesasCentavos },
+                ],
+            },
+            {
+                id: 'motivos',
+                titulo: 'Não entregues por motivo',
+                opcional: true,
+                padrao: true,
+                unidade: ['motivo', 'motivos'],
+                mensagemVazia: 'Todas as entregas do período foram feitas.',
+                linhas: [...porMotivo.values()].sort((a, b) => b.quantidade - a.quantidade),
+                colunas: [
+                    { id: 'motivo', titulo: 'Motivo', tipo: 'texto', largura: 70, valor: (m) => m.motivo },
+                    { id: 'quantidade', titulo: 'Entregas', tipo: 'inteiro', valor: (m) => m.quantidade },
+                    { id: 'valor', titulo: 'Valor', tipo: 'moeda', valor: (m) => m.centavos },
+                ],
+            },
+            {
+                id: 'entregas',
+                titulo: 'Entregas',
+                opcional: true,
+                padrao: false,
+                unidade: ['entrega', 'entregas'],
+                linhas: entregas,
+                agruparPor: { chave: (e) => e.rota, rotulo: (e) => `${e.rota} — ${dataBr(e.dataSaida)} — ${e.motoristaNome}` },
+                colunas: [
+                    { id: 'pedido', titulo: 'Pedido', tipo: 'texto', largura: 14, valor: (e) => e.numeroPedido },
+                    { id: 'nf', titulo: 'N/F', tipo: 'texto', largura: 14, valor: (e) => e.notaNumero || 'S/N' },
+                    { id: 'cliente', titulo: 'Cliente', tipo: 'texto', largura: 50, valor: (e) => e.clienteNome },
+                    { id: 'cidade', titulo: 'Cidade', tipo: 'texto', largura: 26, padrao: false, valor: (e) => e.cidade },
+                    { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 22, valor: (e) => exports.ROTULO_STATUS_ENTREGA[e.status] },
+                    { id: 'detalhe', titulo: 'Recebido por / motivo', tipo: 'texto', largura: 40, valor: (e) => (e.status === 'nao_entregue' ? e.motivo : e.recebedorNome) },
+                    { id: 'valor', titulo: 'Valor', tipo: 'moeda', valor: (e) => e.valorTotalCentavos },
+                ],
+            },
+        ],
+    };
+};
+exports.montarDocumentoRelatorioRomaneios = montarDocumentoRelatorioRomaneios;
+// ---------------------------------------------------------------------------
+// LEITURA DO DOCUMENTO (servidor e tela leem igual)
+// ---------------------------------------------------------------------------
+const numeroOuNulo = (valor) => (valor !== null && valor !== undefined && valor !== '' && Number.isFinite(Number(valor)) ? Number(valor) : null);
+/** Romaneio lido do Firestore, com todo campo completo (documento parcial nao quebra a tela). */
+const romaneioDoDocumento = (dados) => ({
+    numero: Number(dados.numero) || 0,
+    nome: String(dados.nome || ''),
+    status: (['montagem', 'em_rota', 'fechado', 'cancelado'].includes(String(dados.status)) ? dados.status : 'montagem'),
+    dataSaida: String(dados.dataSaida || ''),
+    horarioSaida: String(dados.horarioSaida || ''),
+    motoristaId: String(dados.motoristaId || ''),
+    motoristaNome: String(dados.motoristaNome || ''),
+    veiculoId: String(dados.veiculoId || ''),
+    veiculoDescricao: String(dados.veiculoDescricao || ''),
+    veiculoPlaca: String(dados.veiculoPlaca || ''),
+    kmSaida: numeroOuNulo(dados.kmSaida),
+    kmChegada: numeroOuNulo(dados.kmChegada),
+    horarioChegada: String(dados.horarioChegada || ''),
+    observacao: String(dados.observacao || ''),
+    // O que o app do motorista gravou em `registros.{pedidoId}` vale sobre a lista ("REGISTROS DO APP").
+    entregas: (0, exports.aplicarRegistros)(Array.isArray(dados.entregas) ? dados.entregas.filter((e) => e?.pedidoId).map(exports.normalizarEntrega) : [], dados.registros),
+    acerto: Array.isArray(dados.acerto) ? dados.acerto : [],
+    observacaoAcerto: String(dados.observacaoAcerto || ''),
+    despesasRotaId: String(dados.despesasRotaId || ''),
+    historico: (0, exports.parseHistorico)(dados.historico),
+});
+exports.romaneioDoDocumento = romaneioDoDocumento;
+/** Campos que a tela edita, sem nada `undefined` (o Firestore recusa). */
+const camposEditaveisDaRota = (r) => ({
+    nome: r.nome.trim().toUpperCase(),
+    dataSaida: r.dataSaida,
+    horarioSaida: r.horarioSaida,
+    motoristaId: r.motoristaId,
+    motoristaNome: r.motoristaNome,
+    veiculoId: r.veiculoId,
+    veiculoDescricao: r.veiculoDescricao,
+    veiculoPlaca: r.veiculoPlaca,
+    kmSaida: r.kmSaida,
+    observacao: r.observacao.trim(),
+});
+exports.camposEditaveisDaRota = camposEditaveisDaRota;
+// ---------------------------------------------------------------------------
+// ROMANEIO JA' FECHADO: REABRIR E CANCELAR (15/10/2026, pedido do cliente)
+// ---------------------------------------------------------------------------
+//
+// O cliente esqueceu de lancar as despesas do motorista e a rota ja' estava
+// fechada. Decisoes do dono (15/10/2026):
+//   - REABRIR volta a rota inteira para "Em rota" (acerto, KM, entregas). O
+//     pedido nao entregue que nesse meio-tempo entrou em outra rota fica de
+//     fora: agora quem manda nele e' a outra rota.
+//   - O FINANCEIRO ACOMPANHA: ao fechar de novo, despesa nova vira lancamento
+//     pago, valor alterado corrige o lancamento e despesa que saiu do acerto
+//     cancela o lancamento. Nada e' apagado.
+//   - CANCELAR (mesmo fechado ou com entrega registrada) desfaz tudo: os
+//     pedidos ficam livres e os lancamentos de despesa sao cancelados.
+//   - Permissao propria (PERMISSAO_ROMANEIO_ENCERRADO); motivo obrigatorio;
+//     tudo vai para o log e para o historico do romaneio.
+// Quem grava e' o SERVIDOR (server/services/romaneios.js): as firestore.rules
+// nao deixam a tela mexer em romaneio fechado ou cancelado.
+exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = 10;
+const erroDoMotivo = (motivo) => (limpar(motivo).length < exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO
+    ? `Escreva o motivo com pelo menos ${exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO} letras. Ele fica no histórico do romaneio.`
+    : null);
+exports.erroDoMotivo = erroDoMotivo;
+const erroParaReabrir = (romaneio) => {
+    if (romaneio.status === 'cancelado')
+        return 'Romaneio cancelado não volta. Monte uma rota nova com os pedidos.';
+    if (romaneio.status !== 'fechado')
+        return 'Só dá para reabrir um romaneio com o acerto fechado.';
+    return null;
+};
+exports.erroParaReabrir = erroParaReabrir;
+exports.ROTULO_ACAO_HISTORICO = {
+    fechado: 'Acerto fechado',
+    reaberto: 'Reaberto',
+    cancelado: 'Cancelado',
+};
+const parseHistorico = (raw) => (Array.isArray(raw)
+    ? raw
+        .filter((e) => e && typeof e === 'object' && ['fechado', 'reaberto', 'cancelado'].includes(String(e.acao)))
+        .map((e) => ({
+        acao: e.acao,
+        motivo: limpar(e.motivo),
+        usuarioNome: limpar(e.usuarioNome),
+        emIso: String(e.emIso || ''),
+    }))
+    : []);
+exports.parseHistorico = parseHistorico;
+const eventoDoHistorico = (acao, usuarioNome, agoraIso, motivo = '') => ({
+    acao,
+    motivo: limpar(motivo),
+    usuarioNome: limpar(usuarioNome) || 'Usuário',
+    emIso: agoraIso,
+});
+exports.eventoDoHistorico = eventoDoHistorico;
+/** A trava esta' livre, nao existe ou e' desta rota: so' nesses casos esta rota mexe nela. */
+const travaLivreOuDestaRota = (romaneioId, trava) => (!trava || !trava.romaneioId || trava.romaneioId === romaneioId || trava.situacao === 'liberado');
+exports.travaLivreOuDestaRota = travaLivreOuDestaRota;
+/** Reabrir: quem continua na rota e quem ja' saiu em outra (fica de fora, com o nome da outra rota). */
+const planoDeReabertura = (romaneioId, entregas, travas) => {
+    const ficam = [];
+    const saem = [];
+    entregas.forEach((entrega) => {
+        const trava = travas[entrega.pedidoId];
+        if ((0, exports.travaLivreOuDestaRota)(romaneioId, trava))
+            ficam.push(entrega);
+        else
+            saem.push({ entrega, outraRota: limpar(trava?.romaneioTitulo) || 'outra rota' });
+    });
+    return { ficam, saem };
+};
+exports.planoDeReabertura = planoDeReabertura;
+// --- Despesas lancadas no Financeiro ----------------------------------------
+/** Despesas do acerto como o Financeiro grava (mesmo desenho da tela Rotas e Despesas). */
+const despesasDoAcerto = (acerto) => (0, exports.acertoParaGravar)(acerto)
+    .filter((l) => l.natureza === 'despesa')
+    .map((l) => ({ tipo: l.tipo, descricao: l.descricao, valor: l.valorCentavos / 100, comprovante: '' }));
+exports.despesasDoAcerto = despesasDoAcerto;
+const centavosDaDespesa = (despesa) => Math.round((Number(despesa.valor) || 0) * 100);
+/** Chave de cada despesa: o tipo sem acento; tipo repetido ganha "#2", "#3"... */
+const chavesDasDespesas = (despesas) => {
+    const vistos = new Map();
+    return despesas.map((d) => {
+        const base = semAcento(limpar(d.tipo));
+        const vezes = (vistos.get(base) || 0) + 1;
+        vistos.set(base, vezes);
+        return vezes > 1 ? `${base}#${vezes}` : base;
+    });
+};
+/** Pares despesa x lancamento gravados na rota de despesas (`despesas[i]` <-> `transacaoIds[i]`). */
+const despesasJaLancadas = (rota, ativa) => {
+    const despesas = Array.isArray(rota?.despesas) ? rota.despesas : [];
+    const ids = Array.isArray(rota?.transacaoIds) ? rota.transacaoIds.map((x) => String(x || '')) : [];
+    return despesas
+        .map((despesa, i) => ({ despesa, transacaoId: ids[i] || '' }))
+        .filter((par) => par.transacaoId)
+        .map((par) => ({ ...par, ativa: ativa(par.transacaoId) }));
+};
+exports.despesasJaLancadas = despesasJaLancadas;
+/**
+ * "O financeiro acompanha a edicao": compara o acerto com o que ja' foi
+ * lancado. Mesma despesa (pelo tipo) e lancamento ativo = atualiza; despesa
+ * nova (ou cujo lancamento foi cancelado no Financeiro) = lanca de novo;
+ * lancamento sem despesa correspondente = cancela.
+ */
+const planoDeDespesas = (desejadas, lancadas) => {
+    const chavesNovas = chavesDasDespesas(desejadas);
+    const ativas = lancadas.filter((l) => l.ativa);
+    const chavesAtivas = chavesDasDespesas(ativas.map((l) => l.despesa));
+    const usadas = new Set();
+    const linhas = desejadas.map((despesa, i) => {
+        const j = chavesAtivas.findIndex((chave, k) => chave === chavesNovas[i] && !usadas.has(k));
+        if (j < 0)
+            return { despesa, transacaoId: '', alterada: false };
+        usadas.add(j);
+        const antiga = ativas[j].despesa;
+        const alterada = centavosDaDespesa(antiga) !== centavosDaDespesa(despesa) || limpar(antiga.descricao) !== limpar(despesa.descricao);
+        return { despesa, transacaoId: ativas[j].transacaoId, alterada };
+    });
+    return { linhas, cancelar: ativas.filter((_, k) => !usadas.has(k)).map((l) => l.transacaoId) };
+};
+exports.planoDeDespesas = planoDeDespesas;
+const contagemDoPlano = (plano) => ({
+    novas: plano.linhas.filter((l) => !l.transacaoId).length,
+    alteradas: plano.linhas.filter((l) => l.transacaoId && l.alterada).length,
+    canceladas: plano.cancelar.length,
+});
+exports.contagemDoPlano = contagemDoPlano;
+/** Frase do resultado para a tela ("2 despesa(s) lançada(s), 1 corrigida"). Vazio = nada mudou no Financeiro. */
+const textoDoPlano = (contagem) => [
+    contagem.novas ? `${contagem.novas} despesa(s) lançada(s)` : '',
+    contagem.alteradas ? `${contagem.alteradas} corrigida(s)` : '',
+    contagem.canceladas ? `${contagem.canceladas} cancelada(s)` : '',
+].filter(Boolean).join(', ');
+exports.textoDoPlano = textoDoPlano;
+/** Guardada ao reabrir: no novo fechamento, o log diz exatamente o que mudou. */
+const fotoDoFechamento = (r) => ({
+    dataSaida: r.dataSaida,
+    motoristaNome: r.motoristaNome,
+    veiculoDescricao: r.veiculoDescricao,
+    kmSaida: r.kmSaida,
+    kmChegada: r.kmChegada,
+    horarioChegada: r.horarioChegada,
+    observacaoAcerto: r.observacaoAcerto,
+    acerto: (0, exports.acertoParaGravar)(r.acerto),
+    entregas: r.entregas.map((e) => ({ pedidoId: e.pedidoId, numeroPedido: e.numeroPedido, status: e.status, recebidoCentavos: Number(e.recebidoCentavos) || 0 })),
+});
+exports.fotoDoFechamento = fotoDoFechamento;
+const textoDoKm = (km) => (km === null ? '—' : new Intl.NumberFormat('pt-BR').format(km));
+/** Lista "campo: antes -> depois" em portugues, pronta para o log de auditoria. */
+const alteracoesDesdeOFechamento = (antes, depois) => {
+    const lista = [];
+    const comparar = (campo, a, b) => { if (a !== b)
+        lista.push({ campo, valorAnterior: a || '—', valorNovo: b || '—' }); };
+    comparar('Data de saída', dataBr(antes.dataSaida), dataBr(depois.dataSaida));
+    comparar('Motorista', antes.motoristaNome, depois.motoristaNome);
+    comparar('Veículo', antes.veiculoDescricao, depois.veiculoDescricao);
+    comparar('KM de saída', textoDoKm(antes.kmSaida), textoDoKm(depois.kmSaida));
+    comparar('KM de chegada', textoDoKm(antes.kmChegada), textoDoKm(depois.kmChegada));
+    comparar('Horário de chegada', antes.horarioChegada, depois.horarioChegada);
+    comparar('Observação do acerto', limpar(antes.observacaoAcerto), limpar(depois.observacaoAcerto));
+    const linhaDoAcerto = (l) => (l ? `${moeda(l.valorCentavos)}${limpar(l.descricao) ? ` (${limpar(l.descricao)})` : ''}` : '');
+    const novas = (0, exports.acertoParaGravar)(depois.acerto);
+    const tipos = [...new Set([...antes.acerto, ...novas].map((l) => l.tipo))];
+    tipos.forEach((tipo) => {
+        const a = antes.acerto.find((l) => semAcento(l.tipo) === semAcento(tipo));
+        const b = novas.find((l) => semAcento(l.tipo) === semAcento(tipo));
+        comparar(`Acerto: ${tipo}`, linhaDoAcerto(a), linhaDoAcerto(b));
+    });
+    const situacao = (e) => (e ? `${exports.ROTULO_STATUS_ENTREGA[e.status]}${e.recebidoCentavos ? `, recebido ${moeda(e.recebidoCentavos)}` : ''}` : 'Fora da rota');
+    antes.entregas.forEach((a) => {
+        const b = depois.entregas.find((e) => e.pedidoId === a.pedidoId);
+        comparar(`Pedido #${a.numeroPedido}`, situacao(a), situacao(b ? { status: b.status, recebidoCentavos: Number(b.recebidoCentavos) || 0 } : undefined));
+    });
+    return lista;
+};
+exports.alteracoesDesdeOFechamento = alteracoesDesdeOFechamento;

@@ -9,30 +9,27 @@ import {
   where,
   type DocumentReference,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { auth, db } from './firebase';
+import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
 import { reserveTenantSequence } from '../utils/firestoreAtomic';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../utils/documentMetadata';
 import { addDaysToDateInput } from '../utils/dateTime';
 import { LOTE_IN_POR_CAMPO, LOTE_IN_POR_ID } from '../utils/firestoreLimites';
-import { CATEGORIA_DESPESA_ROTA, descricaoDaDespesaNoFinanceiro, type DespesaRota } from '../utils/rotaDomain';
 import {
   acertoParaGravar,
-  aplicarRegistros,
+  camposEditaveisDaRota,
   caminhosDoRegistro,
   erroDoAcerto,
   erroDoPedidoParaRomaneio,
   erroDoRegistroDeEntrega,
-  erroParaCancelar,
-  erroParaFechar,
   erroParaLiberar,
   montarEntregaDoPedido,
-  normalizarEntrega,
   registroParaGravar,
-  situacaoDoPedidoAoEncerrar,
+  romaneioDoDocumento,
   tituloDoRomaneio,
+  type AlteracaoDoRomaneio,
   type DadosDoRegistro,
   type EntregaRomaneio,
-  type LancamentoAcerto,
   type PedidoParaRomaneio,
   type Romaneio,
 } from '../utils/romaneioDomain';
@@ -143,44 +140,11 @@ export const carregarPedidosParaRomaneio = async (
     .sort((a, b) => b.dataVenda.localeCompare(a.dataVenda) || b.numeroPedido.localeCompare(a.numeroPedido, 'pt-BR', { numeric: true }));
 };
 
-/** Romaneio lido do Firestore, com todo campo completo (documento parcial nao quebra a tela). */
-export const lerRomaneio = (dados: Record<string, unknown>): Romaneio => ({
-  numero: Number(dados.numero) || 0,
-  nome: String(dados.nome || ''),
-  status: (['montagem', 'em_rota', 'fechado', 'cancelado'].includes(String(dados.status)) ? dados.status : 'montagem') as Romaneio['status'],
-  dataSaida: String(dados.dataSaida || ''),
-  horarioSaida: String(dados.horarioSaida || ''),
-  motoristaId: String(dados.motoristaId || ''),
-  motoristaNome: String(dados.motoristaNome || ''),
-  veiculoId: String(dados.veiculoId || ''),
-  veiculoDescricao: String(dados.veiculoDescricao || ''),
-  veiculoPlaca: String(dados.veiculoPlaca || ''),
-  kmSaida: Number.isFinite(Number(dados.kmSaida)) && dados.kmSaida !== null && dados.kmSaida !== '' ? Number(dados.kmSaida) : null,
-  kmChegada: Number.isFinite(Number(dados.kmChegada)) && dados.kmChegada !== null && dados.kmChegada !== '' ? Number(dados.kmChegada) : null,
-  horarioChegada: String(dados.horarioChegada || ''),
-  observacao: String(dados.observacao || ''),
-  // O que o app do motorista gravou em `registros.{pedidoId}` vale sobre a lista (romaneioDomain.ts, "REGISTROS DO APP").
-  entregas: aplicarRegistros(
-    Array.isArray(dados.entregas) ? (dados.entregas as Array<Partial<EntregaRomaneio> & { pedidoId: string }>).filter((e) => e?.pedidoId).map(normalizarEntrega) : [],
-    dados.registros,
-  ),
-  acerto: Array.isArray(dados.acerto) ? (dados.acerto as LancamentoAcerto[]) : [],
-  observacaoAcerto: String(dados.observacaoAcerto || ''),
-});
+/** Romaneio lido do Firestore (regra no dominio: o servidor le do mesmo jeito). */
+export const lerRomaneio = romaneioDoDocumento;
 
 /** Campos que a tela edita, sem nada `undefined` (o Firestore recusa). */
-const camposDaRota = (r: Romaneio) => ({
-  nome: r.nome.trim().toUpperCase(),
-  dataSaida: r.dataSaida,
-  horarioSaida: r.horarioSaida,
-  motoristaId: r.motoristaId,
-  motoristaNome: r.motoristaNome,
-  veiculoId: r.veiculoId,
-  veiculoDescricao: r.veiculoDescricao,
-  veiculoPlaca: r.veiculoPlaca,
-  kmSaida: r.kmSaida,
-  observacao: r.observacao.trim(),
-});
+const camposDaRota = camposEditaveisDaRota;
 
 const travaRef = (pedidoId: string) => doc(db, COLECAO_TRAVAS, pedidoId);
 
@@ -347,138 +311,77 @@ export const registrarEntrega = async (args: {
   });
 };
 
+// ---------------------------------------------------------------------------
+// FECHAR, REABRIR E CANCELAR: PELO SERVIDOR (15/10/2026)
+// ---------------------------------------------------------------------------
+// Fechar mexe no Financeiro (as despesas da rota acompanham o acerto) e
+// reabrir/cancelar rota fechada pede permissao propria: quem grava e' o
+// servidor (server/routes/romaneios.routes.js), com log. As firestore.rules
+// nao deixam a tela gravar romaneio fechado ou cancelado.
+
+const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
+const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
+
+const chamarServidor = async <T>(caminho: string, corpo: Record<string, unknown>): Promise<T> => {
+  if (!API_URL) throw new Error('Esta operação precisa do servidor da empresa, que não está configurado neste ambiente. Avise o suporte.');
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new Error('Sua sessão expirou. Entre novamente para continuar.');
+  let resposta: Response;
+  try {
+    resposta = await fetchComTimeout(`${API_URL}/api/romaneios${caminho}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo),
+    });
+  } catch (erro) {
+    throw new Error(`${mensagemDeFalhaDeRede(erro)} Atualize a página para ver se a operação foi registrada antes de repetir.`, { cause: erro });
+  }
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) throw new Error(dados.error || 'Não foi possível concluir a operação. Tente de novo.');
+  return dados as T;
+};
+
+export interface ResultadoDoFechamento {
+  despesasLancadas: number;
+  contagem: { novas: number; alteradas: number; canceladas: number };
+  refechamento: boolean;
+  alteracoes: AlteracaoDoRomaneio[];
+}
+
 /**
  * Fecha o acerto. Entregue fica preso a esta rota; nao entregue volta a ficar
  * livre. Com `lancarDespesas`, cada despesa do acerto vira um lancamento PAGO
- * em "DESPESAS DE ROTA" (igual a tela Rotas e Despesas) -- a BAIXA dos titulos
- * dos clientes continua em Contas a Receber (decisao do dono).
+ * em "DESPESAS DE ROTA"; rota que ja' tinha lancamentos (reaberta) faz eles
+ * acompanharem o acerto. A BAIXA dos titulos dos clientes continua em Contas a
+ * Receber (decisao do dono).
  */
 export const fecharRomaneio = async (args: {
-  tenantId: string;
-  uid: string;
   id: string;
   romaneio: Romaneio;
   lancarDespesas: boolean;
-}): Promise<{ despesasLancadas: number }> => {
-  const { tenantId, uid } = args;
+}): Promise<ResultadoDoFechamento> => {
   const erroAcerto = erroDoAcerto(args.romaneio.acerto);
   if (erroAcerto) throw new Error(erroAcerto);
-  const acerto = acertoParaGravar(args.romaneio.acerto);
-
-  return runTransaction(db, async (transaction) => {
-    const { ref, romaneio: gravado } = await lerNaTransacao(transaction, tenantId, args.id);
-    const final: Romaneio = {
-      ...gravado,
-      ...camposDaRota(args.romaneio),
-      kmChegada: args.romaneio.kmChegada,
-      horarioChegada: args.romaneio.horarioChegada,
-      acerto,
-      observacaoAcerto: args.romaneio.observacaoAcerto.trim(),
-    };
-    const erro = erroParaFechar(final);
-    if (erro) throw new Error(erro);
-
-    const titulo = tituloDoRomaneio(final.numero, final.nome);
-    const agora = serverTimestamp();
-    final.entregas.forEach((e) => {
-      transaction.set(travaRef(e.pedidoId), {
-        tenantId,
-        romaneioId: ref.id,
-        romaneioTitulo: titulo,
-        situacao: situacaoDoPedidoAoEncerrar(e, false),
-        updatedAt: agora,
-        ...buildDocumentUpdateMetadata(uid, agora, `Acerto da ${titulo}`),
-      }, { merge: true });
-    });
-
-    const despesas: DespesaRota[] = args.lancarDespesas
-      ? acerto.filter((l) => l.natureza === 'despesa').map((l) => ({ tipo: l.tipo, descricao: l.descricao, valor: l.valorCentavos / 100, comprovante: '' }))
-      : [];
-    let rotaId = '';
-    if (despesas.length > 0) {
-      const rotaRef = doc(collection(db, 'rotas'));
-      rotaId = rotaRef.id;
-      const metadata = buildDocumentMetadata(uid, agora);
-      const transacaoIds: string[] = [];
-      despesas.forEach((despesa) => {
-        const transacaoRef = doc(collection(db, 'transacoes'));
-        transacaoIds.push(transacaoRef.id);
-        transaction.set(transacaoRef, {
-          descricao: `${descricaoDaDespesaNoFinanceiro(despesa, final.motoristaNome, final.dataSaida)} - ${titulo}`,
-          data: final.dataSaida,
-          dataPagamento: final.dataSaida,
-          valor: despesa.valor,
-          valorCentavos: Math.round(despesa.valor * 100),
-          categoria: CATEGORIA_DESPESA_ROTA,
-          // Mesmo desenho da tela Rotas e Despesas: o motorista ja pagou na estrada,
-          // nao saiu do caixa da loja.
-          status: 'Paga',
-          tipo: 'saida',
-          movimentaCaixaFisico: false,
-          rotaId,
-          romaneioId: ref.id,
-          motoristaId: final.motoristaId,
-          motoristaNome: final.motoristaNome,
-          ...(final.veiculoId ? { veiculoId: final.veiculoId, veiculoNome: final.veiculoDescricao, veiculoPlaca: final.veiculoPlaca } : {}),
-          tipoDespesaRota: despesa.tipo,
-          tenantId,
-          createdAt: agora,
-          ...metadata,
-        });
-      });
-      transaction.set(rotaRef, {
-        motoristaId: final.motoristaId,
-        motoristaNome: final.motoristaNome,
-        veiculo: final.veiculoDescricao,
-        data: final.dataSaida,
-        observacao: `Lançada pelo acerto da ${titulo}`,
-        despesas,
-        totalCentavos: despesas.reduce((t, d) => t + Math.round(d.valor * 100), 0),
-        total: despesas.reduce((t, d) => t + Math.round(d.valor * 100), 0) / 100,
-        transacaoIds,
-        romaneioId: ref.id,
-        tenantId,
-        createdAt: agora,
-        ...metadata,
-      });
-    }
-
-    transaction.update(ref, {
-      ...camposDaRota(final),
-      kmChegada: final.kmChegada,
-      horarioChegada: final.horarioChegada,
-      acerto,
-      observacaoAcerto: final.observacaoAcerto,
-      status: 'fechado',
-      fechadoEm: agora,
-      fechadoPor: uid,
-      despesasRotaId: rotaId,
-      updatedAt: agora,
-      ...buildDocumentUpdateMetadata(uid, agora, 'Acerto fechado'),
-    });
-    return { despesasLancadas: despesas.length };
+  const r = args.romaneio;
+  return chamarServidor<ResultadoDoFechamento>('/fechar', {
+    id: args.id,
+    lancarDespesas: args.lancarDespesas,
+    romaneio: {
+      ...camposDaRota(r),
+      kmChegada: r.kmChegada,
+      horarioChegada: r.horarioChegada,
+      acerto: acertoParaGravar(r.acerto),
+      observacaoAcerto: r.observacaoAcerto.trim(),
+    },
   });
 };
 
-/** Desiste da rota antes de qualquer entrega: todos os pedidos voltam a ficar livres. */
-export const cancelarRomaneio = async (tenantId: string, uid: string, id: string): Promise<void> => {
-  await runTransaction(db, async (transaction) => {
-    const { ref, romaneio } = await lerNaTransacao(transaction, tenantId, id);
-    const erro = erroParaCancelar(romaneio);
-    if (erro) throw new Error(erro);
-    const titulo = tituloDoRomaneio(romaneio.numero, romaneio.nome);
-    romaneio.entregas.forEach((e) => {
-      transaction.set(travaRef(e.pedidoId), {
-        tenantId, situacao: situacaoDoPedidoAoEncerrar(e, true), updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(uid, serverTimestamp(), `${titulo} cancelada`),
-      }, { merge: true });
-    });
-    transaction.update(ref, {
-      status: 'cancelado',
-      canceladoEm: serverTimestamp(),
-      canceladoPor: uid,
-      updatedAt: serverTimestamp(),
-      ...buildDocumentUpdateMetadata(uid, serverTimestamp(), 'Romaneio cancelado'),
-    });
-  });
-};
+/** Rota fechada volta inteira para "Em rota" (permissao propria + motivo). */
+export const reabrirRomaneio = (id: string, motivo: string) => (
+  chamarServidor<{ titulo: string; saem: Array<{ pedidoId: string; numeroPedido: string; outraRota: string }> }>('/reabrir', { id, motivo })
+);
+
+/** Cancela a rota. Fechada ou com entrega: desfaz tudo (permissao propria + motivo). */
+export const cancelarRomaneio = (id: string, motivo: string) => (
+  chamarServidor<{ titulo: string; desfez: boolean; liberados: number; despesasCanceladas: number }>('/cancelar', { id, motivo })
+);

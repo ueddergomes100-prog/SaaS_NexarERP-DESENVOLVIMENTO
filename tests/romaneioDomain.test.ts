@@ -1,8 +1,21 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  alteracoesDesdeOFechamento,
   aplicarRegistros,
   caminhosDoRegistro,
+  cancelamentoDesfazEntregas,
+  contagemDoPlano,
+  despesasDoAcerto,
+  despesasJaLancadas,
+  erroDoMotivo,
+  erroParaReabrir,
+  fotoDoFechamento,
+  planoDeDespesas,
+  planoDeReabertura,
+  romaneioDoDocumento,
+  textoDoPlano,
+  travaLivreOuDestaRota,
   centavosDoTexto,
   diferencaDoRecebido,
   erroDoPedidoParaRomaneio,
@@ -125,6 +138,113 @@ test('fechar exige desfecho de toda entrega e KM de chegada coerente', () => {
 test('cancelar só antes de qualquer entrega registrada', () => {
   assert.equal(erroParaCancelar(romaneio()), null);
   assert.match(erroParaCancelar(romaneio({ entregas: [entrega('1', { status: 'entregue', recebedorNome: 'A' })] })) || '', /não pode mais ser cancelada/);
+});
+
+test('com a permissão própria, cancela rota fechada ou com entrega (desfaz tudo); cancelada não cancela de novo', () => {
+  const comEntrega = romaneio({ status: 'em_rota', entregas: [entrega('1', { status: 'entregue', recebedorNome: 'A' })] });
+  const fechado = romaneio({ status: 'fechado' });
+  assert.equal(cancelamentoDesfazEntregas(romaneio()), false);
+  assert.equal(cancelamentoDesfazEntregas(comEntrega), true);
+  assert.equal(cancelamentoDesfazEntregas(fechado), true);
+  assert.match(erroParaCancelar(fechado) || '', /já foi fechado.*permissão "Romaneio de Entrega: reabrir e cancelar depois de fechado"/);
+  assert.equal(erroParaCancelar(fechado, { podeDesfazer: true }), null);
+  assert.equal(erroParaCancelar(comEntrega, { podeDesfazer: true }), null);
+  assert.match(erroParaCancelar(romaneio({ status: 'cancelado' }), { podeDesfazer: true }) || '', /já foi cancelado/);
+});
+
+test('reabrir só rota fechada; motivo obrigatório com pelo menos 10 letras', () => {
+  assert.equal(erroParaReabrir({ status: 'fechado' }), null);
+  assert.match(erroParaReabrir({ status: 'cancelado' }) || '', /não volta/);
+  assert.match(erroParaReabrir({ status: 'em_rota' }) || '', /acerto fechado/);
+  assert.match(erroDoMotivo('  esqueci ') || '', /pelo menos 10/);
+  assert.equal(erroDoMotivo('Esqueci as despesas do motorista'), null);
+});
+
+test('reabrir: pedido não entregue que já entrou em outra rota fica de fora; livre ou desta rota continua', () => {
+  const entregas = [entrega('1', { status: 'entregue' }), entrega('2', { status: 'nao_entregue' }), entrega('3', { status: 'nao_entregue' }), entrega('4')];
+  const plano = planoDeReabertura('R1', entregas, {
+    p1: { romaneioId: 'R1', situacao: 'entregue' },
+    p2: { romaneioId: 'R9', romaneioTitulo: 'Rota 09 CENTRO', situacao: 'em_romaneio' },
+    p3: { romaneioId: 'R9', situacao: 'liberado' },
+  });
+  assert.deepEqual(plano.ficam.map((e) => e.numeroPedido), ['1', '3', '4']);
+  assert.deepEqual(plano.saem.map((s) => [s.entrega.numeroPedido, s.outraRota]), [['2', 'Rota 09 CENTRO']]);
+  assert.equal(travaLivreOuDestaRota('R1', null), true);
+  assert.equal(travaLivreOuDestaRota('R1', { romaneioId: 'R2', situacao: 'entregue' }), false);
+});
+
+test('despesas: o financeiro acompanha o acerto (corrige, lança o que faltou, cancela o que saiu)', () => {
+  const acerto = [
+    { tipo: 'Combustível', natureza: 'despesa' as const, descricao: 'posto', valorCentavos: 25000 },
+    { tipo: 'Hotel', natureza: 'despesa' as const, descricao: '', valorCentavos: 12000 },
+    { tipo: 'Vale', natureza: 'adiantamento' as const, descricao: '', valorCentavos: 50000 },
+    { tipo: 'Pedágio', natureza: 'despesa' as const, descricao: '', valorCentavos: 0 },
+  ];
+  const desejadas = despesasDoAcerto(acerto);
+  assert.deepEqual(desejadas.map((d) => [d.tipo, d.valor]), [['Combustível', 250], ['Hotel', 120]]);
+
+  const rota = {
+    despesas: [
+      { tipo: 'COMBUSTIVEL', descricao: 'posto', valor: 200, comprovante: '' },
+      { tipo: 'Diária', descricao: '', valor: 80, comprovante: '' },
+      { tipo: 'Hotel', descricao: '', valor: 120, comprovante: '' },
+    ],
+    transacaoIds: ['t1', 't2', 't3'],
+  };
+  // t3 (hotel) foi cancelado no Financeiro: o acerto lanca de novo.
+  const lancadas = despesasJaLancadas(rota, (id) => id !== 't3');
+  assert.deepEqual(lancadas.map((l) => [l.transacaoId, l.ativa]), [['t1', true], ['t2', true], ['t3', false]]);
+  const plano = planoDeDespesas(desejadas, lancadas);
+  assert.deepEqual(plano.linhas.map((l) => [l.despesa.tipo, l.transacaoId, l.alterada]), [['Combustível', 't1', true], ['Hotel', '', false]]);
+  assert.deepEqual(plano.cancelar, ['t2']);
+  assert.deepEqual(contagemDoPlano(plano), { novas: 1, alteradas: 1, canceladas: 1 });
+  assert.equal(textoDoPlano(contagemDoPlano(plano)), '1 despesa(s) lançada(s), 1 corrigida(s), 1 cancelada(s)');
+  assert.equal(textoDoPlano({ novas: 0, alteradas: 0, canceladas: 0 }), '');
+
+  // Nada mudou: mantem os mesmos lancamentos, sem alteracao.
+  const igual = planoDeDespesas(desejadas, despesasJaLancadas({ despesas: desejadas, transacaoIds: ['a', 'b'] }, () => true));
+  assert.deepEqual(igual.linhas.map((l) => [l.transacaoId, l.alterada]), [['a', false], ['b', false]]);
+  assert.deepEqual(igual.cancelar, []);
+  // Sem despesa no acerto: cancela tudo o que estava ativo.
+  assert.deepEqual(planoDeDespesas([], lancadas).cancelar, ['t1', 't2']);
+  // Rota antiga sem a lista: nada lancado.
+  assert.deepEqual(despesasJaLancadas(null, () => true), []);
+});
+
+test('log do novo fechamento: diz o que mudou desde o fechamento anterior, em português', () => {
+  const antes = romaneio({
+    status: 'fechado', kmSaida: 1000, kmChegada: 1200,
+    acerto: [{ tipo: 'Combustível', natureza: 'despesa', descricao: '', valorCentavos: 20000 }],
+    entregas: [entrega('1', { status: 'entregue' }), entrega('2', { status: 'nao_entregue' })],
+  });
+  const foto = fotoDoFechamento(antes);
+  const depois = romaneio({
+    ...antes,
+    kmChegada: 1250,
+    acerto: [
+      { tipo: 'Combustível', natureza: 'despesa', descricao: '', valorCentavos: 20000 },
+      { tipo: 'Hotel', natureza: 'despesa', descricao: 'pousada', valorCentavos: 12000 },
+    ],
+    entregas: [entrega('1', { status: 'entregue' })],
+  });
+  const mudou = alteracoesDesdeOFechamento(foto, depois).map((a) => `${a.campo}: ${a.valorAnterior} -> ${a.valorNovo}`);
+  assert.deepEqual(mudou.map((m) => m.replace(/\u00a0/g, ' ')), [
+    'KM de chegada: 1.200 -> 1.250',
+    'Acerto: Hotel: — -> R$ 120,00 (pousada)',
+    'Pedido #2: Não entregue -> Fora da rota',
+  ]);
+  assert.deepEqual(alteracoesDesdeOFechamento(foto, antes), []);
+});
+
+test('documento lido: rota de despesas e histórico, sem lixo', () => {
+  const lido = romaneioDoDocumento({
+    status: 'fechado',
+    despesasRotaId: 'rota1',
+    historico: [{ acao: 'reaberto', motivo: ' esqueci  as despesas ', usuarioNome: 'Ana', emIso: '2026-10-15T10:00:00.000Z' }, { acao: 'xx' }, null],
+  });
+  assert.equal(lido.despesasRotaId, 'rota1');
+  assert.deepEqual(lido.historico, [{ acao: 'reaberto', motivo: 'esqueci as despesas', usuarioNome: 'Ana', emIso: '2026-10-15T10:00:00.000Z' }]);
+  assert.equal(romaneioDoDocumento({}).despesasRotaId, '');
 });
 
 test('ao encerrar: entregue fica preso à rota, o resto volta a ficar livre', () => {

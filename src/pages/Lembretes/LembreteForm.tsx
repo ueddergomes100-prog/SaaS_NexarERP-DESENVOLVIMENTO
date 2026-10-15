@@ -437,7 +437,7 @@ const LembreteForm: React.FC = () => {
                 name="dataPrevisao"
                 value={formData.dataPrevisao}
                 onChange={handleChange}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', colorScheme: 'dark' }}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
               <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
                 {[7, 30, 90, 180].map((days) => (

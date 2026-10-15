@@ -169,7 +169,7 @@ const Configuracoes: React.FC = () => {
   const adiantarNumeracao = async (linha: SituacaoDaSequencia) => {
     const { value } = await NexusSwal.fire({
       title: `Próximo número de ${linha.rotulo.toLowerCase()}`,
-      html: `<div style="text-align:left;font-size:14px;color:#d4d4d8;">O último ${escaparHtml(linha.rotulo.toLowerCase())} gravado nesta filial é o <strong>nº ${linha.ultimo.toLocaleString('pt-BR')}</strong>. Informe o número que o <strong>próximo</strong> deve receber. A numeração só anda para a frente.</div>`,
+      html: `<div style="text-align:left;font-size:14px;color:var(--text-secondary);">O último ${escaparHtml(linha.rotulo.toLowerCase())} gravado nesta filial é o <strong>nº ${linha.ultimo.toLocaleString('pt-BR')}</strong>. Informe o número que o <strong>próximo</strong> deve receber. A numeração só anda para a frente.</div>`,
       input: 'text',
       inputValue: String(linha.proximo),
       inputAttributes: { inputmode: 'numeric' },

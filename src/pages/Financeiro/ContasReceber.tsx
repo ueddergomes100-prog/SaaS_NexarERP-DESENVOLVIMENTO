@@ -1148,7 +1148,7 @@ const ContasReceber: React.FC = () => {
                   value={dataBaixaCredito}
                   max={getDateInputInTimeZone()}
                   onChange={(e) => setDataBaixaCredito(e.target.value)}
-                  style={{ padding: '12px', fontSize: '16px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)', colorScheme: 'dark' }}
+                  style={{ padding: '12px', fontSize: '16px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)' }}
                 />
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
                   Foi recebido em outro dia? Troque a data. Vale para a parte paga com crédito; se receber sem usar crédito, a data é perguntada na próxima tela.

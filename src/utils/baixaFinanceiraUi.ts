@@ -12,8 +12,8 @@ const escaparHtml = (texto: string) => texto
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
-const ESTILO_CAMPO = 'width:100%;margin:6px 0 0;box-sizing:border-box;color-scheme:dark;';
-const ESTILO_ROTULO = 'display:block;text-align:left;font-size:13px;margin-top:14px;color:#d4d4d8;';
+const ESTILO_CAMPO = 'width:100%;margin:6px 0 0;box-sizing:border-box;';
+const ESTILO_ROTULO = 'display:block;text-align:left;font-size:13px;margin-top:14px;color:var(--text-secondary);';
 
 export interface DadosBaixa {
   forma: string;
@@ -55,14 +55,14 @@ export const pedirDadosBaixa = async (args: {
     title: args.titulo,
     icon: 'question',
     html: `
-      <div style="text-align:left;font-size:14px;color:#d4d4d8;">${escaparHtml(args.texto)}</div>
+      <div style="text-align:left;font-size:14px;color:var(--text-secondary);">${escaparHtml(args.texto)}</div>
       <label for="baixa-forma" style="${ESTILO_ROTULO}">${escaparHtml(args.rotuloForma)}</label>
       <select id="baixa-forma" class="swal2-select" style="${ESTILO_CAMPO}">
         <option value="">Selecione...</option>${opcoes}
       </select>
       <label for="baixa-data" style="${ESTILO_ROTULO}">${escaparHtml(args.rotuloData)}</label>
       <input id="baixa-data" type="date" class="swal2-input" value="${hoje}" max="${hoje}" style="${ESTILO_CAMPO}" />
-      <div style="text-align:left;font-size:12px;color:#a1a1aa;margin-top:6px;">
+      <div style="text-align:left;font-size:12px;color:var(--text-muted);margin-top:6px;">
         Foi pago em outro dia? Troque a data acima. Ela vale para o Fluxo de Caixa e os relatórios.
       </div>
       ${args.acrescimo ? `
@@ -71,7 +71,7 @@ export const pedirDadosBaixa = async (args: {
         Cobrar juros e multa (${escaparHtml(args.acrescimo.detalhe)})
       </label>
       <input id="baixa-acrescimo" type="text" inputmode="decimal" class="swal2-input" value="${(args.acrescimo.centavos / 100).toFixed(2).replace('.', ',')}" style="${ESTILO_CAMPO}" aria-label="Valor de juros e multa em reais" />
-      <div style="text-align:left;font-size:12px;color:#a1a1aa;margin-top:6px;">
+      <div style="text-align:left;font-size:12px;color:var(--text-muted);margin-top:6px;">
         Valor sugerido pelos parâmetros da filial; pode ajustar. Entra como lançamento "Juros e multa" junto deste recebimento.
       </div>` : ''}`,
     focusConfirm: false,
@@ -115,7 +115,7 @@ export const pedirMotivoEstorno = async (args: { titulo: string; texto: string }
   const resultado = await NexusSwal.fire({
     title: args.titulo,
     icon: 'warning',
-    html: `<div style="text-align:left;font-size:14px;color:#d4d4d8;">${escaparHtml(args.texto)}</div>`,
+    html: `<div style="text-align:left;font-size:14px;color:var(--text-secondary);">${escaparHtml(args.texto)}</div>`,
     input: 'textarea',
     inputLabel: 'Motivo do estorno',
     inputPlaceholder: 'Escreva por que está estornando',

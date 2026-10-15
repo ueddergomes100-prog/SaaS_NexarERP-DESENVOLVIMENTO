@@ -9,6 +9,7 @@ import { useTenantCollection } from '../../hooks/useTenantCollection';
 import CampoComSugestoes from '../../components/common/CampoComSugestoes';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { rotuloDoVeiculo, type VeiculoDaFrota } from '../../utils/frotaDomain';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import {
@@ -58,11 +59,13 @@ const RotaForm: React.FC = () => {
   const somenteLeitura = Boolean(id);
   const { currentUser, tenantId, userRole, isOwner } = useAuth();
   const { items: motoristas } = useTenantCollection<MotoristaBasico>('motoristas', tenantId);
-  // Veiculos do cadastro (Cadastros > Veiculos): viram sugestao no campo Veiculo.
-  const { items: veiculosCadastrados } = useTenantCollection<{ id: string; placa?: string; modelo?: string; ativo?: boolean }>('veiculos', tenantId);
-  const opcoesVeiculo = veiculosCadastrados
+  // Veiculos da FROTA da empresa (Rotas > Frota) viram sugestao no campo Veiculo,
+  // como no Romaneio. Ate 15/10/2026 lia `veiculos` (Cadastros > Veiculos), que e' o
+  // cadastro de equipamentos dos CLIENTES -- por isso a lista vinha vazia.
+  const { items: frota } = useTenantCollection<VeiculoDaFrota & { id: string }>('frota', tenantId);
+  const opcoesVeiculo = frota
     .filter((v) => v.ativo !== false && (v.placa || v.modelo))
-    .map((v) => [v.placa, v.modelo].map((x) => String(x || '').trim()).filter(Boolean).join(' - ').toUpperCase());
+    .map((v) => rotuloDoVeiculo(v).toUpperCase());
 
   // Tipos de despesa que a empresa cadastrou (configuracoes/{tenantId}.tiposDespesaRota).
   const [tiposPersonalizados, setTiposPersonalizados] = useState<string[]>([]);
@@ -340,7 +343,7 @@ const RotaForm: React.FC = () => {
 
           <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px', gridColumn: '1 / -1' }}>
             <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Observação</label>
-            <input type="text" value={rota.observacao} onChange={(e) => setRota({ ...rota, observacao: e.target.value })} placeholder="Opcional — ex.: entrega em Manhuaçu e Caratinga" style={estiloCampo} />
+            <input type="text" value={rota.observacao} onChange={(e) => setRota({ ...rota, observacao: e.target.value })} placeholder="Opcional: para onde foi a rota ou algo a lembrar" style={estiloCampo} />
           </div>
         </div>
 

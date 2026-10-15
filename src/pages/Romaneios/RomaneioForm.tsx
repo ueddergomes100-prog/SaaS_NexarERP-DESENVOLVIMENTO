@@ -576,7 +576,7 @@ const RomaneioForm: React.FC = () => {
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '16px' }}>
               <span style={estiloRotulo}>Observação do acerto</span>
-              <input value={romaneio.observacaoAcerto} onChange={(e) => mudar({ observacaoAcerto: e.target.value })} placeholder="Opcional — ex.: pendência do cliente X, cheque a compensar" style={estiloCampo} />
+              <input value={romaneio.observacaoAcerto} onChange={(e) => mudar({ observacaoAcerto: e.target.value })} placeholder="Opcional: o que ficou pendente no acerto" style={estiloCampo} />
             </label>
 
             {emRota && (

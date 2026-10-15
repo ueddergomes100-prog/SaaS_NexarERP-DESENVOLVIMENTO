@@ -3737,7 +3737,7 @@ const Configuracoes: React.FC = () => {
                       return (
                         <label key={mod.id} style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer',
-                          fontSize: '13px', color: isChecked ? 'white' : 'var(--text-secondary)',
+                          fontSize: '13px', color: isChecked ? 'var(--text-primary)' : 'var(--text-secondary)',
                           backgroundColor: isChecked ? 'rgba(255,255,255,0.03)' : 'var(--bg-primary)',
                           padding: '14px 16px', borderRadius: 'var(--radius-md)',
                           border: `1px solid ${isChecked ? mod.color : 'var(--border-color)'}`,
@@ -3765,7 +3765,7 @@ const Configuracoes: React.FC = () => {
                       onClick={handleSavePermissions}
                       disabled={isSavingPermissions}
                       style={{
-                        backgroundColor: 'var(--accent-purple)', color: 'var(--text-primary)', border: 'none',
+                        backgroundColor: 'var(--accent-purple)', color: '#fff', border: 'none',
                         padding: '10px 20px', borderRadius: 'var(--radius-md)', fontWeight: 600,
                         cursor: isSavingPermissions ? 'not-allowed' : 'pointer', opacity: isSavingPermissions ? 0.7 : 1,
                         display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s'

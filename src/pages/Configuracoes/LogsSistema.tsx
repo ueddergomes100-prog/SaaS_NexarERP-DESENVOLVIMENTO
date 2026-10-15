@@ -404,7 +404,7 @@ const LogsSistema: React.FC = () => {
               style={{
                 padding: '10px 16px',
                 backgroundColor: 'rgba(255,255,255,0.05)',
-                color: 'white',
+                color: 'var(--text-primary)',
                 border: '1px solid var(--border-color)',
                 borderRadius: 'var(--radius-md)',
                 fontSize: '13px',

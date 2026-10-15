@@ -25,6 +25,8 @@ import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import AvatarIniciais from '../../components/common/AvatarIniciais';
 import { numeroDaNota } from '../../utils/nomeArquivoDomain';
 import { reancorarVencimentosNoFaturamento } from '../../utils/faturamentoPreVendaDomain';
+import { classificarNotasDaVenda, listaDeNotas, validarJustificativaCancelamento, type NotaDaVenda } from '../../utils/cancelamentoNotaVendaDomain';
+import { cancelarNotaDaVenda } from '../../services/cancelamentoNotaService';
 import { centavosDoValorDigitado, descontoParaOTotalDigitado } from '../../utils/totalDigitadoDomain';
 import { formatarDocumento } from '../../utils/documentoValidacao';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
@@ -738,6 +740,39 @@ const PedidoVendaForm: React.FC = () => {
     return () => unsubscribe();
   }, [isViewing, id, tenantId]);
 
+  /**
+   * NOTAS DA VENDA AO VIVO ("notasDaVenda", 15/10/2026). A aba do pedido fica
+   * aberta (TabPane nunca desmonta) e antes lia as notas uma vez so': a NF-e
+   * emitida na tela Notas Fiscais, no lote ou em outro computador nao aparecia,
+   * e o botao continuava "Emitir NF-e" -- o cliente quase emitiu de novo.
+   * Pode haver mais de uma de cada tipo (rejeitada e depois autorizada,
+   * cancelada e emitida de novo): vale a de situacao mais "viva".
+   */
+  useEffect(() => {
+    if (!isViewing || !id || !tenantId) return;
+    const prioridade = (st: string) => (st === 'authorized' ? 0 : ['enqueued', 'processing', 'created'].includes(st) ? 1 : st === 'rejected' || st === 'denied' ? 2 : 3);
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId), where('pedidoId', '==', id)),
+      (snap) => {
+        const notas = snap.docs
+          .map((d) => ({ id: d.id, dados: d.data() }))
+          .filter(({ dados }) => dados.finalidade !== 'devolucao')
+          .map(({ id: notaId, dados }) => ({
+            tipo: String(dados.tipo || ''),
+            nota: { id: notaId, spedyId: String(dados.spedyId || ''), status: String(dados.status || ''), number: dados.number ?? null, accessKey: dados.accessKey } as LinkedNfe,
+          }));
+        const melhorDoTipo = (tipo: string) => notas
+          .filter((n) => n.tipo === tipo)
+          .map((n) => n.nota)
+          .sort((a, b) => prioridade(a.status) - prioridade(b.status))[0] || null;
+        setNfeDoc(melhorDoTipo('NFC-e'));
+        setNfeVinculada(melhorDoTipo('NF-e'));
+      },
+      (error) => console.error('Erro ao acompanhar as notas fiscais da venda:', error),
+    );
+    return () => unsubscribe();
+  }, [isViewing, id, tenantId]);
+
   // Alterar forma de pagamento de venda finalizada. Mesma hierarquia:
   // config libera pra empresa, permissao decide quem. As duas travas
   // seguintes NAO passam por permissao nenhuma -- ver o comentario em
@@ -1064,47 +1099,9 @@ const PedidoVendaForm: React.FC = () => {
               }]);
             }
 
-            // Busca nota fiscal vinculada a esta venda
-            try {
-              const qNota = query(
-                collection(db, 'notas_fiscais'),
-                where('tenantId', '==', tenantId),
-                where('pedidoId', '==', id),
-                where('tipo', '==', 'NFC-e')
-              );
-              const snapNota = await getDocs(qNota);
-              if (!snapNota.empty) {
-                const docNota = snapNota.docs[0];
-                setNfeDoc({
-                  id: docNota.id,
-                  spedyId: docNota.data().spedyId,
-                  status: docNota.data().status,
-                  number: docNota.data().number,
-                  accessKey: docNota.data().accessKey
-                });
-              }
-            } catch (err) {
-              console.error("Erro ao buscar nota fiscal vinculada:", err);
-            }
-
-            // NF-e desta venda (2026-09-30): o numero tem que ficar a' vista na
-            // venda. Pode haver mais de uma (rejeitada e depois autorizada, ou
-            // cancelada e emitida de novo) -- vale a de situacao mais "viva".
-            try {
-              const snapNfe = await getDocs(query(
-                collection(db, 'notas_fiscais'),
-                where('tenantId', '==', tenantId),
-                where('pedidoId', '==', id),
-                where('tipo', '==', 'NF-e'),
-              ));
-              const prioridade = (st: string) => (st === 'authorized' ? 0 : ['enqueued', 'processing', 'created'].includes(st) ? 1 : st === 'rejected' || st === 'denied' ? 2 : 3);
-              const melhor = snapNfe.docs
-                .map((d) => ({ id: d.id, spedyId: d.data().spedyId, status: String(d.data().status || ''), number: d.data().number ?? null, accessKey: d.data().accessKey }))
-                .sort((a, b) => prioridade(a.status) - prioridade(b.status))[0];
-              setNfeVinculada(melhor || null);
-            } catch (err) {
-              console.error('Erro ao buscar a NF-e vinculada:', err);
-            }
+            // Notas fiscais da venda: acompanhadas AO VIVO no efeito "notasDaVenda"
+            // (15/10/2026) -- antes era uma leitura so' aqui, e nota emitida em outra
+            // tela/computador nao aparecia: o botao continuava em "Emitir".
 
             await fetchDevolucoes(id);
           } else {
@@ -4082,50 +4079,107 @@ const PedidoVendaForm: React.FC = () => {
       return;
     }
 
-    // Venda com NF-e/NFC-e VALIDA nao se cancela (2026-09-30). Para o fisco a
-    // mercadoria saiu: devolver o estoque e estornar o financeiro com a nota
-    // ainda autorizada deixaria o sistema dizendo uma coisa e a SEFAZ outra.
-    // A ordem certa e': cancelar a NOTA primeiro (ai' a operacao deixa de
-    // existir) e so' depois a venda. Mercadoria que saiu e voltou = Devolucao.
-    // Conferido no banco na hora do clique (outra tela pode ter emitido).
+    // Venda com NF-e/NFC-e VALIDA (2026-09-30; integrado em 15/10/2026). Para o
+    // fisco a mercadoria saiu: a venda so' pode ser cancelada DEPOIS da nota.
+    // Desde 15/10 o proprio "Cancelar venda" cancela a nota (com o motivo) e so'
+    // segue com a nota CONFIRMADA cancelada na SEFAZ -- ver
+    // cancelamentoNotaVendaDomain.ts. Conferido no banco na hora do clique
+    // (outra tela pode ter emitido). Mercadoria que saiu e voltou = Devolucao.
+    let notasParaCancelar: NotaDaVenda[] = [];
     try {
       const snapNotas = await getDocs(query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId), where('pedidoId', '==', id)));
-      const notaValida = snapNotas.docs
-        .map((d) => d.data())
-        .find((n) => ['NF-e', 'NFC-e'].includes(n.tipo) && n.finalidade !== 'devolucao'
-          && ['authorized', 'enqueued', 'processing', 'created'].includes(String(n.status)));
-      if (notaValida) {
-        const numero = notaValida.number ? ` nº ${numeroDaNota(notaValida.number)}` : '';
+      const { autorizadas, emTransmissao } = classificarNotasDaVenda(snapNotas.docs.map((d) => ({ id: d.id, ...d.data() })));
+      if (emTransmissao.length > 0) {
         showError(
-          'Esta venda tem nota fiscal válida',
-          notaValida.status === 'authorized'
-            ? `A ${notaValida.tipo}${numero} desta venda está autorizada. Para o fisco a mercadoria saiu, então a venda não pode ser cancelada antes da nota.\n\n`
-              + '• A venda não aconteceu: cancele a nota em Notas Fiscais (até 24h; depois disso, em MG, peça o cancelamento extemporâneo no SIARE, até 168h) e depois cancele a venda aqui.\n'
-              + '• A mercadoria saiu e voltou: não cancele — use "Devolução de itens" (em Mais ações), que devolve o estoque e emite a NF-e de devolução.'
-            : `A ${notaValida.tipo}${numero} desta venda ainda está aguardando a SEFAZ. Espere a resposta (Notas Fiscais → Sincronizar Notas) antes de cancelar a venda.`,
+          'A nota desta venda ainda está aguardando a SEFAZ',
+          `A ${listaDeNotas(emTransmissao)} desta venda ainda não tem resposta da SEFAZ. Espere a resposta (Notas Fiscais → Sincronizar Notas) antes de cancelar a venda.`,
         );
         return;
       }
+      notasParaCancelar = autorizadas;
     } catch (erroNotas) {
       console.error('Erro ao conferir as notas da venda antes de cancelar:', erroNotas);
       showError('Não foi possível conferir a nota fiscal da venda', 'Para não cancelar uma venda com nota válida, o cancelamento não foi feito. Confira sua conexão e tente de novo.');
       return;
     }
 
-    const confirm = await NexusSwal.fire({
-      title: 'Cancelar Venda?',
-      text: 'O estoque será devolvido e a transação financeira será estornada.',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Sim, Cancelar Venda',
-      cancelButtonText: 'Manter Venda',
-      confirmButtonColor: '#ef4444'
-    });
-
-    if (!confirm.isConfirmed) return;
+    let justificativaDaNota = '';
+    if (notasParaCancelar.length > 0) {
+      const notas = listaDeNotas(notasParaCancelar);
+      // Mesma permissao de cancelar nota da tela Notas Fiscais (decisao do dono, 15/10).
+      if (!temPermissao('fiscal.excluir')) {
+        showError(
+          'Esta venda tem nota fiscal autorizada',
+          `A ${notas} desta venda está autorizada, então a nota precisa ser cancelada junto com a venda — e seu usuário não tem permissão para cancelar nota fiscal.\n\n`
+            + '• Peça a quem tem a permissão de cancelar notas (ou ao administrador) para cancelar esta venda.\n'
+            + '• A mercadoria saiu e voltou: não cancele — use "Devolução de itens" (em Mais ações).',
+        );
+        return;
+      }
+      const resposta = await NexusSwal.fire({
+        title: 'Cancelar a venda e a nota fiscal?',
+        html: `Esta venda tem a <b>${escaparHtml(notas)}</b> autorizada. A nota será cancelada na SEFAZ e, depois de confirmada, a venda é cancelada: o estoque volta e o financeiro é estornado.`
+          + '<br><br><small>A SEFAZ só aceita cancelar a nota dentro do prazo (24 horas na maioria dos casos). Se a mercadoria saiu e voltou, use "Devolução de itens" em vez de cancelar.</small>',
+        icon: 'warning',
+        input: 'textarea',
+        inputLabel: 'Motivo do cancelamento da nota (vai para a SEFAZ)',
+        inputAttributes: { maxlength: '255' },
+        inputPlaceholder: 'Escreva o motivo real do cancelamento',
+        inputValidator: (valor) => validarJustificativaCancelamento(valor) || undefined,
+        showCancelButton: true,
+        confirmButtonText: 'Cancelar nota e venda',
+        cancelButtonText: 'Manter venda',
+        confirmButtonColor: '#ef4444',
+      });
+      if (!resposta.isConfirmed) return;
+      justificativaDaNota = String(resposta.value || '').trim();
+    } else {
+      const confirm = await NexusSwal.fire({
+        title: 'Cancelar Venda?',
+        text: 'O estoque será devolvido e a transação financeira será estornada.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sim, Cancelar Venda',
+        cancelButtonText: 'Manter Venda',
+        confirmButtonColor: '#ef4444'
+      });
+      if (!confirm.isConfirmed) return;
+    }
 
     submitLockRef.current = true;
     setIsLoading(true);
+    const notasCanceladasAgora: NotaDaVenda[] = [];
+    if (notasParaCancelar.length > 0) {
+      NexusSwal.fire({
+        title: 'Cancelando a nota na SEFAZ...',
+        text: 'Pode levar até meio minuto. Não feche a tela.',
+        allowOutsideClick: false,
+        didOpen: () => NexusSwal.showLoading(),
+      });
+      for (const nota of notasParaCancelar) {
+        const resultado = await cancelarNotaDaVenda({
+          nota,
+          justificativa: justificativaDaNota,
+          usuario: { uid: currentUser.uid, email: currentUser.email },
+          tenantId,
+          numeroPedido: String(numeroPedido || ''),
+        });
+        if (!resultado.ok) {
+          NexusSwal.close();
+          submitLockRef.current = false;
+          setIsLoading(false);
+          showError(
+            resultado.titulo,
+            notasCanceladasAgora.length > 0
+              ? `${resultado.mensagem}\n\n(A ${listaDeNotas(notasCanceladasAgora)} já foi cancelada.)`
+              : resultado.mensagem,
+          );
+          return;
+        }
+        notasCanceladasAgora.push(nota);
+      }
+      NexusSwal.close();
+    }
     let vendedorDaVendaCancelada: { id?: string; nome?: string } = {};
     let snapshotAntesCancelamento: Record<string, unknown> | null = null;
     try {
@@ -4281,7 +4335,12 @@ const PedidoVendaForm: React.FC = () => {
       setStatus('Cancelada');
     } catch (err) {
       console.error('Erro ao cancelar:', err);
-      showError('Erro', err instanceof Error ? err.message : 'Não foi possível cancelar a venda.');
+      showError(
+        notasCanceladasAgora.length > 0 ? 'A nota foi cancelada, mas a venda não' : 'Erro',
+        notasCanceladasAgora.length > 0
+          ? `A ${listaDeNotas(notasCanceladasAgora)} já está cancelada na SEFAZ, mas a venda não foi cancelada: ${err instanceof Error ? err.message : 'erro desconhecido'}. Clique em "Estornar/Cancelar venda" de novo — a nota não será cancelada outra vez.`
+          : (err instanceof Error ? err.message : 'Não foi possível cancelar a venda.'),
+      );
     } finally {
       submitLockRef.current = false;
       setIsLoading(false);
@@ -4616,69 +4675,71 @@ const PedidoVendaForm: React.FC = () => {
               {/* Botão de NFC-e (Cupom Fiscal) -- some inteiro quando a
                   empresa nao controla fiscal (Configuracoes.tsx) e quando o
                   documento dela e' outro (ver documentoFiscalVendaDomain). */}
-              {documentoFiscalVenda === 'nfce' && (!nfeDoc ? (
+              {/* Nota da venda (15/10/2026, pedido do cliente): com nota VALIDA
+                  (autorizada ou aguardando a SEFAZ), de qualquer tipo, o botao e'
+                  sempre "Visualizar Nota Fiscal" -- nunca "Emitir" de novo, nem
+                  na empresa configurada para cupom que emitiu NF-e. So' sem nota
+                  valida aparece emitir, conforme o documento da empresa. As
+                  notas sao acompanhadas ao vivo (efeito "notasDaVenda"). */}
+              {nfeVinculada?.status === 'authorized' ? (
                 <button
                   className="btn-primary"
-                  onClick={handleEmitirCupomVendaExistente}
-                  disabled={isLoading}
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }}
+                  onClick={abrirPdfNfeVinculada}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981', borderColor: '#10b981' }}
+                  title="Nota autorizada — abrir o PDF (DANFE)"
                 >
-                  <Receipt size={18} /> Emitir Cupom Fiscal (NFC-e)
+                  <Eye size={18} /> Visualizar Nota Fiscal{nfeVinculada.number ? ` (nº ${numeroDaNota(nfeVinculada.number)})` : ''}
                 </button>
-              ) : nfeDoc.status === 'authorized' ? (
+              ) : nfeVinculada && ['enqueued', 'processing', 'created'].includes(nfeVinculada.status) ? (
+                <button
+                  className="btn-secondary"
+                  onClick={() => navigate('/fiscal/nfe')}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }}
+                  title="A nota foi enviada e está aguardando a SEFAZ"
+                >
+                  <RefreshCw size={18} /> NF-e aguardando SEFAZ
+                </button>
+              ) : nfeDoc?.status === 'authorized' ? (
                 <button
                   className="btn-primary"
                   onClick={handleOpenPdfCupom}
                   style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981', borderColor: '#10b981' }}
+                  title="Cupom fiscal autorizado — abrir o PDF"
                 >
-                  <Eye size={18} /> Imprimir Cupom (NFC-e)
+                  <Eye size={18} /> Visualizar Nota Fiscal (NFC-e{nfeDoc.number ? ` nº ${numeroDaNota(nfeDoc.number)}` : ''})
                 </button>
-              ) : (
-                <button
-                  className="btn-primary"
-                  onClick={handleConsultarCupomExistente}
-                  disabled={isLoading}
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}
-                >
-                  <RefreshCw size={18} /> Consultar Cupom (NFC-e)
-                </button>
-              ))}
-
-              {/* Empresa de NF-e: sem nota (ou so' cancelada) -> Emitir; com nota,
-                  o botao mostra o NUMERO e abre o PDF / leva pra corrigir. Nunca
-                  deixa emitir a segunda (a tela Fiscal tambem barra). */}
-              {documentoFiscalVenda === 'nfe' && (
-                nfeVinculada?.status === 'authorized' ? (
+              ) : documentoFiscalVenda === 'nfce' ? (
+                nfeDoc && nfeDoc.status !== 'canceled' ? (
                   <button
                     className="btn-primary"
-                    onClick={abrirPdfNfeVinculada}
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981', borderColor: '#10b981' }}
-                    title="Nota autorizada — abrir o PDF (DANFE)"
+                    onClick={handleConsultarCupomExistente}
+                    disabled={isLoading}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}
                   >
-                    <Eye size={18} /> {situacaoNfeVinculada?.texto}
-                  </button>
-                ) : nfeVinculada && ['enqueued', 'processing', 'created'].includes(nfeVinculada.status) ? (
-                  <button
-                    className="btn-secondary"
-                    onClick={() => navigate('/fiscal/nfe')}
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }}
-                    title="A nota foi enviada e está aguardando a SEFAZ"
-                  >
-                    <RefreshCw size={18} /> NF-e aguardando SEFAZ
+                    <RefreshCw size={18} /> Consultar Cupom (NFC-e)
                   </button>
                 ) : (
                   <button
                     className="btn-primary"
-                    onClick={() => navigate(rotaEmissaoNFe(id!))}
+                    onClick={handleEmitirCupomVendaExistente}
+                    disabled={isLoading}
                     style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }}
-                    title={nfeVinculada && (nfeVinculada.status === 'rejected' || nfeVinculada.status === 'denied')
-                      ? 'A NF-e desta venda foi rejeitada — abre a tela de Nota Fiscal para corrigir e transmitir'
-                      : 'Abre a tela de Nota Fiscal com este pedido já importado'}
                   >
-                    <Receipt size={18} /> {nfeVinculada && (nfeVinculada.status === 'rejected' || nfeVinculada.status === 'denied') ? 'Corrigir NF-e' : 'Emitir NF-e'}
+                    <Receipt size={18} /> Emitir Cupom Fiscal (NFC-e)
                   </button>
                 )
-              )}
+              ) : documentoFiscalVenda === 'nfe' ? (
+                <button
+                  className="btn-primary"
+                  onClick={() => navigate(rotaEmissaoNFe(id!))}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }}
+                  title={nfeVinculada && (nfeVinculada.status === 'rejected' || nfeVinculada.status === 'denied')
+                    ? 'A NF-e desta venda foi rejeitada — abre a tela de Nota Fiscal para corrigir e transmitir'
+                    : 'Abre a tela de Nota Fiscal com este pedido já importado'}
+                >
+                  <Receipt size={18} /> {nfeVinculada && (nfeVinculada.status === 'rejected' || nfeVinculada.status === 'denied') ? 'Corrigir NF-e' : 'Emitir NF-e'}
+                </button>
+              ) : null}
 
               <button className="btn-secondary" onClick={() => navigate(`/pedidos-venda/print/${id}`)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Printer size={18} /> Imprimir Recibo

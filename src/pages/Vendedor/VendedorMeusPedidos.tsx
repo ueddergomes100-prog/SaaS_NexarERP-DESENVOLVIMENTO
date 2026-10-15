@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Receipt } from 'lucide-react';
+import { Eye, Receipt } from 'lucide-react';
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -8,6 +8,10 @@ import { showError, showSuccess, showWarning } from '../../utils/alerts';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { STATUS_FINALIZADA } from '../../utils/preVendaDomain';
 import { emitirNfceDoPedido, NfceEmissaoError, type PedidoParaEmissao } from '../../services/nfceEmissaoService';
+import { spedyService } from '../../services/spedyService';
+import { nomeArquivoDocumento, numeroDaNota } from '../../utils/nomeArquivoDomain';
+import { STATUS_NOTA_EM_TRANSMISSAO } from '../../utils/cancelamentoNotaVendaDomain';
+import { compartilharOuBaixarPdf } from './folhaParaPdf';
 import VendedorHeader from './VendedorHeader';
 import {
   PAGINA_MEUS_PEDIDOS,
@@ -32,6 +36,12 @@ const toMillis = (value: unknown): number => {
   return typeof withToMillis?.toMillis === 'function' ? withToMillis.toMillis() : 0;
 };
 
+/** Nota da venda mostrada na lista (15/10/2026): a que vale, autorizada > aguardando > as outras. */
+interface NotaDoPedido { spedyId: string; tipo: string; status: string; number: number | string | null }
+
+const prioridadeDaNota = (status: string) => (status === 'authorized' ? 0 : STATUS_NOTA_EM_TRANSMISSAO.includes(status) ? 1 : 2);
+const LIMITE_DO_IN = 30;
+
 const corStatus = (status: string): string => {
   if (status === 'Finalizada') return '#10b981';
   if (status === 'Cancelada') return '#ef4444';
@@ -47,6 +57,11 @@ const VendedorMeusPedidos: React.FC = () => {
   const [erroCarga, setErroCarga] = useState('');
   const [visiveis, setVisiveis] = useState(PAGINA_MEUS_PEDIDOS);
   const [emitindoId, setEmitindoId] = useState<string | null>(null);
+  // Notas dos pedidos da lista (15/10/2026): com nota autorizada o botao vira
+  // "Visualizar Nota Fiscal" -- antes "Emitir" aparecia em toda venda finalizada.
+  const [notasPorPedido, setNotasPorPedido] = useState<Record<string, NotaDoPedido>>({});
+  const [abrindoNotaId, setAbrindoNotaId] = useState<string | null>(null);
+  const pdfProntoRef = React.useRef<Record<string, Blob>>({});
   // "Agora" e' fixado quando a lista carrega (nao a cada render): a janela
   // de 30 dias e' decidida uma vez por carga, e a renderizacao fica pura.
   const [agoraMillis, setAgoraMillis] = useState(0);
@@ -137,9 +152,14 @@ const VendedorMeusPedidos: React.FC = () => {
         where('tenantId', '==', tenantId),
         where('pedidoId', '==', item.id),
       ));
-      const jaAutorizada = notasSnap.docs.some((d) => d.data().status === 'authorized');
-      if (jaAutorizada) {
+      const daVenda = notasSnap.docs.map((d) => d.data()).filter((n) => n.finalidade !== 'devolucao');
+      if (daVenda.some((n) => n.status === 'authorized')) {
         showWarning('Este pedido já tem uma nota fiscal emitida e autorizada.');
+        return;
+      }
+      // Nota que ainda aguarda a SEFAZ tambem barra: emitir de novo duplicaria a nota.
+      if (daVenda.some((n) => STATUS_NOTA_EM_TRANSMISSAO.includes(String(n.status)))) {
+        showWarning('A nota deste pedido ainda está aguardando a SEFAZ. Espere a resposta antes de emitir de novo.');
         return;
       }
 
@@ -183,6 +203,7 @@ const VendedorMeusPedidos: React.FC = () => {
         });
       }
 
+      setNotasPorPedido((atual) => ({ ...atual, [pedido.id]: { spedyId: nota.id, tipo: 'NFC-e', status: nota.status, number: nota.number ?? null } }));
       if (nota.status === 'authorized') {
         showSuccess('Nota fiscal emitida e autorizada!');
       } else if (['enqueued', 'processing', 'created'].includes(nota.status)) {
@@ -202,6 +223,63 @@ const VendedorMeusPedidos: React.FC = () => {
 
   const lista = filtrarMeusPedidos(itens, { temMinhasVendas, agoraMillis });
   const listaVisivel = lista.slice(0, visiveis);
+
+  // Situacao da nota de cada venda finalizada na tela (15/10/2026). Consulta
+  // pelos pedidos visiveis, de 30 em 30 (limite do "in" do Firestore). Sem
+  // permissao de nota fiscal nao consulta nada (o botao nem aparece).
+  const idsFinalizadosVisiveis = listaVisivel
+    .filter((item) => item.tipo === 'Pedido' && item.status === STATUS_FINALIZADA)
+    .map((item) => item.id);
+  const chaveIdsFinalizados = idsFinalizadosVisiveis.join(',');
+  useEffect(() => {
+    if (!podeEmitirNota || !tenantId || !chaveIdsFinalizados) return;
+    let cancelado = false;
+    const ids = chaveIdsFinalizados.split(',');
+    const lotes: string[][] = [];
+    for (let i = 0; i < ids.length; i += LIMITE_DO_IN) lotes.push(ids.slice(i, i + LIMITE_DO_IN));
+    void Promise.all(lotes.map((lote) => getDocs(query(
+      collection(db, 'notas_fiscais'),
+      where('tenantId', '==', tenantId),
+      where('pedidoId', 'in', lote),
+    )))).then((resultados) => {
+      if (cancelado) return;
+      const melhores: Record<string, NotaDoPedido> = {};
+      resultados.forEach((snap) => snap.docs.forEach((d) => {
+        const dados = d.data();
+        if (dados.finalidade === 'devolucao' || !dados.pedidoId) return;
+        const nota: NotaDoPedido = { spedyId: String(dados.spedyId || ''), tipo: String(dados.tipo || ''), status: String(dados.status || ''), number: dados.number ?? null };
+        const atual = melhores[dados.pedidoId];
+        if (!atual || prioridadeDaNota(nota.status) < prioridadeDaNota(atual.status)) melhores[dados.pedidoId] = nota;
+      }));
+      setNotasPorPedido((anterior) => ({ ...anterior, ...melhores }));
+    }).catch((erro) => {
+      // Sem a consulta o app volta ao jeito antigo: "Emitir" confere na hora do toque.
+      console.warn('Meus Pedidos: nao foi possivel consultar as notas dos pedidos.', erro);
+    });
+    return () => { cancelado = true; };
+  }, [podeEmitirNota, tenantId, chaveIdsFinalizados]);
+
+  /** Abre o PDF da nota no celular (menu de compartilhar) ou baixa, no computador. */
+  const handleVisualizarNota = async (item: ItemLista, nota: NotaDoPedido) => {
+    if (abrindoNotaId || !nota.spedyId) return;
+    const tipoSpedy = nota.tipo === 'NFC-e' ? 'consumer' : 'product';
+    const nomeArquivo = nomeArquivoDocumento({ tipo: nota.tipo === 'NFC-e' ? 'NFCE' : 'NFE', numero: nota.number, destinatario: item.clienteNome });
+    setAbrindoNotaId(item.id);
+    try {
+      const pdf = pdfProntoRef.current[item.id] || await spedyService.baixarArquivoFiscal(nota.spedyId, tipoSpedy, 'pdf');
+      const resultado = await compartilharOuBaixarPdf(pdf, nomeArquivo, `Nota fiscal do pedido #${item.numero}`);
+      if (resultado === 'precisa_toque') {
+        pdfProntoRef.current[item.id] = pdf;
+        showWarning('PDF da nota pronto', 'Toque de novo em "Visualizar Nota Fiscal" para abrir.');
+      } else {
+        delete pdfProntoRef.current[item.id];
+      }
+    } catch (erro) {
+      showError('Não foi possível abrir a nota', erro instanceof Error ? erro.message : 'Tente de novo em instantes.');
+    } finally {
+      setAbrindoNotaId(null);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
@@ -248,7 +326,26 @@ const VendedorMeusPedidos: React.FC = () => {
                   <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.valorTotal)}</div>
                 </div>
 
-                {mostraEmitirNota && (
+                {mostraEmitirNota && notasPorPedido[item.id]?.status === 'authorized' ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleVisualizarNota(item, notasPorPedido[item.id])}
+                    disabled={abrindoNotaId === item.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', height: '40px',
+                      borderRadius: '10px', border: '1px solid rgba(16,185,129,0.35)', backgroundColor: 'rgba(16,185,129,0.1)',
+                      color: '#10b981', fontSize: '14px', fontWeight: 700,
+                      cursor: abrindoNotaId === item.id ? 'default' : 'pointer', opacity: abrindoNotaId === item.id ? 0.7 : 1,
+                    }}
+                  >
+                    <Eye size={16} />
+                    {abrindoNotaId === item.id ? 'Abrindo...' : `Visualizar Nota Fiscal${notasPorPedido[item.id].number ? ` (nº ${numeroDaNota(notasPorPedido[item.id].number)})` : ''}`}
+                  </button>
+                ) : mostraEmitirNota && notasPorPedido[item.id] && STATUS_NOTA_EM_TRANSMISSAO.includes(notasPorPedido[item.id].status) ? (
+                  <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: 600, color: '#f59e0b', padding: '8px 0' }}>
+                    Nota fiscal aguardando a SEFAZ
+                  </div>
+                ) : mostraEmitirNota && (
                   <button
                     type="button"
                     onClick={() => void handleEmitirNota(item)}

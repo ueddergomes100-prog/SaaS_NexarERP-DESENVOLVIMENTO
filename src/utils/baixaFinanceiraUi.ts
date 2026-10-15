@@ -37,6 +37,8 @@ export const pedirDadosBaixa = async (args: {
   titulo: string;
   texto: string;
   formas: string[];
+  /** Texto mostrado no lugar do nome da forma (o valor continua o nome). */
+  rotulosDasFormas?: Record<string, string>;
   formaInicial?: string;
   rotuloForma: string;
   /** Frase quando confirma sem escolher a forma. Ex.: "Escolha como foi pago." */
@@ -48,7 +50,7 @@ export const pedirDadosBaixa = async (args: {
 }): Promise<DadosBaixa | null> => {
   const hoje = getDateInputInTimeZone();
   const opcoes = args.formas
-    .map((forma) => `<option value="${escaparHtml(forma)}"${forma === args.formaInicial ? ' selected' : ''}>${escaparHtml(forma)}</option>`)
+    .map((forma) => `<option value="${escaparHtml(forma)}"${forma === args.formaInicial ? ' selected' : ''}>${escaparHtml(args.rotulosDasFormas?.[forma] || forma)}</option>`)
     .join('');
 
   const resultado = await NexusSwal.fire({

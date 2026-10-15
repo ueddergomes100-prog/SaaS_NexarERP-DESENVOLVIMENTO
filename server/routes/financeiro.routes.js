@@ -15,7 +15,7 @@ const {
 } = require('../services/baixaFinanceira');
 const { validarPedidoDeAlteracaoDeValor, alterarValorDoTitulo } = require('../services/alteracaoValorTitulo');
 const { PERMISSAO_ALTERAR_VALOR } = require('../domain/alteracaoValorTituloDomain');
-const { gerarBoletoDaParcela, voltarParcelaAPrazo } = require('../services/boletoDeAPrazo');
+const { prepararCobrancaEmBoleto } = require('../services/cobrancaEmBoleto');
 const {
   validarPedidoDeRenegociacao,
   criarRenegociacao,
@@ -299,13 +299,13 @@ router.post('/cheque-emitido/compensar', rotaDeMovimento('financeiro.cheques', '
 router.post('/boleto/retorno', rotaDeMovimento('financeiro.boletos', 'dar baixa no boleto', baixarBoletoPeloRetorno,
   (r, corpo) => (r.jaEstavaPago ? '' : `Boleto "${r.descricao}" baixado pelo arquivo de retorno: ${reais(Number(corpo.valorPagoCentavos))}.`)));
 
-/** POST /api/financeiro/gerar-boleto  { transacaoId } -- parcela "a prazo" passa a ser cobrada em boleto (15/10/2026) */
-router.post('/gerar-boleto', rotaDeMovimento('financeiro.boletos', 'gerar o boleto da parcela', gerarBoletoDaParcela,
-  (r) => `Parcela "${r.descricao}" passou de "a prazo" para boleto (aguardando emissão).`));
-
-/** POST /api/financeiro/voltar-a-prazo  { transacaoId } -- desfaz o "Gerar boleto" enquanto o boleto nao foi emitido */
-router.post('/voltar-a-prazo', rotaDeMovimento('financeiro.boletos', 'voltar a parcela para "a prazo"', voltarParcelaAPrazo,
-  (r) => `Parcela "${r.descricao}" voltou a ser "a prazo" (boleto não emitido).`));
+/**
+ * POST /api/financeiro/cobrar-em-boleto  { transacaoId, vencimento }
+ * "Dar Baixa" com a forma Boleto (15/10/2026): a parcela passa a ser cobrada em
+ * boleto, com o vencimento escolhido; a tela emite o boleto logo em seguida.
+ */
+router.post('/cobrar-em-boleto', rotaDeMovimento('financeiro.boletos', 'preparar o boleto da parcela', prepararCobrancaEmBoleto,
+  (r) => `Parcela "${r.descricao}" passou a ser cobrada em boleto${r.formaAnterior && r.formaAnterior !== 'Boleto' ? ` (era "${r.formaAnterior}")` : ''}, vencimento ${String(r.vencimento).split('-').reverse().join('/')}.`));
 
 /** POST /api/financeiro/banco/lancamento  { bancoId, tipo, direcao, valorCentavos, descricao, data } */
 router.post('/banco/lancamento', rotaDeMovimento('cadastros.bancos', 'registrar o lançamento', lancarNoBanco,

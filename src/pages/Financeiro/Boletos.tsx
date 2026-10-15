@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, where, type DocumentData } from 'firebase/firestore';
+import { collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { Barcode, Download, FileUp, Loader2, Printer, Receipt, Search } from 'lucide-react';
 import { db } from '../../services/firebase';
@@ -9,16 +9,24 @@ import { showError, showSuccess, NexusSwal } from '../../utils/alerts';
 import { hasModuleAccess } from '../../utils/roles';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
-import { fromCents, toCents, type BoletoDetails } from '../../utils/financeDomain';
+import { fromCents, type BoletoDetails } from '../../utils/financeDomain';
 import { reserveTenantSequence } from '../../utils/firestoreAtomic';
-import { codigoBarrasSicoob, formatarNossoNumeroSicoobExibicao, nossoNumeroSicoobComDv } from '../../utils/boletoCnabDomain';
-import { formatarLinhaDigitavel, linhaDigitavelDoCodigoBarras } from '../../utils/boletoDomain';
+import { formatarNossoNumeroSicoobExibicao } from '../../utils/boletoCnabDomain';
+import { formatarLinhaDigitavel } from '../../utils/boletoDomain';
 import { gerarPdfBoletos, type DadosPdfBoleto } from '../../utils/boletoPdf';
-import { nomeArquivoDocumento } from '../../utils/nomeArquivoDomain';
-import { formatCompanyAddress } from '../../utils/companyAddress';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
 import {
-  erroDoConvenioBoleto,
+  dadosPdfDoBoleto as dadosPdfDoBoletoComum,
+  emitirUmTitulo as emitirUmTituloComum,
+  gerarPdfDoBoleto as gerarPdfDoBoletoComum,
+  nomePdfBoleto,
+  paraTituloBoleto,
+  recalcularBoleto as recalcularBoletoComum,
+  validarTituloParaEmissao as validarTituloParaEmissaoComum,
+  type BancoBoleto,
+  type TituloBoleto,
+} from '../../services/boletoEmissaoService';
+import {
   lerArquivoRetornoSicoob,
   faturadoNoPeriodo,
   ROTULO_PERIODO_FATURAMENTO,
@@ -27,9 +35,8 @@ import {
   type PeriodoFaturamento,
   type StatusBoletoEfetivo,
 } from '../../utils/boletoEmissaoDomain';
-import { mensagensDoBoleto, montarRemessaSicoob, nomeArquivoRemessaSicoob, type TituloRemessaSicoob } from '../../utils/boletoRemessaSicoobDomain';
+import { montarRemessaSicoob, nomeArquivoRemessaSicoob, type TituloRemessaSicoob } from '../../utils/boletoRemessaSicoobDomain';
 import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
-import { camposAoVoltarAPrazo } from '../../utils/boletoDeAPrazoDomain';
 import '../OS/OS.css';
 
 /**
@@ -46,46 +53,6 @@ import '../OS/OS.css';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
-interface BancoBoleto {
-  id: string;
-  nome: string;
-  agencia?: string;
-  conta?: string;
-  boleto?: {
-    ativo?: boolean;
-    contaDv?: string;
-    codigoCliente?: string;
-    cnpjCedente?: string;
-    nomeCedente?: string;
-    instrucoes?: string;
-    multaPercentual?: number;
-    jurosMensalPercentual?: number;
-    proximoNossoNumero?: number;
-    proximaRemessa?: number;
-  };
-}
-
-interface TituloBoleto {
-  id: string;
-  descricao: string;
-  clienteId?: string | null;
-  clienteNome?: string;
-  valorCentavos: number;
-  status: 'Paga' | 'Pendente' | 'Cancelada';
-  dataVencimento?: string;
-  dataPrevistaRecebimento?: string;
-  bancoId?: string;
-  bancoNome?: string;
-  pedidoId?: string;
-  osId?: string;
-  paymentIndex?: number;
-  boleto?: BoletoDetails;
-  /** Era "Pagamento a Prazo" e virou boleto pelo Contas a Receber (boletoDeAPrazoDomain). */
-  boletoDeAPrazo?: boolean;
-  /** Dia em que o titulo nasceu (faturamento da venda/OS), AAAA-MM-DD; vazio em lancamento antigo. */
-  faturadoEm: string;
-}
-
 type Aba = 'aguardando' | 'emitidos' | 'remessa' | 'pagos' | 'vencidos';
 
 const ROTULO_ABA: Record<Aba, string> = {
@@ -95,26 +62,6 @@ const ROTULO_ABA: Record<Aba, string> = {
   pagos: 'Pagos',
   vencidos: 'Vencidos',
 };
-
-/** Documento de `transacoes` -> título da tela (também usado pelo retorno do banco). */
-const paraTituloBoleto = (id: string, data: DocumentData): TituloBoleto => ({
-  id,
-  descricao: data.descricao || '',
-  clienteId: data.clienteId ?? null,
-  clienteNome: data.clienteNome || '',
-  valorCentavos: Number(data.valorCentavos ?? toCents(data.valor)),
-  status: data.status || 'Pendente',
-  dataVencimento: data.dataVencimento || data.dataPrevistaRecebimento || '',
-  dataPrevistaRecebimento: data.dataPrevistaRecebimento || '',
-  bancoId: data.bancoId || '',
-  bancoNome: data.bancoNome || '',
-  pedidoId: data.pedidoId || '',
-  osId: data.osId || '',
-  paymentIndex: data.paymentIndex,
-  boleto: data.boleto || undefined,
-  ...(data.boletoDeAPrazo === true ? { boletoDeAPrazo: true } : {}),
-  faturadoEm: data.createdAt?.toDate ? getDateInputInTimeZone(data.createdAt.toDate()) : '',
-} as TituloBoleto);
 
 const Boletos: React.FC = () => {
   const { tenantId, currentUser, userRole, isOwner, userPermissions } = useAuth();
@@ -242,82 +189,13 @@ const Boletos: React.FC = () => {
 
   // --- Emissao --------------------------------------------------------
 
-  /** Confere o convenio do banco e a data de vencimento do titulo. Devolve o banco (ja' validado)
-   *  ou lanca erro em portugues -- usado antes de emitir, tanto sozinho quanto em lote. */
-  const validarTituloParaEmissao = (titulo: TituloBoleto): BancoBoleto => {
-    const banco = bancosComBoleto.find((b) => b.id === titulo.bancoId) || bancosComBoleto[0];
-    if (!banco) {
-      throw new Error('Nenhum banco preparado para boleto. Abra Financeiro → Bancos, edite o banco do Sicoob e marque "Emite boleto por este banco".');
-    }
-    const erroConvenio = erroDoConvenioBoleto({
-      cooperativa: banco.agencia,
-      conta: banco.conta,
-      contaDv: banco.boleto?.contaDv,
-    });
-    if (erroConvenio) throw new Error(erroConvenio);
-    if (!(titulo.dataVencimento || titulo.dataPrevistaRecebimento)) {
-      throw new Error(`O título "${titulo.descricao}" está sem data de vencimento. Ajuste o título antes de emitir o boleto.`);
-    }
-    return banco;
-  };
+  /** Confere convenio e vencimento (services/boletoEmissaoService). */
+  const validarTituloParaEmissao = (titulo: TituloBoleto): BancoBoleto => validarTituloParaEmissaoComum(titulo, bancosComBoleto);
 
-  /** Reserva o nosso numero e grava o boleto no titulo, numa transacao so'. Nao confirma nada com o
-   *  usuario nem abre PDF -- isso fica por conta de quem chama (emitirBoleto ou emitirSelecionados). */
+  /** Reserva o nosso numero e grava o boleto (services/boletoEmissaoService). */
   const emitirUmTitulo = async (titulo: TituloBoleto, banco: BancoBoleto): Promise<BoletoDetails> => {
     if (!tenantId || !currentUser) throw new Error('Sessão sem empresa identificada. Atualize a página.');
-    const vencimento = titulo.dataVencimento || titulo.dataPrevistaRecebimento;
-    const chaveSequencia = `boleto_nosso_numero_${banco.id}`;
-    const piso = Number(banco.boleto?.proximoNossoNumero || 0);
-    let dadosGerados: BoletoDetails | null = null;
-
-    await runTransaction(db, async (transaction) => {
-      const tituloRef = doc(db, 'transacoes', titulo.id);
-      const tituloSnap = await transaction.get(tituloRef);
-      if (!tituloSnap.exists()) throw new Error('Título não encontrado. Atualize a página.');
-      if (tituloSnap.data().boleto) throw new Error('Este título já tem boleto emitido.');
-
-      // `piso - 1` porque reserveTenantSequence devolve o PROXIMO valor:
-      // com piso 1203 o primeiro emitido tem que sair 1203, nao 1204.
-      const nossoNumero = await reserveTenantSequence(
-        transaction, db, tenantId, chaveSequencia, Math.max(0, piso - 1),
-      );
-
-      const codigoBarras = codigoBarrasSicoob({
-        dados: {
-          cooperativa: String(banco.agencia || ''),
-          conta: String(banco.conta || ''),
-          contaDv: banco.boleto?.contaDv || '0',
-          ...(banco.boleto?.codigoCliente ? { codigoCliente: banco.boleto.codigoCliente } : {}),
-          modalidade: '01',
-          nossoNumero,
-        },
-        vencimento: vencimento!,
-        valorCentavos: titulo.valorCentavos,
-      });
-
-      dadosGerados = {
-        nossoNumero: nossoNumeroSicoobComDv(nossoNumero, {
-          cooperativa: String(banco.agencia || ''),
-          conta: String(banco.conta || ''),
-          contaDv: banco.boleto?.contaDv || '0',
-        }),
-        linhaDigitavel: linhaDigitavelDoCodigoBarras(codigoBarras),
-        codigoBarras,
-        vencimento: vencimento!,
-        dataEmissao: getDateInputInTimeZone(),
-        status: 'emitido',
-      };
-
-      transaction.update(tituloRef, {
-        boleto: dadosGerados,
-        bancoId: banco.id,
-        bancoNome: banco.nome,
-        updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Boleto emitido'),
-      });
-    });
-
-    return dadosGerados!;
+    return emitirUmTituloComum({ tenantId, uid: currentUser.uid, titulo, banco });
   };
 
   const emitirBoleto = async (titulo: TituloBoleto) => {
@@ -437,10 +315,8 @@ const Boletos: React.FC = () => {
       title: 'Desfazer emissão deste boleto?',
       html: `<div style="text-align:left;font-size:14px">`
         + `Remove o nosso número, a linha digitável e o código de barras gravados neste título. `
-        + (titulo.boletoDeAPrazo
-          ? `Esta parcela era "Pagamento a Prazo": ela volta a ser a prazo e sai da lista de boletos (para emitir de novo, use "Gerar boleto" no Contas a Receber). `
-          : `Ele volta para "Aguardando emissão" e pode ser emitido de novo. `)
-        + `Isso não desfaz nada que já tenha sido enviado ao banco.`
+        + `Ele volta para "Aguardando emissão" e pode ser emitido de novo. Isso não desfaz nada que já `
+        + `tenha sido enviado ao banco.`
         + `</div>`,
       icon: 'warning',
       showCancelButton: true,
@@ -450,26 +326,19 @@ const Boletos: React.FC = () => {
     if (!confirmacao.isConfirmed) return;
 
     setProcessando(true);
-    let eraAPrazo = false;
     try {
       await runTransaction(db, async (transaction) => {
         const ref = doc(db, 'transacoes', titulo.id);
         const snap = await transaction.get(ref);
         if (!snap.exists()) throw new Error('Título não encontrado. Atualize a página.');
         if (snap.data().status === 'Paga') throw new Error('Este título já foi pago — não é possível desfazer a emissão.');
-        // Parcela que era "a prazo" e virou boleto pelo Contas a Receber (15/10/2026):
-        // desfazer a emissao devolve a forma "a prazo" (decisao do dono).
-        eraAPrazo = snap.data().boletoDeAPrazo === true;
         transaction.update(ref, {
           boleto: deleteField(),
-          ...(eraAPrazo ? { ...camposAoVoltarAPrazo(), boletoDeAPrazo: deleteField() } : {}),
           updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), eraAPrazo ? 'Emissão de boleto desfeita; parcela voltou a ser "a prazo"' : 'Emissão de boleto desfeita'),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Emissão de boleto desfeita'),
         });
       });
-      showSuccess(eraAPrazo
-        ? 'Emissão desfeita. A parcela voltou a ser "Pagamento a Prazo" e saiu da lista de boletos.'
-        : 'Emissão desfeita. O título voltou para "Aguardando emissão".');
+      showSuccess('Emissão desfeita. O título voltou para "Aguardando emissão".');
     } catch (erro: any) {
       console.error('Erro ao desfazer emissão do boleto:', erro);
       showError('Não foi possível desfazer', erro?.message || 'Tente novamente em instantes.');
@@ -480,30 +349,7 @@ const Boletos: React.FC = () => {
 
   // --- Boleto para imprimir / ver -------------------------------------------
 
-  /**
-   * Recalcula codigo de barras e linha digitavel a partir do que e' verdade no cadastro (nosso numero,
-   * vencimento, valor, conta do banco) em vez de confiar no que ficou gravado no titulo: assim um
-   * boleto emitido antes de uma correcao do calculo sai certo na tela e no PDF.
-   */
-  const recalcularBoleto = (titulo: TituloBoleto) => {
-    const banco = bancosComBoleto.find((b) => b.id === titulo.bancoId) || bancosComBoleto[0];
-    if (!banco || !titulo.boleto) return null;
-    const nossoNumeroBase = Number(String(titulo.boleto.nossoNumero || '0').slice(0, -1)) || 0;
-    const vencimento = titulo.boleto.vencimento || titulo.dataVencimento || '';
-    const codigoBarras = codigoBarrasSicoob({
-      dados: {
-        cooperativa: String(banco.agencia || ''),
-        conta: String(banco.conta || ''),
-        contaDv: banco.boleto?.contaDv || '0',
-        ...(banco.boleto?.codigoCliente ? { codigoCliente: banco.boleto.codigoCliente } : {}),
-        modalidade: '01',
-        nossoNumero: nossoNumeroBase,
-      },
-      vencimento,
-      valorCentavos: titulo.valorCentavos,
-    });
-    return { banco, codigoBarras, linhaDigitavel: linhaDigitavelDoCodigoBarras(codigoBarras), nossoNumeroBase, vencimento };
-  };
+  const recalcularBoleto = (titulo: TituloBoleto) => recalcularBoletoComum(titulo, bancosComBoleto);
 
   const mostrarBoleto = (titulo: TituloBoleto) => {
     const calc = recalcularBoleto(titulo);
@@ -517,109 +363,9 @@ const Boletos: React.FC = () => {
     });
   };
 
-  /**
-   * Gera o PDF do boleto (recibo do pagador + ficha de compensacao) a partir do titulo.
-   * Usado tanto pelo botao "Imprimir" quanto logo apos a emissao, pra tela ja mostrar o
-   * boleto pronto sem precisar de um segundo clique. Lanca erro (mensagem em portugues)
-   * em vez de mostrar popup direto, pra cada chamador decidir como reagir.
-   */
-  const dadosPdfDoBoleto = async (titulo: TituloBoleto): Promise<DadosPdfBoleto> => {
-    if (!tenantId) throw new Error('Sessão sem empresa identificada. Atualize a página.');
-    const calc = recalcularBoleto(titulo);
-    if (!calc) throw new Error('Configure o convênio de boleto em Financeiro → Bancos.');
-    const { banco } = calc;
-    if (!banco.boleto?.cnpjCedente || !banco.boleto?.nomeCedente) {
-      throw new Error('Preencha o CNPJ e o nome do cedente na Configuração de Boleto do banco antes de gerar o boleto.');
-    }
-    let cliente: any = null;
-    let numeroPedido = '';
-    let clienteId = titulo.clienteId || '';
-    if (titulo.pedidoId) {
-      const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', titulo.pedidoId));
-      if (pedidoSnap.exists() && pedidoSnap.data().tenantId === tenantId) {
-        numeroPedido = String(pedidoSnap.data().numeroPedido || '');
-        clienteId = clienteId || String(pedidoSnap.data().clienteId || '');
-      }
-    }
-    if (clienteId) {
-      const clienteSnap = await getDoc(doc(db, 'clientes', clienteId));
-      if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) cliente = clienteSnap.data();
-    }
-    const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
-    const config: any = configSnap.exists() ? configSnap.data() : {};
-
-    const documento = String(cliente?.documento || '').replace(/\D/g, '');
-    const formatarDoc = (d: string) => (d.length === 14
-      ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
-      : d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4'));
-    const formatarCep = (c: string) => (c.length === 8 ? c.replace(/^(\d{5})(\d{3})$/, '$1-$2') : c);
-    const cnpj = String(banco.boleto.cnpjCedente).replace(/\D/g, '');
-    const codigoCliente = String(banco.boleto.codigoCliente || `${banco.conta || ''}${banco.boleto.contaDv || '0'}`).replace(/\D/g, '').padStart(7, '0');
-    // Do jeito que o Sicoob imprime: "3049/131877-2" (sem espaco, hifen antes do ultimo digito do codigo).
-    const codigoClienteExibicao = `${codigoCliente.slice(0, -1)}-${codigoCliente.slice(-1)}`;
-    const instrucoes = mensagensDoBoleto(
-      {
-        cooperativa: String(banco.agencia || ''),
-        conta: String(banco.conta || ''),
-        cnpjCedente: cnpj,
-        nomeCedente: banco.boleto.nomeCedente,
-        instrucoes: banco.boleto.instrucoes,
-        multaPercentual: banco.boleto.multaPercentual,
-        jurosMensalPercentual: banco.boleto.jurosMensalPercentual,
-        numeroRemessa: 0,
-      },
-      {
-        nossoNumero: calc.nossoNumeroBase,
-        numeroDocumento: numeroPedido || String(calc.nossoNumeroBase),
-        referencia: numeroPedido || undefined,
-        vencimento: calc.vencimento,
-        valorCentavos: titulo.valorCentavos,
-        sacado: { tipoDocumento: 'CPF', documento: '', nome: '' },
-      },
-    );
-    const nome = String(cliente?.nome || titulo.clienteNome || 'Cliente').trim();
-    const cepEmpresa = String(config.cep || '').replace(/\D/g, '');
-    return {
-      bancoNome: 'SICOOB',
-      codigoBanco: '756-0',
-      localPagamento: 'Pagável Preferenc. nas Cooperativas da Rede Sicoob',
-      beneficiarioNome: banco.boleto.nomeCedente,
-      beneficiarioCnpj: formatarDoc(cnpj),
-      beneficiarioEndereco: [formatCompanyAddress(config), cepEmpresa ? `CEP: ${formatarCep(cepEmpresa)}` : ''].filter(Boolean).join(', '),
-      agenciaCodigoBeneficiario: `${String(banco.agencia || '')}/${codigoClienteExibicao}`,
-      carteira: '01',
-      pagadorNome: nome,
-      pagadorDocumento: formatarDoc(documento),
-      pagadorRua: [cliente?.endereco, cliente?.numero].filter(Boolean).join(', '),
-      pagadorBairro: cliente?.bairro || '',
-      pagadorCep: cliente?.cep ? formatarCep(String(cliente.cep).replace(/\D/g, '')) : '',
-      pagadorCidade: cliente?.cidade || '',
-      pagadorUf: cliente?.estado || '',
-      numeroDocumento: numeroPedido || String(calc.nossoNumeroBase),
-      nossoNumero: formatarNossoNumeroSicoobExibicao(String(titulo.boleto?.nossoNumero || '')),
-      vencimento: calc.vencimento,
-      dataEmissao: titulo.boleto?.dataEmissao || getDateInputInTimeZone(),
-      valorCentavos: titulo.valorCentavos,
-      linhaDigitavel: calc.linhaDigitavel,
-      codigoBarras: calc.codigoBarras,
-      instrucoes,
-      empresaHeader: {
-        nome: String(config.nomeOficina || config.razaoSocial || config.nomeFantasia || banco.boleto.nomeCedente || '').trim(),
-        endereco: formatCompanyAddress(config) || undefined,
-        telefone: config.telefone || undefined,
-      },
-    };
-  };
-
-  const nomePdfBoleto = (titulo: TituloBoleto) => nomeArquivoDocumento({
-    tipo: 'BOLETO',
-    numero: titulo.boleto?.nossoNumero ? formatarNossoNumeroSicoobExibicao(titulo.boleto.nossoNumero) : '',
-    destinatario: titulo.clienteNome,
-  });
-
-  const gerarPdfDoBoleto = async (titulo: TituloBoleto): Promise<{ blob: Blob; nome: string }> => (
-    { blob: gerarPdfBoletos([await dadosPdfDoBoleto(titulo)]), nome: nomePdfBoleto(titulo) }
-  );
+  /** PDF do boleto (services/boletoEmissaoService): botao "Imprimir" e logo apos a emissao. */
+  const dadosPdfDoBoleto = (titulo: TituloBoleto): Promise<DadosPdfBoleto> => dadosPdfDoBoletoComum({ tenantId: tenantId || '', titulo, bancosComBoleto });
+  const gerarPdfDoBoleto = (titulo: TituloBoleto) => gerarPdfDoBoletoComum({ tenantId: tenantId || '', titulo, bancosComBoleto });
 
   /** 2a via de varios boletos marcados: um PDF so', um boleto por pagina. */
   const imprimirSelecionados = async () => {

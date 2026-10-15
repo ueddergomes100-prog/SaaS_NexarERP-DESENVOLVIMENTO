@@ -47,8 +47,7 @@ type RotaFinanceiro =
   | '/baixa-lote'
   | '/estorno'
   | '/alterar-valor'
-  | '/gerar-boleto'
-  | '/voltar-a-prazo'
+  | '/cobrar-em-boleto'
   | '/renegociar'
   | '/renegociacao/desfazer'
   | '/cartao/conciliar'
@@ -209,9 +208,10 @@ export const alterarValorDaParcela = (args: { transacaoId: string; novoValorCent
   chamarFinanceiro<{ ok: boolean }>('/alterar-valor', { ...args })
 );
 
-/** Parcela "a prazo" passa a ser cobrada em boleto e vai para Boletos > Aguardando emissao (15/10/2026). */
-export const gerarBoletoDaParcela = (args: { transacaoId: string; tenantId: string }) => (
-  chamarFinanceiro<{ ok: boolean }>('/gerar-boleto', { ...args })
+/** "Dar Baixa" com forma Boleto (15/10/2026): a parcela passa a ser cobrada em boleto, com o vencimento
+ *  escolhido. A emissao vem logo depois, pela tela (services/boletoEmissaoService). */
+export const prepararCobrancaEmBoleto = (args: { transacaoId: string; vencimento: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean }>('/cobrar-em-boleto', { ...args })
 );
 
 /**
@@ -229,11 +229,6 @@ export const renegociarParcelas = (args: {
 /** Desfaz a renegociacao a partir de qualquer parcela nova dela (estorna as ja' recebidas). */
 export const desfazerRenegociacaoDaParcela = (args: { transacaoId: string; motivo: string; tenantId: string }) => (
   chamarFinanceiro<{ ok: boolean; estornadas: number }>('/renegociacao/desfazer', { ...args })
-);
-
-/** Desfaz o "Gerar boleto" enquanto o boleto nao foi emitido. */
-export const voltarParcelaAPrazo = (args: { transacaoId: string; tenantId: string }) => (
-  chamarFinanceiro<{ ok: boolean }>('/voltar-a-prazo', { ...args })
 );
 
 // ---------------------------------------------------------------------------

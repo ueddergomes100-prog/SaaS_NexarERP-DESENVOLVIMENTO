@@ -320,7 +320,7 @@ try {
     'src/utils/totalDigitadoDomain.ts',
     'src/utils/alteracaoValorTituloDomain.ts',
     'src/utils/renegociacaoDomain.ts',
-    'src/utils/boletoDeAPrazoDomain.ts',
+    'src/utils/cobrancaEmBoletoDomain.ts',
     'src/utils/cancelamentoNotaVendaDomain.ts',
     'src/utils/baixaEmLoteDomain.ts',
     'src/utils/periodoListaDomain.ts',

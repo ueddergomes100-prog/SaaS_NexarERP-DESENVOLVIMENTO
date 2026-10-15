@@ -4,7 +4,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
-import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText, Edit, Barcode } from 'lucide-react';
+import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText, Edit } from 'lucide-react';
 import {
   applyPaymentReceipt,
   fromCents,
@@ -32,7 +32,7 @@ import { emitenteDaConfiguracao, montarRecibo, parseEmissaoDocumentos, parteDoCl
 import { gerarPdfRecibo } from '../../utils/documentosCobrancaPdf';
 import { mensagemDoDocumento, parseMensagensPadrao } from '../../utils/mensagensPadraoDomain';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
-import { alterarValorDaParcela, desfazerRenegociacaoDaParcela, estornarBaixaComConfirmacao, gerarBoletoDaParcela, registrarBaixa, voltarParcelaAPrazo } from '../../services/baixaFinanceiraService';
+import { alterarValorDaParcela, desfazerRenegociacaoDaParcela, estornarBaixaComConfirmacao, prepararCobrancaEmBoleto, registrarBaixa } from '../../services/baixaFinanceiraService';
 import RenegociacaoModal, { type ParcelaParaRenegociar } from '../../components/finance/RenegociacaoModal';
 import {
   PERMISSAO_RENEGOCIAR,
@@ -42,7 +42,16 @@ import {
   validarTitulosParaRenegociar,
   type RegistroRenegociacao,
 } from '../../utils/renegociacaoDomain';
-import { FORMA_A_PRAZO, bloqueioParaGerarBoleto, bloqueioParaVoltarAPrazo } from '../../utils/boletoDeAPrazoDomain';
+import { FORMA_BOLETO, bloqueioParaCobrarEmBoleto, validarVencimentoDoBoleto, vencimentoSugeridoDoBoleto } from '../../utils/cobrancaEmBoletoDomain';
+import {
+  bancoDoBoleto,
+  carregarBancosComBoleto,
+  emitirUmTitulo,
+  gerarPdfDoBoleto,
+  paraTituloBoleto,
+  validarTituloParaEmissao,
+  type BancoBoleto,
+} from '../../services/boletoEmissaoService';
 import {
   PERMISSAO_ALTERAR_VALOR,
   bloqueioParaAlterarValor,
@@ -97,8 +106,6 @@ interface TransacaoData extends TituloParaEstorno {
   criadoPor?: string;
   /** Valor da parcela alterado a mao (15/10/2026) -- ver alteracaoValorTituloDomain. */
   alteracaoValor?: Partial<AlteracaoValorRegistro> | null;
-  /** Era "Pagamento a Prazo" e virou boleto por "Gerar boleto" (boletoDeAPrazoDomain). */
-  boletoDeAPrazo?: boolean;
   /** Parcela NOVA de uma renegociacao (renegociacaoDomain). */
   renegociacao?: Partial<RegistroRenegociacao> | null;
 }
@@ -181,6 +188,8 @@ const ContasReceber: React.FC = () => {
   }, [tenantId]);
   const emissaoDocumentos = useMemo(() => parseEmissaoDocumentos(configFilial.emissaoDocumentos), [configFilial]);
   const [pdfRecibo, setPdfRecibo] = useState<{ blob: Blob; nome: string } | null>(null);
+  // Boleto emitido pelo Dar Baixa (15/10/2026): abre o PDF na hora, como na tela de Boletos.
+  const [pdfBoleto, setPdfBoleto] = useState<{ blob: Blob; nome: string } | null>(null);
 
   /**
    * Recibo de pagamento em PDF (Configuracoes por filial, fase D -- 2026-10-07):
@@ -337,20 +346,36 @@ const ContasReceber: React.FC = () => {
 
   const solicitarFormaRecebimento = async (t: TransacaoData) => {
     const FORMAS_RECEBIMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Outros'];
+    // Boleto (15/10/2026): so' com banco preparado para boleto e permissao de Boletos.
+    // Escolher "Boleto" nao da' baixa -- emite o boleto (emitirBoletoPelaBaixa).
+    let bancosComBoleto: BancoBoleto[] = [];
+    if (tenantId && podeMexerEmBoleto && !bloqueioParaCobrarEmBoleto({ ...t, tipo: t.tipo || 'entrada' })) {
+      try {
+        bancosComBoleto = await carregarBancosComBoleto(tenantId);
+      } catch (erro) {
+        console.warn('Contas a Receber: não foi possível conferir os bancos de boleto.', erro);
+      }
+    }
+    const formas = bancosComBoleto.length > 0 ? [...FORMAS_RECEBIMENTO, FORMA_BOLETO] : FORMAS_RECEBIMENTO;
     // Titulo vencido com juros/multa configurados na filial: sugere o acrescimo (editavel).
     const sugestao = acrescimoPorAtraso(parametrosVenda, transactionNetCents(t), t.dataVencimento, getDateInputInTimeZone());
     const dados = await pedirDadosBaixa({
       titulo: 'Confirmar Recebimento?',
       texto: `Valor líquido de R$ ${transactionNetAmount(t).toFixed(2)} referente a ${t.descricao}.`,
       acrescimo: sugestao ? { centavos: sugestao.totalCentavos, detalhe: descricaoDoAcrescimo(sugestao) } : null,
-      formas: FORMAS_RECEBIMENTO,
-      formaInicial: t.formaPagamento && FORMAS_RECEBIMENTO.includes(t.formaPagamento) ? t.formaPagamento : '',
+      formas,
+      rotulosDasFormas: { [FORMA_BOLETO]: 'Boleto (emitir agora; a baixa vem pelo retorno do banco)' },
+      formaInicial: t.formaPagamento && formas.includes(t.formaPagamento) ? t.formaPagamento : '',
       rotuloForma: 'Como foi recebido?',
       mensagemSemForma: 'Escolha como foi recebido antes de confirmar.',
       rotuloData: 'Data do recebimento (para cheque, vale a data de compensação)',
       textoConfirmar: 'Confirmar recebimento',
     });
     if (!dados) return;
+    if (dados.forma === FORMA_BOLETO) {
+      await emitirBoletoPelaBaixa(t, bancosComBoleto);
+      return;
+    }
     const formaPgto = dados.forma as PaymentMethod;
     const dataRecebimento = dados.data;
 
@@ -680,60 +705,73 @@ const ContasReceber: React.FC = () => {
   };
 
   /**
-   * "Gerar boleto" (15/10/2026): a parcela "a prazo" passa a ser cobrada em
-   * boleto e vai para Financeiro > Boletos, aba "Aguardando emissao". A venda
-   * nao muda. Quem grava e confere de novo e' o servidor.
+   * "Dar Baixa" com a forma Boleto (15/10/2026, decisao do dono): em vez de dar
+   * baixa, pede o vencimento e EMITE o boleto na hora -- a mesma emissao da tela
+   * de Boletos (services/boletoEmissaoService). A baixa vem depois, sozinha,
+   * pelo retorno do banco. A venda nao muda.
    */
-  const handleGerarBoleto = async (t: TransacaoData) => {
-    if (!tenantId) return;
-    const bloqueio = bloqueioParaGerarBoleto({ ...t, tipo: t.tipo || 'entrada' });
+  const emitirBoletoPelaBaixa = async (t: TransacaoData, bancosComBoleto: BancoBoleto[]) => {
+    if (!tenantId || !currentUser) return;
+    const bloqueio = bloqueioParaCobrarEmBoleto({ ...t, tipo: t.tipo || 'entrada' });
     if (bloqueio) {
-      showError('Não é possível gerar o boleto', bloqueio);
+      showError('Não é possível emitir o boleto', bloqueio);
       return;
     }
-    const confirmacao = await NexusSwal.fire({
-      title: 'Cobrar esta parcela em boleto?',
-      html: `<div style="text-align:left;font-size:14px;">A parcela <strong>${escaparHtml(t.descricao)}</strong> deixa de ser "${FORMA_A_PRAZO}" e vai para <strong>Financeiro › Boletos</strong>, aba "Aguardando emissão", com o mesmo valor e vencimento. A venda não muda.</div>`,
+    const hoje = getDateInputInTimeZone();
+    const sugerido = vencimentoSugeridoDoBoleto(dataReferenciaTransacao(t), hoje);
+    const banco = bancoDoBoleto({ bancoId: t.bancoId }, bancosComBoleto);
+    const valor = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(centavosAtuaisDoTitulo(t) / 100);
+    const resposta = await NexusSwal.fire({
+      title: 'Emitir boleto',
       icon: 'question',
+      html: `<div style="text-align:left;font-size:14px;color:var(--text-secondary);">`
+        + `Parcela <strong>${escaparHtml(t.descricao)}</strong>, valor <strong>${valor}</strong>${banco ? `, pelo banco <strong>${escaparHtml(banco.nome)}</strong>` : ''}. `
+        + 'A baixa entra sozinha quando o retorno do banco for importado em Financeiro › Boletos.</div>'
+        + '<label for="boleto-vencimento" style="display:block;text-align:left;font-size:13px;margin-top:14px;color:var(--text-secondary);">Vencimento do boleto</label>'
+        + `<input id="boleto-vencimento" type="date" class="swal2-input" min="${hoje}" value="${sugerido}" style="width:100%;margin:6px 0 0;box-sizing:border-box;" />`,
+      focusConfirm: false,
       showCancelButton: true,
-      confirmButtonText: 'Gerar boleto',
+      confirmButtonText: 'Emitir boleto',
       cancelButtonText: 'Cancelar',
+      preConfirm: () => {
+        const vencimento = (document.getElementById('boleto-vencimento') as HTMLInputElement | null)?.value || '';
+        const erro = validarVencimentoDoBoleto(vencimento, hoje);
+        if (erro) {
+          NexusSwal.showValidationMessage(erro);
+          return false;
+        }
+        return vencimento;
+      },
     });
-    if (!confirmacao.isConfirmed) return;
-    setIsProcessing(true);
-    try {
-      await gerarBoletoDaParcela({ transacaoId: t.id, tenantId });
-      const abrir = await NexusSwal.fire({
-        title: 'Pronto para emitir',
-        text: 'A parcela está em Financeiro › Boletos, aba "Aguardando emissão".',
-        icon: 'success',
-        showCancelButton: true,
-        confirmButtonText: 'Abrir Boletos',
-        cancelButtonText: 'Fechar',
-      });
-      if (abrir.isConfirmed) openTab('/financeiro/boletos', 'Boletos');
-    } catch (erro) {
-      console.error('Erro ao gerar o boleto da parcela:', erro);
-      showError('Não foi possível gerar o boleto', erro instanceof Error ? erro.message : 'Tente de novo em instantes.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+    if (!resposta.isConfirmed) return;
 
-  const handleVoltarAPrazo = async (t: TransacaoData) => {
-    if (!tenantId) return;
-    const bloqueio = bloqueioParaVoltarAPrazo(t);
-    if (bloqueio) {
-      showError('Não é possível voltar a prazo', bloqueio);
-      return;
-    }
     setIsProcessing(true);
+    let preparou = false;
     try {
-      await voltarParcelaAPrazo({ transacaoId: t.id, tenantId });
-      showSuccess(`A parcela voltou a ser "${FORMA_A_PRAZO}".`);
+      await prepararCobrancaEmBoleto({ transacaoId: t.id, vencimento: String(resposta.value), tenantId });
+      preparou = true;
+      const snap = await getDoc(doc(db, 'transacoes', t.id));
+      const titulo = paraTituloBoleto(t.id, snap.data() || {});
+      const bancoDaEmissao = validarTituloParaEmissao(titulo, bancosComBoleto);
+      const gerado = await emitirUmTitulo({ tenantId, uid: currentUser.uid, titulo, banco: bancoDaEmissao });
+      try {
+        const pdf = await gerarPdfDoBoleto({
+          tenantId,
+          titulo: { ...titulo, boleto: gerado, bancoId: bancoDaEmissao.id, bancoNome: bancoDaEmissao.nome },
+          bancosComBoleto,
+        });
+        setPdfBoleto(pdf);
+        showSuccess('Boleto emitido. A baixa entra sozinha pelo retorno do banco.');
+      } catch (erroPdf) {
+        console.error('Erro ao gerar o PDF do boleto emitido:', erroPdf);
+        showWarning('Boleto emitido', `O PDF não pôde ser gerado agora (${erroPdf instanceof Error ? erroPdf.message : 'tente de novo'}). Imprima em Financeiro › Boletos, aba "Emitidos".`);
+      }
     } catch (erro) {
-      console.error('Erro ao voltar a parcela para a prazo:', erro);
-      showError('Não foi possível voltar a prazo', erro instanceof Error ? erro.message : 'Tente de novo em instantes.');
+      console.error('Erro ao emitir o boleto pela baixa:', erro);
+      const motivo = erro instanceof Error ? erro.message : 'Tente de novo em instantes.';
+      showError('Não foi possível emitir o boleto', preparou
+        ? `${motivo} A parcela já ficou como boleto: emita em Financeiro › Boletos, aba "Aguardando emissão".`
+        : motivo);
     } finally {
       setIsProcessing(false);
     }
@@ -1203,13 +1241,15 @@ const ContasReceber: React.FC = () => {
                                           )}
                                         </div>
                                       ) : (
-                                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+                                        {/* Cobrar pelo WhatsApp: so' o icone (pedido do dono, 15/10/2026 -- linha menos poluida). */}
                                         <button
                                           onClick={() => handleCobrarWhatsApp(t)}
-                                          style={{ backgroundColor: '#25D366', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
-                                          title="Cobrar via WhatsApp"
+                                          style={{ backgroundColor: 'transparent', border: '1px solid #25D366', color: '#25D366', cursor: 'pointer', borderRadius: '6px', width: '30px', height: '30px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
+                                          title="Cobrar pelo WhatsApp"
+                                          aria-label={`Cobrar ${t.descricao} pelo WhatsApp`}
                                         >
-                                          <MessageCircle size={14} /> Cobrar
+                                          <MessageCircle size={15} />
                                         </button>
                                         <button
                                           onClick={() => handleConciliar(t)}
@@ -1225,26 +1265,6 @@ const ContasReceber: React.FC = () => {
                                             style={{ backgroundColor: 'transparent', border: '1px solid #8b5cf6', color: '#8b5cf6', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: isProcessing ? 0.6 : 1 }}
                                           >
                                             <Edit size={13} /> Alterar valor
-                                          </button>
-                                        )}
-                                        {podeMexerEmBoleto && t.formaPagamento === FORMA_A_PRAZO && (
-                                          <button
-                                            onClick={() => void handleGerarBoleto(t)}
-                                            disabled={isProcessing}
-                                            title="Cobrar esta parcela em boleto: ela vai para Financeiro › Boletos para emitir. A venda não muda."
-                                            style={{ backgroundColor: 'transparent', border: '1px solid #0ea5e9', color: '#0ea5e9', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: isProcessing ? 0.6 : 1 }}
-                                          >
-                                            <Barcode size={13} /> Gerar boleto
-                                          </button>
-                                        )}
-                                        {podeMexerEmBoleto && t.boletoDeAPrazo && !t.boleto && (
-                                          <button
-                                            onClick={() => void handleVoltarAPrazo(t)}
-                                            disabled={isProcessing}
-                                            title={`O boleto ainda não foi emitido: volta a ser "${FORMA_A_PRAZO}".`}
-                                            style={{ backgroundColor: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: isProcessing ? 0.6 : 1 }}
-                                          >
-                                            <Undo2 size={13} /> Voltar a prazo
                                           </button>
                                         )}
                                         {podeRenegociar && ehParcelaDeRenegociacao(t) && (
@@ -1390,6 +1410,7 @@ const ContasReceber: React.FC = () => {
       )}
 
       {pdfRecibo && <PdfVisualizador titulo="Recibo de pagamento" nomeArquivo={pdfRecibo.nome} pdf={pdfRecibo.blob} onFechar={() => setPdfRecibo(null)} />}
+      {pdfBoleto && <PdfVisualizador titulo="Boleto" nomeArquivo={pdfBoleto.nome} pdf={pdfBoleto.blob} onFechar={() => setPdfBoleto(null)} />}
       <ChequeCaptureModal
         aberto={chequeBaixaState !== null}
         dataMinima={getDateInputInTimeZone()}

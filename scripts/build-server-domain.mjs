@@ -55,8 +55,8 @@ const MODULOS = [
   'src/utils/vendaFechamentoDomain.ts',
   // Valor de parcela a receber alterado (15/10/2026): regra da tela e do servidor.
   'src/utils/alteracaoValorTituloDomain.ts',
-  // Parcela a prazo -> boleto (15/10/2026).
-  'src/utils/boletoDeAPrazoDomain.ts',
+  // Cobrar parcela em boleto pelo Dar Baixa (15/10/2026).
+  'src/utils/cobrancaEmBoletoDomain.ts',
   // Renegociacao de parcelas a receber (15/10/2026).
   'src/utils/renegociacaoDomain.ts',
 ];

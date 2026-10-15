@@ -17,11 +17,11 @@ import {
 } from '../src/utils/renegociacaoDomain';
 import { summarizePayments, type PaymentRecord } from '../src/utils/financeDomain';
 import {
-  bloqueioParaGerarBoleto,
-  bloqueioParaVoltarAPrazo,
-  camposAoGerarBoleto,
-  camposAoVoltarAPrazo,
-} from '../src/utils/boletoDeAPrazoDomain';
+  bloqueioParaCobrarEmBoleto,
+  camposParaCobrarEmBoleto,
+  validarVencimentoDoBoleto,
+  vencimentoSugeridoDoBoleto,
+} from '../src/utils/cobrancaEmBoletoDomain';
 import { bloqueioParaAlterarValor, bloqueioParaRefazerParcelas } from '../src/utils/alteracaoValorTituloDomain';
 
 const HOJE = '2026-10-15';
@@ -130,22 +130,29 @@ test('venda/OS com parcela renegociada nao cancela nem refaz as parcelas', () =>
   assert.match(bloqueioParaAlterarValor({ tipo: 'entrada', status: 'Renegociada' }), /renegociada/);
 });
 
-test('gerar boleto: so parcela a prazo em aberto e com vencimento', () => {
-  const aPrazo = { tipo: 'entrada', status: 'Pendente', formaPagamento: 'Pagamento a Prazo', dataVencimento: '2026-11-14' };
-  assert.equal(bloqueioParaGerarBoleto(aPrazo), '');
-  assert.match(bloqueioParaGerarBoleto({ ...aPrazo, formaPagamento: 'Pix' }), /Só parcela "Pagamento a Prazo"/);
-  assert.match(bloqueioParaGerarBoleto({ ...aPrazo, formaPagamento: 'Boleto' }), /já é cobrada em boleto/);
-  assert.match(bloqueioParaGerarBoleto({ ...aPrazo, dataVencimento: '' }), /sem data de vencimento/);
-  assert.match(bloqueioParaGerarBoleto({ ...aPrazo, status: 'Paga' }), /já foi recebida/);
-  assert.match(bloqueioParaGerarBoleto({ ...aPrazo, status: 'Renegociada' }), /renegociada/);
-  assert.match(bloqueioParaGerarBoleto({ ...aPrazo, boleto: { status: 'emitido' } }), /já tem boleto/);
-  assert.deepEqual(camposAoGerarBoleto(), { formaPagamento: 'Boleto', naturezaFinanceira: 'contas_receber', boletoDeAPrazo: true });
-  assert.equal(camposAoVoltarAPrazo().formaPagamento, 'Pagamento a Prazo');
+test('boleto pelo Dar Baixa: qualquer parcela em aberto sem cartao, cheque ou boleto emitido', () => {
+  const aPrazo = { tipo: 'entrada', status: 'Pendente', formaPagamento: 'Pagamento a Prazo' };
+  assert.equal(bloqueioParaCobrarEmBoleto(aPrazo), '');
+  assert.equal(bloqueioParaCobrarEmBoleto({ ...aPrazo, formaPagamento: 'Boleto' }), '', 'boleto ainda nao emitido: emite pela baixa');
+  assert.equal(bloqueioParaCobrarEmBoleto({ ...aPrazo, formaPagamento: '' }), '', 'titulo importado sem forma');
+  assert.match(bloqueioParaCobrarEmBoleto({ ...aPrazo, formaPagamento: 'Cartão de Crédito' }), /operadora/);
+  assert.match(bloqueioParaCobrarEmBoleto({ ...aPrazo, formaPagamento: 'Cheque' }), /cheque/);
+  assert.match(bloqueioParaCobrarEmBoleto({ ...aPrazo, status: 'Paga' }), /já foi recebida/);
+  assert.match(bloqueioParaCobrarEmBoleto({ ...aPrazo, status: 'Renegociada' }), /renegociada/);
+  assert.match(bloqueioParaCobrarEmBoleto({ ...aPrazo, boleto: { status: 'emitido' } }), /já tem boleto/);
+  assert.match(bloqueioParaCobrarEmBoleto({ ...aPrazo, acrescimoDaTransacaoId: 'x' }), /juros e multa/);
 });
 
-test('voltar a prazo: so convertida, em aberto e sem boleto emitido', () => {
-  const convertida = { status: 'Pendente', formaPagamento: 'Boleto', boletoDeAPrazo: true };
-  assert.equal(bloqueioParaVoltarAPrazo(convertida), '');
-  assert.match(bloqueioParaVoltarAPrazo({ ...convertida, boletoDeAPrazo: false }), /não foi convertida/);
-  assert.match(bloqueioParaVoltarAPrazo({ ...convertida, boleto: { status: 'emitido' } }), /Desfaça a emissão/);
+test('boleto pelo Dar Baixa: vencimento de hoje em diante, sugerido pela parcela', () => {
+  assert.equal(validarVencimentoDoBoleto(HOJE, HOJE), '');
+  assert.equal(validarVencimentoDoBoleto('2026-11-14', HOJE), '');
+  assert.match(validarVencimentoDoBoleto('2026-10-14', HOJE), /antes de hoje/);
+  assert.match(validarVencimentoDoBoleto('2026-02-30', HOJE), /Informe o vencimento/);
+  assert.match(validarVencimentoDoBoleto('', HOJE), /Informe o vencimento/);
+  assert.equal(vencimentoSugeridoDoBoleto('2026-11-14', HOJE), '2026-11-14');
+  assert.equal(vencimentoSugeridoDoBoleto('2026-09-01', HOJE), HOJE, 'parcela vencida: sugere hoje');
+  assert.equal(vencimentoSugeridoDoBoleto(undefined, HOJE), HOJE);
+  assert.deepEqual(camposParaCobrarEmBoleto('2026-11-14'), {
+    formaPagamento: 'Boleto', naturezaFinanceira: 'contas_receber', data: '2026-11-14', dataVencimento: '2026-11-14', dataPrevistaRecebimento: '2026-11-14',
+  });
 });

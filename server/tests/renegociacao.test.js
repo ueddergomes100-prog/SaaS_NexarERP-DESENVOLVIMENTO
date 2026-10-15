@@ -11,8 +11,8 @@ const HOJE = '2026-10-15';
 const USER = { uid: 'u1', email: 'u1@teste', tenantId: 'emp1', permissoes: ['financeiro.renegociar'] };
 
 const carregar = (db) => {
-  const [baixa, movimento, , reneg, boletoAPrazo] = carregarComBancoFalso(db, 'services/renegociacao', 'services/boletoDeAPrazo');
-  return { baixa, movimento, reneg, boletoAPrazo };
+  const [baixa, movimento, , reneg, cobranca] = carregarComBancoFalso(db, 'services/renegociacao', 'services/cobrancaEmBoleto');
+  return { baixa, movimento, reneg, cobranca };
 };
 
 const pagamento = (id, indice, valorCentavos) => ({
@@ -158,19 +158,42 @@ test('pedido do navegador: parcelas, forma e motivo conferidos antes do banco', 
   assert.match(s.reneg.validarPedidoDeRenegociacao({ ...base, motivo: 'x' }, HOJE).erro, /motivo/);
 });
 
-test('gerar boleto de parcela a prazo e voltar a prazo', async () => {
+test('Dar Baixa com Boleto: parcela a prazo passa a ser boleto com o vencimento escolhido; a venda nao muda', async () => {
   const fake = criarBancoFalso(cenario());
   const s = carregar(fake.db);
-  await s.boletoAPrazo.gerarBoletoDaParcela({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'a1' } });
-  const convertida = fake.ler('transacoes/a1');
-  assert.equal(convertida.formaPagamento, 'Boleto');
-  assert.equal(convertida.boletoDeAPrazo, true);
-  assert.equal(convertida.formaPagamentoOriginal, undefined, 'o estorno de baixa continua voltando para Boleto');
-  await assert.rejects(() => s.boletoAPrazo.gerarBoletoDaParcela({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'a1' } }), (e) => /já é cobrada em boleto/.test(e.message));
-
-  await s.boletoAPrazo.voltarParcelaAPrazo({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'a1' } });
-  const voltou = fake.ler('transacoes/a1');
-  assert.equal(voltou.formaPagamento, 'Pagamento a Prazo');
-  assert.equal(voltou.boletoDeAPrazo, undefined);
+  const resumo = await s.cobranca.prepararCobrancaEmBoleto({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'a1', vencimento: '2026-11-20' }, hoje: HOJE });
+  assert.equal(resumo.formaAnterior, 'Pagamento a Prazo');
+  const parcela = fake.ler('transacoes/a1');
+  assert.equal(parcela.formaPagamento, 'Boleto');
+  assert.equal(parcela.dataVencimento, '2026-11-20');
+  assert.equal(parcela.dataPrevistaRecebimento, '2026-11-20');
+  assert.equal(parcela.formaPagamentoOriginal, undefined, 'o estorno de baixa continua voltando para Boleto');
   assert.equal(fake.ler('pedidos_venda/p1').pagamentos[0].formaPagamento, 'Pagamento a Prazo', 'a venda nao muda');
+
+  await assert.rejects(
+    () => s.cobranca.prepararCobrancaEmBoleto({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'a2', vencimento: '2026-10-01' }, hoje: HOJE }),
+    (e) => e.status === 400 && /antes de hoje/.test(e.message),
+  );
+  assert.equal(fake.ler('transacoes/a2').formaPagamento, 'Pagamento a Prazo');
+});
+
+test('retorno do banco: boleto pago quita tambem o pagamento da venda (antes a venda ficava pendente)', async () => {
+  const base = cenario();
+  const fake = criarBancoFalso({
+    ...base,
+    'transacoes/a1': titulo('a1', 'p1', 1, { formaPagamento: 'Boleto', bancoId: 'b1', boleto: { status: 'emitido', nossoNumero: '00000421' } }),
+    'transacoes/semVenda': titulo('semVenda', 'pX', 1, { formaPagamento: 'Boleto', bancoId: 'b1', boleto: { status: 'emitido', nossoNumero: '00000431' } }),
+  });
+  const s = carregar(fake.db);
+  await s.movimento.baixarBoletoPeloRetorno({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'a1', valorPagoCentavos: 100000, dataPagamento: HOJE }, hoje: HOJE });
+  assert.equal(fake.ler('transacoes/a1').status, 'Paga');
+  assert.equal(fake.ler('bancos/b1').saldoCentavos, 100000);
+  const venda = fake.ler('pedidos_venda/p1');
+  assert.equal(venda.pagamentos[0].status, 'confirmado');
+  assert.equal(venda.totalPendenteCentavos, 100000, 'a outra parcela da venda continua em aberto');
+  assert.equal(venda.statusPagamento, 'Parcial');
+
+  // Venda que nao existe mais: o boleto e' baixado assim mesmo, como sempre.
+  await s.movimento.baixarBoletoPeloRetorno({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'semVenda', valorPagoCentavos: 100000, dataPagamento: HOJE }, hoje: HOJE });
+  assert.equal(fake.ler('transacoes/semVenda').status, 'Paga');
 });

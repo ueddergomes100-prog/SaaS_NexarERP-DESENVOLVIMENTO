@@ -82,6 +82,19 @@ const registrarRecebimentoNaOrigem = (tx, user, origem, transacaoId, dados, rece
   });
 };
 
+/** Venda/OS do titulo, sem travar quando ela esta' cancelada (retorno do banco: o dinheiro ja' entrou). */
+const lerOrigemSemTravar = async (tx, tenantId, dados) => {
+  const vendaId = dados.pedidoId;
+  const osId = dados.osId;
+  if (!vendaId && !osId) return { ref: null, dados: null };
+  const ref = vendaId
+    ? db.collection('pedidos_venda').doc(String(vendaId))
+    : db.collection('ordens_de_servico').doc(String(osId));
+  const snap = await tx.get(ref);
+  if (!snap.exists || snap.data().tenantId !== tenantId || snap.data().status === 'Cancelada') return { ref: null, dados: null };
+  return { ref, dados: snap.data() };
+};
+
 /**
  * Titulo de Receber que entra no banco de uma vez (cartao conciliado, cheque
  * compensado): titulo Paga, banco credita o LIQUIDO, venda/OS atualizada.
@@ -254,6 +267,10 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
       : null;
     // Boleto de parcela de renegociacao (15/10/2026): o ultimo pago quita as vendas/OS antigas.
     const renegociacao = await lerRenegociacaoDoTitulo(tx, tenantId, transacaoId, dados);
+    // Venda/OS de origem (15/10/2026): o boleto pago pelo retorno passa a quitar o
+    // pagamento dela, como o Dar Baixa ja' fazia -- antes a venda ficava "Pendente"
+    // para sempre. Venda/OS cancelada nao trava o retorno (o dinheiro entrou no banco).
+    const origem = await lerOrigemSemTravar(tx, tenantId, dados);
     resumo.descricao = String(dados.descricao || '');
 
     tx.update(titulo.ref, {
@@ -272,6 +289,19 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
         updatedAt: agora(),
         ...buildDocumentUpdateMetadata(user.uid, agora(), `Boleto pago (retorno): "${resumo.descricao}"`),
       });
+    }
+    if (origem.ref) {
+      try {
+        registrarRecebimentoNaOrigem(tx, user, origem, transacaoId, dados, {
+          amountCents: centavosDoTitulo(dados),
+          method: 'Boleto',
+          receivedAt: dataPagamento,
+        }, 'Boleto pago (retorno do banco)');
+      } catch (erroOrigem) {
+        // Pagamento da venda nao encontrado (venda antiga/editada): o boleto e' baixado
+        // assim mesmo, como sempre foi -- so' a venda fica sem a marca.
+        console.warn(`[Financeiro] retorno do boleto ${transacaoId}: venda/OS de origem nao atualizada:`, erroOrigem && erroOrigem.message);
+      }
     }
     quitarOrigensSeRenegociacaoPaga(tx, user, renegociacao, dataPagamento);
   });

@@ -16,6 +16,7 @@ const AuthPage = lazy(() => import('./pages/Auth/AuthPage'));
 const PDV = lazy(() => import('./pages/PDV/PDV'));
 const SuperAdmin = lazy(() => import('./pages/Admin/SuperAdmin'));
 const SuperAdminBackup = lazy(() => import('./pages/Admin/SuperAdminBackup'));
+const SuperAdminManutencao = lazy(() => import('./pages/Admin/SuperAdminManutencao'));
 // App do vendedor externo (mobile): shell + login proprios, sem Sidebar/
 // TopBar nem Sistema de Abas -- mesmo motivo do PDV acima. O login fica
 // PUBLICO (fora de ProtectedRoute, que redireciona pro /login normal) e o
@@ -58,6 +59,7 @@ function App() {
                   <Route path="/superadmin" element={<PlatformAdminLayout />}>
                     <Route index element={<SuperAdmin />} />
                     <Route path="backups" element={<SuperAdminBackup />} />
+                    <Route path="manutencao" element={<SuperAdminManutencao />} />
                   </Route>
                 </Route>
 

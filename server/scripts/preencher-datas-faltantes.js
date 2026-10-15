@@ -1,7 +1,9 @@
 /**
  * Preenche as datas que as telas usam para o periodo e que faltam em
  * documentos antigos (decisao do dono, 2026-10-14). Regras em
- * server/utils/datasFaltantesDomain.js:
+ * server/utils/datasFaltantesDomain.js; o percurso e a gravacao em
+ * server/services/datasFaltantes.js (o mesmo que o botao do Painel da
+ * Plataforma usa -- e' por ele que se roda na PRODUCAO, desde 15/10/2026):
  *  - pedidos_venda sem `dataVenda`          -> dia em que o pedido foi criado;
  *  - transacoes PAGAS sem `dataPagamento` e sem `data` -> dataPagamento = dia da criacao.
  * Lancamento pendente sem vencimento so' e' listado (nao se inventa vencimento).
@@ -16,15 +18,7 @@
  * para o --desfazer saber exatamente o que voltar.
  */
 const { admin, db } = require('../config/firebase');
-const { decidirDataVenda, decidirDataDoLancamento } = require('../utils/datasFaltantesDomain');
-
-const ESCRITAS_POR_LOTE = 400;
-const marca = (campo) => `${campo}PreenchidaPorMigracao`;
-
-const COLECOES = [
-  { nome: 'pedidos_venda', campo: 'dataVenda', decidir: decidirDataVenda, rotulo: (d) => `pedido #${d.numeroPedido || '?'}` },
-  { nome: 'transacoes', campo: 'dataPagamento', decidir: decidirDataDoLancamento, rotulo: (d) => `lançamento "${String(d.descricao || '?').slice(0, 50)}"` },
-];
+const { preencherDatasFaltantes } = require('../services/datasFaltantes');
 
 const argumento = (nome) => {
   const i = process.argv.indexOf(nome);
@@ -34,46 +28,10 @@ const tenantId = argumento('--tenant');
 const aplicar = process.argv.includes('--aplicar');
 const desfazer = process.argv.includes('--desfazer');
 
-const processarColecao = async ({ nome, campo, decidir, rotulo }) => {
-  let consulta = db.collection(nome);
-  if (tenantId) consulta = consulta.where('tenantId', '==', tenantId);
-  if (desfazer) consulta = consulta.where(marca(campo), '==', true);
-  const snap = await consulta.get();
-
-  const resumo = { lidos: snap.size, ok: 0, alterados: 0, semData: [], pendentesSemVencimento: [] };
-  let lote = db.batch();
-  let noLote = 0;
-  const gravarLote = async () => {
-    if (noLote === 0) return;
-    if (aplicar) await lote.commit();
-    lote = db.batch();
-    noLote = 0;
-  };
-
-  for (const doc of snap.docs) {
-    const dados = doc.data();
-    const quem = `${dados.tenantId || '?'} / ${rotulo(dados)} (${doc.id})`;
-    if (desfazer) {
-      lote.update(doc.ref, { [campo]: admin.firestore.FieldValue.delete(), [marca(campo)]: admin.firestore.FieldValue.delete() });
-    } else {
-      const decisao = decidir(dados);
-      if (decisao.acao === 'ok') { resumo.ok += 1; continue; }
-      if (decisao.acao === 'sem_data') { resumo.semData.push(quem); continue; }
-      if (decisao.acao === 'pendente_sem_vencimento') { resumo.pendentesSemVencimento.push(quem); continue; }
-      lote.update(doc.ref, { [decisao.campo]: decisao.valor, [marca(decisao.campo)]: true });
-    }
-    resumo.alterados += 1;
-    noLote += 1;
-    if (noLote >= ESCRITAS_POR_LOTE) await gravarLote();
-  }
-  await gravarLote();
-  return resumo;
-};
-
-const listar = (titulo, linhas) => {
-  if (linhas.length === 0) return;
-  console.log(`  ${titulo}: ${linhas.length}`);
-  linhas.slice(0, 50).forEach((linha) => console.log(`    - ${linha}`));
+const listar = (titulo, linhas, total) => {
+  if (total === 0) return;
+  console.log(`  ${titulo}: ${total}`);
+  linhas.forEach((linha) => console.log(`    - ${linha}`));
 };
 
 const main = async () => {
@@ -84,11 +42,17 @@ const main = async () => {
   const projeto = admin.app().options.projectId || '(projeto nao identificado)';
   console.log(`Projeto: ${projeto} | ${tenantId ? `empresa ${tenantId}` : 'todas as empresas'} | ${aplicar ? 'GRAVANDO' : 'so mostrando (use --aplicar para gravar)'}${desfazer ? ' | DESFAZER' : ''}`);
 
-  for (const colecao of COLECOES) {
-    const resumo = await processarColecao(colecao);
-    console.log(`${colecao.nome} (${colecao.campo}): lidos ${resumo.lidos}${desfazer ? '' : `, ja tinham ${resumo.ok}`}, ${desfazer ? 'voltados' : 'preenchidos'}${aplicar ? '' : ' (simulado)'} ${resumo.alterados}`);
-    listar('Sem a data e sem data de criacao (corrigir no cadastro)', resumo.semData);
-    listar('Pendentes sem vencimento (corrigir o vencimento no titulo)', resumo.pendentesSemVencimento);
+  const resultado = await preencherDatasFaltantes({
+    db,
+    apagar: () => admin.firestore.FieldValue.delete(),
+    tenantId,
+    aplicar,
+    desfazer,
+  });
+  for (const resumo of resultado.colecoes) {
+    console.log(`${resumo.nome} (${resumo.campo}): lidos ${resumo.lidos}${desfazer ? '' : `, ja tinham ${resumo.ok}`}, ${desfazer ? 'voltados' : 'preenchidos'}${aplicar ? '' : ' (simulado)'} ${resumo.alterados}`);
+    listar('Sem a data e sem data de criacao (corrigir no cadastro)', resumo.semData, resumo.totalSemData);
+    listar('Pendentes sem vencimento (corrigir o vencimento no titulo)', resumo.pendentesSemVencimento, resumo.totalPendentesSemVencimento);
   }
 };
 

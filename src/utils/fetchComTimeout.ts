@@ -21,6 +21,8 @@ export const TEMPO_LIMITE = {
   baixaEmLote: 120_000,
   /** Gerar/baixar/restaurar backup: a empresa inteira. */
   backup: 300_000,
+  /** Manutencao do banco (Painel da Plataforma): le colecoes inteiras de todas as empresas. */
+  manutencao: 300_000,
 } as const;
 
 export class TimeoutError extends Error {

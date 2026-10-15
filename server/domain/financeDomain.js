@@ -370,7 +370,7 @@ const normalizePayments = (totalCents, drafts, options = {}) => {
             if (!options.bancoPadraoSimplificado) {
                 throw new Error(`Nenhum banco padrão "${exports.SIMPLIFIED_CARD_BANK_NAME}" foi encontrado para o pagamento simplificado. `
                     + `Abra Financeiro → Bancos e cadastre um banco chamado "${exports.SIMPLIFIED_CARD_BANK_NAME}", `
-                    + 'ou desligue o pagamento de cartão simplificado em Configurações.');
+                    + 'ou desligue o pagamento de cartão simplificado em Configurações da filial.');
             }
             effectiveBancoId = options.bancoPadraoSimplificado.id;
             effectiveBancoNome = options.bancoPadraoSimplificado.nome;

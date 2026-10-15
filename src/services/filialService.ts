@@ -3,6 +3,7 @@ import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout
 import type { DadosDaFilial, FilialDoGrupo } from '../utils/filialDomain';
 import type { EstoqueDaFilial } from '../utils/cadastroGrupoDomain';
 import type { ResumoDaFilial } from '../utils/resumoGrupoDomain';
+import type { ConfiguracoesGerais } from '../utils/configuracoesGeraisDomain';
 
 /**
  * Cliente HTTP das FILIAIS (2026-10-06). Grupo, filial ativa do usuario e
@@ -35,6 +36,8 @@ export interface ResumoDasFiliais {
   /** Plano (07/10): filiais liberadas alem da matriz e quantas estao em uso. */
   limiteFiliais: number;
   filiaisEmUso: number;
+  /** Empresa sem filiais (15/10/2026): ela mesma, como Matriz (10). */
+  matrizSemFiliais?: FilialDoGrupo | null;
 }
 
 const chamar = async <T>(metodo: 'GET' | 'POST' | 'PUT', caminho: string, corpo?: Record<string, unknown>): Promise<T> => {
@@ -88,6 +91,15 @@ export const consultarSaldoDoClienteNoGrupo = (clienteId: string) => (
   chamar<{ totalCentavos: number; maiorAtrasoDias: number; porFilial: Array<{ tenantId: string; codigo: string; nome: string; centavos: number }> }>(
     'GET', `/clientes/${encodeURIComponent(clienteId)}/saldo`,
   )
+);
+
+/**
+ * Configuracoes Gerais (15/10/2026): o servidor grava o mesmo valor em todas
+ * as filiais do grupo (ou so' na empresa, sem filiais). `tenantId` so' vale
+ * para o administrador da plataforma (empresa escolhida na tela dele).
+ */
+export const salvarConfiguracoesGerais = (valores: ConfiguracoesGerais & { tenantId?: string }) => (
+  chamar<{ filiais: number; grupo: string | null; valores: ConfiguracoesGerais }>('POST', '/configuracoes-gerais', { ...valores })
 );
 
 /** Fase 5: vendas do periodo, a receber e estoque de cada filial (so' dono/administrador). */

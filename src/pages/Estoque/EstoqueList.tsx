@@ -78,7 +78,7 @@ const EstoqueList: React.FC = () => {
       console.error('Erro ao alterar os cartões de resumo do estoque:', error);
       showError(
         'Não foi possível alterar',
-        'Esta opção vale para a empresa toda e só pode ser mudada por quem altera as Configurações. Peça ao administrador ou use Configurações → Configurações Gerais.',
+        'Esta opção vale para todos os usuários da filial e só pode ser mudada pelo dono ou por um administrador. Peça a eles ou use Configurações → Configurações da filial.',
       );
     }
   };
@@ -271,7 +271,7 @@ const EstoqueList: React.FC = () => {
               {
                 texto: mostrarResumo ? 'Esconder cartões de resumo' : 'Mostrar cartões de resumo',
                 Icone: mostrarResumo ? EyeOff : Eye,
-                titulo: 'Vale para todos os usuários da empresa (Configurações Gerais → "Mostrar os cartões de resumo na tela de Estoque")',
+                titulo: 'Vale para todos os usuários da empresa (Configurações da filial → "Mostrar os cartões de resumo na tela de Estoque")',
                 oculto: !podeAlterarConfiguracoes,
                 separadorAntes: true,
                 onClick: () => { void alternarResumo(); },

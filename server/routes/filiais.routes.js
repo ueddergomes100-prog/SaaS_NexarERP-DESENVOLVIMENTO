@@ -3,6 +3,7 @@ const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const { rotuloFilial } = require('../domain/filialDomain');
 const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial, estoqueNasFiliais, saldoDoClienteNoGrupo, resumoDoGrupo } = require('../services/filiais');
+const { ErroConfiguracoesGerais, salvarConfiguracoesGerais } = require('../services/configuracoesGerais');
 
 /**
  * FILIAIS -- ver services/filiais.js e docs/PLANO_FILIAIS.md.
@@ -14,6 +15,7 @@ const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerC
  *   POST /api/filiais/estoque     estoque dos produtos em cada filial (fase 2)
  *   GET  /api/filiais/clientes/:id/saldo  saldo em aberto do cliente no grupo
  *   GET  /api/filiais/resumo?inicio&fim    vendas, a receber e estoque por filial (fase 5)
+ *   POST /api/filiais/configuracoes-gerais  regras que valem para todas as filiais (15/10/2026)
  */
 const router = express.Router();
 router.use(authenticate);
@@ -61,6 +63,24 @@ router.post('/', async (req, res) => {
 });
 
 // Rotas fixas ANTES de '/:tenantId' (senao 'estoque' vira um tenantId).
+// Configuracoes Gerais (15/10/2026): o mesmo valor gravado em todas as filiais.
+router.post('/configuracoes-gerais', async (req, res) => {
+  try {
+    const r = await salvarConfiguracoesGerais({ user: req.user, corpo: req.body || {} });
+    registrarLog(req.user, {
+      modulo: 'configuracoes',
+      acao: 'edicao',
+      descricao: r.grupo
+        ? `Configurações gerais alteradas (plano de contas, cadastro, crédito e transferência), gravadas nas ${r.filiais} filiais de ${r.grupo}`
+        : 'Configurações gerais alteradas (plano de contas, cadastro e crédito)',
+    });
+    return res.json(r);
+  } catch (erro) {
+    if (erro instanceof ErroConfiguracoesGerais) return res.status(erro.status).json({ error: erro.message });
+    return responderErro(res, erro, 'salvar as configurações gerais');
+  }
+});
+
 router.post('/estoque', async (req, res) => {
   try {
     return res.json(await estoqueNasFiliais({ user: req.user, chaves: req.body?.chaves }));

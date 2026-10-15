@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { CalendarCheck, Loader2, RotateCcw, Search, Wrench } from 'lucide-react';
+import { Building2, CalendarCheck, Loader2, RotateCcw, Search, Wrench } from 'lucide-react';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import {
   rodarDatasFaltantes,
+  rodarUnificacaoConfiguracoesGerais,
   type ModoDatasFaltantes,
+  type ResultadoConfiguracoesGerais,
   type ResultadoDatasFaltantes,
 } from '../../services/manutencaoService';
 
@@ -39,6 +41,122 @@ const ListaDetalhe: React.FC<{ titulo: string; total: number; itens: string[] }>
         {itens.map((item) => <li key={item}>{item}</li>)}
       </ul>
     </details>
+  );
+};
+
+/**
+ * Configuracoes Gerais (15/10/2026): os campos que valem para o grupo inteiro
+ * (plano de contas, cadastro, credito, transferencia) ficam iguais em todas as
+ * filiais, pelo valor da matriz. Roda uma vez depois da mudanca de tela.
+ */
+const CartaoConfiguracoesGerais: React.FC = () => {
+  const [rodando, setRodando] = useState<ModoDatasFaltantes | null>(null);
+  const [resultado, setResultado] = useState<ResultadoConfiguracoesGerais | null>(null);
+  const ambienteIdentificado = Boolean(resultado?.projeto);
+  const simulacaoComTrabalho = resultado?.modo === 'simular' && resultado.filiaisAlteradas > 0 && ambienteIdentificado;
+
+  const rodar = async (modo: ModoDatasFaltantes) => {
+    if (modo !== 'simular') {
+      const confirmacao = await NexusSwal.fire({
+        title: modo === 'aplicar' ? `Igualar ${resultado?.filiaisAlteradas ?? 0} filiais?` : 'Desfazer a unificação?',
+        html: modo === 'aplicar'
+          ? `Ambiente: <strong>${rotuloDoProjeto(resultado?.projeto ?? null)}</strong>.<br/>Cada filial listada passa a ter o valor da matriz. O plano de contas junta as categorias de todas. Dá para voltar pelo Desfazer.`
+          : 'Cada filial volta ao valor que tinha antes da unificação.',
+        icon: modo === 'aplicar' ? 'question' : 'warning',
+        showCancelButton: true,
+        confirmButtonText: modo === 'aplicar' ? 'Igualar' : 'Desfazer',
+        cancelButtonText: 'Cancelar',
+        ...(modo === 'desfazer' ? { confirmButtonColor: '#ef4444' } : {}),
+      });
+      if (!confirmacao.isConfirmed) return;
+    }
+    setRodando(modo);
+    try {
+      const novo = await rodarUnificacaoConfiguracoesGerais(modo);
+      setResultado(novo);
+      if (modo === 'aplicar') showSuccess(`${novo.filiaisAlteradas} ${novo.filiaisAlteradas === 1 ? 'filial igualada' : 'filiais igualadas'} à matriz.`);
+      if (modo === 'desfazer') showSuccess(`${novo.filiaisAlteradas} ${novo.filiaisAlteradas === 1 ? 'filial voltou' : 'filiais voltaram'} ao valor anterior.`);
+    } catch (erro) {
+      showError('Não foi possível rodar a tarefa', erro instanceof Error ? erro.message : undefined);
+    } finally {
+      setRodando(null);
+    }
+  };
+
+  return (
+    <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+        <span style={{ width: '42px', height: '42px', borderRadius: '13px', backgroundColor: 'rgba(124, 58, 237, 0.12)', color: 'var(--accent-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+          <Building2 size={21} />
+        </span>
+        <div>
+          <h2 style={{ fontSize: '17px', fontWeight: 700, margin: '0 0 4px' }}>Igualar as configurações gerais das filiais</h2>
+          <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
+            Plano de contas, validação de produto e de cliente, limite de crédito e transferência valem para o grupo inteiro.
+            Em cada empresa com filiais, esta tarefa grava em todas o valor da <strong>matriz</strong>; no plano de contas, junta as categorias de todas (nenhuma se perde).
+            <strong> Comece por Simular: nada é gravado.</strong>
+          </p>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>
+        <button type="button" className="btn-secondary" onClick={() => rodar('simular')} disabled={rodando !== null} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {rodando === 'simular' ? <Loader2 size={18} className="spin-icon" /> : <Search size={18} />}
+          {rodando === 'simular' ? 'Simulando...' : 'Simular'}
+        </button>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => rodar('aplicar')}
+          disabled={rodando !== null || !simulacaoComTrabalho}
+          title={simulacaoComTrabalho ? undefined : 'Rode Simular primeiro; Aplicar libera quando houver filial diferente da matriz.'}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: rodando !== null || !simulacaoComTrabalho ? 0.6 : 1 }}
+        >
+          {rodando === 'aplicar' ? <Loader2 size={18} className="spin-icon" /> : <Building2 size={18} />}
+          {rodando === 'aplicar' ? 'Gravando...' : `Aplicar${simulacaoComTrabalho ? ` (${resultado?.filiaisAlteradas})` : ''}`}
+        </button>
+        <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          onClick={() => rodar('desfazer')}
+          disabled={rodando !== null}
+          style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '13px', cursor: 'pointer', padding: 0 }}
+        >
+          {rodando === 'desfazer' ? <Loader2 size={14} className="spin-icon" /> : <RotateCcw size={14} />}
+          Desfazer o que esta tarefa gravou
+        </button>
+      </div>
+
+      {resultado && !rodando && (
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            Ambiente: <strong style={{ color: 'var(--text-primary)' }}>{rotuloDoProjeto(resultado.projeto)}</strong>
+            {' · '}
+            {resultado.modo === 'simular' ? 'Simulação (nada foi gravado)' : resultado.modo === 'aplicar' ? 'Gravado' : 'Desfeito'}
+            {' · '}
+            {resultado.gruposLidos} {resultado.gruposLidos === 1 ? 'empresa com filiais' : 'empresas com filiais'}
+          </div>
+          {resultado.grupos.map((grupo) => (
+            <div key={grupo.grupo} style={{ padding: '14px 16px', borderRadius: '14px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+              <div style={{ fontWeight: 700, fontSize: '14px' }}>{grupo.grupo}</div>
+              <ul style={{ margin: '8px 0 0', paddingLeft: '18px', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.6 }}>
+                {grupo.filiais.map((f) => <li key={f.filial}><strong>{f.filial}</strong>: {f.campos.join(', ')}</li>)}
+              </ul>
+            </div>
+          ))}
+          {!ambienteIdentificado && (
+            <p style={{ margin: 0, fontSize: '14px', color: '#ef4444', fontWeight: 600 }}>
+              O servidor não informou em qual banco está ligado, então o Aplicar fica bloqueado. Avise o suporte.
+            </p>
+          )}
+          {resultado.filiaisAlteradas === 0 && (
+            <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary)' }}>
+              {resultado.modo === 'desfazer' ? 'Nada a desfazer.' : 'Nada a igualar: as filiais já estão iguais à matriz.'}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -184,6 +302,8 @@ const SuperAdminManutencao: React.FC = () => {
           </div>
         )}
       </div>
+
+      <CartaoConfiguracoesGerais />
     </div>
   );
 };

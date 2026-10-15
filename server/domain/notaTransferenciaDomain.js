@@ -81,7 +81,7 @@ exports.ufDaConfiguracao = ufDaConfiguracao;
  * filial). Dado que falta vira mensagem dizendo onde completar.
  */
 const destinatarioDaFilial = (config, rotulo) => {
-    const onde = `Entre na filial ${rotulo} e complete em Configurações (dados da empresa) ou em Configurações → Filiais.`;
+    const onde = `Entre na filial ${rotulo} e complete em Configurações da filial (dados da empresa) ou em Configurações → Filiais.`;
     const erros = [];
     const cnpj = soDigitos(config.cnpj);
     const nome = (texto(config.razaoSocial) || texto(config.nomeOficina)).toUpperCase();
@@ -152,7 +152,7 @@ const prepararNotaTransferencia = (a) => {
     }
     const ufOrigem = (0, exports.ufDaConfiguracao)(a.configOrigem);
     if (ufOrigem.length !== 2) {
-        return { ok: false, erros: [`A filial ${a.rotuloOrigem} (a que envia) está sem estado no cadastro. Entre nela e escolha a cidade da empresa em Configurações (o estado vem junto).`], ...vazio };
+        return { ok: false, erros: [`A filial ${a.rotuloOrigem} (a que envia) está sem estado no cadastro. Entre nela e escolha a cidade da empresa em Configurações da filial (o estado vem junto).`], ...vazio };
     }
     const destinatario = (0, exports.destinatarioDaFilial)(a.configDestino, a.rotuloDestino);
     if (!destinatario.ok)

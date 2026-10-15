@@ -611,7 +611,7 @@ const TopBar: React.FC = () => {
 
                 {(isPlatformAdmin || isTenantManagerRole(userRole) || userPermissions?.includes('administrativo.config')) && (
                   <button 
-                    onClick={() => { setShowProfileDropdown(false); openTab('/configuracoes', 'Configurações'); }}
+                    onClick={() => { setShowProfileDropdown(false); openTab('/configuracoes', 'Configurações Gerais'); }}
                     style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 'var(--radius-md)', transition: 'background 0.2s', textAlign: 'left', fontSize: '13px' }}
                     onMouseOver={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
                     onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}

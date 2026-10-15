@@ -338,7 +338,7 @@ const ImportarDadosFiscais: React.FC = () => {
             <li>Você confere tudo na próxima tela antes de gravar. Nada é alterado agora.</li>
             <li>Código de barras que não fecha o dígito verificador, NCM sem 8 dígitos e CEST sem 7 dígitos são ignorados e explicados.</li>
             <li>O mesmo código de barras em dois produtos é recusado, para o leitor do caixa não errar de produto.</li>
-            <li>CSOSN (Simples Nacional) ou CST de ICMS é conferido com o regime da empresa em Configurações.</li>
+            <li>CSOSN (Simples Nacional) ou CST de ICMS é conferido com o regime da empresa em Configurações da filial.</li>
             <li><strong>Tabela do IBPT:</strong> envie o CSV da sua UF baixado em deolhonoimposto.ibpt.org.br, sem alterar. Cada produto recebe os percentuais de tributos aproximados do seu NCM (federal de importados para origem estrangeira).</li>
           </ul>
         </div>

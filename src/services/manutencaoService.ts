@@ -59,3 +59,31 @@ export const rodarDatasFaltantes = async (modo: ModoDatasFaltantes): Promise<Res
   if (!resposta.ok) throw new ManutencaoError(dados.error || 'Não foi possível concluir a tarefa. Tente novamente.', resposta.status);
   return dados as ResultadoDatasFaltantes;
 };
+
+export interface ResultadoConfiguracoesGerais {
+  projeto: string | null;
+  modo: ModoDatasFaltantes;
+  gruposLidos: number;
+  filiaisAlteradas: number;
+  grupos: Array<{ grupo: string; filiais: Array<{ filial: string; campos: string[] }> }>;
+}
+
+/** Configuracoes Gerais (15/10/2026): iguala os campos do grupo pelo valor da matriz. */
+export const rodarUnificacaoConfiguracoesGerais = async (modo: ModoDatasFaltantes): Promise<ResultadoConfiguracoesGerais> => {
+  if (!API_URL) throw new ManutencaoError('Esta operação precisa do servidor, que não está configurado neste ambiente. Avise o suporte.', 0);
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new ManutencaoError('Sua sessão expirou. Entre novamente para continuar.', 401);
+  let resposta: Response;
+  try {
+    resposta = await fetchComTimeout(`${API_URL}/api/manutencao/configuracoes-gerais`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modo }),
+    }, TEMPO_LIMITE.manutencao);
+  } catch (erro) {
+    throw new ManutencaoError(mensagemDeFalhaDeRede(erro), 0);
+  }
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) throw new ManutencaoError(dados.error || 'Não foi possível concluir a tarefa. Tente novamente.', resposta.status);
+  return dados as ResultadoConfiguracoesGerais;
+};

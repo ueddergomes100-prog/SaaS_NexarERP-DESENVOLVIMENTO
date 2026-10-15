@@ -2113,8 +2113,8 @@ const OSForm: React.FC = () => {
               </div>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '12px 0 0' }}>
                 {configMaquinas.precoKmCentavos > 0 || configMaquinas.valorVisitaCentavos > 0
-                  ? `Com ${kmDoDeslocamento(deslocamento)} km, o deslocamento entra como serviço de ${(valorDeslocamentoCentavos(kmDoDeslocamento(deslocamento), configMaquinas) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} (preço do km em Configurações → Oficina de máquinas pesadas).`
-                  : 'Sem preço do km em Configurações → Oficina de máquinas pesadas, o deslocamento fica só registrado; lance o serviço à mão se quiser cobrar.'}
+                  ? `Com ${kmDoDeslocamento(deslocamento)} km, o deslocamento entra como serviço de ${(valorDeslocamentoCentavos(kmDoDeslocamento(deslocamento), configMaquinas) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} (preço do km em Configurações da filial → Oficina de máquinas pesadas).`
+                  : 'Sem preço do km em Configurações da filial → Oficina de máquinas pesadas, o deslocamento fica só registrado; lance o serviço à mão se quiser cobrar.'}
               </p>
             </div>
           )}

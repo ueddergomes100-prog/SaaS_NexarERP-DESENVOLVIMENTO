@@ -179,7 +179,7 @@ const planoDeReserva = (args) => {
         const disponivel = arredondar(numero(produto.quantidade) - reservada);
         const liberado = args.permiteSemEstoque || produto.permitirEstoqueNegativo === true;
         if (!liberado && disponivel < item.quantidade) {
-            erros.push(`Estoque insuficiente para "${item.nome}": o condicional leva ${item.quantidade}, disponível ${Math.max(0, disponivel)}. Dê entrada do produto no Estoque ou ligue "Permitir venda sem estoque" em Configurações.`);
+            erros.push(`Estoque insuficiente para "${item.nome}": o condicional leva ${item.quantidade}, disponível ${Math.max(0, disponivel)}. Dê entrada do produto no Estoque ou ligue "Permitir venda sem estoque" em Configurações da filial.`);
             continue;
         }
         reservas.push({ id: item.id, reservadaDepois: arredondar(reservada + item.quantidade) });
@@ -276,4 +276,4 @@ exports.acoesDoCondicional = acoesDoCondicional;
  * Mensagem quando a empresa ainda nao liga o condicional. A tela e o servidor
  * usam a mesma frase (CLAUDE.md, regra 1: bloquear com mensagem clara).
  */
-exports.MENSAGEM_CONDICIONAL_DESLIGADO = 'O condicional está desligado nesta empresa. Marque "Trabalha com condicional" em Configurações > Configurações Gerais para usar.';
+exports.MENSAGEM_CONDICIONAL_DESLIGADO = 'O condicional está desligado nesta empresa. Marque "Trabalha com condicional" em Configurações da filial > Configurações Avançadas para usar.';

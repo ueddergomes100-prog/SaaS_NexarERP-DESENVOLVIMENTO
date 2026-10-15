@@ -1600,7 +1600,7 @@ const PedidoVendaForm: React.FC = () => {
       if (abaixoDaTabela && !permitirDescontoPorItem) {
         showError(
           'Preço abaixo da tabela',
-          `O preço de ${produtoEncontrado.nome} é R$ ${precoTabela.toFixed(2).replace('.', ',')}. O desconto por item está desligado em Configurações, então o preço não pode ficar abaixo disso. Use o desconto geral da venda.`,
+          `O preço de ${produtoEncontrado.nome} é R$ ${precoTabela.toFixed(2).replace('.', ',')}. O desconto por item está desligado em Configurações da filial, então o preço não pode ficar abaixo disso. Use o desconto geral da venda.`,
         );
         return;
       }
@@ -1894,13 +1894,13 @@ const PedidoVendaForm: React.FC = () => {
       : (produtoCatalogo ? precoSugerido(produtoCatalogo, opcaoItem) : item.precoUnitario);
     const abaixoDaTabela = precoMexido && novoPreco < precoTabela - 0.0001;
     if (abaixoDaTabela && !permitirDescontoPorItem) {
-      return `O preço de tabela é R$ ${precoTabela.toFixed(2).replace('.', ',')} e o desconto por item está desligado em Configurações: o preço não pode ficar abaixo dele.`;
+      return `O preço de tabela é R$ ${precoTabela.toFixed(2).replace('.', ',')} e o desconto por item está desligado em Configurações da filial: o preço não pode ficar abaixo dele.`;
     }
     const precoEfetivo = abaixoDaTabela ? precoTabela : novoPreco;
 
     // Desconto digitado na celula (em R$, ja' convertido pela grade).
     if (campos.desconto !== undefined && campos.desconto > 0 && !permitirDescontoPorItem) {
-      return 'O desconto por item está desligado em Configurações. Use o desconto geral da venda.';
+      return 'O desconto por item está desligado em Configurações da filial. Use o desconto geral da venda.';
     }
     const descontoBase = campos.desconto ?? item.desconto;
     if (!Number.isFinite(descontoBase) || descontoBase < 0) return 'O desconto não pode ser negativo.';

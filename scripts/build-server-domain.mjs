@@ -59,6 +59,8 @@ const MODULOS = [
   'src/utils/cobrancaEmBoletoDomain.ts',
   // Renegociacao de parcelas a receber (15/10/2026).
   'src/utils/renegociacaoDomain.ts',
+  // Configuracoes Gerais x da filial (15/10/2026): campos que valem para o grupo inteiro.
+  'src/utils/configuracoesGeraisDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

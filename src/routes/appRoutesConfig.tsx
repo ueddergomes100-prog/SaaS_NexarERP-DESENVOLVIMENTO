@@ -238,6 +238,8 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'producao/relatorios', element: <RelatorioProducao /> },
 
   { path: 'configuracoes', element: <Configuracoes /> },
+  // Configuracoes da filial (15/10/2026): o que e' de cada loja; aberta pelo lapis em Filiais.
+  { path: 'configuracoes/filial', element: <Configuracoes modo="filial" /> },
   { path: 'configuracoes/filiais', element: <FiliaisList /> },
   { path: 'estoque/transferencias', element: <TransferenciasList /> },
   { path: 'estoque/transferencias/nova', element: <TransferenciaForm /> },

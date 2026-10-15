@@ -74,7 +74,7 @@ const VendedorNovoPedido: React.FC = () => {
     if (!trabalhaComPreVenda) {
       showError(
         'Pré-venda não está habilitada',
-        'O pedido do vendedor externo precisa da opção "Pré-venda" ligada em Configurações → Configurações Avançadas. Peça pro administrador habilitar antes de montar pedidos pelo aplicativo.',
+        'O pedido do vendedor externo precisa da opção "Pré-venda" ligada em Configurações da filial → Configurações Avançadas. Peça pro administrador habilitar antes de montar pedidos pelo aplicativo.',
       );
       return;
     }

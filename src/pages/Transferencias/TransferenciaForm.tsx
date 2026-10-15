@@ -146,7 +146,7 @@ const TransferenciaForm: React.FC = () => {
   };
 
   const bloqueioSemNota = !semNotaLigada
-    ? 'A transferência sem nota está desligada nesta filial. Para ligar: Configurações → "Permitir transferência sem nota" (só dono e gerente usam).'
+    ? 'A transferência sem nota está desligada. Para ligar: Configurações Gerais → Cadastro, crédito e transferência → "Permitir transferência sem nota" (só dono e gerente usam).'
     : !podeSemNota ? 'Só o dono ou um gerente faz transferência sem nota.' : null;
 
   return (

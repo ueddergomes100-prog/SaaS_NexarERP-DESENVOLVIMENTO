@@ -7,7 +7,11 @@ import { ajustarNumeracao, listarNumeracao } from '../../services/numeracaoServi
 import type { SituacaoDaSequencia } from '../../utils/numeracaoDomain';
 import { isTenantManagerRole } from '../../utils/roles';
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy, Tractor } from 'lucide-react';
+import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy, Tractor, Building2, Scale } from 'lucide-react';
+import { useTabs } from '../../contexts/TabsContext';
+import EstadoVazio from '../../components/common/EstadoVazio';
+import { salvarConfiguracoesGerais } from '../../services/filialService';
+import { semCamposGerais } from '../../utils/configuracoesGeraisDomain';
 import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
 import { db, storage } from '../../services/firebase';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
@@ -126,8 +130,22 @@ const toCreditCardRateInputs = (value: unknown, fallbackFeePercent = 0) => (
   )
 );
 
-const Configuracoes: React.FC = () => {
-  const { currentUser, tenantId, userRole, grupo, isOwner } = useAuth();
+/**
+ * Configuracoes (15/10/2026, pedido do dono): duas telas a partir deste arquivo.
+ *  - modo 'geral' (/configuracoes): o que vale para TODAS as filiais -- plano de
+ *    contas, cadastro de produto e de cliente, limite de credito, transferencia
+ *    (gravados pelo servidor em todas, configuracoesGeraisDomain.ts), permissao
+ *    de usuarios e modulos do plano;
+ *  - modo 'filial' (/configuracoes/filial, aberta pelo lapis em Filiais): o resto,
+ *    que e' de cada loja. So' o dono ou um administrador do grupo.
+ * Nenhuma opcao aparece nas duas: e' o que impede conflito entre filiais.
+ */
+const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral' }) => {
+  const { currentUser, tenantId, userRole, grupo, isOwner, ehGestorDasFiliais, filialAtual } = useAuth();
+  const { openTab } = useTabs();
+  const mostrarGeral = modo === 'geral';
+  const mostrarFilial = modo === 'filial';
+  const [showRegrasGerais, setShowRegrasGerais] = useState(false);
   const isPlatformAdmin = isPlatformAdminRole(userRole);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
@@ -138,8 +156,9 @@ const Configuracoes: React.FC = () => {
   const temCadastroNaSpedyRef = useRef(false);
   const [showModulosSistema, setShowModulosSistema] = useState(true);
   const [showDadosOficina, setShowDadosOficina] = useState(false);
-  const [showTextosPadroes, setShowTextosPadroes] = useState(true);
-  const [showNotificacoesCrm, setShowNotificacoesCrm] = useState(true);
+  // Abrem fechados como os demais blocos (pedido do dono, 15/10/2026).
+  const [showTextosPadroes, setShowTextosPadroes] = useState(false);
+  const [showNotificacoesCrm, setShowNotificacoesCrm] = useState(false);
   const [showPermissoes, setShowPermissoes] = useState(false);
   const [showPlanoContas, setShowPlanoContas] = useState(false);
   const [showConfigAvancadas, setShowConfigAvancadas] = useState(false);
@@ -939,7 +958,8 @@ const Configuracoes: React.FC = () => {
       }
 
       await setDoc(docRef, {
-        ...publicFormData,
+        // Campos que valem para todas as filiais so' mudam por Configuracoes Gerais (15/10/2026).
+        ...semCamposGerais(publicFormData),
         parametrosVenda: parametrosVendaResultado.parametros,
         mensagensPadrao: parseMensagensPadrao(formData.mensagensPadrao),
         emissaoDocumentos: parseEmissaoDocumentos(formData.emissaoDocumentos),
@@ -1230,8 +1250,44 @@ const Configuracoes: React.FC = () => {
     }
   };
 
+  // Configuracoes Gerais (15/10/2026): valem para todas as filiais; o servidor grava em todas de uma vez.
+  const handleSaveGerais = async () => {
+    if (!tenantId || !currentUser) return;
+    setIsLoading(true);
+    try {
+      const r = await salvarConfiguracoesGerais({
+        planoContasReceitas: formData.planoContasReceitas,
+        planoContasDespesas: formData.planoContasDespesas,
+        validarCadastroProduto: formData.validarCadastroProduto === true,
+        modoValidacaoCliente: formData.modoValidacaoCliente,
+        trabalhaComLimiteCredito: formData.trabalhaComLimiteCredito === true,
+        transferenciaSemNota: formData.transferenciaSemNota === true,
+        transferenciaNfeTributacao: formData.transferenciaNfeTributacao,
+        ...(isPlatformAdmin ? { tenantId } : {}),
+      });
+      setFormData((atual) => ({ ...atual, ...r.valores }));
+      setIsEditingMode(false);
+      setShowSuccessAnim(true);
+      setTimeout(() => setShowSuccessAnim(false), 2000);
+    } catch (erro) {
+      showError('Não foi possível salvar as configurações gerais', erro instanceof Error ? erro.message : 'Confira sua conexão e tente de novo.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   if (isFetching) {
     return <div style={{ padding: '40px', color: 'var(--text-primary)', textAlign: 'center' }}>Carregando configurações...</div>;
+  }
+
+  // Configuracoes da filial: so' o dono ou um administrador (decisao do dono, 15/10/2026).
+  const podeConfigurarFilial = isPlatformAdmin || ehGestorDasFiliais;
+  if (mostrarFilial && !podeConfigurarFilial) {
+    return (
+      <div className="card" style={{ padding: '32px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
+        <EstadoVazio titulo="Só o dono ou um administrador da empresa altera as configurações da filial." texto="As opções que valem para todas as filiais ficam em Configurações Gerais." />
+      </div>
+    );
   }
 
   const totalModuleCount = MODULE_GROUPS.reduce((acc, group) => acc + group.items.length, 0);
@@ -1241,13 +1297,17 @@ const Configuracoes: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px 0' }}>Configurações</h1>
-          <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Dados da empresa e preferências do sistema</p>
+          <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px 0' }}>{mostrarGeral ? 'Configurações Gerais' : 'Configurações da filial'}</h1>
+          <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>
+            {mostrarGeral
+              ? `Valem para ${grupo ? 'todas as filiais' : 'a empresa inteira'}`
+              : `${filialAtual ? `${filialAtual.codigo} · ${filialAtual.nome}` : 'Matriz'}: valem só para esta filial`}
+          </p>
         </div>
         {isEditingMode ? (
           <button
             className="btn-primary"
-            onClick={handleSave}
+            onClick={mostrarGeral ? handleSaveGerais : handleSave}
             disabled={isLoading}
             style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center' }}
           >
@@ -1279,7 +1339,22 @@ const Configuracoes: React.FC = () => {
         </div>
       )}
 
-      {isPlatformAdmin && (
+      {mostrarGeral && (
+        <div className="card" style={{ padding: '18px 22px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', maxWidth: '800px' }}>
+          <Building2 size={22} style={{ color: 'var(--accent-purple)', flex: 'none' }} />
+          <p style={{ flex: '1 1 320px', margin: 0, fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            As opções de cada loja (dados da empresa, venda, estoque, pagamentos, documentos, numeração e nota fiscal) ficam nas
+            {' '}<strong style={{ color: 'var(--text-primary)' }}>Configurações da filial</strong>: em Configurações → Filiais, no lápis da filial.
+          </p>
+          {podeConfigurarFilial && (
+            <button type="button" className="btn-secondary" onClick={() => { void openTab('/configuracoes/filial', 'Configurações da filial'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+              <Sliders size={16} /> {filialAtual ? `Abrir as da filial ${filialAtual.codigo}` : 'Abrir as da filial'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {mostrarGeral && isPlatformAdmin && (
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '1100px' }}>
           <div
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showModulosSistema ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
@@ -1378,6 +1453,8 @@ const Configuracoes: React.FC = () => {
       {/* Fora do modo de edicao o CONTEUDO dos cartoes fica apagado (bloco-somente-leitura,
           visualDesktop.css); o cartao continua opaco para nao deixar ver a faixa violeta por baixo. */}
       <div className={isEditingMode ? undefined : 'bloco-somente-leitura'} style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px', maxWidth: '800px', pointerEvents: isEditingMode ? 'auto' : 'none' }}>
+        {/* Configuracoes da filial (15/10/2026): dados da empresa, textos e notificacoes. */}
+        {mostrarFilial && (<>
         {/* Dados da Empresa */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div
@@ -1897,6 +1974,10 @@ const Configuracoes: React.FC = () => {
           )}
         </div>
 
+        </>)}
+
+        {/* Configuracoes Gerais (15/10/2026): plano de contas e as regras que valem para todas as filiais. */}
+        {mostrarGeral && (<>
         {/* Plano de Contas */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div
@@ -1990,6 +2071,130 @@ const Configuracoes: React.FC = () => {
           )}
         </div>
 
+        {/* Regras que valem para todas as filiais (15/10/2026): cadastro de produto e de cliente,
+            limite de credito e transferencia. Saem do Salvar desta tela para o servidor, que grava em todas. */}
+        <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showRegrasGerais ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+            onClick={() => setShowRegrasGerais(!showRegrasGerais)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Scale size={20} style={{ color: 'var(--accent-purple)' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>{grupo ? 'Cadastro, crédito e transferência' : 'Cadastro e crédito'}</h3>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
+              {showRegrasGerais ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </div>
+          </div>
+          {showRegrasGerais && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Validar Cadastro de Produto</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    name="validarCadastroProduto"
+                    checked={formData.validarCadastroProduto === true}
+                    onChange={(e) => setFormData({ ...formData, validarCadastroProduto: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Permitir cadastrar produto apenas com nome, preço e quantidade
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Quando marcado, o cadastro de produtos exige apenas nome, preço de venda e quantidade inicial de estoque.</p>
+              </div>
+
+              <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Limite de Crédito</h4>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                    Quando ligado, uma venda a prazo só pode ser finalizada se o cliente tiver "Limite de Crédito"
+                    preenchido no cadastro e se o saldo em aberto dele + o valor desta venda não ultrapassar esse limite.
+                  </p>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.trabalhaComLimiteCredito === true}
+                    onChange={(e) => setFormData({ ...formData, trabalhaComLimiteCredito: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Trabalha com limite de crédito
+                </label>
+              </div>
+
+              <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Validação de Cliente Cadastrado</h4>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                    Controla o que acontece em Pedido de Venda, OS e Orçamento quando o nome digitado não bate com
+                    nenhum cliente já cadastrado. No PDV a seleção já é sempre restrita a clientes cadastrados.
+                  </p>
+                </div>
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    {([
+                      { value: 'permitir' as const, label: 'Permitir (cadastra automaticamente)' },
+                      { value: 'bloquear' as const, label: 'Bloquear' },
+                      { value: 'perguntar' as const, label: 'Perguntar se quer cadastrar' },
+                    ]).map((opcao) => (
+                      <label key={opcao.value} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                        <input
+                          type="radio"
+                          name="modoValidacaoCliente"
+                          checked={formData.modoValidacaoCliente === opcao.value}
+                          onChange={() => setFormData({ ...formData, modoValidacaoCliente: opcao.value })}
+                          disabled={!isEditingMode}
+                          style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                        />
+                        {opcao.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {grupo && (
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Transferência entre filiais</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.transferenciaSemNota === true}
+                      onChange={(e) => setFormData({ ...formData, transferenciaSemNota: e.target.checked })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Permitir transferência sem nota
+                  </label>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                    As filiais podem enviar mercadoria umas para as outras <strong>sem nota fiscal</strong> (Estoque → Transferências). Só o dono ou um gerente usa. Mercadoria entre CNPJs diferentes circula com nota — use sem nota para loja ou depósito do mesmo CNPJ, ou acerto interno.
+                  </p>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '520px', marginTop: '4px' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Tributação da nota de transferência</span>
+                    <select
+                      value={formData.transferenciaNfeTributacao}
+                      onChange={(e) => setFormData({ ...formData, transferenciaNfeTributacao: parseTributacaoTransferencia(e.target.value) })}
+                      disabled={!isEditingMode}
+                      style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+                    >
+                      {TRIBUTACAO_TRANSFERENCIA_OPCOES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </label>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                    A NF-e de transferência sai pelo custo, com CFOP 5152/6152 (revenda) ou 5151/6151 (produção própria), escolhido pelo estado das duas filiais. O padrão é <strong>sem ICMS</strong>: o STF (ADC 49) e a LC 204/2023 afastaram o ICMS na transferência entre estabelecimentos do mesmo dono. Confirme com o contador antes da primeira nota.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        </>)}
+
+        {/* Configuracoes da filial (15/10/2026): numeracao, documentos, venda, estoque, pagamento e nota fiscal. */}
+        {mostrarFilial && (<>
         {/* Numeracao dos documentos (Configuracoes por filial, fase C -- 2026-10-07). Acao imediata no servidor, fora do Salvar. */}
         {podeVerNumeracao && (
           <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -2360,22 +2565,6 @@ const Configuracoes: React.FC = () => {
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Validar Cadastro de Produto</label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
-                  <input
-                    type="checkbox"
-                    name="validarCadastroProduto"
-                    checked={formData.validarCadastroProduto === true}
-                    onChange={(e) => setFormData({ ...formData, validarCadastroProduto: e.target.checked })}
-                    disabled={!isEditingMode}
-                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
-                  />
-                  Permitir cadastrar produto apenas com nome, preço e quantidade
-                </label>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Quando marcado, o cadastro de produtos exige apenas nome, preço de venda e quantidade inicial de estoque.</p>
-              </div>
-
-              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Vender por Embalagem</label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
                   <input
@@ -2476,39 +2665,6 @@ const Configuracoes: React.FC = () => {
                   Libera o menu <strong>Vendas → Condicional</strong>: o cliente leva peças para provar em casa, devolve o que não quiser e o que ficar vira uma <strong>pré-venda</strong> para finalizar com o pagamento. Na saída o estoque fica <strong>reservado</strong> (não é baixado); o que volta é liberado; o que fica só é baixado quando a pré-venda for finalizada. Só saem em condicional os produtos com <strong>"Permite condicional"</strong> marcado no cadastro (Estoque → aba Avançado). Quem pode usar é definido usuário a usuário, na permissão <strong>Vendas: Condicional</strong>. Desligado (padrão), nada muda.
                 </p>
               </div>
-
-              {grupo && (
-                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
-                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Transferência entre filiais</label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
-                    <input
-                      type="checkbox"
-                      checked={formData.transferenciaSemNota === true}
-                      onChange={(e) => setFormData({ ...formData, transferenciaSemNota: e.target.checked })}
-                      disabled={!isEditingMode}
-                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
-                    />
-                    Permitir transferência sem nota
-                  </label>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                    Esta filial pode enviar mercadoria para outra filial do grupo <strong>sem nota fiscal</strong> (Estoque → Transferências). Só o dono ou um gerente usa. Mercadoria entre CNPJs diferentes circula com nota — use sem nota para loja ou depósito do mesmo CNPJ, ou acerto interno.
-                  </p>
-                  <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '520px', marginTop: '4px' }}>
-                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Tributação da nota de transferência</span>
-                    <select
-                      value={formData.transferenciaNfeTributacao}
-                      onChange={(e) => setFormData({ ...formData, transferenciaNfeTributacao: parseTributacaoTransferencia(e.target.value) })}
-                      disabled={!isEditingMode}
-                      style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
-                    >
-                      {TRIBUTACAO_TRANSFERENCIA_OPCOES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  </label>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                    A NF-e de transferência sai pelo custo, com CFOP 5152/6152 (revenda) ou 5151/6151 (produção própria), escolhido pelo estado das duas filiais. O padrão é <strong>sem ICMS</strong>: o STF (ADC 49) e a LC 204/2023 afastaram o ICMS na transferência entre estabelecimentos do mesmo dono. Confirme com o contador antes da primeira nota.
-                  </p>
-                </div>
-              )}
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Agente Digital</label>
@@ -3025,57 +3181,6 @@ const Configuracoes: React.FC = () => {
                 </label>
               </div>
 
-              <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Validação de Cliente Cadastrado</h4>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-                    Controla o que acontece em Pedido de Venda, OS e Orçamento quando o nome digitado não bate com
-                    nenhum cliente já cadastrado. No PDV a seleção já é sempre restrita a clientes cadastrados.
-                  </p>
-                </div>
-                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                    {([
-                      { value: 'permitir' as const, label: 'Permitir (cadastra automaticamente)' },
-                      { value: 'bloquear' as const, label: 'Bloquear' },
-                      { value: 'perguntar' as const, label: 'Perguntar se quer cadastrar' },
-                    ]).map((opcao) => (
-                      <label key={opcao.value} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
-                        <input
-                          type="radio"
-                          name="modoValidacaoCliente"
-                          checked={formData.modoValidacaoCliente === opcao.value}
-                          onChange={() => setFormData({ ...formData, modoValidacaoCliente: opcao.value })}
-                          disabled={!isEditingMode}
-                          style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
-                        />
-                        {opcao.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Limite de Crédito</h4>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-                    Quando ligado, uma venda a prazo só pode ser finalizada se o cliente tiver "Limite de Crédito"
-                    preenchido no cadastro e se o saldo em aberto dele + o valor desta venda não ultrapassar esse limite.
-                  </p>
-                </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
-                  <input
-                    type="checkbox"
-                    checked={formData.trabalhaComLimiteCredito === true}
-                    onChange={(e) => setFormData({ ...formData, trabalhaComLimiteCredito: e.target.checked })}
-                    disabled={!isEditingMode}
-                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
-                  />
-                  Trabalha com limite de crédito
-                </label>
-              </div>
-
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', gridColumn: '1 / -1' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Emissão Fiscal Habilitada</label>
                 <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
@@ -3527,6 +3632,9 @@ const Configuracoes: React.FC = () => {
           )}
         </div>
 
+        </>)}
+
+        {mostrarGeral && (<>
         {/* Permissão de Usuários */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div
@@ -3780,6 +3888,7 @@ const Configuracoes: React.FC = () => {
             </div>
           )}
         </div>
+        </>)}
 
       </div>
     </div>

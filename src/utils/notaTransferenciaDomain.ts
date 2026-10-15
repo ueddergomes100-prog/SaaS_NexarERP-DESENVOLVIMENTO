@@ -96,7 +96,7 @@ export const destinatarioDaFilial = (
   config: Record<string, unknown>,
   rotulo: string,
 ): { ok: true; receiver: Record<string, unknown> } | { ok: false; erros: string[] } => {
-  const onde = `Entre na filial ${rotulo} e complete em Configurações (dados da empresa) ou em Configurações → Filiais.`;
+  const onde = `Entre na filial ${rotulo} e complete em Configurações da filial (dados da empresa) ou em Configurações → Filiais.`;
   const erros: string[] = [];
   const cnpj = soDigitos(config.cnpj);
   const nome = (texto(config.razaoSocial) || texto(config.nomeOficina)).toUpperCase();
@@ -191,7 +191,7 @@ export const prepararNotaTransferencia = (a: {
   }
   const ufOrigem = ufDaConfiguracao(a.configOrigem);
   if (ufOrigem.length !== 2) {
-    return { ok: false, erros: [`A filial ${a.rotuloOrigem} (a que envia) está sem estado no cadastro. Entre nela e escolha a cidade da empresa em Configurações (o estado vem junto).`], ...vazio };
+    return { ok: false, erros: [`A filial ${a.rotuloOrigem} (a que envia) está sem estado no cadastro. Entre nela e escolha a cidade da empresa em Configurações da filial (o estado vem junto).`], ...vazio };
   }
   const destinatario = destinatarioDaFilial(a.configDestino, a.rotuloDestino);
   if (!destinatario.ok) return { ok: false, erros: destinatario.erros, ...vazio };

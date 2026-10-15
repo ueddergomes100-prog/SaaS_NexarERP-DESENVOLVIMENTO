@@ -2764,11 +2764,11 @@ const NFE: React.FC = () => {
           <ol style={{ margin: 0, paddingLeft: '20px', color: 'var(--text-muted)', fontSize: '14px', lineHeight: '1.8' }}>
             <li>Criar uma conta no painel da <strong>Spedy</strong> (Produção ou Sandbox).</li>
             <li>Obter sua <strong>Chave de API (X-Api-Key)</strong> no backoffice.</li>
-            <li>Inserir a chave nas configurações do seu Sistema Nexus.</li>
+            <li>Inserir a chave em Configurações da filial → Configuração de Nota Fiscal (Spedy).</li>
           </ol>
         </div>
-        <a href="/configuracoes" className="btn-primary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Settings size={18} /> Ir para Configurações
+        <a href="/configuracoes/filial" className="btn-primary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Settings size={18} /> Ir para Configurações da filial
         </a>
       </div>
     );
@@ -3327,7 +3327,7 @@ const NFE: React.FC = () => {
                       ))}
                     </select>
                     {!nfseConfig.habilitada && (
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Habilite "Emite NFS-e" em Configurações para liberar esta importação.</p>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Habilite "Emite NFS-e" em Configurações da filial para liberar esta importação.</p>
                     )}
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Só os serviços da OS entram nesta nota — peças ficam de fora (precisam de um lançamento à parte).</p>
                   </div>

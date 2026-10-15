@@ -43,6 +43,7 @@ import {
   ShieldAlert,
   ShoppingCart,
   SlidersHorizontal,
+  Sliders,
   Store,
   Tags,
   Truck,
@@ -102,8 +103,7 @@ const Sidebar: React.FC = () => {
     trabalhaComCondicional,
     temVendedorCadastrado,
     nivelAcesso,
-    grupo,
-    limiteFiliais
+    grupo
   } = useAuth();
   const navigate = useNavigate();
   const { tabs, activeTabId, openTab } = useTabs();
@@ -159,8 +159,8 @@ const Sidebar: React.FC = () => {
     if (!trabalhaComCondicional && item.module === 'comercial.condicional') return false;
     // Transferencias so' existem em empresa com filiais (2026-10-06).
     if (!grupo && item.to === '/estoque/transferencias') return false;
-    // Filiais nao liberadas no plano (07/10): o menu nem aparece.
-    if (!grupo && limiteFiliais === 0 && item.to === '/configuracoes/filiais') return false;
+    // Filiais aparece sempre (15/10/2026): toda empresa nasce com a Matriz, e e' no
+    // lapis dela que ficam as Configuracoes da filial. "Nova filial" segue o plano.
     if (item.managerOnly && !hasFullAccess) return false;
     // Funcionario nivel Gerente enxerga o menu Usuarios mesmo sem a permissao
     // 'administrativo.equipe' marcada -- e' o mesmo bypass que ja libera o
@@ -168,7 +168,7 @@ const Sidebar: React.FC = () => {
     // sem isto aqui o menu nunca aparecia pra ele abrir a tela em primeiro lugar.
     if (item.permission === 'administrativo.equipe' && podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso })) return true;
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, grupo, limiteFiliais, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
+  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, grupo, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
 
   const groups = useMemo<NavGroup[]>(() => [
     {
@@ -344,6 +344,8 @@ const Sidebar: React.FC = () => {
       icon: Settings,
       items: [
         { label: 'Configurações Gerais', to: '/configuracoes', icon: Settings, module: 'admin.config', permission: 'administrativo.config' },
+        // Configuracoes da filial (15/10/2026): o que e' de cada loja; o lapis em Filiais leva ao mesmo lugar.
+        { label: 'Configurações da Filial', to: '/configuracoes/filial', icon: Sliders, module: 'admin.config', permission: 'administrativo.config', managerOnly: true },
         // Filiais (2026-10-06): a tela confere de novo que e' dono/administrador.
         { label: 'Filiais', to: '/configuracoes/filiais', icon: Building2, module: 'admin.config', permission: 'administrativo.config' }
       ]

@@ -501,7 +501,7 @@ const VendedoresList: React.FC = () => {
           {!exigirIdentificacaoVendedor && (
             <>
               {' '}Atenção: a opção <strong>&quot;Exigir identificação do vendedor a cada venda&quot;</strong> está
-              desligada em Configurações → Configurações Avançadas, então o sistema ainda não está pedindo o código
+              desligada em Configurações da filial → Configurações Avançadas, então o sistema ainda não está pedindo o código
               na hora da venda.
             </>
           )}

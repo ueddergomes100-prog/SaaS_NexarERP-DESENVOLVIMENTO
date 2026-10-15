@@ -147,7 +147,7 @@ const bloqueioPorAtraso = (p, maiorAtrasoDias, clienteNome) => {
     if (maiorAtrasoDias <= 0 || maiorAtrasoDias <= limite)
         return null;
     const nome = clienteNome.trim() || 'O cliente';
-    return `${nome} tem título vencido há ${maiorAtrasoDias} dia${maiorAtrasoDias === 1 ? '' : 's'} e a venda a prazo está bloqueada a partir de ${limite} dia${limite === 1 ? '' : 's'} de atraso (Configurações → Parâmetros de venda). Receba o que está em aberto em Contas a Receber ou venda à vista.`;
+    return `${nome} tem título vencido há ${maiorAtrasoDias} dia${maiorAtrasoDias === 1 ? '' : 's'} e a venda a prazo está bloqueada a partir de ${limite} dia${limite === 1 ? '' : 's'} de atraso (Configurações da filial → Parâmetros de venda). Receba o que está em aberto em Contas a Receber ou venda à vista.`;
 };
 exports.bloqueioPorAtraso = bloqueioPorAtraso;
 /** Juros (pro rata ao dia, sobre o mes de 30 dias) e multa do titulo em atraso; null = nada a sugerir. */
@@ -185,7 +185,7 @@ const checarPrazoDevolucao = (p, dataVenda, hoje) => {
     const dias = Math.max(0, (0, dateTime_1.differenceInCalendarDays)(venda, hoje) ?? 0);
     if (dias <= p.devolucao.prazoDias)
         return { ...dentro, diasDesdeAVenda: dias };
-    const base = `Esta venda foi feita há ${dias} dias e o prazo de devolução da filial é de ${p.devolucao.prazoDias} dia${p.devolucao.prazoDias === 1 ? '' : 's'} (Configurações → Parâmetros de venda).`;
+    const base = `Esta venda foi feita há ${dias} dias e o prazo de devolução da filial é de ${p.devolucao.prazoDias} dia${p.devolucao.prazoDias === 1 ? '' : 's'} (Configurações da filial → Parâmetros de venda).`;
     return {
         diasDesdeAVenda: dias,
         foraDoPrazo: true,

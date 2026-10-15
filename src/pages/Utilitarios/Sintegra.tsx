@@ -40,11 +40,11 @@ const Sintegra: React.FC = () => {
       const config = configSnap.data();
 
       if (!config?.cnpj || !config?.inscricaoEstadual) {
-        showError('Dados da empresa incompletos', 'Preencha CNPJ e Inscrição Estadual em Configurações > Dados da Empresa antes de gerar o SINTEGRA.');
+        showError('Dados da empresa incompletos', 'Preencha CNPJ e Inscrição Estadual em Configurações da filial > Dados da Empresa antes de gerar o SINTEGRA.');
         return;
       }
       if (!config?.nfseCidadeNome) {
-        showError('Cidade da empresa não configurada', 'Preencha "Cidade da Empresa" em Configurações > Dados da Empresa antes de gerar o SINTEGRA.');
+        showError('Cidade da empresa não configurada', 'Preencha "Cidade da Empresa" em Configurações da filial > Dados da Empresa antes de gerar o SINTEGRA.');
         return;
       }
 

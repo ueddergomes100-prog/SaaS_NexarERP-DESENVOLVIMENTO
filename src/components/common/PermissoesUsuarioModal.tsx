@@ -192,7 +192,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
               ? (nivelAcesso === 'funcionario'
                 ? 'Sua empresa está com "Não visualizar vendas de outro usuário" ligado: este usuário verá somente as vendas em que ele é o vendedor.'
                 : 'Este usuário verá as vendas de todos os vendedores, mesmo com a restrição ligada.')
-              : 'O nível só decide quais vendas a pessoa enxerga, e hoje ele não muda nada: a opção "Não visualizar vendas de outro usuário" está desligada em Configurações → Configurações Avançadas.'}
+              : 'O nível só decide quais vendas a pessoa enxerga, e hoje ele não muda nada: a opção "Não visualizar vendas de outro usuário" está desligada em Configurações → Configurações da filial → Configurações Avançadas.'}
           </p>
         </div>
 

@@ -3,6 +3,7 @@ const { admin, db, projectId } = require('../config/firebase');
 const { authenticate } = require('../middleware/auth');
 const { limitadorPorChave, MINUTO_MS } = require('../middleware/rateLimit');
 const { preencherDatasFaltantes } = require('../services/datasFaltantes');
+const { unificarConfiguracoesGerais } = require('../services/configuracoesGerais');
 const { registrarLog } = require('../services/auditoria');
 
 /**
@@ -80,6 +81,46 @@ router.post('/datas-faltantes', limite, async (req, res) => {
       error: config.aplicar
         ? 'O preenchimento parou no meio. Parte das datas pode ter sido gravada; rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe no que continua sem data).'
         : 'Não foi possível ler os pedidos e lançamentos agora. Tente de novo em alguns minutos.',
+    });
+  } finally {
+    emAndamento = false;
+  }
+});
+
+// Configuracoes Gerais (15/10/2026): deixa os campos que valem para o grupo
+// iguais em todas as filiais, pelo valor da matriz (plano de contas: junta tudo).
+router.post('/configuracoes-gerais', limite, async (req, res) => {
+  if (!req.user?.isPlatformAdmin) {
+    return res.status(403).json({ error: 'Só o administrador da plataforma pode rodar a manutenção do banco.' });
+  }
+  const modo = typeof req.body?.modo === 'string' ? req.body.modo : 'simular';
+  const config = MODOS[modo];
+  if (!config) {
+    return res.status(400).json({ error: 'Modo inválido. Use simular, aplicar ou desfazer.' });
+  }
+  if (emAndamento) {
+    return res.status(409).json({ error: 'Já tem uma tarefa de manutenção rodando. Espere ela terminar e tente de novo.' });
+  }
+  emAndamento = true;
+  const projeto = projectId || admin.app().options.projectId || null;
+  try {
+    const resultado = await unificarConfiguracoesGerais(config);
+    console.log(`[Manutencao] configuracoes gerais: ${modo} por ${req.user.email || req.user.uid} no projeto ${projeto} -- ${resultado.filiaisAlteradas} filiais em ${resultado.grupos.length} grupos`);
+    if (config.aplicar && resultado.filiaisAlteradas > 0) {
+      registrarLog(req.user, {
+        modulo: 'manutencao',
+        acao: modo === 'desfazer' ? 'configuracoes_gerais_desfeitas' : 'configuracoes_gerais_unificadas',
+        descricao: `${modo === 'desfazer' ? 'Desfeita a unificação das' : 'Unificadas as'} configurações gerais de ${resultado.filiaisAlteradas} filiais (${resultado.grupos.map((g) => g.grupo).join(', ')}).`,
+        critico: true,
+      });
+    }
+    return res.json({ projeto, modo, ...resultado });
+  } catch (erro) {
+    console.error(`[Manutencao] configuracoes gerais (${modo}) falhou:`, erro.message);
+    return res.status(500).json({
+      error: config.aplicar
+        ? 'A unificação parou no meio. Rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe no que continua diferente).'
+        : 'Não foi possível ler as configurações das filiais agora. Tente de novo em alguns minutos.',
     });
   } finally {
     emAndamento = false;

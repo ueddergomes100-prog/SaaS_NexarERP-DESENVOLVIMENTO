@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { Loader2, Sliders, X } from 'lucide-react';
 import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton';
 import type { ConsultaCnpjResultado } from '../../services/documentoService';
 import { alterarFilial, cadastrarFilial, lerCadastroDaFilial } from '../../services/filialService';
@@ -17,6 +17,8 @@ interface FilialFormModalProps {
   primeiraFilial: boolean;
   onFechar: () => void;
   onSalvo: () => void;
+  /** Configuracoes da filial (15/10/2026): venda, estoque, documentos, nota fiscal... */
+  onAbrirConfiguracoes?: (filial: FilialDoGrupo) => void;
 }
 
 const VAZIO: DadosDaFilial = lerDadosDaFilial({});
@@ -63,7 +65,7 @@ type SituacaoIbge = '' | 'buscando' | 'ok' | 'nao_achou' | 'erro';
  * Outros) sao as Configuracoes de cada filial, que a filial nova recebe da
  * matriz e ajusta depois, dentro dela.
  */
-const FilialFormModal: React.FC<FilialFormModalProps> = ({ aberto, filial, proximoCodigo, primeiraFilial, onFechar, onSalvo }) => {
+const FilialFormModal: React.FC<FilialFormModalProps> = ({ aberto, filial, proximoCodigo, primeiraFilial, onFechar, onSalvo, onAbrirConfiguracoes }) => {
   const [dados, setDados] = useState<DadosDaFilial>(VAZIO);
   const [situacaoIbge, setSituacaoIbge] = useState<SituacaoIbge>('');
   const [carregando, setCarregando] = useState(false);
@@ -222,6 +224,18 @@ const FilialFormModal: React.FC<FilialFormModalProps> = ({ aberto, filial, proxi
             {primeiraFilial && !editando && (
               <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'color-mix(in srgb, var(--accent-purple) 12%, transparent)', fontSize: '13px', color: 'var(--text-primary)' }}>
                 Esta é a primeira filial: sua empresa atual vira a <strong>matriz (código 10)</strong>, com tudo o que já tem.
+              </div>
+            )}
+
+            {editando && filial && onAbrirConfiguracoes && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', padding: '14px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'color-mix(in srgb, var(--accent-purple) 8%, transparent)' }}>
+                <div style={{ flex: '1 1 300px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>Configurações desta filial</strong><br />
+                  Dados da empresa, venda, estoque, pagamentos, documentos, numeração, oficina e nota fiscal (Spedy).
+                </div>
+                <button type="button" className="btn-secondary" onClick={() => onAbrirConfiguracoes(filial)} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                  <Sliders size={16} /> Abrir configurações
+                </button>
               </div>
             )}
 

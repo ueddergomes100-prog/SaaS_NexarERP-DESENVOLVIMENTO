@@ -95,7 +95,7 @@ export const checarPrefixoDaEmpresa = (cnpjCadastrado: unknown): ChecagemPrefixo
       ok: false,
       cnpj: '',
       motivo: 'Esta empresa ainda não tem CNPJ cadastrado, e o CNPJ é o que identifica a empresa na tela de login. '
-        + 'Cadastre o CNPJ em Configurações → Configurações Gerais antes de criar funcionários — '
+        + 'Cadastre o CNPJ em Configurações da filial → Dados da Empresa antes de criar funcionários — '
         + 'sem ele, o funcionário seria criado sem conseguir entrar no sistema.',
     };
   }
@@ -105,7 +105,7 @@ export const checarPrefixoDaEmpresa = (cnpjCadastrado: unknown): ChecagemPrefixo
       ok: false,
       cnpj,
       motivo: `O CNPJ cadastrado nesta empresa tem ${cnpj.length} dígitos, e um CNPJ válido tem 14. `
-        + 'Corrija em Configurações → Configurações Gerais antes de criar funcionários.',
+        + 'Corrija em Configurações da filial → Dados da Empresa antes de criar funcionários.',
     };
   }
 

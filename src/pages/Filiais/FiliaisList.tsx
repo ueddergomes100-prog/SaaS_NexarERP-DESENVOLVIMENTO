@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Building2, LogIn, Pencil, Plus, Power } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { limparAbasSalvas } from '../../contexts/TabsContext';
+import { limparAbasSalvas, useTabs } from '../../contexts/TabsContext';
 import { alterarFilial, carregarFiliais, type ResumoDasFiliais } from '../../services/filialService';
 import { rotuloFilial, type FilialDoGrupo } from '../../utils/filialDomain';
 import { NexusSwal, escaparHtml, showError, showSuccess } from '../../utils/alerts';
@@ -21,6 +21,7 @@ const formatarCnpj = (cnpj: string) => (
  */
 const FiliaisList: React.FC = () => {
   const { ehGestorDasFiliais, filialAtual, trocarFilial } = useAuth();
+  const { openTab } = useTabs();
   const [resumo, setResumo] = useState<ResumoDasFiliais | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [mostrarInativas, setMostrarInativas] = useState(false);
@@ -40,6 +41,8 @@ const FiliaisList: React.FC = () => {
   useEffect(() => { void recarregar(); }, [recarregar]);
 
   const filiais = useMemo(() => {
+    // Toda empresa nasce com a Matriz (15/10/2026): sem filiais, a lista mostra a propria empresa.
+    if (resumo && !resumo.grupo) return resumo.matrizSemFiliais ? [resumo.matrizSemFiliais] : [];
     const todas = resumo?.todasAsFiliais?.length ? resumo.todasAsFiliais : (resumo?.filiais ?? []);
     return mostrarInativas ? todas : todas.filter((f) => f.ativa);
   }, [resumo, mostrarInativas]);
@@ -51,7 +54,47 @@ const FiliaisList: React.FC = () => {
   const semVaga = Boolean(resumo) && emUso >= limite;
 
   const abrirNova = () => { setEmEdicao(null); setFormAberto(true); };
-  const abrirEdicao = (filial: FilialDoGrupo) => { setEmEdicao(filial); setFormAberto(true); };
+  // A filial em que o usuario esta (sem filiais, a propria empresa).
+  const ehAtual = (filial: FilialDoGrupo) => (semGrupo ? filial.matriz : filial.tenantId === filialAtual?.tenantId);
+
+  /**
+   * Configuracoes da filial (15/10/2026). Elas so' se alteram dentro da filial
+   * (as regras do banco gravam a filial ativa): numa filial que nao e' a do
+   * topo, o sistema troca para ela, como o seletor Filial (decisao do dono).
+   */
+  const abrirConfiguracoes = async (filial: FilialDoGrupo) => {
+    if (ehAtual(filial)) {
+      setFormAberto(false);
+      void openTab('/configuracoes/filial', 'Configurações da filial');
+      return;
+    }
+    const resposta = await NexusSwal.fire({
+      title: `Configurar a filial ${rotuloFilial(filial)}?`,
+      html: 'Para mexer nas configurações dela, o sistema passa a trabalhar nesta filial, como no seletor <strong>Filial</strong> do topo. As abas abertas serão fechadas: salve antes o que estiver editando.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Entrar e configurar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!resposta.isConfirmed) return;
+    try {
+      await trocarFilial(filial.tenantId);
+      limparAbasSalvas();
+      window.location.assign('/configuracoes/filial');
+    } catch (erro) {
+      showError('Não foi possível entrar na filial', erro instanceof Error ? erro.message : undefined);
+    }
+  };
+
+  // Sem filiais, o lapis da Matriz vai direto para as configuracoes dela.
+  const abrirEdicao = (filial: FilialDoGrupo) => {
+    if (semGrupo) {
+      void abrirConfiguracoes(filial);
+      return;
+    }
+    setEmEdicao(filial);
+    setFormAberto(true);
+  };
 
   const alternarSituacao = async (filial: FilialDoGrupo) => {
     const inativar = filial.ativa;
@@ -94,14 +137,6 @@ const FiliaisList: React.FC = () => {
     }
   };
 
-  if (!carregando && semGrupo && limite === 0) {
-    return (
-      <div className="card" style={{ padding: '32px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <EstadoVazio titulo="Filiais não estão liberadas no plano da sua empresa." texto="Fale com o suporte para contratar filiais. Depois da liberação, o menu Configurações → Filiais passa a cadastrar lojas e depósitos da mesma empresa." />
-      </div>
-    );
-  }
-
   if (!carregando && !ehGestorDasFiliais) {
     return (
       <div className="card" style={{ padding: '32px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
@@ -119,16 +154,18 @@ const FiliaisList: React.FC = () => {
           </h1>
           <p style={{ color: 'var(--text-muted)', marginTop: '6px', maxWidth: '680px' }}>
             Lojas e depósitos da mesma empresa. Cada filial tem vendas, notas, financeiro, caixa e numeração próprios.
-            As configurações de cada uma ficam em Configurações, dentro dela.
+            As configurações de cada uma ficam no lápis dela; as que valem para todas, em Configurações Gerais.
           </p>
         </div>
-        {!semGrupo && (
+        {!carregando && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-            <button className="btn-primary" onClick={abrirNova} disabled={semVaga} title={semVaga ? 'Todas as filiais do plano estão em uso' : undefined} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button className="btn-primary" onClick={abrirNova} disabled={semVaga} title={semVaga ? (limite === 0 ? 'Filiais não fazem parte do plano da empresa' : 'Todas as filiais do plano estão em uso') : undefined} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Plus size={20} /> Nova filial
             </button>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              {emUso} de {limite} {limite === 1 ? 'filial' : 'filiais'} do plano em uso{semVaga ? ' · fale com o suporte para aumentar' : ''}
+              {limite === 0
+                ? 'Seu plano não inclui filiais · fale com o suporte para contratar'
+                : `${emUso} de ${limite} ${limite === 1 ? 'filial' : 'filiais'} do plano em uso${semVaga ? ' · fale com o suporte para aumentar' : ''}`}
             </span>
           </div>
         )}
@@ -137,16 +174,12 @@ const FiliaisList: React.FC = () => {
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
         {carregando ? (
           <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando...</div>
-        ) : semGrupo ? (
-          <EstadoVazio
-            titulo="Sua empresa ainda não tem filiais"
-            texto="Cadastre a primeira filial (outra loja ou um depósito). A empresa atual vira a matriz, com o código 10."
-            acao={semVaga ? undefined : { rotulo: 'Cadastrar a primeira filial', onClick: abrirNova, icone: <Plus size={16} /> }}
-          />
+        ) : filiais.length === 0 ? (
+          <EstadoVazio titulo="Não foi possível montar a lista de filiais." texto="Recarregue a tela. Se continuar, fale com o suporte." />
         ) : (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', gap: '12px', flexWrap: 'wrap' }}>
-              <strong style={{ fontSize: '15px' }}>{resumo?.grupo?.nome}</strong>
+              <strong style={{ fontSize: '15px' }}>{resumo?.grupo?.nome || 'Sua empresa ainda não tem outras filiais: a Matriz é a própria empresa.'}</strong>
               {inativas > 0 && (
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer' }}>
                   <input type="checkbox" checked={mostrarInativas} onChange={(e) => setMostrarInativas(e.target.checked)} style={{ accentColor: 'var(--accent-purple)' }} />
@@ -168,7 +201,7 @@ const FiliaisList: React.FC = () => {
                 </thead>
                 <tbody>
                   {filiais.map((f) => {
-                    const atual = f.tenantId === filialAtual?.tenantId;
+                    const atual = ehAtual(f);
                     return (
                       <tr key={f.tenantId} style={{ borderBottom: '1px solid var(--border-color)', opacity: f.ativa ? 1 : 0.6 }}>
                         <td style={{ padding: '12px 14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{f.codigo}</td>
@@ -197,7 +230,7 @@ const FiliaisList: React.FC = () => {
                                 <LogIn size={14} /> Entrar
                               </button>
                             )}
-                            <button type="button" className="btn-secondary" onClick={() => abrirEdicao(f)} title="Editar cadastro" aria-label={`Editar filial ${rotuloFilial(f)}`} style={{ padding: '6px 10px', display: 'inline-flex' }}>
+                            <button type="button" className="btn-secondary" onClick={() => abrirEdicao(f)} title={semGrupo ? 'Configurações da filial' : 'Editar cadastro e configurações'} aria-label={`Editar filial ${rotuloFilial(f)}`} style={{ padding: '6px 10px', display: 'inline-flex' }}>
                               <Pencil size={14} />
                             </button>
                             {!f.matriz && (
@@ -226,6 +259,7 @@ const FiliaisList: React.FC = () => {
         primeiraFilial={semGrupo}
         onFechar={() => setFormAberto(false)}
         onSalvo={() => { setFormAberto(false); void recarregar(); }}
+        onAbrirConfiguracoes={(filial) => { void abrirConfiguracoes(filial); }}
       />
     </div>
   );

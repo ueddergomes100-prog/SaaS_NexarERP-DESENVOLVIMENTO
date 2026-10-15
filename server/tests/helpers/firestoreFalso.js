@@ -51,6 +51,8 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
   });
   const colecaoEm = (caminho) => ({
     doc: (id) => ref(caminho, id || `auto${(contador += 1)}`),
+    // A colecao inteira (ex.: todos os grupos, na manutencao).
+    get: () => consulta(caminho, []).get(),
     where: opcoes.consultas
       ? (campo, op, valor) => consulta(caminho, [[campo, op, valor]])
       : () => { throw new Error('consulta nao simulada no Firestore falso'); },

@@ -65,9 +65,15 @@ const resumoParaTela = (grupo, usuario, limiteFiliais) => ({
 /** Filiais em que o usuario pode entrar, a ativa e se ele pode trocar. */
 const listarFiliais = async ({ user }) => db.runTransaction(async (tx) => {
   const usuario = await lerUsuario(tx, user.uid);
-  const { grupo } = await lerGrupoDaCasa(tx, usuario.tenantId);
+  const { config, grupo } = await lerGrupoDaCasa(tx, usuario.tenantId);
   const limiteFiliais = await lerLimiteFiliais(tx, grupo ? grupo.matrizTenantId : usuario.tenantId);
-  return resumoParaTela(grupo, usuario, limiteFiliais);
+  return {
+    ...resumoParaTela(grupo, usuario, limiteFiliais),
+    // Toda empresa nasce com a Matriz (decisao do dono, 15/10/2026): sem filiais
+    // ainda, a tela Filiais mostra a propria empresa como Matriz (10), com o
+    // lapis para as configuracoes dela. O grupo so' nasce na primeira filial.
+    matrizSemFiliais: grupo ? null : dominio.matrizAPartirDaConfiguracao(usuario.tenantId, config),
+  };
 });
 
 /** Entra em outra filial: grava a filial ativa do usuario (ou apaga, ao voltar para a casa). */

@@ -1,14 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ScanLine, CheckCircle2, AlertTriangle, XCircle, Loader2, PackageCheck } from 'lucide-react';
-import { doc, getDoc, onSnapshot, runTransaction, serverTimestamp, Timestamp, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError } from '../../utils/alerts';
-import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import {
   aplicarBipagem,
-  canTransition,
   computeStatusFinal,
   DEFAULT_BLOQUEAR_EXCEDENTE,
   DEFAULT_EXIGIR_BIPAGEM,
@@ -21,119 +19,23 @@ import {
   type ConferenciaItem,
   type StatusConferencia,
 } from '../../utils/conferenciaDomain';
-import { normalizeEmbalagens } from '../../utils/embalagemDomain';
-import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
-import { trocaService, TrocaError } from '../../services/trocaService';
+import { TrocaError } from '../../services/trocaService';
+// Abrir, gravar e fechar ficam no servico (15/10/2026): o app Vendas confere com a MESMA regra.
+import {
+  abrirConferencia,
+  assinaturaDosItens,
+  FEEDBACK_COLORS,
+  FEEDBACK_LABELS,
+  fecharConferencia,
+  gravarProgressoDaConferencia,
+  montarItensDaConferencia,
+  playFeedbackSound,
+  STATUS_COLORS,
+  STATUS_LABELS,
+  type AlvoDaConferencia,
+} from '../../services/conferenciaService';
 import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
-
-interface HistoricoEntry {
-  de: string;
-  para: string;
-  em: Timestamp;
-  usuarioId: string;
-  usuarioNome: string;
-}
-
-const STATUS_LABELS: Record<StatusConferencia, string> = {
-  aguardando: 'Aguardando Conferência',
-  em_conferencia: 'Em Conferência',
-  conferido: 'Conferido',
-  divergente: 'Divergente',
-};
-const STATUS_COLORS: Record<StatusConferencia, string> = {
-  aguardando: '#f59e0b',
-  em_conferencia: '#3b82f6',
-  conferido: '#10b981',
-  divergente: '#ef4444',
-};
-
-const FEEDBACK_LABELS: Record<BipagemResultado, string> = {
-  ok: 'Item conferido.',
-  nao_encontrado: 'Código não encontrado neste pedido.',
-  excedente: 'Quantidade já bateu o pedido — bipagem recusada.',
-  bloqueado_manual: 'Este produto tem código de barras cadastrado — bipe em vez de lançar manual.',
-};
-const FEEDBACK_COLORS: Record<BipagemResultado | 'pendente', string> = {
-  ok: '#10b981',
-  nao_encontrado: '#ef4444',
-  excedente: '#f59e0b',
-  bloqueado_manual: '#f59e0b',
-  pendente: '#3b82f6',
-};
-
-// Web Audio API pra feedback sonoro -- o separador normalmente nao esta
-// olhando pra tela enquanto bipa (decisao do plano). Sem dependencia nova,
-// so osciladores simples -- nenhum arquivo de audio embutido.
-const playTone = (frequency: number, durationMs: number) => {
-  try {
-    const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtxClass) return;
-    const ctx = new AudioCtxClass();
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.value = frequency;
-    gain.gain.value = 0.18;
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-    oscillator.start();
-    oscillator.stop(ctx.currentTime + durationMs / 1000);
-    oscillator.onended = () => ctx.close();
-  } catch {
-    // Ambiente sem suporte a Web Audio -- o feedback visual continua sozinho.
-  }
-};
-
-// Padroes DISTINTOS entre nao_encontrado e excedente (exigencia do plano):
-// nao_encontrado e um zumbido longo grave; excedente e dois bipes curtos.
-const playFeedbackSound = (resultado: BipagemResultado) => {
-  if (resultado === 'ok') playTone(880, 110);
-  else if (resultado === 'excedente') { playTone(300, 90); setTimeout(() => playTone(300, 90), 150); }
-  else playTone(220, 220);
-};
-
-/**
- * Itens da conferencia a partir dos itens do pedido, enriquecidos com estoque/{id} (codigo, EAN e local).
- * O EAN do item vendido em embalagem e' o da EMBALAGEM -- o separador tem o saco na mao, nao a unidade.
- * Usado ao abrir a conferencia e quando o pedido e' alterado com a conferencia em andamento.
- */
-const montarItensDaConferencia = async (itensPedido: any[]): Promise<ConferenciaItem[]> => Promise.all(
-  itensPedido.map(async (item: any): Promise<ConferenciaItem> => {
-    const base: ConferenciaItem = {
-      produtoId: item.id,
-      nome: item.nome,
-      // Quantidade na unidade VENDIDA: bipar 1 saco fecha 1, nao 20.
-      quantidadePedida: item.quantidade,
-      quantidadeConferida: 0,
-      unidadeMedidaSigla: item.unidadeMedidaSigla,
-    };
-    if (!item.id || item.id === 'avulso') return base;
-    try {
-      const estoqueSnap = await getDoc(doc(db, 'estoque', item.id));
-      if (estoqueSnap.exists()) {
-        const produto = estoqueSnap.data();
-        const embalagemDoItem = item.embalagemId
-          ? normalizeEmbalagens(produto.embalagens).find((e) => e.id === item.embalagemId)
-          : null;
-        return {
-          ...base,
-          codigo: produto.codigo || '',
-          codigoBarras: (embalagemDoItem?.codigoBarras || produto.codigoBarras || ''),
-          localizacaoEstoque: produto.localizacaoEstoque || '',
-        };
-      }
-    } catch (err) {
-      console.error('Erro ao buscar dados de estoque do item da conferência:', err);
-    }
-    return base;
-  })
-);
-
-/** Assinatura dos itens do pedido: muda quando alguem acrescenta, retira ou muda a quantidade de um item. */
-const assinaturaDosItens = (itensPedido: any[]): string => JSON.stringify(
-  itensPedido.map((i: any) => [i.id || '', i.nome || '', Number(i.quantidade || 0), i.embalagemId || '']),
-);
 
 const ConferenciaForm: React.FC = () => {
   // A MESMA tela confere pedido/pre-venda e TROCA (pedido do dono, 2026-09-24).
@@ -141,6 +43,7 @@ const ConferenciaForm: React.FC = () => {
   const { pedidoId: pedidoIdDaRota, trocaId } = useParams();
   const ehTroca = Boolean(trocaId);
   const pedidoId = trocaId || pedidoIdDaRota;
+  const alvo: AlvoDaConferencia = { tipo: ehTroca ? 'troca' : 'pedido', id: pedidoId || '' };
   const navigate = useNavigate();
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
   // Trava de edicao (15/10/2026): uma pessoa por conferencia, no computador ou no celular.
@@ -201,193 +104,20 @@ const ConferenciaForm: React.FC = () => {
   // Um campo "Qtd" manual por linha, para o Enter poder ir de linha em linha.
   const manualRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // Busca o nome de exibicao do usuario atual pra auditoria (nome legivel,
-  // nao so uid) -- mesmo fallback de tres niveis usado pro vendedor em
-  // PedidoVendaForm.tsx.
-  const resolveUsuarioNome = useCallback(async (): Promise<string> => {
-    if (!currentUser) return 'Desconhecido';
-    let nome = currentUser.displayName || currentUser.email || currentUser.uid;
-    try {
-      const perfilSnap = await getDoc(doc(db, 'usuarios', currentUser.uid));
-      if (perfilSnap.exists()) {
-        const perfil = perfilSnap.data();
-        nome = perfil.nome || perfil.nomeResponsavel || nome;
-      }
-    } catch {
-      // Segue com o fallback -- nao bloqueia a operacao.
-    }
-    return nome;
-  }, [currentUser]);
-
   useEffect(() => {
-    const abrirConferencia = async () => {
+    const abrir = async () => {
       if (!pedidoId || !tenantId || !currentUser || !travaLiberada) return;
       setIsLoading(true);
       setLoadError(null);
       try {
-        if (ehTroca) {
-          const aberta = await trocaService.abrirConferencia(pedidoId);
-          setPedido({ numeroPedido: aberta.troca.numeroTroca, clienteNome: aberta.troca.clienteNome });
-          let configTroca: Record<string, unknown> = {};
-          const configTrocaSnap = await getDoc(doc(db, 'configuracoes', tenantId));
-          if (configTrocaSnap.exists()) configTroca = configTrocaSnap.data();
-          const configDaTroca = {
-            exigirBipagem: (configTroca.exigirBipagem as boolean | undefined) ?? DEFAULT_EXIGIR_BIPAGEM,
-            bloquearExcedente: (configTroca.bloquearExcedente as boolean | undefined) ?? DEFAULT_BLOQUEAR_EXCEDENTE,
-            ordenarMinutaPorLocal: (configTroca.ordenarMinutaPorLocal as boolean | undefined) ?? DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
-          };
-          setConfig(configDaTroca);
-          setItens(configDaTroca.ordenarMinutaPorLocal ? ordenarPorLocalizacao(aberta.itens) : aberta.itens);
-          setStatus(aberta.status);
-          setAbertoPorNome(aberta.abertoPorNome);
-          return;
-        }
-
-        const usuarioNome = await resolveUsuarioNome();
-
-        const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', pedidoId));
-        if (!pedidoSnap.exists() || pedidoSnap.data().tenantId !== tenantId) {
-          setLoadError('Pedido não encontrado.');
-          return;
-        }
-        const pedidoData = pedidoSnap.data();
-        // Visibilidade de vendas: sem isto, o link direto da conferencia
-        // abriria a venda do colega com itens, quantidades e cliente.
-        if (vendasVisiveisDeUsuarioId && !isVendaDoUsuario(pedidoData, vendasVisiveisDeUsuarioId)) {
-          setLoadError('Esta venda foi registrada por outro vendedor e sua empresa limitou cada vendedor às próprias vendas. Peça a um usuário com nível Administração para conferir este pedido.');
-          return;
-        }
-        if (!pedidoData.statusConferencia) {
-          setLoadError('Este pedido não está habilitado para conferência de mercadoria.');
-          return;
-        }
-        // Pedido/pre-venda cancelado sai da expedicao: nao ha o que separar.
-        if (pedidoData.status === 'Cancelada') {
-          setLoadError('Este pedido foi cancelado e saiu da expedição. Não há mercadoria a conferir.');
-          return;
-        }
-        setPedido({ numeroPedido: pedidoData.numeroPedido, clienteNome: pedidoData.clienteNome });
-
-        let configData: any = {};
-        const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
-        if (configSnap.exists()) configData = configSnap.data();
-        const configAtual = {
-          exigirBipagem: configData.exigirBipagem ?? DEFAULT_EXIGIR_BIPAGEM,
-          bloquearExcedente: configData.bloquearExcedente ?? DEFAULT_BLOQUEAR_EXCEDENTE,
-          ordenarMinutaPorLocal: configData.ordenarMinutaPorLocal ?? DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
-        };
-        setConfig(configAtual);
-
-        // Enriquece cada item com estoque/{id} (codigo/codigoBarras/
-        // localizacaoEstoque) FORA da transacao -- mesmo padrao ja usado em
-        // MinutaPrint.tsx (Fatia 2). So usado se a expedicao ainda nao
-        // existir; se ja existe, os itens gravados la sao a fonte da verdade.
-        const itensEnriquecidos = await montarItensDaConferencia(Array.isArray(pedidoData.itens) ? pedidoData.itens : []);
-        const itensIniciais = configAtual.ordenarMinutaPorLocal ? ordenarPorLocalizacao(itensEnriquecidos) : itensEnriquecidos;
-
-        // Abertura sempre em transacao -- toca 2 documentos (expedicoes +
-        // pedidos_venda), regra permanente da Secao 1.4. So escreve algo
-        // quando o estado realmente precisa mudar (evita historico/log
-        // espurio toda vez que a tela e' revisitada ja em_conferencia).
-        const resultado = await runTransaction(db, async (transaction) => {
-          const pedidoRefTx = doc(db, 'pedidos_venda', pedidoId);
-          const expedicaoRefTx = doc(db, 'expedicoes', pedidoId);
-          const pedidoSnapTx = await transaction.get(pedidoRefTx);
-          const expedicaoSnapTx = await transaction.get(expedicaoRefTx);
-
-          if (!pedidoSnapTx.exists()) throw new Error('Pedido não encontrado.');
-          const pedidoDataTx = pedidoSnapTx.data();
-
-          if (expedicaoSnapTx.exists()) {
-            const expedicaoDataTx = expedicaoSnapTx.data();
-
-            if (expedicaoDataTx.status === 'em_conferencia') {
-              return {
-                itens: (expedicaoDataTx.itens as ConferenciaItem[]) || itensIniciais,
-                status: 'em_conferencia' as StatusConferencia,
-                abertoPorNome: expedicaoDataTx.abertoPorNome || usuarioNome,
-              };
-            }
-
-            const de = expedicaoDataTx.status as StatusConferencia;
-            if (!canTransition(de, 'em_conferencia')) throw new Error('Transição de status inválida para reabrir esta conferência.');
-
-            const novoHistorico = [
-              ...(expedicaoDataTx.historico || []),
-              { de, para: 'em_conferencia', em: Timestamp.now(), usuarioId: currentUser.uid, usuarioNome },
-            ];
-            transaction.update(expedicaoRefTx, {
-              status: 'em_conferencia',
-              historico: novoHistorico,
-              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
-            });
-            transaction.update(pedidoRefTx, {
-              statusConferencia: 'em_conferencia',
-              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
-            });
-            return {
-              itens: (expedicaoDataTx.itens as ConferenciaItem[]) || itensIniciais,
-              status: 'em_conferencia' as StatusConferencia,
-              abertoPorNome: expedicaoDataTx.abertoPorNome || usuarioNome,
-            };
-          }
-
-          // Primeira vez que este pedido e' aberto pra conferencia.
-          const de = (pedidoDataTx.statusConferencia as StatusConferencia) || 'aguardando';
-          const historicoInicial: HistoricoEntry[] = [
-            { de, para: 'em_conferencia', em: Timestamp.now(), usuarioId: currentUser.uid, usuarioNome },
-          ];
-          transaction.set(expedicaoRefTx, {
-            tenantId,
-            pedidoId,
-            numeroPedido: pedidoDataTx.numeroPedido,
-            clienteNome: pedidoDataTx.clienteNome || '',
-            status: 'em_conferencia',
-            itens: itensIniciais,
-            abertoPor: currentUser.uid,
-            abertoPorNome: usuarioNome,
-            abertoEm: serverTimestamp(),
-            observacao: '',
-            historico: historicoInicial,
-            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-          });
-          transaction.update(pedidoRefTx, {
-            statusConferencia: 'em_conferencia',
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
-          });
-          return { itens: itensIniciais, status: 'em_conferencia' as StatusConferencia, abertoPorNome: usuarioNome };
-        });
-
-        // Pedido alterado depois da primeira abertura (item cancelado/acrescentado): alinha a copia com o pedido atual.
-        const reconciliado = reconciliarItensDaConferencia(resultado.itens, itensIniciais);
-        if (reconciliado.mudou) {
-          try {
-            await updateDoc(doc(db, 'expedicoes', pedidoId), { itens: reconciliado.itens, ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()) });
-          } catch (erroReconciliar) {
-            console.error('Erro ao gravar a lista atualizada da conferência:', erroReconciliar);
-          }
-          setAvisoAlteracao(reconciliado.avisos);
-        }
-        assinaturaDoPedido.current = assinaturaDosItens(Array.isArray(pedidoData.itens) ? pedidoData.itens : []);
-        setItens(reconciliado.itens);
-        setStatus(resultado.status);
-        setAbertoPorNome(resultado.abertoPorNome);
-
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId,
-            usuarioId: currentUser.uid,
-            usuarioEmail: currentUser.email || currentUser.uid,
-            modulo: 'expedicao',
-            acao: 'conferencia_aberta',
-            descricao: `Conferência do pedido #${pedidoData.numeroPedido} aberta.`,
-            registroRelacionadoId: pedidoId,
-            status: 'sucesso',
-          });
-        } catch (err) {
-          console.error('Erro ao registrar log de abertura de conferência:', err);
-        }
+        const aberta = await abrirConferencia({ alvo, tenantId, usuario: currentUser, vendasVisiveisDeUsuarioId });
+        setPedido({ numeroPedido: aberta.numero, clienteNome: aberta.clienteNome });
+        setConfig(aberta.config);
+        if (aberta.avisos) setAvisoAlteracao(aberta.avisos);
+        assinaturaDoPedido.current = aberta.assinaturaDoPedido;
+        setItens(aberta.itens);
+        setStatus(aberta.status);
+        setAbertoPorNome(aberta.abertoPorNome);
       } catch (err) {
         console.error('Erro ao abrir conferência:', err);
         setLoadError(err instanceof TrocaError ? err.message : ((err as Error).message || 'Não foi possível abrir a conferência.'));
@@ -395,7 +125,7 @@ const ConferenciaForm: React.FC = () => {
         setIsLoading(false);
       }
     };
-    abrirConferencia();
+    void abrir();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pedidoId, tenantId, currentUser, travaLiberada]);
 
@@ -405,16 +135,12 @@ const ConferenciaForm: React.FC = () => {
     setSalvamento((atual) => ({ ...atual, estado: 'salvando' }));
     filaDeGravacao.current = filaDeGravacao.current.then(async () => {
       try {
-        if (ehTroca) {
-          // Na troca quem escreve e' o servidor: ele so' aceita a quantidade conferida (nada altera via DevTools).
-          await trocaService.salvarConferencia(pedidoId, itensParaGravar.map((item) => ({ produtoId: item.produtoId, quantidadeConferida: item.quantidadeConferida })));
-        } else {
-          await updateDoc(doc(db, 'expedicoes', pedidoId), {
-            itens: itensParaGravar,
-            ...(observacaoTocada.current ? { observacao: observacaoParaGravar } : {}),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
-          });
-        }
+        await gravarProgressoDaConferencia({
+          alvo: { tipo: ehTroca ? 'troca' : 'pedido', id: pedidoId },
+          uid: currentUser.uid,
+          itens: itensParaGravar,
+          observacao: observacaoTocada.current ? observacaoParaGravar : undefined,
+        });
         gravacoesPendentes.current -= 1;
         setSalvamento({ estado: gravacoesPendentes.current > 0 ? 'salvando' : 'salvo', em: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) });
       } catch (err) {
@@ -583,79 +309,7 @@ const ConferenciaForm: React.FC = () => {
 
     setIsClosing(true);
     try {
-      if (ehTroca) {
-        // O servidor confere as quantidades, decide o status final e grava
-        // na troca e na expedicao numa transacao so'.
-        await trocaService.fecharConferencia(
-          pedidoId,
-          itens.map((item) => ({ produtoId: item.produtoId, quantidadeConferida: item.quantidadeConferida })),
-          observacao,
-        );
-        await NexusSwal.fire({
-          title: final === 'conferido' ? 'Conferência concluída!' : 'Conferência fechada com divergências',
-          icon: final === 'conferido' ? 'success' : 'warning',
-          confirmButtonText: 'Voltar à fila',
-        });
-        navigate('/operacoes/expedicao');
-        return;
-      }
-
-      const usuarioNome = await resolveUsuarioNome();
-
-      await runTransaction(db, async (transaction) => {
-        const pedidoRefTx = doc(db, 'pedidos_venda', pedidoId);
-        const expedicaoRefTx = doc(db, 'expedicoes', pedidoId);
-        const pedidoSnapTx = await transaction.get(pedidoRefTx);
-        const expedicaoSnapTx = await transaction.get(expedicaoRefTx);
-        if (!pedidoSnapTx.exists()) throw new Error('Pedido não encontrado.');
-        if (!expedicaoSnapTx.exists()) throw new Error('Registro de conferência não encontrado.');
-
-        const historicoAtual = expedicaoSnapTx.data().historico || [];
-        const novoHistorico = [
-          ...historicoAtual,
-          { de: 'em_conferencia', para: final, em: Timestamp.now(), usuarioId: currentUser.uid, usuarioNome },
-        ];
-
-        transaction.update(expedicaoRefTx, {
-          status: final,
-          itens,
-          observacao,
-          conferidoPor: currentUser.uid,
-          conferidoPorNome: usuarioNome,
-          conferidoEm: serverTimestamp(),
-          historico: novoHistorico,
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
-        });
-        // Restrito aos campos liberados por canCloseConferenciaOnPedido()
-        // nas firestore.rules -- nunca adicionar outro campo aqui sem
-        // atualizar a regra junto (ver Modulo 12 no plano).
-        transaction.update(pedidoRefTx, {
-          statusConferencia: final,
-          conferidoPor: currentUser.uid,
-          conferidoPorNome: usuarioNome,
-          conferidoEm: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
-        });
-      });
-
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId,
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'expedicao',
-          acao: 'conferencia_fechada',
-          descricao: `Conferência do pedido #${pedido.numeroPedido} fechada como ${STATUS_LABELS[final]}.`,
-          registroRelacionadoId: pedidoId,
-          valorAnterior: 'em_conferencia',
-          valorNovo: final,
-          status: 'sucesso',
-        });
-      } catch (err) {
-        console.error('Erro ao registrar log de fechamento de conferência:', err);
-      }
-
+      await fecharConferencia({ alvo, tenantId, usuario: currentUser, itens, observacao, numero: pedido.numeroPedido });
       await NexusSwal.fire({
         title: final === 'conferido' ? 'Conferência concluída!' : 'Conferência fechada com divergências',
         icon: final === 'conferido' ? 'success' : 'warning',

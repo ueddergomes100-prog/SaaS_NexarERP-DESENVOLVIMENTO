@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowDownCircle, ArrowUpCircle, Box, ChevronRight, ClipboardList, FileText, ListChecks, LogOut, Package, Receipt, Repeat, Send, SquarePlus, Tag, Truck, Users, Wrench, type LucideIcon } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Box, ChevronRight, ClipboardList, FileText, ListChecks, LogOut, Package, PackageCheck, Receipt, Repeat, Send, SquarePlus, Tag, Truck, Users, Wrench, type LucideIcon } from 'lucide-react';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
@@ -14,6 +14,7 @@ import { PERMISSAO_BALANCO, podeUsarEntregasNoApp, podeUsarOsNoApp } from './ven
 import { hasTenantFullAccess } from '../../utils/roles';
 import { PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
 import { comOrigem } from './navegacaoApp';
+import { podeConferirNoApp } from '../../utils/conferenciaDomain';
 
 interface PedidoRecente {
   id: string;
@@ -57,7 +58,7 @@ const Atalho: React.FC<AtalhoProps> = ({ Icone, rotulo, detalhe, variante, aoToc
 
 const VendedorHome: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, tenantId, logout, userNome, userPermissions, controlaFiscal, userRole, isOwner, filialAtual } = useAuth();
+  const { currentUser, tenantId, logout, userNome, userPermissions, controlaFiscal, userRole, isOwner, filialAtual, conferenciaMercadoriaAtiva } = useAuth();
   const podeSolicitarTroca = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_TROCA_SOLICITAR);
   const [recentes, setRecentes] = useState<PedidoRecente[]>([]);
   const [resumoHoje, setResumoHoje] = useState<{ pedidos: number; orcamentos: number } | null>(null);
@@ -226,6 +227,9 @@ const VendedorHome: React.FC = () => {
             <Atalho Icone={Send} rotulo="Rascunhos e Envio" aoTocar={() => navigate('/vendedor/rascunhos')} />
             {podeUsarOsNoApp(userRole, isOwner, userPermissions) && (
               <Atalho Icone={Wrench} rotulo="Ordens de Serviço" aoTocar={() => navigate('/vendedor/os', comOrigem('/vendedor'))} />
+            )}
+            {podeConferirNoApp({ acessoTotal: hasTenantFullAccess(userRole, isOwner), permissoes: userPermissions, conferenciaAtiva: conferenciaMercadoriaAtiva }) && (
+              <Atalho Icone={PackageCheck} rotulo="Conferência" detalhe="Separar pedidos" aoTocar={() => navigate('/vendedor/conferencia')} />
             )}
             {podeUsarEntregasNoApp(userRole, isOwner, userPermissions) && (
               <Atalho Icone={Truck} rotulo="Entregas" aoTocar={() => navigate('/vendedor/entregas', comOrigem('/vendedor'))} />

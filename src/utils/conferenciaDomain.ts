@@ -312,6 +312,21 @@ export const COR_CONFERENCIA: Record<StatusConferencia, string> = {
   divergente: '#ef4444',
 };
 
+/** Permissao da Fila de Expedicao/Conferencia (a mesma rota do computador). */
+export const PERMISSAO_CONFERENCIA = 'operacoes.expedicao';
+
+/**
+ * Conferencia pelo app Vendas (15/10/2026): so' com a Conferencia de
+ * Mercadoria ligada na filial e para quem confere no computador (dono,
+ * administrador ou a permissao da Fila de Expedicao).
+ */
+export const podeConferirNoApp = (args: { acessoTotal: boolean; permissoes: string[]; conferenciaAtiva: boolean }): boolean => (
+  args.conferenciaAtiva && (args.acessoTotal || args.permissoes.includes(PERMISSAO_CONFERENCIA))
+);
+
+/** Ainda tem o que fazer na conferencia: aparece na fila de qualquer data. */
+export const STATUS_CONFERENCIA_PENDENTES: StatusConferencia[] = ['aguardando', 'em_conferencia', 'divergente'];
+
 /**
  * ENTREGAR TROCA ANTES DE CONFERIR (2026-09-24). Mesma ideia do faturamento da
  * pre-venda: nao e' bloqueio (reposicao que sai na hora existe), e' aviso -- o

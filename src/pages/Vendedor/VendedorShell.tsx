@@ -32,6 +32,8 @@ import VendedorEntregas from './VendedorEntregas';
 import VendedorEntregaRota from './VendedorEntregaRota';
 import VendedorEntregaRegistrar from './VendedorEntregaRegistrar';
 import EnvioAutomaticoDeRascunhos from './EnvioAutomaticoDeRascunhos';
+import VendedorConferenciaFila from './VendedorConferenciaFila';
+import VendedorConferencia from './VendedorConferencia';
 
 /**
  * Guarda de acesso do aplicativo do vendedor externo, separada da
@@ -48,7 +50,8 @@ import EnvioAutomaticoDeRascunhos from './EnvioAutomaticoDeRascunhos';
 // A navbar fica escondida nas telas de montar pedido/orcamento (novo ou
 // rascunho reaberto) -- ja tem botao de acao fixo embaixo, sem espaco (nem
 // sentido) pra navegacao.
-const SEM_NAVBAR_PREFIXOS = ['/vendedor/cliente/novo', '/vendedor/pedido/novo', '/vendedor/orcamento/novo', '/vendedor/pedido/rascunho/', '/vendedor/orcamento/rascunho/'];
+// Conferencia (15/10/2026): a tela de conferir usa a barra de baixo para a quantidade e o "Fechar conferencia".
+const SEM_NAVBAR_PREFIXOS = ['/vendedor/cliente/novo', '/vendedor/pedido/novo', '/vendedor/orcamento/novo', '/vendedor/pedido/rascunho/', '/vendedor/orcamento/rascunho/', '/vendedor/conferencia/'];
 
 const VendedorShell: React.FC = () => {
   const location = useLocation();
@@ -135,6 +138,9 @@ const VendedorShell: React.FC = () => {
           <Route path="perfil" element={<VendedorPerfil />} />
           <Route path="contas-pagar" element={<VendedorContasPagar />} />
           <Route path="contas-receber" element={<VendedorContasReceber />} />
+          <Route path="conferencia" element={<VendedorConferenciaFila />} />
+          <Route path="conferencia/troca/:trocaId" element={<VendedorConferencia />} />
+          <Route path="conferencia/:pedidoId" element={<VendedorConferencia />} />
           <Route
             path="balanco"
             element={userPermissions.includes(PERMISSAO_BALANCO) ? (

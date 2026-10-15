@@ -24,6 +24,9 @@ import {
   textoDaImpressao,
 } from '../../utils/relatorioPreVendasDomain';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { useTravasAtivas } from '../../hooks/useTravaDeEdicao';
+import { descreverTrava, mensagemDeBloqueio } from '../../utils/travaEdicaoDomain';
+import { NexusSwal } from '../../utils/alerts';
 
 /**
  * Relatorio de PRE-VENDAS EM ABERTO.
@@ -60,6 +63,8 @@ type PreVendaLinha = PreVendaDoRelatorio;
 const RelatorioPreVendas: React.FC = () => {
   const navigate = useNavigate();
   const { tenantId, currentUser, vendasVisiveisDeUsuarioId, userRole, isOwner } = useAuth();
+  // Trava de edicao (15/10/2026): pre-venda aberta por outra pessoa fica cinza e nao abre.
+  const travasPedidos = useTravasAtivas('pedido_venda');
   // Funcionario comum nao ve valor nem contagem em resumo nenhum -- so' dono
   // e gestor (Master/Admin) enxergam este quadro de totais.
   const podeVerResumo = hasTenantFullAccess(userRole, isOwner);
@@ -296,11 +301,23 @@ const RelatorioPreVendas: React.FC = () => {
                 {linhasFiltradas.map((linha) => (
                   <tr
                     key={linha.id}
-                    onDoubleClick={() => navigate(`/pedidos-venda/visualizar/${linha.id}`)}
-                    style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }}
-                    title="Duplo clique para abrir a pré-venda"
+                    onDoubleClick={() => {
+                      const trava = travasPedidos.get(linha.id);
+                      if (trava) {
+                        void NexusSwal.fire({ title: 'Em edição por outra pessoa', text: mensagemDeBloqueio('pedido_venda', trava), icon: 'info', confirmButtonText: 'Entendi' });
+                        return;
+                      }
+                      navigate(`/pedidos-venda/visualizar/${linha.id}`);
+                    }}
+                    style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer', opacity: travasPedidos.has(linha.id) ? 0.55 : 1 }}
+                    title={travasPedidos.get(linha.id) ? descreverTrava(travasPedidos.get(linha.id)!) : 'Duplo clique para abrir a pré-venda'}
                   >
-                    <td style={{ padding: '14px 16px', fontWeight: 600 }}>#{linha.numeroPedido}</td>
+                    <td style={{ padding: '14px 16px', fontWeight: 600 }}>
+                      #{linha.numeroPedido}
+                      {travasPedidos.get(linha.id) && (
+                        <div style={{ marginTop: '4px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>{descreverTrava(travasPedidos.get(linha.id)!)}</div>
+                      )}
+                    </td>
                     <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
                       {linha.data ? formatDateInputPtBr(getDateInputInTimeZone(linha.data)) : '—'}
                     </td>

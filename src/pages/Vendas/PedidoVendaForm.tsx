@@ -183,6 +183,8 @@ import Swal from 'sweetalert2';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaModal';
 import { motivoPedidoNaoEmiteNota } from '../../utils/notaFiscalVisibilidadeDomain';
+import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
+import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 import './LancamentoItens.css';
 
@@ -797,6 +799,11 @@ const PedidoVendaForm: React.FC = () => {
   // so pro pedido do agente, onde a loja quis controle fino sobre o que
   // pode ser mexido num pedido feito pelo proprio cliente.
   const canEditPendingOrder = canEditAgentOrder || canEditarPreVenda;
+  // Trava de edicao (15/10/2026): pedido aberto para EDITAR (pre-venda/pedido
+  // pendente, ou trocando o pagamento da venda finalizada) e' de uma pessoa
+  // por vez, no computador ou no celular. So' ver a venda continua livre.
+  const travaPedido = useTravaDeEdicao({ tipo: 'pedido_venda', registroId: id, ativa: isViewing && (canEditPendingOrder || editandoPagamento) });
+  const podeLiberarTravaPedido = usePodeLiberarTrava();
   /** Com "Exigir identificação do vendedor" ligado, quem vende de verdade e'
    * quem digitar codigo+PIN no popup (ver garantirVendedorIdentificado),
    * nao o usuario logado na estacao (balcao01, balcao02...). Mostrar o
@@ -4612,6 +4619,18 @@ const PedidoVendaForm: React.FC = () => {
 
   if (isFetchingData) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando dados da Venda...</div>;
+  }
+
+  if (travaPedido.situacao === 'de_outro') {
+    return (
+      <TravaDeEdicaoAviso
+        rotulo="o pedido"
+        mensagem={travaPedido.mensagem}
+        onVoltar={() => navigate('/pedidos-venda')}
+        onTentarDeNovo={travaPedido.tentarDeNovo}
+        onLiberar={podeLiberarTravaPedido ? travaPedido.liberarEAbrir : undefined}
+      />
+    );
   }
 
   return (

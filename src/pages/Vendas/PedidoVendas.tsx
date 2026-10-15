@@ -4,7 +4,7 @@ import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
 import { useNaoImpressasPrimeiro } from '../../hooks/useNaoImpressasPrimeiro';
 import { compararPorImpressao } from '../../utils/relatorioPreVendasDomain';
 import { foiImpresso, OPCOES_FILTRO_IMPRESSAO, passaNoFiltroDeImpressao, rotuloDoFiltroDeImpressao, type FiltroImpressao } from '../../utils/impressaoListaDomain';
-import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, Filter, Truck, CheckCircle2 } from 'lucide-react';
+import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, Filter, Truck, CheckCircle2, Lock } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp, Timestamp, type QuerySnapshot, type DocumentData } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { diasDoPeriodoLista, PERIODO_LISTA_PADRAO, type PresetPeriodoLista } from '../../utils/periodoListaDomain';
@@ -32,6 +32,8 @@ import {
 import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 import { tomDoStatusPedido, type TomChip } from '../../utils/chipStatusDomain';
 import AvatarIniciais from '../../components/common/AvatarIniciais';
+import { useTravasAtivas } from '../../hooks/useTravaDeEdicao';
+import { descreverTrava, mensagemDeBloqueio } from '../../utils/travaEdicaoDomain';
 import { FiltroColuna, itemOpcaoStyle, OpcoesFiltro } from '../../components/common/FiltroColuna';
 import {
   addDaysToDateInput,
@@ -138,6 +140,16 @@ const CONFERENCIA_STATUS_TOM: Record<string, TomChip> = {
 const PedidoVendas: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
+  // Trava de edicao (15/10/2026): pedido aberto para editar por outra pessoa fica cinza e nao abre.
+  const travasPedidos = useTravasAtivas('pedido_venda');
+  const abrirPedido = (pedidoId: string) => {
+    const trava = travasPedidos.get(pedidoId);
+    if (trava) {
+      void NexusSwal.fire({ title: 'Em edição por outra pessoa', text: mensagemDeBloqueio('pedido_venda', trava), icon: 'info', confirmButtonText: 'Entendi' });
+      return;
+    }
+    void openTab(`/pedidos-venda/visualizar/${pedidoId}`);
+  };
   const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, nivelAcesso, trabalhaComPreVenda, agenteDigitalAtivo, controlaFiscal } = useAuth();
   const isTabActive = useContext(TabActiveContext);
 
@@ -884,13 +896,13 @@ const PedidoVendas: React.FC = () => {
                     key={p.id}
                     className={selectedId === p.id ? 'row-selectable is-selected' : 'row-selectable'}
                     onClick={() => setSelectedId(p.id)}
-                    onDoubleClick={() => openTab(`/pedidos-venda/visualizar/${p.id}`)}
+                    onDoubleClick={() => abrirPedido(p.id)}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter') openTab(`/pedidos-venda/visualizar/${p.id}`);
+                      if (event.key === 'Enter') abrirPedido(p.id);
                     }}
                     tabIndex={0}
-                    title="Clique para selecionar, duplo clique para visualizar"
-                    style={{ opacity: p.status === 'Cancelada' ? 0.6 : 1 }}
+                    title={travasPedidos.get(p.id) ? descreverTrava(travasPedidos.get(p.id)!) : 'Clique para selecionar, duplo clique para visualizar'}
+                    style={{ opacity: p.status === 'Cancelada' || travasPedidos.has(p.id) ? 0.55 : 1 }}
                   >
                     <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                       <input
@@ -900,7 +912,14 @@ const PedidoVendas: React.FC = () => {
                         aria-label={`Selecionar pedido ${p.numeroPedido}`}
                       />
                     </td>
-                    <td style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>#{p.numeroPedido}</td>
+                    <td style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
+                      #{p.numeroPedido}
+                      {travasPedidos.get(p.id) && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'normal', maxWidth: '170px' }}>
+                          <Lock size={12} style={{ flex: 'none' }} /> {descreverTrava(travasPedidos.get(p.id)!)}
+                        </div>
+                      )}
+                    </td>
                     <td className="hd-tabela__mudo">{formatarDataEfetiva(p)}</td>
                     <td className="hd-tabela__cliente">
                       <div className="hd-pessoa">
@@ -945,7 +964,7 @@ const PedidoVendas: React.FC = () => {
                     </td>
                     <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                       <div style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
-                        <button onClick={() => openTab(`/pedidos-venda/visualizar/${p.id}`)} className="icon-btn" title="Visualizar Pedido" style={{ color: '#3b82f6' }}>
+                        <button onClick={() => abrirPedido(p.id)} className="icon-btn" title="Visualizar Pedido" style={{ color: '#3b82f6' }}>
                           <FileText size={18} />
                         </button>
                         {controlaFiscal && authorizedCupons[p.id] && authorizedCupons[p.id].status === 'authorized' ? (

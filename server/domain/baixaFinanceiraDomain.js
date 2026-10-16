@@ -167,7 +167,7 @@ const planejarEstornoReceber = (titulo) => {
         return bloqueado('Este boleto foi baixado pelo arquivo de retorno do banco e não pode ser estornado por aqui, '
             + 'para não ficar diferente do que o banco informou. Fale com o suporte se a baixa estiver errada.');
     }
-    if (titulo.cheque) {
+    if (titulo.cheque || forma === 'Cheque') {
         return bloqueado('Este recebimento foi feito em cheque e já foi compensado. '
             + 'Não é possível estornar por aqui.');
     }

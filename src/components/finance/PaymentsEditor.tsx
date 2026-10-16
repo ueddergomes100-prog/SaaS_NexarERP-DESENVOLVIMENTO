@@ -18,7 +18,7 @@ import {
   buildCardFeeSchedulesByBrand,
   fromCents,
   isCardPayment,
-  paymentRequiresBankAccount,
+  pedeBancoDeDestino,
   toCents,
   type CreditCardFeeSchedule,
   type PaymentDraft,
@@ -84,7 +84,7 @@ interface PaymentsEditorProps {
   onRemovePayment: (id: string) => void;
   onTransactionDateChange: (date: string) => void;
   onUpdatePayment: (id: string, updates: Partial<PaymentDraft>) => void;
-  /** Pagamento de cartão simplificado (Configurações) -- some banco/bandeira/autorização/parcelas do cartão. */
+  /** Pagamento simplificado (Configurações) -- some banco/bandeira/autorização/parcelas do cartão e os dados obrigatórios do cheque. */
   pagamentoCartaoSimplificadoAtivo?: boolean;
   /** Crédito de devolução disponível do cliente (centavos). Só quando há
    * saldo é que "Crédito de Devolução" entra na lista de formas -- ninguém
@@ -486,7 +486,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
               </div>
             </div>
 
-            {payment.forma !== '' && paymentRequiresBankAccount(payment.forma) && !isSimplifiedCardPayment && (
+            {pedeBancoDeDestino(payment.forma, pagamentoCartaoSimplificadoAtivo) && (
               <div className="input-group">
                 <label htmlFor={`${idPrefix}-banco-${payment.id}`}>Banco de destino *</label>
                 <select
@@ -693,6 +693,8 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                       {payment.dataPrevistaRecebimento && <> — compensa em <strong>{formatDateInputPtBr(payment.dataPrevistaRecebimento)}</strong></>}
                     </span>
                   </div>
+                ) : pagamentoCartaoSimplificadoAtivo ? (
+                  <span className="payments-editor__pending-notice">Pagamento simplificado: os dados do cheque são opcionais.</span>
                 ) : (
                   <span className="payments-editor__term-notice">Preencha os dados do cheque antes de finalizar.</span>
                 )}
@@ -703,10 +705,12 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                   style={{ marginTop: '8px' }}
                   type="button"
                 >
-                  {payment.chequeNumero ? 'Editar dados do cheque' : 'Preencher dados do cheque'}
+                  {payment.chequeNumero ? 'Editar dados do cheque' : (pagamentoCartaoSimplificadoAtivo ? 'Preencher dados do cheque (opcional)' : 'Preencher dados do cheque')}
                 </button>
                 <span className="payments-editor__pending-notice">
-                  Só entra no saldo do banco quando compensar, em Financeiro → Cheques.
+                  {pagamentoCartaoSimplificadoAtivo && !payment.bancoId
+                    ? 'Fica aguardando compensação em Financeiro → Cheques; o banco é escolhido ao compensar.'
+                    : 'Só entra no saldo do banco quando compensar, em Financeiro → Cheques.'}
                 </span>
               </div>
             )}

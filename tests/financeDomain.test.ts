@@ -13,16 +13,19 @@ import {
   computeBankCreditsMap,
   createEmptyPaymentDraft,
   explodeInstallmentPaymentRecords,
+  isSimplifiedChequePayment,
   isRevenueReversal,
   normalizeCreditCardFeeSchedule,
   normalizePayments,
   REVENUE_REVERSAL_CATEGORIES,
   paymentRequiresBankAccount,
+  pedeBancoDeDestino,
   recalculateCommissionAfterReturn,
   resolveBancoPadraoSimplificado,
   resolveComissaoPercentual,
   SIMPLIFIED_CARD_BANK_NAME,
   summarizePayments,
+  tagPaymentAsChequeAwaitingClearance,
   transactionDueDateInput,
   transactionFeeCents,
   transactionGrossCents,
@@ -983,4 +986,70 @@ test('lista personalizada com tamanho diferente do numero de parcelas e ignorada
   ], { saleDate: '2026-09-23' });
   assert.equal(record.vencimentosParcelas, undefined);
   assert.equal(record.prazoDias, 30);
+});
+
+// --- cheque no pagamento simplificado (16/10/2026) -------------------------
+
+test('pagamento simplificado: cheque sem dados nem banco passa, pendente e "bom para" o dia da venda', () => {
+  const [record] = normalizePayments(10_000, [
+    payment({ forma: 'Cheque', bancoId: '', bancoNome: '' }),
+  ], { saleDate: '2026-10-16', pagamentoCartaoSimplificadoAtivo: true, bancoPadraoSimplificado: null });
+
+  assert.equal(record.status, 'pendente');
+  assert.equal(record.naturezaFinanceira, 'contas_receber');
+  assert.equal(record.dataPrevistaRecebimento, '2026-10-16');
+  assert.equal('bancoId' in record, false);
+  assert.equal('cheque' in record, false);
+  assertNoUndefined(record);
+});
+
+test('pagamento simplificado: cheque com os dados preenchidos guarda os dados e o banco escolhido', () => {
+  const [record] = normalizePayments(10_000, [
+    payment({ forma: 'Cheque', chequeBancoEmissor: 'Sicoob', chequeNumero: '000123', dataPrevistaRecebimento: '2026-11-16' }),
+  ], { saleDate: '2026-10-16', pagamentoCartaoSimplificadoAtivo: true });
+
+  assert.equal(record.cheque?.numeroCheque, '000123');
+  assert.equal(record.cheque?.dataCompensacao, '2026-11-16');
+  assert.equal(record.bancoId, 'banco-teste');
+});
+
+test('pagamento simplificado: data de compensacao antes da venda continua bloqueada', () => {
+  assert.throws(
+    () => normalizePayments(10_000, [
+      payment({ forma: 'Cheque', dataPrevistaRecebimento: '2026-10-01' }),
+    ], { saleDate: '2026-10-16', pagamentoCartaoSimplificadoAtivo: true }),
+    /não pode ser anterior/,
+  );
+});
+
+test('pagamento simplificado desligado: cheque continua pedindo banco e dados, como hoje', () => {
+  assert.throws(
+    () => normalizePayments(10_000, [payment({ forma: 'Cheque', bancoId: '', bancoNome: '' })], { saleDate: '2026-10-16' }),
+    /banco de destino/,
+  );
+  assert.throws(
+    () => normalizePayments(10_000, [payment({ forma: 'Cheque', dataPrevistaRecebimento: '2026-10-16' })], { saleDate: '2026-10-16' }),
+    /banco emissor/,
+  );
+});
+
+test('quem pergunta banco de destino: simplificado tira cartao e cheque, o resto igual', () => {
+  assert.equal(isSimplifiedChequePayment('Cheque', true), true);
+  assert.equal(isSimplifiedChequePayment('Cheque', false), false);
+  assert.equal(isSimplifiedChequePayment('Pix', true), false);
+  assert.equal(pedeBancoDeDestino('Cheque', true), false);
+  assert.equal(pedeBancoDeDestino('Cartão de Crédito', true), false);
+  assert.equal(pedeBancoDeDestino('Pix', true), true);
+  assert.equal(pedeBancoDeDestino('Cheque', false), true);
+  assert.equal(pedeBancoDeDestino('Dinheiro', false), false);
+  assert.equal(pedeBancoDeDestino('', false), false);
+});
+
+test('baixa em cheque sem os dados (simplificado): marca a forma e a data, sem chave cheque', () => {
+  const pagamentos = [{ id: 'p1', indice: 1, transactionId: 't1', formaPagamento: 'Pagamento a Prazo', status: 'pendente', valorCentavos: 5000 }] as unknown as PaymentRecord[];
+  const [marcado] = tagPaymentAsChequeAwaitingClearance(pagamentos, { transactionId: 't1', cheque: null, dataCompensacao: '2026-10-20' });
+  assert.equal(marcado.formaPagamento, 'Cheque');
+  assert.equal(marcado.dataPrevistaRecebimento, '2026-10-20');
+  assert.equal('cheque' in marcado, false);
+  assert.equal('bancoId' in marcado, false);
 });

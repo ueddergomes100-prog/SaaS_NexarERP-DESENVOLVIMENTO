@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.validateBankTransfer = exports.transactionNetCents = exports.transactionFeeCents = exports.transactionGrossCents = exports.transactionMovesPhysicalCash = exports.transactionDueDateInput = exports.cancelCommissionSnapshot = exports.recalculateCommissionAfterReturn = exports.buildServiceOrderCommissionSnapshot = exports.buildCommissionSnapshotFromItems = exports.buildCommissionSnapshot = exports.parseComissaoPercentualInput = exports.resolveComissaoPercentual = exports.reversePartialReceipt = exports.reversePaymentReceipt = exports.legacyPaymentForTransaction = exports.asPaymentMethod = exports.applyPaymentReceipt = exports.pagamentoDoTitulo = exports.tagPaymentAsChequeAwaitingClearance = exports.summarizePayments = exports.explodeInstallmentPaymentRecords = exports.normalizePayments = exports.createEmptyPaymentDraft = exports.buildChequeDetails = exports.formaPagamentoInicial = exports.parseExigirEscolhaFormaPagamento = exports.DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO = exports.buildCardDetails = exports.paymentIsImmediatelyConfirmed = exports.settledFinancialNatureForPayment = exports.financialNatureForPayment = exports.computeBankCreditsMap = exports.paymentRequiresBankAccount = exports.isPhysicalCashPayment = exports.resolveBancoPadraoSimplificado = exports.SIMPLIFIED_CARD_BANK_NAME = exports.parsePagamentoCartaoSimplificadoAtivo = exports.DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = exports.isCardPayment = exports.buildCardFeeSchedulesByBrand = exports.creditCardFeeForInstallments = exports.normalizeCreditCardFeeSchedule = exports.parseCreditTerms = exports.gerarParcelasAPrazo = exports.INTERVALO_PARCELAS_PADRAO = exports.MAX_PARCELAS_A_PRAZO = exports.splitCents = exports.fromCents = exports.toCents = void 0;
-exports.isRevenueReversal = exports.REVENUE_REVERSAL_CATEGORIES = exports.transactionNetAmount = exports.transactionFeeAmount = exports.transactionGrossAmount = void 0;
+exports.transactionFeeCents = exports.transactionGrossCents = exports.transactionMovesPhysicalCash = exports.transactionDueDateInput = exports.cancelCommissionSnapshot = exports.recalculateCommissionAfterReturn = exports.buildServiceOrderCommissionSnapshot = exports.buildCommissionSnapshotFromItems = exports.buildCommissionSnapshot = exports.parseComissaoPercentualInput = exports.resolveComissaoPercentual = exports.reversePartialReceipt = exports.reversePaymentReceipt = exports.legacyPaymentForTransaction = exports.asPaymentMethod = exports.applyPaymentReceipt = exports.pagamentoDoTitulo = exports.tagPaymentAsChequeAwaitingClearance = exports.summarizePayments = exports.explodeInstallmentPaymentRecords = exports.normalizePayments = exports.createEmptyPaymentDraft = exports.buildChequeDetails = exports.formaPagamentoInicial = exports.parseExigirEscolhaFormaPagamento = exports.DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO = exports.buildCardDetails = exports.paymentIsImmediatelyConfirmed = exports.settledFinancialNatureForPayment = exports.financialNatureForPayment = exports.computeBankCreditsMap = exports.paymentRequiresBankAccount = exports.isPhysicalCashPayment = exports.resolveBancoPadraoSimplificado = exports.SIMPLIFIED_CARD_BANK_NAME = exports.pedeBancoDeDestino = exports.isSimplifiedChequePayment = exports.parsePagamentoCartaoSimplificadoAtivo = exports.DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = exports.isCardPayment = exports.buildCardFeeSchedulesByBrand = exports.creditCardFeeForInstallments = exports.normalizeCreditCardFeeSchedule = exports.parseCreditTerms = exports.gerarParcelasAPrazo = exports.INTERVALO_PARCELAS_PADRAO = exports.MAX_PARCELAS_A_PRAZO = exports.splitCents = exports.fromCents = exports.toCents = void 0;
+exports.isRevenueReversal = exports.REVENUE_REVERSAL_CATEGORIES = exports.transactionNetAmount = exports.transactionFeeAmount = exports.transactionGrossAmount = exports.validateBankTransfer = exports.transactionNetCents = void 0;
 const dateTime_1 = require("./dateTime");
 const toCents = (value) => {
     if (typeof value === 'string') {
@@ -132,6 +132,21 @@ exports.isCardPayment = isCardPayment;
 exports.DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = false;
 const parsePagamentoCartaoSimplificadoAtivo = (value) => value === true;
 exports.parsePagamentoCartaoSimplificadoAtivo = parsePagamentoCartaoSimplificadoAtivo;
+/**
+ * Cheque no pagamento simplificado (16/10/2026, pedido do dono): com a opcao
+ * ligada, o cheque tambem nao pede nada -- nem banco emissor, numero, data de
+ * compensacao ou banco de destino. Ele nasce pendente ("aguardando
+ * compensacao"), aparece em Financeiro › Cheques e so' entra no saldo quando
+ * alguem confirma a compensacao ali (que pergunta o banco, se faltar). Os
+ * dados do cheque continuam podendo ser preenchidos, so' nao sao exigidos.
+ */
+const isSimplifiedChequePayment = (method, simplificadoAtivo) => (simplificadoAtivo === true && method === 'Cheque');
+exports.isSimplifiedChequePayment = isSimplifiedChequePayment;
+/** A tela pergunta o banco de destino desta forma? (Simplificado: cartao e cheque nao.) */
+const pedeBancoDeDestino = (method, simplificadoAtivo) => (method !== ''
+    && (0, exports.paymentRequiresBankAccount)(method)
+    && !(simplificadoAtivo === true && ((0, exports.isCardPayment)(method) || method === 'Cheque')));
+exports.pedeBancoDeDestino = pedeBancoDeDestino;
 /**
  * Nome do banco padrao usado como destino automatico do cartao quando o
  * pagamento simplificado (Configuracoes) esta ligado -- o operador nao
@@ -364,6 +379,7 @@ const normalizePayments = (totalCents, drafts, options = {}) => {
         // bandeira/autorizacao/parcelas, e usa o banco "BANCO" automaticamente
         // em vez do banco escolhido na tela -- ver SIMPLIFIED_CARD_BANK_NAME.
         const isSimplifiedCard = (0, exports.isCardPayment)(draft.forma) && options.pagamentoCartaoSimplificadoAtivo === true;
+        const isSimplifiedCheque = (0, exports.isSimplifiedChequePayment)(draft.forma, options.pagamentoCartaoSimplificadoAtivo);
         let effectiveBancoId = draft.bancoId;
         let effectiveBancoNome = draft.bancoNome;
         if (isSimplifiedCard) {
@@ -375,7 +391,8 @@ const normalizePayments = (totalCents, drafts, options = {}) => {
             effectiveBancoId = options.bancoPadraoSimplificado.id;
             effectiveBancoNome = options.bancoPadraoSimplificado.nome;
         }
-        if ((0, exports.paymentRequiresBankAccount)(draft.forma) && !effectiveBancoId?.trim()) {
+        // Cheque simplificado: o banco e' escolhido ao compensar (Financeiro › Cheques).
+        if ((0, exports.paymentRequiresBankAccount)(draft.forma) && !isSimplifiedCheque && !effectiveBancoId?.trim()) {
             throw new Error(`Selecione o banco de destino do pagamento ${index + 1}.`);
         }
         const isTerm = draft.forma === 'Pagamento a Prazo';
@@ -489,7 +506,9 @@ const normalizePayments = (totalCents, drafts, options = {}) => {
             // Compensacao reaproveita dataPrevistaRecebimento (mesmo campo que o
             // cartao usa pro "primeiro recebimento previsto") -- nunca antes da
             // data da venda, senao a data nao faz sentido pra compensar depois.
-            const dataCompensacao = draft.dataPrevistaRecebimento;
+            // Simplificado sem data: "bom para" o dia da venda (calculado aqui, nunca
+            // guardado no rascunho -- a pre-venda faturada outro dia continua valendo).
+            const dataCompensacao = draft.dataPrevistaRecebimento || (isSimplifiedCheque ? saleDate : '');
             if (!dataCompensacao || !(0, dateTime_1.parseDateInput)(dataCompensacao)) {
                 throw new Error(`Informe a data de compensação do cheque do pagamento ${index + 1}.`);
             }
@@ -497,15 +516,18 @@ const normalizePayments = (totalCents, drafts, options = {}) => {
                 throw new Error(`A data de compensação do cheque do pagamento ${index + 1} não pode ser anterior à data da venda.`);
             }
             record.dataPrevistaRecebimento = dataCompensacao;
-            record.cheque = (0, exports.buildChequeDetails)({
-                bancoEmissor: draft.chequeBancoEmissor,
-                numeroCheque: draft.chequeNumero,
-                dataCompensacao,
-                agencia: draft.chequeAgencia,
-                titular: draft.chequeTitular,
-                emitente: draft.chequeEmitente,
-                documentoEmitente: draft.chequeDocumentoEmitente,
-            });
+            const semDadosDoCheque = !draft.chequeNumero?.trim() && !draft.chequeBancoEmissor?.trim();
+            // Simplificado sem dados: fica sem `cheque` (nunca undefined), igual ao cheque da venda no Financeiro.
+            if (!(isSimplifiedCheque && semDadosDoCheque))
+                record.cheque = (0, exports.buildChequeDetails)({
+                    bancoEmissor: draft.chequeBancoEmissor,
+                    numeroCheque: draft.chequeNumero,
+                    dataCompensacao,
+                    agencia: draft.chequeAgencia,
+                    titular: draft.chequeTitular,
+                    emitente: draft.chequeEmitente,
+                    documentoEmitente: draft.chequeDocumentoEmitente,
+                });
         }
         else if (draft.forma === 'Boleto') {
             // So a data de vencimento nasce aqui, mesmo campo que Cheque usa pra
@@ -708,8 +730,8 @@ const tagPaymentAsChequeAwaitingClearance = (payments, args) => {
     return payments.map((payment, index) => (index === targetIndex ? {
         ...payment,
         formaPagamento: 'Cheque',
-        cheque: args.cheque,
-        dataPrevistaRecebimento: args.cheque.dataCompensacao,
+        ...(args.cheque ? { cheque: args.cheque } : {}),
+        dataPrevistaRecebimento: args.dataCompensacao,
         ...(args.bancoId ? { bancoId: args.bancoId, bancoNome: args.bancoNome || '' } : {}),
     } : payment));
 };

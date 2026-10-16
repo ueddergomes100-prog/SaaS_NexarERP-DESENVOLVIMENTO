@@ -426,6 +426,25 @@ export const DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = false;
 export const parsePagamentoCartaoSimplificadoAtivo = (value: unknown): boolean => value === true;
 
 /**
+ * Cheque no pagamento simplificado (16/10/2026, pedido do dono): com a opcao
+ * ligada, o cheque tambem nao pede nada -- nem banco emissor, numero, data de
+ * compensacao ou banco de destino. Ele nasce pendente ("aguardando
+ * compensacao"), aparece em Financeiro › Cheques e so' entra no saldo quando
+ * alguem confirma a compensacao ali (que pergunta o banco, se faltar). Os
+ * dados do cheque continuam podendo ser preenchidos, so' nao sao exigidos.
+ */
+export const isSimplifiedChequePayment = (method: string, simplificadoAtivo?: boolean): boolean => (
+  simplificadoAtivo === true && method === 'Cheque'
+);
+
+/** A tela pergunta o banco de destino desta forma? (Simplificado: cartao e cheque nao.) */
+export const pedeBancoDeDestino = (method: PaymentMethod | '', simplificadoAtivo?: boolean): boolean => (
+  method !== ''
+  && paymentRequiresBankAccount(method)
+  && !(simplificadoAtivo === true && (isCardPayment(method) || method === 'Cheque'))
+);
+
+/**
  * Nome do banco padrao usado como destino automatico do cartao quando o
  * pagamento simplificado (Configuracoes) esta ligado -- o operador nao
  * escolhe banco nesse modo, entao precisa de um destino fixo e previsivel.
@@ -697,6 +716,7 @@ export const normalizePayments = (
     // bandeira/autorizacao/parcelas, e usa o banco "BANCO" automaticamente
     // em vez do banco escolhido na tela -- ver SIMPLIFIED_CARD_BANK_NAME.
     const isSimplifiedCard = isCardPayment(draft.forma) && options.pagamentoCartaoSimplificadoAtivo === true;
+    const isSimplifiedCheque = isSimplifiedChequePayment(draft.forma, options.pagamentoCartaoSimplificadoAtivo);
     let effectiveBancoId = draft.bancoId;
     let effectiveBancoNome = draft.bancoNome;
     if (isSimplifiedCard) {
@@ -711,7 +731,8 @@ export const normalizePayments = (
       effectiveBancoNome = options.bancoPadraoSimplificado.nome;
     }
 
-    if (paymentRequiresBankAccount(draft.forma) && !effectiveBancoId?.trim()) {
+    // Cheque simplificado: o banco e' escolhido ao compensar (Financeiro › Cheques).
+    if (paymentRequiresBankAccount(draft.forma) && !isSimplifiedCheque && !effectiveBancoId?.trim()) {
       throw new Error(`Selecione o banco de destino do pagamento ${index + 1}.`);
     }
 
@@ -841,7 +862,9 @@ export const normalizePayments = (
       // Compensacao reaproveita dataPrevistaRecebimento (mesmo campo que o
       // cartao usa pro "primeiro recebimento previsto") -- nunca antes da
       // data da venda, senao a data nao faz sentido pra compensar depois.
-      const dataCompensacao = draft.dataPrevistaRecebimento;
+      // Simplificado sem data: "bom para" o dia da venda (calculado aqui, nunca
+      // guardado no rascunho -- a pre-venda faturada outro dia continua valendo).
+      const dataCompensacao = draft.dataPrevistaRecebimento || (isSimplifiedCheque ? saleDate : '');
       if (!dataCompensacao || !parseDateInput(dataCompensacao)) {
         throw new Error(`Informe a data de compensação do cheque do pagamento ${index + 1}.`);
       }
@@ -849,7 +872,9 @@ export const normalizePayments = (
         throw new Error(`A data de compensação do cheque do pagamento ${index + 1} não pode ser anterior à data da venda.`);
       }
       record.dataPrevistaRecebimento = dataCompensacao;
-      record.cheque = buildChequeDetails({
+      const semDadosDoCheque = !draft.chequeNumero?.trim() && !draft.chequeBancoEmissor?.trim();
+      // Simplificado sem dados: fica sem `cheque` (nunca undefined), igual ao cheque da venda no Financeiro.
+      if (!(isSimplifiedCheque && semDadosDoCheque)) record.cheque = buildChequeDetails({
         bancoEmissor: draft.chequeBancoEmissor,
         numeroCheque: draft.chequeNumero,
         dataCompensacao,
@@ -1066,7 +1091,9 @@ export const tagPaymentAsChequeAwaitingClearance = (
   args: {
     transactionId: string;
     paymentIndex?: number;
-    cheque: ChequeDetails;
+    /** Ausente = cheque do pagamento simplificado, sem dados (16/10/2026). */
+    cheque?: ChequeDetails | null;
+    dataCompensacao: string;
     bancoId?: string;
     bancoNome?: string;
   },
@@ -1086,8 +1113,8 @@ export const tagPaymentAsChequeAwaitingClearance = (
   return payments.map((payment, index) => (index === targetIndex ? {
     ...payment,
     formaPagamento: 'Cheque' as const,
-    cheque: args.cheque,
-    dataPrevistaRecebimento: args.cheque.dataCompensacao,
+    ...(args.cheque ? { cheque: args.cheque } : {}),
+    dataPrevistaRecebimento: args.dataCompensacao,
     ...(args.bancoId ? { bancoId: args.bancoId, bancoNome: args.bancoNome || '' } : {}),
   } : payment));
 };

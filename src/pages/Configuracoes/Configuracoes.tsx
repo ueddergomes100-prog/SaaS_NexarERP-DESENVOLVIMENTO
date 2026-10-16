@@ -3325,7 +3325,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
-                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Pagamento de Cartão Simplificado</label>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Pagamento de Cartão e Cheque Simplificado</label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
                   <input
                     type="checkbox"
@@ -3334,14 +3334,17 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     disabled={!isEditingMode}
                     style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
                   />
-                  Finalizar cartão de crédito/débito sem bandeira, autorização, parcelas ou banco
+                  Finalizar cartão de crédito/débito sem bandeira, autorização, parcelas ou banco — e cheque sem pedir os dados do cheque
                 </label>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                   Com esta opção ligada, ao escolher Cartão de Crédito ou Débito na venda/OS/PDV o operador só informa o
                   valor — o pagamento confirma na hora e é lançado automaticamente no banco padrão{' '}
-                  <strong>&quot;{SIMPLIFIED_CARD_BANK_NAME}&quot;</strong> (criado automaticamente ao salvar). Dinheiro,
+                  <strong>&quot;{SIMPLIFIED_CARD_BANK_NAME}&quot;</strong> (criado automaticamente ao salvar). O cheque também
+                  não pede banco emissor, número nem banco de destino (na venda, OS, PDV e Contas a Receber): fica
+                  aguardando compensação em Financeiro › Cheques e só entra no saldo quando a compensação é confirmada
+                  lá, escolhendo o banco nessa hora. Os dados do cheque continuam podendo ser preenchidos. Dinheiro,
                   Pix, Transferência e Pagamento a Prazo não mudam. Desligada (padrão), o cartão continua pedindo
-                  bandeira, NSU/autorização, parcelas e banco de destino, como hoje.
+                  bandeira, NSU/autorização, parcelas e banco de destino, e o cheque continua pedindo os dados, como hoje.
                 </p>
               </div>
 

@@ -4,7 +4,7 @@ import {
   createEmptyPaymentDraft,
   fromCents,
   isCardPayment,
-  paymentRequiresBankAccount,
+  pedeBancoDeDestino,
   toCents,
   type PaymentDraft,
   type PaymentMethod,
@@ -148,7 +148,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 />
               </label>
 
-              {draft.forma !== '' && paymentRequiresBankAccount(draft.forma) && !(financeConfig.pagamentoCartaoSimplificadoAtivo && isCardPayment(draft.forma)) && (
+              {pedeBancoDeDestino(draft.forma, financeConfig.pagamentoCartaoSimplificadoAtivo) && (
                 <label>
                   <span>Banco de destino</span>
                   <select
@@ -183,7 +183,9 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
               {draft.forma === 'Cheque' && (
                 <div className="pdv-payment-placeholder">
                   <button type="button" className="btn-secondary" onClick={() => setChequeModalDraftId(draft.id)}>
-                    {draft.chequeNumero ? `Cheque nº ${draft.chequeNumero}` : 'Preencher dados do cheque'}
+                    {draft.chequeNumero
+                      ? `Cheque nº ${draft.chequeNumero}`
+                      : (financeConfig.pagamentoCartaoSimplificadoAtivo ? 'Dados do cheque (opcional)' : 'Preencher dados do cheque')}
                   </button>
                 </div>
               )}

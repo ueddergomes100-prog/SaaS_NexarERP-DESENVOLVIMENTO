@@ -8,7 +8,9 @@ import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown,
 import {
   applyPaymentReceipt,
   fromCents,
+  isSimplifiedChequePayment,
   legacyPaymentForTransaction,
+  parsePagamentoCartaoSimplificadoAtivo,
   paymentRequiresBankAccount,
   summarizePayments,
   tagPaymentAsChequeAwaitingClearance,
@@ -198,6 +200,8 @@ const ContasReceber: React.FC = () => {
   // Formas de pagamento "Usa" da filial: o recebimento acompanha a venda (16/10/2026).
   const ordemFormasDaFilial = useMemo(() => parseOrdemFormasPagamento(configFilial.ordemFormasPagamento), [configFilial]);
   const formasOcultasDaFilial = useMemo(() => parseFormasOcultas(configFilial.formasPagamentoOcultas), [configFilial]);
+  // Pagamento simplificado (16/10/2026): cheque sem dados e sem banco (escolhido ao compensar).
+  const pagamentoSimplificado = useMemo(() => parsePagamentoCartaoSimplificadoAtivo(configFilial.pagamentoCartaoSimplificadoAtivo), [configFilial]);
   const [pdfRecibo, setPdfRecibo] = useState<{ blob: Blob; nome: string } | null>(null);
   // Boleto emitido pelo Dar Baixa (15/10/2026): abre o PDF na hora, como na tela de Boletos.
   const [pdfBoleto, setPdfBoleto] = useState<{ blob: Blob; nome: string } | null>(null);
@@ -297,7 +301,9 @@ const ContasReceber: React.FC = () => {
    */
   const registrarChequeParaCompensar = async (
     t: TransacaoData,
-    dadosCheque: ChequeDetails,
+    /** null = pagamento simplificado: cheque sem os dados (16/10/2026). */
+    dadosCheque: ChequeDetails | null,
+    dataCompensacao: string,
     bancoId?: string,
     bancoNome?: string,
   ) => {
@@ -334,8 +340,8 @@ const ContasReceber: React.FC = () => {
       transaction.update(transactionRef, {
         formaPagamentoOriginal: transactionData.formaPagamentoOriginal || transactionData.formaPagamento || null,
         formaPagamento: 'Cheque',
-        cheque: dadosCheque,
-        dataPrevistaRecebimento: dadosCheque.dataCompensacao,
+        ...(dadosCheque ? { cheque: dadosCheque } : {}),
+        dataPrevistaRecebimento: dataCompensacao,
         ...(bancoId ? { bancoId, bancoNome: bancoNome || null } : {}),
         updatedAt: serverTimestamp(),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Baixa registrada em cheque, aguardando compensação'),
@@ -350,6 +356,7 @@ const ContasReceber: React.FC = () => {
           transactionId: t.id,
           paymentIndex: transactionData.paymentIndex,
           cheque: dadosCheque,
+          dataCompensacao,
           bancoId,
           bancoNome,
         });
@@ -417,7 +424,7 @@ const ContasReceber: React.FC = () => {
 
     let bancoId: string | undefined;
     let bancoNome: string | undefined;
-    if (paymentRequiresBankAccount(formaPgto)) {
+    if (paymentRequiresBankAccount(formaPgto) && !isSimplifiedChequePayment(formaPgto, pagamentoSimplificado)) {
       const qBancos = query(
         collection(db, 'bancos'),
         where('tenantId', '==', tenantId),
@@ -448,6 +455,17 @@ const ContasReceber: React.FC = () => {
     // quando confirmado lá é que registra (Pendente, aguardando
     // compensação em Financeiro > Cheques). Ver registrarChequeParaCompensar.
     if (formaPgto === 'Cheque') {
+      if (pagamentoSimplificado) {
+        // Simplificado: sem os dados do cheque; "bom para" = a data informada acima.
+        try {
+          await registrarChequeParaCompensar(t, null, dataRecebimento, bancoId, bancoNome);
+          showSuccess('Cheque registrado! Ele aparece em Financeiro → Cheques até ser compensado (o banco é escolhido ao compensar).');
+        } catch (error) {
+          console.error('Erro ao registrar cheque para baixa:', error);
+          showError('Não foi possível registrar o cheque', error instanceof Error ? error.message : 'Tente de novo em instantes.');
+        }
+        return;
+      }
       setChequeBaixaState({ transacao: t, bancoId, bancoNome });
       return;
     }
@@ -1482,7 +1500,7 @@ const ContasReceber: React.FC = () => {
         onConfirmar={async (dados) => {
           if (!chequeBaixaState) return;
           try {
-            await registrarChequeParaCompensar(chequeBaixaState.transacao, dados, chequeBaixaState.bancoId, chequeBaixaState.bancoNome);
+            await registrarChequeParaCompensar(chequeBaixaState.transacao, dados, dados.dataCompensacao, chequeBaixaState.bancoId, chequeBaixaState.bancoNome);
             showSuccess('Cheque registrado! Ele aparece em Financeiro → Cheques até ser compensado.');
           } catch (error) {
             console.error('Erro ao registrar cheque para baixa:', error);

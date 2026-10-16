@@ -173,6 +173,8 @@ test('receber: crédito de cliente e cheque compensado são bloqueados', () => {
   assert.match(planejarEstornoReceber({ status: 'Paga', naturezaFinanceira: 'credito_cliente' }).bloqueio, /crédito do cliente/);
   assert.match(planejarEstornoReceber({ status: 'Paga', sourcePaymentTransactionId: 't1' }).bloqueio, /crédito do cliente/);
   assert.match(planejarEstornoReceber({ status: 'Paga', formaPagamento: 'Cheque', cheque: { numero: '1' } }).bloqueio, /cheque/);
+  // Cheque do pagamento simplificado (16/10/2026) nao tem os dados, mas tambem nao estorna por aqui.
+  assert.match(planejarEstornoReceber({ status: 'Paga', formaPagamento: 'Cheque', bancoId: 'b1' }).bloqueio, /cheque/);
 });
 
 test('receber: recebido no balcão (sem "Dar Baixa") não mostra botão de estorno', () => {

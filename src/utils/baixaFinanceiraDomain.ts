@@ -271,7 +271,7 @@ export const planejarEstornoReceber = (titulo: TituloParaEstorno): PlanoEstorno 
     );
   }
 
-  if (titulo.cheque) {
+  if (titulo.cheque || forma === 'Cheque') {
     return bloqueado(
       'Este recebimento foi feito em cheque e já foi compensado. '
       + 'Não é possível estornar por aqui.',

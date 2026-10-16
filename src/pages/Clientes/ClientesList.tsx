@@ -14,20 +14,21 @@ import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from 
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
 import EstadoVazio from '../../components/common/EstadoVazio';
-import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
-import FiltroCidadeCliente from '../../components/common/FiltroCidadeCliente';
+import { BotaoFiltros } from '../../components/common/PainelFiltros';
+import FiltrosDeCadastro from '../../components/common/FiltrosDeCadastro';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
-import { FILTRO_LOCAL_VAZIO, SEM_CIDADE, listarLocaisDosClientes, passaNoFiltroLocal, rotuloFiltroLocal, type FiltroLocalCliente } from '../../utils/clientSearch';
+import { FILTRO_LOCAL_VAZIO, listarLocaisDosClientes, passaNoFiltroLocal, type FiltroLocalCliente } from '../../utils/clientSearch';
 import {
   FILTRO_EXTRA_CLIENTES_VAZIO,
-  ROTULO_TIPO_PESSOA,
+  diaDoCadastro,
+  frasesDosFiltrosDeCadastro,
   montarDocumentoClientes,
   passaNosFiltrosExtras,
   quantosFiltrosExtras,
+  situacaoNoRelatorio,
   type FiltroExtraClientes,
 } from '../../utils/relatorioClientesDomain';
-import { getDateInputInTimeZone } from '../../utils/dateTime';
 
 interface ClienteData {
   id: string;
@@ -54,15 +55,6 @@ interface ClienteData {
   createdAt: any;
 }
 
-/** createdAt (Timestamp do Firestore, texto ISO ou nada) -> AAAA-MM-DD; vazio se nao der. */
-const diaDoCadastro = (valor: any): string => {
-  if (valor && typeof valor.toDate === 'function') return getDateInputInTimeZone(valor.toDate());
-  if (typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}/.test(valor)) return valor.slice(0, 10);
-  return '';
-};
-
-const SITUACAO_NO_RELATORIO: Record<Situacao, string> = { ativos: 'Só ativos', inativos: 'Só inativos', todos: '' };
-
 const ClientesList: React.FC = () => {
   const { openTab } = useTabs();
   // Trava de edicao (fase 2, 16/10/2026): em edicao por outra pessoa = cinza e nao abre.
@@ -78,7 +70,6 @@ const ClientesList: React.FC = () => {
   // Filtros e relatorio (16/10/2026): o relatorio sai com o que esta filtrado aqui.
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [filtroLocal, setFiltroLocal] = useState<FiltroLocalCliente>(FILTRO_LOCAL_VAZIO);
-  const [cidadeAberta, setCidadeAberta] = useState(false);
   const [filtroExtra, setFiltroExtra] = useState<FiltroExtraClientes>(FILTRO_EXTRA_CLIENTES_VAZIO);
   const [previewAberto, setPreviewAberto] = useState(false);
   /** Linha destacada por um clique simples. Abrir exige duplo clique (ou
@@ -192,23 +183,10 @@ const ClientesList: React.FC = () => {
   };
   const mudarExtra = (parcial: Partial<FiltroExtraClientes>) => setFiltroExtra((atual) => ({ ...atual, ...parcial }));
 
-  // Mesma regra da Consulta de clientes: cidade de outro estado nao combina com o estado novo.
-  const mudarEstado = (uf: string) => {
-    const novoUf = uf || null;
-    const ufDaCidade = filtroLocal.cidade && filtroLocal.cidade !== SEM_CIDADE ? filtroLocal.cidade.split('|')[1] || null : null;
-    const manterCidade = filtroLocal.cidade && novoUf && ufDaCidade === novoUf;
-    setFiltroLocal({ uf: novoUf, cidade: manterCidade ? filtroLocal.cidade : null });
-  };
-
   if (previewAberto) {
-    // As frases do que esta filtrado, na ordem da tela.
-    const filtrosAplicados = [
-      searchTerm.trim() ? `Busca: "${searchTerm.trim()}"` : '',
-      SITUACAO_NO_RELATORIO[situacao] ? `Situação: ${SITUACAO_NO_RELATORIO[situacao]}` : '',
-      filtroLocal.cidade || filtroLocal.uf ? `Local: ${rotuloFiltroLocal(filtroLocal, locais)}` : '',
-      filtroExtra.tipoPessoa ? `Tipo: ${filtroExtra.tipoPessoa === 'sem' ? 'Sem CPF/CNPJ no cadastro' : ROTULO_TIPO_PESSOA[filtroExtra.tipoPessoa]}` : '',
-      filtroExtra.bairro.trim() ? `Bairro: ${filtroExtra.bairro.trim()}` : '',
-    ].filter(Boolean);
+    const filtrosAplicados = frasesDosFiltrosDeCadastro({
+      busca: searchTerm, situacao: situacaoNoRelatorio(situacao), filtroLocal, locais, filtro: filtroExtra,
+    });
     return (
       <RelatorioPreview
         relatorioId="clientes-cadastro"
@@ -267,53 +245,16 @@ const ClientesList: React.FC = () => {
           </div>
         </div>
 
-        <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
-          <CampoFiltro rotulo="Estado">
-            <select value={filtroLocal.uf ?? ''} onChange={(e) => mudarEstado(e.target.value)} style={estiloCampoFiltro}>
-              <option value="">Todos</option>
-              {locais.ufs.map((u) => <option key={u.uf} value={u.uf}>{u.uf} ({u.total})</option>)}
-            </select>
-          </CampoFiltro>
-          {/* div, nao label: a lista de cidades tem varios botoes dentro. */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text-muted)', minWidth: '220px' }}>
-            Cidade
-            <FiltroCidadeCliente
-              locais={locais}
-              filtro={filtroLocal}
-              onChange={setFiltroLocal}
-              aberto={cidadeAberta}
-              onAbertoChange={setCidadeAberta}
-            />
-          </div>
-          <CampoFiltro rotulo="Tipo">
-            <select
-              value={filtroExtra.tipoPessoa}
-              onChange={(e) => mudarExtra({ tipoPessoa: e.target.value as FiltroExtraClientes['tipoPessoa'] })}
-              style={estiloCampoFiltro}
-            >
-              <option value="">Todos</option>
-              <option value="pf">Pessoa física (CPF)</option>
-              <option value="pj">Pessoa jurídica (CNPJ)</option>
-              <option value="sem">Sem CPF/CNPJ no cadastro</option>
-            </select>
-          </CampoFiltro>
-          <CampoFiltro rotulo="Bairro">
-            <input
-              type="text"
-              value={filtroExtra.bairro}
-              onChange={(e) => mudarExtra({ bairro: e.target.value })}
-              placeholder="Parte do nome do bairro"
-              style={estiloCampoFiltro}
-            />
-          </CampoFiltro>
-          <CampoPeriodo
-            rotulo="Cadastrado"
-            de={filtroExtra.cadastradoDe}
-            ate={filtroExtra.cadastradoAte}
-            onChangeDe={(cadastradoDe) => mudarExtra({ cadastradoDe })}
-            onChangeAte={(cadastradoAte) => mudarExtra({ cadastradoAte })}
-          />
-        </PainelFiltros>
+        <FiltrosDeCadastro
+          aberto={filtrosAbertos}
+          quantidadeAtiva={filtrosAtivos}
+          onLimpar={limparFiltros}
+          locais={locais}
+          filtroLocal={filtroLocal}
+          onFiltroLocal={setFiltroLocal}
+          filtro={filtroExtra}
+          onFiltro={mudarExtra}
+        />
 
         <div className="table-wrapper">
           <table className="data-table">

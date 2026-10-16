@@ -1,4 +1,7 @@
 import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './relatorioPdfDomain';
+import { formatarDocumento } from './documentoValidacao';
+import { getDateInputInTimeZone } from './dateTime';
+import { rotuloFiltroLocal, type FiltroLocalCliente, type LocaisDosClientes } from './clientSearch';
 
 /*
  * RELATORIO DE CLIENTES (pedido do dono, 16/10/2026): "Mais opcoes ›
@@ -67,8 +70,8 @@ export const quantosFiltrosExtras = (f: FiltroExtraClientes): number => (
   (f.tipoPessoa ? 1 : 0) + (f.bairro.trim() ? 1 : 0) + (f.cadastradoDe || f.cadastradoAte ? 1 : 0)
 );
 
-/** Os filtros que a tela de Clientes ganhou (16/10/2026). Cidade/estado usam passaNoFiltroLocal (clientSearch.ts). */
-export const passaNosFiltrosExtras = (cliente: ClienteDoRelatorio, f: FiltroExtraClientes): boolean => {
+/** Filtros de pessoa, bairro e cadastro (Clientes e Fornecedores, 16/10/2026). Cidade/estado usam passaNoFiltroLocal (clientSearch.ts). */
+export const passaNosFiltrosExtras = (cliente: Pick<ClienteDoRelatorio, 'documento' | 'bairro' | 'cadastradoEm'>, f: FiltroExtraClientes): boolean => {
   if (f.tipoPessoa) {
     const tipo = tipoPessoaDoCliente(cliente.documento);
     if (f.tipoPessoa === 'sem' ? tipo !== '' : tipo !== f.tipoPessoa) return false;
@@ -84,9 +87,9 @@ export const passaNosFiltrosExtras = (cliente: ClienteDoRelatorio, f: FiltroExtr
   return true;
 };
 
-const dataBr = (dia: string): string => (dia && /^\d{4}-\d{2}-\d{2}/.test(dia) ? dia.slice(0, 10).split('-').reverse().join('/') : '');
+export const dataBr = (dia: string): string => (dia && /^\d{4}-\d{2}-\d{2}/.test(dia) ? dia.slice(0, 10).split('-').reverse().join('/') : '');
 
-const enderecoCompleto = (c: ClienteDoRelatorio): string => [String(c.endereco || '').trim(), String(c.numero || '').trim()].filter(Boolean).join(', ');
+export const enderecoCompleto = (c: { endereco?: string; numero?: string }): string => [String(c.endereco || '').trim(), String(c.numero || '').trim()].filter(Boolean).join(', ');
 
 const centavos = (reais: unknown): number | null => {
   if (reais === null || reais === undefined || reais === '') return null;
@@ -94,14 +97,50 @@ const centavos = (reais: unknown): number | null => {
   return Number.isFinite(n) ? Math.round(n * 100) : null;
 };
 
-const formatarDocumento = (documento: unknown): string => {
-  const d = digitos(documento);
-  if (d.length === 11) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
-  if (d.length === 14) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
-  return String(documento || '').trim();
+/** createdAt do cadastro (Timestamp do Firestore, texto ISO ou nada) -> AAAA-MM-DD; vazio se nao der. */
+export const diaDoCadastro = (valor: unknown): string => {
+  const comData = valor as { toDate?: () => Date } | null;
+  if (comData && typeof comData.toDate === 'function') return getDateInputInTimeZone(comData.toDate());
+  if (typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}/.test(valor)) return valor.slice(0, 10);
+  return '';
 };
 
-interface CidadeDoResumo {
+/** Situacao da lista (FiltroSituacao) em frase do cabecalho; "todos" nao vira filtro. */
+export const situacaoNoRelatorio = (situacao: string): string => (
+  situacao === 'ativos' ? 'Só ativos' : situacao === 'inativos' ? 'Só inativos' : ''
+);
+
+/** CPF/CNPJ com mascara; outro texto sai como esta. */
+export const documentoNoRelatorio = (documento: unknown): string => formatarDocumento(String(documento ?? '').trim());
+
+/**
+ * Frases do que esta filtrado, para o cabecalho do relatorio (Clientes e
+ * Fornecedores usam os mesmos filtros de local e de pessoa).
+ */
+export const frasesDosFiltrosDeCadastro = (args: {
+  busca: string;
+  /** "Só ativos", "Só inativos" ou vazio (todos). */
+  situacao: string;
+  filtroLocal: FiltroLocalCliente;
+  locais: LocaisDosClientes;
+  filtro: FiltroExtraClientes;
+  /** Frases a mais da tela (ex.: tipo de cadastro do fornecedor), na posicao certa. */
+  extras?: string[];
+}): string[] => [
+  args.busca.trim() ? `Busca: "${args.busca.trim()}"` : '',
+  args.situacao ? `Situação: ${args.situacao}` : '',
+  args.filtroLocal.cidade || args.filtroLocal.uf ? `Local: ${rotuloFiltroLocal(args.filtroLocal, args.locais)}` : '',
+  ...(args.extras || []),
+  args.filtro.tipoPessoa ? `Pessoa: ${args.filtro.tipoPessoa === 'sem' ? 'Sem CPF/CNPJ no cadastro' : ROTULO_TIPO_PESSOA[args.filtro.tipoPessoa]}` : '',
+  args.filtro.bairro.trim() ? `Bairro: ${args.filtro.bairro.trim()}` : '',
+].filter(Boolean);
+
+/** "Cadastrados de 01/01/2026 a 31/03/2026" ou "Todos os cadastros". */
+export const periodoDoCadastro = (de?: string, ate?: string): string => (
+  de || ate ? `Cadastrados de ${dataBr(de || '') || '—'} a ${dataBr(ate || '') || '—'}` : 'Todos os cadastros'
+);
+
+export interface CidadeDoResumo {
   cidade: string;
   uf: string;
   clientes: number;
@@ -109,7 +148,7 @@ interface CidadeDoResumo {
 }
 
 /** Quantos clientes em cada cidade (secao opcional do relatorio). */
-export const resumoPorCidade = (clientes: ClienteDoRelatorio[]): CidadeDoResumo[] => {
+export const resumoPorCidade = (clientes: Array<{ cidade?: string; estado?: string; ativo?: boolean }>): CidadeDoResumo[] => {
   const mapa = new Map<string, CidadeDoResumo>();
   clientes.forEach((c) => {
     const cidade = String(c.cidade || '').trim().replace(/\s+/g, ' ').toUpperCase() || 'SEM CIDADE NO CADASTRO';
@@ -148,7 +187,7 @@ export const montarDocumentoClientes = (
     { id: 'codigo', titulo: 'Código', tipo: 'texto', largura: 14, valor: (c) => c.codigo || '' },
     { id: 'nome', titulo: 'Nome', tipo: 'texto', largura: 58, valor: (c) => c.nome || '' },
     { id: 'fantasia', titulo: 'Nome fantasia', tipo: 'texto', largura: 44, padrao: false, valor: (c) => c.fantasia || '' },
-    { id: 'documento', titulo: 'CPF/CNPJ', tipo: 'texto', largura: 34, valor: (c) => formatarDocumento(c.documento) },
+    { id: 'documento', titulo: 'CPF/CNPJ', tipo: 'texto', largura: 34, valor: (c) => documentoNoRelatorio(c.documento) },
     { id: 'tipo', titulo: 'Tipo', tipo: 'texto', largura: 22, padrao: false, valor: (c) => { const t = tipoPessoaDoCliente(c.documento); return t ? ROTULO_TIPO_PESSOA[t] : ''; } },
     { id: 'identidade', titulo: 'IE / RG', tipo: 'texto', largura: 26, padrao: false, valor: (c) => c.identidade || '' },
     { id: 'telefone', titulo: 'Telefone', tipo: 'texto', largura: 26, valor: (c) => c.telefone || '' },
@@ -176,13 +215,9 @@ export const montarDocumentoClientes = (
     { id: 'ativos', titulo: 'Ativos', tipo: 'inteiro', padrao: false, valor: (c) => c.ativos },
   ];
 
-  const periodo = opcoes.cadastradoDe || opcoes.cadastradoAte
-    ? `Cadastrados de ${dataBr(opcoes.cadastradoDe || '') || '—'} a ${dataBr(opcoes.cadastradoAte || '') || '—'}`
-    : 'Todos os cadastros';
-
   return {
     titulo: 'Relatório de Clientes',
-    periodo,
+    periodo: periodoDoCadastro(opcoes.cadastradoDe, opcoes.cadastradoAte),
     filtros: opcoes.filtrosAplicados,
     indicadores: [
       { rotulo: 'Clientes', valor: String(clientes.length) },

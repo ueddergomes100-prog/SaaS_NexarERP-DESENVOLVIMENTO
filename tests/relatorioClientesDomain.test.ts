@@ -54,7 +54,7 @@ test('resumo por cidade junta a mesma cidade escrita de jeitos diferentes', () =
   assert.equal(resumo[0].cidade, 'UBERABA');
   assert.equal(resumo[0].clientes, 2);
   assert.equal(resumo.find((c) => c.cidade === 'FRANCA')?.ativos, 0);
-  assert.equal(resumoPorCidade([{ id: 'x' }])[0].cidade, 'SEM CIDADE NO CADASTRO');
+  assert.equal(resumoPorCidade([{}])[0].cidade, 'SEM CIDADE NO CADASTRO');
 });
 
 test('o relatorio traz indicadores, colunas e o que esta filtrado', () => {

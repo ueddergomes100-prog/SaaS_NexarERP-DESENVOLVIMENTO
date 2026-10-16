@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Search, Plus, Edit, Power, Trash2, Upload } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Search, Plus, Edit, Power, Trash2, Upload, FileText } from 'lucide-react';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,6 +15,20 @@ import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from 
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import { BotaoFiltros, CampoFiltro, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import FiltrosDeCadastro from '../../components/common/FiltrosDeCadastro';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { FILTRO_LOCAL_VAZIO, listarLocaisDosClientes, passaNoFiltroLocal, type FiltroLocalCliente } from '../../utils/clientSearch';
+import {
+  FILTRO_EXTRA_CLIENTES_VAZIO,
+  diaDoCadastro,
+  frasesDosFiltrosDeCadastro,
+  quantosFiltrosExtras,
+  situacaoNoRelatorio,
+  type FiltroExtraClientes,
+} from '../../utils/relatorioClientesDomain';
+import { TIPOS_DE_FORNECEDOR, montarDocumentoFornecedores, passaNosFiltrosDoFornecedor } from '../../utils/relatorioFornecedoresDomain';
 
 interface FornecedorData {
   id: string;
@@ -26,6 +41,13 @@ interface FornecedorData {
   numero?: string;
   bairro?: string;
   cidade?: string;
+  // Campos que so' o relatorio usa (16/10/2026).
+  tipo?: string;
+  identidade?: string;
+  celular?: string;
+  estado?: string;
+  cep?: string;
+  observacoes?: string;
   ativo?: boolean;
   createdAt: any;
 }
@@ -45,6 +67,12 @@ const FornecedoresList: React.FC = () => {
   const [fornecedores, setFornecedores] = useState<FornecedorData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  // Filtros e relatorio (16/10/2026): o relatorio sai com o que esta filtrado aqui.
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [filtroLocal, setFiltroLocal] = useState<FiltroLocalCliente>(FILTRO_LOCAL_VAZIO);
+  const [tipoCadastro, setTipoCadastro] = useState('');
+  const [filtroExtra, setFiltroExtra] = useState<FiltroExtraClientes>(FILTRO_EXTRA_CLIENTES_VAZIO);
+  const [previewAberto, setPreviewAberto] = useState(false);
 
   const { currentUser, tenantId } = useAuth();
 
@@ -97,6 +125,8 @@ const FornecedoresList: React.FC = () => {
     }
   };
 
+  const locais = useMemo(() => listarLocaisDosClientes(fornecedores), [fornecedores]);
+
   const filteredFornecedores = fornecedores.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter(fornecedor => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
@@ -105,7 +135,39 @@ const FornecedoresList: React.FC = () => {
       (fornecedor.cnpj && fornecedor.cnpj.includes(searchTerm)) ||
       (fornecedor.telefone && fornecedor.telefone.includes(searchTerm))
     );
-  });
+  })
+    .filter((fornecedor) => passaNoFiltroLocal(fornecedor, filtroLocal))
+    .filter((fornecedor) => passaNosFiltrosDoFornecedor({ ...fornecedor, cadastradoEm: diaDoCadastro(fornecedor.createdAt) }, tipoCadastro, filtroExtra));
+
+  const filtrosAtivos = (filtroLocal.uf || filtroLocal.cidade ? 1 : 0) + (tipoCadastro ? 1 : 0) + quantosFiltrosExtras(filtroExtra);
+  const limparFiltros = () => {
+    setFiltroLocal(FILTRO_LOCAL_VAZIO);
+    setTipoCadastro('');
+    setFiltroExtra(FILTRO_EXTRA_CLIENTES_VAZIO);
+  };
+
+  if (previewAberto) {
+    const filtrosAplicados = frasesDosFiltrosDeCadastro({
+      busca: searchTerm,
+      situacao: situacaoNoRelatorio(situacao),
+      filtroLocal,
+      locais,
+      filtro: filtroExtra,
+      extras: tipoCadastro ? [`Tipo: ${tipoCadastro}`] : [],
+    });
+    return (
+      <RelatorioPreview
+        relatorioId="fornecedores-cadastro"
+        documento={montarDocumentoFornecedores(
+          filteredFornecedores.map((f) => ({ ...f, cadastradoEm: diaDoCadastro(f.createdAt) })),
+          { filtrosAplicados, cadastradoDe: filtroExtra.cadastradoDe, cadastradoAte: filtroExtra.cadastradoAte },
+        )}
+        nomeArquivo={nomeArquivoRelatorio('Relatório de Fornecedores', filtroExtra.cadastradoDe, filtroExtra.cadastradoAte)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar aos fornecedores"
+      />
+    );
+  }
 
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -115,14 +177,17 @@ const FornecedoresList: React.FC = () => {
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Cadastro de fornecedores usados na entrada de notas fiscais e compras</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button
-            className="btn-secondary"
-            onClick={() => openTab('/fornecedores/importar', 'Importar Fornecedores')}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <Upload size={18} />
-            Importar fornecedores
-          </button>
+          <MenuMaisOpcoes
+            itens={[
+              {
+                texto: 'Relatório', Icone: FileText,
+                titulo: 'Abre em PDF os fornecedores filtrados na tela (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+                desabilitado: loading,
+                onClick: () => setPreviewAberto(true),
+              },
+              { texto: 'Importar fornecedores', Icone: Upload, onClick: () => openTab('/fornecedores/importar', 'Importar Fornecedores'), separadorAntes: true },
+            ]}
+          />
           <button className="btn-primary" onClick={() => openTab('/fornecedores/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Novo Fornecedor
           </button>
@@ -130,7 +195,7 @@ const FornecedoresList: React.FC = () => {
       </div>
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '16px' }}>
           <div className="search-box" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
             <input
@@ -141,8 +206,29 @@ const FornecedoresList: React.FC = () => {
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
-          <FiltroSituacao valor={situacao} onChange={setSituacao} />
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <FiltroSituacao valor={situacao} onChange={setSituacao} />
+            <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
+          </div>
         </div>
+
+        <FiltrosDeCadastro
+          aberto={filtrosAbertos}
+          quantidadeAtiva={filtrosAtivos}
+          onLimpar={limparFiltros}
+          locais={locais}
+          filtroLocal={filtroLocal}
+          onFiltroLocal={setFiltroLocal}
+          filtro={filtroExtra}
+          onFiltro={(parcial) => setFiltroExtra((atual) => ({ ...atual, ...parcial }))}
+        >
+          <CampoFiltro rotulo="Tipo">
+            <select value={tipoCadastro} onChange={(e) => setTipoCadastro(e.target.value)} style={estiloCampoFiltro}>
+              <option value="">Todos</option>
+              {TIPOS_DE_FORNECEDOR.map((tipo) => <option key={tipo} value={tipo}>{tipo}</option>)}
+            </select>
+          </CampoFiltro>
+        </FiltrosDeCadastro>
 
         <div className="table-wrapper">
           <table className="data-table">
@@ -165,7 +251,10 @@ const FornecedoresList: React.FC = () => {
               ) : filteredFornecedores.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ padding: '8px' }}>
-                    <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhum fornecedor cadastrado."} compacto />
+                    <EstadoVazio
+                      titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : (filtrosAtivos > 0 ? 'Nenhum fornecedor com esses filtros.' : 'Nenhum fornecedor cadastrado.')}
+                      compacto
+                    />
                   </td>
                 </tr>
               ) : (

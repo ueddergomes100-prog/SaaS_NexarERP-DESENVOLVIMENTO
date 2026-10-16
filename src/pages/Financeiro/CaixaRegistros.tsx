@@ -4,7 +4,11 @@ import { db } from '../../services/firebase';
 import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
 import { addDaysToDateInput, getDateInputInTimeZone } from '../../utils/dateTime';
 import { useAuth } from '../../contexts/AuthContext';
-import { Wallet, Clock, History, Calendar, ChevronDown, ChevronUp, Banknote } from 'lucide-react';
+import { Wallet, Clock, History, Calendar, ChevronDown, ChevronUp, Banknote, FileText } from 'lucide-react';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { montarDocumentoCaixaPdv } from '../../utils/relatorioCaixaPdvDomain';
 import { fromCents } from '../../utils/financeDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import './Financeiro.css';
@@ -66,6 +70,8 @@ const CaixaRegistros: React.FC = () => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [vendasPorSessao, setVendasPorSessao] = useState<Record<string, VendaVinculada[]>>({});
   const [loadingVendas, setLoadingVendas] = useState<string | null>(null);
+  // Relatorio (16/10/2026): caixas abertos + historico do periodo escolhido.
+  const [previewAberto, setPreviewAberto] = useState(false);
 
   // Caixas abertos de qualquer data + os fechados nos ultimos N dias do
   // filtro (0 = todos), direto no banco (otimizacao de leituras, 2026-10-14)
@@ -96,6 +102,35 @@ const CaixaRegistros: React.FC = () => {
       return data ? data >= limite : true;
     });
   }, [sessoes, diasFiltro]);
+
+  if (previewAberto) {
+    const rotuloPeriodo = diasFiltro > 0 ? `Fechadas nos últimos ${diasFiltro} dias + caixas abertos` : 'Todo o período + caixas abertos';
+    const hoje = getDateInputInTimeZone();
+    return (
+      <RelatorioPreview
+        relatorioId="caixa-sessoes-pdv"
+        documento={montarDocumentoCaixaPdv(
+          [...caixasAbertos, ...historico].map((s) => ({
+            id: s.id,
+            operadorNome: s.operadorNome || '',
+            status: s.status,
+            abertoEm: toDate(s.createdAt),
+            fechadoEm: toDate(s.fechadoEm),
+            saldoInicialCentavos: Number(s.saldoInicialCentavos || 0),
+            totalSangriasCentavos: Number(s.totalSangriasCentavos || 0),
+            saldoEsperadoCentavos: s.saldoEsperadoCentavos ?? null,
+            saldoFinalInformadoCentavos: s.saldoFinalInformadoCentavos ?? null,
+            diferencaCentavos: s.diferencaCentavos ?? null,
+            sangrias: Array.isArray(s.sangrias) ? s.sangrias : [],
+          })),
+          { periodo: rotuloPeriodo, filtrosAplicados: [] },
+        )}
+        nomeArquivo={nomeArquivoRelatorio('Caixa Sessões PDV', diasFiltro > 0 ? addDaysToDateInput(hoje, -diasFiltro) : '', hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar ao caixa"
+      />
+    );
+  }
 
   const toggleExpand = async (sessao: CaixaSessaoData) => {
     if (expandedId === sessao.id) {
@@ -204,6 +239,14 @@ const CaixaRegistros: React.FC = () => {
             Abertura, sangria e fechamento de todos os caixas da Frente de Caixa
           </p>
         </div>
+        <MenuMaisOpcoes
+          itens={[{
+            texto: 'Relatório', Icone: FileText,
+            titulo: 'Abre em PDF os caixas abertos e as sessões fechadas no período escolhido (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+            desabilitado: loading,
+            onClick: () => setPreviewAberto(true),
+          }]}
+        />
       </div>
 
       <div className="card" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', padding: '24px', marginBottom: '24px' }}>

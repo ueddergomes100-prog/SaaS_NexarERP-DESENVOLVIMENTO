@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Search, Plus, Edit, Power, Trash2, Upload, CaseUpper } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Search, Plus, Edit, Power, Trash2, Upload, CaseUpper, FileText } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -14,6 +14,20 @@ import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from 
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import FiltroCidadeCliente from '../../components/common/FiltroCidadeCliente';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { FILTRO_LOCAL_VAZIO, SEM_CIDADE, listarLocaisDosClientes, passaNoFiltroLocal, rotuloFiltroLocal, type FiltroLocalCliente } from '../../utils/clientSearch';
+import {
+  FILTRO_EXTRA_CLIENTES_VAZIO,
+  ROTULO_TIPO_PESSOA,
+  montarDocumentoClientes,
+  passaNosFiltrosExtras,
+  quantosFiltrosExtras,
+  type FiltroExtraClientes,
+} from '../../utils/relatorioClientesDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 
 interface ClienteData {
   id: string;
@@ -26,10 +40,28 @@ interface ClienteData {
   numero?: string;
   bairro?: string;
   cidade?: string;
+  // Campos que so' o relatorio usa (16/10/2026).
+  fantasia?: string;
+  celular?: string;
+  identidade?: string;
+  estado?: string;
+  cep?: string;
+  referencia?: string;
+  limiteDeCredito?: number | null;
+  descontoPadraoPercentual?: number | string | null;
   isPadrao?: boolean;
   ativo?: boolean;
   createdAt: any;
 }
+
+/** createdAt (Timestamp do Firestore, texto ISO ou nada) -> AAAA-MM-DD; vazio se nao der. */
+const diaDoCadastro = (valor: any): string => {
+  if (valor && typeof valor.toDate === 'function') return getDateInputInTimeZone(valor.toDate());
+  if (typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}/.test(valor)) return valor.slice(0, 10);
+  return '';
+};
+
+const SITUACAO_NO_RELATORIO: Record<Situacao, string> = { ativos: 'Só ativos', inativos: 'Só inativos', todos: '' };
 
 const ClientesList: React.FC = () => {
   const { openTab } = useTabs();
@@ -43,6 +75,12 @@ const ClientesList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
+  // Filtros e relatorio (16/10/2026): o relatorio sai com o que esta filtrado aqui.
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [filtroLocal, setFiltroLocal] = useState<FiltroLocalCliente>(FILTRO_LOCAL_VAZIO);
+  const [cidadeAberta, setCidadeAberta] = useState(false);
+  const [filtroExtra, setFiltroExtra] = useState<FiltroExtraClientes>(FILTRO_EXTRA_CLIENTES_VAZIO);
+  const [previewAberto, setPreviewAberto] = useState(false);
   /** Linha destacada por um clique simples. Abrir exige duplo clique (ou
    * Enter), pra um clique de leitura nao abrir uma aba sem querer. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -132,6 +170,8 @@ const ClientesList: React.FC = () => {
     }
   };
 
+  const locais = useMemo(() => listarLocaisDosClientes(clientes), [clientes]);
+
   const filteredClientes = clientes.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter(cliente => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
@@ -141,7 +181,47 @@ const ClientesList: React.FC = () => {
       (cliente.documento && cliente.documento.includes(searchTerm)) ||
       (cliente.telefone && cliente.telefone.includes(searchTerm))
     );
-  });
+  })
+    .filter((cliente) => passaNoFiltroLocal(cliente, filtroLocal))
+    .filter((cliente) => passaNosFiltrosExtras({ ...cliente, cadastradoEm: diaDoCadastro(cliente.createdAt) }, filtroExtra));
+
+  const filtrosAtivos = (filtroLocal.uf || filtroLocal.cidade ? 1 : 0) + quantosFiltrosExtras(filtroExtra);
+  const limparFiltros = () => {
+    setFiltroLocal(FILTRO_LOCAL_VAZIO);
+    setFiltroExtra(FILTRO_EXTRA_CLIENTES_VAZIO);
+  };
+  const mudarExtra = (parcial: Partial<FiltroExtraClientes>) => setFiltroExtra((atual) => ({ ...atual, ...parcial }));
+
+  // Mesma regra da Consulta de clientes: cidade de outro estado nao combina com o estado novo.
+  const mudarEstado = (uf: string) => {
+    const novoUf = uf || null;
+    const ufDaCidade = filtroLocal.cidade && filtroLocal.cidade !== SEM_CIDADE ? filtroLocal.cidade.split('|')[1] || null : null;
+    const manterCidade = filtroLocal.cidade && novoUf && ufDaCidade === novoUf;
+    setFiltroLocal({ uf: novoUf, cidade: manterCidade ? filtroLocal.cidade : null });
+  };
+
+  if (previewAberto) {
+    // As frases do que esta filtrado, na ordem da tela.
+    const filtrosAplicados = [
+      searchTerm.trim() ? `Busca: "${searchTerm.trim()}"` : '',
+      SITUACAO_NO_RELATORIO[situacao] ? `Situação: ${SITUACAO_NO_RELATORIO[situacao]}` : '',
+      filtroLocal.cidade || filtroLocal.uf ? `Local: ${rotuloFiltroLocal(filtroLocal, locais)}` : '',
+      filtroExtra.tipoPessoa ? `Tipo: ${filtroExtra.tipoPessoa === 'sem' ? 'Sem CPF/CNPJ no cadastro' : ROTULO_TIPO_PESSOA[filtroExtra.tipoPessoa]}` : '',
+      filtroExtra.bairro.trim() ? `Bairro: ${filtroExtra.bairro.trim()}` : '',
+    ].filter(Boolean);
+    return (
+      <RelatorioPreview
+        relatorioId="clientes-cadastro"
+        documento={montarDocumentoClientes(
+          filteredClientes.map((c) => ({ ...c, cadastradoEm: diaDoCadastro(c.createdAt) })),
+          { filtrosAplicados, cadastradoDe: filtroExtra.cadastradoDe, cadastradoAte: filtroExtra.cadastradoAte },
+        )}
+        nomeArquivo={nomeArquivoRelatorio('Relatório de Clientes', filtroExtra.cadastradoDe, filtroExtra.cadastradoAte)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar aos clientes"
+      />
+    );
+  }
 
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -153,7 +233,13 @@ const ClientesList: React.FC = () => {
         <div style={{ display: 'flex', gap: '12px' }}>
           <MenuMaisOpcoes
             itens={[
-              { texto: 'Importar clientes', Icone: Upload, onClick: () => openTab('/clientes/importar', 'Importar Clientes') },
+              {
+                texto: 'Relatório', Icone: FileText,
+                titulo: 'Abre em PDF os clientes filtrados na tela (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+                desabilitado: loading,
+                onClick: () => setPreviewAberto(true),
+              },
+              { texto: 'Importar clientes', Icone: Upload, onClick: () => openTab('/clientes/importar', 'Importar Clientes'), separadorAntes: true },
               { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, onClick: handleFixNames, separadorAntes: true },
             ]}
           />
@@ -164,7 +250,7 @@ const ClientesList: React.FC = () => {
       </div>
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '16px' }}>
           <div className="search-box" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
             <input 
@@ -175,8 +261,59 @@ const ClientesList: React.FC = () => {
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
-          <FiltroSituacao valor={situacao} onChange={setSituacao} />
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <FiltroSituacao valor={situacao} onChange={setSituacao} />
+            <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
+          </div>
         </div>
+
+        <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
+          <CampoFiltro rotulo="Estado">
+            <select value={filtroLocal.uf ?? ''} onChange={(e) => mudarEstado(e.target.value)} style={estiloCampoFiltro}>
+              <option value="">Todos</option>
+              {locais.ufs.map((u) => <option key={u.uf} value={u.uf}>{u.uf} ({u.total})</option>)}
+            </select>
+          </CampoFiltro>
+          {/* div, nao label: a lista de cidades tem varios botoes dentro. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text-muted)', minWidth: '220px' }}>
+            Cidade
+            <FiltroCidadeCliente
+              locais={locais}
+              filtro={filtroLocal}
+              onChange={setFiltroLocal}
+              aberto={cidadeAberta}
+              onAbertoChange={setCidadeAberta}
+            />
+          </div>
+          <CampoFiltro rotulo="Tipo">
+            <select
+              value={filtroExtra.tipoPessoa}
+              onChange={(e) => mudarExtra({ tipoPessoa: e.target.value as FiltroExtraClientes['tipoPessoa'] })}
+              style={estiloCampoFiltro}
+            >
+              <option value="">Todos</option>
+              <option value="pf">Pessoa física (CPF)</option>
+              <option value="pj">Pessoa jurídica (CNPJ)</option>
+              <option value="sem">Sem CPF/CNPJ no cadastro</option>
+            </select>
+          </CampoFiltro>
+          <CampoFiltro rotulo="Bairro">
+            <input
+              type="text"
+              value={filtroExtra.bairro}
+              onChange={(e) => mudarExtra({ bairro: e.target.value })}
+              placeholder="Parte do nome do bairro"
+              style={estiloCampoFiltro}
+            />
+          </CampoFiltro>
+          <CampoPeriodo
+            rotulo="Cadastrado"
+            de={filtroExtra.cadastradoDe}
+            ate={filtroExtra.cadastradoAte}
+            onChangeDe={(cadastradoDe) => mudarExtra({ cadastradoDe })}
+            onChangeAte={(cadastradoAte) => mudarExtra({ cadastradoAte })}
+          />
+        </PainelFiltros>
 
         <div className="table-wrapper">
           <table className="data-table">
@@ -199,7 +336,10 @@ const ClientesList: React.FC = () => {
               ) : filteredClientes.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ padding: '8px' }}>
-                    <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhum cliente cadastrado."} compacto />
+                    <EstadoVazio
+                      titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : (filtrosAtivos > 0 ? 'Nenhum cliente com esses filtros.' : 'Nenhum cliente cadastrado.')}
+                      compacto
+                    />
                   </td>
                 </tr>
               ) : (
